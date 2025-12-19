@@ -11,7 +11,7 @@ fn myLayoutFunc(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
         None => return StyledDom::default(),
     };
 
-    let mut label = Dom::text(counter);
+    let mut label = Dom::create_text(counter);
     label.set_inline_style("font-size: 50px");
 
     let mut button = Button::new("Update counter");

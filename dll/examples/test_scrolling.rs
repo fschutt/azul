@@ -39,7 +39,7 @@ extern "C" fn layout_xhtml(_data: RefAny, _info: LayoutCallbackInfo) -> StyledDo
                         "font-size: 24px; color: #000000; margin-bottom: 20px; width: 400px; \
                          height: 30px;",
                     )
-                    .with_children(vec![Dom::text("Azul Display List Test")].into()),
+                    .with_children(vec![Dom::create_text("Azul Display List Test")].into()),
                 // Red rectangle
                 Dom::create_div().with_inline_style(
                     "width: 200px; height: 100px; background: #FF0000; margin: 10px;",
@@ -50,7 +50,7 @@ extern "C" fn layout_xhtml(_data: RefAny, _info: LayoutCallbackInfo) -> StyledDo
                         "font-size: 16px; color: #000000; width: 600px; height: 25px;",
                     )
                     .with_children(
-                        vec![Dom::text("This is some sample text to test font rendering")].into(),
+                        vec![Dom::create_text("This is some sample text to test font rendering")].into(),
                     ),
             ]
             .into(),

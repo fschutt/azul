@@ -16,15 +16,15 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     char buffer[20];
     int written = snprintf(buffer, 20, "%d", d->counter);
     
-    Dom label = Dom::text(String(buffer, written))
+    Dom label = Dom::create_text(String(buffer, written))
         .with_inline_style("font-size: 50px;");
     
-    Dom button = Dom::div()
+    Dom button = Dom::create_div()
         .with_inline_style("flex-grow: 1;")
-        .with_child(Dom::text("Increase counter"))
+        .with_child(Dom::create_text("Increase counter"))
         .with_callback(On::MouseUp, data.clone(), on_click);
     
-    Dom body = Dom::body()
+    Dom body = Dom::create_body()
         .with_child(label)
         .with_child(button);
     

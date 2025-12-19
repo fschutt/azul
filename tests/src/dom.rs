@@ -216,7 +216,7 @@ fn test_dom_from_iter_1() {
 
     let dom = Dom::create_body().with_children(
         (0..5)
-            .map(|e| Dom::text(format!("{}", e + 1)))
+            .map(|e| Dom::create_text(format!("{}", e + 1)))
             .collect::<Vec<_>>()
             .into(),
     );

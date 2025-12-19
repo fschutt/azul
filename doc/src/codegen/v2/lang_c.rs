@@ -756,6 +756,19 @@ impl CGenerator {
             "f32" => "float".to_string(),
             "f64" => "double".to_string(),
             "c_void" | "()" => "void".to_string(),
+            // C FFI types
+            "c_char" => "char".to_string(),
+            "c_uchar" => "unsigned char".to_string(),
+            "c_short" => "short".to_string(),
+            "c_ushort" => "unsigned short".to_string(),
+            "c_int" => "int".to_string(),
+            "c_uint" => "unsigned int".to_string(),
+            "c_long" => "long".to_string(),
+            "c_ulong" => "unsigned long".to_string(),
+            "c_longlong" => "long long".to_string(),
+            "c_ulonglong" => "unsigned long long".to_string(),
+            "c_float" => "float".to_string(),
+            "c_double" => "double".to_string(),
             _ => trimmed.to_string(),
         }
     }
@@ -784,6 +797,13 @@ impl CGenerator {
             "int8_t", "int16_t", "int32_t", "int64_t",
             "size_t", "ssize_t", "float", "double", "void",
             "c_void",  // Also check original Rust name
+            // C FFI types
+            "char", "unsigned char", "short", "unsigned short",
+            "int", "unsigned int", "long", "unsigned long",
+            "long long", "unsigned long long",
+            "c_char", "c_uchar", "c_short", "c_ushort",
+            "c_int", "c_uint", "c_long", "c_ulong",
+            "c_longlong", "c_ulonglong", "c_float", "c_double",
         ];
         
         if primitives.contains(&c_type.as_str()) || primitives.contains(&trimmed) {

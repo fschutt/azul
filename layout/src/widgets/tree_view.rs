@@ -1505,7 +1505,7 @@ impl TreeView {
                                     )
                                 })
                                 .with_tab_index(TabIndex::Auto)
-                                .with_children(DomVec::from_vec(vec![Dom::text(
+                                .with_children(DomVec::from_vec(vec![Dom::create_text(
                                     AzString::from_const_str("Hello"),
                                 )]))])),
                     ])),
@@ -1600,7 +1600,7 @@ impl TreeView {
                                     )
                                 })
                                 .with_tab_index(TabIndex::Auto)
-                                .with_children(DomVec::from_vec(vec![Dom::text(
+                                .with_children(DomVec::from_vec(vec![Dom::create_text(
                                     AzString::from_const_str("Hello"),
                                 )]))])),
                     ])),
@@ -1715,7 +1715,7 @@ impl TreeView {
                                     )
                                 })
                                 .with_tab_index(TabIndex::Auto)
-                                .with_children(DomVec::from_vec(vec![Dom::text(
+                                .with_children(DomVec::from_vec(vec![Dom::create_text(
                                     AzString::from_const_str("Hello"),
                                 )]))])),
                     ])),
@@ -1828,7 +1828,7 @@ impl TreeView {
                                     )
                                 })
                                 .with_tab_index(TabIndex::Auto)
-                                .with_children(DomVec::from_vec(vec![Dom::text(
+                                .with_children(DomVec::from_vec(vec![Dom::create_text(
                                     AzString::from_const_str("Hello"),
                                 )]))])),
                     ])),
@@ -1928,7 +1928,7 @@ impl TreeView {
                                     )
                                 })
                                 .with_tab_index(TabIndex::Auto)
-                                .with_children(DomVec::from_vec(vec![Dom::text(
+                                .with_children(DomVec::from_vec(vec![Dom::create_text(
                                     AzString::from_const_str("Hello"),
                                 )]))])),
                     ])),

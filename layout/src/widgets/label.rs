@@ -122,7 +122,7 @@ impl Label {
         static LABEL_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-label"))];
 
-        Dom::text(self.string)
+        Dom::create_text(self.string)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
             .with_inline_css_props(self.label_style)
     }

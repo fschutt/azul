@@ -8,14 +8,24 @@ use core::ffi::c_void;
 use azul_core::{
     callbacks::Update,
     dom::OptionDomNodeId,
-    geom::LogicalSize,
-    refany::RefAny,
+    geom::{LogicalPosition, LogicalSize, OptionLogicalPosition},
+    menu::Menu,
+    refany::{OptionRefAny, RefAny},
+    resources::ImageRef,
     task::{
         Duration, GetSystemTimeCallback, Instant, OptionDuration, OptionInstant, TerminateTimer,
+        ThreadId, TimerId,
     },
+    window::{KeyboardState, MouseState, WindowFlags},
 };
 
-use crate::callbacks::CallbackInfo;
+use azul_css::AzString;
+
+use crate::{
+    callbacks::CallbackInfo,
+    thread::Thread,
+    window_state::{FullWindowState, WindowCreateOptions},
+};
 
 /// Callback type for timers
 pub type TimerCallbackType =
@@ -227,6 +237,7 @@ impl Default for Timer {
 ///     TimerCallbackReturn::continue_unchanged()
 /// }
 /// ```
+#[derive(Clone)]
 #[repr(C)]
 pub struct TimerCallbackInfo {
     pub callback_info: CallbackInfo,
@@ -274,21 +285,185 @@ impl TimerCallbackInfo {
     pub fn get_callback_info_mut(&mut self) -> &mut CallbackInfo {
         &mut self.callback_info
     }
-}
 
-// Implement Deref so all CallbackInfo methods are available
-impl core::ops::Deref for TimerCallbackInfo {
-    type Target = CallbackInfo;
+    // ==================== Delegated CallbackInfo methods ====================
+    // These methods delegate to the inner callback_info to provide the same API
+    // as CallbackInfo without using Deref (which causes issues with FFI codegen)
 
-    fn deref(&self) -> &Self::Target {
-        &self.callback_info
+    /// Get the callable for FFI language bindings (Python, etc.)
+    pub fn get_ctx(&self) -> OptionRefAny {
+        self.callback_info.get_ctx()
     }
-}
 
-// Implement DerefMut so mutable CallbackInfo methods are available
-impl core::ops::DerefMut for TimerCallbackInfo {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.callback_info
+    /// Add a timer to this window (applied after callback returns)
+    pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer) {
+        self.callback_info.add_timer(timer_id, timer);
+    }
+
+    /// Remove a timer from this window (applied after callback returns)
+    pub fn remove_timer(&mut self, timer_id: TimerId) {
+        self.callback_info.remove_timer(timer_id);
+    }
+
+    /// Add a thread to this window (applied after callback returns)
+    pub fn add_thread(&mut self, thread_id: ThreadId, thread: Thread) {
+        self.callback_info.add_thread(thread_id, thread);
+    }
+
+    /// Remove a thread from this window (applied after callback returns)
+    pub fn remove_thread(&mut self, thread_id: ThreadId) {
+        self.callback_info.remove_thread(thread_id);
+    }
+
+    /// Stop event propagation (applied after callback returns)
+    pub fn stop_propagation(&mut self) {
+        self.callback_info.stop_propagation();
+    }
+
+    /// Create a new window (applied after callback returns)
+    pub fn create_window(&mut self, options: WindowCreateOptions) {
+        self.callback_info.create_window(options);
+    }
+
+    /// Close the current window (applied after callback returns)
+    pub fn close_window(&mut self) {
+        self.callback_info.close_window();
+    }
+
+    /// Modify the window state (applied after callback returns)
+    pub fn modify_window_state(&mut self, state: FullWindowState) {
+        self.callback_info.modify_window_state(state);
+    }
+
+    /// Add an image to the image cache (applied after callback returns)
+    pub fn add_image_to_cache(&mut self, id: AzString, image: ImageRef) {
+        self.callback_info.add_image_to_cache(id, image);
+    }
+
+    /// Remove an image from the image cache (applied after callback returns)
+    pub fn remove_image_from_cache(&mut self, id: AzString) {
+        self.callback_info.remove_image_from_cache(id);
+    }
+
+    /// Reload system fonts (applied after callback returns)
+    pub fn reload_system_fonts(&mut self) {
+        self.callback_info.reload_system_fonts();
+    }
+
+    /// Prevent the default action
+    pub fn prevent_default(&mut self) {
+        self.callback_info.prevent_default();
+    }
+
+    /// Open a menu
+    pub fn open_menu(&mut self, menu: Menu) {
+        self.callback_info.open_menu(menu);
+    }
+
+    /// Open a menu at a specific position
+    pub fn open_menu_at(&mut self, menu: Menu, position: LogicalPosition) {
+        self.callback_info.open_menu_at(menu, position);
+    }
+
+    /// Show a tooltip at the current cursor position
+    pub fn show_tooltip(&mut self, text: AzString) {
+        self.callback_info.show_tooltip(text);
+    }
+
+    /// Show a tooltip at a specific position
+    pub fn show_tooltip_at(&mut self, text: AzString, position: LogicalPosition) {
+        self.callback_info.show_tooltip_at(text, position);
+    }
+
+    /// Hide the currently displayed tooltip
+    pub fn hide_tooltip(&mut self) {
+        self.callback_info.hide_tooltip();
+    }
+
+    /// Open a menu positioned relative to the currently hit node
+    pub fn open_menu_for_hit_node(&mut self, menu: Menu) -> bool {
+        self.callback_info.open_menu_for_hit_node(menu)
+    }
+
+    /// Get current window flags
+    pub fn get_current_window_flags(&self) -> WindowFlags {
+        self.callback_info.get_current_window_flags()
+    }
+
+    /// Get current keyboard state
+    pub fn get_current_keyboard_state(&self) -> KeyboardState {
+        self.callback_info.get_current_keyboard_state()
+    }
+
+    /// Get current mouse state
+    pub fn get_current_mouse_state(&self) -> MouseState {
+        self.callback_info.get_current_mouse_state()
+    }
+
+    /// Get the cursor position relative to the hit node
+    pub fn get_cursor_relative_to_node(&self) -> OptionLogicalPosition {
+        self.callback_info.get_cursor_relative_to_node()
+    }
+
+    /// Get the cursor position relative to the viewport
+    pub fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition {
+        self.callback_info.get_cursor_relative_to_viewport()
+    }
+
+    /// Get the current cursor position
+    pub fn get_cursor_position(&self) -> Option<LogicalPosition> {
+        self.callback_info.get_cursor_position()
+    }
+
+    /// Get the current time (when the timer callback started)
+    pub fn get_current_time(&self) -> Instant {
+        self.frame_start.clone()
+    }
+
+    /// Check if the DOM is focused
+    pub fn is_dom_focused(&self) -> bool {
+        // TimerCallbackInfo doesn't have direct focus info
+        true // Timers run regardless of focus
+    }
+
+    /// Check if pen is in contact
+    pub fn is_pen_in_contact(&self) -> bool {
+        false // Not available in timer context
+    }
+
+    /// Check if pen eraser is active
+    pub fn is_pen_eraser(&self) -> bool {
+        false // Not available in timer context
+    }
+
+    /// Check if pen barrel button is pressed
+    pub fn is_pen_barrel_button_pressed(&self) -> bool {
+        false // Not available in timer context
+    }
+
+    /// Check if dragging is active
+    pub fn is_dragging(&self) -> bool {
+        self.callback_info.get_current_mouse_state().left_down
+    }
+
+    /// Check if drag is active
+    pub fn is_drag_active(&self) -> bool {
+        self.callback_info.get_current_mouse_state().left_down
+    }
+
+    /// Check if node drag is active
+    pub fn is_node_drag_active(&self) -> bool {
+        self.callback_info.get_current_mouse_state().left_down
+    }
+
+    /// Check if file drag is active
+    pub fn is_file_drag_active(&self) -> bool {
+        false // Timers don't track file drags
+    }
+
+    /// Check if there's sufficient history for gestures
+    pub fn has_sufficient_history_for_gestures(&self) -> bool {
+        false // Timers don't track gesture history
     }
 }
 

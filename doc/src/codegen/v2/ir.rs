@@ -426,18 +426,29 @@ pub enum FunctionKind {
 }
 
 impl FunctionKind {
-    /// Check if this is a trait-generated function
+    /// Check if this is a trait-generated function that should be skipped in method generation
+    /// (delete, partialEq, etc.)
+    /// Note: Default is NOT skipped - it's generated as a static constructor
+    /// Note: DeepCopy is NOT skipped - it's generated as clone() method
     pub fn is_trait_function(&self) -> bool {
         matches!(
             self,
             FunctionKind::Delete
-                | FunctionKind::DeepCopy
                 | FunctionKind::PartialEq
                 | FunctionKind::PartialCmp
                 | FunctionKind::Cmp
                 | FunctionKind::Hash
-                | FunctionKind::Default
         )
+    }
+    
+    /// Check if this is a Default constructor (should be generated as static method)
+    pub fn is_default_constructor(&self) -> bool {
+        matches!(self, FunctionKind::Default)
+    }
+    
+    /// Check if this is a DeepCopy method (should be generated as clone())
+    pub fn is_clone_method(&self) -> bool {
+        matches!(self, FunctionKind::DeepCopy)
     }
 
     /// Get the trait name for this function kind

@@ -361,12 +361,12 @@ fn test_sibling_margin_collapsing() {
         .with_child(
             Dom::create_node(NodeType::H1)
                 .with_inline_style("margin-bottom: 10px;") // Using px for simplicity
-                .with_child(Dom::text("Heading")),
+                .with_child(Dom::create_text("Heading")),
         )
         .with_child(
             Dom::create_node(NodeType::P)
                 .with_inline_style("margin-top: 20px;")
-                .with_child(Dom::text("Paragraph")),
+                .with_child(Dom::create_text("Paragraph")),
         );
 
     let layout = layout_dom(&mut dom);
@@ -422,7 +422,7 @@ fn test_parent_child_margin_collapsing() {
         .with_child(
             Dom::create_node(NodeType::H1)
                 .with_inline_style("margin-top: 30px;") // Larger than body's 20px
-                .with_child(Dom::text("Heading")),
+                .with_child(Dom::create_text("Heading")),
         );
 
     let layout = layout_dom(&mut dom);
@@ -478,8 +478,8 @@ fn test_ua_css_margin_collapsing() {
     // Create structure with NO explicit margins - rely on UA CSS
     let mut dom = Dom::create_body()
         .with_inline_style("width: 800px;")
-        .with_child(Dom::create_node(NodeType::H1).with_child(Dom::text("Heading")))
-        .with_child(Dom::create_node(NodeType::P).with_child(Dom::text("Paragraph")));
+        .with_child(Dom::create_node(NodeType::H1).with_child(Dom::create_text("Heading")))
+        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Paragraph")));
 
     let layout = layout_dom(&mut dom);
 
@@ -531,17 +531,17 @@ fn test_three_consecutive_blocks() {
         .with_child(
             Dom::create_node(NodeType::P)
                 .with_inline_style("margin-bottom: 15px;")
-                .with_child(Dom::text("First")),
+                .with_child(Dom::create_text("First")),
         )
         .with_child(
             Dom::create_node(NodeType::P)
                 .with_inline_style("margin-top: 10px; margin-bottom: 25px;")
-                .with_child(Dom::text("Second")),
+                .with_child(Dom::create_text("Second")),
         )
         .with_child(
             Dom::create_node(NodeType::P)
                 .with_inline_style("margin-top: 20px;")
-                .with_child(Dom::text("Third")),
+                .with_child(Dom::create_text("Third")),
         );
 
     let layout = layout_dom(&mut dom);
@@ -598,7 +598,7 @@ fn test_margin_collapsing_with_border() {
         .with_child(
             Dom::create_node(NodeType::H1)
                 .with_inline_style("margin-top: 30px;")
-                .with_child(Dom::text("Heading")),
+                .with_child(Dom::create_text("Heading")),
         );
 
     let layout = layout_dom(&mut dom);

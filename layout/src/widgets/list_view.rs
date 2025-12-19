@@ -1639,7 +1639,7 @@ impl ListView {
                                     .with_inline_css_props(CSS_MATCH_12498280255863106397)
                                     .with_ids_and_classes(COLUMN_NAME_CLASS)
                                     .with_child({
-                                        Dom::text(col.clone())
+                                        Dom::create_text(col.clone())
                                             .with_inline_css_props(CSS_MATCH_15673486787900743642)
                                     })
                             })

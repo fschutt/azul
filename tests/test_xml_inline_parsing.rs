@@ -23,11 +23,11 @@ fn test_manual_dom_structure() {
     // First, verify that manually creating the DOM structure works correctly
     
     let dom = Dom::p().with_children(vec![
-        Dom::text("Before "),
+        Dom::create_text("Before "),
         Dom::create_node(NodeType::Span).with_children(vec![
-            Dom::text("inline")
+            Dom::create_text("inline")
         ].into()),
-        Dom::text(" after")
+        Dom::create_text(" after")
     ].into());
     
     // Verify structure

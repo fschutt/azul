@@ -60,9 +60,9 @@ const std::string ZERO_STYLE = "background:#d1d1d6;color:#1d1d1f;font-size:24px;
 
 Dom make_button(RefAny& calc, const std::string& label, EventType evt, char digit, Operation op, const std::string& style) {
     ButtonData bd{calc.clone(), evt, digit, op};
-    return Dom::div()
+    return Dom::create_div()
         .with_inline_style(style)
-        .with_child(Dom::text(label))
+        .with_child(Dom::create_text(label))
         .with_callback(On::MouseUp, RefAny::new(bd), on_click);
 }
 
@@ -70,8 +70,8 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     auto c = Calculator::downcast_ref(data);
     if (!c) return StyledDom::default();
     
-    Dom display = Dom::div().with_inline_style(DISPLAY_STYLE).with_child(Dom::text(c->display));
-    Dom buttons = Dom::div().with_inline_style(BUTTONS_STYLE);
+    Dom display = Dom::create_div().with_inline_style(DISPLAY_STYLE).with_child(Dom::create_text(c->display));
+    Dom buttons = Dom::create_div().with_inline_style(BUTTONS_STYLE);
     
     // Row 1-5
     buttons = buttons
@@ -95,7 +95,7 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
         .with_child(make_button(data, ".", EventType::Digit, '.', Operation::None, BTN_STYLE))
         .with_child(make_button(data, "=", EventType::Equals, 0, Operation::None, OP_STYLE));
     
-    Dom body = Dom::div().with_inline_style(CALC_STYLE).with_child(display).with_child(buttons);
+    Dom body = Dom::create_div().with_inline_style(CALC_STYLE).with_child(display).with_child(buttons);
     return body.style(Css::empty());
 }
 

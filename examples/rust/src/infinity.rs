@@ -14,10 +14,10 @@ fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
         None => return StyledDom::default(),
     };
     
-    let title = Dom::text(format!("Pictures - {} images", d.file_paths.len()))
+    let title = Dom::create_text(format!("Pictures - {} images", d.file_paths.len()))
         .with_inline_style("font-size: 20px; margin-bottom: 10px;");
     
-    let iframe = Dom::iframe(data.clone(), render_iframe)
+    let iframe = Dom::create_iframe(data.clone(), render_iframe)
         .with_inline_style("flex-grow: 1; overflow: scroll; background: #f5f5f5;")
         .with_callback(On::Scroll.into_event_filter(), data.clone(), on_scroll);
     
@@ -54,7 +54,7 @@ fn render_iframe(mut data: RefAny, info: IFrameCallbackInfo) -> IFrameCallbackRe
                 justify-content: center;
             ")
             .with_child(
-                Dom::text(&d.file_paths[i])
+                Dom::create_text(&d.file_paths[i])
                 .with_inline_style("font-size: 10px; text-align: center;")
             );
 

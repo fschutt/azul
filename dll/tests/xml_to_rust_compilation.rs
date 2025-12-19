@@ -29,7 +29,7 @@ mod xml_compilation_tests {
         assert!(rust_code.contains("fn main()"));
         assert!(rust_code.contains("pub fn render() -> Dom"));
         assert!(rust_code.contains("use azul::dom::Dom"));
-        // Text content will be in Dom::text() calls
+        // Text content will be in Dom::create_text() calls
         assert!(rust_code.contains("Dom::text") || rust_code.contains("Hello World"));
     }
 

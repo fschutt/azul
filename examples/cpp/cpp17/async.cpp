@@ -27,16 +27,16 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     auto d = AsyncState::downcast_ref(data);
     if (!d) return StyledDom::default();
     
-    auto title = Dom::text("Async Database Connection"sv)
+    auto title = Dom::create_text("Async Database Connection"sv)
         .with_inline_style("font-size: 24px; margin-bottom: 20px;"sv);
     
     Dom content;
     
     switch (d->stage) {
         case ConnectionStage::NotConnected: {
-            content = Dom::div()
+            content = Dom::create_div()
                 .with_inline_style("padding: 10px 20px; background: #4CAF50; color: white; cursor: pointer;"sv)
-                .with_child(Dom::text("Connect"sv))
+                .with_child(Dom::create_text("Connect"sv))
                 .with_callback(On::MouseUp, data.clone(), start_connection);
             break;
         }
@@ -44,28 +44,28 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
         case ConnectionStage::LoadingData: {
             std::ostringstream ss;
             ss << "Progress: " << static_cast<int>(d->progress) << "%";
-            content = Dom::div()
-                .with_child(Dom::text(ss.str()))
+            content = Dom::create_div()
+                .with_child(Dom::create_text(ss.str()))
                 .with_child(ProgressBar::new(d->progress).dom());
             break;
         }
         case ConnectionStage::DataLoaded: {
             std::ostringstream ss;
             ss << "Loaded " << d->loaded_data.size() << " records";
-            content = Dom::div()
-                .with_child(Dom::text(ss.str()))
-                .with_child(Dom::div()
+            content = Dom::create_div()
+                .with_child(Dom::create_text(ss.str()))
+                .with_child(Dom::create_div()
                     .with_inline_style("padding: 10px; background: #2196F3; color: white; cursor: pointer;"sv)
-                    .with_child(Dom::text("Reset"sv))
+                    .with_child(Dom::create_text("Reset"sv))
                     .with_callback(On::MouseUp, data.clone(), reset_connection));
             break;
         }
         case ConnectionStage::Error:
-            content = Dom::text("Error occurred"sv);
+            content = Dom::create_text("Error occurred"sv);
             break;
     }
     
-    auto body = Dom::body()
+    auto body = Dom::create_body()
         .with_inline_style("padding: 30px; font-family: sans-serif;"sv)
         .with_child(title)
         .with_child(content);

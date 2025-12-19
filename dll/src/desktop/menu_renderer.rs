@@ -305,7 +305,7 @@ fn create_string_menu_item_dom(
 
     // Label text
     let label_dom =
-        Dom::text(item.label.clone()).with_ids_and_classes(IdOrClassVec::from_vec(vec![
+        Dom::create_text(item.label.clone()).with_ids_and_classes(IdOrClassVec::from_vec(vec![
             IdOrClass::Class("menu-item-label".into()),
         ]));
     item_dom = item_dom.with_child(label_dom);
@@ -314,7 +314,7 @@ fn create_string_menu_item_dom(
     if let Some(ref combo) = item.accelerator.as_option() {
         let shortcut_text = format_accelerator(combo);
         let shortcut_dom =
-            Dom::text(shortcut_text).with_ids_and_classes(IdOrClassVec::from_vec(vec![
+            Dom::create_text(shortcut_text).with_ids_and_classes(IdOrClassVec::from_vec(vec![
                 IdOrClass::Class("menu-item-shortcut".into()),
             ]));
         item_dom = item_dom.with_child(shortcut_dom);
@@ -323,7 +323,7 @@ fn create_string_menu_item_dom(
     // Submenu arrow (if has children)
     if has_children {
         let arrow_dom =
-            Dom::text("▶").with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+            Dom::create_text("▶").with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
                 "menu-item-arrow".into(),
             )]));
         item_dom = item_dom.with_child(arrow_dom);
@@ -390,7 +390,7 @@ fn create_icon_dom(icon: &OptionMenuItemIcon) -> Dom {
             MenuItemIcon::Checkbox(checked) => {
                 // Add checkmark if checked
                 if *checked {
-                    icon_dom = Dom::text("✓").with_ids_and_classes(IdOrClassVec::from_vec(vec![
+                    icon_dom = Dom::create_text("✓").with_ids_and_classes(IdOrClassVec::from_vec(vec![
                         IdOrClass::Class("menu-item-icon".into()),
                         IdOrClass::Class("menu-item-checkbox".into()),
                         IdOrClass::Class("menu-item-checkbox-checked".into()),

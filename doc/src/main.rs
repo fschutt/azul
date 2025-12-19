@@ -86,6 +86,65 @@ fn main() -> anyhow::Result<()> {
             autofix::autofix_api(&api_data, &project_root, &output_dir, true)?;
             return Ok(());
         }
+        ["discover"] => {
+            // Discover all public functions in the workspace index
+            // Prints one line per function: TypeName.method_name
+            let index = autofix::type_index::TypeIndex::build(&project_root, false)?;
+            
+            let mut all_types: Vec<_> = index.iter_all().collect();
+            all_types.sort_by_key(|(name, _)| *name);
+            
+            for (type_name, type_defs) in all_types {
+                for type_def in type_defs {
+                    for method in &type_def.methods {
+                        if method.is_public {
+                            let self_str = match &method.self_kind {
+                                None => "static",
+                                Some(autofix::type_index::SelfKind::Value) => "self",
+                                Some(autofix::type_index::SelfKind::Ref) => "&self",
+                                Some(autofix::type_index::SelfKind::RefMut) => "&mut self",
+                            };
+                            let ret_str = method.return_type.as_deref().unwrap_or("()");
+                            println!("{}.{} ({}) -> {}", type_name, method.name, self_str, ret_str);
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
+        ["discover", pattern] => {
+            // Discover functions matching a pattern (e.g., "Dom" or "Callback")
+            let index = autofix::type_index::TypeIndex::build(&project_root, false)?;
+            
+            let pattern_lower = pattern.to_lowercase();
+            let mut all_types: Vec<_> = index.iter_all()
+                .filter(|(name, _)| name.to_lowercase().contains(&pattern_lower))
+                .collect();
+            all_types.sort_by_key(|(name, _)| *name);
+            
+            if all_types.is_empty() {
+                println!("No types found matching '{}'", pattern);
+                return Ok(());
+            }
+            
+            for (type_name, type_defs) in all_types {
+                for type_def in type_defs {
+                    for method in &type_def.methods {
+                        if method.is_public {
+                            let self_str = match &method.self_kind {
+                                None => "static",
+                                Some(autofix::type_index::SelfKind::Value) => "self",
+                                Some(autofix::type_index::SelfKind::Ref) => "&self",
+                                Some(autofix::type_index::SelfKind::RefMut) => "&mut self",
+                            };
+                            let ret_str = method.return_type.as_deref().unwrap_or("()");
+                            println!("{}.{} ({}) -> {}", type_name, method.name, self_str, ret_str);
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
         ["autofix", "debug", "type", type_name] => {
             // Debug a specific type in the workspace index
             let index = autofix::type_index::TypeIndex::build(&project_root, true)?;

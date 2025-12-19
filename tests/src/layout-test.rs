@@ -121,7 +121,7 @@ fn test_full_dom_2() {
 
     // tag_ids_to_node_ids gets generated?
 
-    let styled_dom = Dom::iframe(RefAny::new(A {}), render_iframe)
+    let styled_dom = Dom::create_iframe(RefAny::new(A {}), render_iframe)
         .with_inline_css_props(
             vec![
                 NodeDataInlineCssProperty::Normal(CssProperty::display(LayoutDisplay::Flex)),

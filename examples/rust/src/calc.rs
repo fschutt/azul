@@ -27,7 +27,7 @@ fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     // Build the calculator DOM using CSS Grid
     let display = Dom::create_div()
         .with_inline_style(DISPLAY_STYLE)
-        .with_child(Dom::text(display_text));
+        .with_child(Dom::create_text(display_text));
 
     let buttons = Dom::create_div()
         .with_inline_style(BUTTONS_STYLE)
@@ -281,7 +281,7 @@ fn calc_button(calc: &RefAny, label: &str, event: CalcEvent, class: &str) -> Dom
 
     Dom::create_div()
         .with_inline_style(class)
-        .with_child(Dom::text(label))
+        .with_child(Dom::create_text(label))
         .with_dataset(Some(button_data))
         .with_callback(azul::callbacks::On::MouseUp, on_button_click)
 }

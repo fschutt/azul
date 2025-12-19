@@ -109,6 +109,7 @@ pub enum CssPropertySource {
 /// TODO: use bitflags here!
 #[repr(C)]
 #[derive(Clone, PartialEq, Hash, PartialOrd, Eq, Ord)]
+#[repr(C)]
 pub struct StyledNodeState {
     pub normal: bool,
     pub hover: bool,

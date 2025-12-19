@@ -41,8 +41,27 @@ pub fn escape_method_name(name: &str) -> String {
     match name {
         "new" => "new_".to_string(),
         "default" => "default_".to_string(),
+        "deepCopy" => "clone".to_string(), // Rust-like naming
         _ => escape_cpp_keyword(name),
     }
+}
+
+// ============================================================================
+// Function Classification Helpers
+// ============================================================================
+
+/// Check if a function is a constructor (including Default trait)
+pub fn is_constructor_or_default(func: &FunctionDef) -> bool {
+    matches!(func.kind, FunctionKind::Constructor) || func.kind.is_default_constructor()
+}
+
+/// Check if a function is a method that should be skipped (delete, partialEq, etc.)
+/// Note: DeepCopy is NOT skipped - it becomes clone()
+/// Note: Default is NOT skipped - it becomes default_()
+pub fn should_skip_method(func: &FunctionDef) -> bool {
+    matches!(func.kind, FunctionKind::Constructor) || 
+    func.kind.is_trait_function() ||  // delete, partialEq, etc. - but NOT deepCopy or default
+    func.kind.is_default_constructor()  // handled separately as static constructor
 }
 
 // ============================================================================
@@ -176,9 +195,15 @@ pub fn should_skip_class(struct_def: &StructDef) -> bool {
         TypeCategory::CallbackTypedef | 
         TypeCategory::GenericTemplate |
         TypeCategory::Recursive |
-        TypeCategory::VecRef |
+        // Note: VecRef types ARE included in C++ - they become simple wrapper classes
+        // that expose ptr/len as std::span (C++20+) or raw pointers (earlier)
         TypeCategory::DestructorOrClone
     )
+}
+
+/// Check if a struct is a VecRef type (borrowed slice)
+pub fn is_vecref_type(struct_def: &StructDef) -> bool {
+    matches!(struct_def.category, TypeCategory::VecRef)
 }
 
 /// Check if a struct should render as a type alias instead of a class

@@ -29,7 +29,7 @@ extern "C" fn layout_callback(_data: RefAny, _info: LayoutCallbackInfo) -> Style
                         "font-size: 24px; color: #000000; margin-bottom: 20px; width: 400px; \
                          height: 30px;",
                     )
-                    .with_children(vec![Dom::text("CPU Render Test")].into()),
+                    .with_children(vec![Dom::create_text("CPU Render Test")].into()),
                 // Red rectangle
                 Dom::create_div().with_inline_style(
                     "width: 200px; height: 100px; background: #FF0000; margin: 10px; \
@@ -51,7 +51,7 @@ extern "C" fn layout_callback(_data: RefAny, _info: LayoutCallbackInfo) -> Style
                          25px;",
                     )
                     .with_children(
-                        vec![Dom::text("This is sample text to test positioning")].into(),
+                        vec![Dom::create_text("This is sample text to test positioning")].into(),
                     ),
             ]
             .into(),

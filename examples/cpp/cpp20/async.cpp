@@ -28,43 +28,43 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     auto d = AsyncState::downcast_ref(data);
     if (!d) return StyledDom::default();
     
-    auto title = Dom::text("Async Database Connection"sv)
+    auto title = Dom::create_text("Async Database Connection"sv)
         .with_inline_style("font-size: 24px; margin-bottom: 20px;"sv);
     
     Dom content;
     
     switch (d->stage) {
         case ConnectionStage::NotConnected: {
-            auto button = Dom::div()
+            auto button = Dom::create_div()
                 .with_inline_style("padding: 10px 20px; background: #4CAF50; color: white; cursor: pointer;"sv)
-                .with_child(Dom::text("Connect"sv))
+                .with_child(Dom::create_text("Connect"sv))
                 .with_callback(On::MouseUp, data.clone(), start_connection);
             content = button;
             break;
         }
         case ConnectionStage::Connecting:
         case ConnectionStage::LoadingData: {
-            auto status = Dom::text(std::format("Progress: {:.0f}%"sv, d->progress));
+            auto status = Dom::create_text(std::format("Progress: {:.0f}%"sv, d->progress));
             auto progress_bar = ProgressBar::new(d->progress).dom();
-            content = Dom::div().with_child(status).with_child(progress_bar);
+            content = Dom::create_div().with_child(status).with_child(progress_bar);
             break;
         }
         case ConnectionStage::DataLoaded: {
-            auto status = Dom::text(std::format("Loaded {} records"sv, d->loaded_data.size()));
-            auto reset_btn = Dom::div()
+            auto status = Dom::create_text(std::format("Loaded {} records"sv, d->loaded_data.size()));
+            auto reset_btn = Dom::create_div()
                 .with_inline_style("padding: 10px; background: #2196F3; color: white; cursor: pointer;"sv)
-                .with_child(Dom::text("Reset"sv))
+                .with_child(Dom::create_text("Reset"sv))
                 .with_callback(On::MouseUp, data.clone(), reset_connection);
-            content = Dom::div().with_child(status).with_child(reset_btn);
+            content = Dom::create_div().with_child(status).with_child(reset_btn);
             break;
         }
         case ConnectionStage::Error: {
-            content = Dom::text(d->error_message);
+            content = Dom::create_text(d->error_message);
             break;
         }
     }
     
-    auto body = Dom::body()
+    auto body = Dom::create_body()
         .with_inline_style("padding: 30px; font-family: sans-serif;"sv)
         .with_child(title)
         .with_child(content);

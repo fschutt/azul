@@ -24,14 +24,14 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     std::ostringstream title_text;
     title_text << "Infinite Gallery - " << d->file_paths.size() << " images";
     
-    auto title = Dom::text(title_text.str())
+    auto title = Dom::create_text(title_text.str())
         .with_inline_style("font-size: 20px; margin-bottom: 10px;");
     
-    auto iframe = Dom::iframe(data.clone(), render_iframe)
+    auto iframe = Dom::create_iframe(data.clone(), render_iframe)
         .with_inline_style("flex-grow: 1; overflow: scroll; background: #f5f5f5;")
         .with_callback(On::Scroll, data.clone(), on_scroll);
     
-    auto body = Dom::body()
+    auto body = Dom::create_body()
         .with_inline_style("padding: 20px; font-family: sans-serif;")
         .with_child(title)
         .with_child(iframe);
@@ -43,14 +43,14 @@ StyledDom render_iframe(RefAny& data, IFrameCallbackInfo& info) {
     auto d = InfinityState::downcast_ref(data);
     if (!d) return StyledDom::default();
     
-    auto container = Dom::div()
+    auto container = Dom::create_div()
         .with_inline_style("display: flex; flex-wrap: wrap; gap: 10px; padding: 10px;");
     
     size_t end = std::min(d->visible_start + d->visible_count, d->file_paths.size());
     for (size_t i = d->visible_start; i < end; ++i) {
-        auto item = Dom::div()
+        auto item = Dom::create_div()
             .with_inline_style("width: 150px; height: 150px; background: white; border: 1px solid #ddd;")
-            .with_child(Dom::text(d->file_paths[i]));
+            .with_child(Dom::create_text(d->file_paths[i]));
         container.add_child(item);
     }
     

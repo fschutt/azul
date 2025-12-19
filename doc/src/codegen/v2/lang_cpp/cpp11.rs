@@ -192,9 +192,9 @@ impl CppDialect for Cpp11Generator {
         
         let class_name = &struct_def.name;
         
-        // Constructor implementations
+        // Constructor implementations (including Default)
         for func in ir.functions.iter()
-            .filter(|f| f.class_name == *class_name && matches!(f.kind, FunctionKind::Constructor))
+            .filter(|f| f.class_name == *class_name && is_constructor_or_default(f))
             .filter(|f| f.return_type.as_deref() == Some(class_name.as_str()))
         {
             let cpp_fn_name = escape_method_name(&func.method_name);
@@ -215,7 +215,7 @@ impl CppDialect for Cpp11Generator {
         
         // Factory methods (return Option/Result)
         for func in ir.functions.iter()
-            .filter(|f| f.class_name == *class_name && matches!(f.kind, FunctionKind::Constructor))
+            .filter(|f| f.class_name == *class_name && is_constructor_or_default(f))
             .filter(|f| f.return_type.as_deref() != Some(class_name.as_str()))
         {
             let cpp_fn_name = escape_method_name(&func.method_name);
@@ -235,8 +235,7 @@ impl CppDialect for Cpp11Generator {
         // Instance methods
         for func in ir.functions.iter()
             .filter(|f| f.class_name == *class_name)
-            .filter(|f| !matches!(f.kind, FunctionKind::Constructor))
-            .filter(|f| !f.kind.is_trait_function())
+            .filter(|f| !should_skip_method(f))
         {
             let cpp_fn_name = escape_method_name(&func.method_name);
             let c_fn_name = &func.c_name;
@@ -435,7 +434,7 @@ impl Cpp11Generator {
     ) {
         // True constructors (return Self)
         let constructors: Vec<_> = ir.functions.iter()
-            .filter(|f| f.class_name == class_name && matches!(f.kind, FunctionKind::Constructor))
+            .filter(|f| f.class_name == class_name && is_constructor_or_default(f))
             .filter(|f| f.return_type.as_deref() == Some(class_name))
             .collect();
         
@@ -453,7 +452,7 @@ impl Cpp11Generator {
         
         // Factory methods (return Option/Result)
         let factories: Vec<_> = ir.functions.iter()
-            .filter(|f| f.class_name == class_name && matches!(f.kind, FunctionKind::Constructor))
+            .filter(|f| f.class_name == class_name && is_constructor_or_default(f))
             .filter(|f| f.return_type.as_deref() != Some(class_name))
             .collect();
         
@@ -477,8 +476,7 @@ impl Cpp11Generator {
     ) {
         let methods: Vec<_> = ir.functions.iter()
             .filter(|f| f.class_name == class_name)
-            .filter(|f| !matches!(f.kind, FunctionKind::Constructor))
-            .filter(|f| !f.kind.is_trait_function())
+            .filter(|f| !should_skip_method(f))
             .collect();
         
         if !methods.is_empty() {

@@ -94,7 +94,7 @@ fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
                             .with_rows(
                                 (0..100)
                                     .map(|i| ListViewRow {
-                                        cells: vec![Dom::text(format!("{}", i))].into(),
+                                        cells: vec![Dom::create_text(format!("{}", i))].into(),
                                         height: None.into(),
                                     })
                                     .collect::<Vec<_>>(),

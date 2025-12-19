@@ -69,9 +69,9 @@ auto make_button(
 ) {
     auto bd = ButtonData{calc.clone(), evt, digit, op};
 
-    return Dom::div()
+    return Dom::create_div()
         .with_inline_style(style)
-        .with_child(Dom::text(label))
+        .with_child(Dom::create_text(label))
         .with_callback(On::MouseUp, RefAny::new(bd), on_click);
 }
 
@@ -79,8 +79,8 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     auto c = Calculator::downcast_ref(data);
     if (!c) return StyledDom::default();
     
-    auto display = Dom::div().with_inline_style(DISPLAY_STYLE).with_child(Dom::text(c->display));
-    auto buttons = Dom::div().with_inline_style(BUTTONS_STYLE)
+    auto display = Dom::create_div().with_inline_style(DISPLAY_STYLE).with_child(Dom::create_text(c->display));
+    auto buttons = Dom::create_div().with_inline_style(BUTTONS_STYLE)
         .with_child(make_button(data, "C"sv, EventType::Clear, 0, Operation::None, BTN_STYLE))
         .with_child(make_button(data, "+/-"sv, EventType::Invert, 0, Operation::None, BTN_STYLE))
         .with_child(make_button(data, "%"sv, EventType::Percent, 0, Operation::None, BTN_STYLE))
@@ -101,7 +101,7 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
         .with_child(make_button(data, "."sv, EventType::Digit, '.', Operation::None, BTN_STYLE))
         .with_child(make_button(data, "="sv, EventType::Equals, 0, Operation::None, OP_STYLE));
     
-    return Dom::div()
+    return Dom::create_div()
         .with_inline_style(CALC_STYLE)
         .with_child(display)
         .with_child(buttons)

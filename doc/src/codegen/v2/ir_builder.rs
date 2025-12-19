@@ -76,12 +76,65 @@ impl<'a> IRBuilder<'a> {
     /// This checks for:
     /// 1. Array types like [T; N] - should be replaced with proper structs
     /// 2. Direct type aliases without generics - should be replaced with actual struct/enum definitions
+    /// 3. Non-FFI-safe types (NonZeroUsize, std library types, etc.)
     fn validate_api_json(&self) -> Result<()> {
         let mut errors: Vec<String> = Vec::new();
         
+        // Types that are not FFI-safe and should not appear in the public API
+        // These must be checked with careful pattern matching to avoid false positives
+        // (e.g., "BoxSizing" should NOT match "Box<T>")
+        
+        /// Check if a type string contains any non-FFI-safe type
+        /// Returns the problematic type name if found
+        fn contains_non_ffi_safe_type(type_str: &str) -> Option<&'static str> {
+            // Check for generic types with angle brackets (Box<T>, Arc<T>, etc.)
+            const GENERIC_NON_FFI_TYPES: &[&str] = &[
+                "Box<", "Arc<", "Rc<", "Mutex<", "RwLock<", "Cell<", "RefCell<",
+                "BTreeMap<", "HashMap<", "HashSet<", "BTreeSet<",
+                "FastBTreeSet<", "FastHashMap<", "FastHashSet<",
+                "Vec<", // Generic Vec (not our specialized Vec types)
+            ];
+            
+            for &generic in GENERIC_NON_FFI_TYPES {
+                if type_str.contains(generic) {
+                    return Some(generic.trim_end_matches('<'));
+                }
+            }
+            
+            // Check for standalone non-FFI types (must be exact word match)
+            const STANDALONE_NON_FFI_TYPES: &[&str] = &[
+                "NonZeroUsize", "NonZeroU8", "NonZeroU16", "NonZeroU32", "NonZeroU64",
+                "NonZeroIsize", "NonZeroI8", "NonZeroI16", "NonZeroI32", "NonZeroI64",
+                "FcFontCache", "ImageCache", "CallbackInfoRefData", "LayoutCallbackInfoRefData",
+                "CssPropertyCache",
+            ];
+            
+            for &standalone in STANDALONE_NON_FFI_TYPES {
+                // Check if it's a complete word (not part of another identifier)
+                if type_str == standalone {
+                    return Some(standalone);
+                }
+                // Check if it appears as a standalone type (not part of a larger name)
+                // by checking for word boundaries
+                let patterns = [
+                    format!("{}<", standalone),      // Generic usage
+                    format!("Option<{}>", standalone), // Inside Option
+                    format!("&{}", standalone),      // Reference
+                    format!("&mut {}", standalone),  // Mutable reference
+                ];
+                for pattern in &patterns {
+                    if type_str.contains(pattern.as_str()) {
+                        return Some(standalone);
+                    }
+                }
+            }
+            
+            None
+        }
+        
         for (module_name, module_data) in &self.version_data.api {
             for (class_name, class_data) in &module_data.classes {
-                // Check struct fields for array types
+                // Check struct fields for array types and non-FFI-safe types
                 if let Some(struct_fields) = &class_data.struct_fields {
                     for field_map in struct_fields {
                         for (field_name, field_data) in field_map {
@@ -92,11 +145,18 @@ impl<'a> IRBuilder<'a> {
                                     class_name, field_name, field_data.r#type
                                 ));
                             }
+                            if let Some(bad_type) = contains_non_ffi_safe_type(&field_data.r#type) {
+                                errors.push(format!(
+                                    "Non-FFI-safe type in struct field: {}.{} uses '{}'. \
+                                     Remove this type from api.json or wrap it in an FFI-safe wrapper.",
+                                    class_name, field_name, bad_type
+                                ));
+                            }
                         }
                     }
                 }
                 
-                // Check enum variant payloads for array types
+                // Check enum variant payloads for array types and non-FFI-safe types
                 if let Some(enum_fields) = &class_data.enum_fields {
                     for variant_map in enum_fields {
                         for (variant_name, variant_data) in variant_map {
@@ -106,6 +166,58 @@ impl<'a> IRBuilder<'a> {
                                         "Array type not allowed: {}::{} has type '{}'. \
                                          Use a dedicated struct instead.",
                                         class_name, variant_name, variant_type
+                                    ));
+                                }
+                                if let Some(bad_type) = contains_non_ffi_safe_type(variant_type) {
+                                    errors.push(format!(
+                                        "Non-FFI-safe type in enum variant: {}::{} uses '{}'. \
+                                         Remove this type from api.json or wrap it in an FFI-safe wrapper.",
+                                        class_name, variant_name, bad_type
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Check function arguments and return types for non-FFI-safe types
+                if let Some(functions) = &class_data.functions {
+                    for (fn_name, fn_data) in functions {
+                        // Check arguments
+                        for arg in &fn_data.fn_args {
+                            for (_arg_name, arg_type) in arg {
+                                if let Some(bad_type) = contains_non_ffi_safe_type(arg_type) {
+                                    errors.push(format!(
+                                        "Non-FFI-safe type in function argument: {}.{}() uses '{}'. \
+                                         Remove this function from api.json.",
+                                        class_name, fn_name, bad_type
+                                    ));
+                                }
+                            }
+                        }
+                        // Check return type
+                        if let Some(ret_type) = &fn_data.returns {
+                            if let Some(bad_type) = contains_non_ffi_safe_type(&ret_type.r#type) {
+                                errors.push(format!(
+                                    "Non-FFI-safe return type: {}.{}() returns '{}'. \
+                                     Remove this function from api.json.",
+                                    class_name, fn_name, bad_type
+                                ));
+                            }
+                        }
+                    }
+                }
+                
+                // Check constructors for non-FFI-safe types
+                if let Some(constructors) = &class_data.constructors {
+                    for (ctor_name, ctor_data) in constructors {
+                        for arg in &ctor_data.fn_args {
+                            for (_arg_name, arg_type) in arg {
+                                if let Some(bad_type) = contains_non_ffi_safe_type(arg_type) {
+                                    errors.push(format!(
+                                        "Non-FFI-safe type in constructor: {}.{}() uses '{}'. \
+                                         Remove this constructor from api.json.",
+                                        class_name, ctor_name, bad_type
                                     ));
                                 }
                             }

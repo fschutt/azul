@@ -37,14 +37,14 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     auto d = AsyncState::downcast_ref(data);
     if (!d) return StyledDom::default();
     
-    auto title = Dom::text("Async Database Connection Demo"sv)
+    auto title = Dom::create_text("Async Database Connection Demo"sv)
         .with_inline_style("font-size: 24px; margin-bottom: 20px; color: #333;"sv);
     
     Dom content;
     
     switch (d->stage) {
         case ConnectionStage::NotConnected: {
-            auto label = Dom::text("Database URL:"sv)
+            auto label = Dom::create_text("Database URL:"sv)
                 .with_inline_style("margin-bottom: 5px;"sv);
             
             auto input = TextInput::new()
@@ -52,12 +52,12 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
                 .dom()
                 .with_inline_style("margin-bottom: 15px; width: 100%;"sv);
             
-            auto button = Dom::div()
+            auto button = Dom::create_div()
                 .with_inline_style("padding: 10px 20px; background: #4CAF50; color: white; cursor: pointer;"sv)
-                .with_child(Dom::text("Connect"sv))
+                .with_child(Dom::create_text("Connect"sv))
                 .with_callback(On::MouseUp, data.clone(), start_connection);
             
-            content = Dom::div()
+            content = Dom::create_div()
                 .with_child(label)
                 .with_child(input)
                 .with_child(button);
@@ -65,19 +65,19 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
         }
         
         case ConnectionStage::Connecting: {
-            auto status = Dom::text("Establishing connection..."sv)
+            auto status = Dom::create_text("Establishing connection..."sv)
                 .with_inline_style("margin-bottom: 10px;"sv);
             
             auto progress_bar = ProgressBar::new(d->progress)
                 .dom()
                 .with_inline_style("margin-bottom: 15px;"sv);
             
-            auto cancel_btn = Dom::div()
+            auto cancel_btn = Dom::create_div()
                 .with_inline_style("padding: 10px 20px; background: #f44336; color: white; cursor: pointer;"sv)
-                .with_child(Dom::text("Cancel"sv))
+                .with_child(Dom::create_text("Cancel"sv))
                 .with_callback(On::MouseUp, data.clone(), cancel_connection);
             
-            content = Dom::div()
+            content = Dom::create_div()
                 .with_child(status)
                 .with_child(progress_bar)
                 .with_child(cancel_btn);
@@ -86,36 +86,36 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
         
         case ConnectionStage::Connected:
         case ConnectionStage::LoadingData: {
-            auto status = Dom::text(std::format("Loading data... {:.0f}%"sv, d->progress))
+            auto status = Dom::create_text(std::format("Loading data... {:.0f}%"sv, d->progress))
                 .with_inline_style("margin-bottom: 10px;"sv);
             
             auto progress_bar = ProgressBar::new(d->progress)
                 .dom()
                 .with_inline_style("margin-bottom: 15px;"sv);
             
-            content = Dom::div()
+            content = Dom::create_div()
                 .with_child(status)
                 .with_child(progress_bar);
             break;
         }
         
         case ConnectionStage::DataLoaded: {
-            auto status = Dom::text(std::format("Loaded {} records"sv, d->loaded_data.size()))
+            auto status = Dom::create_text(std::format("Loaded {} records"sv, d->loaded_data.size()))
                 .with_inline_style("margin-bottom: 10px; color: #4CAF50;"sv);
             
-            auto data_list = Dom::div()
+            auto data_list = Dom::create_div()
                 .with_inline_style("max-height: 200px; overflow: auto; background: #f5f5f5; padding: 10px;"sv);
             
             for (const auto& item : d->loaded_data) {
-                data_list.add_child(Dom::text(item).with_inline_style("margin-bottom: 5px;"sv));
+                data_list.add_child(Dom::create_text(item).with_inline_style("margin-bottom: 5px;"sv));
             }
             
-            auto reset_btn = Dom::div()
+            auto reset_btn = Dom::create_div()
                 .with_inline_style("padding: 10px 20px; background: #2196F3; color: white; cursor: pointer; margin-top: 15px;"sv)
-                .with_child(Dom::text("Reset"sv))
+                .with_child(Dom::create_text("Reset"sv))
                 .with_callback(On::MouseUp, data.clone(), reset_connection);
             
-            content = Dom::div()
+            content = Dom::create_div()
                 .with_child(status)
                 .with_child(data_list)
                 .with_child(reset_btn);
@@ -123,22 +123,22 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
         }
         
         case ConnectionStage::Error: {
-            auto error = Dom::text(std::format("Error: {}"sv, d->error_message))
+            auto error = Dom::create_text(std::format("Error: {}"sv, d->error_message))
                 .with_inline_style("color: #f44336; margin-bottom: 15px;"sv);
             
-            auto reset_btn = Dom::div()
+            auto reset_btn = Dom::create_div()
                 .with_inline_style("padding: 10px 20px; background: #2196F3; color: white; cursor: pointer;"sv)
-                .with_child(Dom::text("Try Again"sv))
+                .with_child(Dom::create_text("Try Again"sv))
                 .with_callback(On::MouseUp, data.clone(), reset_connection);
             
-            content = Dom::div()
+            content = Dom::create_div()
                 .with_child(error)
                 .with_child(reset_btn);
             break;
         }
     }
     
-    auto body = Dom::body()
+    auto body = Dom::create_body()
         .with_inline_style("padding: 30px; font-family: sans-serif; max-width: 500px;"sv)
         .with_child(title)
         .with_child(content);

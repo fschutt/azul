@@ -15,14 +15,14 @@ Update on_startup(RefAny& data, CallbackInfo& info);
 Update animate(RefAny& data, TimerCallbackInfo& info);
 
 StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
-    auto body = Dom::body()
+    auto body = Dom::create_body()
         .with_inline_style("background: linear-gradient(#1a1a2e, #16213e); padding: 20px;")
         .with_child(
-            Dom::text("OpenGL Integration Demo")
+            Dom::create_text("OpenGL Integration Demo")
                 .with_inline_style("color: white; font-size: 24px; margin-bottom: 20px;")
         )
         .with_child(
-            Dom::image(ImageRef::callback(data.clone(), render_texture))
+            Dom::create_image(ImageRef::callback(data.clone(), render_texture))
                 .with_inline_style(
                     "flex-grow: 1;"
                     "min-height: 300px;"

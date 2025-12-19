@@ -59,9 +59,9 @@ inline constexpr auto OP_STYLE = "background:#ff9f0a;color:white;font-size:24px;
 inline constexpr auto ZERO_STYLE = "background:#d1d1d6;color:#1d1d1f;font-size:24px;display:flex;align-items:center;justify-content:flex-start;padding-left:28px;grid-column:span 2;"sv;
 
 auto make_button(RefAny& calc, std::string_view label, EventType evt, char digit, Operation op, std::string_view style) {
-    return Dom::div()
+    return Dom::create_div()
         .with_inline_style(style)
-        .with_child(Dom::text(label))
+        .with_child(Dom::create_text(label))
         .with_callback(On::MouseUp, RefAny::new(ButtonData{calc.clone(), evt, digit, op}), on_click);
 }
 
@@ -69,8 +69,8 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     auto c = Calculator::downcast_ref(data);
     if (!c) return StyledDom::default();
     
-    auto display = Dom::div().with_inline_style(DISPLAY_STYLE).with_child(Dom::text(c->display));
-    auto buttons = Dom::div().with_inline_style(BUTTONS_STYLE)
+    auto display = Dom::create_div().with_inline_style(DISPLAY_STYLE).with_child(Dom::create_text(c->display));
+    auto buttons = Dom::create_div().with_inline_style(BUTTONS_STYLE)
         .with_child(make_button(data, "C"sv, EventType::Clear, 0, Operation::None, BTN_STYLE))
         .with_child(make_button(data, "+/-"sv, EventType::Invert, 0, Operation::None, BTN_STYLE))
         .with_child(make_button(data, "%"sv, EventType::Percent, 0, Operation::None, BTN_STYLE))
@@ -91,7 +91,7 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
         .with_child(make_button(data, "."sv, EventType::Digit, '.', Operation::None, BTN_STYLE))
         .with_child(make_button(data, "="sv, EventType::Equals, 0, Operation::None, OP_STYLE));
     
-    return Dom::div().with_inline_style(CALC_STYLE).with_child(display).with_child(buttons).style(Css::empty());
+    return Dom::create_div().with_inline_style(CALC_STYLE).with_child(display).with_child(buttons).style(Css::empty());
 }
 
 Update on_click(RefAny& data, CallbackInfo& info) {

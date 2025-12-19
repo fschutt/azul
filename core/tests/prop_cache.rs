@@ -36,7 +36,7 @@ macro_rules! setup_styled_dom {
 
 #[test]
 fn test_computed_values_exist_for_all_nodes() {
-    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(Dom::text("Text")));
+    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Text")));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -94,7 +94,7 @@ fn test_inline_css_takes_precedence() {
 
 #[test]
 fn test_css_stylesheet_applies() {
-    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(Dom::text("Text")));
+    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Text")));
 
     let css = "p { font-size: 18px; }";
     let (_styled_dom, cache) = setup_styled_dom!(dom, css);
@@ -123,7 +123,7 @@ fn test_inherited_property_has_correct_origin() {
             ))]
             .into(),
         )
-        .with_child(Dom::create_node(NodeType::P).with_child(Dom::text("Text")));
+        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Text")));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -171,7 +171,7 @@ fn test_own_property_overrides_inherited() {
                     ))]
                     .into(),
                 )
-                .with_child(Dom::text("Text")),
+                .with_child(Dom::create_text("Text")),
         );
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
@@ -216,7 +216,7 @@ fn test_em_resolved_to_px_in_computed() {
                     ))]
                     .into(),
                 )
-                .with_child(Dom::text("Text")),
+                .with_child(Dom::create_text("Text")),
         );
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
@@ -261,7 +261,7 @@ fn test_deeply_nested_inheritance() {
             .into(),
         )
         .with_child(
-            Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_div().with_child(Dom::text("Deep")))),
+            Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_text("Deep")))),
         );
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
@@ -285,7 +285,7 @@ fn test_deeply_nested_inheritance() {
 
 #[test]
 fn test_ua_css_for_headings() {
-    let dom = Dom::create_node(NodeType::H1).with_child(Dom::text("Heading"));
+    let dom = Dom::create_node(NodeType::H1).with_child(Dom::create_text("Heading"));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -357,7 +357,7 @@ fn test_font_weight_inheritance() {
             ))]
             .into(),
         )
-        .with_child(Dom::create_node(NodeType::Span).with_child(Dom::text("Bold text")));
+        .with_child(Dom::create_node(NodeType::Span).with_child(Dom::create_text("Bold text")));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -399,7 +399,7 @@ fn test_color_inheritance() {
             ))]
             .into(),
         )
-        .with_child(Dom::create_node(NodeType::P).with_child(Dom::text("Red text")));
+        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Red text")));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -429,7 +429,7 @@ fn test_color_inheritance() {
 fn test_non_inheritable_property_not_inherited() {
     // display is not inheritable
     let css = "div { display: flex; }";
-    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(Dom::text("Text")));
+    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Text")));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom, css);
 
@@ -456,7 +456,7 @@ fn test_non_inheritable_property_not_inherited() {
 
 #[test]
 fn test_empty_css_produces_only_ua_styles() {
-    let dom = Dom::create_node(NodeType::P).with_child(Dom::text("Paragraph"));
+    let dom = Dom::create_node(NodeType::P).with_child(Dom::create_text("Paragraph"));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -484,7 +484,7 @@ fn test_text_node_inherits_from_parent() {
             ))]
             .into(),
         )
-        .with_child(Dom::text("Text inherits"));
+        .with_child(Dom::create_text("Text inherits"));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 

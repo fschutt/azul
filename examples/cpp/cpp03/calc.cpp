@@ -128,9 +128,9 @@ Dom make_button(
     bd.digit = digit;
     bd.op = op;
 
-    return Dom::div()
+    return Dom::create_div()
         .with_inline_style(style)
-        .with_child(Dom::text(label))
+        .with_child(Dom::create_text(label))
         .with_callback(On::MouseUp, ButtonData::upcast(bd), on_click);
 }
 
@@ -141,8 +141,8 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     char disp[64];
     std::strcpy(disp, c->display);
     
-    Dom display = Dom::div().with_inline_style(DISPLAY_STYLE).with_child(Dom::text(disp));
-    Dom buttons = Dom::div().with_inline_style(BUTTONS_STYLE);
+    Dom display = Dom::create_div().with_inline_style(DISPLAY_STYLE).with_child(Dom::create_text(disp));
+    Dom buttons = Dom::create_div().with_inline_style(BUTTONS_STYLE);
     
     // Row 1
     buttons = buttons.with_child(make_button(data, "C", EVT_CLEAR, 0, OP_NONE, BTN_STYLE));
@@ -169,7 +169,7 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     buttons = buttons.with_child(make_button(data, ".", EVT_DIGIT, '.', OP_NONE, BTN_STYLE));
     buttons = buttons.with_child(make_button(data, "=", EVT_EQUALS, 0, OP_NONE, OP_STYLE));
     
-    Dom body = Dom::div().with_inline_style(CALC_STYLE).with_child(display).with_child(buttons);
+    Dom body = Dom::create_div().with_inline_style(CALC_STYLE).with_child(display).with_child(buttons);
     return body.style(Css::empty());
 }
 

@@ -470,7 +470,7 @@ impl Button {
             .with_callbacks(callbacks.into())
             .with_tab_index(TabIndex::Auto)
             .with_children(
-                vec![Dom::text(self.label)
+                vec![Dom::create_text(self.label)
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
                     .with_inline_css_props(self.label_style)]
                 .into(),

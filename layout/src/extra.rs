@@ -15,7 +15,7 @@ pub fn styled_dom_from_file(_: &str) -> StyledDom {
 
     Dom::create_body()
         .with_children(
-            vec![Dom::text(format!(
+            vec![Dom::create_text(format!(
                 "library was not compiled with --feature=\"xml\""
             ))]
             .into(),
@@ -36,7 +36,7 @@ pub fn styled_dom_from_str(_: &str) -> StyledDom {
 
     Dom::create_body()
         .with_children(
-            vec![Dom::text(format!(
+            vec![Dom::create_text(format!(
                 "library was not compiled with --feature=\"xml\""
             ))]
             .into(),

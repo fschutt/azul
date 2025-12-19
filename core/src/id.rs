@@ -32,85 +32,60 @@ pub type NodeDepths = Vec<(usize, NodeId)>;
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
 
-// Since private fields are module-based, this prevents any module from accessing
-// `NodeId.index` directly. To get the correct node index is by using `NodeId::index()`,
-// which subtracts 1 from the ID (because of Option<NodeId> optimizations)
+// Simple FFI-safe NodeId - just a wrapper around usize
 mod node_id {
 
     use alloc::vec::Vec;
     use core::{
         fmt,
-        num::NonZeroUsize,
         ops::{Add, AddAssign},
     };
 
     /// A type-safe identifier for a node within a DOM tree.
     ///
-    /// `NodeId` wraps a `NonZeroUsize`, which allows `Option<NodeId>` to be
-    /// the same size as `NodeId` itself (pointer-sized) via null pointer optimization.
-    /// This is crucial for memory efficiency when storing optional parent/child references.
-    ///
-    /// # Internal Representation
-    ///
-    /// Internally, indices are stored as `value + 1` to ensure they're never zero.
-    /// Use `NodeId::new(0)` for the first node, `NodeId::new(1)` for the second, etc.
-    ///
-    /// # Safety
-    ///
-    /// In debug mode, panics on overflow (>4 billion nodes). In release mode, saturates.
+    /// `NodeId` is a simple wrapper around `usize` that is FFI-safe.
+    /// The `inner` field directly stores the zero-based index.
+    #[repr(C)]
     #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
     pub struct NodeId {
-        index: NonZeroUsize,
+        pub inner: usize,
     }
 
     impl NodeId {
-        /// The zero/first node ID (internally stored as 1 due to NonZeroUsize).
-        pub const ZERO: NodeId = NodeId {
-            index: unsafe { NonZeroUsize::new_unchecked(1) },
-        };
+        /// The zero/first node ID.
+        pub const ZERO: NodeId = NodeId { inner: 0 };
 
         /// Creates a new `NodeId` from a zero-based index.
-        ///
-        /// # Panics
-        ///
-        /// In debug mode, panics if the index would overflow when incremented.
-        /// In release mode, saturates to the maximum value.
-        ///
-        /// # Examples
-        ///
-        /// ```rust,no_run
-        /// use azul_core::id::NodeId;
-        ///
-        /// let first_node = NodeId::new(0);
-        /// let second_node = NodeId::new(1);
-        /// ```
         #[inline(always)]
         pub const fn new(value: usize) -> Self {
-            NodeId {
-                index: unsafe { NonZeroUsize::new_unchecked(value.saturating_add(1)) },
-            }
+            NodeId { inner: value }
         }
 
+        /// Converts a usize to an Option<NodeId>.
+        /// Returns None if value is usize::MAX, otherwise Some(NodeId).
         pub const fn from_usize(value: usize) -> Option<Self> {
             match value {
-                0 => None,
-                i => Some(NodeId::new(i - 1)),
+                usize::MAX => None,
+                i => Some(NodeId { inner: i }),
             }
         }
 
+        /// Converts an Option<NodeId> to a usize.
+        /// Returns usize::MAX for None, otherwise the inner value.
         pub const fn into_usize(val: &Option<Self>) -> usize {
             match val {
-                None => 0,
-                Some(s) => s.index.get(),
+                None => usize::MAX,
+                Some(s) => s.inner,
             }
         }
 
+        /// Returns the zero-based index of this node.
         #[inline(always)]
-        pub fn index(&self) -> usize {
-            self.index.get() - 1
+        pub const fn index(&self) -> usize {
+            self.inner
         }
 
-        /// Return an iterator of references to this node’s children.
+        /// Return an iterator of references to this node's children.
         #[inline]
         pub fn range(start: Self, end: Self) -> Vec<NodeId> {
             (start.index()..end.index())
@@ -127,7 +102,7 @@ mod node_id {
 
     impl From<NodeId> for usize {
         fn from(val: NodeId) -> Self {
-            NodeId::into_usize(&Some(val))
+            val.inner
         }
     }
 
@@ -135,7 +110,7 @@ mod node_id {
         type Output = NodeId;
         #[inline(always)]
         fn add(self, other: usize) -> NodeId {
-            NodeId::new(self.index() + other)
+            NodeId::new(self.inner + other)
         }
     }
 
@@ -148,16 +123,23 @@ mod node_id {
 
     impl fmt::Display for NodeId {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{}", self.index())
+            write!(f, "{}", self.inner)
         }
     }
 
     impl fmt::Debug for NodeId {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "NodeId({})", self.index())
+            write!(f, "NodeId({})", self.inner)
         }
     }
 }
+
+use azul_css::impl_option;
+impl_option!(
+    NodeId,
+    OptionNodeIdData,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 /// Hierarchical information about a node (stores the indicies of the parent / child nodes).
 #[derive(Debug, Default, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]

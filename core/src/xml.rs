@@ -1297,7 +1297,7 @@ impl XmlComponentTrait for TextRenderer {
             .map(|s| prepare_string(&s))
             .unwrap_or_default();
         Ok(Dom::create_node(NodeType::P)
-            .with_children(vec![Dom::text(content)].into())
+            .with_children(vec![Dom::create_text(content)].into())
             .style(CssApiWrapper::empty()))
     }
 
@@ -1308,7 +1308,7 @@ impl XmlComponentTrait for TextRenderer {
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
         Ok(String::from(
-            "Dom::create_node(NodeType::P).with_children(vec![Dom::text(content)].into())",
+            "Dom::create_node(NodeType::P).with_children(vec![Dom::create_text(content)].into())",
         ))
     }
 
@@ -1716,7 +1716,7 @@ extern \"C\" fn render(_: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     .style(Css::empty()) // styles are applied inline
 }
 
-fn main() {
+fn create_main() {
     let app = App::new(RefAny::new(Data { }), AppConfig::new(LayoutSolver::Default));
     let mut window = WindowCreateOptions::new(render);
     window.state.flags.frame = WindowFrame::Maximized;
@@ -1861,7 +1861,7 @@ pub fn render_dom_from_body_node<'a>(
         Some(id) => id,
         None => {
             // Empty DOM, create default HTML > Body structure
-            let mut html_dom = Dom::html()
+            let mut html_dom = Dom::create_html()
                 .with_child(Dom::create_body())
                 .style(CssApiWrapper::empty());
 
@@ -1892,7 +1892,7 @@ pub fn render_dom_from_body_node<'a>(
         }
         NodeType::Body => {
             // Has Body root, wrap in HTML
-            let mut html_dom = Dom::html().style(CssApiWrapper::empty());
+            let mut html_dom = Dom::create_html().style(CssApiWrapper::empty());
             html_dom.append_child(body_styled);
             html_dom
         }
@@ -1900,7 +1900,7 @@ pub fn render_dom_from_body_node<'a>(
             // Other elements (div, etc), wrap in HTML > Body
             let mut body_dom = Dom::create_body().style(CssApiWrapper::empty());
             body_dom.append_child(body_styled);
-            let mut html_dom = Dom::html().style(CssApiWrapper::empty());
+            let mut html_dom = Dom::create_html().style(CssApiWrapper::empty());
             html_dom.append_child(body_dom);
             html_dom
         }
@@ -1972,7 +1972,7 @@ pub fn render_dom_from_body_node_inner<'a>(
             XmlNodeChild::Text(text) => {
                 // Create a text node for text children
                 let text_dom =
-                    Dom::text(AzString::from(text.as_str())).style(CssApiWrapper::empty());
+                    Dom::create_text(AzString::from(text.as_str())).style(CssApiWrapper::empty());
                 dom.append_child(text_dom);
             }
         }
@@ -3268,11 +3268,11 @@ mod tests {
 
         // For this test, we'll create the DOM structure manually
         // since we're testing the parsing logic
-        let expected_dom = Dom::p().with_children(
+        let expected_dom = Dom::create_p().with_children(
             vec![
-                Dom::text("Text before "),
-                Dom::create_node(NodeType::Span).with_children(vec![Dom::text("inline text")].into()),
-                Dom::text(" text after."),
+                Dom::create_text("Text before "),
+                Dom::create_node(NodeType::Span).with_children(vec![Dom::create_text("inline text")].into()),
+                Dom::create_text(" text after."),
             ]
             .into(),
         );

@@ -2344,7 +2344,7 @@ impl Ribbon {
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9041457122899952067)
                     })
                     .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("FILE"))
+                        Dom::create_text(AzString::from_const_str("FILE"))
                             .with_inline_css_props(CSS_MATCH_14371786645818370801)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_4826288409200248071: &[IdOrClass] =
@@ -2465,7 +2465,7 @@ impl Ribbon {
                                                             IDS_AND_CLASSES_638783468819161744,
                                                         )
                                                     })])),
-                                            Dom::text(AzString::from_const_str("Paste"))
+                                            Dom::create_text(AzString::from_const_str("Paste"))
                                                 .with_inline_css_props(
                                                     CSS_MATCH_6756514148882865175,
                                                 ),
@@ -2496,7 +2496,7 @@ impl Ribbon {
                                                         )
                                                     })])),
                                         ]))])),
-                                Dom::text(AzString::from_const_str("Clipboard"))
+                                Dom::create_text(AzString::from_const_str("Clipboard"))
                                     .with_inline_css_props(CSS_MATCH_2233073185823558635)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
@@ -2529,10 +2529,10 @@ impl Ribbon {
                                             IDS_AND_CLASSES_2004408468416758999,
                                         )
                                     })
-                                    .with_children(DomVec::from_vec(vec![Dom::text(
+                                    .with_children(DomVec::from_vec(vec![Dom::create_text(
                                         AzString::from_const_str(""),
                                     )])),
-                                Dom::text(AzString::from_const_str("Font"))
+                                Dom::create_text(AzString::from_const_str("Font"))
                                     .with_inline_css_props(CSS_MATCH_12543025518776072814)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
@@ -2565,10 +2565,10 @@ impl Ribbon {
                                             IDS_AND_CLASSES_2004408468416758999,
                                         )
                                     })
-                                    .with_children(DomVec::from_vec(vec![Dom::text(
+                                    .with_children(DomVec::from_vec(vec![Dom::create_text(
                                         AzString::from_const_str(""),
                                     )])),
-                                Dom::text(AzString::from_const_str("Alignment"))
+                                Dom::create_text(AzString::from_const_str("Alignment"))
                                     .with_inline_css_props(CSS_MATCH_8808521992961481081)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
@@ -2601,10 +2601,10 @@ impl Ribbon {
                                             IDS_AND_CLASSES_2004408468416758999,
                                         )
                                     })
-                                    .with_children(DomVec::from_vec(vec![Dom::text(
+                                    .with_children(DomVec::from_vec(vec![Dom::create_text(
                                         AzString::from_const_str(""),
                                     )])),
-                                Dom::text(AzString::from_const_str("Number"))
+                                Dom::create_text(AzString::from_const_str("Number"))
                                     .with_inline_css_props(CSS_MATCH_16851364358900804450)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
@@ -2637,10 +2637,10 @@ impl Ribbon {
                                             IDS_AND_CLASSES_2004408468416758999,
                                         )
                                     })
-                                    .with_children(DomVec::from_vec(vec![Dom::text(
+                                    .with_children(DomVec::from_vec(vec![Dom::create_text(
                                         AzString::from_const_str(""),
                                     )])),
-                                Dom::text(AzString::from_const_str("Styles"))
+                                Dom::create_text(AzString::from_const_str("Styles"))
                                     .with_inline_css_props(CSS_MATCH_8787113990689659847)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
@@ -2673,10 +2673,10 @@ impl Ribbon {
                                             IDS_AND_CLASSES_2004408468416758999,
                                         )
                                     })
-                                    .with_children(DomVec::from_vec(vec![Dom::text(
+                                    .with_children(DomVec::from_vec(vec![Dom::create_text(
                                         AzString::from_const_str(""),
                                     )])),
-                                Dom::text(AzString::from_const_str("Cells"))
+                                Dom::create_text(AzString::from_const_str("Cells"))
                                     .with_inline_css_props(CSS_MATCH_6328747057139953245)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
@@ -2709,10 +2709,10 @@ impl Ribbon {
                                             IDS_AND_CLASSES_2004408468416758999,
                                         )
                                     })
-                                    .with_children(DomVec::from_vec(vec![Dom::text(
+                                    .with_children(DomVec::from_vec(vec![Dom::create_text(
                                         AzString::from_const_str(""),
                                     )])),
-                                Dom::text(AzString::from_const_str("Editing"))
+                                Dom::create_text(AzString::from_const_str("Editing"))
                                     .with_inline_css_props(CSS_MATCH_4856252049803891913)
                                     .with_ids_and_classes({
                                         const IDS_AND_CLASSES_6233255149722984275: &[IdOrClass] =
@@ -2742,7 +2742,7 @@ fn render_tab_element(
     callback: RibbonOnTabClickedCallback,
     refany: RefAny,
 ) -> Dom {
-    Dom::text(AzString::from_const_str(text))
+    Dom::create_text(AzString::from_const_str(text))
         .with_inline_css_props(if active {
             CSS_MATCH_17524132644355033702
         } else {

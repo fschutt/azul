@@ -852,12 +852,12 @@ impl TextInput {
             )
             .with_children(
                 vec![
-                    Dom::text(placeholder)
+                    Dom::create_text(placeholder)
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-input-placeholder".into())].into(),
                         )
                         .with_inline_css_props(self.placeholder_style),
-                    Dom::text(label_text)
+                    Dom::create_text(label_text)
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-input-label".into())].into(),
                         )

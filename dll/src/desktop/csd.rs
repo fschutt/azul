@@ -229,7 +229,7 @@ fn create_menubar_styled_dom(menu: &Menu, system_style: &SystemStyle) -> StyledD
 
             let dom_item = Dom::create_div()
                 .with_ids_and_classes(item_classes)
-                .with_child(Dom::text(string_item.label.as_str()))
+                .with_child(Dom::create_text(string_item.label.as_str()))
                 .with_callbacks(
                     vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseDown),
@@ -290,7 +290,7 @@ fn create_titlebar_dom(
         ]);
         let minimize_btn = Dom::create_div()
             .with_ids_and_classes(classes)
-            .with_child(Dom::text("−"))
+            .with_child(Dom::create_text("−"))
             .with_callbacks(
                 vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseDown),
@@ -314,7 +314,7 @@ fn create_titlebar_dom(
         ]);
         let maximize_btn = Dom::create_div()
             .with_ids_and_classes(classes)
-            .with_child(Dom::text("□"))
+            .with_child(Dom::create_text("□"))
             .with_callbacks(
                 vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseDown),
@@ -338,7 +338,7 @@ fn create_titlebar_dom(
         ]);
         let close_btn = Dom::create_div()
             .with_ids_and_classes(classes)
-            .with_child(Dom::text("×"))
+            .with_child(Dom::create_text("×"))
             .with_callbacks(
                 vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseDown),
@@ -357,7 +357,7 @@ fn create_titlebar_dom(
     let title_classes = IdOrClassVec::from_vec(vec![IdOrClass::Class("csd-title".into())]);
     let title_text = Dom::create_div()
         .with_ids_and_classes(title_classes)
-        .with_child(Dom::text(title))
+        .with_child(Dom::create_text(title))
         .with_callbacks(
             vec![
                 CoreCallbackData {

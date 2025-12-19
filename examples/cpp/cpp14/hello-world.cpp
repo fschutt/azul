@@ -8,15 +8,15 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     auto d = MyDataModel::downcast_ref(data);
     if (!d) return StyledDom::default();
     
-    auto label = Dom::text(std::to_string(d->counter))
+    auto label = Dom::create_text(std::to_string(d->counter))
         .with_inline_style("font-size: 50px;");
     
-    auto button = Dom::div()
+    auto button = Dom::create_div()
         .with_inline_style("flex-grow: 1;")
-        .with_child(Dom::text("Increase counter"))
+        .with_child(Dom::create_text("Increase counter"))
         .with_callback(On::MouseUp, data.clone(), on_click);
     
-    auto body = Dom::body()
+    auto body = Dom::create_body()
         .with_child(label)
         .with_child(button);
     

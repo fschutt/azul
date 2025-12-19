@@ -26,7 +26,7 @@ pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml
         Err(e) => {
             return DomXml {
                 parsed_dom: Dom::create_body()
-                    .with_children(vec![Dom::text(format!("{}", e))].into())
+                    .with_children(vec![Dom::create_text(format!("{}", e))].into())
                     .style(error_css.clone()),
             };
         }
@@ -37,7 +37,7 @@ pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml
         Err(e) => {
             return DomXml {
                 parsed_dom: Dom::create_body()
-                    .with_children(vec![Dom::text(format!("{}", e))].into())
+                    .with_children(vec![Dom::create_text(format!("{}", e))].into())
                     .style(error_css.clone()),
             };
         }
@@ -68,7 +68,7 @@ pub fn domxml_from_file<I: AsRef<Path>>(
             return DomXml {
                 parsed_dom: Dom::create_body()
                     .with_children(
-                        vec![Dom::text(format!(
+                        vec![Dom::create_text(format!(
                             "Error reading: \"{}\": {}",
                             file_path.as_ref().to_string_lossy(),
                             e

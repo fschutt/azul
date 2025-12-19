@@ -191,7 +191,7 @@ impl CppDialect for Cpp17Generator {
         
         // Constructor implementations
         for func in ir.functions.iter()
-            .filter(|f| f.class_name == *class_name && matches!(f.kind, FunctionKind::Constructor))
+            .filter(|f| f.class_name == *class_name && is_constructor_or_default(f))
             .filter(|f| f.return_type.as_deref() == Some(class_name.as_str()))
         {
             let cpp_fn_name = escape_method_name(&func.method_name);
@@ -212,7 +212,7 @@ impl CppDialect for Cpp17Generator {
         
         // Factory methods
         for func in ir.functions.iter()
-            .filter(|f| f.class_name == *class_name && matches!(f.kind, FunctionKind::Constructor))
+            .filter(|f| f.class_name == *class_name && is_constructor_or_default(f))
             .filter(|f| f.return_type.as_deref() != Some(class_name.as_str()))
         {
             let cpp_fn_name = escape_method_name(&func.method_name);
@@ -232,8 +232,8 @@ impl CppDialect for Cpp17Generator {
         // Instance methods
         for func in ir.functions.iter()
             .filter(|f| f.class_name == *class_name)
-            .filter(|f| !matches!(f.kind, FunctionKind::Constructor))
-            .filter(|f| !f.kind.is_trait_function())
+            .filter(|f| !is_constructor_or_default(f))
+            
         {
             let cpp_fn_name = escape_method_name(&func.method_name);
             let c_fn_name = &func.c_name;
@@ -441,7 +441,7 @@ impl Cpp17Generator {
     ) {
         // True constructors with [[nodiscard]]
         let constructors: Vec<_> = ir.functions.iter()
-            .filter(|f| f.class_name == class_name && matches!(f.kind, FunctionKind::Constructor))
+            .filter(|f| f.class_name == class_name && is_constructor_or_default(f))
             .filter(|f| f.return_type.as_deref() == Some(class_name))
             .collect();
         
@@ -459,7 +459,7 @@ impl Cpp17Generator {
         
         // Factory methods with [[nodiscard]]
         let factories: Vec<_> = ir.functions.iter()
-            .filter(|f| f.class_name == class_name && matches!(f.kind, FunctionKind::Constructor))
+            .filter(|f| f.class_name == class_name && is_constructor_or_default(f))
             .filter(|f| f.return_type.as_deref() != Some(class_name))
             .collect();
         
@@ -483,8 +483,8 @@ impl Cpp17Generator {
     ) {
         let methods: Vec<_> = ir.functions.iter()
             .filter(|f| f.class_name == class_name)
-            .filter(|f| !matches!(f.kind, FunctionKind::Constructor))
-            .filter(|f| !f.kind.is_trait_function())
+            .filter(|f| !is_constructor_or_default(f))
+            
             .collect();
         
         if !methods.is_empty() {

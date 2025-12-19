@@ -950,7 +950,7 @@ impl DropDown {
                             )];
                             IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11862789041977911489)
                         })
-                        .with_children(DomVec::from_vec(vec![Dom::text(
+                        .with_children(DomVec::from_vec(vec![Dom::create_text(
                             AzString::from_const_str("Checkbox"),
                         )
                         .with_inline_css_props(CSS_MATCH_16432538576103237591)])),

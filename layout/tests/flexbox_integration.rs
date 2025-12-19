@@ -580,7 +580,7 @@ fn test_flexbox_flex_basis_auto() {
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("item".into())].into())
-                .with_child(Dom::text("Content")),
+                .with_child(Dom::create_text("Content")),
         );
 
     let css = r#"

@@ -157,12 +157,12 @@ fn test_case_issue_93() {
         Dom::create_div()
             .with_ids_and_classes(vec![IdOrClass::Class("tabwidget-tab".into())].into())
             .with_child(
-                Dom::text("").with_ids_and_classes(
+                Dom::create_text("").with_ids_and_classes(
                     vec![IdOrClass::Class("tabwidget-tab-label".into())].into(),
                 ),
             )
             .with_child(
-                Dom::text("").with_ids_and_classes(
+                Dom::create_text("").with_ids_and_classes(
                     vec![IdOrClass::Class("tabwidget-tab-close".into())].into(),
                 ),
             )

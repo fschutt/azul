@@ -92,7 +92,7 @@ impl ConnectionStatus {
     pub fn dom(&self) -> Dom {
         match self {
             NotConnected { database } => Dom::create_div().with_children(vec![
-                Dom::text("Enter database to connect to:"),
+                Dom::create_text("Enter database to connect to:"),
                 TextInput::new()
                     .with_text(database.clone())
                     .with_on_text_input(data_clone.clone(), edit_database_input)
@@ -110,20 +110,20 @@ impl ConnectionStatus {
                 use self::ConnectionStage::*;
 
                 let progress_div = match stage {
-                    EstablishingConnection => Dom::text("Establishing connection..."),
+                    EstablishingConnection => Dom::create_text("Establishing connection..."),
                     ConnectionEstablished => {
-                        Dom::text("Connection established! Waiting for data...")
+                        Dom::create_text("Connection established! Waiting for data...")
                     }
                     LoadingData { percent_done } => Dom::create_div().with_children(vec![
-                        Dom::text("Loading data..."),
+                        Dom::create_text("Loading data..."),
                         ProgressBar::new(*percent_done).dom(),
                     ]),
-                    LoadingFinished => Dom::text("Loading finished!"),
+                    LoadingFinished => Dom::create_text("Loading finished!"),
                 };
 
                 let data_rendered_div = data_in_progress
                     .chunks(10)
-                    .map(|chunk| Dom::text(format!("{:?}", chunk)))
+                    .map(|chunk| Dom::create_text(format!("{:?}", chunk)))
                     .collect::<Dom>();
 
                 let stop_btn = Button::new("Stop thread")
@@ -135,7 +135,7 @@ impl ConnectionStatus {
             DataLoaded { data: data_loaded } => {
                 let data_rendered_div = data_loaded
                     .chunks(10)
-                    .map(|chunk| Dom::text(format!("{:?}", chunk)))
+                    .map(|chunk| Dom::create_text(format!("{:?}", chunk)))
                     .collect::<Dom>();
 
                 let reset_btn = Button::new("Reset")
@@ -145,7 +145,7 @@ impl ConnectionStatus {
                 Dom::create_div().with_children(vec![data_rendered_div, reset_btn])
             }
             Error { error } => {
-                let error_div = Dom::text(format!("{}", error));
+                let error_div = Dom::create_text(format!("{}", error));
 
                 let reset_btn = Button::new("Reset")
                     .with_on_click(data_clone.clone(), reset)

@@ -23,9 +23,9 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     if (!d) return StyledDom::default_value();
     
     // Create button
-    Dom button = Dom::div()
+    Dom button = Dom::create_div()
         .with_inline_style("margin-bottom: 10px; padding: 10px; background: #4CAF50; color: white;")
-        .with_child(Dom::text("Click me!"))
+        .with_child(Dom::create_text("Click me!"))
         .with_callback(On::MouseUp, data.clone(), on_button_click);
 
     // Create checkbox
@@ -56,10 +56,10 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
         .with_inline_style("margin-bottom: 10px;");
 
     // Compose body
-    Dom title = Dom::text("Widget Showcase")
+    Dom title = Dom::create_text("Widget Showcase")
         .with_inline_style("font-size: 24px; margin-bottom: 20px;");
 
-    Dom body = Dom::body()
+    Dom body = Dom::create_body()
         .with_inline_style("padding: 20px; font-family: sans-serif;")
         .with_child(title)
         .with_child(button)

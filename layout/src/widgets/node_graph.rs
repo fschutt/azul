@@ -2284,7 +2284,7 @@ fn render_node(
            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4480169002427296613)
         })
         .with_children(DomVec::from_vec(vec![
-           Dom::text(AzString::from_const_str("X"))
+           Dom::create_text(AzString::from_const_str("X"))
                .with_inline_css_props(CSS_MATCH_7395766480280098891)
                .with_callbacks(vec![
                    CoreCallbackData {
@@ -2298,7 +2298,7 @@ fn render_node(
                        &[Class(AzString::from_const_str("node_close_button"))];
                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_7122017923389407516)
                }),
-           Dom::text(node_info.node_type_name.clone())
+           Dom::create_text(node_info.node_type_name.clone())
                .with_inline_css_props(CSS_MATCH_1739273067404038547)
                .with_ids_and_classes({
                    const IDS_AND_CLASSES_15777790571346582635: &[IdOrClass] =
@@ -2362,7 +2362,7 @@ fn render_node(
                                                        IDS_AND_CLASSES_9154857442066749879,
                                                    )
                                                })
-                                               .with_children(DomVec::from_vec(vec![Dom::text(
+                                               .with_children(DomVec::from_vec(vec![Dom::create_text(
                                                    input_label.clone(),
                                                )
                                                .with_inline_css_props(
@@ -2456,7 +2456,7 @@ fn render_node(
                                    )
                                })
                                .with_children(DomVec::from_vec(vec![
-                                   Dom::text(field.key.clone())
+                                   Dom::create_text(field.key.clone())
                                    .with_inline_css_props(CSS_MATCH_1198521124955124418)
                                    .with_ids_and_classes({
                                        const IDS_AND_CLASSES_12334207996395559585:
@@ -2600,7 +2600,7 @@ fn render_node(
                                                        IDS_AND_CLASSES_1667960214206134147,
                                                    )
                                                })
-                                               .with_children(DomVec::from_vec(vec![Dom::text(
+                                               .with_children(DomVec::from_vec(vec![Dom::create_text(
                                                    output_label.clone(),
                                                )
                                                .with_inline_css_props(
@@ -2713,7 +2713,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                         cld.swap_horz = swap_horz;
 
                         let cld_refany = RefAny::new(cld);
-                        let connection_div = Dom::image(ImageRef::callback(
+                        let connection_div = Dom::create_image(ImageRef::callback(
                             draw_connection as usize,
                             cld_refany.clone(),
                         ))
