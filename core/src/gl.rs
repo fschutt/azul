@@ -2485,7 +2485,7 @@ impl_option!(
 );
 
 impl Texture {
-    pub fn new(
+    pub fn create(
         texture_id: GLuint,
         flags: TextureFlags,
         size: PhysicalSizeU32,
@@ -2534,7 +2534,7 @@ impl Texture {
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
         gl_context.bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);
 
-        Self::new(
+        Self::create(
             texture_id,
             TextureFlags {
                 is_opaque: false,
@@ -2889,7 +2889,7 @@ impl VertexLayout {
                 .map(|ll| *ll as i32)
                 .unwrap_or_else(|| {
                     gl_context
-                        .get_attrib_location(program_id, vertex_attribute.name.as_str().into())
+                        .get_attrib_location(program_id, vertex_attribute.va_name.as_str().into())
                 });
 
             gl_context.vertex_attrib_pointer(
@@ -2914,7 +2914,7 @@ impl VertexLayout {
                 .map(|ll| *ll as i32)
                 .unwrap_or_else(|| {
                     gl_context
-                        .get_attrib_location(program_id, vertex_attribute.name.as_str().into())
+                        .get_attrib_location(program_id, vertex_attribute.va_name.as_str().into())
                 });
             gl_context.disable_vertex_attrib_array(attribute_location as u32);
         }
@@ -3243,14 +3243,14 @@ impl IndexBufferFormat {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct Uniform {
-    pub name: AzString,
+    pub uniform_name: AzString,
     pub uniform_type: UniformType,
 }
 
 impl Uniform {
-    pub fn new<S: Into<AzString>>(name: S, uniform_type: UniformType) -> Self {
+    pub fn create<S: Into<AzString>>(name: S, uniform_type: UniformType) -> Self {
         Self {
-            name: name.into(),
+            uniform_name: name.into(),
             uniform_type,
         }
     }
@@ -3668,11 +3668,11 @@ impl GlShader {
         let mut max_uniform_len = 0;
         for (_, uniforms) in buffers {
             for uniform in uniforms.iter() {
-                if !uniform_locations.contains_key(&uniform.name) {
+                if !uniform_locations.contains_key(&uniform.uniform_name) {
                     uniform_locations.insert(
-                        uniform.name.clone(),
+                        uniform.uniform_name.clone(),
                         gl_context
-                            .get_uniform_location(shader_program_id, uniform.name.as_str().into()),
+                            .get_uniform_location(shader_program_id, uniform.uniform_name.as_str().into()),
                     );
                 }
             }
@@ -3695,7 +3695,7 @@ impl GlShader {
             // Only set the uniform if the value has changed
             for (uniform_index, uniform) in uniforms.iter().enumerate() {
                 if current_uniforms[uniform_index] != Some(uniform.uniform_type) {
-                    let uniform_location = uniform_locations[&uniform.name];
+                    let uniform_location = uniform_locations[&uniform.uniform_name];
                     uniform.uniform_type.set(gl_context.get(), uniform_location);
                     current_uniforms[uniform_index] = Some(uniform.uniform_type);
                 }

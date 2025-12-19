@@ -16,7 +16,7 @@ use azul_css::{
             StyleFontSize,
         },
         layout::{
-            LayoutBottom, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutFloat,
+            LayoutInsetBottom, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutFloat,
             LayoutHeight, LayoutJustifyContent, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft,
             LayoutMarginRight, LayoutMarginTop, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight,
             LayoutMinWidth, LayoutOverflow, LayoutPaddingBottom, LayoutPaddingLeft,

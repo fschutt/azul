@@ -562,7 +562,7 @@ impl VertexLayoutDescription for SvgVertex {
     fn get_description() -> VertexLayout {
         VertexLayout {
             fields: vec![VertexAttribute {
-                name: String::from("vAttrXY").into(),
+                va_name: String::from("vAttrXY").into(),
                 layout_location: None.into(),
                 attribute_type: VertexAttributeType::Float,
                 item_count: 2,
@@ -589,13 +589,13 @@ impl VertexLayoutDescription for SvgColoredVertex {
         VertexLayout {
             fields: vec![
                 VertexAttribute {
-                    name: String::from("vAttrXY").into(),
+                    va_name: String::from("vAttrXY").into(),
                     layout_location: None.into(),
                     attribute_type: VertexAttributeType::Float,
                     item_count: 3,
                 },
                 VertexAttribute {
-                    name: String::from("vColor").into(),
+                    va_name: String::from("vColor").into(),
                     layout_location: None.into(),
                     attribute_type: VertexAttributeType::Float,
                     item_count: 4,
@@ -853,18 +853,18 @@ impl TessellatedGPUSvgNode {
         // uniforms for the SVG shader
         let uniforms = [
             Uniform {
-                name: "vBboxSize".into(),
+                uniform_name: "vBboxSize".into(),
                 uniform_type: UniformType::FloatVec2([
                     target_size.width as f32,
                     target_size.height as f32,
                 ]),
             },
             Uniform {
-                name: "fDrawColor".into(),
+                uniform_name: "fDrawColor".into(),
                 uniform_type: UniformType::FloatVec4([color.r, color.g, color.b, color.a]),
             },
             Uniform {
-                name: "vTransformMatrix".into(),
+                uniform_name: "vTransformMatrix".into(),
                 uniform_type: UniformType::Matrix4 {
                     transpose: false,
                     matrix: unsafe { core::mem::transmute(column_major.m) },
@@ -934,14 +934,14 @@ impl TessellatedColoredGPUSvgNode {
         // uniforms for the SVG shader
         let uniforms = [
             Uniform {
-                name: "vBboxSize".into(),
+                uniform_name: "vBboxSize".into(),
                 uniform_type: UniformType::FloatVec2([
                     target_size.width as f32,
                     target_size.height as f32,
                 ]),
             },
             Uniform {
-                name: "vTransformMatrix".into(),
+                uniform_name: "vTransformMatrix".into(),
                 uniform_type: UniformType::Matrix4 {
                     transpose: false,
                     matrix: unsafe { core::mem::transmute(column_major.m) },

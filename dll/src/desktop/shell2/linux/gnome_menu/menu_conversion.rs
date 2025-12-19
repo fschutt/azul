@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_convert_empty_menu() {
-        let menu = azul_core::menu::Menu::new(azul_core::menu::MenuItemVec::from_vec(vec![]));
+        let menu = azul_core::menu::Menu::create(azul_core::menu::MenuItemVec::from_vec(vec![]));
         let result = MenuConversion::convert_menu(&menu).unwrap();
 
         // Should have at least the root group

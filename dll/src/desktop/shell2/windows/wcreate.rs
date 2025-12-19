@@ -63,7 +63,7 @@ pub fn create_hwnd(
 ) -> Result<HWND, WindowError> {
     unsafe {
         let mut class_name = encode_wide(CLASS_NAME);
-        let mut window_title = encode_wide(options.state.title.as_str());
+        let mut window_title = encode_wide(options.window_state.title.as_str());
 
         let parent = parent_hwnd.unwrap_or(ptr::null_mut());
 
@@ -72,8 +72,8 @@ pub fn create_hwnd(
             (0, 0)
         } else {
             (
-                libm::roundf(options.state.size.dimensions.width) as i32,
-                libm::roundf(options.state.size.dimensions.height) as i32,
+                libm::roundf(options.window_state.size.dimensions.width) as i32,
+                libm::roundf(options.window_state.size.dimensions.height) as i32,
             )
         };
 

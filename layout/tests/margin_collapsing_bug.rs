@@ -47,7 +47,7 @@ fn test_margin_collapsing() {
 
     // 3. Create StyledDom
     let mut dom = dom; // needs to be mutable for StyledDom::new
-    let styled_dom = StyledDom::new_node(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
 
     // 4. Initialize LayoutWindow
     let font_cache = FcFontCache::build();

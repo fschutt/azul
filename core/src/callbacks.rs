@@ -111,17 +111,12 @@ pub struct LayoutCallback {
     /// Native Rust code sets this to None
     pub ctx: OptionRefAny,
 }
-impl_callback!(LayoutCallback);
+
+impl_callback!(LayoutCallback, LayoutCallbackType);
 
 impl LayoutCallback {
-    pub fn new(cb: LayoutCallbackType) -> Self {
-        Self { cb, ctx: OptionRefAny::None }
-    }
-}
-
-impl From<LayoutCallbackType> for LayoutCallback {
-    fn from(cb: LayoutCallbackType) -> Self {
-        Self::new(cb)
+    pub fn create<I: Into<Self>>(cb: I) -> Self {
+        cb.into()
     }
 }
 
@@ -129,7 +124,7 @@ impl Default for LayoutCallback {
     fn default() -> Self {
         Self {
             cb: default_layout_callback,
-            callable: OptionRefAny::None,
+            ctx: OptionRefAny::None,
         }
     }
 }
@@ -147,17 +142,11 @@ pub struct IFrameCallback {
     /// Native Rust code sets this to None
     pub ctx: OptionRefAny,
 }
-impl_callback!(IFrameCallback);
+impl_callback!(IFrameCallback, IFrameCallbackType);
 
 impl IFrameCallback {
-    pub fn new(cb: IFrameCallbackType) -> Self {
+    pub fn create(cb: IFrameCallbackType) -> Self {
         Self { cb, ctx: OptionRefAny::None }
-    }
-}
-
-impl From<IFrameCallbackType> for IFrameCallback {
-    fn from(cb: IFrameCallbackType) -> Self {
-        Self::new(cb)
     }
 }
 
@@ -259,7 +248,7 @@ impl IFrameCallbackInfo {
     }
 
     /// Get the callable for FFI language bindings (Python, etc.)
-    pub fn get_callable(&self) -> OptionRefAny {
+    pub fn get_ctx(&self) -> OptionRefAny {
         if self.callable_ptr.is_null() {
             OptionRefAny::None
         } else {
@@ -524,7 +513,7 @@ impl LayoutCallbackInfo {
     }
 
     /// Get the callable for FFI language bindings (Python, etc.)
-    pub fn get_callable(&self) -> OptionRefAny {
+    pub fn get_ctx(&self) -> OptionRefAny {
         if self.callable_ptr.is_null() {
             OptionRefAny::None
         } else {
@@ -730,7 +719,7 @@ pub struct CoreCallback {
     pub cb: CoreCallbackType,
     /// For FFI: stores the foreign callable (e.g., PyFunction)
     /// Native Rust code sets this to None
-    pub callable: OptionRefAny,
+    pub ctx: OptionRefAny,
 }
 
 /// Allow creating CoreCallback from a raw function pointer (as usize)
@@ -739,7 +728,7 @@ impl From<CoreCallbackType> for CoreCallback {
     fn from(cb: CoreCallbackType) -> Self {
         CoreCallback {
             cb,
-            callable: OptionRefAny::None,
+            ctx: OptionRefAny::None,
         }
     }
 }
@@ -815,7 +804,7 @@ pub struct CoreRenderImageCallback {
     pub cb: CoreRenderImageCallbackType,
     /// For FFI: stores the foreign callable (e.g., PyFunction)
     /// Native Rust code sets this to None
-    pub callable: OptionRefAny,
+    pub ctx: OptionRefAny,
 }
 
 /// Allow creating CoreRenderImageCallback from a raw function pointer (as usize)
@@ -824,7 +813,7 @@ impl From<CoreRenderImageCallbackType> for CoreRenderImageCallback {
     fn from(cb: CoreRenderImageCallbackType) -> Self {
         CoreRenderImageCallback {
             cb,
-            callable: OptionRefAny::None,
+            ctx: OptionRefAny::None,
         }
     }
 }
@@ -833,6 +822,6 @@ impl From<CoreRenderImageCallbackType> for CoreRenderImageCallback {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CoreImageCallback {
-    pub data: RefAny,
+    pub refany: RefAny,
     pub callback: CoreRenderImageCallback,
 }

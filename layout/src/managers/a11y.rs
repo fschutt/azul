@@ -212,12 +212,12 @@ impl A11yManager {
         // Set node properties based on AccessibilityInfo and NodeType
         if let Some(info) = a11y_info {
             // Name/Label
-            if let Some(name) = info.name.as_option() {
+            if let Some(name) = info.accessibility_name.as_option() {
                 builder.set_label(name.as_str());
             }
 
             // Value (for inputs, sliders, etc.)
-            if let Some(value) = info.value.as_option() {
+            if let Some(value) = info.accessibility_value.as_option() {
                 builder.set_value(value.as_str());
             }
 
@@ -453,8 +453,8 @@ fn map_accesskit_action(request: ActionRequest) -> Option<AccessibilityAction> {
                 return None;
             };
             AccessibilityAction::SetTextSelection(TextSelectionStartEnd {
-                start: selection.anchor.character_index,
-                end: selection.focus.character_index,
+                selection_start: selection.anchor.character_index,
+                selection_end: selection.focus.character_index,
             })
         }
         Action::SetValue => match request.data? {

@@ -932,21 +932,21 @@ impl WaylandWindow {
             screensaver_inhibit_cookie: None,
             dbus_connection: None,
             current_window_state: FullWindowState {
-                title: options.state.title.clone(),
-                size: options.state.size,
-                position: options.state.position,
-                flags: options.state.flags,
-                theme: options.state.theme,
-                debug_state: options.state.debug_state,
-                keyboard_state: options.state.keyboard_state.clone(),
-                mouse_state: options.state.mouse_state.clone(),
-                touch_state: options.state.touch_state.clone(),
-                ime_position: options.state.ime_position,
-                platform_specific_options: options.state.platform_specific_options.clone(),
-                renderer_options: options.state.renderer_options,
-                background_color: options.state.background_color,
-                layout_callback: options.state.layout_callback.clone(),
-                close_callback: options.state.close_callback.clone(),
+                title: options.window_state.title.clone(),
+                size: options.window_state.size,
+                position: options.window_state.position,
+                flags: options.window_state.flags,
+                theme: options.window_state.theme,
+                debug_state: options.window_state.debug_state,
+                keyboard_state: options.window_state.keyboard_state.clone(),
+                mouse_state: options.window_state.mouse_state.clone(),
+                touch_state: options.window_state.touch_state.clone(),
+                ime_position: options.window_state.ime_position,
+                platform_specific_options: options.window_state.platform_specific_options.clone(),
+                renderer_options: options.window_state.renderer_options,
+                background_color: options.window_state.background_color,
+                layout_callback: options.window_state.layout_callback.clone(),
+                close_callback: options.window_state.close_callback.clone(),
                 monitor_id: OptionU32::None, // Monitor ID will be detected from platform
                 window_focused: false,
             },
@@ -1026,16 +1026,16 @@ impl WaylandWindow {
 
         window.xdg_toplevel =
             unsafe { (window.wayland.xdg_surface_get_toplevel)(window.xdg_surface) };
-        let title = CString::new(options.state.title.as_str()).unwrap();
+        let title = CString::new(options.window_state.title.as_str()).unwrap();
         unsafe { (window.wayland.xdg_toplevel_set_title)(window.xdg_toplevel, title.as_ptr()) };
 
-        let width = options.state.size.dimensions.width as i32;
-        let height = options.state.size.dimensions.height as i32;
+        let width = options.window_state.size.dimensions.width as i32;
+        let height = options.window_state.size.dimensions.height as i32;
 
         let render_mode = match gl::GlContext::new(&wayland, display, window.surface, width, height)
         {
             Ok(mut gl_context) => {
-                gl_context.configure_vsync(options.state.renderer_options.vsync);
+                gl_context.configure_vsync(options.window_state.renderer_options.vsync);
                 let gl_functions =
                     GlFunctions::initialize(gl_context.egl.as_ref().unwrap()).unwrap();
                 RenderMode::Gpu(gl_context, gl_functions)
@@ -1064,8 +1064,8 @@ impl WaylandWindow {
 
         // TODO: Window positioning on Wayland
         // Wayland does not support programmatic window positioning - the compositor
-        // decides where windows are placed. The options.state.position and
-        // options.state.monitor fields are hints that may be ignored.
+        // decides where windows are placed. The options.window_state.position and
+        // options.window_state.monitor fields are hints that may be ignored.
         //
         // For feature parity with X11/Windows/macOS, we would position the window here,
         // but Wayland protocol intentionally does not provide this capability.
@@ -1076,10 +1076,10 @@ impl WaylandWindow {
         window.position_window_on_monitor(&options);
 
         // Initialize GNOME menu integration V2 (dlopen-based, no compile-time dependency)
-        if options.state.flags.use_native_menus && super::gnome_menu::should_use_gnome_menus() {
+        if options.window_state.flags.use_native_menus && super::gnome_menu::should_use_gnome_menus() {
             // Get shared DBus library instance (loaded once, shared across all windows)
             if let Some(dbus_lib) = super::gnome_menu::get_shared_dbus_lib() {
-                let app_name = &options.state.title;
+                let app_name = &options.window_state.title;
 
                 match super::gnome_menu::GnomeMenuManagerV2::new(app_name, dbus_lib) {
                     Ok(manager) => {
@@ -1126,7 +1126,7 @@ impl WaylandWindow {
         //
         // This function exists for API consistency across platforms, but is a no-op
         // on Wayland. Applications should:
-        // 1. Use options.state.monitor as a hint (may be ignored by compositor)
+        // 1. Use options.window_state.monitor as a hint (may be ignored by compositor)
         // 2. Track actual monitor via get_current_monitor_id() after mapping
         // 3. Handle windows opening on unexpected monitors gracefully
         //
@@ -2578,7 +2578,7 @@ impl WaylandPopup {
         // 10. Create window state
         let current_window_state = FullWindowState {
             title: "Popup".to_string().into(),
-            size: options.state.size,
+            size: options.window_state.size,
             position: parent.current_window_state.position,
             flags: parent.current_window_state.flags,
             theme: parent.current_window_state.theme,
@@ -2593,8 +2593,8 @@ impl WaylandPopup {
                 .clone(),
             renderer_options: parent.current_window_state.renderer_options,
             background_color: parent.current_window_state.background_color,
-            layout_callback: options.state.layout_callback.clone(),
-            close_callback: options.state.close_callback.clone(),
+            layout_callback: options.window_state.layout_callback.clone(),
+            close_callback: options.window_state.close_callback.clone(),
             monitor_id: parent.current_window_state.monitor_id,
             window_focused: false,
         };

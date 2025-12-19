@@ -2319,7 +2319,7 @@ pub struct Ribbon {
 }
 
 pub type RibbonOnTabClickedCallbackType = extern "C" fn(RefAny, CallbackInfo, i32) -> Update;
-impl_callback!(
+impl_widget_callback!(
     RibbonOnTabClicked,
     OptionRibbonOnTabClicked,
     RibbonOnTabClickedCallback,
@@ -2740,7 +2740,7 @@ fn render_tab_element(
     active: bool,
     which_tab_to_activate_on_click: i32,
     callback: RibbonOnTabClickedCallback,
-    data: RefAny,
+    refany: RefAny,
 ) -> Dom {
     Dom::text(AzString::from_const_str(text))
         .with_inline_css_props(if active {
@@ -2753,20 +2753,20 @@ fn render_tab_element(
                 event: EventFilter::Hover(HoverEventFilter::MouseUp), // onmouseup
                 callback: CoreCallback {
                     cb: my_callback as usize,
-                    callable: azul_core::refany::OptionRefAny::None,
+                    ctx: azul_core::refany::OptionRefAny::None,
                 },
-                data: RefAny::new(MyCustomStruct {
+                refany: RefAny::new(MyCustomStruct {
                     which_tab_to_activate_on_click,
                     on_tab_change_callback: callback,
-                    on_tab_change_data: data,
+                    on_tab_change_data: refany,
                 }),
             }]
             .into(),
         )
 }
 
-extern "C" fn my_callback(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let mut data = match data.downcast_mut::<MyCustomStruct>() {
+extern "C" fn my_callback(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    let mut data = match refany.downcast_mut::<MyCustomStruct>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };

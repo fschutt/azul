@@ -1076,7 +1076,7 @@ impl MacOSWindow {
                     menu_item.setTitle(&title);
 
                     // Set enabled/disabled state based on MenuItemState
-                    let enabled = match string_item.state {
+                    let enabled = match string_item.menu_item_state {
                         azul_core::menu::MenuItemState::Normal => true,
                         azul_core::menu::MenuItemState::Disabled => false,
                         azul_core::menu::MenuItemState::Greyed => false,

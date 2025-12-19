@@ -617,7 +617,7 @@ impl PrintAsCssValue for StyleBackgroundSizeVec {
 #[repr(C)]
 pub enum StyleBackgroundRepeat {
     NoRepeat,
-    Repeat,
+    PatternRepeat,
     RepeatX,
     RepeatY,
 }
@@ -639,14 +639,14 @@ impl_vec_eq!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
 impl_vec_hash!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
 impl Default for StyleBackgroundRepeat {
     fn default() -> Self {
-        StyleBackgroundRepeat::Repeat
+        StyleBackgroundRepeat::PatternRepeat
     }
 }
 impl PrintAsCssValue for StyleBackgroundRepeat {
     fn print_as_css_value(&self) -> String {
         match self {
             Self::NoRepeat => "no-repeat".to_string(),
-            Self::Repeat => "repeat".to_string(),
+            Self::PatternRepeat => "repeat".to_string(),
             Self::RepeatX => "repeat-x".to_string(),
             Self::RepeatY => "repeat-y".to_string(),
         }
@@ -1167,7 +1167,7 @@ mod parser {
     ) -> Result<StyleBackgroundRepeat, InvalidValueErr<'a>> {
         match input.trim() {
             "no-repeat" => Ok(StyleBackgroundRepeat::NoRepeat),
-            "repeat" => Ok(StyleBackgroundRepeat::Repeat),
+            "repeat" => Ok(StyleBackgroundRepeat::PatternRepeat),
             "repeat-x" => Ok(StyleBackgroundRepeat::RepeatX),
             "repeat-y" => Ok(StyleBackgroundRepeat::RepeatY),
             _ => Err(InvalidValueErr(input)),
@@ -1728,8 +1728,8 @@ mod tests {
             assert_eq!(
                 grad.direction,
                 Direction::FromTo(DirectionCorners {
-                    from: DirectionCorner::Left,
-                    to: DirectionCorner::Right
+                    dir_from: DirectionCorner::Left,
+                    dir_to: DirectionCorner::Right
                 })
             );
         }
@@ -1818,7 +1818,7 @@ mod tests {
     fn test_parse_background_repeat() {
         assert_eq!(
             parse_style_background_repeat("repeat").unwrap(),
-            StyleBackgroundRepeat::Repeat
+            StyleBackgroundRepeat::PatternRepeat
         );
         assert_eq!(
             parse_style_background_repeat("repeat-x").unwrap(),
@@ -1943,8 +1943,8 @@ mod tests {
             assert_eq!(
                 grad.direction,
                 Direction::FromTo(DirectionCorners {
-                    from: DirectionCorner::BottomLeft,
-                    to: DirectionCorner::TopRight
+                    dir_from: DirectionCorner::BottomLeft,
+                    dir_to: DirectionCorner::TopRight
                 })
             );
         } else {

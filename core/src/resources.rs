@@ -99,7 +99,7 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub fn new() -> Self {
+    pub fn create() -> Self {
         Self {
             log_level: AppLogLevel::Error,
             enable_visual_panic_hook: false,
@@ -112,7 +112,7 @@ impl AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        Self::new()
+        Self::create()
     }
 }
 
@@ -506,7 +506,7 @@ impl ImageRef {
     pub fn callback<C: Into<CoreRenderImageCallback>>(callback: C, data: RefAny) -> Self {
         Self::new(DecodedImage::Callback(CoreImageCallback {
             callback: callback.into(),
-            data,
+            refany: data,
         }))
     }
 

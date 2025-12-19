@@ -131,7 +131,7 @@ impl GpuValueCache {
             .into_iter()
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
-                let styled_node_state = &node_states[node_id].state;
+                let styled_node_state = &node_states[node_id].styled_node_state;
                 let node_data = &node_data[node_id];
                 let current_transform = css_property_cache
                     .get_transform(node_data, &node_id, styled_node_state)?
@@ -205,7 +205,7 @@ impl GpuValueCache {
             .into_iter()
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
-                let styled_node_state = &node_states[node_id].state;
+                let styled_node_state = &node_states[node_id].styled_node_state;
                 let node_data = &node_data[node_id];
                 let current_opacity =
                     css_property_cache.get_opacity(node_data, &node_id, styled_node_state)?;

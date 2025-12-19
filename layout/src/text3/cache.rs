@@ -1788,15 +1788,15 @@ impl ShapeBoundary {
 
             CssShape::Inset(inset) => {
                 // Inset defines distances from reference box edges
-                let x = reference_box.x + inset.left;
-                let y = reference_box.y + inset.top;
-                let width = reference_box.width - inset.left - inset.right;
-                let height = reference_box.height - inset.top - inset.bottom;
+                let x = reference_box.x + inset.inset_left;
+                let y = reference_box.y + inset.inset_top;
+                let width = reference_box.width - inset.inset_left - inset.inset_right;
+                let height = reference_box.height - inset.inset_top - inset.inset_bottom;
 
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(format!(
                         "[ShapeBoundary::from_css_shape] Inset - insets: ({}, {}, {}, {})",
-                        inset.top, inset.right, inset.bottom, inset.left
+                        inset.inset_top, inset.inset_right, inset.inset_bottom, inset.inset_left
                     )));
                     msgs.push(LayoutDebugMessage::info(format!(
                         "[ShapeBoundary::from_css_shape] Inset - resulting rect: x={}, y={}, \
@@ -5754,7 +5754,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
         //   <img style="vertical-align: middle"> would center in line box
         //   <img style="vertical-align: bottom"> would align to line bottom
         //
-        // To fix this, we would need to:
+        // To fix this, we would need dir_to: 
         // 1. Add a helper function `get_item_vertical_align(&item)` that extracts the alignment
         //    from ShapedItem::Object -> InlineContent::Image -> alignment
         // 2. Use that alignment instead of `constraints.vertical_align` for Objects

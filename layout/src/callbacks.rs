@@ -281,15 +281,15 @@ pub struct Callback {
     pub cb: CallbackType,
     /// For FFI: stores the foreign callable (e.g., PyFunction)
     /// Native Rust code sets this to None
-    pub callable: OptionRefAny,
+    pub ctx: OptionRefAny,
 }
 
 impl_callback!(Callback, CallbackType);
 
 impl Callback {
     /// Create a new callback with just a function pointer (for native Rust code)
-    pub fn new(cb: CallbackType) -> Self {
-        Self { cb, callable: OptionRefAny::None }
+    pub fn create(cb: CallbackType) -> Self {
+        Self { cb, ctx: OptionRefAny::None }
     }
 
     /// Convert from CoreCallback (stored as usize) to Callback (actual function pointer)
@@ -301,7 +301,7 @@ impl Callback {
     pub fn from_core(core: CoreCallback) -> Self {
         Self {
             cb: unsafe { core::mem::transmute(core.cb) },
-            callable: OptionRefAny::None,
+            ctx: OptionRefAny::None,
         }
     }
 
@@ -311,7 +311,7 @@ impl Callback {
     pub fn to_core(self) -> CoreCallback {
         CoreCallback {
             cb: self.cb as usize,
-            callable: self.callable,
+            ctx: self.ctx,
         }
     }
 }
@@ -433,7 +433,7 @@ pub struct CallbackInfoRefData<'a> {
     pub system_style: Arc<SystemStyle>,
     /// The callable for FFI language bindings (Python, etc.)
     /// Cloned from the Callback struct before invocation. Native Rust callbacks have this as None.
-    pub callable: OptionRefAny,
+    pub ctx: OptionRefAny,
 }
 
 /// CallbackInfo is a lightweight wrapper around pointers to stack-local data.
@@ -489,8 +489,8 @@ impl CallbackInfo {
     ///
     /// Returns the cloned OptionRefAny if a callable was set, or None if this
     /// is a native Rust callback.
-    pub fn get_callable(&self) -> OptionRefAny {
-        unsafe { (*self.ref_data).callable.clone() }
+    pub fn get_ctx(&self) -> OptionRefAny {
+        unsafe { (*self.ref_data).ctx.clone() }
     }
 
     // Helper methods for transaction system
@@ -1590,7 +1590,7 @@ impl CallbackInfo {
         // Get the styled node state
         let styled_nodes_container = styled_dom.styled_nodes.as_container();
         let styled_node = styled_nodes_container.get(internal_node_id)?;
-        let node_state = &styled_node.state;
+        let node_state = &styled_node.styled_node_state;
 
         // Query the CSS property cache
         let css_property_cache = &styled_dom.css_property_cache.ptr;
@@ -2792,7 +2792,7 @@ impl azul_core::events::CallbackResultRef for CallCallbacksResult {
 #[repr(C)]
 pub struct MenuCallback {
     pub callback: Callback,
-    pub data: RefAny,
+    pub refany: RefAny,
 }
 
 /// Optional MenuCallback
@@ -2855,15 +2855,15 @@ pub struct RenderImageCallback {
     pub cb: RenderImageCallbackType,
     /// For FFI: stores the foreign callable (e.g., PyFunction)
     /// Native Rust code sets this to None
-    pub callable: OptionRefAny,
+    pub ctx: OptionRefAny,
 }
 
 impl_callback!(RenderImageCallback, RenderImageCallbackType);
 
 impl RenderImageCallback {
     /// Create a new callback with just a function pointer (for native Rust code)
-    pub fn new(cb: RenderImageCallbackType) -> Self {
-        Self { cb, callable: OptionRefAny::None }
+    pub fn create(cb: RenderImageCallbackType) -> Self {
+        Self { cb, ctx: OptionRefAny::None }
     }
 
     /// Convert from the core crate's `CoreRenderImageCallback` (which stores cb as usize)
@@ -2876,7 +2876,7 @@ impl RenderImageCallback {
     pub fn from_core(core_callback: &azul_core::callbacks::CoreRenderImageCallback) -> Self {
         Self {
             cb: unsafe { core::mem::transmute(core_callback.cb) },
-            callable: core_callback.callable.clone(),
+            ctx: core_callback.ctx.clone(),
         }
     }
 
@@ -2886,7 +2886,7 @@ impl RenderImageCallback {
     pub fn to_core(self) -> azul_core::callbacks::CoreRenderImageCallback {
         azul_core::callbacks::CoreRenderImageCallback {
             cb: self.cb as usize,
-            callable: self.callable,
+            ctx: self.ctx,
         }
     }
 }
@@ -2952,7 +2952,7 @@ impl RenderImageCallbackInfo {
     }
 
     /// Get the callable for FFI language bindings (Python, etc.)
-    pub fn get_callable(&self) -> OptionRefAny {
+    pub fn get_ctx(&self) -> OptionRefAny {
         if self.callable_ptr.is_null() {
             OptionRefAny::None
         } else {

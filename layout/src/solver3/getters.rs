@@ -1124,7 +1124,7 @@ pub fn get_display_property(
     let Some(id) = dom_id else {
         return MultiValue::Exact(LayoutDisplay::Inline);
     };
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     get_display_property_internal(styled_dom, id, node_state)
 }
 
@@ -1132,7 +1132,7 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
     use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
 
     let node_data = &styled_dom.node_data.as_container()[dom_id];
-    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let cache = &styled_dom.css_property_cache.ptr;
 
     // NEW: Get ALL fonts from CSS font-family, not just first
@@ -1158,7 +1158,7 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
                 .get_font_size(
                     &styled_dom.node_data.as_container()[parent_id],
                     &parent_id,
-                    &styled_dom.styled_nodes.as_container()[parent_id].state,
+                    &styled_dom.styled_nodes.as_container()[parent_id].styled_node_state,
                 )
                 .and_then(|v| v.get_property().cloned())
                 .map(|v| {
@@ -1288,7 +1288,7 @@ pub fn get_list_style_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> St
         return StyleListStyleType::default();
     };
     let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     styled_dom
         .css_property_cache
         .ptr
@@ -1305,7 +1305,7 @@ pub fn get_list_style_position(
         return StyleListStylePosition::default();
     };
     let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     styled_dom
         .css_property_cache
         .ptr
@@ -1317,7 +1317,7 @@ pub fn get_list_style_position(
 // New: Taffy Bridge Getters - Box Model Properties with Ua Css Fallback
 
 use azul_css::props::layout::{
-    LayoutBottom, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight,
+    LayoutInsetBottom, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight,
     LayoutMarginTop, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight, LayoutMinWidth,
     LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutRight,
     LayoutTop,
@@ -1448,7 +1448,7 @@ pub fn get_break_before(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageB
         return PageBreak::Auto;
     };
     let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     styled_dom
         .css_property_cache
         .ptr
@@ -1463,7 +1463,7 @@ pub fn get_break_after(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBr
         return PageBreak::Auto;
     };
     let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     styled_dom
         .css_property_cache
         .ptr
@@ -1478,7 +1478,7 @@ pub fn get_break_inside(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Break
         return BreakInside::Auto;
     };
     let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     styled_dom
         .css_property_cache
         .ptr
@@ -1493,7 +1493,7 @@ pub fn get_orphans(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
         return 2; // Default value
     };
     let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     styled_dom
         .css_property_cache
         .ptr
@@ -1509,7 +1509,7 @@ pub fn get_widows(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
         return 2; // Default value
     };
     let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     styled_dom
         .css_property_cache
         .ptr
@@ -1528,7 +1528,7 @@ pub fn get_box_decoration_break(
         return BoxDecorationBreak::Slice;
     };
     let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     styled_dom
         .css_property_cache
         .ptr
@@ -1652,7 +1652,7 @@ pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedF
             None => continue,
         };
 
-        let node_state = &styled_nodes_container[dom_id].state;
+        let node_state = &styled_nodes_container[dom_id].styled_node_state;
 
         // Get font families from CSS
         let font_families = cache

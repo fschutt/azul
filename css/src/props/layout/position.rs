@@ -134,7 +134,7 @@ macro_rules! define_position_property {
 
 define_position_property!(LayoutTop);
 define_position_property!(LayoutRight);
-define_position_property!(LayoutBottom);
+define_position_property!(LayoutInsetBottom);
 define_position_property!(LayoutLeft);
 
 // -- Parser for LayoutTop
@@ -220,46 +220,46 @@ pub fn parse_layout_right<'a>(input: &'a str) -> Result<LayoutRight, LayoutRight
         .map_err(Into::into)
 }
 
-// -- Parser for LayoutBottom
+// -- Parser for LayoutInsetBottom
 
 #[derive(Clone, PartialEq)]
-pub enum LayoutBottomParseError<'a> {
+pub enum LayoutInsetBottomParseError<'a> {
     PixelValue(CssPixelValueParseError<'a>),
 }
-impl_debug_as_display!(LayoutBottomParseError<'a>);
-impl_display! { LayoutBottomParseError<'a>, { PixelValue(e) => format!("{}", e), }}
+impl_debug_as_display!(LayoutInsetBottomParseError<'a>);
+impl_display! { LayoutInsetBottomParseError<'a>, { PixelValue(e) => format!("{}", e), }}
 impl_from!(
     CssPixelValueParseError<'a>,
-    LayoutBottomParseError::PixelValue
+    LayoutInsetBottomParseError::PixelValue
 );
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum LayoutBottomParseErrorOwned {
+pub enum LayoutInsetBottomParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
-impl<'a> LayoutBottomParseError<'a> {
-    pub fn to_contained(&self) -> LayoutBottomParseErrorOwned {
+impl<'a> LayoutInsetBottomParseError<'a> {
+    pub fn to_contained(&self) -> LayoutInsetBottomParseErrorOwned {
         match self {
-            LayoutBottomParseError::PixelValue(e) => {
-                LayoutBottomParseErrorOwned::PixelValue(e.to_contained())
+            LayoutInsetBottomParseError::PixelValue(e) => {
+                LayoutInsetBottomParseErrorOwned::PixelValue(e.to_contained())
             }
         }
     }
 }
-impl LayoutBottomParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> LayoutBottomParseError<'a> {
+impl LayoutInsetBottomParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> LayoutInsetBottomParseError<'a> {
         match self {
-            LayoutBottomParseErrorOwned::PixelValue(e) => {
-                LayoutBottomParseError::PixelValue(e.to_shared())
+            LayoutInsetBottomParseErrorOwned::PixelValue(e) => {
+                LayoutInsetBottomParseError::PixelValue(e.to_shared())
             }
         }
     }
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_bottom<'a>(input: &'a str) -> Result<LayoutBottom, LayoutBottomParseError<'a>> {
+pub fn parse_layout_bottom<'a>(input: &'a str) -> Result<LayoutInsetBottom, LayoutInsetBottomParseError<'a>> {
     parse_pixel_value(input)
-        .map(|v| LayoutBottom { inner: v })
+        .map(|v| LayoutInsetBottom { inner: v })
         .map_err(Into::into)
 }
 
@@ -485,7 +485,7 @@ mod tests {
         );
         assert_eq!(
             parse_layout_bottom("2.5em").unwrap(),
-            LayoutBottom {
+            LayoutInsetBottom {
                 inner: PixelValue::em(2.5)
             }
         );

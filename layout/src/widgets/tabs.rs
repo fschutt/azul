@@ -22,8 +22,8 @@ const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-ser
 const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         }),
         extend_mode: ExtendMode::Clamp,
         stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -34,8 +34,8 @@ const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundConte
 const STYLE_BACKGROUND_CONTENT_15534185073326444643_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         }),
         extend_mode: ExtendMode::Clamp,
         stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -1191,7 +1191,7 @@ pub struct TabHeaderState {
 }
 
 pub type TabOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo, TabHeaderState) -> Update;
-impl_callback!(
+impl_widget_callback!(
     TabOnClick,
     OptionTabOnClick,
     TabOnClickCallback,
@@ -1199,7 +1199,7 @@ impl_callback!(
 );
 
 impl TabHeader {
-    pub fn new(tabs: StringVec) -> Self {
+    pub fn create(tabs: StringVec) -> Self {
         Self {
             tabs,
             active_tab: 0,
@@ -1222,16 +1222,16 @@ impl TabHeader {
         self
     }
 
-    pub fn set_on_click<C: Into<TabOnClickCallback>>(&mut self, data: RefAny, on_click: C) {
+    pub fn set_on_click<C: Into<TabOnClickCallback>>(&mut self, refany: RefAny, on_click: C) {
         self.on_click = Some(TabOnClick {
-            data,
+            refany,
             callback: on_click.into(),
         })
         .into();
     }
 
-    pub fn with_on_click<C: Into<TabOnClickCallback>>(mut self, data: RefAny, on_click: C) -> Self {
-        self.set_on_click(data, on_click);
+    pub fn with_on_click<C: Into<TabOnClickCallback>>(mut self, refany: RefAny, on_click: C) -> Self {
+        self.set_on_click(refany, on_click);
         self
     }
 
@@ -1335,9 +1335,9 @@ impl TabHeader {
                                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                                     callback: CoreCallback {
                                         cb: on_tab_click as usize,
-                                        callable: azul_core::refany::OptionRefAny::None,
+                                        ctx: azul_core::refany::OptionRefAny::None,
                                     },
-                                    data: dataset.clone(),
+                                    refany: dataset.clone(),
                                 }]
                                 .into()
                             } else {
@@ -1431,9 +1431,9 @@ struct TabLocalDataset {
     on_click: OptionTabOnClick,
 }
 
-extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    fn select_new_tab_inner(mut data: RefAny, info: &mut CallbackInfo) -> Option<()> {
-        let mut tab_local_dataset = data.downcast_mut::<TabLocalDataset>()?;
+extern "C" fn on_tab_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    fn select_new_tab_inner(mut refany: RefAny, info: &mut CallbackInfo) -> Option<()> {
+        let mut tab_local_dataset = refany.downcast_mut::<TabLocalDataset>()?;
         let tab_idx = tab_local_dataset.tab_idx;
         let tab_header_state = TabHeaderState {
             active_tab: tab_idx,
@@ -1445,8 +1445,8 @@ extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
             let onclick = &mut tab_local_dataset.on_click;
 
             match onclick.as_mut() {
-                Some(TabOnClick { callback, data }) => {
-                    (callback.cb)(data.clone(), info.clone(), tab_header_state)
+                Some(TabOnClick { callback, refany }) => {
+                    (callback.cb)(refany.clone(), info.clone(), tab_header_state)
                 }
                 None => Update::DoNothing,
             }
@@ -1455,7 +1455,7 @@ extern "C" fn on_tab_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
         Some(())
     }
 
-    let _ = select_new_tab_inner(data, &mut info);
+    let _ = select_new_tab_inner(refany, &mut info);
 
     Update::RefreshDom
 }

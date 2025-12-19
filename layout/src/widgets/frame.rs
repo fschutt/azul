@@ -247,7 +247,7 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub fn new(title: AzString, content: Dom) -> Self {
+    pub fn create(title: AzString, content: Dom) -> Self {
         Self {
             title,
             content,
@@ -256,7 +256,7 @@ impl Frame {
     }
 
     pub fn swap_with_default(&mut self) -> Self {
-        let mut s = Self::new(AzString::from_const_str(""), Dom::new_div());
+        let mut s = Self::create(AzString::from_const_str(""), Dom::new_div());
         core::mem::swap(&mut s, self);
         s
     }

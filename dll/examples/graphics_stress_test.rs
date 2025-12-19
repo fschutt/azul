@@ -217,13 +217,13 @@ fn main() {
 
     let model = StressTestData { frame_count: 0 };
     let data = RefAny::new(model);
-    let config = AppConfig::new();
-    let app = App::new(data, config);
+    let config = AppConfig::create();
+    let app = App::create(data, config);
 
-    let mut window = WindowCreateOptions::new(stress_test_layout as LayoutCallbackType);
-    window.state.title = "Graphics Stress Test".to_string().into();
-    window.state.size.dimensions.width = 800.0;
-    window.state.size.dimensions.height = 600.0;
+    let mut window = WindowCreateOptions::create(stress_test_layout as LayoutCallbackType);
+    window.window_state.title = "Graphics Stress Test".to_string().into();
+    window.window_state.size.dimensions.width = 800.0;
+    window.window_state.size.dimensions.height = 600.0;
 
     app.run(window);
 }

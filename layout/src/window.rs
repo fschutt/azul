@@ -228,7 +228,7 @@ pub struct CallbackChangeResult {
 
 /// A window-level layout manager that encapsulates all layout state and caching.
 ///
-/// This struct owns the layout and text caches, and provides methods to:
+/// This struct owns the layout and text caches, and provides methods dir_to: 
 /// - Perform initial layout
 /// - Incrementally update layout on DOM changes
 /// - Generate display lists for rendering
@@ -907,7 +907,7 @@ impl LayoutWindow {
         );
 
         // Clone the user data for the callback
-        let callback_data = iframe_node.data.clone();
+        let callback_data = iframe_node.refany.clone();
 
         // Invoke the user's IFrame callback
         let callback_return = (iframe_node.callback.cb)(callback_data, callback_info);
@@ -1964,7 +1964,7 @@ impl LayoutWindow {
                 .styled_nodes
                 .as_container()
                 .get(dom_node_id)
-                .map(|n| n.state.clone())
+                .map(|n| n.styled_node_state.clone())
                 .unwrap_or_default();
 
             // Check if this node has scroll overflow
@@ -2638,7 +2638,7 @@ impl LayoutWindow {
                 current_window_handle,
                 system_callbacks,
                 system_style,
-                callable: OptionRefAny::None,
+                ctx: OptionRefAny::None,
             };
 
             let callback_info = CallbackInfo::new(
@@ -2833,7 +2833,7 @@ impl LayoutWindow {
                 // MutexGuard is dropped here
             };
 
-            let ThreadWriteBackMsg { mut data, callback } = match msg {
+            let ThreadWriteBackMsg { refany: mut data, callback } = match msg {
                 ThreadReceiveMsg::Update(update_screen) => {
                     ret.callbacks_update_screen.max_self(update_screen);
                     continue;
@@ -2855,7 +2855,7 @@ impl LayoutWindow {
                 current_window_handle,
                 system_callbacks,
                 system_style: system_style.clone(),
-                callable: OptionRefAny::None,
+                ctx: OptionRefAny::None,
             };
 
             let callback_info = CallbackInfo::new(
@@ -3065,7 +3065,7 @@ impl LayoutWindow {
             current_window_handle,
             system_callbacks,
             system_style,
-            callable: OptionRefAny::None,
+            ctx: OptionRefAny::None,
         };
 
         let callback_info = CallbackInfo::new(
@@ -3230,7 +3230,7 @@ impl LayoutWindow {
             current_window_handle,
             system_callbacks,
             system_style,
-            callable: OptionRefAny::None,
+            ctx: OptionRefAny::None,
         };
 
         let callback_info = CallbackInfo::new(
@@ -3242,7 +3242,7 @@ impl LayoutWindow {
         );
 
         ret.callbacks_update_screen =
-            (menu_callback.callback.cb)(menu_callback.data.clone(), callback_info);
+            (menu_callback.callback.cb)(menu_callback.refany.clone(), callback_info);
 
         // Apply callback changes collected during menu callback execution
         let change_result = self.apply_callback_changes(
@@ -3741,7 +3741,7 @@ impl LayoutWindow {
         use azul_css::props::style::StyleUserSelect;
 
         let node_data = &styled_dom.node_data.as_container()[node_id];
-        let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+        let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
 
         styled_dom
             .css_property_cache
@@ -4191,9 +4191,9 @@ impl LayoutWindow {
                 if let Some(inline_layout) = text_layout {
                     // Convert byte offsets to TextCursor positions
                     let start_cursor =
-                        self.byte_offset_to_cursor(inline_layout.as_ref(), selection.start as u32);
+                        self.byte_offset_to_cursor(inline_layout.as_ref(), selection.selection_start as u32);
                     let end_cursor =
-                        self.byte_offset_to_cursor(inline_layout.as_ref(), selection.end as u32);
+                        self.byte_offset_to_cursor(inline_layout.as_ref(), selection.selection_end as u32);
 
                     if let (Some(start), Some(end)) = (start_cursor, end_cursor) {
                         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
@@ -5510,7 +5510,7 @@ impl LayoutWindow {
                                         // RenderImageCallback (cb: fn pointer)
                                         let callback =
                                             RenderImageCallback::from_core(&core_callback.callback);
-                                        (callback.cb)(core_callback.data.clone(), gl_callback_info)
+                                        (callback.cb)(core_callback.refany.clone(), gl_callback_info)
                                     })
                                 }
                                 _ => None,

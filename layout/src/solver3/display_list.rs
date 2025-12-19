@@ -783,7 +783,7 @@ where
             .styled_nodes
             .as_container()
             .get(dom_id)
-            .map(|n| n.state.clone())
+            .map(|n| n.styled_node_state.clone())
             .unwrap_or_default()
     }
 
@@ -1897,7 +1897,7 @@ where
             return Ok(());
         };
 
-        let styled_node_state = &self.ctx.styled_dom.styled_nodes.as_container()[node_id].state;
+        let styled_node_state = &self.ctx.styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
         let bg_color = get_background_color(self.ctx.styled_dom, node_id, styled_node_state);
 
         // Only render if there's a visible background
@@ -1942,7 +1942,7 @@ where
 
         if let Some(styled_node) = self.ctx.styled_dom.styled_nodes.as_container().get(dom_id) {
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].state;
+            let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
             // Opacity < 1
             let opacity = self

@@ -57,13 +57,13 @@ mod static_impl {
         let data = RefAny::new(model);
 
         eprintln!("[main] Creating AppConfig...");
-        let config = AppConfig::new();
+        let config = AppConfig::create();
 
         eprintln!("[main] Creating App...");
-        let app = App::new(data, config);
+        let app = App::create(data, config);
 
         eprintln!("[main] Creating WindowCreateOptions...");
-        let window = WindowCreateOptions::new(my_layout_func as LayoutCallbackType);
+        let window = WindowCreateOptions::create(my_layout_func as LayoutCallbackType);
 
         eprintln!("[main] About to call app.run()...");
         app.run(window);

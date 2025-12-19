@@ -22,29 +22,29 @@ use azul_dll::desktop::menu_renderer::{create_menu_styled_dom, SystemStyleMenuEx
 /// Example: Create a simple context menu
 fn create_simple_context_menu() -> Menu {
     let items = vec![
-        MenuItem::String(StringMenuItem::new(AzString::from("Copy"))),
-        MenuItem::String(StringMenuItem::new(AzString::from("Paste"))),
+        MenuItem::String(StringMenuItem::create(AzString::from("Copy"))),
+        MenuItem::String(StringMenuItem::create(AzString::from("Paste"))),
         MenuItem::Separator,
-        MenuItem::String(StringMenuItem::new(AzString::from("Delete"))),
+        MenuItem::String(StringMenuItem::create(AzString::from("Delete"))),
     ];
 
-    Menu::new(MenuItemVec::from_vec(items))
+    Menu::create(MenuItemVec::from_vec(items))
 }
 
 /// Example: Create a menu with icons and shortcuts
 fn create_menu_with_features() -> Menu {
-    let mut copy_item = StringMenuItem::new(AzString::from("Copy"));
+    let mut copy_item = StringMenuItem::create(AzString::from("Copy"));
     // TODO: Add keyboard shortcut when VirtualKeyCodeCombo is properly set up
     // copy_item.accelerator = Some(VirtualKeyCodeCombo { ... }).into();
 
-    let mut paste_item = StringMenuItem::new(AzString::from("Paste"));
+    let mut paste_item = StringMenuItem::create(AzString::from("Paste"));
     // paste_item.accelerator = ...;
 
-    let mut checkbox_item = StringMenuItem::new(AzString::from("Enable Feature"));
+    let mut checkbox_item = StringMenuItem::create(AzString::from("Enable Feature"));
     checkbox_item.icon = Some(MenuItemIcon::Checkbox(true)).into();
 
-    let mut disabled_item = StringMenuItem::new(AzString::from("Disabled Item"));
-    disabled_item.state = MenuItemState::Greyed;
+    let mut disabled_item = StringMenuItem::create(AzString::from("Disabled Item"));
+    disabled_item.menu_item_state = MenuItemState::Greyed;
 
     let items = vec![
         MenuItem::String(copy_item),
@@ -54,40 +54,40 @@ fn create_menu_with_features() -> Menu {
         MenuItem::String(disabled_item),
     ];
 
-    Menu::new(MenuItemVec::from_vec(items))
+    Menu::create(MenuItemVec::from_vec(items))
 }
 
 /// Example: Create a hierarchical menu with submenus
 fn create_hierarchical_menu() -> Menu {
     // File submenu
     let file_items = vec![
-        MenuItem::String(StringMenuItem::new(AzString::from("New"))),
-        MenuItem::String(StringMenuItem::new(AzString::from("Open"))),
-        MenuItem::String(StringMenuItem::new(AzString::from("Save"))),
+        MenuItem::String(StringMenuItem::create(AzString::from("New"))),
+        MenuItem::String(StringMenuItem::create(AzString::from("Open"))),
+        MenuItem::String(StringMenuItem::create(AzString::from("Save"))),
         MenuItem::Separator,
-        MenuItem::String(StringMenuItem::new(AzString::from("Exit"))),
+        MenuItem::String(StringMenuItem::create(AzString::from("Exit"))),
     ];
 
-    let mut file_menu = StringMenuItem::new(AzString::from("File"));
+    let mut file_menu = StringMenuItem::create(AzString::from("File"));
     file_menu.children = MenuItemVec::from_vec(file_items);
 
     // Edit submenu
     let edit_items = vec![
-        MenuItem::String(StringMenuItem::new(AzString::from("Undo"))),
-        MenuItem::String(StringMenuItem::new(AzString::from("Redo"))),
+        MenuItem::String(StringMenuItem::create(AzString::from("Undo"))),
+        MenuItem::String(StringMenuItem::create(AzString::from("Redo"))),
         MenuItem::Separator,
-        MenuItem::String(StringMenuItem::new(AzString::from("Cut"))),
-        MenuItem::String(StringMenuItem::new(AzString::from("Copy"))),
-        MenuItem::String(StringMenuItem::new(AzString::from("Paste"))),
+        MenuItem::String(StringMenuItem::create(AzString::from("Cut"))),
+        MenuItem::String(StringMenuItem::create(AzString::from("Copy"))),
+        MenuItem::String(StringMenuItem::create(AzString::from("Paste"))),
     ];
 
-    let mut edit_menu = StringMenuItem::new(AzString::from("Edit"));
+    let mut edit_menu = StringMenuItem::create(AzString::from("Edit"));
     edit_menu.children = MenuItemVec::from_vec(edit_items);
 
     // Top-level menu bar
     let items = vec![MenuItem::String(file_menu), MenuItem::String(edit_menu)];
 
-    Menu::new(MenuItemVec::from_vec(items))
+    Menu::create(MenuItemVec::from_vec(items))
 }
 
 /// Example: Render a menu using SystemStyle

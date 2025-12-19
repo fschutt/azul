@@ -377,7 +377,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         };
         let styled_dom = &self.ctx.styled_dom;
         let node_data = &styled_dom.node_data.as_ref()[id.index()];
-        let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+        let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
         let cache = &styled_dom.css_property_cache.ptr;
         let mut taffy_style = Style::default();
 
@@ -817,7 +817,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 // Check if child has display: none
                 let node_data = &self.ctx.styled_dom.node_data.as_container()[child_dom_id];
                 let node_state =
-                    &self.ctx.styled_dom.styled_nodes.as_container()[child_dom_id].state;
+                    &self.ctx.styled_dom.styled_nodes.as_container()[child_dom_id].styled_node_state;
 
                 let display_prop = self.ctx.styled_dom.css_property_cache.ptr.get_property(
                     node_data,
@@ -1125,7 +1125,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             .and_then(|node| node.dom_node_id)
             .map(|dom_id| {
                 let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-                let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].state;
+                let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
                 self.ctx
                     .styled_dom
                     .css_property_cache

@@ -167,8 +167,8 @@ impl MacOSAccessibilityAdapter {
                     if let Some(accesskit::ActionData::SetTextSelection(selection)) = request.data {
                         AccessibilityAction::SetTextSelection(
                             azul_core::dom::TextSelectionStartEnd {
-                                start: selection.anchor.character_index,
-                                end: selection.focus.character_index,
+                                selection_start: selection.anchor.character_index,
+                                selection_end: selection.focus.character_index,
                             },
                         )
                     } else {

@@ -94,8 +94,8 @@ impl DisplayInfo {
         );
 
         Monitor {
-            id: monitor_id,
-            name: OptionString::Some(self.name.as_str().into()),
+            monitor_id: monitor_id,
+            monitor_name: OptionString::Some(self.name.as_str().into()),
             size: LayoutSize::new(
                 self.bounds.size.width as isize,
                 self.bounds.size.height as isize,

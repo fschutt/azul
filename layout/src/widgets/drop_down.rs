@@ -23,8 +23,8 @@ const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-ser
 const STYLE_BACKGROUND_CONTENT_4857374953508308215_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         }),
         extend_mode: ExtendMode::Clamp,
         stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -34,8 +34,8 @@ const STYLE_BACKGROUND_CONTENT_4857374953508308215_ITEMS: &[StyleBackgroundConte
 const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         }),
         extend_mode: ExtendMode::Clamp,
         stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -45,8 +45,8 @@ const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundConte
 const STYLE_BACKGROUND_CONTENT_16125239329823337131_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         }),
         extend_mode: ExtendMode::Clamp,
         stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -872,7 +872,7 @@ const CSS_MATCH_7938442083662451131: NodeDataInlineCssPropertyVec =
     NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_7938442083662451131_PROPERTIES);
 
 pub type DropDownOnChoiceChangeCallbackType = extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
-impl_callback!(
+impl_widget_callback!(
     DropDownOnChoiceChange,
     OptionDropDownOnChoiceChange,
     DropDownOnChoiceChangeCallback,
@@ -912,7 +912,7 @@ impl DropDown {
     }
 
     pub fn dom(self) -> Dom {
-        let data = RefAny::new(self);
+        let refany = RefAny::new(self);
 
         Dom::new_div()
             .with_inline_css_props(CSS_MATCH_4428877324022630014)
@@ -933,10 +933,10 @@ impl DropDown {
                 .with_callbacks(
                     vec![CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::FocusReceived),
-                        data: data.clone(),
+                        refany: refany.clone(),
                         callback: CoreCallback {
                             cb: on_dropdown_click as usize,
-                            callable: azul_core::refany::OptionRefAny::None,
+                            ctx: azul_core::refany::OptionRefAny::None,
                         },
                     }]
                     .into(),
@@ -999,22 +999,22 @@ struct ChoiceCallbackData {
     on_choice_change: OptionDropDownOnChoiceChange,
 }
 
-extern "C" fn on_dropdown_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let data = match data.downcast_ref::<DropDown>() {
+extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    let refany = match refany.downcast_ref::<DropDown>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
     // Build menu items from choices
-    let menu_items: Vec<MenuItem> = data
+    let menu_items: Vec<MenuItem> = refany
         .choices
         .iter()
         .enumerate()
         .map(|(idx, choice)| {
-            MenuItem::String(StringMenuItem::new(choice.clone()).with_callback(
+            MenuItem::String(StringMenuItem::create(choice.clone()).with_callback(
                 RefAny::new(ChoiceCallbackData {
                     choice_id: idx,
-                    on_choice_change: data.on_choice_change.clone(),
+                    on_choice_change: refany.on_choice_change.clone(),
                 }),
                 on_choice_selected as usize,
             ))
@@ -1033,17 +1033,17 @@ extern "C" fn on_dropdown_click(mut data: RefAny, mut info: CallbackInfo) -> Upd
     Update::DoNothing
 }
 
-extern "C" fn on_choice_selected(mut data: RefAny, info: CallbackInfo) -> Update {
-    let mut data = match data.downcast_mut::<ChoiceCallbackData>() {
+extern "C" fn on_choice_selected(mut refany: RefAny, info: CallbackInfo) -> Update {
+    let mut refany = match refany.downcast_mut::<ChoiceCallbackData>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let choice_id = data.choice_id;
+    let choice_id = refany.choice_id;
 
-    match data.on_choice_change.as_mut() {
-        Some(DropDownOnChoiceChange { data, callback }) => {
-            (callback.cb)(data.clone(), info.clone(), choice_id)
+    match refany.on_choice_change.as_mut() {
+        Some(DropDownOnChoiceChange { refany, callback }) => {
+            (callback.cb)(refany.clone(), info.clone(), choice_id)
         }
         None => Update::DoNothing,
     }

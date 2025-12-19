@@ -64,7 +64,7 @@ extern "C" fn menu_item_click_callback(mut data: RefAny, mut info: CallbackInfo)
         let callback = azul_layout::callbacks::Callback::from_core(menu_callback.callback.clone());
 
         // Invoke with the menu item's data
-        let callback_data_refany = menu_callback.data.clone();
+        let callback_data_refany = menu_callback.refany.clone();
         let result = callback.invoke(callback_data_refany, info.clone());
 
         eprintln!(
@@ -274,11 +274,11 @@ fn create_string_menu_item_dom(
 ) -> Dom {
     let mut classes = vec![IdOrClass::Class("menu-item".into())];
 
-    let is_disabled = item.state == MenuItemState::Disabled || item.state == MenuItemState::Greyed;
+    let is_disabled = item.menu_item_state == MenuItemState::Disabled || item.menu_item_state == MenuItemState::Greyed;
     let has_children = !item.children.as_slice().is_empty();
 
     // Add state classes
-    match item.state {
+    match item.menu_item_state {
         MenuItemState::Normal => {}
         MenuItemState::Greyed => {
             classes.push(IdOrClass::Class("menu-item-greyed".into()));
@@ -346,9 +346,9 @@ fn create_string_menu_item_dom(
                 event: EventFilter::Hover(HoverEventFilter::MouseDown),
                 callback: CoreCallback {
                     cb: menu_item_click_callback as usize,
-                    callable: azul_core::refany::OptionRefAny::None,
+                    ctx: azul_core::refany::OptionRefAny::None,
                 },
-                data: RefAny::new(callback_data),
+                refany: RefAny::new(callback_data),
             });
         }
 
@@ -364,9 +364,9 @@ fn create_string_menu_item_dom(
                 event: EventFilter::Hover(HoverEventFilter::MouseOver),
                 callback: CoreCallback {
                     cb: submenu_hover_callback as usize,
-                    callable: azul_core::refany::OptionRefAny::None,
+                    ctx: azul_core::refany::OptionRefAny::None,
                 },
-                data: RefAny::new(submenu_data),
+                refany: RefAny::new(submenu_data),
             });
         }
 

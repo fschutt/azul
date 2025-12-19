@@ -735,7 +735,7 @@ pub trait PlatformWindowV2 {
 
             let callback_result = borrows.layout_window.invoke_single_callback(
                 &mut callback,
-                &mut callback_data.data.clone(),
+                &mut callback_data.refany.clone(),
                 &borrows.window_handle,
                 borrows.gl_context_ptr,
                 borrows.image_cache,
@@ -1538,7 +1538,7 @@ pub trait PlatformWindowV2 {
                             let external = ExternalSystemCallbacks::rust_internal();
 
                             // Create timer with monitor refresh rate interval
-                            let timer = Timer::new(
+                            let timer = Timer::create(
                                 RefAny::new(()), // Empty data
                                 auto_scroll_timer_callback,
                                 external.get_system_time_fn,

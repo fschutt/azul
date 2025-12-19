@@ -46,7 +46,7 @@ pub struct Button {
 }
 
 pub type ButtonOnClickCallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
-impl_callback!(
+impl_widget_callback!(
     ButtonOnClick,
     OptionButtonOnClick,
     ButtonOnClickCallback,
@@ -136,8 +136,8 @@ const BUTTON_NOMRAL_BACKGROUND_COLOR_STOPS: &[NormalizedLinearColorStop] = &[
 const BUTTON_NORMAL_BACKGROUND: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         }),
         extend_mode: ExtendMode::Clamp,
         stops: NormalizedLinearColorStopVec::from_const_slice(BUTTON_NOMRAL_BACKGROUND_COLOR_STOPS),
@@ -156,8 +156,8 @@ const BUTTON_HOVER_BACKGROUND_WINDOWS_COLOR_STOPS: &[NormalizedLinearColorStop] 
 const BUTTON_HOVER_BACKGROUND_WINDOWS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         }),
         extend_mode: ExtendMode::Clamp,
         stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -177,8 +177,8 @@ const BUTTON_ACTIVE_BACKGROUND_WINDOWS_COLOR_STOPS: &[NormalizedLinearColorStop]
 const BUTTON_ACTIVE_BACKGROUND_WINDOWS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         }),
         extend_mode: ExtendMode::Clamp,
         stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -374,7 +374,7 @@ static BUTTON_LABEL_OTHER: &[NodeDataInlineCssProperty] = &[];
 
 impl Button {
     #[inline]
-    pub fn new(label: AzString) -> Self {
+    pub fn create(label: AzString) -> Self {
         Self {
             label,
             image: None.into(),
@@ -413,7 +413,7 @@ impl Button {
 
     #[inline(always)]
     pub fn swap_with_default(&mut self) -> Self {
-        let mut m = Self::new(AzString::from_const_str(""));
+        let mut m = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut m, self);
         m
     }
@@ -426,7 +426,7 @@ impl Button {
     #[inline]
     pub fn set_on_click<C: Into<ButtonOnClickCallback>>(&mut self, data: RefAny, on_click: C) {
         self.on_click = Some(ButtonOnClick {
-            data,
+            refany: data,
             callback: on_click.into(),
         })
         .into();
@@ -446,13 +446,13 @@ impl Button {
         };
 
         let callbacks = match self.on_click.into_option() {
-            Some(ButtonOnClick { data, callback }) => vec![CoreCallbackData {
+            Some(ButtonOnClick { refany: data, callback }) => vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseUp),
                 callback: CoreCallback {
                     cb: callback.cb as usize,
-                    callable: callback.callable,
+                    ctx: callback.ctx,
                 },
-                data,
+                refany: data,
             }],
             None => Vec::new(),
         };

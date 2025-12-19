@@ -26,12 +26,12 @@ fn test_font_family_parsing_simple() {
         Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("test-body".into())].into());
 
     // Apply CSS to create StyledDom
-    let styled_dom = StyledDom::new_node(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
 
     // Get the root node
     let node_id = azul_core::id::NodeId::ZERO;
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
     let cache = &styled_dom.css_property_cache.ptr;
 
     // Try to get font-family property
@@ -95,11 +95,11 @@ fn test_font_family_parsing_quoted() {
     // Create DOM with a div that has the "heading" class
     let mut dom = Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("heading".into())].into());
 
-    let styled_dom = StyledDom::new_node(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
 
     let node_id = azul_core::id::NodeId::ZERO;
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
     let cache = &styled_dom.css_property_cache.ptr;
 
     let font_family = cache.get_font_family(node_data, &node_id, node_state);
@@ -139,11 +139,11 @@ fn test_font_family_parsing_japanese() {
     let mut dom =
         Dom::new_div().with_ids_and_classes(vec![IdOrClass::Class("recipe-body".into())].into());
 
-    let styled_dom = StyledDom::new_node(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
 
     let node_id = azul_core::id::NodeId::ZERO;
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
     let cache = &styled_dom.css_property_cache.ptr;
 
     let font_family = cache.get_font_family(node_data, &node_id, node_state);

@@ -976,7 +976,7 @@ pub enum CssNthChildSelector {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct CssNthChildPattern {
-    pub repeat: u32,
+    pub pattern_repeat: u32,
     pub offset: u32,
 }
 
@@ -987,7 +987,7 @@ impl fmt::Display for CssNthChildSelector {
             Number(u) => write!(f, "{}", u),
             Even => write!(f, "even"),
             Odd => write!(f, "odd"),
-            Pattern(p) => write!(f, "{}n + {}", p.repeat, p.offset),
+            Pattern(p) => write!(f, "{}n + {}", p.pattern_repeat, p.offset),
         }
     }
 }
@@ -1362,9 +1362,9 @@ pub fn format_nth_child_selector(n: &CssNthChildSelector) -> String {
         CssNthChildSelector::Number(num) => format!("CssNthChildSelector::Number({})", num),
         CssNthChildSelector::Even => format!("CssNthChildSelector::Even"),
         CssNthChildSelector::Odd => format!("CssNthChildSelector::Odd"),
-        CssNthChildSelector::Pattern(CssNthChildPattern { repeat, offset }) => format!(
-            "CssNthChildSelector::Pattern(CssNthChildPattern {{ repeat: {}, offset: {} }})",
-            repeat, offset
+        CssNthChildSelector::Pattern(CssNthChildPattern { pattern_repeat, offset }) => format!(
+            "CssNthChildSelector::Pattern(CssNthChildPattern {{ pattern_repeat: {}, offset: {} }})",
+            pattern_repeat, offset
         ),
     }
 }

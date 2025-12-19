@@ -47,7 +47,7 @@ pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Layo
         return LayoutPosition::Static;
     };
     let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     styled_dom
         .css_property_cache
         .ptr
@@ -59,7 +59,7 @@ pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Layo
 /// Correctly looks up the `position` property from the styled DOM.
 fn get_position_property(styled_dom: &StyledDom, node_id: NodeId) -> LayoutPosition {
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
     styled_dom
         .css_property_cache
         .ptr
@@ -86,7 +86,7 @@ fn resolve_position_offsets(
         return PositionOffsets::default();
     };
     let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
 
     // Create resolution context with font sizes and containing block size
     let element_font_size = get_element_font_size(styled_dom, id, node_state);
@@ -317,7 +317,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
                 // Get parent's writing mode to correctly calculate its inner (content) size.
                 let parent_dom_id = parent_node.dom_node_id.unwrap_or(NodeId::ZERO);
                 let parent_node_state =
-                    &ctx.styled_dom.styled_nodes.as_container()[parent_dom_id].state;
+                    &ctx.styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
                 let parent_wm =
                     get_writing_mode(ctx.styled_dom, parent_dom_id, parent_node_state)
                     .unwrap_or_default();
@@ -359,7 +359,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         // Get the direction for this element
         let node_dom_id = node.dom_node_id.unwrap_or(NodeId::ZERO);
         let node_data = &ctx.styled_dom.node_data.as_container()[node_dom_id];
-        let node_state = &ctx.styled_dom.styled_nodes.as_container()[node_dom_id].state;
+        let node_state = &ctx.styled_dom.styled_nodes.as_container()[node_dom_id].styled_node_state;
         let direction = ctx
             .styled_dom
             .css_property_cache

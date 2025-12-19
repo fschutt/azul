@@ -225,7 +225,7 @@ fn create_menubar_styled_dom(menu: &Menu, system_style: &SystemStyle) -> StyledD
             let item_classes =
                 IdOrClassVec::from_vec(vec![IdOrClass::Class("csd-menubar-item".into())]);
 
-            let submenu = Menu::new(string_item.children.clone());
+            let submenu = Menu::create(string_item.children.clone());
 
             let dom_item = Dom::new_div()
                 .with_ids_and_classes(item_classes)
@@ -235,9 +235,9 @@ fn create_menubar_styled_dom(menu: &Menu, system_style: &SystemStyle) -> StyledD
                         event: EventFilter::Hover(HoverEventFilter::MouseDown),
                         callback: CoreCallback {
                             cb: csd_menubar_item_callback as usize,
-                            callable: azul_core::refany::OptionRefAny::None,
+                            ctx: azul_core::refany::OptionRefAny::None,
                         },
-                        data: RefAny::new(submenu),
+                        refany: RefAny::new(submenu),
                     }]
                     .into(),
                 );
@@ -296,9 +296,9 @@ fn create_titlebar_dom(
                     event: EventFilter::Hover(HoverEventFilter::MouseDown),
                     callback: CoreCallback {
                         cb: csd_minimize_callback as usize,
-                        callable: azul_core::refany::OptionRefAny::None,
+                        ctx: azul_core::refany::OptionRefAny::None,
                     },
-                    data: RefAny::new(()),
+                    refany: RefAny::new(()),
                 }]
                 .into(),
             );
@@ -320,9 +320,9 @@ fn create_titlebar_dom(
                     event: EventFilter::Hover(HoverEventFilter::MouseDown),
                     callback: CoreCallback {
                         cb: csd_maximize_callback as usize,
-                        callable: azul_core::refany::OptionRefAny::None,
+                        ctx: azul_core::refany::OptionRefAny::None,
                     },
-                    data: RefAny::new(()),
+                    refany: RefAny::new(()),
                 }]
                 .into(),
             );
@@ -344,9 +344,9 @@ fn create_titlebar_dom(
                     event: EventFilter::Hover(HoverEventFilter::MouseDown),
                     callback: CoreCallback {
                         cb: csd_close_callback as usize,
-                        callable: azul_core::refany::OptionRefAny::None,
+                        ctx: azul_core::refany::OptionRefAny::None,
                     },
-                    data: RefAny::new(()),
+                    refany: RefAny::new(()),
                 }]
                 .into(),
             );
@@ -364,17 +364,17 @@ fn create_titlebar_dom(
                     event: EventFilter::Hover(HoverEventFilter::DragStart),
                     callback: CoreCallback {
                         cb: csd_titlebar_drag_start_callback as usize,
-                        callable: azul_core::refany::OptionRefAny::None,
+                        ctx: azul_core::refany::OptionRefAny::None,
                     },
-                    data: RefAny::new(TitlebarDragMarker),
+                    refany: RefAny::new(TitlebarDragMarker),
                 },
                 CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::Drag),
                     callback: CoreCallback {
                         cb: csd_titlebar_drag_callback as usize,
-                        callable: azul_core::refany::OptionRefAny::None,
+                        ctx: azul_core::refany::OptionRefAny::None,
                     },
-                    data: RefAny::new(TitlebarDragMarker),
+                    refany: RefAny::new(TitlebarDragMarker),
                 },
             ]
             .into(),

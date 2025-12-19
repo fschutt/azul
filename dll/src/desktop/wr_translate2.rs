@@ -127,13 +127,13 @@ pub fn default_renderer_options(
         enable_aa: true,
         enable_subpixel_aa: true,
         clear_color: WrColorF {
-            r: options.state.background_color.r as f32 / 255.0,
-            g: options.state.background_color.g as f32 / 255.0,
-            b: options.state.background_color.b as f32 / 255.0,
-            a: options.state.background_color.a as f32 / 255.0,
+            r: options.window_state.background_color.r as f32 / 255.0,
+            g: options.window_state.background_color.g as f32 / 255.0,
+            b: options.window_state.background_color.b as f32 / 255.0,
+            a: options.window_state.background_color.a as f32 / 255.0,
         },
         enable_multithreading: false,
-        debug_flags: wr_translate_debug_flags(&options.state.debug_state),
+        debug_flags: wr_translate_debug_flags(&options.window_state.debug_state),
         // Enable shader precaching: compile all shaders at initialization
         // This prevents stuttering when shaders are compiled on-demand
         precache_flags: ShaderPrecacheFlags::FULL_COMPILE,
@@ -603,7 +603,7 @@ pub fn fullhittest_new_webrender(
                         scroll_id,
                         pipeline_id,
                     ),
-                    parent_dom_hash: azul_core::dom::DomNodeHash(node_id.index() as u64),
+                    parent_dom_hash: azul_core::dom::DomNodeHash { inner: node_id.index() as u64 },
                     scroll_tag_id: azul_core::dom::ScrollTagId {
                         inner: azul_core::dom::TagId {
                             inner: node_id.index() as u64,

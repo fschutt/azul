@@ -27,7 +27,7 @@ use azul_css::{
 macro_rules! setup_test {
     ($dom:expr) => {{
         let mut dom = $dom;
-        let styled_dom = StyledDom::new_node(&mut dom, CssApiWrapper::empty());
+        let styled_dom = StyledDom::create(&mut dom, CssApiWrapper::empty());
 
         let cache = styled_dom.css_property_cache.ptr.clone();
 

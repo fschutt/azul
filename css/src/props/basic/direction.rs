@@ -116,8 +116,8 @@ impl DirectionCorner {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct DirectionCorners {
-    pub from: DirectionCorner,
-    pub to: DirectionCorner,
+    pub dir_from: DirectionCorner,
+    pub dir_to: DirectionCorner,
 }
 
 /// CSS direction (necessary for gradients). Can either be a fixed angle or
@@ -132,8 +132,8 @@ pub enum Direction {
 impl Default for Direction {
     fn default() -> Self {
         Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         })
     }
 }
@@ -142,7 +142,7 @@ impl PrintAsCssValue for Direction {
     fn print_as_css_value(&self) -> String {
         match self {
             Direction::Angle(a) => format!("{}", a),
-            Direction::FromTo(d) => format!("to {}", d.to), // simplified "from X to Y"
+            Direction::FromTo(d) => format!("to {}", d.dir_to), // simplified "from X to Y"
         }
     }
 }
@@ -182,7 +182,7 @@ impl Direction {
                     ),
                 )
             }
-            Direction::FromTo(ft) => (ft.from.to_point(rect), ft.to.to_point(rect)),
+            Direction::FromTo(ft) => (ft.dir_from.to_point(rect), ft.dir_to.to_point(rect)),
         }
     }
 }
@@ -341,8 +341,8 @@ pub fn parse_direction<'a>(input: &'a str) -> Result<Direction, CssDirectionPars
     };
 
     Ok(Direction::FromTo(DirectionCorners {
-        from: end.opposite(),
-        to: end,
+        dir_from: end.opposite(),
+        dir_to: end,
     }))
 }
 
@@ -368,22 +368,22 @@ mod tests {
         assert_eq!(
             parse_direction("to right").unwrap(),
             Direction::FromTo(DirectionCorners {
-                from: DirectionCorner::Left,
-                to: DirectionCorner::Right,
+                dir_from: DirectionCorner::Left,
+                dir_to: DirectionCorner::Right,
             })
         );
         assert_eq!(
             parse_direction("to top left").unwrap(),
             Direction::FromTo(DirectionCorners {
-                from: DirectionCorner::BottomRight,
-                to: DirectionCorner::TopLeft,
+                dir_from: DirectionCorner::BottomRight,
+                dir_to: DirectionCorner::TopLeft,
             })
         );
         assert_eq!(
             parse_direction("to left top").unwrap(),
             Direction::FromTo(DirectionCorners {
-                from: DirectionCorner::BottomRight,
-                to: DirectionCorner::TopLeft,
+                dir_from: DirectionCorner::BottomRight,
+                dir_to: DirectionCorner::TopLeft,
             })
         );
     }

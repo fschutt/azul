@@ -197,15 +197,15 @@ impl From<GridTemplate> for GridAutoTracks {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NamedGridLine {
-    pub name: AzString,
+    pub grid_line_name: AzString,
     /// Span count, 0 means no span specified
     pub span_count: i32,
 }
 
 impl NamedGridLine {
-    pub fn new(name: AzString, span: Option<i32>) -> Self {
+    pub fn create(name: AzString, span: Option<i32>) -> Self {
         Self {
-            name,
+            grid_line_name: name,
             span_count: span.unwrap_or(0),
         }
     }
@@ -252,9 +252,9 @@ impl PrintAsCssValue for GridLine {
             GridLine::Line(n) => n.to_string(),
             GridLine::Named(named) => {
                 if named.span_count == 0 {
-                    named.name.as_str().to_string()
+                    named.grid_line_name.as_str().to_string()
                 } else {
-                    format!("{} {}", named.name.as_str(), named.span_count)
+                    format!("{} {}", named.grid_line_name.as_str(), named.span_count)
                 }
             }
             GridLine::Span(n) => format!("span {}", n),
@@ -266,8 +266,8 @@ impl PrintAsCssValue for GridLine {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct GridPlacement {
-    pub start: GridLine,
-    pub end: GridLine,
+    pub grid_start: GridLine,
+    pub grid_end: GridLine,
 }
 
 impl core::fmt::Debug for GridPlacement {
@@ -279,21 +279,21 @@ impl core::fmt::Debug for GridPlacement {
 impl Default for GridPlacement {
     fn default() -> Self {
         GridPlacement {
-            start: GridLine::Auto,
-            end: GridLine::Auto,
+            grid_start: GridLine::Auto,
+            grid_end: GridLine::Auto,
         }
     }
 }
 
 impl PrintAsCssValue for GridPlacement {
     fn print_as_css_value(&self) -> String {
-        if self.end == GridLine::Auto {
-            self.start.print_as_css_value()
+        if self.grid_end == GridLine::Auto {
+            self.grid_start.print_as_css_value()
         } else {
             format!(
                 "{} / {}",
-                self.start.print_as_css_value(),
-                self.end.print_as_css_value()
+                self.grid_start.print_as_css_value(),
+                self.grid_end.print_as_css_value()
             )
         }
     }
@@ -453,14 +453,14 @@ pub fn parse_grid_placement<'a>(input: &'a str) -> Result<GridPlacement, GridPar
     // Split by "/"
     let parts: Vec<&str> = input.split('/').map(|s| s.trim()).collect();
 
-    let start = parse_grid_line_owned(parts[0]).map_err(|_| GridParseError::InvalidValue(input))?;
-    let end = if parts.len() > 1 {
+    let grid_start = parse_grid_line_owned(parts[0]).map_err(|_| GridParseError::InvalidValue(input))?;
+    let grid_end = if parts.len() > 1 {
         parse_grid_line_owned(parts[1]).map_err(|_| GridParseError::InvalidValue(input))?
     } else {
         GridLine::Auto
     };
 
-    Ok(GridPlacement { start, end })
+    Ok(GridPlacement { grid_start, grid_end })
 }
 
 // --- grid-auto-flow ---
@@ -856,7 +856,7 @@ fn parse_grid_line_owned(input: &str) -> Result<GridLine, ()> {
     }
 
     // Otherwise treat as named line
-    Ok(GridLine::Named(NamedGridLine::new(
+    Ok(GridLine::Named(NamedGridLine::create(
         input.to_string().into(),
         None,
     )))
@@ -984,54 +984,54 @@ mod tests {
     #[test]
     fn test_parse_grid_placement_auto() {
         let result = parse_grid_placement("auto").unwrap();
-        assert!(matches!(result.start, GridLine::Auto));
-        assert!(matches!(result.end, GridLine::Auto));
+        assert!(matches!(result.grid_start, GridLine::Auto));
+        assert!(matches!(result.grid_end, GridLine::Auto));
     }
 
     #[test]
     fn test_parse_grid_placement_line_number() {
         let result = parse_grid_placement("1").unwrap();
-        assert!(matches!(result.start, GridLine::Line(1)));
-        assert!(matches!(result.end, GridLine::Auto));
+        assert!(matches!(result.grid_start, GridLine::Line(1)));
+        assert!(matches!(result.grid_end, GridLine::Auto));
     }
 
     #[test]
     fn test_parse_grid_placement_negative_line() {
         let result = parse_grid_placement("-1").unwrap();
-        assert!(matches!(result.start, GridLine::Line(-1)));
+        assert!(matches!(result.grid_start, GridLine::Line(-1)));
     }
 
     #[test]
     fn test_parse_grid_placement_span() {
         let result = parse_grid_placement("span 2").unwrap();
-        assert!(matches!(result.start, GridLine::Span(2)));
+        assert!(matches!(result.grid_start, GridLine::Span(2)));
     }
 
     #[test]
     fn test_parse_grid_placement_start_end() {
         let result = parse_grid_placement("1 / 3").unwrap();
-        assert!(matches!(result.start, GridLine::Line(1)));
-        assert!(matches!(result.end, GridLine::Line(3)));
+        assert!(matches!(result.grid_start, GridLine::Line(1)));
+        assert!(matches!(result.grid_end, GridLine::Line(3)));
     }
 
     #[test]
     fn test_parse_grid_placement_span_end() {
         let result = parse_grid_placement("1 / span 2").unwrap();
-        assert!(matches!(result.start, GridLine::Line(1)));
-        assert!(matches!(result.end, GridLine::Span(2)));
+        assert!(matches!(result.grid_start, GridLine::Line(1)));
+        assert!(matches!(result.grid_end, GridLine::Span(2)));
     }
 
     #[test]
     fn test_parse_grid_placement_named_line() {
         let result = parse_grid_placement("header-start").unwrap();
-        assert!(matches!(result.start, GridLine::Named(_)));
+        assert!(matches!(result.grid_start, GridLine::Named(_)));
     }
 
     #[test]
     fn test_parse_grid_placement_named_start_end() {
         let result = parse_grid_placement("header-start / header-end").unwrap();
-        assert!(matches!(result.start, GridLine::Named(_)));
-        assert!(matches!(result.end, GridLine::Named(_)));
+        assert!(matches!(result.grid_start, GridLine::Named(_)));
+        assert!(matches!(result.grid_end, GridLine::Named(_)));
     }
 
     // Edge cases
@@ -1044,8 +1044,8 @@ mod tests {
     #[test]
     fn test_parse_grid_placement_whitespace() {
         let result = parse_grid_placement("  1  /  3  ").unwrap();
-        assert!(matches!(result.start, GridLine::Line(1)));
-        assert!(matches!(result.end, GridLine::Line(3)));
+        assert!(matches!(result.grid_start, GridLine::Line(1)));
+        assert!(matches!(result.grid_end, GridLine::Line(3)));
     }
 
     #[test]
@@ -1057,6 +1057,6 @@ mod tests {
     #[test]
     fn test_parse_grid_placement_zero_line() {
         let result = parse_grid_placement("0").unwrap();
-        assert!(matches!(result.start, GridLine::Line(0)));
+        assert!(matches!(result.grid_start, GridLine::Line(0)));
     }
 }

@@ -420,14 +420,14 @@ impl X11Window {
             | LeaveWindowMask
             | FocusChangeMask;
 
-        let use_csd = options.state.flags.decorations == WindowDecorations::None;
+        let use_csd = options.window_state.flags.decorations == WindowDecorations::None;
         if use_csd {
             attributes.override_redirect = 1;
         }
         attributes.event_mask = event_mask;
 
-        let size = options.state.size;
-        let position = options.state.position;
+        let size = options.window_state.size;
+        let position = options.window_state.position;
         // Monitor ID is now stored in FullWindowState.monitor_id, not in WindowState
         // For now, we default to monitor 0
         let monitor_id = 0; // TODO: Get from options or detect primary monitor
@@ -471,7 +471,7 @@ impl X11Window {
         ) = match gl::GlContext::new(&xlib, &egl, display, window_handle) {
             Ok(gl_context) => {
                 gl_context.make_current();
-                gl_context.configure_vsync(options.state.renderer_options.vsync);
+                gl_context.configure_vsync(options.window_state.renderer_options.vsync);
                 let gl_functions = GlFunctions::initialize(&egl).unwrap();
 
                 let new_frame_ready = Arc::new((Mutex::new(false), Condvar::new()));
@@ -544,21 +544,21 @@ impl X11Window {
             dbus_connection: None,
             layout_window: None,
             current_window_state: FullWindowState {
-                title: options.state.title.clone(),
-                size: options.state.size,
-                position: options.state.position,
-                flags: options.state.flags,
-                theme: options.state.theme,
-                debug_state: options.state.debug_state,
+                title: options.window_state.title.clone(),
+                size: options.window_state.size,
+                position: options.window_state.position,
+                flags: options.window_state.flags,
+                theme: options.window_state.theme,
+                debug_state: options.window_state.debug_state,
                 keyboard_state: Default::default(),
                 mouse_state: Default::default(),
                 touch_state: Default::default(),
-                ime_position: options.state.ime_position,
-                platform_specific_options: options.state.platform_specific_options.clone(),
-                renderer_options: options.state.renderer_options,
-                background_color: options.state.background_color,
-                layout_callback: options.state.layout_callback,
-                close_callback: options.state.close_callback.clone(),
+                ime_position: options.window_state.ime_position,
+                platform_specific_options: options.window_state.platform_specific_options.clone(),
+                renderer_options: options.window_state.renderer_options,
+                background_color: options.window_state.background_color,
+                layout_callback: options.window_state.layout_callback,
+                close_callback: options.window_state.close_callback.clone(),
                 monitor_id: OptionU32::None, // Monitor ID will be detected from platform
                 window_focused: true,
             },
@@ -607,10 +607,10 @@ impl X11Window {
 
         // Initialize GNOME native menus V2 (dlopen-based)
         // Only attempt if use_native_menus is true and GNOME is available
-        if options.state.flags.use_native_menus && super::gnome_menu::should_use_gnome_menus() {
+        if options.window_state.flags.use_native_menus && super::gnome_menu::should_use_gnome_menus() {
             // Get shared DBus library (loaded once, shared across all windows)
             if let Some(dbus_lib) = super::gnome_menu::get_shared_dbus_lib() {
-                let app_name = &options.state.title;
+                let app_name = &options.window_state.title;
 
                 match super::gnome_menu::GnomeMenuManagerV2::new(app_name, dbus_lib) {
                     Ok(menu_manager_v2) => {

@@ -127,7 +127,6 @@ macro_rules! impl_display {
 /// };
 ///
 /// // impl Display, Debug, etc. for MyCallback
-/// impl_callback!(MyCallback);
 /// impl_callback!(MyCallback, MyCallbackType);  // Also generates From<MyCallbackType> for MyCallback
 /// ```
 ///
@@ -135,7 +134,7 @@ macro_rules! impl_display {
 #[macro_export]
 macro_rules! impl_callback {
     // Version with callable field (for UI callbacks that need FFI support)
-    ($callback_value:ident) => {
+    ($callback_value:ident, $callback_ty:ty) => {
         impl ::core::fmt::Display for $callback_value {
             fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
                 write!(f, "{:?}", self)
@@ -153,7 +152,7 @@ macro_rules! impl_callback {
             fn clone(&self) -> Self {
                 $callback_value {
                     cb: self.cb.clone(),
-                    callable: self.callable.clone(),
+                    ctx: self.ctx.clone(),
                 }
             }
         }
@@ -186,19 +185,14 @@ macro_rules! impl_callback {
         }
 
         impl Eq for $callback_value {}
-    };
-    
-    // Version with callback type - also generates From impl
-    ($callback_value:ident, $callback_ty:ty) => {
-        $crate::impl_callback!($callback_value);
-        
+
         /// Allow creating callback from a raw function pointer
         /// Sets callable to None (for native Rust/C usage)
         impl From<$callback_ty> for $callback_value {
             fn from(cb: $callback_ty) -> Self {
                 $callback_value {
                     cb,
-                    callable: $crate::refany::OptionRefAny::None,
+                    ctx: $crate::refany::OptionRefAny::None,
                 }
             }
         }

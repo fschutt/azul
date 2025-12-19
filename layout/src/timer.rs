@@ -19,7 +19,7 @@ use crate::callbacks::CallbackInfo;
 
 /// Callback type for timers
 pub type TimerCallbackType =
-    extern "C" fn(/* timer internal data */ RefAny, TimerCallbackInfo) -> TimerCallbackReturn;
+    extern "C" fn(/* timer internal refany */ RefAny, TimerCallbackInfo) -> TimerCallbackReturn;
 
 /// Callback that runs on every frame on the main thread
 #[repr(C)]
@@ -28,7 +28,7 @@ pub struct TimerCallback {
 }
 
 impl TimerCallback {
-    pub fn new(cb: TimerCallbackType) -> Self {
+    pub fn create(cb: TimerCallbackType) -> Self {
         Self { cb }
     }
 }
@@ -75,7 +75,7 @@ impl core::hash::Hash for TimerCallback {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct Timer {
-    pub data: RefAny,
+    pub refany: RefAny,
     pub node_id: OptionDomNodeId,
     pub created: Instant,
     pub last_run: OptionInstant,
@@ -87,13 +87,13 @@ pub struct Timer {
 }
 
 impl Timer {
-    pub fn new(
-        data: RefAny,
+    pub fn create(
+        refany: RefAny,
         callback: TimerCallbackType,
         get_system_time_fn: GetSystemTimeCallback,
     ) -> Self {
         Timer {
-            data,
+            refany,
             node_id: None.into(),
             created: (get_system_time_fn.cb)(),
             run_count: 0,
@@ -177,7 +177,7 @@ impl Timer {
             _abi_mut: core::ptr::null_mut(),
         };
 
-        let result = (self.callback.cb)(self.data.clone(), timer_callback_info);
+        let result = (self.callback.cb)(self.refany.clone(), timer_callback_info);
 
         self.run_count += 1;
         self.last_run = OptionInstant::Some(now);
@@ -196,7 +196,7 @@ impl Default for Timer {
             Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
         }
 
-        Timer::new(
+        Timer::create(
             RefAny::new(()),
             default_callback,
             GetSystemTimeCallback { cb: default_time },
@@ -213,7 +213,7 @@ impl Default for Timer {
 /// # Example
 /// ```ignore
 /// extern "C" fn animate_timer(
-///     data: &mut RefAny,
+///     refany: &mut RefAny,
 ///     info: &mut TimerCallbackInfo,
 /// ) -> TimerCallbackReturn {
 ///     // Timer-specific fields
@@ -239,7 +239,7 @@ pub struct TimerCallbackInfo {
 }
 
 impl TimerCallbackInfo {
-    pub fn new(
+    pub fn create(
         callback_info: CallbackInfo,
         node_id: OptionDomNodeId,
         frame_start: Instant,
@@ -301,7 +301,7 @@ pub struct TimerCallbackReturn {
 }
 
 impl TimerCallbackReturn {
-    pub fn new(should_update: Update, should_terminate: TerminateTimer) -> Self {
+    pub fn create(should_update: Update, should_terminate: TerminateTimer) -> Self {
         Self {
             should_update,
             should_terminate,
@@ -374,7 +374,7 @@ pub fn invoke_timer(
         _abi_ref: core::ptr::null(),
         _abi_mut: core::ptr::null_mut(),
     };
-    let mut res = (timer.callback.cb)(timer.data.clone(), timer_callback_info);
+    let mut res = (timer.callback.cb)(timer.refany.clone(), timer_callback_info);
 
     if is_about_to_finish {
         res.should_terminate = TerminateTimer::Terminate;

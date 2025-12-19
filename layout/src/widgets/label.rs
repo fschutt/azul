@@ -96,7 +96,7 @@ static LABEL_STYLE_OTHER: &[NodeDataInlineCssProperty] = &[];
 
 impl Label {
     #[inline]
-    pub fn new(string: AzString) -> Self {
+    pub fn create(string: AzString) -> Self {
         Self {
             string,
             #[cfg(target_os = "windows")]
@@ -112,7 +112,7 @@ impl Label {
 
     #[inline]
     pub fn swap_with_default(&mut self) -> Self {
-        let mut s = Label::new(AzString::from_const_str(""));
+        let mut s = Label::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
     }

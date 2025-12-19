@@ -52,7 +52,7 @@ impl CursorTypeHitTest {
                 if let Some(cursor_prop) = styled_dom.get_css_property_cache().get_cursor(
                     &node_data_container[*node_id],
                     node_id,
-                    &styled_nodes[*node_id].state,
+                    &styled_nodes[*node_id].styled_node_state,
                 ) {
                     cursor_node = Some((*dom_id, *node_id));
                     let css_cursor = cursor_prop.get_property().copied().unwrap_or_default();

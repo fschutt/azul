@@ -1710,7 +1710,7 @@ pub fn allocate_clipmask_texture(
     let textures = gl_context.gen_textures(1);
     let texture_id = textures.get(0).unwrap();
 
-    Texture::new(
+    Texture::create(
         *texture_id,
         TextureFlags {
             is_opaque: true,

@@ -16,7 +16,7 @@ use azul_css::{
             ContentValue, CounterIncrementValue, CounterResetValue, CssProperty, CssPropertyType,
             FlowFromValue, FlowIntoValue, LayoutAlignContentValue, LayoutAlignItemsValue,
             LayoutAlignSelfValue, LayoutBorderBottomWidthValue, LayoutBorderLeftWidthValue,
-            LayoutBorderRightWidthValue, LayoutBorderTopWidthValue, LayoutBottomValue,
+            LayoutBorderRightWidthValue, LayoutBorderTopWidthValue, LayoutInsetBottomValue,
             LayoutBoxSizingValue, LayoutClearValue, LayoutColumnGapValue, LayoutDisplayValue,
             LayoutFlexBasisValue, LayoutFlexDirectionValue, LayoutFlexGrowValue,
             LayoutFlexShrinkValue, LayoutFlexWrapValue, LayoutFloatValue, LayoutGapValue,
@@ -158,7 +158,7 @@ impl StyledNodeState {
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 pub struct StyledNode {
     /// Current state of this styled node (used later for caching the style / layout)
-    pub state: StyledNodeState,
+    pub styled_node_state: StyledNodeState,
     /// Optional tag ID
     ///
     /// NOTE: The tag ID has to be adjusted after the layout is done (due to scroll tags)
@@ -558,7 +558,7 @@ impl StyledDom {
     // This is for memory optimization, so that the DOM does not need to be cloned.
     //
     // The CSS will be left in-place, but will be re-ordered
-    pub fn new(dom: &mut Dom, mut css: CssApiWrapper) -> Self {
+    pub fn create(dom: &mut Dom, mut css: CssApiWrapper) -> Self {
         use core::mem;
 
         use crate::dom::EventFilter;
@@ -584,7 +584,7 @@ impl StyledDom {
         let mut styled_nodes = vec![
             StyledNode {
                 tag_id: OptionTagId::None,
-                state: StyledNodeState::new()
+                styled_node_state: StyledNodeState::new()
             };
             compact_dom.len()
         ];
@@ -930,7 +930,7 @@ impl StyledDom {
     /// Returns the current state (hover, active, focus) of a styled node.
     #[inline]
     pub fn get_styled_node_state(&self, node_id: &NodeId) -> StyledNodeState {
-        self.styled_nodes.as_container()[*node_id].state.clone()
+        self.styled_nodes.as_container()[*node_id].styled_node_state.clone()
     }
 
     /// Scans the display list for all image keys
@@ -967,7 +967,7 @@ impl StyledDom {
                 let opt_background_image = self.get_css_property_cache().get_background_content(
                     &node_data,
                     &node_id,
-                    &self.styled_nodes.as_container()[node_id].state,
+                    &self.styled_nodes.as_container()[node_id].styled_node_state,
                 );
 
                 if let Some(style_backgrounds) = opt_background_image {
@@ -1023,11 +1023,11 @@ impl StyledDom {
         // save the old node state
         let old_node_states = nodes
             .iter()
-            .map(|nid| self.styled_nodes.as_container()[*nid].state.clone())
+            .map(|nid| self.styled_nodes.as_container()[*nid].styled_node_state.clone())
             .collect::<Vec<_>>();
 
         for nid in nodes.iter() {
-            self.styled_nodes.as_container_mut()[*nid].state.hover = new_hover_state;
+            self.styled_nodes.as_container_mut()[*nid].styled_node_state.hover = new_hover_state;
         }
 
         let css_property_cache = self.get_css_property_cache();
@@ -1072,7 +1072,7 @@ impl StyledDom {
                     return None;
                 }
 
-                let new_node_state = &styled_nodes[*node_id].state;
+                let new_node_state = &styled_nodes[*node_id].styled_node_state;
                 let node_data = &node_data[*node_id];
 
                 let changes = node_properties_that_could_have_changed
@@ -1131,11 +1131,11 @@ impl StyledDom {
         // save the old node state
         let old_node_states = nodes
             .iter()
-            .map(|nid| self.styled_nodes.as_container()[*nid].state.clone())
+            .map(|nid| self.styled_nodes.as_container()[*nid].styled_node_state.clone())
             .collect::<Vec<_>>();
 
         for nid in nodes.iter() {
-            self.styled_nodes.as_container_mut()[*nid].state.active = new_active_state;
+            self.styled_nodes.as_container_mut()[*nid].styled_node_state.active = new_active_state;
         }
 
         let css_property_cache = self.get_css_property_cache();
@@ -1182,7 +1182,7 @@ impl StyledDom {
                     return None;
                 }
 
-                let new_node_state = &styled_nodes[*node_id].state;
+                let new_node_state = &styled_nodes[*node_id].styled_node_state;
                 let node_data = &node_data[*node_id];
 
                 let changes = node_properties_that_could_have_changed
@@ -1241,11 +1241,11 @@ impl StyledDom {
         // save the old node state
         let old_node_states = nodes
             .iter()
-            .map(|nid| self.styled_nodes.as_container()[*nid].state.clone())
+            .map(|nid| self.styled_nodes.as_container()[*nid].styled_node_state.clone())
             .collect::<Vec<_>>();
 
         for nid in nodes.iter() {
-            self.styled_nodes.as_container_mut()[*nid].state.focused = new_focus_state;
+            self.styled_nodes.as_container_mut()[*nid].styled_node_state.focused = new_focus_state;
         }
 
         let css_property_cache = self.get_css_property_cache();
@@ -1292,7 +1292,7 @@ impl StyledDom {
                     return None;
                 }
 
-                let new_node_state = &styled_nodes[*node_id].state;
+                let new_node_state = &styled_nodes[*node_id].styled_node_state;
                 let node_data = &node_data[*node_id];
 
                 let changes = node_properties_that_could_have_changed
@@ -1359,7 +1359,7 @@ impl StyledDom {
         let node_data = &node_data[*node_id];
 
         let node_states = &self.styled_nodes.as_container();
-        let old_node_state = &node_states[*node_id].state;
+        let old_node_state = &node_states[*node_id].styled_node_state;
 
         let changes: Vec<ChangedCssProperty> = {
             let css_property_cache = self.get_css_property_cache();
@@ -1533,7 +1533,7 @@ impl StyledDom {
             let depth = all_node_depths[&node_id];
 
             let node_data = &self.node_data.as_container()[node_id];
-            let node_state = &self.styled_nodes.as_container()[node_id].state;
+            let node_state = &self.styled_nodes.as_container()[node_id].styled_node_state;
             let tabs = String::from("    ").repeat(depth);
 
             output.push_str("\r\n");
@@ -1838,7 +1838,7 @@ fn sort_children_by_position<'a>(
         .az_children(node_hierarchy)
         .map(|nid| {
             let position = css_property_cache
-                .get_position(&node_data_container[nid], &nid, &rectangles[nid].state)
+                .get_position(&node_data_container[nid], &nid, &rectangles[nid].styled_node_state)
                 .and_then(|p| p.clone().get_property_or_default())
                 .unwrap_or_default();
             let id = NodeHierarchyItemId::from_crate_internal(Some(nid));

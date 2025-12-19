@@ -149,7 +149,7 @@ pub enum XmlNodeType {
 
 #[repr(C)]
 pub struct XmlQualifiedName {
-    pub name: AzString,
+    pub local_name: AzString,
     pub namespace: OptionString,
 }
 
@@ -604,7 +604,7 @@ pub trait XmlComponentTrait {
     /// Returns the XML node for this component, used in the `get_html_string` debugging code
     /// (necessary to compile the component into a function during the Rust compilation stage)
     fn get_xml_node(&self) -> XmlNode {
-        XmlNode::new(self.get_type_id())
+        XmlNode::create(self.get_type_id())
     }
 
     /// (Optional): Should return all arguments that this component can take - for example if you
@@ -788,7 +788,7 @@ pub struct XmlNode {
 }
 
 impl XmlNode {
-    pub fn new<I: Into<XmlTagName>>(node_type: I) -> Self {
+    pub fn create<I: Into<XmlTagName>>(node_type: I) -> Self {
         XmlNode {
             node_type: node_type.into(),
             ..Default::default()
@@ -1147,7 +1147,7 @@ pub struct DivRenderer {
 impl DivRenderer {
     pub fn new() -> Self {
         Self {
-            node: XmlNode::new("div"),
+            node: XmlNode::create("div"),
         }
     }
 }
@@ -1189,7 +1189,7 @@ pub struct BodyRenderer {
 impl BodyRenderer {
     pub fn new() -> Self {
         Self {
-            node: XmlNode::new("body"),
+            node: XmlNode::create("body"),
         }
     }
 }
@@ -1231,7 +1231,7 @@ pub struct BrRenderer {
 impl BrRenderer {
     pub fn new() -> Self {
         Self {
-            node: XmlNode::new("br"),
+            node: XmlNode::create("br"),
         }
     }
 }
@@ -1273,7 +1273,7 @@ pub struct TextRenderer {
 impl TextRenderer {
     pub fn new() -> Self {
         Self {
-            node: XmlNode::new("p"),
+            node: XmlNode::create("p"),
         }
     }
 }
@@ -2700,7 +2700,7 @@ fn group_matches(
                 }
             }
             PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Pattern(p))) => {
-                if idx_in_parent.saturating_sub(p.offset as usize) % p.repeat as usize != 0 {
+                if idx_in_parent.saturating_sub(p.offset as usize) % p.pattern_repeat as usize != 0 {
                     return false;
                 }
             }
@@ -3299,7 +3299,7 @@ mod tests {
 
         let node = XmlNode {
             node_type: "p".into(),
-            attributes: StringPairVec::from_const_slice(&[]),
+            attributes: XmlAttributeMap { inner: StringPairVec::from_const_slice(&[]) },
             children: vec![
                 XmlNodeChild::Text("Before ".into()),
                 XmlNodeChild::Element(XmlNode {

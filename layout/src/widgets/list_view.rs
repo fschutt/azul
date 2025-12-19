@@ -55,8 +55,8 @@ const STYLE_BACKGROUND_CONTENT_3839348353894170136_ITEMS: &[StyleBackgroundConte
 const STYLE_BACKGROUND_CONTENT_6112684430356720596_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         }),
         extend_mode: ExtendMode::Clamp,
         stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -66,8 +66,8 @@ const STYLE_BACKGROUND_CONTENT_6112684430356720596_ITEMS: &[StyleBackgroundConte
 const STYLE_BACKGROUND_CONTENT_7422581697888665934_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         }),
         extend_mode: ExtendMode::Clamp,
         stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -1409,7 +1409,7 @@ const COLUMN_NAME_CLASS: IdOrClassVec =
 
 pub type ListViewOnLazyLoadScrollCallbackType =
     extern "C" fn(RefAny, CallbackInfo, ListViewState) -> Update;
-impl_callback!(
+impl_widget_callback!(
     ListViewOnLazyLoadScroll,
     OptionListViewOnLazyLoadScroll,
     ListViewOnLazyLoadScrollCallback,
@@ -1418,7 +1418,7 @@ impl_callback!(
 
 pub type ListViewOnColumnClickCallbackType =
     extern "C" fn(RefAny, CallbackInfo, ListViewState, column_clicked: usize) -> Update;
-impl_callback!(
+impl_widget_callback!(
     ListViewOnColumnClick,
     OptionListViewOnColumnClick,
     ListViewOnColumnClickCallback,
@@ -1427,7 +1427,7 @@ impl_callback!(
 
 pub type ListViewOnRowClickCallbackType =
     extern "C" fn(RefAny, CallbackInfo, ListViewState, row_clicked: usize) -> Update;
-impl_callback!(
+impl_widget_callback!(
     ListViewOnRowClick,
     OptionListViewOnRowClick,
     ListViewOnRowClickCallback,
@@ -1517,7 +1517,7 @@ impl_vec_mut!(ListViewRow, ListViewRowVec);
 impl_vec_debug!(ListViewRow, ListViewRowVec);
 
 impl ListView {
-    pub fn new(columns: StringVec) -> Self {
+    pub fn create(columns: StringVec) -> Self {
         Self {
             columns,
             ..Default::default()
@@ -1586,20 +1586,20 @@ impl ListView {
 
     pub fn with_on_column_click<C: Into<ListViewOnColumnClickCallback>>(
         mut self,
-        data: RefAny,
+        refany: RefAny,
         on_column_click: C,
     ) -> Self {
-        self.set_on_column_click(data, on_column_click);
+        self.set_on_column_click(refany, on_column_click);
         self
     }
 
     pub fn set_on_column_click<C: Into<ListViewOnColumnClickCallback>>(
         &mut self,
-        data: RefAny,
+        refany: RefAny,
         on_column_click: C,
     ) {
         self.on_column_click = Some(ListViewOnColumnClick {
-            data,
+            refany,
             callback: on_column_click.into(),
         })
         .into();
@@ -1607,16 +1607,16 @@ impl ListView {
 
     pub fn with_on_row_click<C: Into<ListViewOnRowClickCallback>>(
         mut self,
-        data: RefAny,
+        refany: RefAny,
         on_row_click: C,
     ) -> Self {
-        self.set_on_row_click(data, on_row_click);
+        self.set_on_row_click(refany, on_row_click);
         self
     }
 
-    pub fn set_on_row_click<C: Into<ListViewOnRowClickCallback>>(&mut self, data: RefAny, on_row_click: C) {
+    pub fn set_on_row_click<C: Into<ListViewOnRowClickCallback>>(&mut self, refany: RefAny, on_row_click: C) {
         self.on_row_click = Some(ListViewOnRowClick {
-            data,
+            refany,
             callback: on_row_click.into(),
         })
         .into();

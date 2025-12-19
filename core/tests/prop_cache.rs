@@ -20,7 +20,7 @@ use azul_css::{
 macro_rules! setup_styled_dom {
     ($dom:expr) => {{
         let mut dom = $dom;
-        let styled_dom = StyledDom::new_node(&mut dom, CssApiWrapper::empty());
+        let styled_dom = StyledDom::create(&mut dom, CssApiWrapper::empty());
         let cache = styled_dom.css_property_cache.ptr.clone();
         (styled_dom, cache)
     }};
@@ -28,7 +28,7 @@ macro_rules! setup_styled_dom {
         let mut dom = $dom;
         let (css, _) = azul_css::parser2::new_from_str($css);
         let css_wrapper = CssApiWrapper::from(css);
-        let styled_dom = StyledDom::new_node(&mut dom, css_wrapper);
+        let styled_dom = StyledDom::create(&mut dom, css_wrapper);
         let cache = styled_dom.css_property_cache.ptr.clone();
         (styled_dom, cache)
     }};

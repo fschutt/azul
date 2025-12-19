@@ -20,8 +20,8 @@ use crate::callbacks::Callback;
 const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         }),
         extend_mode: ExtendMode::Clamp,
         stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -38,8 +38,8 @@ const STYLE_BACKGROUND_CONTENT_11062356617965867290_ITEMS: &[StyleBackgroundCont
 const STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         }),
         extend_mode: ExtendMode::Clamp,
         stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -180,7 +180,7 @@ const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorStop] 
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ProgressBar {
-    pub state: ProgressBarState,
+    pub progressbar_state: ProgressBarState,
     pub height: PixelValue,
     pub bar_background: StyleBackgroundContentVec,
     pub container_background: StyleBackgroundContentVec,
@@ -195,9 +195,9 @@ pub struct ProgressBarState {
 
 impl ProgressBar {
     #[inline]
-    pub fn new(percent_done: f32) -> Self {
+    pub fn create(percent_done: f32) -> Self {
         Self {
-            state: ProgressBarState {
+            progressbar_state: ProgressBarState {
                 percent_done,
                 display_percentage: false,
             },
@@ -213,7 +213,7 @@ impl ProgressBar {
 
     #[inline]
     pub fn swap_with_default(&mut self) -> Self {
-        let mut s = Self::new(0.0);
+        let mut s = Self::create(0.0);
         core::mem::swap(&mut s, self);
         s
     }
@@ -257,7 +257,7 @@ impl ProgressBar {
         // 60%:  [ [ flex-grow: 4000000 ],  [ flex-grow: 6000000  ] ]
         // 100%: [ [ flex-grow: 10000000 ], [ flex-grow: 0        ] ]
 
-        let percent_done = self.state.percent_done.max(0.0).min(100.0);
+        let percent_done = self.progressbar_state.percent_done.max(0.0).min(100.0);
         let flex_grow_bar = 10000000.0 / 100.0 * percent_done;
         let flex_grow_remaining = 10000000.0 / 100.0 * (100.0 - percent_done);
 

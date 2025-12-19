@@ -31,7 +31,7 @@ use crate::{
     widgets::{
         check_box::{CheckBox, CheckBoxState, CheckBoxOnToggleCallbackType},
         color_input::{ColorInput, ColorInputState},
-        file_input::{FileInput, FileInputState},
+        file_input::{FileInput, FileInputState, FileInputOnPathChangeCallbackType},
         number_input::{NumberInput, NumberInputState, NumberInputOnFocusLostCallbackType},
         text_input::{TextInput, TextInputState, TextInputOnFocusLostCallbackType},
     },
@@ -156,13 +156,13 @@ pub struct NodeGraphCallbacks {
 }
 
 pub type OnNodeAddedCallbackType = extern "C" fn(
-    data: RefAny,
+    refany: RefAny,
     info: CallbackInfo,
     new_node_type: NodeTypeId,
     new_node_id: NodeGraphNodeId,
     new_node_position: NodePosition,
 ) -> Update;
-impl_callback!(
+impl_widget_callback!(
     OnNodeAdded,
     OptionOnNodeAdded,
     OnNodeAddedCallback,
@@ -170,8 +170,8 @@ impl_callback!(
 );
 
 pub type OnNodeRemovedCallbackType =
-    extern "C" fn(data: RefAny, info: CallbackInfo, node_id_to_remove: NodeGraphNodeId) -> Update;
-impl_callback!(
+    extern "C" fn(refany: RefAny, info: CallbackInfo, node_id_to_remove: NodeGraphNodeId) -> Update;
+impl_widget_callback!(
     OnNodeRemoved,
     OptionOnNodeRemoved,
     OnNodeRemovedCallback,
@@ -179,8 +179,8 @@ impl_callback!(
 );
 
 pub type OnNodeGraphDraggedCallbackType =
-    extern "C" fn(data: RefAny, info: CallbackInfo, drag_amount: GraphDragAmount) -> Update;
-impl_callback!(
+    extern "C" fn(refany: RefAny, info: CallbackInfo, drag_amount: GraphDragAmount) -> Update;
+impl_widget_callback!(
     OnNodeGraphDragged,
     OptionOnNodeGraphDragged,
     OnNodeGraphDraggedCallback,
@@ -188,12 +188,12 @@ impl_callback!(
 );
 
 pub type OnNodeDraggedCallbackType = extern "C" fn(
-    data: RefAny,
+    refany: RefAny,
     info: CallbackInfo,
     node_dragged: NodeGraphNodeId,
     drag_amount: NodeDragAmount,
 ) -> Update;
-impl_callback!(
+impl_widget_callback!(
     OnNodeDragged,
     OptionOnNodeDragged,
     OnNodeDraggedCallback,
@@ -201,14 +201,14 @@ impl_callback!(
 );
 
 pub type OnNodeConnectedCallbackType = extern "C" fn(
-    data: RefAny,
+    refany: RefAny,
     info: CallbackInfo,
     input: NodeGraphNodeId,
     input_index: usize,
     output: NodeGraphNodeId,
     output_index: usize,
 ) -> Update;
-impl_callback!(
+impl_widget_callback!(
     OnNodeConnected,
     OptionOnNodeConnected,
     OnNodeConnectedCallback,
@@ -216,12 +216,12 @@ impl_callback!(
 );
 
 pub type OnNodeInputDisconnectedCallbackType = extern "C" fn(
-    data: RefAny,
+    refany: RefAny,
     info: CallbackInfo,
     input: NodeGraphNodeId,
     input_index: usize,
 ) -> Update;
-impl_callback!(
+impl_widget_callback!(
     OnNodeInputDisconnected,
     OptionOnNodeInputDisconnected,
     OnNodeInputDisconnectedCallback,
@@ -229,12 +229,12 @@ impl_callback!(
 );
 
 pub type OnNodeOutputDisconnectedCallbackType = extern "C" fn(
-    data: RefAny,
+    refany: RefAny,
     info: CallbackInfo,
     output: NodeGraphNodeId,
     output_index: usize,
 ) -> Update;
-impl_callback!(
+impl_widget_callback!(
     OnNodeOutputDisconnected,
     OptionOnNodeOutputDisconnected,
     OnNodeOutputDisconnectedCallback,
@@ -242,14 +242,14 @@ impl_callback!(
 );
 
 pub type OnNodeFieldEditedCallbackType = extern "C" fn(
-    data: RefAny,
+    refany: RefAny,
     info: CallbackInfo,
     node_id: NodeGraphNodeId,
     field_id: usize,
     node_type: NodeTypeId,
     new_value: NodeTypeFieldValue,
 ) -> Update;
-impl_callback!(
+impl_widget_callback!(
     OnNodeFieldEdited,
     OptionOnNodeFieldEdited,
     OnNodeFieldEditedCallback,
@@ -405,7 +405,7 @@ pub struct NodeTypeInfo {
     /// Whether this node type is a "root" type
     pub is_root: bool,
     /// Name of the node type
-    pub name: AzString,
+    pub node_type_name: AzString,
     /// List of inputs for this node
     pub inputs: InputOutputTypeIdVec,
     /// List of outputs for this node
@@ -854,7 +854,7 @@ impl NodeGraph {
                 StyleBackgroundContentVec::from_const_slice(NODEGRAPH_BACKGROUND),
             )),
             Normal(CssProperty::background_repeat(
-                vec![StyleBackgroundRepeat::Repeat].into(),
+                vec![StyleBackgroundRepeat::PatternRepeat].into(),
             )),
             Normal(CssProperty::background_position(
                 vec![StyleBackgroundPosition {
@@ -882,9 +882,9 @@ impl NodeGraph {
             callbacks: self.callbacks.clone(),
         });
 
-        let context_menu = Menu::new(
+        let context_menu = Menu::create(
             vec![MenuItem::String(
-                StringMenuItem::new(self.add_node_str.clone()).with_children(
+                StringMenuItem::create(self.add_node_str.clone()).with_children(
                     self.node_types
                         .iter()
                         .map(
@@ -900,7 +900,7 @@ impl NodeGraph {
                                     });
 
                                 MenuItem::String(
-                                    StringMenuItem::new(node_type_info.name.clone().into())
+                                    StringMenuItem::create(node_type_info.node_type_name.clone().into())
                                         .with_callback(
                                             context_menu_local_dataset,
                                             nodegraph_context_menu_click as usize,
@@ -926,18 +926,18 @@ impl NodeGraph {
                         vec![
                             CoreCallbackData {
                                 event: EventFilter::Hover(HoverEventFilter::MouseOver),
-                                data: node_graph_local_dataset.clone(),
+                                refany: node_graph_local_dataset.clone(),
                                 callback: CoreCallback {
                                     cb: nodegraph_drag_graph_or_nodes as usize as usize,
-                                    callable: OptionRefAny::None,
+                                    ctx: OptionRefAny::None,
                                 },
                             },
                             CoreCallbackData {
                                 event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
-                                data: node_graph_local_dataset.clone(),
+                                refany: node_graph_local_dataset.clone(),
                                 callback: CoreCallback {
                                     cb: nodegraph_unset_active_node as usize as usize,
-                                    callable: OptionRefAny::None,
+                                    ctx: OptionRefAny::None,
                                 },
                             },
                         ]
@@ -1061,8 +1061,8 @@ fn render_node(
     const STYLE_BACKGROUND_CONTENT_10430246856047584562_ITEMS: &[StyleBackgroundContent] =
         &[StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::FromTo(DirectionCorners {
-                from: DirectionCorner::Left,
-                to: DirectionCorner::Right,
+                dir_from: DirectionCorner::Left,
+                dir_to: DirectionCorner::Right,
             }),
             extend_mode: ExtendMode::Clamp,
             stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -1085,8 +1085,8 @@ fn render_node(
     const STYLE_BACKGROUND_CONTENT_11936041127084538304_ITEMS: &[StyleBackgroundContent] =
         &[StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::FromTo(DirectionCorners {
-                from: DirectionCorner::Right,
-                to: DirectionCorner::Left,
+                dir_from: DirectionCorner::Right,
+                dir_to: DirectionCorner::Left,
             }),
             extend_mode: ExtendMode::Clamp,
             stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -1103,8 +1103,8 @@ fn render_node(
     const STYLE_BACKGROUND_CONTENT_17648039690071193942_ITEMS: &[StyleBackgroundContent] =
         &[StyleBackgroundContent::LinearGradient(LinearGradient {
             direction: Direction::FromTo(DirectionCorners {
-                from: DirectionCorner::Top,
-                to: DirectionCorner::Bottom,
+                dir_from: DirectionCorner::Top,
+                dir_to: DirectionCorner::Bottom,
             }),
             extend_mode: ExtendMode::Clamp,
             stops: NormalizedLinearColorStopVec::from_const_slice(
@@ -2052,8 +2052,8 @@ fn render_node(
         .with_callbacks(vec![
            CoreCallbackData {
                event: EventFilter::Hover(HoverEventFilter::LeftMouseDown),
-               data: node_local_dataset.clone(),
-               callback: CoreCallback { cb: nodegraph_set_active_node as usize, callable: OptionRefAny::None },
+               refany: node_local_dataset.clone(),
+               callback: CoreCallback { cb: nodegraph_set_active_node as usize, ctx: OptionRefAny::None },
            },
         ].into())
         .with_inline_css_props(vec![
@@ -2289,8 +2289,8 @@ fn render_node(
                .with_callbacks(vec![
                    CoreCallbackData {
                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                       data: node_local_dataset.clone(),
-                       callback: CoreCallback { cb: nodegraph_delete_node as usize, callable: OptionRefAny::None },
+                       refany: node_local_dataset.clone(),
+                       callback: CoreCallback { cb: nodegraph_delete_node as usize, ctx: OptionRefAny::None },
                    },
                ].into())
                .with_ids_and_classes({
@@ -2298,7 +2298,7 @@ fn render_node(
                        &[Class(AzString::from_const_str("node_close_button"))];
                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_7122017923389407516)
                }),
-           Dom::text(node_info.name.clone())
+           Dom::text(node_info.node_type_name.clone())
                .with_inline_css_props(CSS_MATCH_1739273067404038547)
                .with_ids_and_classes({
                    const IDS_AND_CLASSES_15777790571346582635: &[IdOrClass] =
@@ -2382,19 +2382,19 @@ fn render_node(
                                                .with_callbacks(vec![
                                                    CoreCallbackData {
                                                        event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
-                                                       data: RefAny::new(NodeInputOutputLocalDataset {
+                                                       refany: RefAny::new(NodeInputOutputLocalDataset {
                                                            io_id: Input(io_id),
                                                            backref: node_local_dataset.clone(),
                                                        }),
-                                                       callback: CoreCallback { cb: nodegraph_input_output_connect as usize, callable: OptionRefAny::None },
+                                                       callback: CoreCallback { cb: nodegraph_input_output_connect as usize, ctx: OptionRefAny::None },
                                                    },
                                                    CoreCallbackData {
                                                        event: EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
-                                                       data: RefAny::new(NodeInputOutputLocalDataset {
+                                                       refany: RefAny::new(NodeInputOutputLocalDataset {
                                                            io_id: Input(io_id),
                                                            backref: node_local_dataset.clone(),
                                                        }),
-                                                       callback: CoreCallback { cb: nodegraph_input_output_disconnect as usize, callable: OptionRefAny::None },
+                                                       callback: CoreCallback { cb: nodegraph_input_output_disconnect as usize, ctx: OptionRefAny::None },
                                                    },
                                                ].into())
                                                .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
@@ -2471,29 +2471,30 @@ fn render_node(
 
                                    match &field.value {
                                        NodeTypeFieldValue::TextInput(initial_text) => {
-                                           TextInput::new()
+                                           TextInput::create()
                                            .with_text(initial_text.clone())
                                            .with_on_focus_lost(field_local_dataset, nodegraph_on_textinput_focus_lost as TextInputOnFocusLostCallbackType)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::NumberInput(initial_value) => {
-                                           NumberInput::new(*initial_value)
+                                           NumberInput::create(*initial_value)
                                            .with_on_focus_lost(field_local_dataset, nodegraph_on_numberinput_focus_lost as NumberInputOnFocusLostCallbackType)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::CheckBox(initial_checked) => {
-                                           CheckBox::new(*initial_checked)
+                                           CheckBox::create(*initial_checked)
                                            .with_on_toggle(field_local_dataset, nodegraph_on_checkbox_value_changed as CheckBoxOnToggleCallbackType)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::ColorInput(initial_color) => {
-                                           ColorInput::new(*initial_color)
+                                           ColorInput::create(*initial_color)
                                            .with_on_value_change(field_local_dataset, nodegraph_on_colorinput_value_changed)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::FileInput(file_path) => {
-                                           FileInput::new(file_path.clone())
-                                           .with_on_path_change(field_local_dataset, nodegraph_on_fileinput_button_clicked)
+                                           let cb: FileInputOnPathChangeCallbackType = nodegraph_on_fileinput_button_clicked;
+                                           FileInput::create(file_path.clone())
+                                           .with_on_path_change(field_local_dataset, cb)
                                            .dom()
                                        },
                                    }
@@ -2542,19 +2543,19 @@ fn render_node(
                                                .with_callbacks(vec![
                                                    CoreCallbackData {
                                                        event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
-                                                       data: RefAny::new(NodeInputOutputLocalDataset {
+                                                       refany: RefAny::new(NodeInputOutputLocalDataset {
                                                            io_id: Output(io_id),
                                                            backref: node_local_dataset.clone(),
                                                        }),
-                                                       callback: CoreCallback { cb: nodegraph_input_output_connect as usize, callable: OptionRefAny::None },
+                                                       callback: CoreCallback { cb: nodegraph_input_output_connect as usize, ctx: OptionRefAny::None },
                                                    },
                                                    CoreCallbackData {
                                                        event: EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
-                                                       data: RefAny::new(NodeInputOutputLocalDataset {
+                                                       refany: RefAny::new(NodeInputOutputLocalDataset {
                                                            io_id: Output(io_id),
                                                            backref: node_local_dataset.clone(),
                                                        }),
-                                                       callback: CoreCallback { cb: nodegraph_input_output_disconnect as usize, callable: OptionRefAny::None },
+                                                       callback: CoreCallback { cb: nodegraph_input_output_disconnect as usize, ctx: OptionRefAny::None },
                                                    },
                                                ].into())
                                                .with_inline_css_props(
@@ -2769,7 +2770,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
         })
 }
 
-extern "C" fn draw_connection(mut data: RefAny, _info: ()) -> ImageRef {
+extern "C" fn draw_connection(mut refany: RefAny, _info: ()) -> ImageRef {
     // RenderImageCallbackInfo not available in memtest
     // let size = info.get_bounds().get_physical_size();
     let size = azul_core::geom::LogicalSize {
@@ -2788,14 +2789,14 @@ extern "C" fn draw_connection(mut data: RefAny, _info: ()) -> ImageRef {
 }
 
 fn draw_connection_inner(
-    mut data: RefAny,
+    mut refany: RefAny,
     _info: &mut (),
     _texture_size: PhysicalSizeU32,
 ) -> Option<ImageRef> {
     use crate::xml::svg::tessellate_path_stroke;
 
-    let data = data.downcast_ref::<ConnectionLocalDataset>()?;
-    let data = &*data;
+    let refany = refany.downcast_ref::<ConnectionLocalDataset>()?;
+    let refany = &*refany;
 
     // Cannot proceed without RenderImageCallbackInfo - all code below requires it
     return None;
@@ -2821,8 +2822,8 @@ fn draw_connection_inner(
             items: vec![
                 // depending on in which quadrant the curve is drawn relative to the input node,
                 // we need a different curve
-                if data.swap_vert {
-                    if data.swap_horz {
+                if refany.swap_vert {
+                    if refany.swap_horz {
                         //          /- input
                         //  output-/
                         SvgPathElement::CubicCurve(SvgCubicCurve {
@@ -2866,7 +2867,7 @@ fn draw_connection_inner(
                         })
                     }
                 } else {
-                    if data.swap_horz {
+                    if refany.swap_horz {
                         //  output-\
                         //          \- input
                         SvgPathElement::CubicCurve(SvgCubicCurve {
@@ -2918,7 +2919,7 @@ fn draw_connection_inner(
 
     let tesselated_gpu_buffer = TessellatedGPUSvgNode::new(&tessellated_stroke, gl_context.clone());
 
-    tesselated_gpu_buffer.draw(&mut texture, texture_size, data.color, Vec::new().into());
+    tesselated_gpu_buffer.draw(&mut texture, texture_size, refany.color, Vec::new().into());
 
     Some(ImageRef::new_gltexture(texture))
     */
@@ -2973,31 +2974,31 @@ fn get_rect(
     ))
 }
 
-extern "C" fn nodegraph_set_active_node(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let data_clone = data.clone();
-    if let Some(mut data) = data.downcast_mut::<NodeLocalDataset>() {
-        let node_id = data.node_id.clone();
-        if let Some(mut backref) = data.backref.downcast_mut::<NodeGraphLocalDataset>() {
+extern "C" fn nodegraph_set_active_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
+    let data_clone = refany.clone();
+    if let Some(mut refany) = refany.downcast_mut::<NodeLocalDataset>() {
+        let node_id = refany.node_id.clone();
+        if let Some(mut backref) = refany.backref.downcast_mut::<NodeGraphLocalDataset>() {
             backref.active_node_being_dragged = Some((node_id, data_clone));
         }
     }
     Update::DoNothing
 }
 
-extern "C" fn nodegraph_unset_active_node(mut data: RefAny, _info: CallbackInfo) -> Update {
-    if let Some(mut data) = data.downcast_mut::<NodeGraphLocalDataset>() {
-        data.active_node_being_dragged = None;
+extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
+    if let Some(mut refany) = refany.downcast_mut::<NodeGraphLocalDataset>() {
+        refany.active_node_being_dragged = None;
     }
     Update::DoNothing
 }
 
 // drag either the graph or the currently active nodes
-extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let mut data = match data.downcast_mut::<NodeGraphLocalDataset>() {
+extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    let mut refany = match refany.downcast_mut::<NodeGraphLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
-    let data = &mut *data;
+    let refany = &mut *refany;
 
     let prev = match info.get_previous_mouse_state() {
         Some(s) => s,
@@ -3015,19 +3016,19 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: Callback
         _ => return Update::DoNothing,
     };
 
-    let dx = (current_mouse_pos.x - previous_mouse_pos.x) * (1.0 / data.node_graph.scale_factor);
-    let dy = (current_mouse_pos.y - previous_mouse_pos.y) * (1.0 / data.node_graph.scale_factor);
+    let dx = (current_mouse_pos.x - previous_mouse_pos.x) * (1.0 / refany.node_graph.scale_factor);
+    let dy = (current_mouse_pos.y - previous_mouse_pos.y) * (1.0 / refany.node_graph.scale_factor);
     let nodegraph_node = info.get_hit_node();
 
-    let should_update = match data.active_node_being_dragged.clone() {
+    let should_update = match refany.active_node_being_dragged.clone() {
         // drag node
         Some((node_graph_node_id, data_marker)) => {
-            let node_connection_marker = &mut data.node_connection_marker;
+            let node_connection_marker = &mut refany.node_connection_marker;
 
             let _nodegraph_node = info.get_hit_node();
-            let result = match data.callbacks.on_node_dragged.as_ref() {
-                Some(OnNodeDragged { callback, data }) => (callback.cb)(
-                    data.clone(),
+            let result = match refany.callbacks.on_node_dragged.as_ref() {
+                Some(OnNodeDragged { callback, refany }) => (callback.cb)(
+                    refany.clone(),
                     info,
                     node_graph_node_id,
                     NodeDragAmount { x: dx, y: dy },
@@ -3036,7 +3037,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: Callback
             };
 
             // update the visual transform of the node in the UI
-            let node_position = match data
+            let node_position = match refany
                 .node_graph
                 .nodes
                 .iter_mut()
@@ -3056,21 +3057,21 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: Callback
             };
 
             let node_transform = StyleTransformTranslate2D {
-                x: PixelValue::px(node_position.x + data.node_graph.offset.x),
-                y: PixelValue::px(node_position.y + data.node_graph.offset.y),
+                x: PixelValue::px(node_position.x + refany.node_graph.offset.x),
+                y: PixelValue::px(node_position.y + refany.node_graph.offset.y),
             };
 
             info.set_css_property(
                 visual_node_id,
                 CssProperty::transform(
-                    if data.node_graph.scale_factor != 1.0 {
+                    if refany.node_graph.scale_factor != 1.0 {
                         vec![
                             StyleTransform::Translate(node_transform),
                             StyleTransform::ScaleX(PercentageValue::new(
-                                data.node_graph.scale_factor * 100.0,
+                                refany.node_graph.scale_factor * 100.0,
                             )),
                             StyleTransform::ScaleY(PercentageValue::new(
-                                data.node_graph.scale_factor * 100.0,
+                                refany.node_graph.scale_factor * 100.0,
                             )),
                         ]
                     } else {
@@ -3113,7 +3114,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: Callback
                     continue; // connection does not need to be modified
                 }
 
-                let (new_rect, swap_vert, swap_horz) = match get_rect(&data.node_graph, *cld) {
+                let (new_rect, swap_vert, swap_horz) = match get_rect(&refany.node_graph, *cld) {
                     Some(s) => s,
                     None => continue,
                 };
@@ -3122,21 +3123,21 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: Callback
                 cld.swap_horz = swap_horz;
 
                 let node_transform = StyleTransformTranslate2D {
-                    x: PixelValue::px(data.node_graph.offset.x + new_rect.origin.x),
-                    y: PixelValue::px(data.node_graph.offset.y + new_rect.origin.y),
+                    x: PixelValue::px(refany.node_graph.offset.x + new_rect.origin.x),
+                    y: PixelValue::px(refany.node_graph.offset.y + new_rect.origin.y),
                 };
 
                 info.set_css_property(
                     first_child,
                     CssProperty::transform(
-                        if data.node_graph.scale_factor != 1.0 {
+                        if refany.node_graph.scale_factor != 1.0 {
                             vec![
                                 StyleTransform::Translate(node_transform),
                                 StyleTransform::ScaleX(PercentageValue::new(
-                                    data.node_graph.scale_factor * 100.0,
+                                    refany.node_graph.scale_factor * 100.0,
                                 )),
                                 StyleTransform::ScaleY(PercentageValue::new(
-                                    data.node_graph.scale_factor * 100.0,
+                                    refany.node_graph.scale_factor * 100.0,
                                 )),
                             ]
                         } else {
@@ -3164,15 +3165,15 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: Callback
         }
         // drag graph
         None => {
-            let result = match data.callbacks.on_node_graph_dragged.as_ref() {
-                Some(OnNodeGraphDragged { callback, data }) => {
-                    (callback.cb)(data.clone(), info, GraphDragAmount { x: dx, y: dy })
+            let result = match refany.callbacks.on_node_graph_dragged.as_ref() {
+                Some(OnNodeGraphDragged { callback, refany }) => {
+                    (callback.cb)(refany.clone(), info, GraphDragAmount { x: dx, y: dy })
                 }
                 None => Update::DoNothing,
             };
 
-            data.node_graph.offset.x += dx;
-            data.node_graph.offset.y += dy;
+            refany.node_graph.offset.x += dx;
+            refany.node_graph.offset.y += dy;
 
             // Update the visual node positions
             let node_container = match info.get_first_child(nodegraph_node) {
@@ -3209,7 +3210,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: Callback
 
                 let node_graph_node_id = node_graph_node_id.node_id;
 
-                let node_position = match data
+                let node_position = match refany
                     .node_graph
                     .nodes
                     .iter()
@@ -3220,21 +3221,21 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: Callback
                 };
 
                 let node_transform = StyleTransformTranslate2D {
-                    x: PixelValue::px(node_position.x + data.node_graph.offset.x),
-                    y: PixelValue::px(node_position.y + data.node_graph.offset.y),
+                    x: PixelValue::px(node_position.x + refany.node_graph.offset.x),
+                    y: PixelValue::px(node_position.y + refany.node_graph.offset.y),
                 };
 
                 info.set_css_property(
                     node_first_child,
                     CssProperty::transform(
-                        if data.node_graph.scale_factor != 1.0 {
+                        if refany.node_graph.scale_factor != 1.0 {
                             vec![
                                 StyleTransform::Translate(node_transform),
                                 StyleTransform::ScaleX(PercentageValue::new(
-                                    data.node_graph.scale_factor * 100.0,
+                                    refany.node_graph.scale_factor * 100.0,
                                 )),
                                 StyleTransform::ScaleY(PercentageValue::new(
-                                    data.node_graph.scale_factor * 100.0,
+                                    refany.node_graph.scale_factor * 100.0,
                                 )),
                             ]
                         } else {
@@ -3250,7 +3251,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: Callback
                 };
             }
 
-            let node_connection_marker = &mut data.node_connection_marker;
+            let node_connection_marker = &mut refany.node_connection_marker;
 
             // Update the connection positions
             let connection_container_nodeid =
@@ -3279,7 +3280,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: Callback
                     None => continue,
                 };
 
-                let (new_rect, _, _) = match get_rect(&data.node_graph, *cld) {
+                let (new_rect, _, _) = match get_rect(&refany.node_graph, *cld) {
                     Some(s) => s,
                     None => continue,
                 };
@@ -3289,14 +3290,14 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: Callback
                     CssProperty::transform(
                         vec![
                             StyleTransform::Translate(StyleTransformTranslate2D {
-                                x: PixelValue::px(data.node_graph.offset.x + new_rect.origin.x),
-                                y: PixelValue::px(data.node_graph.offset.y + new_rect.origin.y),
+                                x: PixelValue::px(refany.node_graph.offset.x + new_rect.origin.x),
+                                y: PixelValue::px(refany.node_graph.offset.y + new_rect.origin.y),
                             }),
                             StyleTransform::ScaleX(PercentageValue::new(
-                                data.node_graph.scale_factor * 100.0,
+                                refany.node_graph.scale_factor * 100.0,
                             )),
                             StyleTransform::ScaleY(PercentageValue::new(
-                                data.node_graph.scale_factor * 100.0,
+                                refany.node_graph.scale_factor * 100.0,
                             )),
                         ]
                         .into(),
@@ -3313,8 +3314,8 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut data: RefAny, mut info: Callback
     should_update
 }
 
-extern "C" fn nodegraph_duplicate_node(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let _data = match data.downcast_mut::<NodeLocalDataset>() {
+extern "C" fn nodegraph_duplicate_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
+    let _data = match refany.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
@@ -3322,43 +3323,43 @@ extern "C" fn nodegraph_duplicate_node(mut data: RefAny, _info: CallbackInfo) ->
     Update::DoNothing // TODO
 }
 
-extern "C" fn nodegraph_delete_node(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let mut data = match data.downcast_mut::<NodeLocalDataset>() {
+extern "C" fn nodegraph_delete_node(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    let mut refany = match refany.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let node_id = data.node_id.clone();
+    let node_id = refany.node_id.clone();
 
-    let mut backref = match data.backref.downcast_mut::<NodeGraphLocalDataset>() {
+    let mut backref = match refany.backref.downcast_mut::<NodeGraphLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
     let result = match backref.callbacks.on_node_removed.as_ref() {
-        Some(OnNodeRemoved { callback, data }) => (callback.cb)(data.clone(), info, node_id),
+        Some(OnNodeRemoved { callback, refany }) => (callback.cb)(refany.clone(), info, node_id),
         None => Update::DoNothing,
     };
 
     result
 }
 
-extern "C" fn nodegraph_context_menu_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::CursorPosition;
 
-    let mut data = match data.downcast_mut::<ContextMenuEntryLocalDataset>() {
+    let mut refany = match refany.downcast_mut::<ContextMenuEntryLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let new_node_type = data.node_type.clone();
+    let new_node_type = refany.node_type.clone();
 
-    let node_graph_wrapper_id = match info.get_node_id_of_root_dataset(data.backref.clone()) {
+    let node_graph_wrapper_id = match info.get_node_id_of_root_dataset(refany.backref.clone()) {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let mut backref = match data.backref.downcast_mut::<NodeGraphLocalDataset>() {
+    let mut backref = match refany.backref.downcast_mut::<NodeGraphLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
@@ -3385,8 +3386,8 @@ extern "C" fn nodegraph_context_menu_click(mut data: RefAny, mut info: CallbackI
     let new_node_id = backref.node_graph.generate_unique_node_id();
 
     let result = match backref.callbacks.on_node_added.as_ref() {
-        Some(OnNodeAdded { callback, data }) => {
-            (callback.cb)(data.clone(), info, new_node_type, new_node_id, new_node_pos)
+        Some(OnNodeAdded { callback, refany }) => {
+            (callback.cb)(refany.clone(), info, new_node_type, new_node_id, new_node_pos)
         }
         None => Update::DoNothing,
     };
@@ -3394,17 +3395,17 @@ extern "C" fn nodegraph_context_menu_click(mut data: RefAny, mut info: CallbackI
     result
 }
 
-extern "C" fn nodegraph_input_output_connect(mut data: RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn nodegraph_input_output_connect(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     use self::InputOrOutput::*;
 
-    let mut data = match data.downcast_mut::<NodeInputOutputLocalDataset>() {
+    let mut refany = match refany.downcast_mut::<NodeInputOutputLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let io_id = data.io_id.clone();
+    let io_id = refany.io_id.clone();
 
-    let mut backref = match data.backref.downcast_mut::<NodeLocalDataset>() {
+    let mut backref = match refany.backref.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
@@ -3451,9 +3452,9 @@ extern "C" fn nodegraph_input_output_connect(mut data: RefAny, mut info: Callbac
     }
 
     let result = match backref.callbacks.on_node_connected.as_ref() {
-        Some(OnNodeConnected { callback, data }) => {
+        Some(OnNodeConnected { callback, refany }) => {
             let r = (callback.cb)(
-                data.clone(),
+                refany.clone(),
                 info,
                 input_node,
                 input_index,
@@ -3469,17 +3470,17 @@ extern "C" fn nodegraph_input_output_connect(mut data: RefAny, mut info: Callbac
     result
 }
 
-extern "C" fn nodegraph_input_output_disconnect(mut data: RefAny, info: CallbackInfo) -> Update {
+extern "C" fn nodegraph_input_output_disconnect(mut refany: RefAny, info: CallbackInfo) -> Update {
     use self::InputOrOutput::*;
 
-    let mut data = match data.downcast_mut::<NodeInputOutputLocalDataset>() {
+    let mut refany = match refany.downcast_mut::<NodeInputOutputLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let io_id = data.io_id.clone();
+    let io_id = refany.io_id.clone();
 
-    let mut backref = match data.backref.downcast_mut::<NodeLocalDataset>() {
+    let mut backref = match refany.backref.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
@@ -3496,8 +3497,8 @@ extern "C" fn nodegraph_input_output_disconnect(mut data: RefAny, info: Callback
         Input(i) => {
             result.max_self(
                 match backref.callbacks.on_node_input_disconnected.as_ref() {
-                    Some(OnNodeInputDisconnected { callback, data }) => {
-                        (callback.cb)(data.clone(), info, node_id, i)
+                    Some(OnNodeInputDisconnected { callback, refany }) => {
+                        (callback.cb)(refany.clone(), info, node_id, i)
                     }
                     None => Update::DoNothing,
                 },
@@ -3506,8 +3507,8 @@ extern "C" fn nodegraph_input_output_disconnect(mut data: RefAny, info: Callback
         Output(o) => {
             result.max_self(
                 match backref.callbacks.on_node_output_disconnected.as_ref() {
-                    Some(OnNodeOutputDisconnected { callback, data }) => {
-                        (callback.cb)(data.clone(), info, node_id, o)
+                    Some(OnNodeOutputDisconnected { callback, refany }) => {
+                        (callback.cb)(refany.clone(), info, node_id, o)
                     }
                     None => Update::DoNothing,
                 },
@@ -3519,18 +3520,18 @@ extern "C" fn nodegraph_input_output_disconnect(mut data: RefAny, info: Callback
 }
 
 extern "C" fn nodegraph_on_textinput_focus_lost(
-    mut data: RefAny,
+    mut refany: RefAny,
     info: CallbackInfo,
     textinputstate: TextInputState,
 ) -> Update {
-    let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
+    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let field_idx = data.field_idx;
+    let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match data.backref.downcast_mut::<NodeLocalDataset>() {
+    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
@@ -3556,8 +3557,8 @@ extern "C" fn nodegraph_on_textinput_focus_lost(
     };
 
     let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
-        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
-            data.clone(),
+        Some(OnNodeFieldEdited { refany, callback }) => (callback.cb)(
+            refany.clone(),
             info,
             node_id,
             field_idx,
@@ -3571,18 +3572,18 @@ extern "C" fn nodegraph_on_textinput_focus_lost(
 }
 
 extern "C" fn nodegraph_on_numberinput_focus_lost(
-    mut data: RefAny,
+    mut refany: RefAny,
     info: CallbackInfo,
     numberinputstate: NumberInputState,
 ) -> Update {
-    let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
+    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let field_idx = data.field_idx;
+    let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match data.backref.downcast_mut::<NodeLocalDataset>() {
+    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
@@ -3608,8 +3609,8 @@ extern "C" fn nodegraph_on_numberinput_focus_lost(
     };
 
     let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
-        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
-            data.clone(),
+        Some(OnNodeFieldEdited { refany, callback }) => (callback.cb)(
+            refany.clone(),
             info,
             node_id,
             field_idx,
@@ -3623,18 +3624,18 @@ extern "C" fn nodegraph_on_numberinput_focus_lost(
 }
 
 extern "C" fn nodegraph_on_checkbox_value_changed(
-    mut data: RefAny,
+    mut refany: RefAny,
     info: CallbackInfo,
     checkboxinputstate: CheckBoxState,
 ) -> Update {
-    let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
+    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let field_idx = data.field_idx;
+    let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match data.backref.downcast_mut::<NodeLocalDataset>() {
+    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
@@ -3660,8 +3661,8 @@ extern "C" fn nodegraph_on_checkbox_value_changed(
     };
 
     let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
-        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
-            data.clone(),
+        Some(OnNodeFieldEdited { refany, callback }) => (callback.cb)(
+            refany.clone(),
             info,
             node_id,
             field_idx,
@@ -3675,18 +3676,18 @@ extern "C" fn nodegraph_on_checkbox_value_changed(
 }
 
 extern "C" fn nodegraph_on_colorinput_value_changed(
-    mut data: RefAny,
+    mut refany: RefAny,
     info: CallbackInfo,
     colorinputstate: ColorInputState,
 ) -> Update {
-    let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
+    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let field_idx = data.field_idx;
+    let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match data.backref.downcast_mut::<NodeLocalDataset>() {
+    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
@@ -3711,8 +3712,8 @@ extern "C" fn nodegraph_on_colorinput_value_changed(
     };
 
     let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
-        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
-            data.clone(),
+        Some(OnNodeFieldEdited { refany, callback }) => (callback.cb)(
+            refany.clone(),
             info,
             node_id,
             field_idx,
@@ -3726,18 +3727,18 @@ extern "C" fn nodegraph_on_colorinput_value_changed(
 }
 
 extern "C" fn nodegraph_on_fileinput_button_clicked(
-    mut data: RefAny,
+    mut refany: RefAny,
     info: CallbackInfo,
     file: FileInputState,
 ) -> Update {
-    let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
+    let mut refany = match refany.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let field_idx = data.field_idx;
+    let field_idx = refany.field_idx;
 
-    let mut node_local_dataset = match data.backref.downcast_mut::<NodeLocalDataset>() {
+    let mut node_local_dataset = match refany.backref.downcast_mut::<NodeLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
@@ -3763,8 +3764,8 @@ extern "C" fn nodegraph_on_fileinput_button_clicked(
 
     // If a new file was selected, invoke callback
     let result = match node_graph.callbacks.on_node_field_edited.as_ref() {
-        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(
-            data.clone(),
+        Some(OnNodeFieldEdited { refany, callback }) => (callback.cb)(
+            refany.clone(),
             info,
             node_id,
             field_idx,

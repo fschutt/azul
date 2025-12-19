@@ -316,7 +316,7 @@ pub type LayoutMaxWidthValue = CssPropertyValue<LayoutMaxWidth>;
 pub type LayoutMaxHeightValue = CssPropertyValue<LayoutMaxHeight>;
 pub type LayoutPositionValue = CssPropertyValue<LayoutPosition>;
 pub type LayoutTopValue = CssPropertyValue<LayoutTop>;
-pub type LayoutBottomValue = CssPropertyValue<LayoutBottom>;
+pub type LayoutInsetBottomValue = CssPropertyValue<LayoutInsetBottom>;
 pub type LayoutRightValue = CssPropertyValue<LayoutRight>;
 pub type LayoutLeftValue = CssPropertyValue<LayoutLeft>;
 pub type LayoutZIndexValue = CssPropertyValue<LayoutZIndex>;
@@ -527,7 +527,7 @@ pub enum CssProperty {
     Top(LayoutTopValue),
     Right(LayoutRightValue),
     Left(LayoutLeftValue),
-    Bottom(LayoutBottomValue),
+    Bottom(LayoutInsetBottomValue),
     ZIndex(LayoutZIndexValue),
     FlexWrap(LayoutFlexWrapValue),
     FlexDirection(LayoutFlexDirectionValue),
@@ -1207,7 +1207,7 @@ pub enum CssParsingError<'a> {
     LayoutTop(LayoutTopParseError<'a>),
     LayoutRight(LayoutRightParseError<'a>),
     LayoutLeft(LayoutLeftParseError<'a>),
-    LayoutBottom(LayoutBottomParseError<'a>),
+    LayoutInsetBottom(LayoutInsetBottomParseError<'a>),
     LayoutZIndex(LayoutZIndexParseError<'a>),
 
     // Layout flex
@@ -1355,7 +1355,7 @@ pub enum CssParsingErrorOwned {
     LayoutTop(LayoutTopParseErrorOwned),
     LayoutRight(LayoutRightParseErrorOwned),
     LayoutLeft(LayoutLeftParseErrorOwned),
-    LayoutBottom(LayoutBottomParseErrorOwned),
+    LayoutInsetBottom(LayoutInsetBottomParseErrorOwned),
     LayoutZIndex(LayoutZIndexParseErrorOwned),
 
     // Layout flex
@@ -1466,7 +1466,7 @@ impl_display! { CssParsingError<'a>, {
     LayoutTop(e) => format!("Invalid top value: {}", e),
     LayoutRight(e) => format!("Invalid right value: {}", e),
     LayoutLeft(e) => format!("Invalid left value: {}", e),
-    LayoutBottom(e) => format!("Invalid bottom value: {}", e),
+    LayoutInsetBottom(e) => format!("Invalid bottom value: {}", e),
     LayoutZIndex(e) => format!("Invalid z-index value: {}", e),
     FlexWrap(e) => format!("Invalid flex-wrap value: {}", e),
     FlexDirection(e) => format!("Invalid flex-direction value: {}", e),
@@ -1646,7 +1646,7 @@ impl_from!(
 impl_from!(LayoutTopParseError<'a>, CssParsingError::LayoutTop);
 impl_from!(LayoutRightParseError<'a>, CssParsingError::LayoutRight);
 impl_from!(LayoutLeftParseError<'a>, CssParsingError::LayoutLeft);
-impl_from!(LayoutBottomParseError<'a>, CssParsingError::LayoutBottom);
+impl_from!(LayoutInsetBottomParseError<'a>, CssParsingError::LayoutInsetBottom);
 impl_from!(LayoutZIndexParseError<'a>, CssParsingError::LayoutZIndex);
 
 // Layout flex
@@ -1882,8 +1882,8 @@ impl<'a> CssParsingError<'a> {
             CssParsingError::LayoutTop(e) => CssParsingErrorOwned::LayoutTop(e.to_contained()),
             CssParsingError::LayoutRight(e) => CssParsingErrorOwned::LayoutRight(e.to_contained()),
             CssParsingError::LayoutLeft(e) => CssParsingErrorOwned::LayoutLeft(e.to_contained()),
-            CssParsingError::LayoutBottom(e) => {
-                CssParsingErrorOwned::LayoutBottom(e.to_contained())
+            CssParsingError::LayoutInsetBottom(e) => {
+                CssParsingErrorOwned::LayoutInsetBottom(e.to_contained())
             }
             CssParsingError::LayoutZIndex(e) => {
                 CssParsingErrorOwned::LayoutZIndex(e.to_contained())
@@ -2082,7 +2082,7 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::LayoutTop(e) => CssParsingError::LayoutTop(e.to_shared()),
             CssParsingErrorOwned::LayoutRight(e) => CssParsingError::LayoutRight(e.to_shared()),
             CssParsingErrorOwned::LayoutLeft(e) => CssParsingError::LayoutLeft(e.to_shared()),
-            CssParsingErrorOwned::LayoutBottom(e) => CssParsingError::LayoutBottom(e.to_shared()),
+            CssParsingErrorOwned::LayoutInsetBottom(e) => CssParsingError::LayoutInsetBottom(e.to_shared()),
             CssParsingErrorOwned::LayoutZIndex(e) => CssParsingError::LayoutZIndex(e.to_shared()),
             CssParsingErrorOwned::FlexWrap(e) => CssParsingError::FlexWrap(e.to_shared()),
             CssParsingErrorOwned::FlexDirection(e) => CssParsingError::FlexDirection(e.to_shared()),
@@ -3190,7 +3190,7 @@ impl_from_css_prop!(LayoutPosition, CssProperty::Position);
 impl_from_css_prop!(LayoutTop, CssProperty::Top);
 impl_from_css_prop!(LayoutRight, CssProperty::Right);
 impl_from_css_prop!(LayoutLeft, CssProperty::Left);
-impl_from_css_prop!(LayoutBottom, CssProperty::Bottom);
+impl_from_css_prop!(LayoutInsetBottom, CssProperty::Bottom);
 impl_from_css_prop!(LayoutFlexWrap, CssProperty::FlexWrap);
 impl_from_css_prop!(LayoutFlexDirection, CssProperty::FlexDirection);
 impl_from_css_prop!(LayoutFlexGrow, CssProperty::FlexGrow);
@@ -4006,7 +4006,7 @@ impl CssProperty {
     pub const fn left(input: LayoutLeft) -> Self {
         CssProperty::Left(CssPropertyValue::Exact(input))
     }
-    pub const fn bottom(input: LayoutBottom) -> Self {
+    pub const fn bottom(input: LayoutInsetBottom) -> Self {
         CssProperty::Bottom(CssPropertyValue::Exact(input))
     }
     pub const fn z_index(input: LayoutZIndex) -> Self {
@@ -4813,7 +4813,7 @@ impl CssProperty {
             _ => None,
         }
     }
-    pub const fn as_bottom(&self) -> Option<&LayoutBottomValue> {
+    pub const fn as_bottom(&self) -> Option<&LayoutInsetBottomValue> {
         match self {
             CssProperty::Bottom(f) => Some(f),
             _ => None,
@@ -5429,8 +5429,8 @@ impl CssProperty {
     pub const fn const_left(input: LayoutLeft) -> Self {
         CssProperty::Left(LayoutLeftValue::Exact(input))
     }
-    pub const fn const_bottom(input: LayoutBottom) -> Self {
-        CssProperty::Bottom(LayoutBottomValue::Exact(input))
+    pub const fn const_bottom(input: LayoutInsetBottom) -> Self {
+        CssProperty::Bottom(LayoutInsetBottomValue::Exact(input))
     }
     pub const fn const_flex_wrap(input: LayoutFlexWrap) -> Self {
         CssProperty::FlexWrap(LayoutFlexWrapValue::Exact(input))
@@ -5817,7 +5817,7 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         ),
         CssProperty::Bottom(p) => format!(
             "CssProperty::Bottom({})",
-            print_css_property_value(p, tabs, "LayoutBottom")
+            print_css_property_value(p, tabs, "LayoutInsetBottom")
         ),
         CssProperty::ZIndex(p) => format!(
             "CssProperty::ZIndex({})",

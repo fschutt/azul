@@ -217,7 +217,7 @@ impl Win32Window {
 
         // Update options with actual DPI
         let mut options = options;
-        options.state.size.dpi = dpi;
+        options.window_state.size.dpi = dpi;
 
         // Initialize OpenGL context (if hardware rendering requested)
         let mut gl_context: Option<HGLRC> = None;
@@ -235,7 +235,7 @@ impl Win32Window {
         };
 
         if should_use_hardware {
-            let vsync = options.state.renderer_options.vsync;
+            let vsync = options.window_state.renderer_options.vsync;
             match wcreate::create_gl_context(hwnd, hinstance, &win32, vsync) {
                 Ok(hglrc) => {
                     gl_context = Some(hglrc);
@@ -307,7 +307,7 @@ impl Win32Window {
         let hit_tester = AsyncHitTester::Requested(hit_tester_request);
 
         // Update options size with actual window size
-        options.state.size.dimensions = physical_size.to_logical(dpi_factor);
+        options.window_state.size.dimensions = physical_size.to_logical(dpi_factor);
 
         // Determine renderer type
         let renderer_type = if gl_context.is_some() {
@@ -317,7 +317,7 @@ impl Win32Window {
         };
 
         // Create initial window state
-        let initial_window_state = options.state.clone();
+        let initial_window_state = options.window_state.clone();
 
         // Create LayoutWindow with initial UI callback
         let mut layout_window = LayoutWindow::new((*fc_cache).clone()).map_err(|e| {
@@ -2113,7 +2113,7 @@ unsafe extern "system" fn window_proc(
                     // complexity
                     let callback_result = layout_window.invoke_single_callback(
                         &mut menu_callback.callback,
-                        &mut menu_callback.data,
+                        &mut menu_callback.refany,
                         &raw_handle,
                         &window.gl_context_ptr,
                         &mut window.image_cache,

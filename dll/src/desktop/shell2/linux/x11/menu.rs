@@ -77,7 +77,7 @@ extern "C" fn menu_layout_callback(data: &mut RefAny, _info: &mut LayoutCallback
 ///
 /// // In a callback:
 /// extern "C" fn on_right_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-///     let menu = Menu::new(vec![/* ... */]);
+///     let menu = Menu::create(vec![/* ... */]);
 ///     let system_style = SystemStyle::default();
 ///     
 ///     let menu_options = create_menu_window_options(
@@ -113,21 +113,21 @@ pub fn create_menu_window_options(
     let mut options = WindowCreateOptions::default();
 
     // Set window position
-    options.state.position =
+    options.window_state.position =
         WindowPosition::Initialized(azul_core::geom::PhysicalPosition { x, y });
 
     // Set window size
-    options.state.size.dimensions = LogicalSize::new(menu_width as f32, menu_height as f32);
+    options.window_state.size.dimensions = LogicalSize::new(menu_width as f32, menu_height as f32);
 
     // Configure window flags for popup behavior
-    options.state.flags.decorations = azul_core::window::WindowDecorations::None;
-    options.state.flags.is_always_on_top = true;
-    options.state.flags.is_resizable = false;
+    options.window_state.flags.decorations = azul_core::window::WindowDecorations::None;
+    options.window_state.flags.is_always_on_top = true;
+    options.window_state.flags.is_resizable = false;
 
     // Set layout callback - RefAny contains menu data
-    options.state.layout_callback = LayoutCallback {
+    options.window_state.layout_callback = LayoutCallback {
         cb: menu_layout_callback,
-        callable: azul_core::refany::OptionRefAny::None,
+        ctx: azul_core::refany::OptionRefAny::None,
     };
 
     options

@@ -516,7 +516,7 @@ static TEXT_INPUT_PLACEHOLDER_PROPS: &[NodeDataInlineCssProperty] = &[
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct TextInput {
-    pub state: TextInputStateWrapper,
+    pub text_input_state: TextInputStateWrapper,
     pub placeholder_style: NodeDataInlineCssPropertyVec,
     pub container_style: NodeDataInlineCssPropertyVec,
     pub label_style: NodeDataInlineCssPropertyVec,
@@ -562,7 +562,7 @@ pub enum TextInputValid {
 // whether the text input should handle the character
 pub type TextInputOnTextInputCallbackType =
     extern "C" fn(RefAny, CallbackInfo, TextInputState) -> OnTextInputReturn;
-impl_callback!(
+impl_widget_callback!(
     TextInputOnTextInput,
     OptionTextInputOnTextInput,
     TextInputOnTextInputCallback,
@@ -571,7 +571,7 @@ impl_callback!(
 
 pub type TextInputOnVirtualKeyDownCallbackType =
     extern "C" fn(RefAny, CallbackInfo, TextInputState) -> OnTextInputReturn;
-impl_callback!(
+impl_widget_callback!(
     TextInputOnVirtualKeyDown,
     OptionTextInputOnVirtualKeyDown,
     TextInputOnVirtualKeyDownCallback,
@@ -580,7 +580,7 @@ impl_callback!(
 
 pub type TextInputOnFocusLostCallbackType =
     extern "C" fn(RefAny, CallbackInfo, TextInputState) -> Update;
-impl_callback!(
+impl_widget_callback!(
     TextInputOnFocusLost,
     OptionTextInputOnFocusLost,
     TextInputOnFocusLostCallback,
@@ -604,14 +604,14 @@ azul_css::impl_option!(
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextInputSelectionRange {
-    pub from: usize,
-    pub to: usize,
+    pub dir_from: usize,
+    pub dir_to: usize,
 }
 
 impl Default for TextInput {
     fn default() -> Self {
         TextInput {
-            state: TextInputStateWrapper::default(),
+            text_input_state: TextInputStateWrapper::default(),
             placeholder_style: NodeDataInlineCssPropertyVec::from_const_slice(
                 TEXT_INPUT_PLACEHOLDER_PROPS,
             ),
@@ -659,7 +659,7 @@ impl Default for TextInputStateWrapper {
 }
 
 impl TextInput {
-    pub fn new() -> Self {
+    pub fn create() -> Self {
         Self::default()
     }
 
@@ -669,7 +669,7 @@ impl TextInput {
     }
 
     pub fn set_text(&mut self, text: AzString) {
-        self.state.inner.text = text
+        self.text_input_state.inner.text = text
             .as_str()
             .chars()
             .map(|c| c as u32)
@@ -678,7 +678,7 @@ impl TextInput {
     }
 
     pub fn set_placeholder(&mut self, placeholder: AzString) {
-        self.state.inner.placeholder = Some(placeholder).into();
+        self.text_input_state.inner.placeholder = Some(placeholder).into();
     }
 
     pub fn with_placeholder(mut self, placeholder: AzString) -> Self {
@@ -686,58 +686,58 @@ impl TextInput {
         self
     }
 
-    pub fn set_on_text_input<C: Into<TextInputOnTextInputCallback>>(&mut self, data: RefAny, callback: C) {
-        self.state.on_text_input = Some(TextInputOnTextInput {
+    pub fn set_on_text_input<C: Into<TextInputOnTextInputCallback>>(&mut self, refany: RefAny, callback: C) {
+        self.text_input_state.on_text_input = Some(TextInputOnTextInput {
             callback: callback.into(),
-            data,
+            refany,
         })
         .into();
     }
 
     pub fn with_on_text_input<C: Into<TextInputOnTextInputCallback>>(
         mut self,
-        data: RefAny,
+        refany: RefAny,
         callback: C,
     ) -> Self {
-        self.set_on_text_input(data, callback);
+        self.set_on_text_input(refany, callback);
         self
     }
 
     pub fn set_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
         &mut self,
-        data: RefAny,
+        refany: RefAny,
         callback: C,
     ) {
-        self.state.on_virtual_key_down = Some(TextInputOnVirtualKeyDown {
+        self.text_input_state.on_virtual_key_down = Some(TextInputOnVirtualKeyDown {
             callback: callback.into(),
-            data,
+            refany,
         })
         .into();
     }
 
     pub fn with_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
         mut self,
-        data: RefAny,
+        refany: RefAny,
         callback: C,
     ) -> Self {
-        self.set_on_virtual_key_down(data, callback);
+        self.set_on_virtual_key_down(refany, callback);
         self
     }
 
-    pub fn set_on_focus_lost<C: Into<TextInputOnFocusLostCallback>>(&mut self, data: RefAny, callback: C) {
-        self.state.on_focus_lost = Some(TextInputOnFocusLost {
+    pub fn set_on_focus_lost<C: Into<TextInputOnFocusLostCallback>>(&mut self, refany: RefAny, callback: C) {
+        self.text_input_state.on_focus_lost = Some(TextInputOnFocusLost {
             callback: callback.into(),
-            data,
+            refany,
         })
         .into();
     }
 
     pub fn with_on_focus_lost<C: Into<TextInputOnFocusLostCallback>>(
         mut self,
-        data: RefAny,
+        refany: RefAny,
         callback: C,
     ) -> Self {
-        self.set_on_focus_lost(data, callback);
+        self.set_on_focus_lost(refany, callback);
         self
     }
 
@@ -780,10 +780,10 @@ impl TextInput {
             dom::{EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass::Class, TabIndex},
         };
 
-        self.state.inner.cursor_pos = self.state.inner.text.len();
+        self.text_input_state.inner.cursor_pos = self.text_input_state.inner.text.len();
 
         let label_text: String = self
-            .state
+            .text_input_state
             .inner
             .text
             .iter()
@@ -791,14 +791,14 @@ impl TextInput {
             .collect();
 
         let placeholder = self
-            .state
+            .text_input_state
             .inner
             .placeholder
             .as_ref()
             .map(|s| s.as_str().to_string())
             .unwrap_or_default();
 
-        let state_ref = RefAny::new(self.state);
+        let state_ref = RefAny::new(self.text_input_state);
 
         Dom::new_div()
             .with_ids_and_classes(vec![Class("__azul-native-text-input-container".into())].into())
@@ -809,42 +809,42 @@ impl TextInput {
                 vec![
                     CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::FocusReceived),
-                        data: state_ref.clone(),
+                        refany: state_ref.clone(),
                         callback: CoreCallback {
                             cb: default_on_focus_received as usize,
-                            callable: azul_core::refany::OptionRefAny::None,
+                            ctx: azul_core::refany::OptionRefAny::None,
                         },
                     },
                     CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::FocusLost),
-                        data: state_ref.clone(),
+                        refany: state_ref.clone(),
                         callback: CoreCallback {
                             cb: default_on_focus_lost as usize,
-                            callable: azul_core::refany::OptionRefAny::None,
+                            ctx: azul_core::refany::OptionRefAny::None,
                         },
                     },
                     CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::TextInput),
-                        data: state_ref.clone(),
+                        refany: state_ref.clone(),
                         callback: CoreCallback {
                             cb: default_on_text_input as usize,
-                            callable: azul_core::refany::OptionRefAny::None,
+                            ctx: azul_core::refany::OptionRefAny::None,
                         },
                     },
                     CoreCallbackData {
                         event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
-                        data: state_ref.clone(),
+                        refany: state_ref.clone(),
                         callback: CoreCallback {
                             cb: default_on_virtual_key_down as usize,
-                            callable: azul_core::refany::OptionRefAny::None,
+                            ctx: azul_core::refany::OptionRefAny::None,
                         },
                     },
                     CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseOver),
-                        data: state_ref.clone(),
+                        refany: state_ref.clone(),
                         callback: CoreCallback {
                             cb: default_on_mouse_hover as usize,
-                            callable: azul_core::refany::OptionRefAny::None,
+                            ctx: azul_core::refany::OptionRefAny::None,
                         },
                     },
                 ]
@@ -934,8 +934,8 @@ extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackIn
         let inner = text_input.inner.clone();
 
         match onfocuslost.as_mut() {
-            Some(TextInputOnFocusLost { callback, data }) => {
-                (callback.cb)(data.clone(), info.clone(), inner)
+            Some(TextInputOnFocusLost { callback, refany }) => {
+                (callback.cb)(refany.clone(), info.clone(), inner)
             }
             None => Update::DoNothing,
         }
@@ -979,8 +979,8 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         };
 
         match ontextinput.as_mut() {
-            Some(TextInputOnTextInput { callback, data }) => {
-                (callback.cb)(data.clone(), info.clone(), inner_clone)
+            Some(TextInputOnTextInput { callback, refany }) => {
+                (callback.cb)(refany.clone(), info.clone(), inner_clone)
             }
             None => OnTextInputReturn {
                 update: Update::DoNothing,

@@ -128,15 +128,15 @@ fn main() {
     let data = XhtmlData {
         xhtml_content: XHTML_BYTES,
     };
-    let config = AppConfig::new();
-    let app = App::new(RefAny::new(data), config);
-    let mut window = WindowCreateOptions::new(layout_xhtml as azul_core::callbacks::LayoutCallbackType);
+    let config = AppConfig::create();
+    let app = App::create(RefAny::new(data), config);
+    let mut window = WindowCreateOptions::create(layout_xhtml as azul_core::callbacks::LayoutCallbackType);
 
     // Set the close callback
-    window.state.close_callback =
+    window.window_state.close_callback =
         azul_layout::callbacks::OptionCallback::Some(azul_layout::callbacks::Callback {
             cb: on_window_close,
-            callable: azul_core::refany::OptionRefAny::None,
+            ctx: azul_core::refany::OptionRefAny::None,
         });
 
     app.run(window);

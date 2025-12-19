@@ -194,7 +194,7 @@ use azul_css::{
             CssPropertyType, FlowFromValue, FlowIntoValue, LayoutAlignContentValue,
             LayoutAlignItemsValue, LayoutAlignSelfValue, LayoutBorderBottomWidthValue,
             LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue, LayoutBorderSpacingValue,
-            LayoutBorderTopWidthValue, LayoutBottomValue, LayoutBoxSizingValue, LayoutClearValue,
+            LayoutBorderTopWidthValue, LayoutInsetBottomValue, LayoutBoxSizingValue, LayoutClearValue,
             LayoutColumnGapValue, LayoutDisplayValue, LayoutFlexBasisValue,
             LayoutFlexDirectionValue, LayoutFlexGrowValue, LayoutFlexShrinkValue,
             LayoutFlexWrapValue, LayoutFloatValue, LayoutGapValue, LayoutGridAutoColumnsValue,
@@ -2968,7 +2968,7 @@ impl CssPropertyCache {
         node_data: &'a NodeData,
         node_id: &NodeId,
         node_state: &StyledNodeState,
-    ) -> Option<&'a LayoutBottomValue> {
+    ) -> Option<&'a LayoutInsetBottomValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::Bottom)
             .and_then(|p| p.as_bottom())
     }
@@ -4561,7 +4561,7 @@ mod tests {
         let cache = CssPropertyCache::empty(1);
 
         // Create a minimal <p> tag NodeData using public API
-        let mut node_data = NodeData::new(NodeType::P);
+        let mut node_data = NodeData::new_node(NodeType::P);
 
         let node_id = NodeId::new(0);
         let node_state = StyledNodeState::default();
@@ -4611,7 +4611,7 @@ mod tests {
     fn test_ua_css_body_tag_properties() {
         let cache = CssPropertyCache::empty(1);
 
-        let node_data = NodeData::new(NodeType::Body);
+        let node_data = NodeData::new_node(NodeType::Body);
 
         let node_id = NodeId::new(0);
         let node_state = StyledNodeState::default();

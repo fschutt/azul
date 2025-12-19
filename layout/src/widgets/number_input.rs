@@ -30,7 +30,7 @@ use crate::{
 
 pub type NumberInputOnValueChangeCallbackType =
     extern "C" fn(RefAny, CallbackInfo, NumberInputState) -> Update;
-impl_callback!(
+impl_widget_callback!(
     NumberInputOnValueChange,
     OptionNumberInputOnValueChange,
     NumberInputOnValueChangeCallback,
@@ -39,7 +39,7 @@ impl_callback!(
 
 pub type NumberInputOnFocusLostCallbackType =
     extern "C" fn(RefAny, CallbackInfo, NumberInputState) -> Update;
-impl_callback!(
+impl_widget_callback!(
     NumberInputOnFocusLost,
     OptionNumberInputOnFocusLost,
     NumberInputOnFocusLostCallback,
@@ -49,8 +49,9 @@ impl_callback!(
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
 pub struct NumberInput {
+    pub number_input_state: NumberInputStateWrapper,
     pub text_input: TextInput,
-    pub state: NumberInputStateWrapper,
+    pub style: NodeDataInlineCssPropertyVec,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -82,9 +83,9 @@ impl Default for NumberInputState {
 }
 
 impl NumberInput {
-    pub fn new(input: f32) -> Self {
+    pub fn create(input: f32) -> Self {
         Self {
-            state: NumberInputStateWrapper {
+            number_input_state: NumberInputStateWrapper {
                 inner: NumberInputState {
                     number: input,
                     ..Default::default()
@@ -95,33 +96,33 @@ impl NumberInput {
         }
     }
 
-    pub fn set_on_text_input<C: Into<TextInputOnTextInputCallback>>(&mut self, data: RefAny, callback: C) {
-        self.text_input.set_on_text_input(data, callback);
+    pub fn set_on_text_input<C: Into<TextInputOnTextInputCallback>>(&mut self, refany: RefAny, callback: C) {
+        self.text_input.set_on_text_input(refany, callback);
     }
 
     pub fn with_on_text_input<C: Into<TextInputOnTextInputCallback>>(
         mut self,
-        data: RefAny,
+        refany: RefAny,
         callback: C,
     ) -> Self {
-        self.set_on_text_input(data, callback);
+        self.set_on_text_input(refany, callback);
         self
     }
 
     pub fn set_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
         &mut self,
-        data: RefAny,
+        refany: RefAny,
         callback: C,
     ) {
-        self.text_input.set_on_virtual_key_down(data, callback);
+        self.text_input.set_on_virtual_key_down(refany, callback);
     }
 
     pub fn with_on_virtual_key_down<C: Into<TextInputOnVirtualKeyDownCallback>>(
         mut self,
-        data: RefAny,
+        refany: RefAny,
         callback: C,
     ) -> Self {
-        self.set_on_virtual_key_down(data, callback);
+        self.set_on_virtual_key_down(refany, callback);
         self
     }
 
@@ -155,61 +156,61 @@ impl NumberInput {
     // Function called when the input has been parsed as a number
     pub fn set_on_value_change<C: Into<NumberInputOnValueChangeCallback>>(
         &mut self,
-        data: RefAny,
+        refany: RefAny,
         callback: C,
     ) {
-        self.state.on_value_change = Some(NumberInputOnValueChange {
+        self.number_input_state.on_value_change = Some(NumberInputOnValueChange {
             callback: callback.into(),
-            data,
+            refany,
         })
         .into();
     }
 
     pub fn with_on_value_change<C: Into<NumberInputOnValueChangeCallback>>(
         mut self,
-        data: RefAny,
+        refany: RefAny,
         callback: C,
     ) -> Self {
-        self.set_on_value_change(data, callback);
+        self.set_on_value_change(refany, callback);
         self
     }
 
     pub fn set_on_focus_lost<C: Into<NumberInputOnFocusLostCallback>>(
         &mut self,
-        data: RefAny,
+        refany: RefAny,
         callback: C,
     ) {
-        self.state.on_focus_lost = Some(NumberInputOnFocusLost {
+        self.number_input_state.on_focus_lost = Some(NumberInputOnFocusLost {
             callback: callback.into(),
-            data,
+            refany,
         })
         .into();
     }
 
     pub fn with_on_focus_lost<C: Into<NumberInputOnFocusLostCallback>>(
         mut self,
-        data: RefAny,
+        refany: RefAny,
         callback: C,
     ) -> Self {
-        self.set_on_focus_lost(data, callback);
+        self.set_on_focus_lost(refany, callback);
         self
     }
 
     pub fn swap_with_default(&mut self) -> Self {
-        let mut s = Self::new(0.0);
+        let mut s = Self::create(0.0);
         core::mem::swap(&mut s, self);
         s
     }
 
     pub fn dom(mut self) -> Dom {
-        let number_string = format!("{}", self.state.inner.number);
-        self.text_input.state.inner.text = number_string
+        let number_string = format!("{}", self.number_input_state.inner.number);
+        self.text_input.text_input_state.inner.text = number_string
             .chars()
             .map(|s| s as u32)
             .collect::<Vec<_>>()
             .into();
 
-        let state = RefAny::new(self.state);
+        let state = RefAny::new(self.number_input_state);
 
         self.text_input
             .set_on_text_input(state.clone(), validate_text_input as TextInputOnTextInputCallbackType);
@@ -219,23 +220,23 @@ impl NumberInput {
 }
 
 extern "C" fn on_focus_lost(
-    mut data: RefAny,
+    mut refany: RefAny,
     info: CallbackInfo,
     _state: TextInputState,
 ) -> Update {
-    let mut data = match data.downcast_mut::<NumberInputStateWrapper>() {
+    let mut refany = match refany.downcast_mut::<NumberInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
     let result = {
-        let number_input = &mut *data;
+        let number_input = &mut *refany;
         let onfocuslost = &mut number_input.on_focus_lost;
         let inner = number_input.inner.clone();
 
         match onfocuslost.as_mut() {
-            Some(NumberInputOnFocusLost { callback, data }) => {
-                (callback.cb)(data.clone(), info.clone(), inner)
+            Some(NumberInputOnFocusLost { callback, refany }) => {
+                (callback.cb)(refany.clone(), info.clone(), inner)
             }
             None => Update::DoNothing,
         }
@@ -245,11 +246,11 @@ extern "C" fn on_focus_lost(
 }
 
 extern "C" fn validate_text_input(
-    mut data: RefAny,
+    mut refany: RefAny,
     info: CallbackInfo,
     state: TextInputState,
 ) -> OnTextInputReturn {
-    let mut data = match data.downcast_mut::<NumberInputStateWrapper>() {
+    let mut refany = match refany.downcast_mut::<NumberInputStateWrapper>() {
         Some(s) => s,
         None => {
             return OnTextInputReturn {
@@ -279,7 +280,7 @@ extern "C" fn validate_text_input(
     };
 
     let result = {
-        let number_input = &mut *data;
+        let number_input = &mut *refany;
         let onvaluechange = &mut number_input.on_value_change;
         let inner = &mut number_input.inner;
 
@@ -288,8 +289,8 @@ extern "C" fn validate_text_input(
         let inner_clone = inner.clone();
 
         match onvaluechange.as_mut() {
-            Some(NumberInputOnValueChange { callback, data }) => {
-                (callback.cb)(data.clone(), info.clone(), inner_clone)
+            Some(NumberInputOnValueChange { callback, refany }) => {
+                (callback.cb)(refany.clone(), info.clone(), inner_clone)
             }
             None => Update::DoNothing,
         }

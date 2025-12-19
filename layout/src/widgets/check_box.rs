@@ -27,7 +27,7 @@ static CHECKBOX_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 
 pub type CheckBoxOnToggleCallbackType =
     extern "C" fn(RefAny, CallbackInfo, CheckBoxState) -> Update;
-impl_callback!(
+impl_widget_callback!(
     CheckBoxOnToggle,
     OptionCheckBoxOnToggle,
     CheckBoxOnToggleCallback,
@@ -37,7 +37,7 @@ impl_callback!(
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct CheckBox {
-    pub state: CheckBoxStateWrapper,
+    pub check_box_state: CheckBoxStateWrapper,
     /// Style for the checkbox container
     pub container_style: NodeDataInlineCssPropertyVec,
     /// Style for the checkbox content
@@ -171,9 +171,9 @@ static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[NodeDataInlineCssProperty] = 
 ];
 
 impl CheckBox {
-    pub fn new(checked: bool) -> Self {
+    pub fn create(checked: bool) -> Self {
         Self {
-            state: CheckBoxStateWrapper {
+            check_box_state: CheckBoxStateWrapper {
                 inner: CheckBoxState { checked },
                 ..Default::default()
             },
@@ -194,16 +194,16 @@ impl CheckBox {
 
     #[inline]
     pub fn swap_with_default(&mut self) -> Self {
-        let mut s = Self::new(false);
+        let mut s = Self::create(false);
         core::mem::swap(&mut s, self);
         s
     }
 
     #[inline]
     pub fn set_on_toggle<C: Into<CheckBoxOnToggleCallback>>(&mut self, data: RefAny, on_toggle: C) {
-        self.state.on_toggle = Some(CheckBoxOnToggle {
+        self.check_box_state.on_toggle = Some(CheckBoxOnToggle {
             callback: on_toggle.into(),
-            data,
+            refany: data,
         })
         .into();
     }
@@ -229,9 +229,9 @@ impl CheckBox {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                     callback: CoreCallback {
                         cb: self::input::default_on_checkbox_clicked as usize,
-                        callable: azul_core::refany::OptionRefAny::None,
+                        ctx: azul_core::refany::OptionRefAny::None,
                     },
-                    data: RefAny::new(self.state),
+                    refany: RefAny::new(self.check_box_state),
                 }]
                 .into(),
             )
@@ -277,7 +277,7 @@ mod input {
             let inner = check_box.inner.clone();
 
             match ontoggle.as_mut() {
-                Some(CheckBoxOnToggle { callback, data }) => {
+                Some(CheckBoxOnToggle { callback, refany: data }) => {
                     (callback.cb)(data.clone(), info.clone(), inner)
                 }
                 None => Update::DoNothing,

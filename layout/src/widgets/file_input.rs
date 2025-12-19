@@ -26,7 +26,7 @@ use crate::{
 #[repr(C)]
 pub struct FileInput {
     /// State of the file input
-    pub state: FileInputStateWrapper,
+    pub file_input_state: FileInputStateWrapper,
     /// Default text to display when no file has been selected
     /// (default = "Select File...")
     pub default_text: AzString,
@@ -43,9 +43,9 @@ pub struct FileInput {
 
 impl Default for FileInput {
     fn default() -> Self {
-        let default_button = Button::new(AzString::from_const_str(""));
+        let default_button = Button::create(AzString::from_const_str(""));
         Self {
-            state: FileInputStateWrapper::default(),
+            file_input_state: FileInputStateWrapper::default(),
             default_text: "Select File...".into(),
             image: None.into(),
             container_style: default_button.container_style,
@@ -91,7 +91,8 @@ impl Default for FileInputState {
 
 pub type FileInputOnPathChangeCallbackType =
     extern "C" fn(RefAny, CallbackInfo, FileInputState) -> Update;
-impl_callback!(
+
+impl_widget_callback!(
     FileInputOnPathChange,
     OptionFileInputOnPathChange,
     FileInputOnPathChangeCallback,
@@ -99,9 +100,9 @@ impl_callback!(
 );
 
 impl FileInput {
-    pub fn new(path: OptionString) -> Self {
+    pub fn create(path: OptionString) -> Self {
         Self {
-            state: FileInputStateWrapper {
+            file_input_state: FileInputStateWrapper {
                 inner: FileInputState {
                     path,
                     ..Default::default()
@@ -114,7 +115,7 @@ impl FileInput {
 
     #[inline]
     pub fn swap_with_default(&mut self) -> Self {
-        let mut s = Self::new(None.into());
+        let mut s = Self::create(None.into());
         core::mem::swap(&mut s, self);
         s
     }
@@ -131,25 +132,25 @@ impl FileInput {
     }
 
     #[inline]
-    pub fn set_on_path_change(
+    pub fn set_on_path_change<I: Into<FileInputOnPathChangeCallback>>(
         &mut self,
-        data: RefAny,
-        callback: FileInputOnPathChangeCallbackType,
+        refany: RefAny,
+        callback: I,
     ) {
-        self.state.on_path_change = Some(FileInputOnPathChange {
-            data,
-            callback: FileInputOnPathChangeCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
+        self.file_input_state.on_path_change = Some(FileInputOnPathChange {
+            callback: callback.into(),
+            refany,
         })
         .into();
     }
 
     #[inline]
-    pub fn with_on_path_change(
+    pub fn with_on_path_change<I: Into<FileInputOnPathChangeCallback>>(
         mut self,
-        data: RefAny,
-        callback: FileInputOnPathChangeCallbackType,
+        refany: RefAny,
+        callback: I,
     ) -> Self {
-        self.set_on_path_change(data, callback);
+        self.set_on_path_change(refany, callback);
         self
     }
 
@@ -157,7 +158,7 @@ impl FileInput {
     pub fn dom(self) -> Dom {
         // either show the default text or the file name
         // including the extension as the button label
-        let button_label = match self.state.inner.path.as_ref() {
+        let button_label = match self.file_input_state.inner.path.as_ref() {
             Some(path) => std::path::Path::new(path.as_str())
                 .file_name()
                 .map(|s| s.to_string_lossy().to_string())
@@ -173,10 +174,10 @@ impl FileInput {
             label_style: self.label_style,
             image_style: self.image_style,
             on_click: Some(ButtonOnClick {
-                data: RefAny::new(self.state),
+                refany: RefAny::new(self.file_input_state),
                 callback: ButtonOnClickCallback {
                     cb: fileinput_on_click,
-                    callable: azul_core::refany::OptionRefAny::None,
+                    ctx: azul_core::refany::OptionRefAny::None,
                 },
             })
             .into(),
@@ -185,8 +186,8 @@ impl FileInput {
     }
 }
 
-extern "C" fn fileinput_on_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let mut fileinputstatewrapper = match data.downcast_mut::<FileInputStateWrapper>() {
+extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    let mut fileinputstatewrapper = match refany.downcast_mut::<FileInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
@@ -197,8 +198,8 @@ extern "C" fn fileinput_on_click(mut data: RefAny, mut info: CallbackInfo) -> Up
     // Just trigger the callback with the current state
     let inner = fileinputstatewrapper.inner.clone();
     let mut result = match fileinputstatewrapper.on_path_change.as_mut() {
-        Some(FileInputOnPathChange { data, callback }) => {
-            (callback.cb)(data.clone(), info.clone(), inner)
+        Some(FileInputOnPathChange { refany, callback }) => {
+            (callback.cb)(refany.clone(), info.clone(), inner)
         }
         None => return Update::DoNothing,
     };

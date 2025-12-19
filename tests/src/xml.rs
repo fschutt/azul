@@ -164,18 +164,18 @@ fn test_xml_get_item() {
     // </f>
     // <j/>
 
-    let mut tree = XmlNode::new("component").with_children(vec![
-        XmlNode::new("a").with_children(vec![
-            XmlNode::new("b"),
-            XmlNode::new("c"),
-            XmlNode::new("d"),
-            XmlNode::new("e"),
+    let mut tree = XmlNode::create("component").with_children(vec![
+        XmlNode::create("a").with_children(vec![
+            XmlNode::create("b"),
+            XmlNode::create("c"),
+            XmlNode::create("d"),
+            XmlNode::create("e"),
         ]),
-        XmlNode::new("f").with_children(vec![
-            XmlNode::new("g").with_children(vec![XmlNode::new("h")]),
-            XmlNode::new("i"),
+        XmlNode::create("f").with_children(vec![
+            XmlNode::create("g").with_children(vec![XmlNode::create("h")]),
+            XmlNode::create("i"),
         ]),
-        XmlNode::new("j"),
+        XmlNode::create("j"),
     ]);
 
     assert_eq!(

@@ -6,19 +6,21 @@
 /// ```
 /// # use azul_core::impl_callback;
 /// # use std::fmt;
-/// struct T {}
 ///
-/// struct MyCallback {
-///     cb: fn(&T),
+/// type OnClickCallbackType = fn(&T);
+/// 
+/// struct OnClickCallback {
+///     cb: OnClickCallbackType,
+///     ctx: OptionRefAny,
 /// };
 ///
 /// // impl Display, Debug, etc. for MyCallback
-/// impl_callback!(MyCallback);
+/// impl_widget_callback!(OnClick, OptionOnClick, OnClickCallback, OnClickCallbackType);
 /// ```
 ///
 /// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
 #[macro_export]
-macro_rules! impl_callback {
+macro_rules! impl_widget_callback {
     (
         $callback_wrapper:ident,
         $option_callback_wrapper:ident,
@@ -28,7 +30,7 @@ macro_rules! impl_callback {
         #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
         #[repr(C)]
         pub struct $callback_wrapper {
-            pub data: RefAny,
+            pub refany: RefAny,
             pub callback: $callback_value,
         }
 
@@ -37,7 +39,7 @@ macro_rules! impl_callback {
             pub cb: $callback_ty,
             /// For FFI: stores the foreign callable (e.g., PyFunction)
             /// Native Rust code sets this to None
-            pub callable: azul_core::refany::OptionRefAny,
+            pub ctx: azul_core::refany::OptionRefAny,
         }
 
         azul_css::impl_option!(
@@ -49,8 +51,8 @@ macro_rules! impl_callback {
 
         impl $callback_value {
             /// Create a new callback with just a function pointer (for native Rust code)
-            pub fn new(cb: $callback_ty) -> Self {
-                Self { cb, callable: azul_core::refany::OptionRefAny::None }
+            pub fn create<I: Into<$callback_value>>(cb: I) -> $callback_value {
+                cb.into()
             }
         }
 
@@ -71,7 +73,7 @@ macro_rules! impl_callback {
             fn clone(&self) -> Self {
                 $callback_value {
                     cb: self.cb.clone(),
-                    callable: self.callable.clone(),
+                    ctx: self.ctx.clone(),
                 }
             }
         }
@@ -108,10 +110,10 @@ macro_rules! impl_callback {
         /// Allow creating callback from a raw function pointer
         /// Sets callable to None (for native Rust/C usage)
         impl From<$callback_ty> for $callback_value {
-            fn from(cb: $callback_ty) -> Self {
+            fn from(cb: $callback_ty) -> $callback_value {
                 $callback_value {
                     cb,
-                    callable: azul_core::refany::OptionRefAny::None,
+                    ctx: azul_core::refany::OptionRefAny::None,
                 }
             }
         }

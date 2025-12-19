@@ -23,7 +23,7 @@ use crate::{
 };
 
 #[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
-#[repr(transparent)]
+#[repr(C)]
 pub struct CssApiWrapper {
     pub css: Css,
 }
@@ -450,7 +450,7 @@ fn parse_nth_child_pattern<'a>(
     };
 
     Ok(CssNthChildSelector::Pattern(CssNthChildPattern {
-        repeat,
+        pattern_repeat: repeat,
         offset,
     }))
 }

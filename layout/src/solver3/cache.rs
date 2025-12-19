@@ -215,14 +215,14 @@ pub fn is_simple_flex_stack(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> b
     };
 
     // Must be a single-line flex container
-    let wrap = get_wrap(styled_dom, id, &styled_node.state);
+    let wrap = get_wrap(styled_dom, id, &styled_node.styled_node_state);
 
     if wrap.unwrap_or_default() != LayoutFlexWrap::NoWrap {
         return false;
     }
 
     // Must be start-aligned, so there's no space distribution to recalculate.
-    let justify = get_justify_content(styled_dom, id, &styled_node.state);
+    let justify = get_justify_content(styled_dom, id, &styled_node.styled_node_state);
 
     if !matches!(
         justify.unwrap_or_default(),
@@ -258,7 +258,7 @@ pub fn reposition_block_flow_siblings(
         .styled_nodes
         .as_container()
         .get(dom_id)
-        .map(|n| n.state.clone())
+        .map(|n| n.styled_node_state.clone())
         .unwrap_or_default();
 
     let writing_mode = get_writing_mode(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
@@ -448,7 +448,7 @@ pub fn reconcile_recursive(
     // Per CSS Lists Module Level 3, ::marker is generated as the first child of list-items
     {
         let node_data = &styled_dom.node_data.as_container()[new_dom_id];
-        let node_state = &styled_dom.styled_nodes.as_container()[new_dom_id].state;
+        let node_state = &styled_dom.styled_nodes.as_container()[new_dom_id].styled_node_state;
         let cache = &styled_dom.css_property_cache.ptr;
 
         let display = cache
@@ -569,7 +569,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         .styled_nodes
         .as_container()
         .get(dom_id)
-        .map(|n| n.state.clone())
+        .map(|n| n.styled_node_state.clone())
         .unwrap_or_default();
 
     // This should come from the node's style.
@@ -990,7 +990,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         .styled_nodes
         .as_container()
         .get(dom_id)
-        .map(|n| n.state.clone())
+        .map(|n| n.styled_node_state.clone())
         .unwrap_or_default();
 
     let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
@@ -1318,7 +1318,7 @@ fn apply_content_based_height(
 fn hash_styled_node_data(dom: &StyledDom, node_id: NodeId) -> u64 {
     let mut hasher = DefaultHasher::new();
     if let Some(styled_node) = dom.styled_nodes.as_container().get(node_id) {
-        styled_node.state.hash(&mut hasher);
+        styled_node.styled_node_state.hash(&mut hasher);
     }
     if let Some(node_data) = dom.node_data.as_container().get(node_id) {
         node_data.get_node_type().hash(&mut hasher);
@@ -1424,7 +1424,7 @@ fn compute_counters_recursive(
     };
 
     let node_data = &styled_dom.node_data.as_container()[dom_id];
-    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let cache = &styled_dom.css_property_cache.ptr;
 
     // Track which counters we reset at this level (for cleanup later)

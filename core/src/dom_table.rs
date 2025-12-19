@@ -96,7 +96,7 @@ fn get_node_display(styled_dom: &StyledDom, node_id: NodeId) -> Option<LayoutDis
     // Get display property from CSS property cache
     let cache = styled_dom.get_css_property_cache();
     let node_data = &styled_dom.node_data.as_ref()[node_id.index()];
-    let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
 
     cache
         .get_display(node_data, &node_id, node_state)

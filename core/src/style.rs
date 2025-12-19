@@ -413,11 +413,11 @@ fn match_nth_child(html_node: &CascadeInfo, pattern: &CssNthChildSelector) -> bo
         Number(n) => index == *n,
         Even => index % 2 == 0,
         Odd => index % 2 == 1,
-        Pattern(CssNthChildPattern { repeat, offset }) => {
-            if *repeat == 0 {
+        Pattern(CssNthChildPattern { pattern_repeat, offset }) => {
+            if *pattern_repeat == 0 {
                 index == *offset
             } else {
-                index >= *offset && ((index - offset) % repeat == 0)
+                index >= *offset && ((index - offset) % pattern_repeat == 0)
             }
         }
     }

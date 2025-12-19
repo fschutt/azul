@@ -180,7 +180,7 @@ pub fn run(
                                     eprintln!(
                                         "[macOS Event Loop] Creating new window from queue (type: \
                                          {:?})",
-                                        pending_create.state.flags.window_type
+                                        pending_create.window_state.flags.window_type
                                     );
 
                                     match MacOSWindow::new_with_fc_cache(
@@ -374,7 +374,7 @@ pub fn run(
                     while let Some(pending_create) = window.pending_window_creates.pop() {
                         eprintln!(
                             "[Windows Event Loop] Creating new window from queue (type: {:?})",
-                            pending_create.state.flags.window_type
+                            pending_create.window_state.flags.window_type
                         );
 
                         match Win32Window::new(
@@ -570,7 +570,7 @@ pub fn run(
                             eprintln!(
                                 "[Linux Event Loop] Creating new X11 window from queue (type: \
                                  {:?})",
-                                pending_create.state.flags.window_type
+                                pending_create.window_state.flags.window_type
                             );
 
                             match super::linux::x11::X11Window::new_with_resources(
@@ -627,7 +627,7 @@ pub fn run(
                             eprintln!(
                                 "[Linux Event Loop] Creating new Wayland window from queue (type: \
                                  {:?})",
-                                pending_create.state.flags.window_type
+                                pending_create.window_state.flags.window_type
                             );
 
                             match super::linux::wayland::WaylandWindow::new(

@@ -409,16 +409,16 @@ mod tests {
         let shape = parse_shape("inset(10px 20px 30px 40px)").unwrap();
         match shape {
             CssShape::Inset(ShapeInset {
-                top,
-                right,
-                bottom,
-                left,
+                inset_top,
+                inset_right,
+                inset_bottom,
+                inset_left,
                 border_radius,
             }) => {
-                assert_eq!(top, 10.0);
-                assert_eq!(right, 20.0);
-                assert_eq!(bottom, 30.0);
-                assert_eq!(left, 40.0);
+                assert_eq!(inset_top, 10.0);
+                assert_eq!(inset_right, 20.0);
+                assert_eq!(inset_bottom, 30.0);
+                assert_eq!(inset_left, 40.0);
                 assert!(matches!(border_radius, OptionF32::None));
             }
             _ => panic!("Expected Inset"),
@@ -430,16 +430,16 @@ mod tests {
         let shape = parse_shape("inset(10px round 5px)").unwrap();
         match shape {
             CssShape::Inset(ShapeInset {
-                top,
-                right,
-                bottom,
-                left,
+                inset_top,
+                inset_right,
+                inset_bottom,
+                inset_left,
                 border_radius,
             }) => {
-                assert_eq!(top, 10.0);
-                assert_eq!(right, 10.0);
-                assert_eq!(bottom, 10.0);
-                assert_eq!(left, 10.0);
+                assert_eq!(inset_top, 10.0);
+                assert_eq!(inset_right, 10.0);
+                assert_eq!(inset_bottom, 10.0);
+                assert_eq!(inset_left, 10.0);
                 assert!(matches!(border_radius, OptionF32::Some(r) if r == 5.0));
             }
             _ => panic!("Expected Inset"),

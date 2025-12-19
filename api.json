@@ -1444,10 +1444,10 @@
             ],
             "struct_fields": [
               {
-                "id": {
+                "monitor_id": {
                   "type": "MonitorId"
                 },
-                "name": {
+                "monitor_name": {
                   "type": "OptionString"
                 },
                 "size": {
@@ -1486,7 +1486,7 @@
             ],
             "struct_fields": [
               {
-                "id": {
+                "icon_id": {
                   "type": "usize"
                 }
               }
@@ -1804,7 +1804,7 @@
             ],
             "struct_fields": [
               {
-                "state": {
+                "window_state": {
                   "type": "FullWindowState"
                 },
                 "size_to_content": {
@@ -1941,7 +1941,6 @@
               "Clone",
               "Debug",
               "Eq",
-              "From",
               "Hash",
               "Ord",
               "PartialEq",
@@ -1951,10 +1950,8 @@
               {
                 "cb": {
                   "type": "IFrameCallbackType"
-                }
-              },
-              {
-                "callable": {
+                },
+                "ctx": {
                   "type": "OptionRefAny"
                 }
               }
@@ -2570,7 +2567,6 @@
               "Debug",
               "Default",
               "Eq",
-              "From",
               "Hash",
               "Ord",
               "PartialEq",
@@ -2580,10 +2576,8 @@
               {
                 "cb": {
                   "type": "LayoutCallbackType"
-                }
-              },
-              {
-                "callable": {
+                },
+                "ctx": {
                   "type": "OptionRefAny"
                 }
               }
@@ -4812,10 +4806,10 @@
             ],
             "struct_fields": [
               {
-                "name": {
+                "accessibility_name": {
                   "type": "OptionString"
                 },
-                "value": {
+                "accessibility_value": {
                   "type": "OptionString"
                 },
                 "role": {
@@ -5789,10 +5783,8 @@
               {
                 "cb": {
                   "type": "CoreCallbackType"
-                }
-              },
-              {
-                "callable": {
+                },
+                "ctx": {
                   "type": "OptionRefAny"
                 }
               }
@@ -5842,7 +5834,7 @@
                 "callback": {
                   "type": "CoreCallback"
                 },
-                "data": {
+                "refany": {
                   "type": "RefAny"
                 }
               }
@@ -5923,7 +5915,7 @@
             ],
             "struct_fields": [
               {
-                "data": {
+                "refany": {
                   "type": "RefAny"
                 },
                 "callback": {
@@ -5946,7 +5938,7 @@
             ],
             "struct_fields": [
               {
-                "name": {
+                "attr_name": {
                   "type": "String"
                 },
                 "value": {
@@ -6586,7 +6578,7 @@
             ],
             "struct_fields": [
               {
-                "name": {
+                "va_name": {
                   "type": "String"
                 },
                 "layout_location": {
@@ -6639,10 +6631,8 @@
               {
                 "cb": {
                   "type": "CallbackType"
-                }
-              },
-              {
-                "callable": {
+                },
+                "ctx": {
                   "type": "OptionRefAny"
                 }
               }
@@ -6664,10 +6654,8 @@
               {
                 "cb": {
                   "type": "RenderImageCallbackType"
-                }
-              },
-              {
-                "callable": {
+                },
+                "ctx": {
                   "type": "OptionRefAny"
                 }
               }
@@ -7119,50 +7107,22 @@
             "struct_fields": [
               {
                 "label": {
-                  "type": "String",
-                  "doc": [
-                    "Label of the menu"
-                  ]
-                }
-              },
-              {
+                  "type": "String"
+                },
                 "accelerator": {
-                  "type": "OptionVirtualKeyCodeCombo",
-                  "doc": [
-                    "Optional accelerator combination (ex. \"CTRL + X\" = [VirtualKeyCode::Ctrl, VirtualKeyCode::X]) for keyboard shortcut"
-                  ]
-                }
-              },
-              {
+                  "type": "OptionVirtualKeyCodeCombo"
+                },
                 "callback": {
-                  "type": "OptionCoreMenuCallback",
-                  "doc": [
-                    "Optional callback to call"
-                  ]
-                }
-              },
-              {
-                "state": {
-                  "type": "MenuItemState",
-                  "doc": [
-                    "State (normal, greyed, disabled)"
-                  ]
-                }
-              },
-              {
+                  "type": "OptionCoreMenuCallback"
+                },
+                "menu_item_state": {
+                  "type": "MenuItemState"
+                },
                 "icon": {
-                  "type": "OptionMenuItemIcon",
-                  "doc": [
-                    "Optional icon for the menu entry"
-                  ]
-                }
-              },
-              {
+                  "type": "OptionMenuItemIcon"
+                },
                 "children": {
-                  "type": "MenuItemVec",
-                  "doc": [
-                    "Sub-menus of this item (separators and line-breaks can't have sub-menus)"
-                  ]
+                  "type": "MenuItemVec"
                 }
               }
             ],
@@ -7412,754 +7372,454 @@
               {
                 "CaretColor": {
                   "type": "CaretColorValue"
-                }
-              },
-              {
+                },
                 "CaretAnimationDuration": {
                   "type": "CaretAnimationDurationValue"
-                }
-              },
-              {
+                },
                 "SelectionBackgroundColor": {
                   "type": "SelectionBackgroundColorValue"
-                }
-              },
-              {
+                },
                 "SelectionColor": {
                   "type": "SelectionColorValue"
-                }
-              },
-              {
+                },
                 "SelectionRadius": {
                   "type": "SelectionRadiusValue"
-                }
-              },
-              {
+                },
                 "TextColor": {
                   "type": "StyleTextColorValue"
-                }
-              },
-              {
+                },
                 "FontSize": {
                   "type": "StyleFontSizeValue"
-                }
-              },
-              {
+                },
                 "FontFamily": {
                   "type": "StyleFontFamilyVecValue"
-                }
-              },
-              {
+                },
                 "FontWeight": {
                   "type": "StyleFontWeightValue"
-                }
-              },
-              {
+                },
                 "FontStyle": {
                   "type": "StyleFontStyleValue"
-                }
-              },
-              {
+                },
                 "TextAlign": {
                   "type": "StyleTextAlignValue"
-                }
-              },
-              {
+                },
                 "TextJustify": {
                   "type": "LayoutTextJustifyValue"
-                }
-              },
-              {
+                },
                 "VerticalAlign": {
                   "type": "StyleVerticalAlignValue"
-                }
-              },
-              {
+                },
                 "LetterSpacing": {
                   "type": "StyleLetterSpacingValue"
-                }
-              },
-              {
+                },
                 "TextIndent": {
                   "type": "StyleTextIndentValue"
-                }
-              },
-              {
+                },
                 "InitialLetter": {
                   "type": "StyleInitialLetterValue"
-                }
-              },
-              {
+                },
                 "LineClamp": {
                   "type": "StyleLineClampValue"
-                }
-              },
-              {
+                },
                 "HangingPunctuation": {
                   "type": "StyleHangingPunctuationValue"
-                }
-              },
-              {
+                },
                 "TextCombineUpright": {
                   "type": "StyleTextCombineUprightValue"
-                }
-              },
-              {
+                },
                 "ExclusionMargin": {
                   "type": "StyleExclusionMarginValue"
-                }
-              },
-              {
+                },
                 "HyphenationLanguage": {
                   "type": "StyleHyphenationLanguageValue"
-                }
-              },
-              {
+                },
                 "LineHeight": {
                   "type": "StyleLineHeightValue"
-                }
-              },
-              {
+                },
                 "WordSpacing": {
                   "type": "StyleWordSpacingValue"
-                }
-              },
-              {
+                },
                 "TabWidth": {
                   "type": "StyleTabWidthValue"
-                }
-              },
-              {
+                },
                 "WhiteSpace": {
                   "type": "StyleWhiteSpaceValue"
-                }
-              },
-              {
+                },
                 "Hyphens": {
                   "type": "StyleHyphensValue"
-                }
-              },
-              {
+                },
                 "Direction": {
                   "type": "StyleDirectionValue"
-                }
-              },
-              {
+                },
                 "UserSelect": {
                   "type": "StyleUserSelectValue"
-                }
-              },
-              {
+                },
                 "TextDecoration": {
                   "type": "StyleTextDecorationValue"
-                }
-              },
-              {
+                },
                 "Cursor": {
                   "type": "StyleCursorValue"
-                }
-              },
-              {
+                },
                 "Display": {
                   "type": "LayoutDisplayValue"
-                }
-              },
-              {
+                },
                 "Float": {
                   "type": "LayoutFloatValue"
-                }
-              },
-              {
+                },
                 "BoxSizing": {
                   "type": "LayoutBoxSizingValue"
-                }
-              },
-              {
+                },
                 "Width": {
                   "type": "LayoutWidthValue"
-                }
-              },
-              {
+                },
                 "Height": {
                   "type": "LayoutHeightValue"
-                }
-              },
-              {
+                },
                 "MinWidth": {
                   "type": "LayoutMinWidthValue"
-                }
-              },
-              {
+                },
                 "MinHeight": {
                   "type": "LayoutMinHeightValue"
-                }
-              },
-              {
+                },
                 "MaxWidth": {
                   "type": "LayoutMaxWidthValue"
-                }
-              },
-              {
+                },
                 "MaxHeight": {
                   "type": "LayoutMaxHeightValue"
-                }
-              },
-              {
+                },
                 "Position": {
                   "type": "LayoutPositionValue"
-                }
-              },
-              {
+                },
                 "Top": {
                   "type": "LayoutTopValue"
-                }
-              },
-              {
+                },
                 "Right": {
                   "type": "LayoutRightValue"
-                }
-              },
-              {
+                },
                 "Left": {
                   "type": "LayoutLeftValue"
-                }
-              },
-              {
+                },
                 "Bottom": {
-                  "type": "LayoutBottomValue"
-                }
-              },
-              {
+                  "type": "LayoutInsetBottomValue"
+                },
                 "ZIndex": {
                   "type": "LayoutZIndexValue"
-                }
-              },
-              {
+                },
                 "FlexWrap": {
                   "type": "LayoutFlexWrapValue"
-                }
-              },
-              {
+                },
                 "FlexDirection": {
                   "type": "LayoutFlexDirectionValue"
-                }
-              },
-              {
+                },
                 "FlexGrow": {
                   "type": "LayoutFlexGrowValue"
-                }
-              },
-              {
+                },
                 "FlexShrink": {
                   "type": "LayoutFlexShrinkValue"
-                }
-              },
-              {
+                },
                 "FlexBasis": {
                   "type": "LayoutFlexBasisValue"
-                }
-              },
-              {
+                },
                 "JustifyContent": {
                   "type": "LayoutJustifyContentValue"
-                }
-              },
-              {
+                },
                 "AlignItems": {
                   "type": "LayoutAlignItemsValue"
-                }
-              },
-              {
+                },
                 "AlignContent": {
                   "type": "LayoutAlignContentValue"
-                }
-              },
-              {
+                },
                 "ColumnGap": {
                   "type": "LayoutColumnGapValue"
-                }
-              },
-              {
+                },
                 "RowGap": {
                   "type": "LayoutRowGapValue"
-                }
-              },
-              {
+                },
                 "GridTemplateColumns": {
                   "type": "LayoutGridTemplateColumnsValue"
-                }
-              },
-              {
+                },
                 "GridTemplateRows": {
                   "type": "LayoutGridTemplateRowsValue"
-                }
-              },
-              {
+                },
                 "GridAutoColumns": {
                   "type": "LayoutGridAutoColumnsValue"
-                }
-              },
-              {
+                },
                 "GridAutoRows": {
                   "type": "LayoutGridAutoRowsValue"
-                }
-              },
-              {
+                },
                 "GridColumn": {
                   "type": "LayoutGridColumnValue"
-                }
-              },
-              {
+                },
                 "GridRow": {
                   "type": "LayoutGridRowValue"
-                }
-              },
-              {
+                },
                 "WritingMode": {
                   "type": "LayoutWritingModeValue"
-                }
-              },
-              {
+                },
                 "Clear": {
                   "type": "LayoutClearValue"
-                }
-              },
-              {
+                },
                 "BackgroundContent": {
                   "type": "StyleBackgroundContentVecValue"
-                }
-              },
-              {
+                },
                 "BackgroundPosition": {
                   "type": "StyleBackgroundPositionVecValue"
-                }
-              },
-              {
+                },
                 "BackgroundSize": {
                   "type": "StyleBackgroundSizeVecValue"
-                }
-              },
-              {
+                },
                 "BackgroundRepeat": {
                   "type": "StyleBackgroundRepeatVecValue"
-                }
-              },
-              {
+                },
                 "OverflowX": {
                   "type": "LayoutOverflowValue"
-                }
-              },
-              {
+                },
                 "OverflowY": {
                   "type": "LayoutOverflowValue"
-                }
-              },
-              {
+                },
                 "GridAutoFlow": {
                   "type": "LayoutGridAutoFlowValue"
-                }
-              },
-              {
+                },
                 "JustifySelf": {
                   "type": "LayoutJustifySelfValue"
-                }
-              },
-              {
+                },
                 "JustifyItems": {
                   "type": "LayoutJustifyItemsValue"
-                }
-              },
-              {
+                },
                 "Gap": {
                   "type": "LayoutGapValue"
-                }
-              },
-              {
+                },
                 "GridGap": {
                   "type": "LayoutGapValue"
-                }
-              },
-              {
+                },
                 "AlignSelf": {
                   "type": "LayoutAlignSelfValue"
-                }
-              },
-              {
+                },
                 "Font": {
                   "type": "StyleFontValue"
-                }
-              },
-              {
+                },
                 "PaddingTop": {
                   "type": "LayoutPaddingTopValue"
-                }
-              },
-              {
+                },
                 "PaddingLeft": {
                   "type": "LayoutPaddingLeftValue"
-                }
-              },
-              {
+                },
                 "PaddingRight": {
                   "type": "LayoutPaddingRightValue"
-                }
-              },
-              {
+                },
                 "PaddingBottom": {
                   "type": "LayoutPaddingBottomValue"
-                }
-              },
-              {
+                },
                 "PaddingInlineStart": {
                   "type": "LayoutPaddingInlineStartValue"
-                }
-              },
-              {
+                },
                 "PaddingInlineEnd": {
                   "type": "LayoutPaddingInlineEndValue"
-                }
-              },
-              {
+                },
                 "MarginTop": {
                   "type": "LayoutMarginTopValue"
-                }
-              },
-              {
+                },
                 "MarginLeft": {
                   "type": "LayoutMarginLeftValue"
-                }
-              },
-              {
+                },
                 "MarginRight": {
                   "type": "LayoutMarginRightValue"
-                }
-              },
-              {
+                },
                 "MarginBottom": {
                   "type": "LayoutMarginBottomValue"
-                }
-              },
-              {
+                },
                 "BorderTopLeftRadius": {
                   "type": "StyleBorderTopLeftRadiusValue"
-                }
-              },
-              {
+                },
                 "LayoutTextJustify": {
                   "type": "LayoutTextJustifyValue"
-                }
-              },
-              {
+                },
                 "BorderTopRightRadius": {
                   "type": "StyleBorderTopRightRadiusValue"
-                }
-              },
-              {
+                },
                 "BorderBottomLeftRadius": {
                   "type": "StyleBorderBottomLeftRadiusValue"
-                }
-              },
-              {
+                },
                 "BorderBottomRightRadius": {
                   "type": "StyleBorderBottomRightRadiusValue"
-                }
-              },
-              {
+                },
                 "BorderTopColor": {
                   "type": "StyleBorderTopColorValue"
-                }
-              },
-              {
+                },
                 "BorderRightColor": {
                   "type": "StyleBorderRightColorValue"
-                }
-              },
-              {
+                },
                 "BorderLeftColor": {
                   "type": "StyleBorderLeftColorValue"
-                }
-              },
-              {
+                },
                 "BorderBottomColor": {
                   "type": "StyleBorderBottomColorValue"
-                }
-              },
-              {
+                },
                 "BorderTopStyle": {
                   "type": "StyleBorderTopStyleValue"
-                }
-              },
-              {
+                },
                 "BorderRightStyle": {
                   "type": "StyleBorderRightStyleValue"
-                }
-              },
-              {
+                },
                 "BorderLeftStyle": {
                   "type": "StyleBorderLeftStyleValue"
-                }
-              },
-              {
+                },
                 "BorderBottomStyle": {
                   "type": "StyleBorderBottomStyleValue"
-                }
-              },
-              {
+                },
                 "BorderTopWidth": {
                   "type": "LayoutBorderTopWidthValue"
-                }
-              },
-              {
+                },
                 "BorderRightWidth": {
                   "type": "LayoutBorderRightWidthValue"
-                }
-              },
-              {
+                },
                 "BorderLeftWidth": {
                   "type": "LayoutBorderLeftWidthValue"
-                }
-              },
-              {
+                },
                 "BorderBottomWidth": {
                   "type": "LayoutBorderBottomWidthValue"
-                }
-              },
-              {
+                },
                 "BoxShadowLeft": {
                   "type": "StyleBoxShadowValue"
-                }
-              },
-              {
+                },
                 "BoxShadowRight": {
                   "type": "StyleBoxShadowValue"
-                }
-              },
-              {
+                },
                 "BoxShadowTop": {
                   "type": "StyleBoxShadowValue"
-                }
-              },
-              {
+                },
                 "BoxShadowBottom": {
                   "type": "StyleBoxShadowValue"
-                }
-              },
-              {
+                },
                 "Scrollbar": {
                   "type": "ScrollbarStyleValue"
-                }
-              },
-              {
+                },
                 "ScrollbarWidth": {
                   "type": "LayoutScrollbarWidthValue"
-                }
-              },
-              {
+                },
                 "ScrollbarColor": {
                   "type": "StyleScrollbarColorValue"
-                }
-              },
-              {
+                },
                 "Opacity": {
                   "type": "StyleOpacityValue"
-                }
-              },
-              {
+                },
                 "Visibility": {
                   "type": "StyleVisibilityValue"
-                }
-              },
-              {
+                },
                 "Transform": {
                   "type": "StyleTransformVecValue"
-                }
-              },
-              {
+                },
                 "TransformOrigin": {
                   "type": "StyleTransformOriginValue"
-                }
-              },
-              {
+                },
                 "PerspectiveOrigin": {
                   "type": "StylePerspectiveOriginValue"
-                }
-              },
-              {
+                },
                 "BackfaceVisibility": {
                   "type": "StyleBackfaceVisibilityValue"
-                }
-              },
-              {
+                },
                 "MixBlendMode": {
                   "type": "StyleMixBlendModeValue"
-                }
-              },
-              {
+                },
                 "Filter": {
                   "type": "StyleFilterVecValue"
-                }
-              },
-              {
+                },
                 "BackdropFilter": {
                   "type": "StyleFilterVecValue"
-                }
-              },
-              {
+                },
                 "TextShadow": {
                   "type": "StyleBoxShadowValue"
-                }
-              },
-              {
+                },
                 "BreakBefore": {
                   "type": "PageBreakValue"
-                }
-              },
-              {
+                },
                 "BreakAfter": {
                   "type": "PageBreakValue"
-                }
-              },
-              {
+                },
                 "BreakInside": {
                   "type": "BreakInsideValue"
-                }
-              },
-              {
+                },
                 "Orphans": {
                   "type": "OrphansValue"
-                }
-              },
-              {
+                },
                 "Widows": {
                   "type": "WidowsValue"
-                }
-              },
-              {
+                },
                 "BoxDecorationBreak": {
                   "type": "BoxDecorationBreakValue"
-                }
-              },
-              {
+                },
                 "ColumnCount": {
                   "type": "ColumnCountValue"
-                }
-              },
-              {
+                },
                 "ColumnWidth": {
                   "type": "ColumnWidthValue"
-                }
-              },
-              {
+                },
                 "ColumnSpan": {
                   "type": "ColumnSpanValue"
-                }
-              },
-              {
+                },
                 "ColumnFill": {
                   "type": "ColumnFillValue"
-                }
-              },
-              {
+                },
                 "ColumnRuleWidth": {
                   "type": "ColumnRuleWidthValue"
-                }
-              },
-              {
+                },
                 "ColumnRuleStyle": {
                   "type": "ColumnRuleStyleValue"
-                }
-              },
-              {
+                },
                 "ColumnRuleColor": {
                   "type": "ColumnRuleColorValue"
-                }
-              },
-              {
+                },
                 "FlowInto": {
                   "type": "FlowIntoValue"
-                }
-              },
-              {
+                },
                 "FlowFrom": {
                   "type": "FlowFromValue"
-                }
-              },
-              {
+                },
                 "ShapeOutside": {
                   "type": "ShapeOutsideValue"
-                }
-              },
-              {
+                },
                 "ShapeInside": {
                   "type": "ShapeInsideValue"
-                }
-              },
-              {
+                },
                 "ClipPath": {
                   "type": "ClipPathValue"
-                }
-              },
-              {
+                },
                 "ShapeMargin": {
                   "type": "ShapeMarginValue"
-                }
-              },
-              {
+                },
                 "ShapeImageThreshold": {
                   "type": "ShapeImageThresholdValue"
-                }
-              },
-              {
+                },
                 "TableLayout": {
                   "type": "LayoutTableLayoutValue"
-                }
-              },
-              {
+                },
                 "BorderCollapse": {
                   "type": "StyleBorderCollapseValue"
-                }
-              },
-              {
+                },
                 "BorderSpacing": {
                   "type": "LayoutBorderSpacingValue"
-                }
-              },
-              {
+                },
                 "CaptionSide": {
                   "type": "StyleCaptionSideValue"
-                }
-              },
-              {
+                },
                 "EmptyCells": {
                   "type": "StyleEmptyCellsValue"
-                }
-              },
-              {
+                },
                 "Content": {
                   "type": "ContentValue"
-                }
-              },
-              {
+                },
                 "CounterReset": {
                   "type": "CounterResetValue"
-                }
-              },
-              {
+                },
                 "CounterIncrement": {
                   "type": "CounterIncrementValue"
-                }
-              },
-              {
+                },
                 "ListStyleType": {
                   "type": "StyleListStyleTypeValue"
-                }
-              },
-              {
+                },
                 "ListStylePosition": {
                   "type": "StyleListStylePositionValue"
-                }
-              },
-              {
+                },
                 "StringSet": {
                   "type": "StringSetValue"
                 }
@@ -8283,11 +7943,9 @@
             ],
             "struct_fields": [
               {
-                "repeat": {
+                "pattern_repeat": {
                   "type": "u32"
-                }
-              },
-              {
+                },
                 "offset": {
                   "type": "u32"
                 }
@@ -9137,27 +8795,6 @@
               },
               {
                 "Baseline": {}
-              }
-            ],
-            "repr": "C"
-          },
-          "LayoutBottom": {
-            "external": "azul_css::props::layout::position::LayoutBottom",
-            "derive": [
-              "Copy",
-              "Eq",
-              "Default",
-              "PartialEq",
-              "PartialOrd",
-              "Ord",
-              "Hash",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "inner": {
-                  "type": "PixelValue"
-                }
               }
             ],
             "repr": "C"
@@ -10238,12 +9875,10 @@
             ],
             "struct_fields": [
               {
-                "from": {
+                "dir_from": {
                   "type": "DirectionCorner"
-                }
-              },
-              {
-                "to": {
+                },
+                "dir_to": {
                   "type": "DirectionCorner"
                 }
               }
@@ -10602,15 +10237,9 @@
             ],
             "enum_fields": [
               {
-                "NoRepeat": {}
-              },
-              {
-                "Repeat": {}
-              },
-              {
-                "RepeatX": {}
-              },
-              {
+                "NoRepeat": {},
+                "PatternRepeat": {},
+                "RepeatX": {},
                 "RepeatY": {}
               }
             ],
@@ -11949,21 +11578,6 @@
               "target": "CssPropertyValue",
               "generic_args": [
                 "LayoutAlignItems"
-              ]
-            }
-          },
-          "LayoutBottomValue": {
-            "doc": [
-              "Type alias for CssPropertyValue < LayoutBottom >"
-            ],
-            "external": "azul_css::props::property::LayoutBottomValue",
-            "derive": [
-              "Copy"
-            ],
-            "type_alias": {
-              "target": "CssPropertyValue",
-              "generic_args": [
-                "LayoutBottom"
               ]
             }
           },
@@ -13961,12 +13575,10 @@
             ],
             "struct_fields": [
               {
-                "start": {
+                "grid_start": {
                   "type": "GridLine"
-                }
-              },
-              {
-                "end": {
+                },
+                "grid_end": {
                   "type": "GridLine"
                 }
               }
@@ -16061,10 +15673,10 @@
             ],
             "struct_fields": [
               {
-                "start": {
+                "selection_start": {
                   "type": "usize"
                 },
-                "end": {
+                "selection_end": {
                   "type": "usize"
                 }
               }
@@ -16809,19 +16421,11 @@
             ],
             "struct_fields": [
               {
-                "state": {
-                  "type": "StyledNodeState",
-                  "doc": [
-                    "Current state of this styled node (used later for caching the style / layout)"
-                  ]
-                }
-              },
-              {
+                "styled_node_state": {
+                  "type": "StyledNodeState"
+                },
                 "tag_id": {
-                  "type": "OptionTagId",
-                  "doc": [
-                    "Optional tag ID NOTE: The tag ID has to be adjusted after the layout is done (due to scroll tags)"
-                  ]
+                  "type": "OptionTagId"
                 }
               }
             ],
@@ -16968,7 +16572,7 @@
             ],
             "struct_fields": [
               {
-                "name": {
+                "grid_line_name": {
                   "type": "String"
                 },
                 "span_count": {
@@ -17017,16 +16621,16 @@
             ],
             "struct_fields": [
               {
-                "top": {
+                "inset_top": {
                   "type": "f32"
                 },
-                "right": {
+                "inset_right": {
                   "type": "f32"
                 },
-                "bottom": {
+                "inset_bottom": {
                   "type": "f32"
                 },
-                "left": {
+                "inset_left": {
                   "type": "f32"
                 },
                 "border_radius": {
@@ -17406,6 +17010,37 @@
               }
             ],
             "repr": "C"
+          },
+          "LayoutInsetBottom": {
+            "external": "azul_css::props::layout::position::LayoutInsetBottom",
+            "derive": [
+              "Default",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "PixelValue"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "LayoutInsetBottomValue": {
+            "external": "azul_css::props::property::LayoutInsetBottomValue",
+            "repr": "C",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "LayoutInsetBottom"
+              ]
+            }
           }
         }
       },
@@ -17575,51 +17210,23 @@
             ],
             "struct_fields": [
               {
-                "state": {
-                  "type": "FileInputStateWrapper",
-                  "doc": [
-                    "State of the file input"
-                  ]
-                }
-              },
-              {
+                "file_input_state": {
+                  "type": "FileInputStateWrapper"
+                },
                 "default_text": {
-                  "type": "String",
-                  "doc": [
-                    "Default text to display when no file has been selected (default = \"Select File...\")"
-                  ]
-                }
-              },
-              {
+                  "type": "String"
+                },
                 "image": {
-                  "type": "OptionImageRef",
-                  "doc": [
-                    "Optional image that is displayed next to the label"
-                  ]
-                }
-              },
-              {
+                  "type": "OptionImageRef"
+                },
                 "container_style": {
-                  "type": "NodeDataInlineCssPropertyVec",
-                  "doc": [
-                    "Style for this button container"
-                  ]
-                }
-              },
-              {
+                  "type": "NodeDataInlineCssPropertyVec"
+                },
                 "label_style": {
-                  "type": "NodeDataInlineCssPropertyVec",
-                  "doc": [
-                    "Style of the label"
-                  ]
-                }
-              },
-              {
+                  "type": "NodeDataInlineCssPropertyVec"
+                },
                 "image_style": {
-                  "type": "NodeDataInlineCssPropertyVec",
-                  "doc": [
-                    "Style of the image"
-                  ]
+                  "type": "NodeDataInlineCssPropertyVec"
                 }
               }
             ],
@@ -17827,24 +17434,14 @@
             ],
             "struct_fields": [
               {
-                "state": {
+                "check_box_state": {
                   "type": "CheckBoxStateWrapper"
-                }
-              },
-              {
+                },
                 "container_style": {
-                  "type": "NodeDataInlineCssPropertyVec",
-                  "doc": [
-                    "Style for the checkbox container"
-                  ]
-                }
-              },
-              {
+                  "type": "NodeDataInlineCssPropertyVec"
+                },
                 "content_style": {
-                  "type": "NodeDataInlineCssPropertyVec",
-                  "doc": [
-                    "Style for the checkbox content"
-                  ]
+                  "type": "NodeDataInlineCssPropertyVec"
                 }
               }
             ],
@@ -17994,11 +17591,9 @@
             ],
             "struct_fields": [
               {
-                "state": {
+                "color_input_state": {
                   "type": "ColorInputStateWrapper"
-                }
-              },
-              {
+                },
                 "style": {
                   "type": "NodeDataInlineCssPropertyVec"
                 }
@@ -18189,21 +17784,15 @@
             ],
             "struct_fields": [
               {
-                "state": {
+                "text_input_state": {
                   "type": "TextInputStateWrapper"
-                }
-              },
-              {
+                },
                 "placeholder_style": {
                   "type": "NodeDataInlineCssPropertyVec"
-                }
-              },
-              {
+                },
                 "container_style": {
                   "type": "NodeDataInlineCssPropertyVec"
-                }
-              },
-              {
+                },
                 "label_style": {
                   "type": "NodeDataInlineCssPropertyVec"
                 }
@@ -18573,12 +18162,10 @@
             ],
             "struct_fields": [
               {
-                "from": {
+                "dir_from": {
                   "type": "usize"
-                }
-              },
-              {
-                "to": {
+                },
+                "dir_to": {
                   "type": "usize"
                 }
               }
@@ -18827,13 +18414,14 @@
             ],
             "struct_fields": [
               {
+                "number_input_state": {
+                  "type": "NumberInputStateWrapper"
+                },
                 "text_input": {
                   "type": "TextInput"
-                }
-              },
-              {
-                "state": {
-                  "type": "NumberInputStateWrapper"
+                },
+                "style": {
+                  "type": "NodeDataInlineCssPropertyVec"
                 }
               }
             ],
@@ -19258,21 +18846,15 @@
             ],
             "struct_fields": [
               {
-                "state": {
+                "progressbar_state": {
                   "type": "ProgressBarState"
-                }
-              },
-              {
+                },
                 "height": {
                   "type": "PixelValue"
-                }
-              },
-              {
+                },
                 "bar_background": {
                   "type": "StyleBackgroundContentVec"
-                }
-              },
-              {
+                },
                 "container_background": {
                   "type": "StyleBackgroundContentVec"
                 }
@@ -19879,7 +19461,7 @@
                 "callback": {
                   "type": "IFrameCallback"
                 },
-                "data": {
+                "refany": {
                   "type": "RefAny"
                 }
               }

@@ -22,12 +22,12 @@ fn test_html_style_tag_with_body_selector() {
     // Create a body element
     let mut dom = Dom::new_body();
 
-    let styled_dom = StyledDom::new_node(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
 
     // Get the root node (body)
     let node_id = azul_core::id::NodeId::ZERO;
     let node_data = &styled_dom.node_data.as_container()[node_id];
-    let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
     let cache = &styled_dom.css_property_cache.ptr;
 
     // Try to get font-family property
@@ -72,11 +72,11 @@ fn test_html_vs_body_node_type() {
 
     // Test with actual body node
     let mut dom_body = Dom::new_body();
-    let styled_dom_body = StyledDom::new_node(&mut dom_body, css_wrapper.clone());
+    let styled_dom_body = StyledDom::create(&mut dom_body, css_wrapper.clone());
 
     let node_id = azul_core::id::NodeId::ZERO;
     let node_data = &styled_dom_body.node_data.as_container()[node_id];
-    let node_state = &styled_dom_body.styled_nodes.as_container()[node_id].state;
+    let node_state = &styled_dom_body.styled_nodes.as_container()[node_id].styled_node_state;
     let cache = &styled_dom_body.css_property_cache.ptr;
 
     let font_family_body = cache.get_font_family(node_data, &node_id, node_state);
@@ -86,10 +86,10 @@ fn test_html_vs_body_node_type() {
 
     // Test with div (shouldn't match body selector)
     let mut dom_div = Dom::new_div();
-    let styled_dom_div = StyledDom::new_node(&mut dom_div, css_wrapper);
+    let styled_dom_div = StyledDom::create(&mut dom_div, css_wrapper);
 
     let node_data_div = &styled_dom_div.node_data.as_container()[node_id];
-    let node_state_div = &styled_dom_div.styled_nodes.as_container()[node_id].state;
+    let node_state_div = &styled_dom_div.styled_nodes.as_container()[node_id].styled_node_state;
     let cache_div = &styled_dom_div.css_property_cache.ptr;
 
     let font_family_div = cache_div.get_font_family(node_data_div, &node_id, node_state_div);

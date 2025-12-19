@@ -30,7 +30,7 @@ fn layout_dom(dom: Dom, css_str: &str, width: f32, height: f32) -> LayoutWindow 
     let (css, _) = azul_css::parser2::new_from_str(css_str);
     let css_wrapper = CssApiWrapper::from(css);
     let mut dom = dom;
-    let styled_dom = StyledDom::new_node(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
 
     let mut layout_window = create_layout_window();
     let window_state = create_window_state(width, height);

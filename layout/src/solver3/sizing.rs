@@ -223,7 +223,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
         let writing_mode = if let Some(dom_id) = node.dom_node_id {
-            let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].state;
+            let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
             get_writing_mode(self.ctx.styled_dom, dom_id, node_state).unwrap_or_default()
         } else {
             LayoutWritingMode::default()
@@ -694,7 +694,7 @@ pub fn calculate_used_size_for_node(
         ));
     };
 
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     let css_width = get_css_width(styled_dom, id, node_state);
     let css_height = get_css_height(styled_dom, id, node_state);
     let writing_mode = get_writing_mode(styled_dom, id, node_state);

@@ -74,14 +74,14 @@ impl OptionThreadReceiveMsg {
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct ThreadWriteBackMsg {
-    pub data: RefAny,
+    pub refany: RefAny,
     pub callback: WriteBackCallback,
 }
 
 impl ThreadWriteBackMsg {
     pub fn new(callback: WriteBackCallbackType, data: RefAny) -> Self {
         Self {
-            data,
+            refany: data,
             callback: WriteBackCallback { cb: callback },
         }
     }
@@ -246,7 +246,7 @@ impl Clone for ThreadSenderDestructorCallback {
 
 /// Callback that runs when a thread receives a `WriteBack` message
 ///
-/// This callback runs on the main UI thread and has access to:
+/// This callback runs on the main UI thread and has access dir_to: 
 /// - The thread's original data
 /// - Data sent back from the background thread
 /// - Full CallbackInfo for DOM queries and UI updates

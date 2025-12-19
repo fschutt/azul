@@ -62,7 +62,7 @@ impl azul_dll::Layout for TextInputDemo {
 }
 
 fn main() {
-    let app = App::new(TextInputDemo::default(), AppConfig::default());
+    let app = App::create(TextInputDemo::default(), AppConfig::default());
     
     let window_options = WindowCreateOptions {
         state: WindowState {

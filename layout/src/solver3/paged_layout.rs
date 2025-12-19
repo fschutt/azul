@@ -574,7 +574,7 @@ fn get_containing_block_for_node(
                     .styled_nodes
                     .as_container()
                     .get(dom_id)
-                    .map(|n| &n.state)
+                    .map(|n| &n.styled_node_state)
                     .cloned()
                     .unwrap_or_default();
                 let writing_mode =

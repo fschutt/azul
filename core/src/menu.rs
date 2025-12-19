@@ -184,6 +184,7 @@ impl_vec_ord!(MenuItem, MenuItemVec);
 #[repr(C)]
 pub struct StringMenuItem {
     /// Label of the menu
+    /// (ex. "File", "Edit", "View")
     pub label: AzString,
     /// Optional accelerator combination
     /// (ex. "CTRL + X" = [VirtualKeyCode::Ctrl, VirtualKeyCode::X]) for keyboard shortcut
@@ -191,7 +192,7 @@ pub struct StringMenuItem {
     /// Optional callback to call
     pub callback: OptionCoreMenuCallback,
     /// State (normal, greyed, disabled)
-    pub state: MenuItemState,
+    pub menu_item_state: MenuItemState,
     /// Optional icon for the menu entry
     pub icon: OptionMenuItemIcon,
     /// Sub-menus of this item (separators and line-breaks can't have sub-menus)
@@ -209,12 +210,12 @@ impl StringMenuItem {
     /// - Normal state
     /// - No icon
     /// - No children
-    pub const fn new(label: AzString) -> Self {
+    pub const fn create(label: AzString) -> Self {
         StringMenuItem {
             label,
             accelerator: OptionVirtualKeyCodeCombo::None,
             callback: OptionCoreMenuCallback::None,
-            state: MenuItemState::Normal,
+            menu_item_state: MenuItemState::Normal,
             icon: OptionMenuItemIcon::None,
             children: MenuItemVec::from_const_slice(&[]),
         }
@@ -228,7 +229,7 @@ impl StringMenuItem {
             label: AzString::from_const_str(""),
             accelerator: None.into(),
             callback: None.into(),
-            state: MenuItemState::Normal,
+            menu_item_state: MenuItemState::Normal,
             icon: None.into(),
             children: Vec::new().into(),
         };
@@ -261,10 +262,10 @@ impl StringMenuItem {
     ///
     /// This uses `CoreCallbackType` (usize) instead of a real function pointer
     /// to avoid circular dependencies. The conversion happens in azul-layout.
-    pub fn with_callback(mut self, data: RefAny, callback: CoreCallbackType) -> Self {
+    pub fn with_callback<I: Into<CoreCallback>>(mut self, data: RefAny, callback: I) -> Self {
         self.callback = Some(CoreMenuCallback {
-            data,
-            callback: CoreCallback { cb: callback, callable: crate::refany::OptionRefAny::None },
+            refany: data,
+            callback: callback.into(),
         })
         .into();
         self
@@ -309,7 +310,7 @@ impl_option!(
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct CoreMenuCallback {
-    pub data: RefAny,
+    pub refany: RefAny,
     pub callback: CoreCallback,
 }
 

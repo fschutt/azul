@@ -80,7 +80,7 @@ extern "C" fn menu_layout_callback(data: &mut RefAny, _info: &mut LayoutCallback
 ///
 /// // In a callback:
 /// extern "C" fn on_right_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-///     let menu = Menu::new(vec![/* ... */]);
+///     let menu = Menu::create(vec![/* ... */]);
 ///     let system_style = SystemStyle::default();
 ///     let trigger_rect = info.get_hit_node_rect()?;
 ///     
@@ -113,22 +113,22 @@ pub fn create_menu_popup_options(
 
     // Create window options
     let mut options = WindowCreateOptions::default();
-    options.state.size.dimensions = menu_size;
-    options.state.title = "Menu".to_string().into();
+    options.window_state.size.dimensions = menu_size;
+    options.window_state.title = "Menu".to_string().into();
 
     // Set layout callback - RefAny contains menu data, callback knows how to use it
-    options.state.layout_callback = LayoutCallback {
+    options.window_state.layout_callback = LayoutCallback {
         cb: menu_layout_callback,
-        callable: azul_core::refany::OptionRefAny::None,
+        ctx: azul_core::refany::OptionRefAny::None,
     };
 
     // Store menu data in app_data (will be passed to callback)
     // Note: The app needs to ensure this RefAny is passed when creating the window
 
     // Set window flags for popup behavior
-    options.state.flags.decorations = azul_core::window::WindowDecorations::None;
-    options.state.flags.is_always_on_top = true;
-    options.state.flags.is_resizable = false;
+    options.window_state.flags.decorations = azul_core::window::WindowDecorations::None;
+    options.window_state.flags.is_always_on_top = true;
+    options.window_state.flags.is_resizable = false;
 
     options
 }

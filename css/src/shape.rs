@@ -133,20 +133,20 @@ pub struct ShapePolygon {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ShapeInset {
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-    pub left: f32,
+    pub inset_top: f32,
+    pub inset_right: f32,
+    pub inset_bottom: f32,
+    pub inset_left: f32,
     pub border_radius: OptionF32,
 }
 
 impl Eq for ShapeInset {}
 impl core::hash::Hash for ShapeInset {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        self.top.to_bits().hash(state);
-        self.right.to_bits().hash(state);
-        self.bottom.to_bits().hash(state);
-        self.left.to_bits().hash(state);
+        self.inset_top.to_bits().hash(state);
+        self.inset_right.to_bits().hash(state);
+        self.inset_bottom.to_bits().hash(state);
+        self.inset_left.to_bits().hash(state);
         self.border_radius.hash(state);
     }
 }
@@ -157,12 +157,12 @@ impl PartialOrd for ShapeInset {
 }
 impl Ord for ShapeInset {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        match self.top.partial_cmp(&other.top) {
-            Some(core::cmp::Ordering::Equal) | None => match self.right.partial_cmp(&other.right) {
+        match self.inset_top.partial_cmp(&other.inset_top) {
+            Some(core::cmp::Ordering::Equal) | None => match self.inset_right.partial_cmp(&other.inset_right) {
                 Some(core::cmp::Ordering::Equal) | None => {
-                    match self.bottom.partial_cmp(&other.bottom) {
+                    match self.inset_bottom.partial_cmp(&other.inset_bottom) {
                         Some(core::cmp::Ordering::Equal) | None => {
-                            match self.left.partial_cmp(&other.left) {
+                            match self.inset_left.partial_cmp(&other.inset_left) {
                                 Some(core::cmp::Ordering::Equal) | None => {
                                     self.border_radius.cmp(&other.border_radius)
                                 }
@@ -263,10 +263,10 @@ impl CssShape {
     /// Creates an inset rectangle
     pub fn inset(top: f32, right: f32, bottom: f32, left: f32) -> Self {
         CssShape::Inset(ShapeInset {
-            top,
-            right,
-            bottom,
-            left,
+            inset_top: top,
+            inset_right: right,
+            inset_bottom: bottom,
+            inset_left: left,
             border_radius: OptionF32::None,
         })
     }
@@ -274,10 +274,10 @@ impl CssShape {
     /// Creates an inset rectangle with rounded corners
     pub fn inset_rounded(top: f32, right: f32, bottom: f32, left: f32, radius: f32) -> Self {
         CssShape::Inset(ShapeInset {
-            top,
-            right,
-            bottom,
-            left,
+            inset_top: top,
+            inset_right: right,
+            inset_bottom: bottom,
+            inset_left: left,
             border_radius: OptionF32::Some(radius),
         })
     }
@@ -423,16 +423,16 @@ impl CssShape {
             }
 
             CssShape::Inset(ShapeInset {
-                top,
-                right,
-                bottom,
-                left,
+                inset_top,
+                inset_right,
+                inset_bottom,
+                inset_left,
                 ..
             }) => {
                 // For inset, we need the reference box to compute actual bounds
                 // For now, return a placeholder that indicates the insets
                 ShapeRect {
-                    origin: ShapePoint::new(*left, *top),
+                    origin: ShapePoint::new(*inset_left, *inset_top),
                     width: 0.0, // Will be computed relative to container
                     height: 0.0,
                 }
@@ -513,10 +513,10 @@ impl CssShape {
             }
 
             CssShape::Inset(ShapeInset {
-                top,
-                right,
-                bottom,
-                left,
+                inset_top: top,
+                inset_right: right,
+                inset_bottom: bottom,
+                inset_left: left,
                 border_radius,
             }) => {
                 let ref_box = match reference_box {

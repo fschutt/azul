@@ -498,7 +498,7 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
             let width = get_css_width(
                 ctx.styled_dom,
                 id,
-                &ctx.styled_dom.styled_nodes.as_container()[id].state,
+                &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state,
             );
             match width.unwrap_or_default() {
                 LayoutWidth::Auto => (None, false),
@@ -527,7 +527,7 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
             let height = get_css_height(
                 ctx.styled_dom,
                 id,
-                &ctx.styled_dom.styled_nodes.as_container()[id].state,
+                &ctx.styled_dom.styled_nodes.as_container()[id].styled_node_state,
             );
             match height.unwrap_or_default() {
                 LayoutHeight::Auto => (None, false),
@@ -2061,7 +2061,7 @@ fn establishes_new_bfc<T: ParsedFontTrait>(ctx: &LayoutContext<'_, T>, node: &La
         return false;
     };
 
-    let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].state;
+    let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
     // 1. Floats establish BFC
     let float_val = get_float(ctx.styled_dom, dom_id, node_state);
@@ -2185,7 +2185,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     // Map text-align and justify-content from CSS to text3 enums.
     let id = dom_id;
     let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
 
     // Read CSS Shapes properties
     // For reference box, use the element's CSS height if available, otherwise available_size
@@ -3278,7 +3278,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
 
         let styled_dom = ctx.styled_dom;
         let table_id = tree.nodes[node_index].dom_node_id.unwrap();
-        let table_state = &styled_dom.styled_nodes.as_container()[table_id].state;
+        let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
 
         let spacing_context = ResolutionContext {
             element_font_size: get_element_font_size(styled_dom, table_id, table_state),
@@ -4320,7 +4320,7 @@ fn position_table_cells<T: ParsedFontTrait>(
     let (h_spacing, v_spacing) = if table_ctx.border_collapse == StyleBorderCollapse::Separate {
         let styled_dom = ctx.styled_dom;
         let table_id = tree.nodes[table_index].dom_node_id.unwrap();
-        let table_state = &styled_dom.styled_nodes.as_container()[table_id].state;
+        let table_state = &styled_dom.styled_nodes.as_container()[table_id].styled_node_state;
 
         let spacing_context = ResolutionContext {
             element_font_size: get_element_font_size(styled_dom, table_id, table_state),
@@ -4855,7 +4855,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 .styled_nodes
                 .as_container()
                 .get(dom_id)
-                .map(|n| n.state.clone())
+                .map(|n| n.styled_node_state.clone())
                 .unwrap_or_default();
 
             let css_width = get_css_width(ctx.styled_dom, dom_id, &styled_node_state);
@@ -5140,7 +5140,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     .styled_nodes
                     .as_container()
                     .get(child_dom_id)
-                    .map(|n| n.state.clone())
+                    .map(|n| n.styled_node_state.clone())
                     .unwrap_or_default();
                 let writing_mode =
                     get_writing_mode(ctx.styled_dom, child_dom_id, &styled_node_state)
@@ -5289,7 +5289,7 @@ fn get_float_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutF
         return LayoutFloat::None;
     };
     let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     styled_dom
         .css_property_cache
         .ptr
@@ -5309,7 +5309,7 @@ fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutC
         return LayoutClear::None;
     };
     let node_data = &styled_dom.node_data.as_container()[id];
-    let node_state = &styled_dom.styled_nodes.as_container()[id].state;
+    let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     styled_dom
         .css_property_cache
         .ptr

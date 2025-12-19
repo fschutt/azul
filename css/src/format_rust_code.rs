@@ -454,7 +454,7 @@ impl_pixel_value_fmt!(LayoutMinWidth);
 impl_pixel_value_fmt!(LayoutMaxWidth);
 impl_pixel_value_fmt!(LayoutMaxHeight);
 impl_pixel_value_fmt!(LayoutTop);
-impl_pixel_value_fmt!(LayoutBottom);
+impl_pixel_value_fmt!(LayoutInsetBottom);
 
 impl_pixel_value_fmt!(LayoutRight);
 impl_pixel_value_fmt!(LayoutLeft);
@@ -553,7 +553,7 @@ impl_enum_fmt!(
     Outset
 );
 
-impl_enum_fmt!(StyleBackgroundRepeat, NoRepeat, Repeat, RepeatX, RepeatY);
+impl_enum_fmt!(StyleBackgroundRepeat, NoRepeat, PatternRepeat, RepeatX, RepeatY);
 
 impl_enum_fmt!(
     LayoutDisplay,
@@ -708,10 +708,10 @@ fn format_style_background_content(content: &StyleBackgroundContent, tabs: usize
 fn format_direction(d: &Direction, tabs: usize) -> String {
     match d {
         Direction::Angle(fv) => format!("Direction::Angle({})", format_angle_value(fv)),
-        Direction::FromTo(DirectionCorners { from, to }) => format!(
-            "Direction::FromTo(DirectionCorners {{ from: {}, to: {} }})",
-            from.format_as_rust_code(tabs + 1),
-            to.format_as_rust_code(tabs + 1)
+        Direction::FromTo(DirectionCorners { dir_from, dir_to }) => format!(
+            "Direction::FromTo(DirectionCorners {{ dir_from: {}, dir_to: {} }})",
+            dir_from.format_as_rust_code(tabs + 1),
+            dir_to.format_as_rust_code(tabs + 1)
         ),
     }
 }

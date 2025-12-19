@@ -947,7 +947,7 @@ fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
         .styled_nodes
         .as_container()
         .get(dom_id)
-        .map(|n| &n.state)
+        .map(|n| &n.styled_node_state)
         .cloned()
         .unwrap_or_default();
 
@@ -1024,7 +1024,7 @@ fn resolve_box_props(
         .styled_nodes
         .as_container()
         .get(dom_id)
-        .map(|n| &n.state)
+        .map(|n| &n.styled_node_state)
         .cloned()
         .unwrap_or_default();
 
@@ -1218,7 +1218,7 @@ fn needs_table_parent_wrapper(
 pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     if let Some(_styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
         let node_data = &styled_dom.node_data.as_container()[node_id];
-        let node_state = &styled_dom.styled_nodes.as_container()[node_id].state;
+        let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
 
         // 1. Check author CSS first
         if let Some(d) = styled_dom
@@ -1260,25 +1260,25 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
     if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
         // `overflow` other than `visible`
 
-        let overflow_x = get_overflow_x(styled_dom, node_id, &styled_node.state);
+        let overflow_x = get_overflow_x(styled_dom, node_id, &styled_node.styled_node_state);
         if !overflow_x.is_visible_or_clip() {
             return true;
         }
 
-        let overflow_y = get_overflow_y(styled_dom, node_id, &styled_node.state);
+        let overflow_y = get_overflow_y(styled_dom, node_id, &styled_node.styled_node_state);
         if !overflow_y.is_visible_or_clip() {
             return true;
         }
 
         // `position: absolute` or `position: fixed`
-        let position = get_position(styled_dom, node_id, &styled_node.state);
+        let position = get_position(styled_dom, node_id, &styled_node.styled_node_state);
 
         if position.is_absolute_or_fixed() {
             return true;
         }
 
         // `float` is not `none`
-        let float = get_float(styled_dom, node_id, &styled_node.state);
+        let float = get_float(styled_dom, node_id, &styled_node.styled_node_state);
         if !float.is_none() {
             return true;
         }

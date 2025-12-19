@@ -1857,7 +1857,7 @@ impl MacOSWindow {
         );
 
         // Determine window size from options
-        let window_size = options.state.size.dimensions;
+        let window_size = options.window_state.size.dimensions;
         let width = window_size.width as f64;
         let height = window_size.height as f64;
 
@@ -1879,7 +1879,7 @@ impl MacOSWindow {
                 Ok((view, ctx, funcs)) => {
                     eprintln!("[MacOSWindow::new] OpenGL view created successfully");
                     eprintln!("[MacOSWindow::new] Configuring VSync...");
-                    let vsync = options.state.renderer_options.vsync;
+                    let vsync = options.window_state.renderer_options.vsync;
                     Self::configure_vsync(&ctx, vsync);
                     eprintln!("[MacOSWindow::new] VSync configured, returning from match...");
                     (
@@ -1928,7 +1928,7 @@ impl MacOSWindow {
 
         // Set window title
         eprintln!("[MacOSWindow::new] Setting window title...");
-        let title = NSString::from_str(&options.state.title);
+        let title = NSString::from_str(&options.window_state.title);
         window.setTitle(&title);
         eprintln!("[MacOSWindow::new] Window title set");
 
@@ -1972,11 +1972,11 @@ impl MacOSWindow {
         }
         eprintln!("[MacOSWindow::new] Window centered");
 
-        // Apply initial window state based on options.state.flags.frame
+        // Apply initial window state based on options.window_state.flags.frame
         // Note: These will be applied before window is visible
         eprintln!("[MacOSWindow::new] Applying window frame state...");
         unsafe {
-            match options.state.flags.frame {
+            match options.window_state.flags.frame {
                 WindowFrame::Fullscreen => {
                     window.toggleFullScreen(None);
                 }
@@ -2064,8 +2064,8 @@ impl MacOSWindow {
 
         // Get physical size for framebuffer (using actual HiDPI factor from screen)
         let physical_size = azul_core::geom::PhysicalSize {
-            width: (options.state.size.dimensions.width * actual_hidpi_factor) as u32,
-            height: (options.state.size.dimensions.height * actual_hidpi_factor) as u32,
+            width: (options.window_state.size.dimensions.width * actual_hidpi_factor) as u32,
+            height: (options.window_state.size.dimensions.height * actual_hidpi_factor) as u32,
         };
 
         let framebuffer_size = webrender::api::units::DeviceIntSize::new(
@@ -2091,26 +2091,26 @@ impl MacOSWindow {
         // Initialize window state with actual HiDPI factor from screen
         let actual_dpi = (actual_hidpi_factor * 96.0) as u32; // Convert scale factor to DPI
         let mut current_window_state = FullWindowState {
-            title: options.state.title.clone(),
+            title: options.window_state.title.clone(),
             size: WindowSize {
-                dimensions: options.state.size.dimensions,
+                dimensions: options.window_state.size.dimensions,
                 dpi: actual_dpi, // Use actual DPI from screen
-                min_dimensions: options.state.size.min_dimensions,
-                max_dimensions: options.state.size.max_dimensions,
+                min_dimensions: options.window_state.size.min_dimensions,
+                max_dimensions: options.window_state.size.max_dimensions,
             },
-            position: options.state.position,
-            flags: options.state.flags,
-            theme: options.state.theme,
-            debug_state: options.state.debug_state,
+            position: options.window_state.position,
+            flags: options.window_state.flags,
+            theme: options.window_state.theme,
+            debug_state: options.window_state.debug_state,
             keyboard_state: Default::default(),
             mouse_state: Default::default(),
             touch_state: Default::default(),
-            ime_position: options.state.ime_position,
-            platform_specific_options: options.state.platform_specific_options.clone(),
-            renderer_options: options.state.renderer_options,
-            background_color: options.state.background_color,
-            layout_callback: options.state.layout_callback,
-            close_callback: options.state.close_callback.clone(),
+            ime_position: options.window_state.ime_position,
+            platform_specific_options: options.window_state.platform_specific_options.clone(),
+            renderer_options: options.window_state.renderer_options,
+            background_color: options.window_state.background_color,
+            layout_callback: options.window_state.layout_callback,
+            close_callback: options.window_state.close_callback.clone(),
             monitor_id: OptionU32::None, // Monitor ID will be set when we detect the actual monitor
             window_focused: true,
         };
@@ -2997,7 +2997,7 @@ impl MacOSWindow {
         let layout_callback = Callback::from_core(callback.callback);
         let mut menu_callback = MenuCallback {
             callback: layout_callback,
-            data: callback.data,
+            refany: callback.refany,
         };
 
         // Get layout window to create callback info
@@ -3024,7 +3024,7 @@ impl MacOSWindow {
         // Use LayoutWindow::invoke_single_callback which handles all the borrow complexity
         let callback_result = layout_window.invoke_single_callback(
             &mut menu_callback.callback,
-            &mut menu_callback.data,
+            &mut menu_callback.refany,
             &raw_handle,
             &self.gl_context_ptr,
             &mut self.image_cache,
@@ -4339,12 +4339,12 @@ fn position_window_on_monitor(
     let target_monitor = monitors
         .as_slice()
         .iter()
-        .find(|m| m.id.index == monitor_id.index)
+        .find(|m| m.monitor_id.index == monitor_id.index)
         .or_else(|| {
             monitors
                 .as_slice()
                 .iter()
-                .find(|m| m.id.hash == monitor_id.hash && monitor_id.hash != 0)
+                .find(|m| m.monitor_id.hash == monitor_id.hash && monitor_id.hash != 0)
         })
         .unwrap_or(&monitors.as_slice()[0]); // Fallback to primary
 

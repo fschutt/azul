@@ -253,17 +253,17 @@ extern "C" fn on_dropdown_button_click(data: &mut RefAny, info: &mut CallbackInf
     let hit_node = info.get_hit_node();
 
     // Create menu with 3 options - pass app_data to each menu item callback
-    let menu = Menu::new(MenuItemVec::from_vec(vec![
+    let menu = Menu::create(MenuItemVec::from_vec(vec![
         MenuItem::String(
-            StringMenuItem::new("Option 1".into())
+            StringMenuItem::create("Option 1".into())
                 .with_callback(data.clone(), on_dropdown_option_0 as usize),
         ),
         MenuItem::String(
-            StringMenuItem::new("Option 2".into())
+            StringMenuItem::create("Option 2".into())
                 .with_callback(data.clone(), on_dropdown_option_1 as usize),
         ),
         MenuItem::String(
-            StringMenuItem::new("Option 3".into())
+            StringMenuItem::create("Option 3".into())
                 .with_callback(data.clone(), on_dropdown_option_2 as usize),
         ),
     ]));
@@ -483,76 +483,76 @@ extern "C" fn main_layout(mut _data: RefAny, _info: LayoutCallbackInfo) -> Style
     // Menu bar - changes based on active tab
     let menu = if app_data.active_tab == 5 {
         // Code Editor tab - show Compile and Debug menus
-        Menu::new(MenuItemVec::from_vec(vec![
-            MenuItem::String(StringMenuItem::new("File".into()).with_children(
+        Menu::create(MenuItemVec::from_vec(vec![
+            MenuItem::String(StringMenuItem::create("File".into()).with_children(
                 MenuItemVec::from_vec(vec![
-                    MenuItem::String(StringMenuItem::new("New".into())),
-                    MenuItem::String(StringMenuItem::new("Open".into())),
+                    MenuItem::String(StringMenuItem::create("New".into())),
+                    MenuItem::String(StringMenuItem::create("Open".into())),
                     MenuItem::Separator,
-                    MenuItem::String(StringMenuItem::new("Quit".into())),
+                    MenuItem::String(StringMenuItem::create("Quit".into())),
                 ]),
             )),
-            MenuItem::String(StringMenuItem::new("Edit".into()).with_children(
+            MenuItem::String(StringMenuItem::create("Edit".into()).with_children(
                 MenuItemVec::from_vec(vec![
-                    MenuItem::String(StringMenuItem::new("Copy".into())),
-                    MenuItem::String(StringMenuItem::new("Paste".into())),
+                    MenuItem::String(StringMenuItem::create("Copy".into())),
+                    MenuItem::String(StringMenuItem::create("Paste".into())),
                 ]),
             )),
-            MenuItem::String(StringMenuItem::new("View".into()).with_children(
+            MenuItem::String(StringMenuItem::create("View".into()).with_children(
                 MenuItemVec::from_vec(vec![
-                    MenuItem::String(StringMenuItem::new("Zoom In".into())),
-                    MenuItem::String(StringMenuItem::new("Zoom Out".into())),
+                    MenuItem::String(StringMenuItem::create("Zoom In".into())),
+                    MenuItem::String(StringMenuItem::create("Zoom Out".into())),
                 ]),
             )),
-            MenuItem::String(StringMenuItem::new("Compile".into()).with_children(
+            MenuItem::String(StringMenuItem::create("Compile".into()).with_children(
                 MenuItemVec::from_vec(vec![
                     MenuItem::String(
-                        StringMenuItem::new("Export to Rust...".into())
+                        StringMenuItem::create("Export to Rust...".into())
                             .with_callback(data_clone.clone(), on_export_rust as usize),
                     ),
                     MenuItem::String(
-                        StringMenuItem::new("Export to C...".into())
+                        StringMenuItem::create("Export to C...".into())
                             .with_callback(data_clone.clone(), on_export_c as usize),
                     ),
                     MenuItem::String(
-                        StringMenuItem::new("Export to C++...".into())
+                        StringMenuItem::create("Export to C++...".into())
                             .with_callback(data_clone.clone(), on_export_cpp as usize),
                     ),
                     MenuItem::String(
-                        StringMenuItem::new("Export to Python...".into())
+                        StringMenuItem::create("Export to Python...".into())
                             .with_callback(data_clone.clone(), on_export_python as usize),
                     ),
                 ]),
             )),
-            MenuItem::String(StringMenuItem::new("Debug".into()).with_children(
+            MenuItem::String(StringMenuItem::create("Debug".into()).with_children(
                 MenuItemVec::from_vec(vec![
-                    MenuItem::String(StringMenuItem::new("Run".into())),
-                    MenuItem::String(StringMenuItem::new("Step Over".into())),
-                    MenuItem::String(StringMenuItem::new("Step Into".into())),
+                    MenuItem::String(StringMenuItem::create("Run".into())),
+                    MenuItem::String(StringMenuItem::create("Step Over".into())),
+                    MenuItem::String(StringMenuItem::create("Step Into".into())),
                 ]),
             )),
         ]))
     } else {
         // Other tabs - standard menu without Compile/Debug
-        Menu::new(MenuItemVec::from_vec(vec![
-            MenuItem::String(StringMenuItem::new("File".into()).with_children(
+        Menu::create(MenuItemVec::from_vec(vec![
+            MenuItem::String(StringMenuItem::create("File".into()).with_children(
                 MenuItemVec::from_vec(vec![
-                    MenuItem::String(StringMenuItem::new("New".into())),
-                    MenuItem::String(StringMenuItem::new("Open".into())),
+                    MenuItem::String(StringMenuItem::create("New".into())),
+                    MenuItem::String(StringMenuItem::create("Open".into())),
                     MenuItem::Separator,
-                    MenuItem::String(StringMenuItem::new("Quit".into())),
+                    MenuItem::String(StringMenuItem::create("Quit".into())),
                 ]),
             )),
-            MenuItem::String(StringMenuItem::new("Edit".into()).with_children(
+            MenuItem::String(StringMenuItem::create("Edit".into()).with_children(
                 MenuItemVec::from_vec(vec![
-                    MenuItem::String(StringMenuItem::new("Copy".into())),
-                    MenuItem::String(StringMenuItem::new("Paste".into())),
+                    MenuItem::String(StringMenuItem::create("Copy".into())),
+                    MenuItem::String(StringMenuItem::create("Paste".into())),
                 ]),
             )),
-            MenuItem::String(StringMenuItem::new("View".into()).with_children(
+            MenuItem::String(StringMenuItem::create("View".into()).with_children(
                 MenuItemVec::from_vec(vec![
-                    MenuItem::String(StringMenuItem::new("Zoom In".into())),
-                    MenuItem::String(StringMenuItem::new("Zoom Out".into())),
+                    MenuItem::String(StringMenuItem::create("Zoom In".into())),
+                    MenuItem::String(StringMenuItem::create("Zoom Out".into())),
                 ]),
             )),
         ]))
@@ -1768,7 +1768,7 @@ extern "C" fn preview_iframe_callback(
             let mut empty_dom = Dom::new_body();
             empty_dom.add_child(Dom::text("Error: Invalid data type"));
             let css = CssApiWrapper::empty();
-            let styled_dom = StyledDom::new_node(&mut empty_dom, css);
+            let styled_dom = StyledDom::create(&mut empty_dom, css);
             return IFrameCallbackReturn {
                 dom: OptionStyledDom::Some(styled_dom),
                 scroll_size: info.bounds.get_logical_size(),
@@ -1791,7 +1791,7 @@ extern "C" fn preview_iframe_callback(
                 .with_child(Dom::text("Enter XHTML code in the editor to see preview")),
         );
         let css = CssApiWrapper::empty();
-        StyledDom::new_node(&mut preview_dom, css)
+        StyledDom::create(&mut preview_dom, css)
     } else {
         // Parse XML directly to StyledDom using DomXmlExt trait
         Dom::from_xml_string(&app_data.code_content)
@@ -1814,19 +1814,19 @@ fn main() {
     let initial_data = KitchenSinkApp::default();
     eprintln!("[KITCHEN_SINK] Created initial data");
 
-    let config = DllAppConfig::new();
+    let config = DllAppConfig::create();
     eprintln!("[KITCHEN_SINK] Created config");
 
-    let app = App::new(RefAny::new(initial_data), config);
+    let app = App::create(RefAny::new(initial_data), config);
     eprintln!("[KITCHEN_SINK] Created app");
 
-    let mut window = WindowCreateOptions::new(main_layout as LayoutCallbackType);
-    window.state.title = "Azul Kitchen Sink - Layout & Rendering Demo".into();
-    window.state.size = WindowSize {
+    let mut window = WindowCreateOptions::create(main_layout as LayoutCallbackType);
+    window.window_state.title = "Azul Kitchen Sink - Layout & Rendering Demo".into();
+    window.window_state.size = WindowSize {
         dimensions: LogicalSize::new(1200.0, 800.0),
         ..Default::default()
     };
-    window.state.flags.frame = WindowFrame::Normal;
+    window.window_state.flags.frame = WindowFrame::Normal;
     eprintln!("[KITCHEN_SINK] Created window options");
 
     eprintln!("[KITCHEN_SINK] Calling app.run()...");

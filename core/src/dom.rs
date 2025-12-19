@@ -220,11 +220,14 @@ pub enum ScrollbarOrientation {
 /// Calculated hash of a DOM node, used for identifying identical DOM
 /// nodes across frames for efficient diffing and state preservation.
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
-pub struct DomNodeHash(pub u64);
+#[repr(C)]
+pub struct DomNodeHash {
+    pub inner: u64,
+}
 
 impl ::core::fmt::Debug for DomNodeHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "DomNodeHash({})", self.0)
+        write!(f, "DomNodeHash({})", self.inner)
     }
 }
 
@@ -607,7 +610,7 @@ impl NodeType {
             Image(i) => Image(i.clone()), // note: shallow clone
             IFrame(i) => IFrame(IFrameNode {
                 callback: i.callback.clone(),
-                data: i.data.clone(),
+                refany: i.refany.clone(),
             }),
         }
     }
@@ -940,7 +943,7 @@ pub struct IFrameNode {
     /// The callback function that returns the DOM for the iframe's content.
     pub callback: IFrameCallback,
     /// The application data passed to the iframe's layout callback.
-    pub data: RefAny,
+    pub refany: RefAny,
 }
 
 /// An enum that holds either a CSS ID or a class name as a string.
@@ -1104,8 +1107,8 @@ impl AttributeType {
             AttributeType::AriaLabelledBy(_) => "aria-labelledby",
             AttributeType::AriaDescribedBy(_) => "aria-describedby",
             AttributeType::AriaRole(_) => "role",
-            AttributeType::AriaState(nv) => nv.name.as_str(),
-            AttributeType::AriaProperty(nv) => nv.name.as_str(),
+            AttributeType::AriaState(nv) => nv.attr_name.as_str(),
+            AttributeType::AriaProperty(nv) => nv.attr_name.as_str(),
             AttributeType::Href(_) => "href",
             AttributeType::Rel(_) => "rel",
             AttributeType::Target(_) => "target",
@@ -1138,8 +1141,8 @@ impl AttributeType {
             AttributeType::ContentEditable(_) => "contenteditable",
             AttributeType::Draggable(_) => "draggable",
             AttributeType::Hidden => "hidden",
-            AttributeType::Data(nv) => nv.name.as_str(),
-            AttributeType::Custom(nv) => nv.name.as_str(),
+            AttributeType::Data(nv) => nv.attr_name.as_str(),
+            AttributeType::Custom(nv) => nv.attr_name.as_str(),
         }
     }
 
@@ -1259,8 +1262,8 @@ impl SmallAriaInfo {
     /// Convert to full `AccessibilityInfo`
     pub fn to_full_info(&self) -> AccessibilityInfo {
         AccessibilityInfo {
-            name: self.label.clone(),
-            value: OptionString::None,
+            accessibility_name: self.label.clone(),
+            accessibility_value: OptionString::None,
             role: match self.role {
                 OptionAccessibilityRole::Some(r) => r,
                 OptionAccessibilityRole::None => AccessibilityRole::Unknown,
@@ -1477,7 +1480,7 @@ impl Hash for NodeData {
         for callback in self.callbacks.as_ref().iter() {
             callback.event.hash(state);
             callback.callback.hash(state);
-            callback.data.get_type_id().hash(state);
+            callback.refany.get_type_id().hash(state);
         }
 
         self.inline_css_props.as_ref().hash(state);
@@ -1528,10 +1531,10 @@ pub struct AccessibilityInfo {
     /// name of a button, checkbox or menu item. Try to use unique names
     /// for each item in a dialog so that voice dictation software doesn't
     /// have to deal with extra ambiguity.
-    pub name: OptionString,
+    pub accessibility_name: OptionString,
     /// Get the "value" of the `IAccessible`, for example a number in a slider,
     /// a URL for a link, the text a user entered in a field.
-    pub value: OptionString,
+    pub accessibility_value: OptionString,
     /// Get an enumerated value representing what this IAccessible is used for,
     /// for example is it a link, static text, editable text, a checkbox, or a table cell, etc.
     pub role: AccessibilityRole,
@@ -1611,8 +1614,8 @@ pub enum AccessibilityAction {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct TextSelectionStartEnd {
-    pub start: usize,
-    pub end: usize,
+    pub selection_start: usize,
+    pub selection_end: usize,
 }
 
 impl_vec![
@@ -2174,7 +2177,7 @@ pub enum AccessibilityState {
     /// The element is busy and cannot respond to user interaction.
     /// - **Purpose**: To indicate that the element or application is performing an operation and
     ///   is temporarily unresponsive.
-    /// - **When to use**: When an application is loading, processing data, or otherwise occupied.
+    /// - **When to use**: When an application is loading, processing refany, or otherwise occupied.
     /// - **Example**: A window that is grayed out and shows a spinning cursor while saving a large
     ///   file.
     Busy,
@@ -2452,20 +2455,20 @@ impl NodeData {
     /// Shorthand for `NodeData::new_node(NodeType::Text(value.into()))`.
     #[inline(always)]
     pub fn text<S: Into<AzString>>(value: S) -> Self {
-        Self::new(NodeType::Text(value.into()))
+        Self::new_node(NodeType::Text(value.into()))
     }
 
     /// Shorthand for `NodeData::new_node(NodeType::Image(image_id))`.
     #[inline(always)]
     pub fn image(image: ImageRef) -> Self {
-        Self::new(NodeType::Image(image))
+        Self::new_node(NodeType::Image(image))
     }
 
     #[inline(always)]
     pub fn iframe(data: RefAny, callback: impl Into<IFrameCallback>) -> Self {
-        Self::new(NodeType::IFrame(IFrameNode {
+        Self::new_node(NodeType::IFrame(IFrameNode {
             callback: callback.into(),
-            data,
+            refany: data,
         }))
     }
 
@@ -2642,7 +2645,7 @@ impl NodeData {
         let mut v = v.into_library_owned_vec();
         v.push(CoreCallbackData {
             event,
-            data,
+            refany: data,
             callback,
         });
         self.callbacks = v.into();
@@ -2703,7 +2706,7 @@ impl NodeData {
         let mut hasher = HighwayHasher::new(Key([0; 4]));
         self.hash(&mut hasher);
         let h = hasher.finalize64();
-        DomNodeHash(h)
+        DomNodeHash { inner: h }
     }
 
     #[inline(always)]
@@ -3216,17 +3219,17 @@ impl Dom {
     }
     #[inline(always)]
     pub fn text<S: Into<AzString>>(value: S) -> Self {
-        Self::new(NodeType::Text(value.into()))
+        Self::new_node(NodeType::Text(value.into()))
     }
     #[inline(always)]
     pub fn image(image: ImageRef) -> Self {
-        Self::new(NodeType::Image(image))
+        Self::new_node(NodeType::Image(image))
     }
     #[inline(always)]
     pub fn iframe(data: RefAny, callback: impl Into<IFrameCallback>) -> Self {
-        Self::new(NodeType::IFrame(IFrameNode {
+        Self::new_node(NodeType::IFrame(IFrameNode {
             callback: callback.into(),
-            data,
+            refany: data,
         }))
     }
 
@@ -3395,7 +3398,7 @@ impl Dom {
     /// - `code`: Code content
     #[inline]
     pub fn code<S: Into<AzString>>(code: S) -> Self {
-        Self::new(NodeType::Code).with_child(Self::text(code))
+        Self::new_node(NodeType::Code).with_child(Self::text(code))
     }
 
     /// Creates a preformatted text element.
@@ -3407,7 +3410,7 @@ impl Dom {
     /// - `text`: Preformatted content
     #[inline]
     pub fn pre<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::Pre).with_child(Self::text(text))
+        Self::new_node(NodeType::Pre).with_child(Self::text(text))
     }
 
     /// Creates a blockquote element.
@@ -3419,7 +3422,7 @@ impl Dom {
     /// - `text`: Quote content
     #[inline]
     pub fn blockquote<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::BlockQuote).with_child(Self::text(text))
+        Self::new_node(NodeType::BlockQuote).with_child(Self::text(text))
     }
 
     /// Creates a citation element.
@@ -3431,7 +3434,7 @@ impl Dom {
     /// - `text`: Citation text
     #[inline]
     pub fn cite<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::Cite).with_child(Self::text(text))
+        Self::new_node(NodeType::Cite).with_child(Self::text(text))
     }
 
     /// Creates an abbreviation element.
@@ -3444,7 +3447,7 @@ impl Dom {
     /// - `title`: Full expansion
     #[inline]
     pub fn abbr(abbr_text: AzString, title: AzString) -> Self {
-        Self::new(NodeType::Abbr)
+        Self::new_node(NodeType::Abbr)
             .with_attribute(AttributeType::Title(title))
             .with_child(Self::text(abbr_text))
     }
@@ -3458,7 +3461,7 @@ impl Dom {
     /// - `text`: Keyboard instruction
     #[inline]
     pub fn kbd<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::Kbd).with_child(Self::text(text))
+        Self::new_node(NodeType::Kbd).with_child(Self::text(text))
     }
 
     /// Creates a sample output element.
@@ -3469,7 +3472,7 @@ impl Dom {
     /// - `text`: Sample text
     #[inline]
     pub fn samp<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::Samp).with_child(Self::text(text))
+        Self::new_node(NodeType::Samp).with_child(Self::text(text))
     }
 
     /// Creates a variable element.
@@ -3480,7 +3483,7 @@ impl Dom {
     /// - `text`: Variable name
     #[inline]
     pub fn var<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::Var).with_child(Self::text(text))
+        Self::new_node(NodeType::Var).with_child(Self::text(text))
     }
 
     /// Creates a subscript element.
@@ -3491,7 +3494,7 @@ impl Dom {
     /// - `text`: Subscript content
     #[inline]
     pub fn sub<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::Sub).with_child(Self::text(text))
+        Self::new_node(NodeType::Sub).with_child(Self::text(text))
     }
 
     /// Creates a superscript element.
@@ -3502,7 +3505,7 @@ impl Dom {
     /// - `text`: Superscript content
     #[inline]
     pub fn sup<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::Sup).with_child(Self::text(text))
+        Self::new_node(NodeType::Sup).with_child(Self::text(text))
     }
 
     /// Creates an underline text element.
@@ -3511,7 +3514,7 @@ impl Dom {
     /// Use semantic elements when possible (e.g., `<em>` for emphasis).
     #[inline]
     pub fn u<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::U).with_child(Self::text(text))
+        Self::new_node(NodeType::U).with_child(Self::text(text))
     }
 
     /// Creates a strikethrough text element.
@@ -3520,7 +3523,7 @@ impl Dom {
     /// Consider using `<del>` for deleted content with datetime attribute.
     #[inline]
     pub fn s<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::S).with_child(Self::text(text))
+        Self::new_node(NodeType::S).with_child(Self::text(text))
     }
 
     /// Creates a marked/highlighted text element.
@@ -3529,7 +3532,7 @@ impl Dom {
     /// Screen readers may announce this as "highlighted".
     #[inline]
     pub fn mark<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::Mark).with_child(Self::text(text))
+        Self::new_node(NodeType::Mark).with_child(Self::text(text))
     }
 
     /// Creates a deleted text element.
@@ -3538,7 +3541,7 @@ impl Dom {
     /// Use with `datetime` and `cite` attributes for edit tracking.
     #[inline]
     pub fn del<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::Del).with_child(Self::text(text))
+        Self::new_node(NodeType::Del).with_child(Self::text(text))
     }
 
     /// Creates an inserted text element.
@@ -3547,7 +3550,7 @@ impl Dom {
     /// Use with `datetime` and `cite` attributes for edit tracking.
     #[inline]
     pub fn ins<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::Ins).with_child(Self::text(text))
+        Self::new_node(NodeType::Ins).with_child(Self::text(text))
     }
 
     /// Creates a definition element.
@@ -3556,7 +3559,7 @@ impl Dom {
     /// Often used within a definition list or with `<abbr>`.
     #[inline]
     pub fn dfn<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::Dfn).with_child(Self::text(text))
+        Self::new_node(NodeType::Dfn).with_child(Self::text(text))
     }
 
     /// Creates a time element.
@@ -3569,10 +3572,10 @@ impl Dom {
     /// - `datetime`: Optional machine-readable datetime
     #[inline]
     pub fn time(text: AzString, datetime: OptionString) -> Self {
-        let mut element = Self::new(NodeType::Time).with_child(Self::text(text));
+        let mut element = Self::new_node(NodeType::Time).with_child(Self::text(text));
         if let OptionString::Some(dt) = datetime {
             element = element.with_attribute(AttributeType::Custom(AttributeNameValue {
-                name: "datetime".into(),
+                attr_name: "datetime".into(),
                 value: dt,
             }));
         }
@@ -3584,7 +3587,7 @@ impl Dom {
     /// **Accessibility**: Overrides text direction. Use `dir` attribute (ltr/rtl).
     #[inline]
     pub fn bdo<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::Bdo).with_child(Self::text(text))
+        Self::new_node(NodeType::Bdo).with_child(Self::text(text))
     }
 
     /// Creates an anchor/hyperlink element.
@@ -3597,7 +3600,7 @@ impl Dom {
     /// - `label`: Link text (pass `None` for image-only links with alt text)
     #[inline]
     pub fn a(href: AzString, label: OptionString) -> Self {
-        let mut link = Self::new(NodeType::A).with_attribute(AttributeType::Href(href));
+        let mut link = Self::new_node(NodeType::A).with_attribute(AttributeType::Href(href));
         if let OptionString::Some(text) = label {
             link = link.with_child(Self::text(text));
         }
@@ -3613,7 +3616,7 @@ impl Dom {
     /// - `text`: Button label text
     #[inline]
     pub fn button(text: AzString) -> Self {
-        Self::new(NodeType::Button).with_child(Self::text(text))
+        Self::new_node(NodeType::Button).with_child(Self::text(text))
     }
 
     /// Creates a label element for form controls.
@@ -3626,9 +3629,9 @@ impl Dom {
     /// - `text`: Label text
     #[inline]
     pub fn label(for_id: AzString, text: AzString) -> Self {
-        Self::new(NodeType::Label)
+        Self::new_node(NodeType::Label)
             .with_attribute(AttributeType::Custom(AttributeNameValue {
-                name: "for".into(),
+                attr_name: "for".into(),
                 value: for_id,
             }))
             .with_child(Self::text(text))
@@ -3645,7 +3648,7 @@ impl Dom {
     /// - `label`: Accessibility label (required)
     #[inline]
     pub fn input(input_type: AzString, name: AzString, label: AzString) -> Self {
-        Self::new(NodeType::Input)
+        Self::new_node(NodeType::Input)
             .with_attribute(AttributeType::InputType(input_type))
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label))
@@ -3661,7 +3664,7 @@ impl Dom {
     /// - `label`: Accessibility label (required)
     #[inline]
     pub fn textarea(name: AzString, label: AzString) -> Self {
-        Self::new(NodeType::TextArea)
+        Self::new_node(NodeType::TextArea)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label))
     }
@@ -3675,7 +3678,7 @@ impl Dom {
     /// - `label`: Accessibility label (required)
     #[inline]
     pub fn select(name: AzString, label: AzString) -> Self {
-        Self::new(NodeType::Select)
+        Self::new_node(NodeType::Select)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label))
     }
@@ -3687,7 +3690,7 @@ impl Dom {
     /// - `text`: Display text
     #[inline]
     pub fn option(value: AzString, text: AzString) -> Self {
-        Self::new(NodeType::SelectOption)
+        Self::new_node(NodeType::SelectOption)
             .with_attribute(AttributeType::Value(value))
             .with_child(Self::text(text))
     }
@@ -3698,7 +3701,7 @@ impl Dom {
     /// understand content structure.
     #[inline(always)]
     pub fn ul() -> Self {
-        Self::new(NodeType::Ul)
+        Self::new_node(NodeType::Ul)
     }
 
     /// Creates an ordered list element.
@@ -3707,7 +3710,7 @@ impl Dom {
     /// understand content structure and numbering.
     #[inline(always)]
     pub fn ol() -> Self {
-        Self::new(NodeType::Ol)
+        Self::new_node(NodeType::Ol)
     }
 
     /// Creates a list item element.
@@ -3716,7 +3719,7 @@ impl Dom {
     /// list item position (e.g., "2 of 5").
     #[inline(always)]
     pub fn li() -> Self {
-        Self::new(NodeType::Li)
+        Self::new_node(NodeType::Li)
     }
 
     /// Creates a table element.
@@ -3725,7 +3728,7 @@ impl Dom {
     /// Provide a `caption` for table purpose. Use `scope` attribute on header cells.
     #[inline(always)]
     pub fn table() -> Self {
-        Self::new(NodeType::Table)
+        Self::new_node(NodeType::Table)
     }
 
     /// Creates a table caption element.
@@ -3733,7 +3736,7 @@ impl Dom {
     /// **Accessibility**: Describes the purpose of the table. Screen readers announce this first.
     #[inline(always)]
     pub fn caption() -> Self {
-        Self::new(NodeType::Caption)
+        Self::new_node(NodeType::Caption)
     }
 
     /// Creates a table header element.
@@ -3741,7 +3744,7 @@ impl Dom {
     /// **Accessibility**: Groups header rows. Screen readers can navigate table structure.
     #[inline(always)]
     pub fn thead() -> Self {
-        Self::new(NodeType::THead)
+        Self::new_node(NodeType::THead)
     }
 
     /// Creates a table body element.
@@ -3749,7 +3752,7 @@ impl Dom {
     /// **Accessibility**: Groups body rows. Screen readers can navigate table structure.
     #[inline(always)]
     pub fn tbody() -> Self {
-        Self::new(NodeType::TBody)
+        Self::new_node(NodeType::TBody)
     }
 
     /// Creates a table footer element.
@@ -3757,13 +3760,13 @@ impl Dom {
     /// **Accessibility**: Groups footer rows. Screen readers can navigate table structure.
     #[inline(always)]
     pub fn tfoot() -> Self {
-        Self::new(NodeType::TFoot)
+        Self::new_node(NodeType::TFoot)
     }
 
     /// Creates a table row element.
     #[inline(always)]
     pub fn tr() -> Self {
-        Self::new(NodeType::Tr)
+        Self::new_node(NodeType::Tr)
     }
 
     /// Creates a table header cell element.
@@ -3772,13 +3775,13 @@ impl Dom {
     /// data cells. Screen readers use this to announce cell context.
     #[inline(always)]
     pub fn th() -> Self {
-        Self::new(NodeType::Th)
+        Self::new_node(NodeType::Th)
     }
 
     /// Creates a table data cell element.
     #[inline(always)]
     pub fn td() -> Self {
-        Self::new(NodeType::Td)
+        Self::new_node(NodeType::Td)
     }
 
     /// Creates a form element.
@@ -3787,7 +3790,7 @@ impl Dom {
     /// Provide clear labels for all inputs. Consider `aria-describedby` for instructions.
     #[inline(always)]
     pub fn form() -> Self {
-        Self::new(NodeType::Form)
+        Self::new_node(NodeType::Form)
     }
 
     /// Creates a fieldset element for grouping form controls.
@@ -3797,7 +3800,7 @@ impl Dom {
     /// the fieldset.
     #[inline(always)]
     pub fn fieldset() -> Self {
-        Self::new(NodeType::FieldSet)
+        Self::new_node(NodeType::FieldSet)
     }
 
     /// Creates a legend element for fieldsets.
@@ -3806,7 +3809,7 @@ impl Dom {
     /// a fieldset. Screen readers announce this when entering the fieldset.
     #[inline(always)]
     pub fn legend() -> Self {
-        Self::new(NodeType::Legend)
+        Self::new_node(NodeType::Legend)
     }
 
     /// Creates a horizontal rule element.
@@ -3815,7 +3818,7 @@ impl Dom {
     /// a separator. Consider using CSS borders for purely decorative lines.
     #[inline(always)]
     pub fn hr() -> Self {
-        Self::new(NodeType::Hr)
+        Self::new_node(NodeType::Hr)
     }
 
     // Additional Element Constructors
@@ -3882,7 +3885,7 @@ impl Dom {
     /// Creates a table column element.
     #[inline]
     pub fn col(span: i32) -> Self {
-        Self::new(NodeType::Col).with_attribute(AttributeType::ColSpan(span))
+        Self::new_node(NodeType::Col).with_attribute(AttributeType::ColSpan(span))
     }
 
     /// Creates an optgroup element for grouping select options.
@@ -3891,7 +3894,7 @@ impl Dom {
     /// - `label`: Label for the option group
     #[inline]
     pub fn optgroup(label: AzString) -> Self {
-        Self::new(NodeType::OptGroup).with_attribute(AttributeType::AriaLabel(label))
+        Self::new_node(NodeType::OptGroup).with_attribute(AttributeType::AriaLabel(label))
     }
 
     /// Creates a quotation element.
@@ -3963,13 +3966,13 @@ impl Dom {
     /// Screen readers announce progress percentage. Use aria-label to describe the task.
     #[inline]
     pub fn progress(value: f32, max: f32) -> Self {
-        Self::new(NodeType::Progress)
+        Self::new_node(NodeType::Progress)
             .with_attribute(AttributeType::Custom(AttributeNameValue {
-                name: "value".into(),
+                attr_name: "value".into(),
                 value: value.to_string().into(),
             }))
             .with_attribute(AttributeType::Custom(AttributeNameValue {
-                name: "max".into(),
+                attr_name: "max".into(),
                 value: max.to_string().into(),
             }))
     }
@@ -3981,17 +3984,17 @@ impl Dom {
     /// Screen readers announce the measurement. Provide aria-label for context.
     #[inline]
     pub fn meter(value: f32, min: f32, max: f32) -> Self {
-        Self::new(NodeType::Meter)
+        Self::new_node(NodeType::Meter)
             .with_attribute(AttributeType::Custom(AttributeNameValue {
-                name: "value".into(),
+                attr_name: "value".into(),
                 value: value.to_string().into(),
             }))
             .with_attribute(AttributeType::Custom(AttributeNameValue {
-                name: "min".into(),
+                attr_name: "min".into(),
                 value: min.to_string().into(),
             }))
             .with_attribute(AttributeType::Custom(AttributeNameValue {
-                name: "max".into(),
+                attr_name: "max".into(),
                 value: max.to_string().into(),
             }))
     }
@@ -4044,7 +4047,7 @@ impl Dom {
     /// - `value`: Parameter value
     #[inline]
     pub fn param(name: AzString, value: AzString) -> Self {
-        Self::new(NodeType::Param)
+        Self::new_node(NodeType::Param)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::Value(value))
     }
@@ -4095,10 +4098,10 @@ impl Dom {
     /// - `media_type`: MIME type (e.g., "video/mp4", "audio/ogg")
     #[inline]
     pub fn source(src: AzString, media_type: AzString) -> Self {
-        Self::new(NodeType::Source)
+        Self::new_node(NodeType::Source)
             .with_attribute(AttributeType::Src(src))
             .with_attribute(AttributeType::Custom(AttributeNameValue {
-                name: "type".into(),
+                attr_name: "type".into(),
                 value: media_type,
             }))
     }
@@ -4113,10 +4116,10 @@ impl Dom {
     /// - `kind`: Track kind ("subtitles", "captions", "descriptions", "chapters", "metadata")
     #[inline]
     pub fn track(src: AzString, kind: AzString) -> Self {
-        Self::new(NodeType::Track)
+        Self::new_node(NodeType::Track)
             .with_attribute(AttributeType::Src(src))
             .with_attribute(AttributeType::Custom(AttributeNameValue {
-                name: "kind".into(),
+                attr_name: "kind".into(),
                 value: kind,
             }))
     }
@@ -4154,7 +4157,7 @@ impl Dom {
     /// Should be unique and descriptive. Keep under 60 characters.
     #[inline]
     pub fn title<S: Into<AzString>>(text: S) -> Self {
-        Self::new(NodeType::Title).with_child(Self::text(text))
+        Self::new_node(NodeType::Title).with_child(Self::text(text))
     }
 
     /// Creates a meta element.
@@ -4214,7 +4217,7 @@ impl Dom {
     /// - `href`: Base URL for relative URLs in the document
     #[inline]
     pub fn base(href: AzString) -> Self {
-        Self::new(NodeType::Base).with_attribute(AttributeType::Href(href))
+        Self::new_node(NodeType::Base).with_attribute(AttributeType::Href(href))
     }
 
     // Advanced Constructors with Parameters
@@ -4228,7 +4231,7 @@ impl Dom {
     /// **Accessibility**: The scope attribute is crucial for associating headers with data cells.
     #[inline]
     pub fn th_with_scope(scope: AzString, text: AzString) -> Self {
-        Self::new(NodeType::Th)
+        Self::new_node(NodeType::Th)
             .with_attribute(AttributeType::Scope(scope))
             .with_child(Self::text(text))
     }
@@ -4511,7 +4514,7 @@ impl Dom {
     }
 
     pub fn style(&mut self, css: azul_css::parser2::CssApiWrapper) -> StyledDom {
-        StyledDom::new_node(self, css)
+        StyledDom::create(self, css)
     }
     #[inline(always)]
     pub fn with_children(mut self, children: DomVec) -> Self {

@@ -79,9 +79,9 @@ fn main() {
 
     let data = AppData { content: "test" };
 
-    let config = AppConfig::new();
-    let app = App::new(RefAny::new(data), config);
-    let window = WindowCreateOptions::new(layout_callback as azul_core::callbacks::LayoutCallbackType);
+    let config = AppConfig::create();
+    let app = App::create(RefAny::new(data), config);
+    let window = WindowCreateOptions::create(layout_callback as azul_core::callbacks::LayoutCallbackType);
 
     eprintln!("\nOpening window...\n");
 

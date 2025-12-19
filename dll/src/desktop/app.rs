@@ -30,14 +30,14 @@ impl Drop for App {
 
 impl Default for App {
     fn default() -> Self {
-        Self::new(RefAny::new(()), AppConfig::default())
+        Self::create(RefAny::new(()), AppConfig::default())
     }
 }
 
 impl App {
-    pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
+    pub fn create(initial_data: RefAny, app_config: AppConfig) -> Self {
         Self {
-            ptr: Box::new(AppInternal::new(initial_data, app_config)),
+            ptr: Box::new(AppInternal::create(initial_data, app_config)),
             run_destructor: true,
         }
     }
@@ -94,7 +94,7 @@ impl AppInternal {
     ///
     /// This does not open any windows, but it starts the event loop
     /// to the display server
-    pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
+    pub fn create(initial_data: RefAny, app_config: AppConfig) -> Self {
         eprintln!("[AppInternal::new] Starting App creation");
         eprintln!(
             "[AppInternal::new] initial_data._internal_ptr: {:?}",

@@ -391,11 +391,11 @@ pub fn create_menu_window(
     // Set layout callback that renders the menu
     window_state.layout_callback = LayoutCallback {
         cb: menu_layout_callback,
-        callable: azul_core::refany::OptionRefAny::None,
+        ctx: azul_core::refany::OptionRefAny::None,
     };
 
     WindowCreateOptions {
-        state: window_state,
+        window_state: window_state,
         size_to_content: true.into(), // Auto-size to menu content
         renderer: None.into(),
         theme: None.into(),
@@ -478,7 +478,7 @@ pub fn show_menu(
 /// use azul_dll::desktop::menu::spawn_menu_from_callback;
 ///
 /// extern "C" fn my_callback(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-///     let menu = Menu::new("Context Menu")
+///     let menu = Menu::create("Context Menu")
 ///         .with_item("Copy", copy_callback)
 ///         .with_item("Paste", paste_callback);
 ///

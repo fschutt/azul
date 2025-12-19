@@ -859,8 +859,8 @@ impl WorkspaceIndex {
     }
 
     /// Deduce the full type path from file path and type name
-    /// Example: css/src/props/layout/position.rs + LayoutBottom
-    ///       -> azul_css::props::layout::position::LayoutBottom
+    /// Example: css/src/props/layout/position.rs + LayoutInsetBottom
+    ///       -> azul_css::props::layout::position::LayoutInsetBottom
     pub fn deduce_full_path(&self, file_path: &Path, type_name: &str) -> Result<String> {
         // Find which crate this file belongs to
         let mut crate_name: Option<&String> = None;
@@ -1811,12 +1811,12 @@ mod tests {
             file_sources: BTreeMap::new(),
         };
 
-        // Test: css/src/props/layout/position.rs + LayoutBottom
-        // Should be: azul_css::props::layout::position::LayoutBottom
+        // Test: css/src/props/layout/position.rs + LayoutInsetBottom
+        // Should be: azul_css::props::layout::position::LayoutInsetBottom
         let file_path = PathBuf::from("/project/css/src/props/layout/position.rs");
-        let result = index.deduce_full_path(&file_path, "LayoutBottom").unwrap();
+        let result = index.deduce_full_path(&file_path, "LayoutInsetBottom").unwrap();
 
-        assert_eq!(result, "azul_css::props::layout::position::LayoutBottom");
+        assert_eq!(result, "azul_css::props::layout::position::LayoutInsetBottom");
     }
 
     #[test]

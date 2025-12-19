@@ -723,9 +723,9 @@ impl_option!(
 #[repr(C)]
 pub struct Monitor {
     /// Unique identifier for this monitor (stable across frames)
-    pub id: MonitorId,
+    pub monitor_id: MonitorId,
     /// Human-readable name (e.g., "\\.\DISPLAY1", "HDMI-1", "Built-in Retina Display")
-    pub name: OptionString,
+    pub monitor_name: OptionString,
     /// Physical size of the monitor in logical pixels
     pub size: LayoutSize,
     /// Position of the monitor in the virtual screen coordinate system
@@ -751,7 +751,7 @@ impl core::hash::Hash for Monitor {
     where
         H: core::hash::Hasher,
     {
-        self.id.hash(state)
+        self.monitor_id.hash(state)
     }
 }
 

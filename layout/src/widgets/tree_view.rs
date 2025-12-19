@@ -28,8 +28,8 @@ const STYLE_BACKGROUND_CONTENT_2444935983575427872_ITEMS: &[StyleBackgroundConte
 const STYLE_BACKGROUND_CONTENT_3386545019168565479_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
-            from: DirectionCorner::Top,
-            to: DirectionCorner::Bottom,
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
         }),
         extend_mode: ExtendMode::Clamp,
         stops: NormalizedLinearColorStopVec::from_const_slice(

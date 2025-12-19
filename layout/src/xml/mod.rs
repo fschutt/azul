@@ -331,7 +331,7 @@ pub fn translate_roxmltree_expandedname<'a, 'b>(
 ) -> XmlQualifiedName {
     let ns: Option<AzString> = e.namespace().map(|e| e.to_string().into());
     XmlQualifiedName {
-        name: e.name().to_string().into(),
+        local_name: e.name().to_string().into(),
         namespace: ns.into(),
     }
 }
@@ -339,7 +339,7 @@ pub fn translate_roxmltree_expandedname<'a, 'b>(
 #[cfg(feature = "xml")]
 fn translate_roxmltree_attribute(e: roxmltree::Attribute) -> XmlQualifiedName {
     XmlQualifiedName {
-        name: e.name().to_string().into(),
+        local_name: e.name().to_string().into(),
         namespace: e.namespace().map(|e| e.to_string().into()).into(),
     }
 }

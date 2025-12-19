@@ -23,13 +23,13 @@ use crate::callbacks::{Callback, CallbackInfo};
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
 pub struct ColorInput {
-    pub state: ColorInputStateWrapper,
+    pub color_input_state: ColorInputStateWrapper,
     pub style: NodeDataInlineCssPropertyVec,
 }
 
 pub type ColorInputOnValueChangeCallbackType =
     extern "C" fn(RefAny, CallbackInfo, ColorInputState) -> Update;
-impl_callback!(
+impl_widget_callback!(
     ColorInputOnValueChange,
     OptionColorInputOnValueChange,
     ColorInputOnValueChangeCallback,
@@ -83,9 +83,9 @@ static DEFAULT_COLOR_INPUT_STYLE: &[NodeDataInlineCssProperty] = &[
 
 impl ColorInput {
     #[inline]
-    pub fn new(color: ColorU) -> Self {
+    pub fn create(color: ColorU) -> Self {
         Self {
-            state: ColorInputStateWrapper {
+            color_input_state: ColorInputStateWrapper {
                 inner: ColorInputState {
                     color,
                     ..Default::default()
@@ -97,14 +97,14 @@ impl ColorInput {
     }
 
     #[inline]
-    pub fn set_on_value_change(
+    pub fn set_on_value_change<I: Into<ColorInputOnValueChangeCallback>>(
         &mut self,
         data: RefAny,
-        callback: ColorInputOnValueChangeCallbackType,
+        callback: I,
     ) {
-        self.state.on_value_change = Some(ColorInputOnValueChange {
-            callback: ColorInputOnValueChangeCallback { cb: callback, callable: azul_core::refany::OptionRefAny::None },
-            data,
+        self.color_input_state.on_value_change = Some(ColorInputOnValueChange {
+            callback: callback.into(),
+            refany: data,
         })
         .into();
     }
@@ -135,7 +135,7 @@ impl ColorInput {
 
         let mut style = self.style.into_library_owned_vec();
         style.push(Normal(CssProperty::const_background_content(
-            vec![StyleBackgroundContent::Color(self.state.inner.color)].into(),
+            vec![StyleBackgroundContent::Color(self.color_input_state.inner.color)].into(),
         )));
 
         Dom::new_div()
@@ -144,10 +144,10 @@ impl ColorInput {
             .with_callbacks(
                 vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                    data: RefAny::new(self.state),
+                    refany: RefAny::new(self.color_input_state),
                     callback: CoreCallback {
                         cb: on_color_input_clicked as usize,
-                        callable: azul_core::refany::OptionRefAny::None,
+                        ctx: azul_core::refany::OptionRefAny::None,
                     },
                 }]
                 .into(),
@@ -170,7 +170,7 @@ extern "C" fn on_color_input_clicked(mut data: RefAny, mut info: CallbackInfo) -
         let inner = color_input.inner.clone();
 
         match onvaluechange.as_mut() {
-            Some(ColorInputOnValueChange { callback, data }) => {
+            Some(ColorInputOnValueChange { callback, refany: data }) => {
                 (callback.cb)(data.clone(), info.clone(), inner)
             }
             None => Update::DoNothing,

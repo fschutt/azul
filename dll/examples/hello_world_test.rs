@@ -159,10 +159,10 @@ fn main() {
     }
 
     eprintln!("[main] Creating AppConfig...");
-    let config = AppConfig::new();
+    let config = AppConfig::create();
 
     eprintln!("[main] Creating App...");
-    let _app = App::new(data, config);
+    let _app = App::create(data, config);
 
     eprintln!("[main] App created successfully!");
 
