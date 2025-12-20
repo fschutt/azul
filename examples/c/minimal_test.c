@@ -68,5 +68,6 @@ int main() {
     AzApp_run(&app, window);
     
     printf("[C] App finished\n");
+    AzApp_delete(&app);
     return 0;
 }

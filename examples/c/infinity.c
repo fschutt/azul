@@ -121,5 +121,6 @@ int main() {
     AzAppConfig config = AzAppConfig_default();
     AzApp app = AzApp_create(data, config);
     AzApp_run(&app, window);
+    AzApp_delete(&app);
     return 0;
 }

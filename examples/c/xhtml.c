@@ -36,5 +36,6 @@ int main() {
     AzString window_title = AzString_copyFromBytes((const uint8_t*)"XHTML Spreadsheet", 0, 17);
     window.window_state.title = window_title;
     AzApp_run(&app, window);
+    AzApp_delete(&app);
     return 0;
 }
