@@ -204,7 +204,7 @@ pub struct StructDef {
 /// 
 /// Callback wrappers pair a function pointer (callback_typedef) with
 /// optional data (OptionRefAny). In Python, the user passes a Py<PyAny>
-/// callable, which gets stored in `callable` and invoked via a trampoline.
+/// callable, which gets stored in `callable`/`ctx` and invoked via a trampoline.
 #[derive(Debug, Clone)]
 pub struct CallbackWrapperInfo {
     /// The name of the callback_typedef this wrapper contains
@@ -213,6 +213,9 @@ pub struct CallbackWrapperInfo {
     
     /// The field name that holds the callback (usually "cb")
     pub callback_field_name: String,
+    
+    /// The field name that holds the context/callable (usually "ctx" or "callable")
+    pub context_field_name: String,
 }
 
 /// Struct field definition

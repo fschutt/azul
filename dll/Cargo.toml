@@ -13,10 +13,12 @@ autoexamples = false
 build = "build.rs"
 
 [lib]
+name = "azul"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-azul-core = { path = "../core", version = "0.0.5", default-features = false }
+# Core crates - only needed for build-dll and link-static, NOT for link-dynamic
+azul-core = { path = "../core", version = "0.0.5", default-features = false, optional = true }
 azul-css = { path = "../css", version = "0.0.5", default-features = false, optional = true }
 azul-layout = { path = "../layout", version = "0.0.5", default-features = false, features = ["font_loading", "text_layout", "svg", "xml"], optional = true }
 
@@ -110,10 +112,10 @@ objc2-app-kit = { version = "0.3.0", default-features = true, features = [
 # =============================================================================
 
 [features]
-# Default: Build the full desktop library with static linking
+# Default: Build with static linking (for Rust applications)
+# Use --features "build-dll" when building the shared library itself
 default = [
     "std",
-    "build-dll",
     "link-static",
     "logging",
     "a11y",
@@ -128,6 +130,7 @@ default = [
 # This compiles all the platform-specific code in src/desktop/
 build-dll = [
     "std",
+    "azul-core",
     "azul-css",
     "azul-layout",
     "tfd",
@@ -157,18 +160,47 @@ build-dll = [
 
 # Static linking: Include transmute-based implementations
 # Uses: target/codegen/v2/dll_api_static.rs
-link-static = []
+# Requires the full azul stack to be compiled in
+link-static = [
+    "std",
+    "azul-core",
+    "azul-css",
+    "azul-layout",
+    "tfd",
+    "rust-fontconfig",
+    "gl-context-loader",
+    "webrender",
+    "once_cell",
+    "bitflags",
+    "regex",
+    "serde",
+    "serde_json",
+    "backtrace",
+    "font_loading",
+    "text_layout",
+    "svg",
+    "xml",
+    # Platform-specific clipboard
+    "x11-clipboard",
+    "clipboard-win",
+    # Windows needs libm
+    "libm",
+]
 
 # Dynamic linking: Include extern "C" declarations
 # Uses: target/codegen/v2/dll_api_dynamic.rs
 # Requires libazul.dylib/so/dll to be available at runtime
+# Set AZUL_LINK_PATH environment variable to the directory containing libazul
+# NOTE: Does NOT require azul-core or other internal crates
 link-dynamic = []
 
 # -----------------------------------------------------------------------------
 # Core Features
 # -----------------------------------------------------------------------------
 
-std = ["azul-core/std", "azul-layout/std"]
+# NOTE: std feature only affects azul-core/layout when they are enabled via build-dll or link-static
+# For link-dynamic, std has no effect since those crates aren't included
+std = ["azul-core?/std", "azul-layout?/std"]
 logging = ["log"]
 
 # -----------------------------------------------------------------------------

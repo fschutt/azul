@@ -1,11 +1,8 @@
-use azul::{
-    app::{App, AppConfig, LayoutSolver},
-    callbacks::{CallbackInfo, LayoutCallbackInfo, RefAny, Update},
-    css::Css,
-    dom::Dom,
-    style::StyledDom,
-    window::WindowCreateOptions,
-};
+//! Calculator example for Azul GUI
+//!
+//! A simple calculator with basic arithmetic operations using CSS Grid layout.
+
+use azul::prelude::*;
 
 /// Calculator state
 struct Calculator {
@@ -18,7 +15,6 @@ struct Calculator {
 
 extern "C" 
 fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
-
     let display_text = match data.downcast_ref::<Calculator>() {
         Some(calc) => calc.display.clone(),
         None => "0".to_string(),
@@ -32,29 +28,29 @@ fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     let buttons = Dom::create_div()
         .with_inline_style(BUTTONS_STYLE)
         // Row 1: C, +/-, %, ÷
-        .with_child(calc_button(data, "C", CalcEvent::Clear, BUTTON_STYLE))
-        .with_child(calc_button(data, "+/-", CalcEvent::InvertSign, BUTTON_STYLE))
-        .with_child(calc_button(data, "%", CalcEvent::Percent, BUTTON_STYLE))
-        .with_child(calc_button(data, "÷", CalcEvent::Operation(Operation::Divide), OPERATOR_STYLE))
+        .with_child(calc_button(&data, "C", CalcEvent::Clear, BUTTON_STYLE))
+        .with_child(calc_button(&data, "+/-", CalcEvent::InvertSign, BUTTON_STYLE))
+        .with_child(calc_button(&data, "%", CalcEvent::Percent, BUTTON_STYLE))
+        .with_child(calc_button(&data, "÷", CalcEvent::Operation(Operation::Divide), OPERATOR_STYLE))
         // Row 2: 7, 8, 9, ×
-        .with_child(calc_button(data, "7", CalcEvent::Digit('7'), BUTTON_STYLE))
-        .with_child(calc_button(data, "8", CalcEvent::Digit('8'), BUTTON_STYLE))
-        .with_child(calc_button(data, "9", CalcEvent::Digit('9'), BUTTON_STYLE))
-        .with_child(calc_button(data, "×", CalcEvent::Operation(Operation::Multiply), OPERATOR_STYLE))
+        .with_child(calc_button(&data, "7", CalcEvent::Digit('7'), BUTTON_STYLE))
+        .with_child(calc_button(&data, "8", CalcEvent::Digit('8'), BUTTON_STYLE))
+        .with_child(calc_button(&data, "9", CalcEvent::Digit('9'), BUTTON_STYLE))
+        .with_child(calc_button(&data, "×", CalcEvent::Operation(Operation::Multiply), OPERATOR_STYLE))
         // Row 3: 4, 5, 6, -
-        .with_child(calc_button(data, "4", CalcEvent::Digit('4'), BUTTON_STYLE))
-        .with_child(calc_button(data, "5", CalcEvent::Digit('5'), BUTTON_STYLE))
-        .with_child(calc_button(data, "6", CalcEvent::Digit('6'), BUTTON_STYLE))
-        .with_child(calc_button(data, "-", CalcEvent::Operation(Operation::Subtract), OPERATOR_STYLE))
+        .with_child(calc_button(&data, "4", CalcEvent::Digit('4'), BUTTON_STYLE))
+        .with_child(calc_button(&data, "5", CalcEvent::Digit('5'), BUTTON_STYLE))
+        .with_child(calc_button(&data, "6", CalcEvent::Digit('6'), BUTTON_STYLE))
+        .with_child(calc_button(&data, "-", CalcEvent::Operation(Operation::Subtract), OPERATOR_STYLE))
         // Row 4: 1, 2, 3, +
-        .with_child(calc_button(data, "1", CalcEvent::Digit('1'), BUTTON_STYLE))
-        .with_child(calc_button(data, "2", CalcEvent::Digit('2'), BUTTON_STYLE))
-        .with_child(calc_button(data, "3", CalcEvent::Digit('3'), BUTTON_STYLE))
-        .with_child(calc_button(data, "+", CalcEvent::Operation(Operation::Add), OPERATOR_STYLE))
+        .with_child(calc_button(&data, "1", CalcEvent::Digit('1'), BUTTON_STYLE))
+        .with_child(calc_button(&data, "2", CalcEvent::Digit('2'), BUTTON_STYLE))
+        .with_child(calc_button(&data, "3", CalcEvent::Digit('3'), BUTTON_STYLE))
+        .with_child(calc_button(&data, "+", CalcEvent::Operation(Operation::Add), OPERATOR_STYLE))
         // Row 5: 0 (spans 2), ., =
-        .with_child(calc_button(data, "0", CalcEvent::Digit('0'), ZERO_STYLE))
-        .with_child(calc_button(data, ".", CalcEvent::Digit('.'), BUTTON_STYLE))
-        .with_child(calc_button(data, "=", CalcEvent::Equals, OPERATOR_STYLE));
+        .with_child(calc_button(&data, "0", CalcEvent::Digit('0'), ZERO_STYLE))
+        .with_child(calc_button(&data, ".", CalcEvent::Digit('.'), BUTTON_STYLE))
+        .with_child(calc_button(&data, "=", CalcEvent::Equals, OPERATOR_STYLE));
 
     Dom::create_div()
         .with_inline_style(CALCULATOR_STYLE)
@@ -134,19 +130,22 @@ enum Operation {
 
 extern "C" 
 fn on_button_click(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let button_data = match data.downcast_ref::<ButtonData>() {
+    let mut button_data = match data.downcast_mut::<ButtonData>() {
         Some(d) => d,
         None => return Update::DoNothing,
     };
 
+    // Clone the event before borrowing calc mutably
+    let event = button_data.event.clone();
+    
     let mut calc = match button_data.calc.downcast_mut::<Calculator>() {
         Some(c) => c,
         None => return Update::DoNothing,
     };
 
-    match &button_data.event {
-        CalcEvent::Digit(d) => calc.input_digit(*d),
-        CalcEvent::Operation(op) => calc.set_operation(*op),
+    match event {
+        CalcEvent::Digit(d) => calc.input_digit(d),
+        CalcEvent::Operation(op) => calc.set_operation(op),
         CalcEvent::Equals => calc.calculate(),
         CalcEvent::Clear => calc.clear(),
         CalcEvent::InvertSign => calc.invert_sign(),
@@ -157,7 +156,6 @@ fn on_button_click(mut data: RefAny, _info: CallbackInfo) -> Update {
 }
 
 impl Calculator {
-
     fn new() -> Self {
         Self {
             display: "0".to_string(),
@@ -168,7 +166,6 @@ impl Calculator {
         }
     }
 
-    /// Handle input of a digit or decimal point
     fn input_digit(&mut self, digit: char) {
         if self.clear_on_next_input {
             self.display = String::new();
@@ -184,7 +181,6 @@ impl Calculator {
         self.current_value = self.display.parse().unwrap_or(0.0);
     }
 
-    /// Set the pending operation and prepare for the next input
     fn set_operation(&mut self, op: Operation) {
         self.calculate();
         self.pending_operation = Some(op);
@@ -192,7 +188,6 @@ impl Calculator {
         self.clear_on_next_input = true;
     }
 
-    /// Perform the pending calculation
     fn calculate(&mut self) {
         if let (Some(op), Some(pending)) = (self.pending_operation, self.pending_value) {
             let result = match op {
@@ -221,7 +216,6 @@ impl Calculator {
         }
     }
 
-    /// Clear the calculator state
     fn clear(&mut self) {
         self.display = "0".to_string();
         self.current_value = 0.0;
@@ -230,7 +224,6 @@ impl Calculator {
         self.clear_on_next_input = false;
     }
 
-    /// Invert the sign of the current value
     fn invert_sign(&mut self) {
         self.current_value = -self.current_value;
         self.display = if self.current_value.fract() == 0.0 {
@@ -240,58 +233,49 @@ impl Calculator {
         };
     }
 
-    /// Convert the current value to a percentage
     fn percent(&mut self) {
         self.current_value /= 100.0;
         self.display = format!("{}", self.current_value);
     }
 }
 
-// Event type for button callbacks
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 enum CalcEvent {
-    /// Input digit or decimal point
     Digit(char),
-    /// Set operation (+, -, *, /)
     Operation(Operation),
-    /// Calculate result
     Equals,
-    /// Clear the calculator state
     Clear,
-    /// Invert the sign of the current value
     InvertSign,
-    /// Convert the current value to a percentage
     Percent,
 }
 
 /// Data associated with each calculator button
 struct ButtonData {
-    /// Reference to the calculator state
     calc: RefAny,
-    /// The event triggered by this button
     event: CalcEvent,
 }
 
 /// Creates a calculator button with the given label and event
-fn calc_button(calc: &RefAny, label: &str, event: CalcEvent, class: &str) -> Dom {
+fn calc_button(calc: &RefAny, label: &str, event: CalcEvent, style: &str) -> Dom {
     let button_data = RefAny::new(ButtonData {
         calc: calc.clone(),
         event,
     });
 
     Dom::create_div()
-        .with_inline_style(class)
+        .with_inline_style(style)
         .with_child(Dom::create_text(label))
-        .with_dataset(Some(button_data))
-        .with_callback(azul::callbacks::On::MouseUp, on_button_click)
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            button_data,
+            on_button_click,
+        )
 }
 
 fn main() {
     let data = RefAny::new(Calculator::new());
-    let app = App::new(data, AppConfig::new());
-    let mut options = WindowCreateOptions::new(layout);
-    options.state.title = "Calculator".into();
-    options.state.size.dimensions.width = 320.0;
-    options.state.size.dimensions.height = 480.0;
-    app.run(options);
+    let app = App::create(data, AppConfig::create());
+    // The API accepts the function pointer directly - it builds the wrapper internally
+    let window = WindowCreateOptions::create(layout);
+    app.run(window);
 }

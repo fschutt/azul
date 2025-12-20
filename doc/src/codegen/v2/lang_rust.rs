@@ -74,6 +74,16 @@ impl LanguageGenerator for RustGenerator {
         let trait_impls = self.generate_trait_impls(ir, config)?;
         builder.raw(&trait_impls);
 
+        // Methods (impl blocks for Rust API)
+        builder.line("// --- Method Implementations ---");
+        let impl_blocks = self.generate_impl_blocks(ir, config)?;
+        builder.raw(&impl_blocks);
+
+        // Rust-only generic methods (not part of C-ABI)
+        builder.line("// --- Rust-Only Generic Methods ---");
+        let rust_only = self.generate_rust_only_impls(config)?;
+        builder.raw(&rust_only);
+
         // Functions
         builder.line("// --- C-ABI Functions ---");
         let functions = self.generate_functions(ir, config)?;
@@ -234,6 +244,309 @@ impl LanguageGenerator for RustGenerator {
 }
 
 // ============================================================================
+// Helper Methods - Impl Blocks for Rust API
+// ============================================================================
+
+impl RustGenerator {
+    /// Generate Rust-only generic methods that can't be exposed via C-ABI
+    /// 
+    /// These include:
+    /// - RefAny::new<T>() - construct RefAny from any Rust type
+    /// - RefAny::downcast_ref<T>() / downcast_mut<T>() - get typed references
+    /// 
+    /// For internal bindings (build-dll/link-static): implemented via transmute to core type.
+    /// For external bindings (link-dynamic): these methods are NOT available because
+    /// they require access to internal types that aren't exposed through the C-ABI.
+    fn generate_rust_only_impls(&self, config: &CodegenConfig) -> Result<String> {
+        let mut builder = CodeBuilder::new(&config.indent);
+        
+        let prefix = &config.type_prefix;
+        
+        // Check if we're using external bindings (link-dynamic)
+        // In that case, we can't use transmute because we don't have azul_core
+        let is_external_bindings = matches!(
+            &config.cabi_functions,
+            CAbiFunctionMode::ExternalBindings { .. }
+        );
+        
+        if is_external_bindings {
+            // For link-dynamic: RefAny::new and downcast are NOT available
+            // Users must use the pre-built DLL which doesn't support generic Rust types
+            // Don't generate an empty impl block - just skip RefAny generic methods entirely
+            builder.blank();
+        } else {
+            // For internal bindings (build-dll/link-static): use transmute to azul_core
+            
+            // RefAny generic methods - implemented via transmute to core type
+            builder.line(&format!("impl {}RefAny {{", prefix));
+            builder.indent();
+            
+            // new<T>
+            builder.line("/// Creates a new type-erased RefAny containing the given value.");
+            builder.line("pub fn new<T: 'static>(value: T) -> Self {");
+            builder.indent();
+            builder.line("use core::mem::transmute;");
+            builder.line("unsafe {");
+            builder.indent();
+            builder.line("transmute(azul_core::refany::RefAny::new(value))");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // downcast_ref<T> - using guards, must return wrapped type
+            builder.line("/// Returns a RAII guard to the inner value if types match.");
+            builder.line("/// ");
+            builder.line("/// The guard holds a shared borrow; drop it when done.");
+            builder.line(&format!("pub fn downcast_ref<T: 'static>(&mut self) -> Option<azul_core::refany::Ref<'_, T>> {{"));
+            builder.indent();
+            builder.line("use core::mem::transmute;");
+            builder.line("unsafe {");
+            builder.indent();
+            builder.line("let core_ref: &mut azul_core::refany::RefAny = transmute(self);");
+            builder.line("core_ref.downcast_ref::<T>()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // downcast_mut<T> - using guards, must return wrapped type
+            builder.line("/// Returns a RAII guard to mutably borrow the inner value if types match.");
+            builder.line("/// ");
+            builder.line("/// The guard holds an exclusive borrow; drop it when done.");
+            builder.line(&format!("pub fn downcast_mut<T: 'static>(&mut self) -> Option<azul_core::refany::RefMut<'_, T>> {{"));
+            builder.indent();
+            builder.line("use core::mem::transmute;");
+            builder.line("unsafe {");
+            builder.indent();
+            builder.line("let core_ref: &mut azul_core::refany::RefAny = transmute(self);");
+            builder.line("core_ref.downcast_mut::<T>()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+        
+        // String conversions - implement From<&str> and From<String> for AzString
+        // Only generate for bindings (static-link or dynamic-link), NOT for DLL build
+        // DLL build has no_mangle=true and doesn't need these user-facing conversions
+        let is_dll_build = matches!(
+            &config.cabi_functions,
+            CAbiFunctionMode::InternalBindings { no_mangle: true }
+        );
+        
+        if !is_dll_build {
+            // For bindings, use the C-ABI function AzString_copyFromBytes
+            builder.line(&format!("impl From<&str> for {}String {{", prefix));
+            builder.indent();
+            builder.line("fn from(s: &str) -> Self {");
+            builder.indent();
+            builder.line(&format!("unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}", prefix));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            builder.line(&format!("impl From<alloc::string::String> for {}String {{", prefix));
+            builder.indent();
+            builder.line("fn from(s: alloc::string::String) -> Self {");
+            builder.indent();
+            builder.line(&format!("unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}", prefix));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+        
+        Ok(builder.finish())
+    }
+
+    /// Generate impl blocks with methods for each type
+    fn generate_impl_blocks(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
+        use std::collections::BTreeSet;
+        
+        let mut builder = CodeBuilder::new(&config.indent);
+        
+        // Collect all unique class names
+        let class_names: BTreeSet<&str> = ir.functions.iter()
+            .filter(|f| !f.kind.is_trait_function()) // Skip trait functions
+            .map(|f| f.class_name.as_str())
+            .collect();
+        
+        for class_name in class_names {
+            if !config.should_include_type(class_name) {
+                continue;
+            }
+            
+            let prefixed_name = config.apply_prefix(class_name);
+            let methods: Vec<_> = ir.functions_for_class(class_name)
+                .filter(|f| !f.kind.is_trait_function())
+                .collect();
+            
+            if methods.is_empty() {
+                continue;
+            }
+            
+            builder.line(&format!("impl {} {{", prefixed_name));
+            builder.indent();
+            
+            for func in methods {
+                self.generate_method(&mut builder, func, ir, config);
+            }
+            
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+        
+        Ok(builder.finish())
+    }
+
+    /// Generate a single method within an impl block
+    fn generate_method(
+        &self,
+        builder: &mut CodeBuilder,
+        func: &FunctionDef,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        let method_name = escape_rust_keyword(&to_snake_case(&func.method_name));
+        
+        // Types that should use Into<T> for ergonomic API
+        // Currently only AzString, but designed to be extended
+        let into_types: &[&str] = &["String"];
+        
+        // Build a map of callback wrapper types for quick lookup
+        // Maps: "IFrameCallback" -> ("IFrameCallbackType", "cb", "ctx")
+        let callback_wrappers: std::collections::HashMap<&str, (&str, &str, &str)> = ir.structs.iter()
+            .filter_map(|s| {
+                s.callback_wrapper_info.as_ref().map(|info| {
+                    (s.name.as_str(), (
+                        info.callback_typedef_name.as_str(), 
+                        info.callback_field_name.as_str(),
+                        info.context_field_name.as_str(),
+                    ))
+                })
+            })
+            .collect();
+        
+        // Build argument list
+        let mut args = Vec::new();
+        let mut call_args = Vec::new();
+        let mut self_arg: Option<String> = None;
+        let mut generic_params: Vec<String> = Vec::new();
+        let mut generic_counter = 0u8;
+        
+        // The lowercase class name is used as the self parameter name in C-ABI
+        let self_param_name = func.class_name.to_lowercase();
+        
+        for arg in &func.args {
+            // An argument is "self" if:
+            // 1. Its name is "self", OR
+            // 2. Its name is the lowercase class name AND its type matches the class name, OR
+            // 3. Its name is "object" AND its type matches the class name
+            let is_self = arg.name == "self" || 
+                         (arg.name == self_param_name && arg.type_name == func.class_name) ||
+                         (arg.name == "object" && arg.type_name == func.class_name);
+            
+            if is_self {
+                // Store self argument to insert at the beginning
+                let self_str = match arg.ref_kind {
+                    ArgRefKind::Owned => "self".to_string(),
+                    ArgRefKind::Ref | ArgRefKind::Ptr => "&self".to_string(),
+                    ArgRefKind::RefMut | ArgRefKind::PtrMut => "&mut self".to_string(),
+                };
+                self_arg = Some(self_str);
+                call_args.push("self".to_string());
+            } else {
+                let arg_type = config.apply_prefix(&arg.type_name);
+                
+                // Check if this type is a callback wrapper
+                // If so, accept the CallbackType (fn pointer) and build the wrapper in the call
+                // BUT: Don't apply this transformation when we're in a method of the callback wrapper itself
+                // (e.g., deep_copy on IFrameCallback should take &IFrameCallback, not IFrameCallbackType)
+                let is_method_of_this_callback = arg.type_name == func.class_name;
+                
+                if !is_method_of_this_callback {
+                    if let Some((callback_type_name, callback_field_name, context_field_name)) = callback_wrappers.get(arg.type_name.as_str()) {
+                        let fn_ptr_type = config.apply_prefix(callback_type_name);
+                        let wrapper_type = &arg_type;
+                        args.push(format!("{}: {}", arg.name, fn_ptr_type));
+                        // Build the wrapper: AzIFrameCallback { cb: callback, ctx: AzOptionRefAny::None }
+                        call_args.push(format!(
+                            "{} {{ {}: {}, {}: {}OptionRefAny::None }}",
+                            wrapper_type,
+                            callback_field_name,
+                            arg.name,
+                            context_field_name,
+                            config.type_prefix
+                        ));
+                        continue;
+                    }
+                }
+                
+                // Check if this type should use Into<T>
+                let use_into = into_types.iter().any(|t| config.apply_prefix(t) == arg_type);
+                
+                if use_into && matches!(arg.ref_kind, ArgRefKind::Owned) {
+                    // Use a generic parameter like I0, I1, I2...
+                    let generic_name = format!("I{}", generic_counter);
+                    generic_counter += 1;
+                    generic_params.push(format!("{}: Into<{}>", generic_name, arg_type));
+                    args.push(format!("{}: {}", arg.name, generic_name));
+                    call_args.push(format!("{}.into()", arg.name));
+                } else {
+                    let arg_str = match arg.ref_kind {
+                        ArgRefKind::Owned => format!("{}: {}", arg.name, arg_type),
+                        ArgRefKind::Ref | ArgRefKind::Ptr => format!("{}: &{}", arg.name, arg_type),
+                        ArgRefKind::RefMut | ArgRefKind::PtrMut => format!("{}: &mut {}", arg.name, arg_type),
+                    };
+                    args.push(arg_str);
+                    call_args.push(arg.name.clone());
+                }
+            }
+        }
+        
+        // Insert self at the beginning if present
+        if let Some(self_str) = self_arg {
+            args.insert(0, self_str);
+        }
+        
+        let return_type = func.return_type.as_ref()
+            .map(|r| format!(" -> {}", config.apply_prefix(r)))
+            .unwrap_or_default();
+        
+        let c_func_name = &func.c_name;
+        
+        // Build generics string if we have any generic parameters
+        let generics = if generic_params.is_empty() {
+            String::new()
+        } else {
+            format!("<{}>", generic_params.join(", "))
+        };
+        
+        // Generate the method
+        builder.line(&format!(
+            "pub fn {}{}({}){} {{ unsafe {{ {}({}) }} }}",
+            method_name,
+            generics,
+            args.join(", "),
+            return_type,
+            c_func_name,
+            call_args.join(", ")
+        ));
+    }
+}
+
+// ============================================================================
 // Helper Methods - Type Aliases
 // ============================================================================
 
@@ -305,6 +618,16 @@ impl RustGenerator {
             let trait_impls = self.generate_trait_impls(ir, config)?;
             builder.raw(&trait_impls);
         }
+
+        // Method implementations (impl blocks)
+        builder.line("// --- Method Implementations ---");
+        let impl_blocks = self.generate_impl_blocks(ir, config)?;
+        builder.raw(&impl_blocks);
+
+        // Rust-only generic methods (not part of C-ABI)
+        builder.line("// --- Rust-Only Generic Methods ---");
+        let rust_only = self.generate_rust_only_impls(config)?;
+        builder.raw(&rust_only);
 
         Ok(builder.finish())
     }
@@ -1274,4 +1597,38 @@ fn is_primitive_type(type_name: &str) -> bool {
         "c_void"
         // NOTE: "String" is NOT a primitive - it's AzString in Azul, not std::string::String
     )
+}
+
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 {
+                result.push('_');
+            }
+            result.push(c.to_ascii_lowercase());
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
+/// Escape Rust keywords by prepending r#
+fn escape_rust_keyword(s: &str) -> String {
+    const RUST_KEYWORDS: &[&str] = &[
+        "as", "async", "await", "break", "const", "continue", "crate", "dyn",
+        "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in",
+        "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
+        "self", "Self", "static", "struct", "super", "trait", "true", "type",
+        "unsafe", "use", "where", "while", "abstract", "become", "box", "do",
+        "final", "macro", "override", "priv", "typeof", "unsized", "virtual",
+        "yield", "try",
+    ];
+    
+    if RUST_KEYWORDS.contains(&s) {
+        format!("r#{}", s)
+    } else {
+        s.to_string()
+    }
 }

@@ -16,14 +16,16 @@ edition = "2021"
 publish = false
 
 [dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = true }
+azul = { path = "../../dll", package = "azul-dll", default-features = false }
 serde = { version = "1", optional = true }
 serde_derive = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 
 [features]
-default = []
+default = ["link-static"]
 serde_support = ["serde", "serde_derive", "serde_json"]
+link-static = ["azul/link-static"]
+link-dynamic = ["azul/link-dynamic"]
 
 [[example]]
 name = "async"

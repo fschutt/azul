@@ -1071,9 +1071,9 @@ impl<'a> IRBuilder<'a> {
                 continue;
             }
             
-            // Find the callback typedef field and the callable field
+            // Find the callback typedef field and the context field
             let mut callback_field: Option<(String, String)> = None; // (field_name, typedef_name)
-            let mut has_callable_field = false;
+            let mut context_field_name: Option<String> = None;
             
             for field in &struct_def.fields {
                 // Check if field type is a callback_typedef
@@ -1081,18 +1081,20 @@ impl<'a> IRBuilder<'a> {
                     callback_field = Some((field.name.clone(), field.type_name.clone()));
                 }
                 
-                // Check for "callable" field with type "OptionRefAny"
-                if field.name == "callable" && field.type_name == "OptionRefAny" {
-                    has_callable_field = true;
+                // Check for "ctx" or "callable" field with type "OptionRefAny"
+                // "ctx" is used in api.json for some callbacks, "callable" for others
+                if (field.name == "ctx" || field.name == "callable") && field.type_name == "OptionRefAny" {
+                    context_field_name = Some(field.name.clone());
                 }
             }
             
-            // If we found both, this is a callback wrapper
+            // If we found both a callback typedef field and a ctx/callable field, this is a callback wrapper
             if let Some((field_name, typedef_name)) = callback_field {
-                if has_callable_field {
+                if let Some(ctx_name) = context_field_name {
                     struct_def.callback_wrapper_info = Some(CallbackWrapperInfo {
                         callback_typedef_name: typedef_name,
                         callback_field_name: field_name,
+                        context_field_name: ctx_name,
                     });
                 }
             }

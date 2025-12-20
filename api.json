@@ -2891,6 +2891,22 @@
                 },
                 "fn_body": "object.get_current_window_flags()"
               },
+              "get_scroll_offset": {
+                "doc": [
+                  "Get the current scroll offset for the hit node (if it's scrollable)",
+                  "",
+                  "Convenience method that uses the `hit_dom_node` from this callback."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionLogicalPosition"
+                },
+                "fn_body": "object.get_scroll_offset().into()"
+              },
               "get_current_keyboard_state": {
                 "doc": [
                   "Get current keyboard state"

@@ -14,52 +14,70 @@ system libraries in order to get started.
 Initialize a new cargo project with `cargo new my-project` and 
 edit your `Cargo.toml` file:
 
-```
+```toml
 [dependencies]
 azul = "1.0.0-alpha5"
-# or: azul = { git = "https://azul.rs/1.0.0-alpha5.git" }
+# or: azul = { git = "https://github.com/fschutt/azul", package = "azul-dll" }
 ```
 
-Run cargo with: `cargo build --release`. NOTE: For regular Rust development,
-you're done now, but you might want to use the dynamic linking for much faster
-re-compilation times.
+By default, Azul uses **static linking** which compiles all of Azul into your 
+binary. This is the simplest setup but results in longer compile times.
+
+Run cargo with: `cargo build --release`.
 
 ### Rust: Dynamic Linking
+
+> [!WARNING]
+> **Dynamic linking for Rust is primarily intended for C/C++/Python users.**
+> With `link-dynamic`, `RefAny::new<T>()` and `downcast_ref<T>()` are NOT available
+> because they require access to internal Azul types. For pure Rust applications,
+> use `link-static` (the default) which provides full functionality including
+> the ability to store arbitrary Rust types in callbacks.
 
 In order to improve iteration time, it is highly recommended to use the `.so` 
 / `.dylib` for dynamic linking. This allows you to recompile your app in 
 seconds without recompiling Azul itself.
 
-#### Step 1: Get the Library
+#### Step 1: Build or Download the Library
 
-Download the `libazul.so` (Linux) or `libazul.dylib` (macOS) and place it in 
-your project's `target/debug` or `target/release` folder (ideally both). The 
-goal is to have the library in the same directory as the final compiled binary.
+Either build the library yourself:
 
-#### Step 2: Configure cargo
+```sh
+cargo build --release --manifest-path dll/Cargo.toml \
+  --no-default-features --features "build-dll,std,all_img_formats"
+```
 
-First, enable the `link_dynamic` feature in your `Cargo.toml`:
+Or download a prebuilt `libazul.so` (Linux), `libazul.dylib` (macOS), or 
+`azul.dll` (Windows) from [/releases](https://azul.rs/releases).
+
+Place the library in your project's `target/release` folder.
+
+#### Step 2: Configure Cargo.toml
+
+Enable the `link-dynamic` feature in your `Cargo.toml`:
 
 ```toml
 [dependencies.azul]
 version = "1.0.0-alpha5"
 default-features = false
-features = ["link_dynamic"]
+features = ["link-dynamic"]
 ```
 
-Next, set the `AZUL_LINK_PATH` environment variable to tell Azul's build 
-script where the library is located. This is a **build-time** variable.
+#### Step 3: Set AZUL_LINK_PATH (Build-Time)
+
+Set the `AZUL_LINK_PATH` environment variable to tell the build script 
+where to find the library:
 
 ```sh
 # The path should be to the *directory* containing the library
 export AZUL_LINK_PATH=$(pwd)/target/release
+cargo build --release
 ```
 
-Internally, the azul crate has a build script, which will 
-pick up on this environment variable and tell the Rust compiler 
-where the DLL is.
+If `AZUL_LINK_PATH` is not set, the build script will automatically look in 
+`target/release` and `target/debug`.
 
-#### Step 3: Solve the Run-Time Linking
+#### Step 4: Configure Run-Time Linking
 
 When you run your binary, the OS needs to know where to find `libazul.so`. 
 The best method is to embed this search path directly into your executable 
@@ -231,7 +249,7 @@ cargo build \
   --release \
   --manifest-path dll/Cargo.toml \
   --no-default-features \
-  --features desktop-dynamic
+  --features "build-dll,std,all_img_formats"
 ```
 
 The API is versioned in the `api.json`, including all examples, guides and examples

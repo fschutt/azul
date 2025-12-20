@@ -1963,8 +1963,16 @@ impl CallbackInfo {
 
     // Scroll Manager Query Methods
 
-    /// Get the current scroll offset for a node (if it's scrollable)
-    pub fn get_scroll_offset(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
+    /// Get the current scroll offset for the hit node (if it's scrollable)
+    /// 
+    /// Convenience method that uses the `hit_dom_node` from this callback.
+    /// Use `get_scroll_offset_for_node` if you need to query a specific node.
+    pub fn get_scroll_offset(&self) -> Option<LogicalPosition> {
+        self.get_scroll_offset_for_node(self.hit_dom_node.dom, self.hit_dom_node.node.into_crate_internal().unwrap())
+    }
+
+    /// Get the current scroll offset for a specific node (if it's scrollable)
+    pub fn get_scroll_offset_for_node(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
         self.get_scroll_manager()
             .get_current_offset(dom_id, node_id)
     }

@@ -4,6 +4,31 @@ fn main() {
     // Check for required generated files before compilation
     check_generated_files();
     
+    // Configure dynamic linking when link-dynamic feature is enabled
+    // Uses AZUL_LINK_PATH environment variable to find libazul
+    // Note: In build.rs, we check features via CARGO_FEATURE_* env vars
+    if env::var("CARGO_FEATURE_LINK_DYNAMIC").is_ok() {
+        if let Ok(link_path) = env::var("AZUL_LINK_PATH") {
+            println!("cargo:rustc-link-search=native={}", link_path);
+            println!("cargo:rerun-if-env-changed=AZUL_LINK_PATH");
+        } else {
+            // Try some default paths
+            let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+            let target_release = Path::new(&manifest_dir).join("../target/release");
+            let target_debug = Path::new(&manifest_dir).join("../target/debug");
+            
+            if target_release.exists() {
+                println!("cargo:rustc-link-search=native={}", target_release.display());
+            } else if target_debug.exists() {
+                println!("cargo:rustc-link-search=native={}", target_debug.display());
+            } else {
+                println!("cargo:warning=AZUL_LINK_PATH not set and no default libazul location found.");
+                println!("cargo:warning=Set AZUL_LINK_PATH to the directory containing libazul.dylib/so/dll");
+            }
+        }
+        println!("cargo:rustc-link-lib=dylib=azul");
+    }
+    
     // Configure Python extension linking on macOS
     // With extension-module, PyO3 expects Python symbols to be provided by the interpreter
     // On macOS, we need to tell the linker that undefined symbols are OK

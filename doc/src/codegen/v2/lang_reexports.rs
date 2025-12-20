@@ -223,22 +223,32 @@ fn generate_prelude(builder: &mut CodeBuilder, modules: &BTreeMap<String, Vec<Ty
         // Core application types
         ("app", &["App", "AppConfig"][..]),
         // DOM types
-        ("dom", &["Dom", "NodeData", "DomVec", "NodeType"]),
-        // Callbacks
-        ("callbacks", &["LayoutCallbackInfo", "CallbackInfo"]),
-        // CSS types
-        ("css", &["Css", "CssProperty"]),
+        ("dom", &["Dom", "NodeData", "DomVec", "NodeType", "On", "Callback"]),
+        // Callbacks - includes IFrameCallbackInfo
+        ("callbacks", &["LayoutCallback", "LayoutCallbackInfo", "CallbackInfo", 
+                        "IFrameCallback", "IFrameCallbackInfo", "IFrameCallbackReturn",
+                        "WriteBackCallback", "TimerCallback", "TimerCallbackInfo", "TimerCallbackReturn"]),
+        // CSS types - includes EventFilter types and StyledDom
+        ("css", &["Css", "CssProperty", "StyledDom",
+                  "EventFilter", "HoverEventFilter", "FocusEventFilter", "WindowEventFilter", 
+                  "ApplicationEventFilter", "ComponentEventFilter", "NotEventFilter",
+                  "LogicalSize", "LogicalPosition", "LayoutSize", "LayoutPoint",
+                  "LogicalRect", "LayoutRect"]),
+        // Option types
+        ("option", &["OptionStyledDom", "OptionLogicalPosition"]),
+        // Geometry option types
+        ("geom", &["OptionLogicalPosition"]),
         // Window types
-        ("window", &["WindowCreateOptions", "WindowState"]),
-        // Style types  
-        ("style", &["StyledDom"]),
+        ("window", &["WindowCreateOptions", "WindowState", "WindowEventFilter"]),
         // Widgets
-        ("widgets", &["Button", "Label", "TextInput"]),
+        ("widgets", &["Button", "Label", "TextInput", "CheckBox", "NumberInput", "ProgressBar", "ColorInput", "FileInput"]),
         // Task / Threading
-        ("task", &["ThreadSender", "ThreadReceiver", "ThreadReceiveMsg", "ThreadSendMsg", "ThreadWriteBackMsg"]),
-        ("time", &["TimerId", "Duration", "Instant"]),
+        ("task", &["Thread", "ThreadSender", "ThreadReceiver", "ThreadReceiveMsg", "ThreadSendMsg", "ThreadWriteBackMsg"]),
+        ("time", &["TimerId", "Timer", "Duration", "Instant"]),
         // Misc
         ("misc", &["ThreadId", "RefAny", "Update"]),
+        // NOTE: String is intentionally NOT included in prelude to avoid conflicts with std::string::String
+        // Users should use azul::str::String explicitly or .into() for conversions
     ];
 
     for (module, types) in &prelude_types {

@@ -442,12 +442,12 @@ impl CodegenConfig {
     /// DLL static linking API
     /// 
     /// This is used when statically linking Azul into your application.
-    /// Generates types + trait implementations using transmute.
-    /// NO C-API functions - traits are implemented directly.
+    /// Generates types + C-API functions (without #[no_mangle]) + trait impls via transmute.
+    /// The C-API functions are internal (not exported) but still used by impl blocks.
     pub fn dll_static() -> Self {
         Self {
             target_lang: TargetLang::Rust,
-            cabi_functions: CAbiFunctionMode::None, // No C-API functions for static linking!
+            cabi_functions: CAbiFunctionMode::InternalBindings { no_mangle: false },
             struct_mode: StructMode::Prefixed,
             trait_impl_mode: TraitImplMode::UsingTransmute {
                 external_crate: "azul_core".into(),

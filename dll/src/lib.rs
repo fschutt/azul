@@ -26,12 +26,18 @@
 
 #[macro_use]
 extern crate alloc;
+
+// Internal crates - only needed for build-dll and link-static
+#[cfg(any(feature = "build-dll", feature = "link-static"))]
 extern crate azul_core;
+#[cfg(any(feature = "build-dll", feature = "link-static"))]
 extern crate azul_css;
+#[cfg(any(feature = "build-dll", feature = "link-static"))]
 extern crate azul_layout;
 
 // Desktop windowing implementation (OpenGL, fonts, event loop, etc.)
-#[cfg(all(feature = "build-dll", not(target_arch = "wasm32")))]
+// Compiled for both build-dll AND link-static (only link-dynamic excludes it)
+#[cfg(all(any(feature = "build-dll", feature = "link-static"), not(target_arch = "wasm32")))]
 pub mod desktop;
 
 // =============================================================================

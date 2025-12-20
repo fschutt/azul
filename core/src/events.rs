@@ -2369,7 +2369,7 @@ pub fn post_callback_filter_internal_events(
     let focus_event = (old_focus != new_focus)
         .then_some(PostCallbackSystemEvent::FocusChanged);
 
-    let system_events = std::iter::once(PostCallbackSystemEvent::ApplyTextInput)
+    let system_events = core::iter::once(PostCallbackSystemEvent::ApplyTextInput)
         .chain(event_actions)
         .chain(focus_event)
         .collect();
