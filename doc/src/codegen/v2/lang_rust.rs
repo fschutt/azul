@@ -141,7 +141,11 @@ impl LanguageGenerator for RustGenerator {
         let mut builder = CodeBuilder::new(&config.indent);
 
         // When using transmute-based trait impls, we don't need C-ABI trait functions
-        // because traits are implemented directly using transmute, not via C-ABI calls
+        // because traits are implemented directly using transmute, not via C-ABI calls.
+        // HOWEVER: When building the DLL (no_mangle = true), we MUST export all trait
+        // functions because C/C++/Python need to call them for destructors (_delete),
+        // cloning (_deepCopy), etc. The trait impls inside Rust can use transmute,
+        // but we still need the exported C-ABI functions for FFI.
         let skip_trait_functions = matches!(
             config.trait_impl_mode,
             TraitImplMode::UsingTransmute { .. } | TraitImplMode::UsingDerive
@@ -153,8 +157,10 @@ impl LanguageGenerator for RustGenerator {
                     if !config.should_include_type(&func.class_name) {
                         continue;
                     }
-                    // Skip trait functions when using transmute impls
-                    if skip_trait_functions && func.kind.is_trait_function() {
+                    // Skip trait functions when using transmute impls ONLY for internal use.
+                    // When no_mangle is true (DLL build), we need to export all functions
+                    // for C/C++/Python bindings to call _delete, _deepCopy, etc.
+                    if skip_trait_functions && !*no_mangle && func.kind.is_trait_function() {
                         continue;
                     }
                     self.generate_function_definition(&mut builder, func, ir, config, *no_mangle);
@@ -927,11 +933,12 @@ impl RustGenerator {
         // Generate body based on function kind
         match func.kind {
             FunctionKind::Delete => {
-                // For delete, we just let the value drop
-                format!("{{ core::mem::drop(core::mem::transmute::<&mut {}, Box<{}>>({} as *mut {} as *mut _)); }}", 
-                    prefixed_name, external_path, 
-                    func.args.first().map(|a| a.name.as_str()).unwrap_or("object"),
-                    prefixed_name)
+                // For delete, we call drop_in_place to run the destructor.
+                // The type is passed by pointer, so we need to dereference and drop it.
+                // This works for both stack-allocated (repr(C)) and heap-allocated types.
+                let arg_name = func.args.first().map(|a| a.name.as_str()).unwrap_or("instance");
+                format!("{{ core::ptr::drop_in_place({} as *mut {} as *mut {}); }}", 
+                    arg_name, prefixed_name, external_path)
             }
             FunctionKind::DeepCopy => {
                 let arg_name = func.args.first().map(|a| a.name.as_str()).unwrap_or("object");
