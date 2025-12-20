@@ -1700,7 +1700,7 @@ mod context {
     }
 
     use azul_core::dom::{Dom, NodeType};
-    use azul_css::{parser::CssApiWrapper, CssProperty};
+    use azul_css::{css::Css, CssProperty};
 
     #[test]
     fn test_node_default_formatting_contexts() {
@@ -1724,7 +1724,7 @@ mod context {
                 ]
                 .into(),
             )
-            .style(CssApiWrapper::empty());
+            .style(Css::empty());
 
         // Determine formatting contexts
         let formatting_contexts = determine_formatting_contexts(&styled_dom);
@@ -1779,7 +1779,7 @@ mod context {
                 ]
                 .into(),
             )
-            .style(CssApiWrapper::empty());
+            .style(Css::empty());
 
         // Determine formatting contexts
         let formatting_contexts = determine_formatting_contexts(&styled_dom);
@@ -1811,7 +1811,7 @@ mod caching {
         styled_dom::{CssPropertyCache, StyledDom, StyledNodeState},
     };
     use azul_css::{
-        parser::CssApiWrapper, CssProperty, CssPropertyType, CssPropertyValue, LayoutDisplay,
+        css::Css, CssProperty, CssPropertyType, CssPropertyValue, LayoutDisplay,
         LayoutHeight, LayoutWidth, PixelValue, StyleOpacity,
     };
 
@@ -1851,7 +1851,7 @@ mod caching {
                 ]
                 .into(),
             )
-            .style(CssApiWrapper::empty())
+            .style(Css::empty())
     }
 
     #[test]

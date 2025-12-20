@@ -323,6 +323,18 @@ impl From<Callback> for CoreCallback {
     }
 }
 
+/// Convert a raw function pointer to CoreCallback
+/// 
+/// This is a helper function that wraps the function pointer cast.
+/// Cannot use From trait due to orphan rules (extern "C" fn is not a local type).
+#[inline]
+pub fn callback_type_to_core(cb: CallbackType) -> CoreCallback {
+    CoreCallback {
+        cb: cb as usize,
+        ctx: OptionRefAny::None,
+    }
+}
+
 impl Callback {
     /// Safely invoke the callback with the given data and info
     ///

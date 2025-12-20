@@ -125,10 +125,38 @@ pub fn generate_transmuted_fn_body(
     fn_body = fn_body.replace("self.", &format!("{}.", transmuted_self_var));
     fn_body = fn_body.replace("object.", &format!("{}.", transmuted_self_var));
 
-    // For constructors: if fn_body starts with "TypeName::" (no "::" before it),
-    // replace with the fully qualified external path
-    // E.g., "RefAny::new_c(...)" -> "azul_core::refany::RefAny::new_c(...)"
+    // For constructors: if fn_body contains standalone "Self::", replace with external path
+    // E.g., "Self::MouseOver" -> "azul_core::events::HoverEventFilter::MouseOver"
+    // NOTE: Must check for STANDALONE "Self::" not as part of another word like "LayoutAlignSelf::"
     if is_constructor {
+        // Handle "Self::" at start of fn_body or after non-alphanumeric chars
+        // We check for "Self::" that's not preceded by a letter/digit/underscore
+        let should_replace_self = if fn_body.starts_with("Self::") {
+            true
+        } else {
+            // Check for "Self::" preceded by non-identifier char (space, (, {, etc.)
+            fn_body.contains(" Self::") || fn_body.contains("(Self::") || fn_body.contains("{Self::")
+        };
+        
+        if should_replace_self {
+            let prefixed_class = format!("{}{}", prefix, class_name);
+            if let Some(external_path) = type_to_external.get(&prefixed_class) {
+                let replacement = if is_for_dll {
+                    format!("{}::", external_path.replace("azul_dll", "crate"))
+                } else {
+                    format!("{}::", external_path)
+                };
+                // Only replace standalone "Self::" patterns
+                if fn_body.starts_with("Self::") {
+                    fn_body = fn_body.replacen("Self::", &replacement, 1);
+                }
+                fn_body = fn_body.replace(" Self::", &format!(" {}", replacement));
+                fn_body = fn_body.replace("(Self::", &format!("({}", replacement));
+                fn_body = fn_body.replace("{Self::", &format!("{{{}", replacement));
+            }
+        }
+        
+        // Also handle unqualified type name (e.g., "TypeName::" -> "external::path::TypeName::")
         // Check if fn_body starts with a type name (uppercase letter followed by ::)
         if let Some(colon_pos) = fn_body.find("::") {
             let potential_type = &fn_body[..colon_pos];

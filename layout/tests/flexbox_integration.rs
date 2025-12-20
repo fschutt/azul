@@ -9,7 +9,7 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
-use azul_css::parser2::CssApiWrapper;
+use azul_css::css::Css;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
@@ -28,9 +28,8 @@ fn create_window_state(width: f32, height: f32) -> FullWindowState {
 
 fn layout_dom(dom: Dom, css_str: &str, width: f32, height: f32) -> LayoutWindow {
     let (css, _) = azul_css::parser2::new_from_str(css_str);
-    let css_wrapper = CssApiWrapper::from(css);
     let mut dom = dom;
-    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css);
 
     let mut layout_window = create_layout_window();
     let window_state = create_window_state(width, height);

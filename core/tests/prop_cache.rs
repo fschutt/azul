@@ -9,7 +9,7 @@ use azul_core::{
 };
 use azul_css::{
     css::CssPropertyValue,
-    parser2::CssApiWrapper,
+    css::Css,
     props::{
         basic::{font::StyleFontSize, length::SizeMetric, pixel::PixelValue},
         property::{CssProperty, CssPropertyType},
@@ -20,14 +20,14 @@ use azul_css::{
 macro_rules! setup_styled_dom {
     ($dom:expr) => {{
         let mut dom = $dom;
-        let styled_dom = StyledDom::create(&mut dom, CssApiWrapper::empty());
+        let styled_dom = StyledDom::create(&mut dom, Css::empty());
         let cache = styled_dom.css_property_cache.ptr.clone();
         (styled_dom, cache)
     }};
     ($dom:expr, $css:expr) => {{
         let mut dom = $dom;
         let (css, _) = azul_css::parser2::new_from_str($css);
-        let css_wrapper = CssApiWrapper::from(css);
+        let css_wrapper = css;
         let styled_dom = StyledDom::create(&mut dom, css_wrapper);
         let cache = styled_dom.css_property_cache.ptr.clone();
         (styled_dom, cache)

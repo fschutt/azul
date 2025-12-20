@@ -25,15 +25,15 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     // Create a label
     const char* text = "Hello from C!";
     AzString label_text = AzString_copyFromBytes((uint8_t*)text, 0, strlen(text));
-    AzDom label = AzDom_text(label_text);
+    AzDom label = AzDom_createText(label_text);
     
     // Create body and add label
-    AzDom body = AzDom_body();
+    AzDom body = AzDom_createBody();
     AzDom_addChild(&body, label);
     
     // Create styled DOM
     AzCss css = AzCss_empty();
-    AzStyledDom result = AzStyledDom_new(body, css);
+    AzStyledDom result = AzDom_style(&body, css);
     
     printf("[C] layout() returning StyledDom\n");
     return result;
@@ -47,19 +47,20 @@ int main() {
     AzRefAny data = MyData_upcast(model);
     
     // Create window with our layout callback
-    AzWindowCreateOptions window = AzWindowCreateOptions_new(layout);
+    AzLayoutCallback layout_cb = { .cb = layout };
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
     
     // Set window title
     const char* title = "C Test Window";
-    window.state.title = AzString_copyFromBytes((uint8_t*)title, 0, strlen(title));
-    window.state.size.dimensions.width = 400.0;
-    window.state.size.dimensions.height = 300.0;
+    window.window_state.title = AzString_copyFromBytes((uint8_t*)title, 0, strlen(title));
+    window.window_state.size.dimensions.width = 400.0;
+    window.window_state.size.dimensions.height = 300.0;
     
     printf("[C] Created window options\n");
     
     // Create app with default config
     AzAppConfig config = AzAppConfig_default();
-    AzApp app = AzApp_new(data, config);
+    AzApp app = AzApp_create(data, config);
     
     printf("[C] Created app, calling run()...\n");
     

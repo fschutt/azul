@@ -20,7 +20,7 @@ mod static_impl {
         resources::AppConfig,
         styled_dom::StyledDom,
     };
-    use azul_css::{css::Css, parser2::CssApiWrapper};
+    use azul_css::css::Css;
     use azul_dll::desktop::app::App;
     use azul_layout::window_state::WindowCreateOptions;
 
@@ -40,7 +40,7 @@ mod static_impl {
             Dom::create_div().with_inline_style("width: 200px; height: 200px; background-color: red;");
 
         eprintln!("[my_layout_func] Created DOM with red rectangle");
-        let styled = dom.style(CssApiWrapper { css: Css::empty() });
+        let styled = dom.style(Css::empty());
         eprintln!(
             "[my_layout_func] StyledDom has {} nodes",
             styled.styled_nodes.len()

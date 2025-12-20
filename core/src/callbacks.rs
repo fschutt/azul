@@ -427,6 +427,48 @@ pub struct TimerCallbackReturn {
     pub should_terminate: TerminateTimer,
 }
 
+impl TimerCallbackReturn {
+    /// Creates a new TimerCallbackReturn with the given update and terminate flags.
+    pub fn create(should_update: Update, should_terminate: TerminateTimer) -> Self {
+        Self {
+            should_update,
+            should_terminate,
+        }
+    }
+
+    /// Timer continues running, no DOM update needed.
+    pub fn continue_unchanged() -> Self {
+        Self {
+            should_update: Update::DoNothing,
+            should_terminate: TerminateTimer::Continue,
+        }
+    }
+
+    /// Timer continues running and DOM should be refreshed.
+    pub fn continue_and_update() -> Self {
+        Self {
+            should_update: Update::RefreshDom,
+            should_terminate: TerminateTimer::Continue,
+        }
+    }
+
+    /// Timer should stop, no DOM update needed.
+    pub fn terminate_unchanged() -> Self {
+        Self {
+            should_update: Update::DoNothing,
+            should_terminate: TerminateTimer::Terminate,
+        }
+    }
+
+    /// Timer should stop and DOM should be refreshed.
+    pub fn terminate_and_update() -> Self {
+        Self {
+            should_update: Update::RefreshDom,
+            should_terminate: TerminateTimer::Terminate,
+        }
+    }
+}
+
 /// Gives the `layout()` function access to the `RendererResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
 #[derive(Debug)]

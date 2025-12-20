@@ -15,7 +15,7 @@ use azul_core::{
     resources::AppConfig,
     styled_dom::StyledDom,
 };
-use azul_css::{css::Css, parser2::CssApiWrapper};
+use azul_css::css::Css;
 use azul_dll::desktop::app::App;
 use azul_layout::window_state::WindowCreateOptions;
 
@@ -192,7 +192,7 @@ pub extern "C" fn stress_test_layout(mut data: RefAny, _info: LayoutCallbackInfo
 
     eprintln!("[stress_test_layout] DOM created");
 
-    let styled = dom.style(CssApiWrapper { css: Css::empty() });
+    let styled = dom.style(Css::empty());
     eprintln!(
         "[stress_test_layout] StyledDom has {} nodes",
         styled.styled_nodes.len()

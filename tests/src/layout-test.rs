@@ -9,7 +9,7 @@ use azul_core::{
     ui_solver::{WhConstraint, WidthSolvedResult},
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::{parser::CssApiWrapper, *};
+use azul_css::{css::Css, *};
 
 /// Returns a DOM for testing so we don't have to construct it every time.
 /// The DOM structure looks like this:
@@ -94,7 +94,7 @@ extern "C" fn render_iframe(_: &mut RefAny, _: &mut IFrameCallbackInfo) -> IFram
 fn test_full_dom() {
     let mut app_resources = RendererResources::default();
 
-    let styled_dom = StyledDom::create_node(&mut Dom::create_body(), CssApiWrapper::empty());
+    let styled_dom = StyledDom::create_node(&mut Dom::create_body(), Css::empty());
 
     let layout_result = azul_layout::solver2::do_the_layout_internal(
         DomId::ROOT_ID,
@@ -140,7 +140,7 @@ fn test_full_dom_2() {
             ]
             .into(),
         )
-        .style(CssApiWrapper::empty());
+        .style(Css::empty());
 
     let layout_result = azul_layout::solver2::do_the_layout_internal(
         DomId::ROOT_ID,

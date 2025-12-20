@@ -12,7 +12,7 @@ use azul_core::{
     refany::RefAny,
     styled_dom::StyledDom,
 };
-use azul_css::{css::Css, parser2::CssApiWrapper};
+use azul_css::css::Css;
 use azul_dll::desktop::{app::App, resources::AppConfig};
 use azul_layout::{callbacks::CallbackInfo, window_state::WindowCreateOptions};
 
@@ -63,7 +63,7 @@ extern "C" fn layout_xhtml(_data: RefAny, _info: LayoutCallbackInfo) -> StyledDo
     eprintln!("[layout_xhtml] Dom node_count: {}", dom.node_count());
     let _ = std::io::stderr().flush();
 
-    let styled = dom.style(CssApiWrapper { css: Css::empty() });
+    let styled = dom.style(Css::empty());
     eprintln!(
         "[layout_xhtml] StyledDom created with {} nodes",
         styled.styled_nodes.len()

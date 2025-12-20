@@ -10,6 +10,7 @@ vendor/
 .vscode/*
 .vs/*
 *.dSYM
+azul.h
 *.log
 .idea/*
 out.txt

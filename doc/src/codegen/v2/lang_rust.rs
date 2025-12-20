@@ -986,7 +986,8 @@ impl RustGenerator {
                 )
             }
             FunctionKind::Constructor | FunctionKind::StaticMethod |
-            FunctionKind::Method | FunctionKind::MethodMut => {
+            FunctionKind::Method | FunctionKind::MethodMut |
+            FunctionKind::EnumVariantConstructor => {
                 // For regular API functions, use the fn_body from api.json 
                 // and transform it using generate_transmuted_fn_body
                 if let Some(ref body) = func.fn_body {
@@ -1005,10 +1006,15 @@ impl RustGenerator {
                         .unwrap_or_default();
                     
                     // Use the existing transmuted fn_body generator
+                    // EnumVariantConstructor counts as a constructor for fn_body transformation
+                    let is_constructor = matches!(
+                        func.kind,
+                        FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::EnumVariantConstructor
+                    );
                     generate_transmuted_fn_body(
                         body,
                         &func.class_name,
-                        func.kind == FunctionKind::Constructor || func.kind == FunctionKind::StaticMethod,
+                        is_constructor,
                         &return_type,
                         &config.type_prefix,
                         &type_to_external,

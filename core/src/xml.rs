@@ -32,7 +32,7 @@ use azul_css::{
         NodeTypeTag,
     },
     format_rust_code::VecContents,
-    parser2::{CssApiWrapper, CssParseErrorOwned, ErrorLocation},
+    parser2::{CssParseErrorOwned, ErrorLocation},
     props::{
         basic::StyleFontFamilyVec,
         property::CssProperty,
@@ -706,7 +706,7 @@ impl DomXml {
     /// ```
     #[cfg(test)]
     pub fn assert_eq(self, other: StyledDom) {
-        let mut fixed = Dom::create_body().style(CssApiWrapper::empty());
+        let mut fixed = Dom::create_body().style(Css::empty());
         fixed.append_child(other);
         if self.parsed_dom != fixed {
             panic!(
@@ -1163,7 +1163,7 @@ impl XmlComponentTrait for DivRenderer {
         _: &FilteredComponentArguments,
         _: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::create_div().style(CssApiWrapper::empty()))
+        Ok(Dom::create_div().style(Css::empty()))
     }
 
     fn compile_to_rust_code(
@@ -1205,7 +1205,7 @@ impl XmlComponentTrait for BodyRenderer {
         _: &FilteredComponentArguments,
         _: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::create_body().style(CssApiWrapper::empty()))
+        Ok(Dom::create_body().style(Css::empty()))
     }
 
     fn compile_to_rust_code(
@@ -1247,7 +1247,7 @@ impl XmlComponentTrait for BrRenderer {
         _: &FilteredComponentArguments,
         _: &XmlTextContent,
     ) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::create_node(NodeType::Br).style(CssApiWrapper::empty()))
+        Ok(Dom::create_node(NodeType::Br).style(Css::empty()))
     }
 
     fn compile_to_rust_code(
@@ -1298,7 +1298,7 @@ impl XmlComponentTrait for TextRenderer {
             .unwrap_or_default();
         Ok(Dom::create_node(NodeType::P)
             .with_children(vec![Dom::create_text(content)].into())
-            .style(CssApiWrapper::empty()))
+            .style(Css::empty()))
     }
 
     fn compile_to_rust_code(
@@ -1603,7 +1603,7 @@ pub fn str_to_dom<'a>(
         if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
             let text = style_node.get_text_content();
             if !text.is_empty() {
-                let parsed_css = CssApiWrapper::from_string(text.into());
+                let parsed_css = Css::from_string(text.into());
                 global_style = Some(parsed_css);
             }
         }
@@ -1845,7 +1845,7 @@ pub fn compile_component(
 
 pub fn render_dom_from_body_node<'a>(
     body_node: &'a XmlNode,
-    mut global_css: Option<CssApiWrapper>,
+    mut global_css: Option<Css>,
     component_map: &'a XmlComponentMap,
     max_width: Option<f32>,
 ) -> Result<StyledDom, RenderDomError> {
@@ -1863,10 +1863,10 @@ pub fn render_dom_from_body_node<'a>(
             // Empty DOM, create default HTML > Body structure
             let mut html_dom = Dom::create_html()
                 .with_child(Dom::create_body())
-                .style(CssApiWrapper::empty());
+                .style(Css::empty());
 
             if let Some(max_width) = max_width {
-                html_dom.restyle(CssApiWrapper::from_string(
+                html_dom.restyle(Css::from_string(
                     format!("html {{ max-width: {max_width}px; }}").into(),
                 ));
             }
@@ -1892,22 +1892,22 @@ pub fn render_dom_from_body_node<'a>(
         }
         NodeType::Body => {
             // Has Body root, wrap in HTML
-            let mut html_dom = Dom::create_html().style(CssApiWrapper::empty());
+            let mut html_dom = Dom::create_html().style(Css::empty());
             html_dom.append_child(body_styled);
             html_dom
         }
         _ => {
             // Other elements (div, etc), wrap in HTML > Body
-            let mut body_dom = Dom::create_body().style(CssApiWrapper::empty());
+            let mut body_dom = Dom::create_body().style(Css::empty());
             body_dom.append_child(body_styled);
-            let mut html_dom = Dom::create_html().style(CssApiWrapper::empty());
+            let mut html_dom = Dom::create_html().style(Css::empty());
             html_dom.append_child(body_dom);
             html_dom
         }
     };
 
     if let Some(max_width) = max_width {
-        dom.restyle(CssApiWrapper::from_string(
+        dom.restyle(Css::from_string(
             format!("html {{ max-width: {max_width}px; }}").into(),
         ));
     }
@@ -1972,7 +1972,7 @@ pub fn render_dom_from_body_node_inner<'a>(
             XmlNodeChild::Text(text) => {
                 // Create a text node for text children
                 let text_dom =
-                    Dom::create_text(AzString::from(text.as_str())).style(CssApiWrapper::empty());
+                    Dom::create_text(AzString::from(text.as_str())).style(Css::empty());
                 dom.append_child(text_dom);
             }
         }
@@ -3211,7 +3211,7 @@ impl XmlComponentTrait for DynamicXmlComponent {
             Some(style_node) => {
                 let text = style_node.get_text_content();
                 if !text.is_empty() {
-                    let parsed_css = CssApiWrapper::from_string(text.into());
+                    let parsed_css = Css::from_string(text.into());
                     Some(parsed_css)
                 } else {
                     None

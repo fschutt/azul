@@ -4,7 +4,7 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
-use azul_css::parser2::CssApiWrapper;
+use azul_css::css::Css;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
@@ -43,11 +43,10 @@ fn test_margin_collapsing() {
         }
     "#;
     let (css, _) = azul_css::parser2::new_from_str(css_str);
-    let css_wrapper = CssApiWrapper::from(css);
 
     // 3. Create StyledDom
     let mut dom = dom; // needs to be mutable for StyledDom::new
-    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css);
 
     // 4. Initialize LayoutWindow
     let font_cache = FcFontCache::build();

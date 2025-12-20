@@ -13,7 +13,7 @@ use azul_core::{
     styled_dom::StyledDom,
     window::{WindowDecorations, WindowFrame},
 };
-use azul_css::{parser2::CssApiWrapper, system::SystemStyle};
+use azul_css::{css::Css, system::SystemStyle};
 use azul_layout::callbacks::CallbackInfo;
 
 use crate::desktop::menu_renderer::SystemStyleMenuExt; // Import trait for menu stylesheet
@@ -203,7 +203,7 @@ pub fn create_titlebar_styled_dom(
     let css = azul_css::css::Css::new(vec![stylesheet]);
 
     // Apply stylesheet to DOM
-    dom.style(CssApiWrapper { css })
+    dom.style(css)
 }
 
 /// Create a CSD menu bar StyledDom with menu items and callbacks
@@ -254,7 +254,7 @@ fn create_menubar_styled_dom(menu: &Menu, system_style: &SystemStyle) -> StyledD
     let stylesheet = system_style.create_menu_stylesheet();
     let css = azul_css::css::Css::new(vec![stylesheet]);
 
-    dom.style(CssApiWrapper { css })
+    dom.style(css)
 }
 
 /// Create a CSD titlebar DOM with window controls (internal helper)

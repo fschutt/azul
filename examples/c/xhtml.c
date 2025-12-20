@@ -29,11 +29,12 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 int main() {
     AzString empty_type = AzString_copyFromBytes((const uint8_t*)"", 0, 0);
     AzRefAny empty_data = AzRefAny_newC((AzGlVoidPtrConst){.ptr = NULL}, 0, 1, 0, empty_type, NULL);
-    AzAppConfig config = { 0 }; // Use zero-initialization instead of default macro
-    AzApp app = AzApp_new(empty_data, config);
-    AzWindowCreateOptions window = AzWindowCreateOptions_new(layout);
+    AzAppConfig config = AzAppConfig_default();
+    AzApp app = AzApp_create(empty_data, config);
+    AzLayoutCallback layout_cb = { .cb = layout };
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
     AzString window_title = AzString_copyFromBytes((const uint8_t*)"XHTML Spreadsheet", 0, 17);
-    window.state.title = window_title;
+    window.window_state.title = window_title;
     AzApp_run(&app, window);
     return 0;
 }

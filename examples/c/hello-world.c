@@ -17,27 +17,27 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     int written = snprintf(buffer, 20, "%d", d.ptr->counter);
     MyDataModelRef_delete(&d);
 
-    AzString label_text = AzString_copyFromBytes((uint8_t*)buffer, 0, written);
+    AzString label_text = AzString_copyFromBytes(buffer, 0, written);
     AzDom label = AzDom_createText(label_text);
-    AzCssProperty font_size = { .FontSize = { .tag = AzCssProperty_Tag_FontSize, .payload = { .Auto = { .tag = AzStyleFontSize_Tag_Exact, .payload = { .inner = { .metric = AzSizeMetric_Px, .number = 50.0 } } } } } };
+    
+    AzCssProperty font_size = AzCssProperty_fontSize(AzStyleFontSize_px(50.0));
     AzDom_addCssProperty(&label, font_size);
 
     AzDom button = AzDom_createDiv();
-    AzCssProperty flex_grow = { .FlexGrow = { .tag = AzCssProperty_Tag_FlexGrow, .payload = { .Auto = { .tag = AzStyleFlexGrow_Tag_Exact, .payload = { .inner = 1.0 } } } } };
+    AzCssProperty flex_grow = AzCssProperty_flexGrow(AzLayoutFlexGrow_new(1.0));
     AzDom_addCssProperty(&button, flex_grow);
-    AzString button_text = AzString_copyFromBytes((uint8_t*)"Increase counter", 0, 16);
+    AzString button_text = AzString_copyFromBytes("Increase counter", 0, 16);
     AzDom_addChild(&button, AzDom_createText(button_text));
     
-    AzEventFilter event = { .Hover = { .tag = AzEventFilter_Tag_Hover, .payload = AzHoverEventFilter_MouseUp } };
+    AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
     AzRefAny data_clone = AzRefAny_deepCopy(&data);
-    AzCallback cb = { .cb = on_click };
-    AzDom_addCallback(&button, event, data_clone, cb);
+    AzDom_addCallback(&button, event, data_clone, on_click);
 
     AzDom body = AzDom_createBody();
     AzDom_addChild(&body, label);
     AzDom_addChild(&body, button);
 
-    AzCssApiWrapper css = { 0 };
+    AzCss css = AzCss_empty();
     return AzDom_style(&body, css);
 }
 
@@ -57,7 +57,7 @@ int main() {
     
     AzLayoutCallback layout_cb = { .cb = layout };
     AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
-    AzString title = AzString_copyFromBytes((uint8_t*)"Hello World", 0, 11);
+    AzString title = AzString_copyFromBytes("Hello World", 0, 11);
     window.window_state.title = title;
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;

@@ -39,7 +39,7 @@ use azul_core::{
     FastBTreeSet, FastHashMap,
 };
 use azul_css::{
-    parser2::CssApiWrapper,
+    css::Css,
     props::{
         basic::FontRef,
         property::{CssProperty, CssPropertyVec},
@@ -924,7 +924,7 @@ impl LayoutWindow {
                 if reason == IFrameCallbackReason::InitialRender {
                     // For the very first render, create an empty div as a fallback.
                     let mut empty_dom = Dom::create_div();
-                    let empty_css = CssApiWrapper::empty();
+                    let empty_css = Css::empty();
                     empty_dom.style(empty_css)
                 } else {
                     // For subsequent calls, returning None means "keep the old DOM".

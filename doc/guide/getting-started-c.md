@@ -35,7 +35,7 @@ AzStyledDom layout(AzRefAny* data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, AzDom_text(AzString_fromConstStr(text)));
     
     MyAppRef_delete(&app_ref);
-    return AzDom_style(body, AzCssApiWrapper_empty());
+    return AzDom_style(body, AzCss_empty());
 }
 
 int main() {

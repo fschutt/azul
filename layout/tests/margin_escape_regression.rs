@@ -11,7 +11,7 @@ use azul_core::{
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
-use azul_css::parser2::CssApiWrapper;
+use azul_css::css::Css;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
@@ -53,9 +53,8 @@ fn test_margin_blocked_no_double_count() {
     "#;
 
     let (css, _) = azul_css::parser2::new_from_str(css_str);
-    let css_wrapper = CssApiWrapper::from(css);
     let mut dom = dom;
-    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css);
 
     let font_cache = FcFontCache::build();
     let mut layout_window = LayoutWindow::new(font_cache).unwrap();
@@ -131,9 +130,8 @@ fn test_margin_escape_excludes_from_parent_height() {
     "#;
 
     let (css, _) = azul_css::parser2::new_from_str(css_str);
-    let css_wrapper = CssApiWrapper::from(css);
     let mut dom = dom;
-    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css);
 
     let font_cache = FcFontCache::build();
     let mut layout_window = LayoutWindow::new(font_cache).unwrap();
@@ -219,9 +217,8 @@ fn test_sibling_margins_included_in_parent_height() {
     "#;
 
     let (css, _) = azul_css::parser2::new_from_str(css_str);
-    let css_wrapper = CssApiWrapper::from(css);
     let mut dom = dom;
-    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css);
 
     let font_cache = FcFontCache::build();
     let mut layout_window = LayoutWindow::new(font_cache).unwrap();
@@ -337,9 +334,8 @@ fn test_nested_margin_escape() {
     "#;
 
     let (css, _) = azul_css::parser2::new_from_str(css_str);
-    let css_wrapper = CssApiWrapper::from(css);
     let mut dom = dom;
-    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css);
 
     let font_cache = FcFontCache::build();
     let mut layout_window = LayoutWindow::new(font_cache).unwrap();
@@ -414,9 +410,8 @@ fn test_coordinate_system_separation() {
     "#;
 
     let (css, _) = azul_css::parser2::new_from_str(css_str);
-    let css_wrapper = CssApiWrapper::from(css);
     let mut dom = dom;
-    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css);
 
     let font_cache = FcFontCache::build();
     let mut layout_window = LayoutWindow::new(font_cache).unwrap();

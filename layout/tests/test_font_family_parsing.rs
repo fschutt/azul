@@ -6,7 +6,7 @@ use azul_core::{
     dom::{Dom, IdOrClass},
     styled_dom::StyledDom,
 };
-use azul_css::parser2::CssApiWrapper;
+use azul_css::css::Css;
 
 #[test]
 fn test_font_family_parsing_simple() {
@@ -19,14 +19,13 @@ fn test_font_family_parsing_simple() {
     "#;
 
     let (css, _errors) = azul_css::parser2::new_from_str(css_str);
-    let css_wrapper = CssApiWrapper::from(css);
 
     // Create a simple DOM with a div element
     let mut dom =
         Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("test-body".into())].into());
 
     // Apply CSS to create StyledDom
-    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css);
 
     // Get the root node
     let node_id = azul_core::id::NodeId::ZERO;
@@ -90,12 +89,11 @@ fn test_font_family_parsing_quoted() {
     "#;
 
     let (css, _errors) = azul_css::parser2::new_from_str(css_str);
-    let css_wrapper = CssApiWrapper::from(css);
 
     // Create DOM with a div that has the "heading" class
     let mut dom = Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("heading".into())].into());
 
-    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css);
 
     let node_id = azul_core::id::NodeId::ZERO;
     let node_data = &styled_dom.node_data.as_container()[node_id];
@@ -134,12 +132,11 @@ fn test_font_family_parsing_japanese() {
     "#;
 
     let (css, _errors) = azul_css::parser2::new_from_str(css_str);
-    let css_wrapper = CssApiWrapper::from(css);
 
     let mut dom =
         Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("recipe-body".into())].into());
 
-    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css);
 
     let node_id = azul_core::id::NodeId::ZERO;
     let node_data = &styled_dom.node_data.as_container()[node_id];

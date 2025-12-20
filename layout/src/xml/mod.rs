@@ -11,15 +11,13 @@ pub mod svg;
 pub use azul_core::xml::*;
 use azul_core::{dom::Dom, impl_from, styled_dom::StyledDom, window::StringPairVec};
 #[cfg(feature = "parser")]
-use azul_css::parser2::{CssApiWrapper, CssParseError};
+use azul_css::parser2::CssParseError;
 use azul_css::{css::Css, AzString, OptionString, U8Vec};
 use xmlparser::Tokenizer;
 
 #[cfg(feature = "xml")]
 pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml {
-    use azul_css::parser2::CssApiWrapper;
-
-    let mut error_css = CssApiWrapper::empty();
+    let error_css = Css::empty();
 
     let parsed = match parse_xml_string(&xml) {
         Ok(parsed) => parsed,
@@ -58,9 +56,7 @@ pub fn domxml_from_file<I: AsRef<Path>>(
 ) -> DomXml {
     use std::fs;
 
-    use azul_css::parser2::CssApiWrapper;
-
-    let mut error_css = CssApiWrapper::empty();
+    let error_css = Css::empty();
 
     let xml = match fs::read_to_string(file_path.as_ref()) {
         Ok(xml) => xml,

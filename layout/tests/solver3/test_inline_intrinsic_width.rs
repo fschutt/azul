@@ -18,7 +18,7 @@ mod inline_intrinsic_width_tests {
         geom::{LogicalPosition, LogicalRect, LogicalSize},
         styled_dom::StyledDom,
     };
-    use azul_css::parser2::CssApiWrapper;
+    use azul_css::css::Css;
     
     use crate::{
         solver3::{
@@ -49,7 +49,7 @@ mod inline_intrinsic_width_tests {
         let mut dom = Dom::create_body();
         dom.add_child(Dom::create_text("Hello world"));
 
-        let mut styled_dom = StyledDom::create_node(&mut dom, CssApiWrapper::empty());
+        let mut styled_dom = StyledDom::create_node(&mut dom, Css::empty());
         styled_dom.dom_id = DomId::ROOT_ID;
 
         let viewport = LogicalRect {
@@ -155,7 +155,7 @@ mod inline_intrinsic_width_tests {
         let mut dom = Dom::create_body();
         dom.add_child(Dom::create_text("Test text that should wrap properly"));
 
-        let mut styled_dom = StyledDom::create_node(&mut dom, CssApiWrapper::empty());
+        let mut styled_dom = StyledDom::create_node(&mut dom, Css::empty());
         styled_dom.dom_id = DomId::ROOT_ID;
 
         let viewport = LogicalRect {

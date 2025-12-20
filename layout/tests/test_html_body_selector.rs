@@ -3,7 +3,7 @@ use azul_core::{
     dom::{Dom, IdOrClass, NodeType},
     styled_dom::StyledDom,
 };
-use azul_css::parser2::CssApiWrapper;
+use azul_css::css::Css;
 
 #[test]
 fn test_html_style_tag_with_body_selector() {
@@ -17,12 +17,11 @@ fn test_html_style_tag_with_body_selector() {
     "#;
 
     let (css, _errors) = azul_css::parser2::new_from_str(css_str);
-    let css_wrapper = CssApiWrapper::from(css);
 
     // Create a body element
     let mut dom = Dom::create_body();
 
-    let styled_dom = StyledDom::create(&mut dom, css_wrapper);
+    let styled_dom = StyledDom::create(&mut dom, css);
 
     // Get the root node (body)
     let node_id = azul_core::id::NodeId::ZERO;
@@ -68,11 +67,10 @@ fn test_html_vs_body_node_type() {
     "#;
 
     let (css, _errors) = azul_css::parser2::new_from_str(css_str);
-    let css_wrapper = CssApiWrapper::from(css);
 
     // Test with actual body node
     let mut dom_body = Dom::create_body();
-    let styled_dom_body = StyledDom::create(&mut dom_body, css_wrapper.clone());
+    let styled_dom_body = StyledDom::create(&mut dom_body, css.clone());
 
     let node_id = azul_core::id::NodeId::ZERO;
     let node_data = &styled_dom_body.node_data.as_container()[node_id];
@@ -86,7 +84,7 @@ fn test_html_vs_body_node_type() {
 
     // Test with div (shouldn't match body selector)
     let mut dom_div = Dom::create_div();
-    let styled_dom_div = StyledDom::create(&mut dom_div, css_wrapper);
+    let styled_dom_div = StyledDom::create(&mut dom_div, css);
 
     let node_data_div = &styled_dom_div.node_data.as_container()[node_id];
     let node_state_div = &styled_dom_div.styled_nodes.as_container()[node_id].styled_node_state;

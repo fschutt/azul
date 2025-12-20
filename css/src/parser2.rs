@@ -22,44 +22,10 @@ use crate::{
     },
 };
 
-#[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
-#[repr(C)]
-pub struct CssApiWrapper {
-    pub css: Css,
-}
-
-impl From<Css> for CssApiWrapper {
-    fn from(value: Css) -> Self {
-        Self { css: value }
-    }
-}
-
-impl CssApiWrapper {
-    pub fn empty() -> Self {
-        Self { css: Css::empty() }
-    }
-
-    // Updated to always return CSS with warnings
-    pub fn from_string(s: AzString) -> Self {
-        let (css, _warnings) = new_from_str(s.as_str());
-        Self { css }
-    }
-
-    // New method that returns both CSS and warnings
-    pub fn from_string_with_warnings(s: AzString) -> (Self, Vec<CssParseWarnMsgOwned>) {
-        let (css, warnings) = new_from_str(s.as_str());
-        (
-            Self { css },
-            warnings
-                .into_iter()
-                .map(|w| CssParseWarnMsgOwned {
-                    warning: w.warning.to_contained(),
-                    location: w.location,
-                })
-                .collect(),
-        )
-    }
-}
+/// Type alias for backwards compatibility - CssApiWrapper is now just Css
+/// All parsing methods are available directly on Css::empty(), Css::from_string(), etc.
+#[deprecated(note = "Use Css directly instead of CssApiWrapper")]
+pub type CssApiWrapper = Css;
 
 /// Error that can happen during the parsing of a CSS value
 #[derive(Debug, Clone, PartialEq)]

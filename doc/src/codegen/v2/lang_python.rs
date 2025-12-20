@@ -1233,7 +1233,16 @@ extern "C" fn invoke_py_layout_callback(
                 ));
                 builder.line("};");
                 // Replace arg references in fn_body
+                // Also strip Callback::create() wrapper since we already created the Callback struct
                 transformed_body = transformed_body
+                    // Strip the Callback::create() wrapper pattern - since we already created callback_ext as a Callback struct
+                    .replace(&format!("azul_layout::callbacks::Callback::create({}).to_core()", arg.name), 
+                             &format!("{}_ext.to_core()", arg.name))
+                    .replace(&format!("Callback::create({}).to_core()", arg.name), 
+                             &format!("{}_ext.to_core()", arg.name))
+                    .replace(&format!("Callback::create({})", arg.name), 
+                             &format!("{}_ext", arg.name))
+                    // Standard replacements for other patterns
                     .replace(&format!("({},", arg.name), &format!("({}_ext,", arg.name))
                     .replace(&format!("({}, ", arg.name), &format!("({}_ext, ", arg.name))
                     .replace(&format!(" {}, ", arg.name), &format!(" {}_ext, ", arg.name))
@@ -1733,6 +1742,17 @@ extern "C" fn invoke_py_layout_callback(
         }
         
         for arg in &func.args {
+            // RefAny is ALWAYS allowed - becomes Py<PyAny>
+            if arg.type_name == "RefAny" {
+                continue;
+            }
+            
+            // Callback types with callback_info are ALWAYS allowed - become Py<PyAny>
+            // This check MUST come before is_python_compatible_type to allow CallbackType args
+            if arg.callback_info.is_some() {
+                continue;
+            }
+            
             // Skip raw pointer types
             if arg.type_name.contains("*const") || arg.type_name.contains("*mut") { 
                 return true; 
@@ -1753,16 +1773,6 @@ extern "C" fn invoke_py_layout_callback(
             // Skip type aliases to generic types
             if !self.is_python_compatible_type(&arg.type_name, ir) {
                 return true;
-            }
-            
-            // RefAny is ALWAYS allowed - becomes Py<PyAny>
-            if arg.type_name == "RefAny" {
-                continue;
-            }
-            
-            // Callback types with callback_info are ALWAYS allowed - become Py<PyAny>
-            if arg.callback_info.is_some() {
-                continue;
             }
             
             // Unrecognized CallbackType (no callback_info) - skip

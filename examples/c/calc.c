@@ -96,12 +96,12 @@ AzDom create_button(AzRefAny* calc, const char* label, EventType evt, char digit
     bd.digit = digit;
     bd.operation = op;
     
-    AzDom button = AzDom_div();
+    AzDom button = AzDom_createDiv();
     AzString style_str = AzString_copyFromBytes((const uint8_t*)style, 0, strlen(style));
     AzDom_setInlineStyle(&button, style_str);
     AzString label_str = AzString_copyFromBytes((const uint8_t*)label, 0, strlen(label));
-    AzDom_addChild(&button, AzDom_text(label_str));
-    AzEventFilter event = { .Hover = { .tag = AzEventFilter_Tag_Hover, .payload = AzHoverEventFilter_MouseUp } };
+    AzDom_addChild(&button, AzDom_createText(label_str));
+    AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
     AzDom_addCallback(&button, event, ButtonData_upcast(bd), on_button_click);
     
     return button;
@@ -169,13 +169,13 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     CalculatorRef_delete(&c);
 
     // Display
-    AzDom display = AzDom_div();
+    AzDom display = AzDom_createDiv();
     AzString display_style = AzString_copyFromBytes((const uint8_t*)DISPLAY_STYLE, 0, strlen(DISPLAY_STYLE));
     AzDom_setInlineStyle(&display, display_style);
-    AzDom_addChild(&display, AzDom_text(AzString_copyFromBytes((uint8_t*)display_text, 0, strlen(display_text))));
+    AzDom_addChild(&display, AzDom_createText(AzString_copyFromBytes((uint8_t*)display_text, 0, strlen(display_text))));
 
     // Buttons grid
-    AzDom buttons = AzDom_div();
+    AzDom buttons = AzDom_createDiv();
     AzString buttons_style = AzString_copyFromBytes((const uint8_t*)BUTTONS_STYLE, 0, strlen(BUTTONS_STYLE));
     AzDom_setInlineStyle(&buttons, buttons_style);
     
@@ -209,13 +209,13 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&buttons, create_button(&data, "=", EVT_EQUALS, 0, OP_NONE, OP_STYLE));
 
     // Main container
-    AzDom body = AzDom_div();
+    AzDom body = AzDom_createDiv();
     AzString body_style = AzString_copyFromBytes((const uint8_t*)CALC_STYLE, 0, strlen(CALC_STYLE));
     AzDom_setInlineStyle(&body, body_style);
     AzDom_addChild(&body, display);
     AzDom_addChild(&body, buttons);
 
-    return AzStyledDom_new(body, AzCss_empty());
+    return AzDom_style(&body, AzCss_empty());
 }
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {
@@ -224,7 +224,7 @@ AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {
         return AzUpdate_DoNothing;
     }
     
-    AzRefAny calc_ref = AzRefAny_clone(&bd.ptr->calc);
+    AzRefAny calc_ref = AzRefAny_deepCopy(&bd.ptr->calc);
     EventType evt = bd.ptr->event_type;
     char digit = bd.ptr->digit;
     Operation op = bd.ptr->operation;
@@ -294,12 +294,14 @@ int main() {
     Calculator_init(&model);
     AzRefAny data = Calculator_upcast(model);
     
-    AzWindowCreateOptions window = AzWindowCreateOptions_new(layout);
-    window.state.title = AzString_fromConstStr("Calculator - CSS Grid Demo");
-    window.state.size.dimensions.width = 320.0;
-    window.state.size.dimensions.height = 480.0;
+    AzLayoutCallback layout_cb = { .cb = layout };
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
+    window.window_state.title = AzString_copyFromBytes("Calculator - CSS Grid Demo", 0, 26);
+    window.window_state.size.dimensions.width = 320.0;
+    window.window_state.size.dimensions.height = 480.0;
     
-    AzApp app = AzApp_new(data, AzAppConfig_default());
+    AzAppConfig config = AzAppConfig_default();
+    AzApp app = AzApp_create(data, config);
     AzApp_run(&app, window);
     return 0;
 }

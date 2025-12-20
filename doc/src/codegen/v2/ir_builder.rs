@@ -58,6 +58,9 @@ impl<'a> IRBuilder<'a> {
         // Phase 6: Build functions from api.json (constructors, methods)
         self.build_api_functions()?;
 
+        // Phase 6b: Generate enum variant constructors automatically
+        self.build_enum_variant_constructors();
+
         // Phase 7: Generate trait functions (_deepCopy, _delete, _partialEq, etc.)
         self.build_trait_functions()?;
 
@@ -1251,7 +1254,133 @@ impl<'a> IRBuilder<'a> {
     }
 
     // ========================================================================
-    // Phase 6: Trait Functions
+    // Phase 6b: Enum Variant Constructors
+    // ========================================================================
+
+    /// Generate constructor functions for each enum variant automatically.
+    /// 
+    /// For simple unit variants like `HoverEventFilter::MouseUp`:
+    ///   - C name: `AzHoverEventFilter_mouseUp`
+    ///   - Returns: `HoverEventFilter`
+    ///   - Body: `HoverEventFilter::MouseUp`
+    /// 
+    /// For tuple variants like `EventFilter::Hover(HoverEventFilter)`:
+    ///   - C name: `AzEventFilter_hover`
+    ///   - Args: `payload: HoverEventFilter`
+    ///   - Returns: `EventFilter`
+    ///   - Body: `EventFilter::Hover(payload)`
+    fn build_enum_variant_constructors(&mut self) {
+        // Collect all enum info first to avoid borrow issues
+        let enum_infos: Vec<_> = self.ir.enums.iter()
+            .filter(|e| e.generic_params.is_empty()) // Skip generic enums
+            .map(|e| (e.name.clone(), e.variants.clone()))
+            .collect();
+
+        // Build a set of existing function c_names to avoid duplicates
+        // (if api.json already defines a constructor for a variant, skip auto-generation)
+        let existing_c_names: std::collections::HashSet<_> = self.ir.functions.iter()
+            .map(|f| f.c_name.clone())
+            .collect();
+
+        for (enum_name, variants) in enum_infos {
+            for variant in variants {
+                let func = self.build_variant_constructor(&enum_name, &variant);
+                // Only add if not already defined manually in api.json
+                if !existing_c_names.contains(&func.c_name) {
+                    self.ir.functions.push(func);
+                }
+            }
+        }
+    }
+
+    fn build_variant_constructor(&self, enum_name: &str, variant: &EnumVariantDef) -> FunctionDef {
+        use crate::codegen::v2::ir::FunctionKind;
+        
+        // Convert variant name to lowerCamelCase for method name
+        // e.g., "MouseUp" -> "mouseUp", "LeftMouseDown" -> "leftMouseDown"
+        let method_name = variant.name.chars().next()
+            .map(|c| c.to_lowercase().to_string())
+            .unwrap_or_default()
+            + &variant.name[1..];
+        
+        // C-ABI name: Az{EnumName}_{methodName}
+        let c_name = format!("Az{}_{}", enum_name, method_name);
+
+        // Build args and fn_body based on variant kind
+        let (args, fn_body) = match &variant.kind {
+            EnumVariantKind::Unit => {
+                // No args, returns the unit variant directly
+                // e.g., `HoverEventFilter::MouseUp`
+                (
+                    Vec::new(),
+                    Some(format!("{}::{}", enum_name, variant.name)),
+                )
+            }
+            EnumVariantKind::Tuple(types) => {
+                // For single-element tuples, use "payload" as arg name
+                // For multi-element tuples, use payload0, payload1, etc.
+                let args: Vec<FunctionArg> = if types.len() == 1 {
+                    vec![FunctionArg {
+                        name: "payload".to_string(),
+                        type_name: types[0].clone(),
+                        ref_kind: ArgRefKind::Owned,
+                        doc: None,
+                        callback_info: None,
+                    }]
+                } else {
+                    types.iter().enumerate().map(|(i, t)| FunctionArg {
+                        name: format!("payload{}", i),
+                        type_name: t.clone(),
+                        ref_kind: ArgRefKind::Owned,
+                        doc: None,
+                        callback_info: None,
+                    }).collect()
+                };
+
+                // Build fn_body like `EventFilter::Hover(payload)` or `Variant(payload0, payload1)`
+                let arg_names = if types.len() == 1 {
+                    "payload".to_string()
+                } else {
+                    (0..types.len()).map(|i| format!("payload{}", i)).collect::<Vec<_>>().join(", ")
+                };
+                let fn_body = format!("{}::{}({})", enum_name, variant.name, arg_names);
+
+                (args, Some(fn_body))
+            }
+            EnumVariantKind::Struct(fields) => {
+                // Use field names as arg names
+                let args: Vec<FunctionArg> = fields.iter().map(|f| FunctionArg {
+                    name: f.name.clone(),
+                    type_name: f.type_name.clone(),
+                    ref_kind: ArgRefKind::Owned,
+                    doc: None,
+                    callback_info: None,
+                }).collect();
+
+                // Build fn_body like `Variant { field1, field2 }`
+                let field_names: Vec<_> = fields.iter().map(|f| f.name.clone()).collect();
+                let fn_body = format!("{}::{} {{ {} }}", enum_name, variant.name, field_names.join(", "));
+
+                (args, Some(fn_body))
+            }
+        };
+
+        FunctionDef {
+            c_name,
+            class_name: enum_name.to_string(),
+            method_name,
+            kind: FunctionKind::EnumVariantConstructor,
+            args,
+            return_type: Some(enum_name.to_string()),
+            fn_body,
+            doc: variant.doc.iter().cloned().collect(),
+            is_const: true, // These are const constructors
+            is_unsafe: false,
+        }
+    }
+
+    // ========================================================================
+    // Phase 7: Trait Functions
     // ========================================================================
 
     fn build_trait_functions(&mut self) -> Result<()> {

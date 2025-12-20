@@ -16,7 +16,7 @@ use azul_core::{
     dom::{Dom, NodeType},
     styled_dom::StyledDom,
 };
-use azul_css::{css::Css, parser2::CssApiWrapper};
+use azul_css::css::Css;
 
 // Note: These tests are currently disabled because they require
 // a full layout system setup which is complex to mock.

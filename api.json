@@ -924,6 +924,54 @@
                 }
               }
             ],
+            "constructors": {
+              "from_bounds": {
+                "fn_args": [
+                  {
+                    "bounds": "LayoutSize"
+                  },
+                  {
+                    "hidpi_factor": "DpiScaleFactor"
+                  }
+                ],
+                "fn_body": "azul_core::callbacks::HidpiAdjustedBounds::from_bounds(bounds, hidpi_factor)"
+              }
+            },
+            "functions": {
+              "get_physical_size": {
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "PhysicalSizeU32"
+                },
+                "fn_body": "object.get_physical_size()"
+              },
+              "get_logical_size": {
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "LogicalSize"
+                },
+                "fn_body": "object.get_logical_size()"
+              },
+              "get_hidpi_factor": {
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "DpiScaleFactor"
+                },
+                "fn_body": "object.get_hidpi_factor()"
+              }
+            },
             "repr": "C"
           },
           "WindowTheme": {
@@ -2032,6 +2080,70 @@
                 }
               }
             ],
+            "constructors": {
+              "with_dom": {
+                "doc": [
+                  "Creates a new IFrameCallbackReturn with updated DOM content.",
+                  "",
+                  "Use this when the callback has rendered new content to display.",
+                  "",
+                  "# Arguments",
+                  "- `dom` - The new styled DOM to render",
+                  "- `scroll_size` - Size of the actual rendered content",
+                  "- `scroll_offset` - Position of rendered content in virtual space",
+                  "- `virtual_scroll_size` - Size for scrollbar representation",
+                  "- `virtual_scroll_offset` - Usually `LogicalPosition::zero()`"
+                ],
+                "fn_args": [
+                  {
+                    "dom": "StyledDom"
+                  },
+                  {
+                    "scroll_size": "LogicalSize"
+                  },
+                  {
+                    "scroll_offset": "LogicalPosition"
+                  },
+                  {
+                    "virtual_scroll_size": "LogicalSize"
+                  },
+                  {
+                    "virtual_scroll_offset": "LogicalPosition"
+                  }
+                ],
+                "fn_body": "azul_core::callbacks::IFrameCallbackReturn::with_dom(dom, scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
+              },
+              "keep_current": {
+                "doc": [
+                  "Creates a return value that keeps the current DOM unchanged.",
+                  "",
+                  "Use this when the callback determines that the existing content",
+                  "is sufficient (e.g., already rendered ahead of scroll position).",
+                  "This is an optimization to avoid rebuilding the DOM unnecessarily.",
+                  "",
+                  "# Arguments",
+                  "- `scroll_size` - Size of the current rendered content",
+                  "- `scroll_offset` - Position of current content in virtual space",
+                  "- `virtual_scroll_size` - Size for scrollbar representation",
+                  "- `virtual_scroll_offset` - Usually `LogicalPosition::zero()`"
+                ],
+                "fn_args": [
+                  {
+                    "scroll_size": "LogicalSize"
+                  },
+                  {
+                    "scroll_offset": "LogicalPosition"
+                  },
+                  {
+                    "virtual_scroll_size": "LogicalSize"
+                  },
+                  {
+                    "virtual_scroll_offset": "LogicalPosition"
+                  }
+                ],
+                "fn_body": "azul_core::callbacks::IFrameCallbackReturn::keep_current(scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset)"
+              }
+            },
             "repr": "C"
           },
           "CoreCallbackType": {
@@ -3519,6 +3631,50 @@
                 }
               }
             ],
+            "constructors": {
+              "create": {
+                "doc": [
+                  "Creates a new TimerCallbackReturn with the given update and terminate flags."
+                ],
+                "fn_args": [
+                  {
+                    "should_update": "Update"
+                  },
+                  {
+                    "should_terminate": "TerminateTimer"
+                  }
+                ],
+                "fn_body": "azul_core::callbacks::TimerCallbackReturn::create(should_update, should_terminate)"
+              },
+              "continue_unchanged": {
+                "doc": [
+                  "Timer continues running, no DOM update needed."
+                ],
+                "fn_args": [],
+                "fn_body": "azul_core::callbacks::TimerCallbackReturn::continue_unchanged()"
+              },
+              "continue_and_update": {
+                "doc": [
+                  "Timer continues running and DOM should be refreshed."
+                ],
+                "fn_args": [],
+                "fn_body": "azul_core::callbacks::TimerCallbackReturn::continue_and_update()"
+              },
+              "terminate_unchanged": {
+                "doc": [
+                  "Timer should stop, no DOM update needed."
+                ],
+                "fn_args": [],
+                "fn_body": "azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()"
+              },
+              "terminate_and_update": {
+                "doc": [
+                  "Timer should stop and DOM should be refreshed."
+                ],
+                "fn_args": [],
+                "fn_body": "azul_core::callbacks::TimerCallbackReturn::terminate_and_update()"
+              }
+            },
             "repr": "C"
           },
           "ThreadDestructorCallbackType": {
@@ -3632,6 +3788,107 @@
               ],
               "returns": {
                 "type": "OptionThreadReceiveMsg"
+              }
+            },
+            "repr": "C"
+          },
+          "RenderImageCallbackInfo": {
+            "external": "azul_layout::callbacks::RenderImageCallbackInfo",
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "callback_node_id": {
+                  "type": "DomNodeId"
+                },
+                "bounds": {
+                  "type": "HidpiAdjustedBounds"
+                },
+                "gl_context": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "image_cache": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "system_fonts": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "callable_ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "_abi_mut": {
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
+                }
+              }
+            ],
+            "constructors": {},
+            "functions": {
+              "get_ctx": {
+                "doc": [
+                  "Get the callable for FFI language bindings (Python, etc.)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionRefAny"
+                },
+                "fn_body": "object.get_ctx()"
+              },
+              "set_callable_ptr": {
+                "doc": [
+                  "Set the callable pointer (called before invoking callback)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "ptr": "*const OptionRefAny"
+                  }
+                ],
+                "fn_body": "object.set_callable_ptr(ptr)"
+              },
+              "get_callback_node_id": {
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "DomNodeId"
+                },
+                "fn_body": "object.get_callback_node_id()"
+              },
+              "get_bounds": {
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "HidpiAdjustedBounds"
+                },
+                "fn_body": "object.get_bounds()"
+              },
+              "get_gl_context": {
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionGlContextPtr"
+                },
+                "fn_body": "object.get_gl_context()"
               }
             },
             "repr": "C"
@@ -5362,10 +5619,10 @@
                     "data": "RefAny"
                   },
                   {
-                    "callback": "Callback"
+                    "callback": "CallbackType"
                   }
                 ],
-                "fn_body": "dom.root.add_callback(event, data, callback)"
+                "fn_body": "dom.root.add_callback(event, data, azul_layout::callbacks::Callback::create(callback).to_core())"
               },
               "with_callback": {
                 "fn_args": [
@@ -5379,13 +5636,13 @@
                     "data": "RefAny"
                   },
                   {
-                    "callback": "CoreCallback"
+                    "callback": "CallbackType"
                   }
                 ],
                 "returns": {
                   "type": "Dom"
                 },
-                "fn_body": "object.with_callback(event, data, callback)"
+                "fn_body": "object.with_callback(event, data, azul_layout::callbacks::Callback::create(callback).to_core())"
               },
               "add_child": {
                 "fn_args": [
@@ -5605,6 +5862,132 @@
                 },
                 "fn_body": "object.with_focus_css_property(prop)"
               },
+              "set_inline_style": {
+                "doc": [
+                  "Sets inline CSS styles for the normal state, parsing from a CSS string.",
+                  "This allows setting multiple CSS properties at once using CSS syntax."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "style": "String"
+                  }
+                ],
+                "fn_body": "dom.set_inline_style(style.as_str())"
+              },
+              "with_inline_style": {
+                "doc": [
+                  "Builder method for setting inline CSS styles for the normal state.",
+                  "Parses CSS string and applies properties to the root node."
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "style": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "Dom"
+                },
+                "fn_body": "object.with_inline_style(style.as_str())"
+              },
+              "set_inline_hover_style": {
+                "doc": [
+                  "Sets inline CSS styles for the hover state, parsing from a CSS string."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "style": "String"
+                  }
+                ],
+                "fn_body": "dom.set_inline_hover_style(style.as_str())"
+              },
+              "with_inline_hover_style": {
+                "doc": [
+                  "Builder method for setting inline CSS styles for the hover state."
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "style": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "Dom"
+                },
+                "fn_body": "object.with_inline_hover_style(style.as_str())"
+              },
+              "set_inline_active_style": {
+                "doc": [
+                  "Sets inline CSS styles for the active state, parsing from a CSS string."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "style": "String"
+                  }
+                ],
+                "fn_body": "dom.set_inline_active_style(style.as_str())"
+              },
+              "with_inline_active_style": {
+                "doc": [
+                  "Builder method for setting inline CSS styles for the active state."
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "style": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "Dom"
+                },
+                "fn_body": "object.with_inline_active_style(style.as_str())"
+              },
+              "set_inline_focus_style": {
+                "doc": [
+                  "Sets inline CSS styles for the focus state, parsing from a CSS string."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "style": "String"
+                  }
+                ],
+                "fn_body": "dom.set_inline_focus_style(style.as_str())"
+              },
+              "with_inline_focus_style": {
+                "doc": [
+                  "Builder method for setting inline CSS styles for the focus state."
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "style": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "Dom"
+                },
+                "fn_body": "object.with_inline_focus_style(style.as_str())"
+              },
               "set_clip_mask": {
                 "doc": [
                   "Sets the clip mask for the DOM root node."
@@ -5762,7 +6145,7 @@
                     "self": "refmut"
                   },
                   {
-                    "css": "CssApiWrapper"
+                    "css": "Css"
                   }
                 ],
                 "returns": {
@@ -6007,10 +6390,10 @@
                     "data": "RefAny"
                   },
                   {
-                    "callback": "CoreCallback"
+                    "callback": "CallbackType"
                   }
                 ],
-                "fn_body": "object.add_callback(event, data, callback)"
+                "fn_body": "object.add_callback(event, data, azul_layout::callbacks::Callback::create(callback).to_core())"
               },
               "set_callbacks": {
                 "fn_args": [
@@ -12466,6 +12849,85 @@
                 }
               }
             ],
+            "constructors": {
+              "zero": {
+                "doc": [
+                  "Creates a zero pixel value."
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::pixel::PixelValue::zero()"
+              },
+              "px": {
+                "doc": [
+                  "Creates a pixel value in px units."
+                ],
+                "fn_args": [
+                  {
+                    "value": "f32"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::pixel::PixelValue::px(value)"
+              },
+              "em": {
+                "doc": [
+                  "Creates a pixel value in em units."
+                ],
+                "fn_args": [
+                  {
+                    "value": "f32"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::pixel::PixelValue::em(value)"
+              },
+              "rem": {
+                "doc": [
+                  "Creates a pixel value in rem units."
+                ],
+                "fn_args": [
+                  {
+                    "value": "f32"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::pixel::PixelValue::rem(value)"
+              },
+              "pt": {
+                "doc": [
+                  "Creates a pixel value in pt units."
+                ],
+                "fn_args": [
+                  {
+                    "value": "f32"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::pixel::PixelValue::pt(value)"
+              },
+              "percent": {
+                "doc": [
+                  "Creates a pixel value in percent."
+                ],
+                "fn_args": [
+                  {
+                    "value": "f32"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::pixel::PixelValue::percent(value)"
+              },
+              "from_metric": {
+                "doc": [
+                  "Creates a pixel value from a metric and value."
+                ],
+                "fn_args": [
+                  {
+                    "metric": "SizeMetric"
+                  },
+                  {
+                    "value": "f32"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::pixel::PixelValue::from_metric(metric, value)"
+              }
+            },
+            "functions": {},
             "repr": "C"
           },
           "PixelValueSize": {
@@ -13132,6 +13594,19 @@
                 }
               }
             ],
+            "constructors": {
+              "new": {
+                "doc": [
+                  "Creates a flex-grow value"
+                ],
+                "fn_args": [
+                  {
+                    "value": "float"
+                  }
+                ],
+                "fn_body": "Self { inner: azul_css::corety::FloatValue::new(value) }"
+              }
+            },
             "repr": "C"
           },
           "LayoutFlexShrink": {
@@ -13814,6 +14289,35 @@
                 }
               }
             ],
+            "constructors": {
+              "new": {
+                "doc": [
+                  "Creates a new FloatValue from an f32."
+                ],
+                "fn_args": [
+                  {
+                    "value": "f32"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::length::FloatValue::new(value)"
+              }
+            },
+            "functions": {
+              "get": {
+                "doc": [
+                  "Gets the internal f32 value."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "f32"
+                },
+                "fn_body": "object.get()"
+              }
+            },
             "repr": "C"
           },
           "PercentageValue": {
@@ -14990,6 +15494,19 @@
                 }
               }
             ],
+            "constructors": {
+              "px": {
+                "doc": [
+                  "Creates a font size from a pixel value"
+                ],
+                "fn_args": [
+                  {
+                    "value": "float"
+                  }
+                ],
+                "fn_body": "Self { inner: azul_css::corety::PixelValue::px(value) }"
+              }
+            },
             "repr": "C"
           },
           "StyleLetterSpacing": {
@@ -18458,6 +18975,30 @@
                 }
               }
             ],
+            "constructors": {
+              "new": {
+                "doc": [
+                  "Creates a new LayoutSize with the given width and height."
+                ],
+                "fn_args": [
+                  {
+                    "width": "isize"
+                  },
+                  {
+                    "height": "isize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::geometry::LayoutSize::new(width, height)"
+              },
+              "zero": {
+                "doc": [
+                  "Creates a LayoutSize with zero dimensions."
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::geometry::LayoutSize::zero()"
+              }
+            },
+            "functions": {},
             "repr": "C"
           },
           "ColumnFill": {
@@ -19936,6 +20477,24 @@
                 }
               }
             ],
+            "constructors": {
+              "new": {
+                "fn_args": [
+                  {
+                    "width": "f32"
+                  },
+                  {
+                    "height": "f32"
+                  }
+                ],
+                "fn_body": "azul_core::geom::LogicalSize::new(width, height)"
+              },
+              "zero": {
+                "fn_args": [],
+                "fn_body": "azul_core::geom::LogicalSize::zero()"
+              }
+            },
+            "functions": {},
             "repr": "C"
           },
           "StyledNodeState": {
@@ -20133,6 +20692,24 @@
                 }
               }
             ],
+            "constructors": {
+              "new": {
+                "fn_args": [
+                  {
+                    "x": "f32"
+                  },
+                  {
+                    "y": "f32"
+                  }
+                ],
+                "fn_body": "azul_core::geom::LogicalPosition::new(x, y)"
+              },
+              "zero": {
+                "fn_args": [],
+                "fn_body": "azul_core::geom::LogicalPosition::zero()"
+              }
+            },
+            "functions": {},
             "repr": "C"
           },
           "EventFilter": {
@@ -20789,6 +21366,30 @@
                 }
               }
             ],
+            "constructors": {
+              "new": {
+                "doc": [
+                  "Creates a new LayoutRect with the given origin and size."
+                ],
+                "fn_args": [
+                  {
+                    "origin": "LayoutPoint"
+                  },
+                  {
+                    "size": "LayoutSize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::geometry::LayoutRect::new(origin, size)"
+              },
+              "zero": {
+                "doc": [
+                  "Creates a LayoutRect at the origin with zero size."
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::geometry::LayoutRect::zero()"
+              }
+            },
+            "functions": {},
             "repr": "C"
           },
           "WindowPosition": {
@@ -20838,6 +21439,30 @@
                 }
               }
             ],
+            "constructors": {
+              "new": {
+                "doc": [
+                  "Creates a new LayoutPoint with the given x and y coordinates."
+                ],
+                "fn_args": [
+                  {
+                    "x": "isize"
+                  },
+                  {
+                    "y": "isize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::geometry::LayoutPoint::new(x, y)"
+              },
+              "zero": {
+                "doc": [
+                  "Creates a LayoutPoint at the origin (0, 0)."
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::geometry::LayoutPoint::zero()"
+              }
+            },
+            "functions": {},
             "repr": "C"
           },
           "CursorPosition": {
@@ -36707,6 +37332,13 @@
               }
             ],
             "repr": "C"
+          },
+          "ImageCache": {
+            "external": "azul_core::resources::ImageCache",
+            "derive": [
+              "Debug"
+            ],
+            "repr": "C"
           }
         }
       },
@@ -38866,6 +39498,103 @@
                 }
               }
             ],
+            "constructors": {
+              "new": {
+                "fn_args": [
+                  {
+                    "origin": "LogicalPosition"
+                  },
+                  {
+                    "size": "LogicalSize"
+                  }
+                ],
+                "fn_body": "azul_core::geom::LogicalRect::new(origin, size)"
+              },
+              "zero": {
+                "fn_args": [],
+                "fn_body": "azul_core::geom::LogicalRect::zero()"
+              }
+            },
+            "functions": {
+              "max_x": {
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "f32"
+                },
+                "fn_body": "object.max_x()"
+              },
+              "min_x": {
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "f32"
+                },
+                "fn_body": "object.min_x()"
+              },
+              "max_y": {
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "f32"
+                },
+                "fn_body": "object.max_y()"
+              },
+              "min_y": {
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "f32"
+                },
+                "fn_body": "object.min_y()"
+              },
+              "contains": {
+                "doc": [
+                  "Returns whether this rectangle contains the given point"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "point": "LogicalPosition"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.contains(point)"
+              },
+              "intersects": {
+                "doc": [
+                  "Returns whether this rectangle intersects with another rectangle"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "other": "LogicalRect"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.intersects(other)"
+              }
+            },
             "repr": "C"
           },
           "CssPathSelector": {
@@ -39286,6 +40015,57 @@
                 }
               }
             ],
+            "constructors": {
+              "from_secs": {
+                "doc": [
+                  "Creates a duration from whole seconds."
+                ],
+                "fn_args": [
+                  {
+                    "secs": "u64"
+                  }
+                ],
+                "fn_body": "azul_core::task::SystemTimeDiff::from_secs(secs)"
+              },
+              "from_millis": {
+                "doc": [
+                  "Creates a duration from milliseconds."
+                ],
+                "fn_args": [
+                  {
+                    "millis": "u64"
+                  }
+                ],
+                "fn_body": "azul_core::task::SystemTimeDiff::from_millis(millis)"
+              },
+              "from_nanos": {
+                "doc": [
+                  "Creates a duration from nanoseconds."
+                ],
+                "fn_args": [
+                  {
+                    "nanos": "u64"
+                  }
+                ],
+                "fn_body": "azul_core::task::SystemTimeDiff::from_nanos(nanos)"
+              }
+            },
+            "functions": {
+              "millis": {
+                "doc": [
+                  "Returns the total duration in milliseconds."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "u64"
+                },
+                "fn_body": "object.millis()"
+              }
+            },
             "repr": "C"
           },
           "TimerId": {
@@ -39307,6 +40087,15 @@
                 }
               }
             ],
+            "constructors": {
+              "unique": {
+                "doc": [
+                  "Generates a new, unique `TimerId`."
+                ],
+                "fn_args": [],
+                "fn_body": "azul_core::task::TimerId::unique()"
+              }
+            },
             "repr": "C"
           },
           "InstantPtr": {

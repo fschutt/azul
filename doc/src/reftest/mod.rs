@@ -18,7 +18,7 @@ use azul_core::{
 };
 use azul_css::{
     css::{Css, CssDeclaration},
-    parser2::{CssApiWrapper, CssParseWarnMsgOwned},
+    parser2::CssParseWarnMsgOwned,
     props::property::CssProperty,
     LayoutDebugMessageType,
 };
@@ -1280,9 +1280,9 @@ impl CssWarningCollector {
 
     /// Parse CSS and collect warnings
     pub fn parse_css(&mut self, css_text: &str) -> Css {
-        // Parse CSS using the wrapper
-        let (api_wrapper, warnings) =
-            CssApiWrapper::from_string_with_warnings(css_text.to_string().into());
+        // Parse CSS and get warnings
+        let (css, warnings) =
+            Css::from_string_with_warnings(css_text.to_string().into());
 
         // Check for parse errors
         for w in warnings {
@@ -1290,10 +1290,10 @@ impl CssWarningCollector {
         }
 
         // Validate the CSS properties
-        self.validate_css(&api_wrapper.css);
+        self.validate_css(&css);
 
         // Get the parsed CSS
-        api_wrapper.css
+        css
     }
 
     /// Validate CSS properties and collect warnings

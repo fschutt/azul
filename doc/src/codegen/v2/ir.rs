@@ -423,6 +423,10 @@ pub enum FunctionKind {
 
     /// Default::default: `fn _default() -> Self`
     Default,
+
+    /// Enum variant constructor: `fn EnumName_variantName(payload) -> EnumName`
+    /// Generated automatically for each enum variant
+    EnumVariantConstructor,
 }
 
 impl FunctionKind {

@@ -40,6 +40,21 @@ impl Css {
     pub fn from_string(s: crate::AzString) -> Self {
         crate::parser2::new_from_str(s.as_str()).0
     }
+
+    #[cfg(feature = "parser")]
+    pub fn from_string_with_warnings(s: crate::AzString) -> (Self, Vec<crate::parser2::CssParseWarnMsgOwned>) {
+        let (css, warnings) = crate::parser2::new_from_str(s.as_str());
+        (
+            css,
+            warnings
+                .into_iter()
+                .map(|w| crate::parser2::CssParseWarnMsgOwned {
+                    warning: w.warning.to_contained(),
+                    location: w.location,
+                })
+                .collect(),
+        )
+    }
 }
 
 #[derive(Debug, Default, PartialEq, PartialOrd, Clone)]

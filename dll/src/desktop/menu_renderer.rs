@@ -19,7 +19,6 @@ use azul_core::{
 };
 use azul_css::{
     css::{Css, Stylesheet},
-    parser2::CssApiWrapper,
     props::basic::pixel::DEFAULT_FONT_SIZE,
     system::SystemStyle,
     AzString,
@@ -200,7 +199,7 @@ pub fn create_menu_styled_dom(
     let css = Css::new(vec![stylesheet]);
 
     // Apply stylesheet to DOM
-    dom.style(CssApiWrapper { css })
+    dom.style(css)
 }
 
 /// Create menu DOM structure with callbacks attached (internal helper)

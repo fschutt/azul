@@ -6,7 +6,6 @@ use core::{
 
 use azul_css::{
     css::{Css, CssPath},
-    parser2::CssApiWrapper,
     props::{
         basic::{StyleFontFamily, StyleFontFamilyVec, StyleFontSize},
         property::{
@@ -220,7 +219,7 @@ fn test_it() {
                 .with_children(vec![Dom::create_div()].into())]
             .into(),
         )
-        .style(CssApiWrapper { css: css.0 });
+        .style(css.0);
 }
 
 /// Calculated hash of a font-family
@@ -559,7 +558,7 @@ impl StyledDom {
     // This is for memory optimization, so that the DOM does not need to be cloned.
     //
     // The CSS will be left in-place, but will be re-ordered
-    pub fn create(dom: &mut Dom, mut css: CssApiWrapper) -> Self {
+    pub fn create(dom: &mut Dom, mut css: Css) -> Self {
         use core::mem;
 
         use crate::dom::EventFilter;
@@ -610,7 +609,7 @@ impl StyledDom {
 
         // apply all the styles from the CSS
         let tag_ids = css_property_cache.restyle(
-            &mut css.css,
+            &mut css,
             &compact_dom.node_data.as_ref(),
             &node_hierarchy,
             &non_leaf_nodes,
@@ -863,9 +862,9 @@ impl StyledDom {
     }
 
     /// Re-applies CSS styles to the existing DOM structure.
-    pub fn restyle(&mut self, mut css: CssApiWrapper) {
+    pub fn restyle(&mut self, mut css: Css) {
         let new_tag_ids = self.css_property_cache.downcast_mut().restyle(
-            &mut css.css,
+            &mut css,
             &self.node_data.as_container(),
             &self.node_hierarchy,
             &self.non_leaf_nodes,

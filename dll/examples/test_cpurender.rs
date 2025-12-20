@@ -7,7 +7,7 @@
 //! - Verifying display list generation
 
 use azul_core::{callbacks::LayoutCallbackInfo, dom::Dom, refany::RefAny, styled_dom::StyledDom};
-use azul_css::{css::Css, parser2::CssApiWrapper, system::SystemStyle};
+use azul_css::{css::Css, system::SystemStyle};
 
 struct AppData {
     content: &'static str,
@@ -63,7 +63,7 @@ extern "C" fn layout_callback(_data: RefAny, _info: LayoutCallbackInfo) -> Style
     );
     let _ = std::io::stderr().flush();
 
-    let styled = dom.style(CssApiWrapper { css: Css::empty() });
+    let styled = dom.style(Css::empty());
     eprintln!(
         "[layout_callback] StyledDom created with {} nodes",
         styled.styled_nodes.len()

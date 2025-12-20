@@ -1,5 +1,5 @@
 #[cfg(test)]
-use azul_css::parser::CssApiWrapper;
+use azul_css::css::Css;
 
 static EXPECTED_1: &str =
     "
@@ -21,7 +21,7 @@ fn test_button_ui_1() {
 
     let button = Button::new("Hello".into())
         .dom()
-        .style(CssApiWrapper::empty());
+        .style(Css::empty());
     let button_html = button.get_html_string("", "", true);
 
     assert_lines(EXPECTED_1.trim(), button_html.as_str().trim());

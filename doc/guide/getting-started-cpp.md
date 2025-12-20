@@ -30,7 +30,7 @@ StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
     
     return Dom::body()
         .withChild(Dom::text(String::fromStdString(text)))
-        .style(CssApiWrapper::empty());
+        .style(Css::empty());
 }
 
 int main() {

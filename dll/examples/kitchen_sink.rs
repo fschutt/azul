@@ -79,7 +79,6 @@ use azul_core::{
 };
 use azul_css::{
     css::Css,
-    parser2::CssApiWrapper,
     props::{
         basic::color::ColorU,
         property::CssProperty,
@@ -645,7 +644,7 @@ extern "C" fn main_layout(mut _data: RefAny, _info: LayoutCallbackInfo) -> Style
         )
         .with_menu_bar(menu)
         .with_children(vec![tab_bar, content].into())
-        .style(CssApiWrapper { css: Css::empty() });
+        .style(Css::empty());
 
     eprintln!("[KITCHEN_SINK] main_layout returning StyledDom");
     styled
@@ -1767,7 +1766,7 @@ extern "C" fn preview_iframe_callback(
             // Return empty DOM if data type is wrong
             let mut empty_dom = Dom::create_body();
             empty_dom.add_child(Dom::create_text("Error: Invalid data type"));
-            let css = CssApiWrapper::empty();
+            let css = Css::empty();
             let styled_dom = StyledDom::create(&mut empty_dom, css);
             return IFrameCallbackReturn {
                 dom: OptionStyledDom::Some(styled_dom),
@@ -1790,7 +1789,7 @@ extern "C" fn preview_iframe_callback(
                 )
                 .with_child(Dom::create_text("Enter XHTML code in the editor to see preview")),
         );
-        let css = CssApiWrapper::empty();
+        let css = Css::empty();
         StyledDom::create(&mut preview_dom, css)
     } else {
         // Parse XML directly to StyledDom using DomXmlExt trait

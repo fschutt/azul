@@ -26,7 +26,7 @@ class MyApp:
 def layout(data, info):
     return Dom.body() \
         .with_child(Dom.text(f"Counter: {data.counter}")) \
-        .style(CssApiWrapper.empty())
+        .style(Css.empty())
 
 # Run the app
 app = App(MyApp(), AppConfig(layout))
@@ -59,7 +59,7 @@ def layout(data, info):
     return Dom.body() \
         .with_child(Dom.text(f"Counter: {data.counter}")) \
         .with_child(button) \
-        .style(CssApiWrapper.empty())
+        .style(Css.empty())
 
 app = App(MyApp(), AppConfig(layout))
 app.run(WindowCreateOptions.default())
@@ -188,7 +188,7 @@ def layout(data, info):
             .with_inline_style("font-size: 24px; margin-bottom: 20px;")
             .with_child(Dom.text("Todo List"))) \
         .with_children(items) \
-        .style(CssApiWrapper.empty())
+        .style(Css.empty())
 
 app = App(TodoApp(), AppConfig(layout))
 app.run(WindowCreateOptions.default())

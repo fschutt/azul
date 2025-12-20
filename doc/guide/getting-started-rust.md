@@ -22,7 +22,7 @@ use azul_core::{
     refany::RefAny,
     styled_dom::StyledDom,
 };
-use azul_css::{css::Css, parser2::CssApiWrapper};
+use azul_css::css::Css;
 use azul_dll::desktop::{app::App, resources::AppConfig};
 use azul_layout::window_state::WindowCreateOptions;
 
@@ -37,7 +37,7 @@ extern "C" fn layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> Style
     
     Dom::body()
         .with_child(Dom::text(format!("Counter: {}", app.counter)))
-        .style(CssApiWrapper { css: Css::empty() })
+        .style(Css::empty())
 }
 
 fn main() {
@@ -77,7 +77,7 @@ extern "C" fn layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> Style
     Dom::body()
         .with_child(Dom::text(format!("Counter: {}", app.counter)))
         .with_child(button)
-        .style(CssApiWrapper { css: Css::empty() })
+        .style(Css::empty())
 }
 ```
 
@@ -116,7 +116,7 @@ extern "C" fn layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> Style
     
     Dom::body()
         .with_children(item_list.into())
-        .style(CssApiWrapper { css: Css::empty() })
+        .style(Css::empty())
 }
 ```
 

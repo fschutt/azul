@@ -25,47 +25,50 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     }
 
     // Create button
-    AzDom button = AzDom_div();
+    AzDom button = AzDom_createDiv();
     AzString btn_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setInlineStyle(&button, btn_style);
     AzString btn_text = AzString_copyFromBytes((const uint8_t*)"Click me!", 0, 9);
-    AzDom_addChild(&button, AzDom_text(btn_text));
-    AzEventFilter event = { .Hover = { .tag = AzEventFilter_Tag_Hover, .payload = AzHoverEventFilter_MouseUp } };
+    AzDom_addChild(&button, AzDom_createText(btn_text));
+    AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
     AzDom_addCallback(&button, event, AzRefAny_deepCopy(&data), on_button_click);
 
     // Create checkbox
-    AzDom checkbox = AzCheckBox_dom(AzCheckBox_new(d.ptr->checkbox_checked));
+    AzDom checkbox = AzCheckBox_dom(AzCheckBox_create(d.ptr->checkbox_checked));
     AzString chk_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setInlineStyle(&checkbox, chk_style);
 
     // Create progress bar
-    AzDom progress = AzProgressBar_dom(AzProgressBar_new(d.ptr->progress_value));
+    AzDom progress = AzProgressBar_dom(AzProgressBar_create(d.ptr->progress_value));
     AzString prog_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setInlineStyle(&progress, prog_style);
 
     // Create text input
     AzString placeholder = AzString_copyFromBytes((const uint8_t*)"Enter text here...", 0, 18);
-    AzDom text_input = AzTextInput_dom(AzTextInput_new(placeholder));
+    AzTextInput ti = AzTextInput_create();
+    ti = AzTextInput_withPlaceholder(ti, placeholder);
+    AzDom text_input = AzTextInput_dom(ti);
     AzString txt_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setInlineStyle(&text_input, txt_style);
 
     // Create color input
     AzColorU color = { .r = 100, .g = 150, .b = 200, .a = 255 };
-    AzDom color_input = AzColorInput_dom(AzColorInput_new(color));
+    AzDom color_input = AzColorInput_dom(AzColorInput_create(color));
     AzString col_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setInlineStyle(&color_input, col_style);
 
     // Create number input
-    AzDom number_input = AzNumberInput_dom(AzNumberInput_new(42.0));
+    AzDom number_input = AzNumberInput_dom(AzNumberInput_create(42.0));
     AzString num_style = AzString_copyFromBytes((const uint8_t*)"margin-bottom: 10px;", 0, 20);
     AzDom_setInlineStyle(&number_input, num_style);
 
     // Compose body
-    AzDom body = AzDom_body();
+    AzDom body = AzDom_createBody();
     AzString body_style = AzString_copyFromBytes((const uint8_t*)"padding: 20px;", 0, 14);
     AzDom_setInlineStyle(&body, body_style);
     AzString showcase_title = AzString_copyFromBytes((const uint8_t*)"Widget Showcase", 0, 15);
-    AzDom_addChild(&body, AzDom_text(showcase_title));
+
+    AzDom_addChild(&body, AzDom_createText(showcase_title));
     AzDom_addChild(&body, button);
     AzDom_addChild(&body, checkbox);
     AzDom_addChild(&body, progress);
@@ -74,7 +77,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, number_input);
 
     WidgetShowcaseRef_delete(&d);
-    return AzStyledDom_new(body, AzCss_empty());
+    return AzDom_style(&body, AzCss_empty());
 }
 
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {
@@ -110,13 +113,15 @@ int main() {
     };
     AzRefAny data = WidgetShowcase_upcast(model);
     
-    AzWindowCreateOptions window = AzWindowCreateOptions_new(layout);
-    AzString window_title = AzString_copyFromBytes((const uint8_t*)"Widget Showcase", 0, 15);
-    window.state.title = window_title;
-    window.state.size.dimensions.width = 600.0;
-    window.state.size.dimensions.height = 500.0;
+    AzLayoutCallback layout_cb = { .cb = layout };
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
+    AzString window_title = AzString_copyFromBytes("Widget Showcase", 0, 15);
+    window.window_state.title = window_title;
+    window.window_state.size.dimensions.width = 600.0;
+    window.window_state.size.dimensions.height = 500.0;
     
-    AzApp app = AzApp_new(data, AzAppConfig_default());
+    AzAppConfig config = AzAppConfig_default();
+    AzApp app = AzApp_create(data, config);
     AzApp_run(&app, window);
     return 0;
 }
