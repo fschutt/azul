@@ -1,55 +1,61 @@
+// g++ -std=c++03 -o hello-world hello-world.cpp -lazul
+
+#include "azul03.hpp"
+#include <cstdio>
+
+using namespace azul;
+
 struct MyDataModel {
     uint32_t counter;
 };
+AZ_REFLECT(MyDataModel);
 
-void MyDataModel_destructor(MyDataModel*) { }
-AZ_REFLECT(MyDataModel, MyDataModel_destructor);
+AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
-Update on_click(RefAny& data, CallbackInfo& info);
-
-StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
-    MyDataModelRef d = MyDataModelRef::create(data);
-    if (!MyDataModel::downcastRef(data, d)) {
-        return StyledDom::default();
-    }
+// Callback must use C types for FFI compatibility
+AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    RefAny data_wrapper(data);
+    const MyDataModel* d = MyDataModel_downcast_ref(data_wrapper);
+    if (!d) return AzStyledDom_default();
     
-    char buffer[20];
-    int written = snprintf(buffer, 20, "%d", d->counter);
+    char buffer[32];
+    std::snprintf(buffer, 32, "%u", d->counter);
     
-    Dom label = Dom::create_text(String(buffer, written))
-        .with_inline_style("font-size: 50px;");
+    Dom label = Dom::create_text(String(buffer));
+    label.set_inline_style(String("font-size: 50px;"));
     
-    Dom button = Dom::create_div()
-        .with_inline_style("flex-grow: 1;")
-        .with_child(Dom::create_text("Increase counter"))
-        .with_callback(On::MouseUp, data.clone(), on_click);
+    AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
+    Dom button_text = Dom::create_text(String("Increase counter"));
+    Dom button = Dom::create_div();
+    button.set_inline_style(String("flex-grow: 1;"));
+    button.add_child(button_text);
+    button.add_callback(event, data_wrapper.clone(), on_click);
     
-    Dom body = Dom::create_body()
-        .with_child(label)
-        .with_child(button);
+    Dom body = Dom::create_body();
+    body.add_child(label);
+    body.add_child(button);
     
-    return body.style(Css::empty());
+    return body.style(Css::empty()).release();
 }
 
-Update on_click(RefAny& data, CallbackInfo& info) {
-    MyDataModelRefMut d = MyDataModelRefMut::create(data);
-    if (!MyDataModel::downcastMut(data, d)) {
-        return Update::DoNothing;
-    }
+AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
+    RefAny data_wrapper(data);
+    MyDataModel* d = MyDataModel_downcast_mut(data_wrapper);
+    if (!d) return AzUpdate_DoNothing;
     d->counter += 1;
-    return Update::RefreshDom;
+    return AzUpdate_RefreshDom;
 }
 
 int main() {
-    MyDataModel model = { 5 };
-    RefAny data = MyDataModel::upcast(model);
+    MyDataModel model;
+    model.counter = 5;
+    RefAny data = MyDataModel_upcast(model);
     
-    WindowCreateOptions window = WindowCreateOptions::new(layout);
-    window.set_title("Hello World");
-    window.set_size(LogicalSize(400, 300));
+    LayoutCallback layout_cb = LayoutCallback::create(layout);
+    WindowCreateOptions window = WindowCreateOptions::create(layout_cb);
+    window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"Hello World", 0, 11);
     
-    App app = App::new(data, AppConfig::default());
+    App app = App::create(data, AppConfig::default_());
     app.run(window);
-    
     return 0;
 }

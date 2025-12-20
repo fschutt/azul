@@ -1,75 +1,51 @@
-// g++ -std=c++17 -o infinity infinity.cpp -lazul
+// g++ -std=c++11 -o infinity infinity.cpp -lazul
+// Note: This example is simplified - full IFrame scrolling requires more complex setup
 
-#include <azul.hpp>
+#include "azul17.hpp"
 #include <vector>
 #include <string>
 #include <sstream>
+#include <iomanip>
 
 using namespace azul;
-using namespace std::string_view_literals;
 
 struct InfinityState {
     std::vector<std::string> file_paths;
-    size_t visible_start = 0;
-    size_t visible_count = 20;
+    size_t visible_start;
+    size_t visible_count;
+    
+    InfinityState() : visible_start(0), visible_count(20) {}
 };
+AZ_REFLECT(InfinityState);
 
-StyledDom render_iframe(RefAny& data, IFrameCallbackInfo& info);
-Update on_scroll(RefAny& data, CallbackInfo& info);
-
-StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
-    auto d = InfinityState::downcast_ref(data);
-    if (!d) return StyledDom::default();
+AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    RefAny data_wrapper(data);
+    const InfinityState* d = InfinityState_downcast_ref(data_wrapper);
+    if (!d) return AzStyledDom_default();
     
     std::ostringstream title_text;
     title_text << "Infinite Gallery - " << d->file_paths.size() << " images";
     
-    auto title = Dom::create_text(title_text.str())
-        .with_inline_style("font-size: 20px; margin-bottom: 10px;"sv);
+    Dom title = Dom::create_text(title_text.str().c_str());
+    title.set_inline_style("font-size: 20px; margin-bottom: 10px;");
     
-    auto iframe = Dom::create_iframe(data.clone(), render_iframe)
-        .with_inline_style("flex-grow: 1; overflow: scroll; background: #f5f5f5;"sv)
-        .with_callback(On::Scroll, data.clone(), on_scroll);
-    
-    auto body = Dom::create_body()
-        .with_inline_style("padding: 20px; font-family: sans-serif;"sv)
-        .with_child(title)
-        .with_child(iframe);
-    
-    return body.style(Css::empty());
-}
-
-StyledDom render_iframe(RefAny& data, IFrameCallbackInfo& info) {
-    auto d = InfinityState::downcast_ref(data);
-    if (!d) return StyledDom::default();
-    
-    auto container = Dom::create_div()
-        .with_inline_style("display: flex; flex-wrap: wrap; gap: 10px; padding: 10px;"sv);
+    Dom container = Dom::create_div();
+    container.set_inline_style("display: flex; flex-wrap: wrap; gap: 10px; padding: 10px; flex-grow: 1; overflow: scroll; background: #f5f5f5;");
     
     size_t end = std::min(d->visible_start + d->visible_count, d->file_paths.size());
     for (size_t i = d->visible_start; i < end; ++i) {
-        auto item = Dom::create_div()
-            .with_inline_style("width: 150px; height: 150px; background: white; border: 1px solid #ddd;"sv)
-            .with_child(Dom::create_text(d->file_paths[i]));
-        container.add_child(item);
+        Dom item = Dom::create_div();
+        item.set_inline_style("width: 150px; height: 150px; background: white; display: flex; align-items: center; justify-content: center;");
+        item.add_child(Dom::create_text(d->file_paths[i].c_str()));
+        container.add_child(std::move(item));
     }
     
-    return container.style(Css::empty());
-}
-
-Update on_scroll(RefAny& data, CallbackInfo& info) {
-    auto d = InfinityState::downcast_mut(data);
-    if (!d) return Update::DoNothing;
+    Dom body = Dom::create_body();
+    body.set_inline_style("padding: 20px; font-family: sans-serif;");
+    body.add_child(std::move(title));
+    body.add_child(std::move(container));
     
-    auto scroll_pos = info.get_scroll_position();
-    if (!scroll_pos) return Update::DoNothing;
-    
-    size_t new_start = static_cast<size_t>(scroll_pos->y / 160) * 4;
-    if (new_start != d->visible_start) {
-        d->visible_start = std::min(new_start, d->file_paths.size());
-        return Update::RefreshDom;
-    }
-    return Update::DoNothing;
+    return body.style(Css::empty()).release();
 }
 
 int main() {
@@ -80,11 +56,14 @@ int main() {
         state.file_paths.push_back(filename.str());
     }
     
-    auto data = RefAny::new(std::move(state));
-    auto window = WindowCreateOptions::new(layout);
-    window.set_title("Infinite Scrolling Gallery"sv);
-    window.set_size(LogicalSize(800, 600));
+    RefAny data = InfinityState_upcast(state);
+    LayoutCallback cb = LayoutCallback::create(layout);
+    WindowCreateOptions window = WindowCreateOptions::create(std::move(cb));
+    window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"Infinite Scrolling Gallery", 0, 27);
+    window.inner().window_state.size.dimensions.width = 800.0;
+    window.inner().window_state.size.dimensions.height = 600.0;
     
-    auto app = App::new(data, AppConfig::default());
-    app.run(window);
+    App app = App::create(std::move(data), AppConfig::default_());
+    app.run(std::move(window));
+    return 0;
 }

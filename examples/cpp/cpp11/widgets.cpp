@@ -1,6 +1,6 @@
 // g++ -std=c++11 -o widgets widgets.cpp -lazul
 
-#include <azul.hpp>
+#include "azul11.hpp"
 #include <string>
 
 using namespace azul;
@@ -15,82 +15,57 @@ struct WidgetShowcase {
     WidgetShowcase() : enable_padding(true), active_tab(0), 
                        progress_value(25.0f), checkbox_checked(false) {}
 };
+AZ_REFLECT(WidgetShowcase);
 
-Update on_button_click(RefAny& data, CallbackInfo& info);
+AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info);
 
-StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
-    WidgetShowcase* d = WidgetShowcase::downcast_ref(data);
-    if (!d) return StyledDom::default_value();
+AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    RefAny data_wrapper(data);
+    const WidgetShowcase* d = WidgetShowcase_downcast_ref(data_wrapper);
+    if (!d) return AzStyledDom_default();
     
     // Create button
-    Dom button = Dom::create_div()
-        .with_inline_style("margin-bottom: 10px; padding: 10px; background: #4CAF50; color: white;")
-        .with_child(Dom::create_text("Click me!"))
-        .with_callback(On::MouseUp, data.clone(), on_button_click);
+    Dom button_text = Dom::create_text("Click me!");
+    Dom button = Dom::create_div();
+    button.set_inline_style("margin-bottom: 10px; padding: 10px; background: #4CAF50; color: white;");
+    button.add_child(std::move(button_text));
+    button.add_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), data_wrapper.clone(), on_button_click);
 
-    // Create checkbox
-    Dom checkbox = CheckBox::create(d->checkbox_checked)
-        .dom()
-        .with_inline_style("margin-bottom: 10px;");
-
-    // Create progress bar
-    Dom progress = ProgressBar::create(d->progress_value)
-        .dom()
-        .with_inline_style("margin-bottom: 10px;");
-
-    // Create text input
-    Dom text_input = TextInput::create()
-        .with_placeholder("Enter text here...")
-        .dom()
-        .with_inline_style("margin-bottom: 10px;");
-
-    // Create color input
-    ColorU color = {100, 150, 200, 255};
-    Dom color_input = ColorInput::create(color)
-        .dom()
-        .with_inline_style("margin-bottom: 10px;");
-
-    // Create number input
-    Dom number_input = NumberInput::create(42.0)
-        .dom()
-        .with_inline_style("margin-bottom: 10px;");
+    // Create title
+    Dom title = Dom::create_text("Widget Showcase");
+    title.set_inline_style("font-size: 24px; margin-bottom: 20px;");
 
     // Compose body
-    Dom title = Dom::create_text("Widget Showcase")
-        .with_inline_style("font-size: 24px; margin-bottom: 20px;");
+    Dom body = Dom::create_body();
+    body.set_inline_style("padding: 20px; font-family: sans-serif;");
+    body.add_child(std::move(title));
+    body.add_child(std::move(button));
 
-    Dom body = Dom::create_body()
-        .with_inline_style("padding: 20px; font-family: sans-serif;")
-        .with_child(title)
-        .with_child(button)
-        .with_child(checkbox)
-        .with_child(progress)
-        .with_child(text_input)
-        .with_child(color_input)
-        .with_child(number_input);
-
-    return body.style(Css::empty());
+    return body.style(Css::empty()).release();
 }
 
-Update on_button_click(RefAny& data, CallbackInfo& info) {
-    WidgetShowcase* d = WidgetShowcase::downcast_mut(data);
-    if (!d) return Update::DoNothing;
+AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {
+    RefAny data_wrapper(data);
+    WidgetShowcase* d = WidgetShowcase_downcast_mut(data_wrapper);
+    if (!d) return AzUpdate_DoNothing;
     d->progress_value += 10.0f;
     if (d->progress_value > 100.0f) {
         d->progress_value = 0.0f;
     }
-    return Update::RefreshDom;
+    return AzUpdate_RefreshDom;
 }
 
 int main() {
     WidgetShowcase model;
-    RefAny data = RefAny::create(model);
+    RefAny data = WidgetShowcase_upcast(model);
     
-    WindowCreateOptions window = WindowCreateOptions::create(layout);
-    window.set_title("Widget Showcase");
-    window.set_size(LogicalSize(600, 500));
+    LayoutCallback cb = LayoutCallback::create(layout);
+    WindowCreateOptions window = WindowCreateOptions::create(std::move(cb));
+    window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"Widget Showcase", 0, 15);
+    window.inner().window_state.size.dimensions.width = 600.0;
+    window.inner().window_state.size.dimensions.height = 500.0;
     
-    App app = App::create(data, AppConfig::default_value());
-    app.run(window);
+    App app = App::create(std::move(data), AppConfig::default_());
+    app.run(std::move(window));
     return 0;
 }

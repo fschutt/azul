@@ -1,34 +1,35 @@
-// g++ -std=c++17 -o xhtml xhtml.cpp -lazul
+// g++ -std=c++11 -o xhtml xhtml.cpp -lazul
 
-#include <azul.hpp>
+#include "azul17.hpp"
 #include <fstream>
 #include <sstream>
 #include <string>
-
 using namespace azul;
-using namespace std::string_view_literals;
 
 struct AppData { int x; };
+AZ_REFLECT(AppData);
 
-auto read_file(std::string_view path) {
-    std::ifstream file(std::string(path));
+std::string read_file(const std::string& path) {
+    std::ifstream file(path);
     std::stringstream buffer;
     buffer << file.rdbuf();
     return buffer.str();
 }
 
-StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
-    auto xhtml = read_file("assets/spreadsheet.xhtml"sv);
-    return StyledDom::from_xml(xhtml);
+AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    std::string xhtml = read_file("assets/spreadsheet.xhtml");
+    return StyledDom::from_xml(String(xhtml.c_str())).release();
 }
 
 int main() {
-    AppData model{.x = 0};
-    auto data = RefAny::new(model);
+    AppData model{0};
+    RefAny data = AppData_upcast(model);
     
-    auto window = WindowCreateOptions::new(layout);
-    window.set_title("XHTML Spreadsheet"sv);
+    LayoutCallback layout_cb = LayoutCallback::create(layout);
+    WindowCreateOptions window = WindowCreateOptions::create(std::move(layout_cb));
     
-    auto app = App::new(data, AppConfig::default());
-    app.run(window);
+    App app = App::create(std::move(data), AppConfig::default_());
+    app.run(std::move(window));
+    
+    return 0;
 }

@@ -1,237 +1,127 @@
 // g++ -std=c++03 -o calc calc.cpp -lazul
 
-#include <azul.hpp>
+#include "azul03.hpp"
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <cmath>
-using namespace azul;
 
-enum Operation { OP_NONE, OP_ADD, OP_SUBTRACT, OP_MULTIPLY, OP_DIVIDE };
+using namespace azul;
 
 struct Calculator {
     char display[64];
     double current_value;
-    Operation pending_op;
+    int pending_op;
     double pending_value;
     int clear_next;
 };
-
-void Calculator_destructor(Calculator*) { }
-AZ_REFLECT(Calculator, Calculator_destructor);
-
-enum EventType { EVT_DIGIT, EVT_OP, EVT_EQUALS, EVT_CLEAR, EVT_INVERT, EVT_PERCENT };
+AZ_REFLECT(Calculator);
 
 struct ButtonData {
-    RefAny calc;
-    EventType evt;
+    AzRefAny calc;
+    int evt_type;
     char digit;
-    Operation op;
+    int op;
 };
+AZ_REFLECT(ButtonData);
 
-void ButtonData_destructor(ButtonData* b) { }
-AZ_REFLECT(ButtonData, ButtonData_destructor);
+AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
-Update on_click(RefAny& data, CallbackInfo& info);
-
-void Calculator_calculate(Calculator* c) {
-    if (c->pending_op == OP_NONE) return;
-    double result = 0.0;
-    switch (c->pending_op) {
-        case OP_ADD: result = c->pending_value + c->current_value; break;
-        case OP_SUBTRACT: result = c->pending_value - c->current_value; break;
-        case OP_MULTIPLY: result = c->pending_value * c->current_value; break;
-        case OP_DIVIDE:
-            if (c->current_value != 0.0) result = c->pending_value / c->current_value;
-            else { std::strcpy(c->display, "Error"); c->pending_op = OP_NONE; return; }
-            break;
-        default: break;
-    }
-    c->current_value = result;
-    if (std::fabs(result - std::floor(result)) < 0.0000001)
-        std::snprintf(c->display, 64, "%lld", (long long)result);
-    else
-        std::snprintf(c->display, 64, "%g", result);
-    c->pending_op = OP_NONE;
-    c->clear_next = 1;
-}
-
-static const char* CALC_STYLE = "
-    height:100%;
-    display:flex;
-    flex-direction:column;
-    font-family:sans-serif;
-";
-
-static const char* DISPLAY_STYLE = "
-    background:#2d2d2d;
-    color:white;
-    font-size:48px;
-    text-align:right;
-    padding:20px;
-    min-height:80px;
-    display:flex;
-    align-items:center;
-    justify-content:flex-end;
-";
-
-static const char* BUTTONS_STYLE = "
-    flex-grow:1;
-    display:grid;
-    grid-template-columns:1fr 1fr 1fr 1fr;
-    grid-template-rows:1fr 1fr 1fr 1fr 1fr;
-    gap:1px;
-    background:#666;
-";
-
-static const char* BTN_STYLE = "
-    background:#d1d1d6;
-    color:#1d1d1f;
-    font-size:24px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-";
-
-static const char* OP_STYLE = "
-    background:#ff9f0a;
-    color:white;
-    font-size:24px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-";
-
-static const char* ZERO_STYLE = "
-    background:#d1d1d6;
-    color:#1d1d1f;
-    font-size:24px;
-    display:flex;
-    align-items:center;
-    justify-content:flex-start;
-    padding-left:28px;
-    grid-column:span 2;
-";
-
-Dom make_button(
-    RefAny& calc, 
-    const char* label, 
-    EventType evt, 
-    char digit, 
-    Operation op, 
-    const char* style
-) {
-
+Dom make_button(RefAny& calc, const char* label, int evt, char digit, int op, const char* style) {
     ButtonData bd;
-    bd.calc = calc.clone();
-    bd.evt = evt;
+    bd.calc = calc.clone().release();
+    bd.evt_type = evt;
     bd.digit = digit;
     bd.op = op;
-
-    return Dom::create_div()
-        .with_inline_style(style)
-        .with_child(Dom::create_text(label))
-        .with_callback(On::MouseUp, ButtonData::upcast(bd), on_click);
+    
+    Dom text = Dom::create_text(String(label));
+    Dom btn = Dom::create_div();
+    btn.set_inline_style(String(style));
+    btn.add_child(text);
+    btn.add_callback(AzEventFilter_hover(AzHoverEventFilter_MouseUp), ButtonData_upcast(bd), on_click);
+    return btn;
 }
 
-StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
-    CalculatorRef c = CalculatorRef::create(data);
-    if (!Calculator::downcastRef(data, c)) return StyledDom::default();
+AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    RefAny data_wrapper(data);
+    const Calculator* c = Calculator_downcast_ref(data_wrapper);
+    if (!c) return AzStyledDom_default();
     
-    char disp[64];
-    std::strcpy(disp, c->display);
+    Dom display_text = Dom::create_text(String(c->display));
+    Dom display = Dom::create_div();
+    display.set_inline_style(String("background:#2d2d2d;color:white;font-size:48px;text-align:right;padding:20px;min-height:80px;"));
+    display.add_child(display_text);
     
-    Dom display = Dom::create_div().with_inline_style(DISPLAY_STYLE).with_child(Dom::create_text(disp));
-    Dom buttons = Dom::create_div().with_inline_style(BUTTONS_STYLE);
+    Dom buttons = Dom::create_div();
+    buttons.set_inline_style(String("flex-grow:1;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:1px;"));
     
-    // Row 1
-    buttons = buttons.with_child(make_button(data, "C", EVT_CLEAR, 0, OP_NONE, BTN_STYLE));
-    buttons = buttons.with_child(make_button(data, "+/-", EVT_INVERT, 0, OP_NONE, BTN_STYLE));
-    buttons = buttons.with_child(make_button(data, "%", EVT_PERCENT, 0, OP_NONE, BTN_STYLE));
-    buttons = buttons.with_child(make_button(data, "/", EVT_OP, 0, OP_DIVIDE, OP_STYLE));
-    // Row 2
-    buttons = buttons.with_child(make_button(data, "7", EVT_DIGIT, '7', OP_NONE, BTN_STYLE));
-    buttons = buttons.with_child(make_button(data, "8", EVT_DIGIT, '8', OP_NONE, BTN_STYLE));
-    buttons = buttons.with_child(make_button(data, "9", EVT_DIGIT, '9', OP_NONE, BTN_STYLE));
-    buttons = buttons.with_child(make_button(data, "x", EVT_OP, 0, OP_MULTIPLY, OP_STYLE));
-    // Row 3
-    buttons = buttons.with_child(make_button(data, "4", EVT_DIGIT, '4', OP_NONE, BTN_STYLE));
-    buttons = buttons.with_child(make_button(data, "5", EVT_DIGIT, '5', OP_NONE, BTN_STYLE));
-    buttons = buttons.with_child(make_button(data, "6", EVT_DIGIT, '6', OP_NONE, BTN_STYLE));
-    buttons = buttons.with_child(make_button(data, "-", EVT_OP, 0, OP_SUBTRACT, OP_STYLE));
-    // Row 4
-    buttons = buttons.with_child(make_button(data, "1", EVT_DIGIT, '1', OP_NONE, BTN_STYLE));
-    buttons = buttons.with_child(make_button(data, "2", EVT_DIGIT, '2', OP_NONE, BTN_STYLE));
-    buttons = buttons.with_child(make_button(data, "3", EVT_DIGIT, '3', OP_NONE, BTN_STYLE));
-    buttons = buttons.with_child(make_button(data, "+", EVT_OP, 0, OP_ADD, OP_STYLE));
-    // Row 5
-    buttons = buttons.with_child(make_button(data, "0", EVT_DIGIT, '0', OP_NONE, ZERO_STYLE));
-    buttons = buttons.with_child(make_button(data, ".", EVT_DIGIT, '.', OP_NONE, BTN_STYLE));
-    buttons = buttons.with_child(make_button(data, "=", EVT_EQUALS, 0, OP_NONE, OP_STYLE));
+    buttons.add_child(make_button(data_wrapper, "C", 4, 0, 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
+    buttons.add_child(make_button(data_wrapper, "7", 0, '7', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
+    buttons.add_child(make_button(data_wrapper, "8", 0, '8', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
+    buttons.add_child(make_button(data_wrapper, "9", 0, '9', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
+    buttons.add_child(make_button(data_wrapper, "+", 1, 0, 1, "background:#ff9f0a;font-size:24px;padding:20px;"));
+    buttons.add_child(make_button(data_wrapper, "4", 0, '4', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
+    buttons.add_child(make_button(data_wrapper, "5", 0, '5', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
+    buttons.add_child(make_button(data_wrapper, "6", 0, '6', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
+    buttons.add_child(make_button(data_wrapper, "-", 1, 0, 2, "background:#ff9f0a;font-size:24px;padding:20px;"));
+    buttons.add_child(make_button(data_wrapper, "1", 0, '1', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
+    buttons.add_child(make_button(data_wrapper, "2", 0, '2', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
+    buttons.add_child(make_button(data_wrapper, "3", 0, '3', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
+    buttons.add_child(make_button(data_wrapper, "=", 2, 0, 0, "background:#ff9f0a;font-size:24px;padding:20px;"));
+    buttons.add_child(make_button(data_wrapper, "0", 0, '0', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
     
-    Dom body = Dom::create_div().with_inline_style(CALC_STYLE).with_child(display).with_child(buttons);
-    return body.style(Css::empty());
+    Dom body = Dom::create_div();
+    body.set_inline_style(String("height:100%;display:flex;flex-direction:column;font-family:sans-serif;"));
+    body.add_child(display);
+    body.add_child(buttons);
+    
+    return body.style(Css::empty()).release();
 }
 
-Update on_click(RefAny& data, CallbackInfo& info) {
-    ButtonDataRef bd = ButtonDataRef::create(data);
-    if (!ButtonData::downcastRef(data, bd)) return Update::DoNothing;
+AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
+    RefAny data_wrapper(data);
+    const ButtonData* bd = ButtonData_downcast_ref(data_wrapper);
+    if (!bd) return AzUpdate_DoNothing;
     
-    RefAny calc_ref = bd->calc.clone();
-    EventType evt = bd->evt;
-    char digit = bd->digit;
-    Operation op = bd->op;
+    RefAny calc_wrapper(AzRefAny_deepCopy(&bd->calc));
+    Calculator* c = Calculator_downcast_mut(calc_wrapper);
+    if (!c) return AzUpdate_DoNothing;
     
-    CalculatorRefMut c = CalculatorRefMut::create(calc_ref);
-    if (!Calculator::downcastMut(calc_ref, c)) return Update::DoNothing;
-    
-    switch (evt) {
-        case EVT_DIGIT:
-            if (c->clear_next) { c->display[0] = '\0'; c->clear_next = 0; }
-            if (std::strcmp(c->display, "0") == 0 && digit != '.') {
-                c->display[0] = digit; c->display[1] = '\0';
-            } else if (digit == '.' && std::strchr(c->display, '.')) {
-            } else {
-                size_t len = std::strlen(c->display);
-                if (len < 63) { c->display[len] = digit; c->display[len+1] = '\0'; }
-            }
-            c->current_value = std::atof(c->display);
-            break;
-        case EVT_OP:
-            Calculator_calculate(c.ptr);
-            c->pending_op = op;
-            c->pending_value = c->current_value;
-            c->clear_next = 1;
-            break;
-        case EVT_EQUALS: Calculator_calculate(c.ptr); break;
-        case EVT_CLEAR:
-            std::strcpy(c->display, "0");
-            c->current_value = 0; 
-            c->pending_op = OP_NONE; 
-            c->pending_value = 0; 
+    if (bd->evt_type == 0) {
+        if (c->clear_next) {
+            c->display[0] = '\0';
             c->clear_next = 0;
-            break;
-        case EVT_INVERT:
-            c->current_value = -c->current_value;
-            std::snprintf(c->display, 64, "%g", c->current_value);
-            break;
-        case EVT_PERCENT:
-            c->current_value /= 100.0;
-            std::snprintf(c->display, 64, "%g", c->current_value);
-            break;
+        }
+        size_t len = strlen(c->display);
+        if (len < 63) {
+            c->display[len] = bd->digit;
+            c->display[len + 1] = '\0';
+        }
+        c->current_value = atof(c->display);
+    } else if (bd->evt_type == 4) {
+        strcpy(c->display, "0");
+        c->current_value = 0;
+        c->pending_op = 0;
+        c->pending_value = 0;
+        c->clear_next = 0;
     }
-    return Update::RefreshDom;
+    
+    return AzUpdate_RefreshDom;
 }
 
 int main() {
-    Calculator model = { "0", 0.0, OP_NONE, 0.0, 0 };
-    RefAny data = Calculator::upcast(model);
+    Calculator model;
+    strcpy(model.display, "0");
+    model.current_value = 0.0;
+    model.pending_op = 0;
+    model.pending_value = 0.0;
+    model.clear_next = 0;
+    RefAny data = Calculator_upcast(model);
     
-    WindowCreateOptions window = WindowCreateOptions::new(layout);
-    window.set_title("Calculator");
+    LayoutCallback cb = LayoutCallback::create(layout);
+    WindowCreateOptions window = WindowCreateOptions::create(cb);
+    window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"Calculator", 0, 10);
     
-    App app = App::new(data, AppConfig::default());
+    App app = App::create(data, AppConfig::default_());
     app.run(window);
-    
     return 0;
 }

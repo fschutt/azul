@@ -1,4 +1,6 @@
 #include "azul11.hpp"
+#include <string>
+
 using namespace azul;
 
 struct MyDataModel {
@@ -6,42 +8,47 @@ struct MyDataModel {
 };
 AZ_REFLECT(MyDataModel);
 
-Update on_click(RefAny& data, CallbackInfo& info);
+AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
-StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
-    auto d = MyDataModel_downcast_ref(data);
-    if (!d) return StyledDom::default_();
+// Callback must use C types for FFI compatibility
+AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    RefAny data_wrapper(data);
+    auto d = MyDataModel_downcast_ref(data_wrapper);
+    if (!d) return AzStyledDom_default();
     
     Dom label = Dom::create_text(String(std::to_string(d->counter).c_str()))
         .with_inline_style(String("font-size: 50px;"));
     
+    AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
     Dom button = Dom::create_div()
         .with_inline_style(String("flex-grow: 1;"))
         .with_child(Dom::create_text(String("Increase counter")))
-        .with_callback(On_MouseUp, data.clone(), on_click);
+        .with_callback(event, data_wrapper.clone(), on_click);
     
     Dom body = Dom::create_body()
-        .with_child(label)
-        .with_child(button);
+        .with_child(std::move(label))
+        .with_child(std::move(button));
     
-    return body.style(Css::empty());
+    return body.style(Css::empty()).release();
 }
 
-Update on_click(RefAny& data, CallbackInfo& info) {
-    auto d = MyDataModel_downcast_mut(data);
-    if (!d) return Update_DoNothing;
+AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
+    RefAny data_wrapper(data);
+    auto d = MyDataModel_downcast_mut(data_wrapper);
+    if (!d) return AzUpdate_DoNothing;
     d->counter += 1;
-    return Update_RefreshDom;
+    return AzUpdate_RefreshDom;
 }
 
 int main() {
     MyDataModel model = {5};
     RefAny data = MyDataModel_upcast(model);
     
-    WindowCreateOptions window = WindowCreateOptions::new_(LayoutCallback::new_(layout));
-    window.set_title(String("Hello World"));
-    window.set_size(LogicalSize::new_(400, 300));
+    LayoutCallback layout_cb = LayoutCallback::create(layout);
+    WindowCreateOptions window = WindowCreateOptions::create(std::move(layout_cb));
     
-    App app = App::new_(data, AppConfig::default_());
-    app.run(window);
+    App app = App::create(std::move(data), AppConfig::default_());
+    app.run(std::move(window));
+    
+    return 0;
 }

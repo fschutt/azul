@@ -1,43 +1,54 @@
+#include "azul23.hpp"
+#include <string>
+
 using namespace azul;
-using namespace std::string_view_literals;
 
-struct MyDataModel { uint32_t counter; };
+struct MyDataModel {
+    uint32_t counter;
+};
+AZ_REFLECT(MyDataModel);
 
-Update on_click(RefAny& data, CallbackInfo& info);
+AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
-StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
-    auto d = MyDataModel::downcast_ref(data);
-    if (!d) return StyledDom::default();
+// Callback must use C types for FFI compatibility
+AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    RefAny data_wrapper(data);
+    auto d = MyDataModel_downcast_ref(data_wrapper);
+    if (!d) return AzStyledDom_default();
     
-    auto label = Dom::create_text(std::format("{}", d->counter))
-        .with_inline_style("font-size: 50px;"sv);
+    Dom label = Dom::create_text(String(std::to_string(d->counter).c_str()))
+        .with_inline_style(String("font-size: 50px;"));
     
-    auto button = Dom::create_div()
-        .with_inline_style("flex-grow: 1;"sv)
-        .with_child(Dom::create_text("Increase counter"sv))
-        .with_callback(On::MouseUp, data.clone(), on_click);
+    AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
+    Dom button = Dom::create_div()
+        .with_inline_style(String("flex-grow: 1;"))
+        .with_child(Dom::create_text(String("Increase counter")))
+        .with_callback(event, data_wrapper.clone(), on_click);
     
-    auto body = Dom::create_body()
-        .with_child(label)
-        .with_child(button);
+    Dom body = Dom::create_body()
+        .with_child(std::move(label))
+        .with_child(std::move(button));
     
-    return body.style(Css::empty());
+    return body.style(Css::empty()).release();
 }
 
-Update on_click(RefAny& data, CallbackInfo& info) {
-    auto d = MyDataModel::downcast_mut(data);
-    if (!d) return Update::DoNothing;
+AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
+    RefAny data_wrapper(data);
+    auto d = MyDataModel_downcast_mut(data_wrapper);
+    if (!d) return AzUpdate_DoNothing;
     d->counter += 1;
-    return Update::RefreshDom;
+    return AzUpdate_RefreshDom;
 }
 
 int main() {
-    auto data = RefAny::new(MyDataModel{.counter = 5});
+    MyDataModel model = {5};
+    RefAny data = MyDataModel_upcast(model);
     
-    auto window = WindowCreateOptions::new(layout);
-    window.set_title("Hello World"sv);
-    window.set_size(LogicalSize(400, 300));
+    LayoutCallback layout_cb = LayoutCallback::create(layout);
+    WindowCreateOptions window = WindowCreateOptions::create(std::move(layout_cb));
     
-    auto app = App::new(data, AppConfig::default());
-    app.run(window);
+    App app = App::create(std::move(data), AppConfig::default_());
+    app.run(std::move(window));
+    
+    return 0;
 }

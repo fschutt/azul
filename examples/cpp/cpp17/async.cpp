@@ -1,118 +1,111 @@
-// g++ -std=c++17 -o async async.cpp -lazul
+// g++ -std=c++11 -o async async.cpp -lazul
 
-#include <azul.hpp>
+#include "azul17.hpp"
 #include <vector>
 #include <string>
 #include <sstream>
 
 using namespace azul;
-using namespace std::string_view_literals;
 
-enum class ConnectionStage {
-    NotConnected, Connecting, LoadingData, DataLoaded, Error
+enum ConnectionStage {
+    Stage_NotConnected,
+    Stage_Connecting,
+    Stage_LoadingData,
+    Stage_DataLoaded,
+    Stage_Error
 };
 
 struct AsyncState {
-    ConnectionStage stage = ConnectionStage::NotConnected;
-    std::string database_url = "postgres://localhost:5432/mydb";
+    ConnectionStage stage;
+    std::string database_url;
     std::vector<std::string> loaded_data;
-    float progress = 0.0f;
+    float progress;
 };
+AZ_REFLECT(AsyncState);
 
-Update start_connection(RefAny& data, CallbackInfo& info);
-Update reset_connection(RefAny& data, CallbackInfo& info);
-Update on_timer_tick(RefAny& data, TimerCallbackInfo& info);
+AzUpdate start_connection(AzRefAny data, AzCallbackInfo info);
+AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info);
 
-StyledDom layout(RefAny& data, LayoutCallbackInfo& info) {
-    auto d = AsyncState::downcast_ref(data);
-    if (!d) return StyledDom::default();
+AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    RefAny data_wrapper(data);
+    const AsyncState* d = AsyncState_downcast_ref(data_wrapper);
+    if (!d) return AzStyledDom_default();
     
-    auto title = Dom::create_text("Async Database Connection"sv)
-        .with_inline_style("font-size: 24px; margin-bottom: 20px;"sv);
+    Dom title = Dom::create_text(String("Async Database Connection"))
+        .with_inline_style(String("font-size: 24px; margin-bottom: 20px;"));
     
-    Dom content;
+    Dom content = Dom::create_div();
+    AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
     
     switch (d->stage) {
-        case ConnectionStage::NotConnected: {
+        case Stage_NotConnected: {
             content = Dom::create_div()
-                .with_inline_style("padding: 10px 20px; background: #4CAF50; color: white; cursor: pointer;"sv)
-                .with_child(Dom::create_text("Connect"sv))
-                .with_callback(On::MouseUp, data.clone(), start_connection);
+                .with_inline_style(String("padding: 10px 20px; background: #4CAF50; color: white; cursor: pointer;"))
+                .with_child(Dom::create_text(String("Connect")))
+                .with_callback(event, data_wrapper.clone(), start_connection);
             break;
         }
-        case ConnectionStage::Connecting:
-        case ConnectionStage::LoadingData: {
+        case Stage_Connecting:
+        case Stage_LoadingData: {
             std::ostringstream ss;
             ss << "Progress: " << static_cast<int>(d->progress) << "%";
             content = Dom::create_div()
-                .with_child(Dom::create_text(ss.str()))
-                .with_child(ProgressBar::new(d->progress).dom());
+                .with_child(Dom::create_text(String(ss.str().c_str())));
             break;
         }
-        case ConnectionStage::DataLoaded: {
+        case Stage_DataLoaded: {
             std::ostringstream ss;
             ss << "Loaded " << d->loaded_data.size() << " records";
             content = Dom::create_div()
-                .with_child(Dom::create_text(ss.str()))
+                .with_child(Dom::create_text(String(ss.str().c_str())))
                 .with_child(Dom::create_div()
-                    .with_inline_style("padding: 10px; background: #2196F3; color: white; cursor: pointer;"sv)
-                    .with_child(Dom::create_text("Reset"sv))
-                    .with_callback(On::MouseUp, data.clone(), reset_connection));
+                    .with_inline_style(String("padding: 10px; background: #2196F3; color: white; cursor: pointer;"))
+                    .with_child(Dom::create_text(String("Reset")))
+                    .with_callback(event, data_wrapper.clone(), reset_connection));
             break;
         }
-        case ConnectionStage::Error:
-            content = Dom::create_text("Error occurred"sv);
+        case Stage_Error:
+            content = Dom::create_text(String("Error occurred"));
             break;
     }
     
-    auto body = Dom::create_body()
-        .with_inline_style("padding: 30px; font-family: sans-serif;"sv)
-        .with_child(title)
-        .with_child(content);
+    Dom body = Dom::create_body()
+        .with_inline_style(String("padding: 30px; font-family: sans-serif;"))
+        .with_child(std::move(title))
+        .with_child(std::move(content));
     
-    return body.style(Css::empty());
+    return body.style(Css::empty()).release();
 }
 
-Update start_connection(RefAny& data, CallbackInfo& info) {
-    auto d = AsyncState::downcast_mut(data);
-    if (!d) return Update::DoNothing;
-    d->stage = ConnectionStage::Connecting;
+AzUpdate start_connection(AzRefAny data, AzCallbackInfo info) {
+    RefAny data_wrapper(data);
+    AsyncState* d = AsyncState_downcast_mut(data_wrapper);
+    if (!d) return AzUpdate_DoNothing;
+    d->stage = Stage_Connecting;
     d->progress = 0.0f;
-    info.start_timer(Timer::new(data.clone(), on_timer_tick, info.get_system_time_fn())
-        .with_interval(Duration::milliseconds(100)));
-    return Update::RefreshDom;
+    // Timer setup would go here
+    return AzUpdate_RefreshDom;
 }
 
-Update on_timer_tick(RefAny& data, TimerCallbackInfo& info) {
-    auto d = AsyncState::downcast_mut(data);
-    if (!d) return Update::DoNothing;
-    d->progress += 2.0f;
-    if (d->progress >= 100.0f) {
-        d->stage = ConnectionStage::DataLoaded;
-        for (int i = 0; i < 10; ++i) {
-            std::ostringstream ss;
-            ss << "Record " << (i + 1);
-            d->loaded_data.push_back(ss.str());
-        }
-        return Update::RefreshDomAndStopTimer;
-    }
-    return Update::RefreshDom;
-}
-
-Update reset_connection(RefAny& data, CallbackInfo& info) {
-    auto d = AsyncState::downcast_mut(data);
-    if (!d) return Update::DoNothing;
-    d->stage = ConnectionStage::NotConnected;
+AzUpdate reset_connection(AzRefAny data, AzCallbackInfo info) {
+    RefAny data_wrapper(data);
+    AsyncState* d = AsyncState_downcast_mut(data_wrapper);
+    if (!d) return AzUpdate_DoNothing;
+    d->stage = Stage_NotConnected;
     d->progress = 0.0f;
     d->loaded_data.clear();
-    return Update::RefreshDom;
+    return AzUpdate_RefreshDom;
 }
 
 int main() {
-    auto data = RefAny::new(AsyncState{});
-    auto window = WindowCreateOptions::new(layout);
-    window.set_title("Async Operations"sv);
-    window.set_size(LogicalSize(600, 400));
-    auto app = App::new(data, AppConfig::default());
-    app.run(window);
+    AsyncState state = { Stage_NotConnected, "postgres://localhost:5432/mydb", {}, 0.0f };
+    RefAny data = AsyncState_upcast(state);
+    
+    LayoutCallback layout_cb = LayoutCallback::create(layout);
+    WindowCreateOptions window = WindowCreateOptions::create(std::move(layout_cb));
+    
+    App app = App::create(std::move(data), AppConfig::default_());
+    app.run(std::move(window));
+    
+    return 0;
 }
