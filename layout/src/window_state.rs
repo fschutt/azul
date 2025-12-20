@@ -58,7 +58,8 @@ impl WindowCreateOptions {
 impl_vec!(
     WindowCreateOptions,
     WindowCreateOptionsVec,
-    WindowCreateOptionsVecDestructor
+    WindowCreateOptionsVecDestructor,
+    WindowCreateOptionsVecDestructorType
 );
 impl_vec_clone!(
     WindowCreateOptions,

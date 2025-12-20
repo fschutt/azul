@@ -18,7 +18,7 @@ pub struct Css {
     pub stylesheets: StylesheetVec,
 }
 
-impl_vec!(Stylesheet, StylesheetVec, StylesheetVecDestructor);
+impl_vec!(Stylesheet, StylesheetVec, StylesheetVecDestructor, StylesheetVecDestructorType);
 impl_vec_mut!(Stylesheet, StylesheetVec);
 impl_vec_debug!(Stylesheet, StylesheetVec);
 impl_vec_partialord!(Stylesheet, StylesheetVec);
@@ -64,7 +64,7 @@ pub struct Stylesheet {
     pub rules: CssRuleBlockVec,
 }
 
-impl_vec!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor);
+impl_vec!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor, CssRuleBlockVecDestructorType);
 impl_vec_mut!(CssRuleBlock, CssRuleBlockVec);
 impl_vec_debug!(CssRuleBlock, CssRuleBlockVec);
 impl_vec_partialord!(CssRuleBlock, CssRuleBlockVec);
@@ -354,7 +354,8 @@ pub struct CssRuleBlock {
 impl_vec!(
     CssDeclaration,
     CssDeclarationVec,
-    CssDeclarationVecDestructor
+    CssDeclarationVecDestructor,
+    CssDeclarationVecDestructorType
 );
 impl_vec_mut!(CssDeclaration, CssDeclarationVec);
 impl_vec_debug!(CssDeclaration, CssDeclarationVec);
@@ -879,7 +880,8 @@ pub struct CssPath {
 impl_vec!(
     CssPathSelector,
     CssPathSelectorVec,
-    CssPathSelectorVecDestructor
+    CssPathSelectorVecDestructor,
+    CssPathSelectorVecDestructorType
 );
 impl_vec_debug!(CssPathSelector, CssPathSelectorVec);
 impl_vec_partialord!(CssPathSelector, CssPathSelectorVec);

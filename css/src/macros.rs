@@ -1,6 +1,8 @@
 #[macro_export]
 macro_rules! impl_vec {
-    ($struct_type:ident, $struct_name:ident, $destructor_name:ident) => {
+    ($struct_type:ident, $struct_name:ident, $destructor_name:ident, $destructor_type_name:ident) => {
+        pub type $destructor_type_name = extern "C" fn(*mut $struct_name);
+
         #[repr(C)]
         pub struct $struct_name {
             ptr: *const $struct_type,
@@ -16,7 +18,7 @@ macro_rules! impl_vec {
         pub enum $destructor_name {
             DefaultRust,
             NoDestructor,
-            External(extern "C" fn(*mut $struct_name)),
+            External($destructor_type_name),
         }
 
         unsafe impl Send for $struct_name {}

@@ -1284,6 +1284,10 @@ impl<'a> IRBuilder<'a> {
 
         for (enum_name, variants) in enum_infos {
             for variant in variants {
+                // Skip "Default" variant to avoid conflict with Default trait's default() function
+                if variant.name == "Default" {
+                    continue;
+                }
                 let func = self.build_variant_constructor(&enum_name, &variant);
                 // Only add if not already defined manually in api.json
                 if !existing_c_names.contains(&func.c_name) {
@@ -1623,7 +1627,8 @@ impl<'a> IRBuilder<'a> {
         }
         
         // Skip destructor and clone callback types - these are internal
-        if type_name.ends_with("DestructorType") || type_name.ends_with("CloneCallbackType") {
+        // FontRefDestructorCallbackType ends with "CallbackType" but contains "Destructor"
+        if type_name.contains("Destructor") || type_name.ends_with("CloneCallbackType") {
             return None;
         }
         

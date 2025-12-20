@@ -85,7 +85,8 @@ pub struct ChangedCssProperty {
 impl_vec!(
     ChangedCssProperty,
     ChangedCssPropertyVec,
-    ChangedCssPropertyVecDestructor
+    ChangedCssPropertyVecDestructor,
+    ChangedCssPropertyVecDestructorType
 );
 impl_vec_debug!(ChangedCssProperty, ChangedCssPropertyVec);
 impl_vec_partialord!(ChangedCssProperty, ChangedCssPropertyVec);
@@ -165,7 +166,7 @@ pub struct StyledNode {
     pub tag_id: OptionTagId,
 }
 
-impl_vec!(StyledNode, StyledNodeVec, StyledNodeVecDestructor);
+impl_vec!(StyledNode, StyledNodeVec, StyledNodeVecDestructor, StyledNodeVecDestructorType);
 impl_vec_mut!(StyledNode, StyledNodeVec);
 impl_vec_debug!(StyledNode, StyledNodeVec);
 impl_vec_partialord!(StyledNode, StyledNodeVec);
@@ -295,7 +296,7 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(NodeHierarchyItemId, NodeIdVec, NodeIdVecDestructor);
+impl_vec!(NodeHierarchyItemId, NodeIdVec, NodeIdVecDestructor, NodeIdVecDestructorType);
 impl_vec_mut!(NodeHierarchyItemId, NodeIdVec);
 impl_vec_debug!(NodeHierarchyItemId, NodeIdVec);
 impl_vec_ord!(NodeHierarchyItemId, NodeIdVec);
@@ -379,7 +380,8 @@ impl NodeHierarchyItem {
 impl_vec!(
     NodeHierarchyItem,
     NodeHierarchyItemVec,
-    NodeHierarchyItemVecDestructor
+    NodeHierarchyItemVecDestructor,
+    NodeHierarchyItemVecDestructorType
 );
 impl_vec_mut!(NodeHierarchyItem, NodeHierarchyItemVec);
 impl_vec_debug!(AzNode, NodeHierarchyItemVec);
@@ -440,7 +442,8 @@ impl core::fmt::Debug for ParentWithNodeDepth {
 impl_vec!(
     ParentWithNodeDepth,
     ParentWithNodeDepthVec,
-    ParentWithNodeDepthVecDestructor
+    ParentWithNodeDepthVecDestructor,
+    ParentWithNodeDepthVecDestructorType
 );
 impl_vec_mut!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 impl_vec_debug!(ParentWithNodeDepth, ParentWithNodeDepthVec);
@@ -468,7 +471,8 @@ pub struct TagIdToNodeIdMapping {
 impl_vec!(
     TagIdToNodeIdMapping,
     TagIdToNodeIdMappingVec,
-    TagIdToNodeIdMappingVecDestructor
+    TagIdToNodeIdMappingVecDestructor,
+    TagIdToNodeIdMappingVecDestructorType
 );
 impl_vec_mut!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec);
 impl_vec_debug!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec);
@@ -490,7 +494,7 @@ pub struct ContentGroup {
     pub children: ContentGroupVec,
 }
 
-impl_vec!(ContentGroup, ContentGroupVec, ContentGroupVecDestructor);
+impl_vec!(ContentGroup, ContentGroupVec, ContentGroupVecDestructor, ContentGroupVecDestructorType);
 impl_vec_mut!(ContentGroup, ContentGroupVec);
 impl_vec_debug!(ContentGroup, ContentGroupVec);
 impl_vec_partialord!(ContentGroup, ContentGroupVec);

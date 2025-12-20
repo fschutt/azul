@@ -20,7 +20,7 @@ pub struct CascadeInfo {
     pub is_last_child: bool,
 }
 
-impl_vec!(CascadeInfo, CascadeInfoVec, CascadeInfoVecDestructor);
+impl_vec!(CascadeInfo, CascadeInfoVec, CascadeInfoVecDestructor, CascadeInfoVecDestructorType);
 impl_vec_mut!(CascadeInfo, CascadeInfoVec);
 impl_vec_debug!(CascadeInfo, CascadeInfoVec);
 impl_vec_partialord!(CascadeInfo, CascadeInfoVec);

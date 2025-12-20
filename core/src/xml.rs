@@ -765,7 +765,7 @@ impl XmlNodeChild {
     }
 }
 
-impl_vec!(XmlNodeChild, XmlNodeChildVec, XmlNodeChildVecDestructor);
+impl_vec!(XmlNodeChild, XmlNodeChildVec, XmlNodeChildVecDestructor, XmlNodeChildVecDestructorType);
 impl_vec_mut!(XmlNodeChild, XmlNodeChildVec);
 impl_vec_debug!(XmlNodeChild, XmlNodeChildVec);
 impl_vec_partialeq!(XmlNodeChild, XmlNodeChildVec);
@@ -820,7 +820,7 @@ impl XmlNode {
     }
 }
 
-impl_vec!(XmlNode, XmlNodeVec, XmlNodeVecDestructor);
+impl_vec!(XmlNode, XmlNodeVec, XmlNodeVecDestructor, XmlNodeVecDestructorType);
 impl_vec_mut!(XmlNode, XmlNodeVec);
 impl_vec_debug!(XmlNode, XmlNodeVec);
 impl_vec_partialeq!(XmlNode, XmlNodeVec);

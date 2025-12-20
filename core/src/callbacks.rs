@@ -804,7 +804,8 @@ pub struct CoreCallbackData {
 impl_vec!(
     CoreCallbackData,
     CoreCallbackDataVec,
-    CoreCallbackDataVecDestructor
+    CoreCallbackDataVecDestructor,
+    CoreCallbackDataVecDestructorType
 );
 impl_vec_clone!(
     CoreCallbackData,

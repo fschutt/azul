@@ -60,20 +60,39 @@ fn parse_single_arg(arg: &str) -> Option<(String, String)> {
     Some((name, ty))
 }
 
-/// Parse a type string to extract reference/mut info and base type
+/// Parse a type string to extract reference/mut/pointer info and base type
 ///
-/// - `"&mut AzDom"` -> `(true, true, "AzDom")`
-/// - `"&AzDom"` -> `(true, false, "AzDom")`
-/// - `"AzDom"` -> `(false, false, "AzDom")`
-pub fn parse_arg_type(ty: &str) -> (bool, bool, String) {
+/// Returns (is_ref, is_mut, is_pointer, base_type) where:
+/// - `"&mut AzDom"` -> `(true, true, false, "AzDom")`
+/// - `"&AzDom"` -> `(true, false, false, "AzDom")`
+/// - `"*mut AzDom"` -> `(false, true, true, "AzDom")`
+/// - `"*const AzDom"` -> `(false, false, true, "AzDom")`
+/// - `"AzDom"` -> `(false, false, false, "AzDom")`
+pub fn parse_arg_type(ty: &str) -> (bool, bool, bool, String) {
     let trimmed = ty.trim();
 
     if trimmed.starts_with("&mut ") {
-        (true, true, trimmed[5..].trim().to_string())
+        (true, true, false, trimmed[5..].trim().to_string())
     } else if trimmed.starts_with("&") {
-        (true, false, trimmed[1..].trim().to_string())
+        (true, false, false, trimmed[1..].trim().to_string())
+    } else if trimmed.starts_with("*mut ") {
+        (false, true, true, trimmed[5..].trim().to_string())
+    } else if trimmed.starts_with("*const ") {
+        (false, false, true, trimmed[7..].trim().to_string())
     } else {
-        (false, false, trimmed.to_string())
+        (false, false, false, trimmed.to_string())
+    }
+}
+
+/// Check if a type is a raw pointer
+pub fn is_pointer_type(ty: &str) -> Option<(bool, String)> {
+    let trimmed = ty.trim();
+    if trimmed.starts_with("*mut ") {
+        Some((true, trimmed[5..].trim().to_string()))
+    } else if trimmed.starts_with("*const ") {
+        Some((false, trimmed[7..].trim().to_string()))
+    } else {
+        None
     }
 }
 
@@ -125,34 +144,52 @@ pub fn generate_transmuted_fn_body(
     fn_body = fn_body.replace("self.", &format!("{}.", transmuted_self_var));
     fn_body = fn_body.replace("object.", &format!("{}.", transmuted_self_var));
 
-    // For constructors: if fn_body contains standalone "Self::", replace with external path
+    // For constructors: if fn_body contains standalone "Self::" or "Self {", replace with external path
     // E.g., "Self::MouseOver" -> "azul_core::events::HoverEventFilter::MouseOver"
+    // E.g., "Self { inner: ... }" -> "azul_css::props::layout::flex::LayoutFlexGrow { inner: ... }"
     // NOTE: Must check for STANDALONE "Self::" not as part of another word like "LayoutAlignSelf::"
     if is_constructor {
         // Handle "Self::" at start of fn_body or after non-alphanumeric chars
         // We check for "Self::" that's not preceded by a letter/digit/underscore
-        let should_replace_self = if fn_body.starts_with("Self::") {
+        let should_replace_self_colon = if fn_body.starts_with("Self::") {
             true
         } else {
             // Check for "Self::" preceded by non-identifier char (space, (, {, etc.)
             fn_body.contains(" Self::") || fn_body.contains("(Self::") || fn_body.contains("{Self::")
         };
         
-        if should_replace_self {
+        // Also check for "Self {" (struct literal)
+        let should_replace_self_brace = fn_body.starts_with("Self {") || 
+            fn_body.contains(" Self {") || fn_body.contains("(Self {");
+        
+        if should_replace_self_colon || should_replace_self_brace {
             let prefixed_class = format!("{}{}", prefix, class_name);
             if let Some(external_path) = type_to_external.get(&prefixed_class) {
-                let replacement = if is_for_dll {
-                    format!("{}::", external_path.replace("azul_dll", "crate"))
-                } else {
-                    format!("{}::", external_path)
-                };
-                // Only replace standalone "Self::" patterns
-                if fn_body.starts_with("Self::") {
-                    fn_body = fn_body.replacen("Self::", &replacement, 1);
+                // For "Self::" patterns
+                if should_replace_self_colon {
+                    let replacement = if is_for_dll {
+                        format!("{}::", external_path.replace("azul_dll", "crate"))
+                    } else {
+                        format!("{}::", external_path)
+                    };
+                    // Only replace standalone "Self::" patterns
+                    if fn_body.starts_with("Self::") {
+                        fn_body = fn_body.replacen("Self::", &replacement, 1);
+                    }
+                    fn_body = fn_body.replace(" Self::", &format!(" {}", replacement));
+                    fn_body = fn_body.replace("(Self::", &format!("({}", replacement));
+                    fn_body = fn_body.replace("{Self::", &format!("{{{}", replacement));
                 }
-                fn_body = fn_body.replace(" Self::", &format!(" {}", replacement));
-                fn_body = fn_body.replace("(Self::", &format!("({}", replacement));
-                fn_body = fn_body.replace("{Self::", &format!("{{{}", replacement));
+                
+                // For "Self {" patterns (struct literals)
+                if should_replace_self_brace {
+                    let replacement = if is_for_dll {
+                        format!("{} {{", external_path.replace("azul_dll", "crate"))
+                    } else {
+                        format!("{} {{", external_path)
+                    };
+                    fn_body = fn_body.replace("Self {", &replacement);
+                }
             }
         }
         
@@ -196,7 +233,7 @@ pub fn generate_transmuted_fn_body(
             continue;
         }
         
-        let (is_ref, is_mut, base_type) = parse_arg_type(arg_type);
+        let (is_ref, is_mut, is_pointer, base_type) = parse_arg_type(arg_type);
         
         // Track if self is a reference
         if arg_name == "self" {
@@ -225,8 +262,25 @@ pub fn generate_transmuted_fn_body(
             arg_name.as_str()
         };
 
-        // Generate transmute line based on reference type
-        let transmute_line = if is_mut {
+        // Generate transmute line based on reference/pointer type
+        let transmute_line = if is_pointer {
+            // Raw pointer types: *const T or *mut T
+            if is_mut {
+                format!(
+                    "    let {var_name}: *mut {ext} = core::mem::transmute({arg_name});",
+                    var_name = var_name,
+                    arg_name = arg_name,
+                    ext = external_type
+                )
+            } else {
+                format!(
+                    "    let {var_name}: *const {ext} = core::mem::transmute({arg_name});",
+                    var_name = var_name,
+                    arg_name = arg_name,
+                    ext = external_type
+                )
+            }
+        } else if is_mut {
             format!(
                 "    let {var_name}: &mut {ext} = core::mem::transmute({arg_name});",
                 var_name = var_name,

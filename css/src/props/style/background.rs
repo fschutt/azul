@@ -71,7 +71,8 @@ pub enum StyleBackgroundContent {
 impl_vec!(
     StyleBackgroundContent,
     StyleBackgroundContentVec,
-    StyleBackgroundContentVecDestructor
+    StyleBackgroundContentVecDestructor,
+    StyleBackgroundContentVecDestructorType
 );
 impl_vec_debug!(StyleBackgroundContent, StyleBackgroundContentVec);
 impl_vec_partialord!(StyleBackgroundContent, StyleBackgroundContentVec);
@@ -333,7 +334,8 @@ pub struct NormalizedLinearColorStop {
 impl_vec!(
     NormalizedLinearColorStop,
     NormalizedLinearColorStopVec,
-    NormalizedLinearColorStopVecDestructor
+    NormalizedLinearColorStopVecDestructor,
+    NormalizedLinearColorStopVecDestructorType
 );
 impl_vec_debug!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
 impl_vec_partialord!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
@@ -361,7 +363,8 @@ pub struct NormalizedRadialColorStop {
 impl_vec!(
     NormalizedRadialColorStop,
     NormalizedRadialColorStopVec,
-    NormalizedRadialColorStopVecDestructor
+    NormalizedRadialColorStopVecDestructor,
+    NormalizedRadialColorStopVecDestructorType
 );
 impl_vec_debug!(NormalizedRadialColorStop, NormalizedRadialColorStopVec);
 impl_vec_partialord!(NormalizedRadialColorStop, NormalizedRadialColorStopVec);
@@ -423,7 +426,8 @@ pub struct StyleBackgroundPosition {
 impl_vec!(
     StyleBackgroundPosition,
     StyleBackgroundPositionVec,
-    StyleBackgroundPositionVecDestructor
+    StyleBackgroundPositionVecDestructor,
+    StyleBackgroundPositionVecDestructorType
 );
 impl_vec_debug!(StyleBackgroundPosition, StyleBackgroundPositionVec);
 impl_vec_partialord!(StyleBackgroundPosition, StyleBackgroundPositionVec);
@@ -562,7 +566,8 @@ pub struct PixelValueSize {
 impl_vec!(
     StyleBackgroundSize,
     StyleBackgroundSizeVec,
-    StyleBackgroundSizeVecDestructor
+    StyleBackgroundSizeVecDestructor,
+    StyleBackgroundSizeVecDestructorType
 );
 impl_vec_debug!(StyleBackgroundSize, StyleBackgroundSizeVec);
 impl_vec_partialord!(StyleBackgroundSize, StyleBackgroundSizeVec);
@@ -624,7 +629,8 @@ pub enum StyleBackgroundRepeat {
 impl_vec!(
     StyleBackgroundRepeat,
     StyleBackgroundRepeatVec,
-    StyleBackgroundRepeatVecDestructor
+    StyleBackgroundRepeatVecDestructor,
+    StyleBackgroundRepeatVecDestructorType
 );
 impl_vec_debug!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
 impl_vec_partialord!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);

@@ -158,7 +158,8 @@ pub enum StyleTransform {
 impl_vec!(
     StyleTransform,
     StyleTransformVec,
-    StyleTransformVecDestructor
+    StyleTransformVecDestructor,
+    StyleTransformVecDestructorType
 );
 impl_vec_debug!(StyleTransform, StyleTransformVec);
 impl_vec_partialord!(StyleTransform, StyleTransformVec);

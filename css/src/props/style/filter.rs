@@ -50,7 +50,7 @@ pub enum StyleFilter {
     Composite(StyleCompositeFilter),
 }
 
-impl_vec!(StyleFilter, StyleFilterVec, StyleFilterVecDestructor);
+impl_vec!(StyleFilter, StyleFilterVec, StyleFilterVecDestructor, StyleFilterVecDestructorType);
 impl_vec_clone!(StyleFilter, StyleFilterVec, StyleFilterVecDestructor);
 impl_vec_debug!(StyleFilter, StyleFilterVec);
 impl_vec_eq!(StyleFilter, StyleFilterVec);

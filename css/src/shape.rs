@@ -43,7 +43,7 @@ impl core::hash::Hash for ShapePoint {
     }
 }
 
-impl_vec!(ShapePoint, ShapePointVec, ShapePointVecDestructor);
+impl_vec!(ShapePoint, ShapePointVec, ShapePointVecDestructor, ShapePointVecDestructorType);
 impl_vec_debug!(ShapePoint, ShapePointVec);
 impl_vec_partialord!(ShapePoint, ShapePointVec);
 impl_vec_ord!(ShapePoint, ShapePointVec);
@@ -343,7 +343,7 @@ impl LineSegment {
     }
 }
 
-impl_vec!(LineSegment, LineSegmentVec, LineSegmentVecDestructor);
+impl_vec!(LineSegment, LineSegmentVec, LineSegmentVecDestructor, LineSegmentVecDestructorType);
 impl_vec_debug!(LineSegment, LineSegmentVec);
 impl_vec_clone!(LineSegment, LineSegmentVec, LineSegmentVecDestructor);
 impl_vec_partialeq!(LineSegment, LineSegmentVec);

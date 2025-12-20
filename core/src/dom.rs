@@ -954,7 +954,7 @@ pub enum IdOrClass {
     Class(AzString),
 }
 
-impl_vec!(IdOrClass, IdOrClassVec, IdOrClassVecDestructor);
+impl_vec!(IdOrClass, IdOrClassVec, IdOrClassVecDestructor, IdOrClassVecDestructorType);
 impl_vec_debug!(IdOrClass, IdOrClassVec);
 impl_vec_partialord!(IdOrClass, IdOrClassVec);
 impl_vec_ord!(IdOrClass, IdOrClassVec);
@@ -1088,7 +1088,7 @@ pub enum AttributeType {
     Custom(AttributeNameValue),
 }
 
-impl_vec!(AttributeType, AttributeVec, AttributeVecDestructor);
+impl_vec!(AttributeType, AttributeVec, AttributeVecDestructor, AttributeVecDestructorType);
 impl_vec_debug!(AttributeType, AttributeVec);
 impl_vec_partialord!(AttributeType, AttributeVec);
 impl_vec_ord!(AttributeType, AttributeVec);
@@ -1424,7 +1424,8 @@ impl fmt::Debug for NodeDataInlineCssProperty {
 impl_vec!(
     NodeDataInlineCssProperty,
     NodeDataInlineCssPropertyVec,
-    NodeDataInlineCssPropertyVecDestructor
+    NodeDataInlineCssPropertyVecDestructor,
+    NodeDataInlineCssPropertyVecDestructorType
 );
 impl_vec_debug!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 impl_vec_partialord!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
@@ -1621,7 +1622,8 @@ pub struct TextSelectionStartEnd {
 impl_vec![
     AccessibilityAction,
     AccessibilityActionVec,
-    AccessibilityActionVecDestructor
+    AccessibilityActionVecDestructor,
+    AccessibilityActionVecDestructorType
 ];
 impl_vec_debug!(AccessibilityAction, AccessibilityActionVec);
 impl_vec_clone!(
@@ -2241,7 +2243,8 @@ pub enum AccessibilityState {
 impl_vec!(
     AccessibilityState,
     AccessibilityStateVec,
-    AccessibilityStateVecDestructor
+    AccessibilityStateVecDestructor,
+    AccessibilityStateVecDestructorType
 );
 impl_vec_clone!(
     AccessibilityState,
@@ -2277,7 +2280,7 @@ impl Clone for NodeData {
 }
 
 // Clone, PartialEq, Eq, Hash, PartialOrd, Ord
-impl_vec!(NodeData, NodeDataVec, NodeDataVecDestructor);
+impl_vec!(NodeData, NodeDataVec, NodeDataVecDestructor, NodeDataVecDestructorType);
 impl_vec_clone!(NodeData, NodeDataVec, NodeDataVecDestructor);
 impl_vec_mut!(NodeData, NodeDataVec);
 impl_vec_debug!(NodeData, NodeDataVec);
@@ -2961,7 +2964,7 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(Dom, DomVec, DomVecDestructor);
+impl_vec!(Dom, DomVec, DomVecDestructor, DomVecDestructorType);
 impl_vec_clone!(Dom, DomVec, DomVecDestructor);
 impl_vec_mut!(Dom, DomVec);
 impl_vec_debug!(Dom, DomVec);

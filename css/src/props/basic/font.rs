@@ -325,7 +325,8 @@ impl StyleFontFamily {
 impl_vec!(
     StyleFontFamily,
     StyleFontFamilyVec,
-    StyleFontFamilyVecDestructor
+    StyleFontFamilyVecDestructor,
+    StyleFontFamilyVecDestructorType
 );
 impl_vec_clone!(
     StyleFontFamily,

@@ -369,7 +369,8 @@ impl_option!(
 impl_vec!(
     VirtualKeyCode,
     VirtualKeyCodeVec,
-    VirtualKeyCodeVecDestructor
+    VirtualKeyCodeVecDestructor,
+    VirtualKeyCodeVecDestructorType
 );
 impl_vec_debug!(VirtualKeyCode, VirtualKeyCodeVec);
 impl_vec_partialord!(VirtualKeyCode, VirtualKeyCodeVec);
@@ -385,7 +386,7 @@ impl_vec_hash!(VirtualKeyCode, VirtualKeyCodeVec);
 
 impl_vec_as_hashmap!(VirtualKeyCode, VirtualKeyCodeVec);
 
-impl_vec!(ScanCode, ScanCodeVec, ScanCodeVecDestructor);
+impl_vec!(ScanCode, ScanCodeVec, ScanCodeVecDestructor, ScanCodeVecDestructorType);
 impl_vec_debug!(ScanCode, ScanCodeVec);
 impl_vec_partialord!(ScanCode, ScanCodeVec);
 impl_vec_ord!(ScanCode, ScanCodeVec);
@@ -607,7 +608,7 @@ pub struct TouchPoint {
     pub force: f32,
 }
 
-impl_vec!(TouchPoint, TouchPointVec, TouchPointVecDestructor);
+impl_vec!(TouchPoint, TouchPointVec, TouchPointVecDestructor, TouchPointVecDestructorType);
 impl_vec_debug!(TouchPoint, TouchPointVec);
 impl_vec_clone!(TouchPoint, TouchPointVec, TouchPointVecDestructor);
 impl_vec_partialeq!(TouchPoint, TouchPointVec);
@@ -740,7 +741,7 @@ pub struct Monitor {
     pub is_primary_monitor: bool,
 }
 
-impl_vec!(Monitor, MonitorVec, MonitorVecDestructor);
+impl_vec!(Monitor, MonitorVec, MonitorVecDestructor, MonitorVecDestructorType);
 impl_vec_debug!(Monitor, MonitorVec);
 impl_vec_clone!(Monitor, MonitorVec, MonitorVecDestructor);
 impl_vec_partialeq!(Monitor, MonitorVec);
@@ -777,7 +778,7 @@ pub struct VideoMode {
     pub refresh_rate: u16,
 }
 
-impl_vec!(VideoMode, VideoModeVec, VideoModeVecDestructor);
+impl_vec!(VideoMode, VideoModeVec, VideoModeVecDestructor, VideoModeVecDestructorType);
 impl_vec_clone!(VideoMode, VideoModeVec, VideoModeVecDestructor);
 impl_vec_debug!(VideoMode, VideoModeVec);
 impl_vec_partialeq!(VideoMode, VideoModeVec);
@@ -1047,7 +1048,7 @@ impl Default for WindowsWindowOptions {
 }
 
 /// Note: this should be a *mut HWND
-type HwndHandle = *mut c_void;
+pub type HwndHandle = *mut c_void;
 
 impl_option!(
     HwndHandle,
@@ -1175,7 +1176,7 @@ pub struct LinuxWindowOptions {
     pub x11_decorations_state: OptionLinuxDecorationsState,
 }
 
-type X11Visual = *const c_void;
+pub type X11Visual = *const c_void;
 impl_option!(
     X11Visual,
     OptionX11Visual,
@@ -1189,7 +1190,7 @@ pub struct AzStringPair {
     pub value: AzString,
 }
 
-impl_vec!(AzStringPair, StringPairVec, StringPairVecDestructor);
+impl_vec!(AzStringPair, StringPairVec, StringPairVecDestructor, StringPairVecDestructorType);
 impl_vec_mut!(AzStringPair, StringPairVec);
 impl_vec_debug!(AzStringPair, StringPairVec);
 impl_vec_partialord!(AzStringPair, StringPairVec);
@@ -1235,7 +1236,7 @@ impl StringPairVec {
     }
 }
 
-impl_vec!(XWindowType, XWindowTypeVec, XWindowTypeVecDestructor);
+impl_vec!(XWindowType, XWindowTypeVec, XWindowTypeVecDestructor, XWindowTypeVecDestructorType);
 impl_vec_debug!(XWindowType, XWindowTypeVec);
 impl_vec_partialord!(XWindowType, XWindowTypeVec);
 impl_vec_ord!(XWindowType, XWindowTypeVec);

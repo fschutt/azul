@@ -287,7 +287,7 @@ impl core::ops::Deref for AzString {
     }
 }
 
-impl_vec!(u8, U8Vec, U8VecDestructor);
+impl_vec!(u8, U8Vec, U8VecDestructor, U8VecDestructorType);
 impl_vec_mut!(u8, U8Vec);
 impl_vec_debug!(u8, U8Vec);
 impl_vec_partialord!(u8, U8Vec);
@@ -317,7 +317,7 @@ impl_option!(
     [Debug, Clone, PartialEq, Ord, PartialOrd, Eq, Hash]
 );
 
-impl_vec!(u16, U16Vec, U16VecDestructor);
+impl_vec!(u16, U16Vec, U16VecDestructor, U16VecDestructorType);
 impl_vec_debug!(u16, U16Vec);
 impl_vec_partialord!(u16, U16Vec);
 impl_vec_ord!(u16, U16Vec);
@@ -326,14 +326,14 @@ impl_vec_partialeq!(u16, U16Vec);
 impl_vec_eq!(u16, U16Vec);
 impl_vec_hash!(u16, U16Vec);
 
-impl_vec!(f32, F32Vec, F32VecDestructor);
+impl_vec!(f32, F32Vec, F32VecDestructor, F32VecDestructorType);
 impl_vec_debug!(f32, F32Vec);
 impl_vec_partialord!(f32, F32Vec);
 impl_vec_clone!(f32, F32Vec, F32VecDestructor);
 impl_vec_partialeq!(f32, F32Vec);
 
 // Vec<char>
-impl_vec!(u32, U32Vec, U32VecDestructor);
+impl_vec!(u32, U32Vec, U32VecDestructor, U32VecDestructorType);
 impl_vec_mut!(u32, U32Vec);
 impl_vec_debug!(u32, U32Vec);
 impl_vec_partialord!(u32, U32Vec);
@@ -343,7 +343,7 @@ impl_vec_partialeq!(u32, U32Vec);
 impl_vec_eq!(u32, U32Vec);
 impl_vec_hash!(u32, U32Vec);
 
-impl_vec!(AzString, StringVec, StringVecDestructor);
+impl_vec!(AzString, StringVec, StringVecDestructor, StringVecDestructorType);
 impl_vec_debug!(AzString, StringVec);
 impl_vec_partialord!(AzString, StringVec);
 impl_vec_ord!(AzString, StringVec);

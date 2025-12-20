@@ -93,7 +93,8 @@ pub struct NodeTypeIdInfoMap {
 impl_vec!(
     NodeTypeIdInfoMap,
     NodeTypeIdInfoMapVec,
-    NodeTypeIdInfoMapVecDestructor
+    NodeTypeIdInfoMapVecDestructor,
+    NodeTypeIdInfoMapVecDestructorType
 );
 impl_vec_clone!(
     NodeTypeIdInfoMap,
@@ -113,7 +114,8 @@ pub struct InputOutputTypeIdInfoMap {
 impl_vec!(
     InputOutputTypeIdInfoMap,
     InputOutputTypeIdInfoMapVec,
-    InputOutputTypeIdInfoMapVecDestructor
+    InputOutputTypeIdInfoMapVecDestructor,
+    InputOutputTypeIdInfoMapVecDestructorType
 );
 impl_vec_clone!(
     InputOutputTypeIdInfoMap,
@@ -130,7 +132,7 @@ pub struct NodeIdNodeMap {
     pub node: Node,
 }
 
-impl_vec!(NodeIdNodeMap, NodeIdNodeMapVec, NodeIdNodeMapVecDestructor);
+impl_vec!(NodeIdNodeMap, NodeIdNodeMapVec, NodeIdNodeMapVecDestructor, NodeIdNodeMapVecDestructorType);
 impl_vec_clone!(NodeIdNodeMap, NodeIdNodeMapVec, NodeIdNodeMapVecDestructor);
 impl_vec_mut!(NodeIdNodeMap, NodeIdNodeMapVec);
 impl_vec_debug!(NodeIdNodeMap, NodeIdNodeMapVec);
@@ -265,7 +267,8 @@ pub struct InputOutputTypeId {
 impl_vec!(
     InputOutputTypeId,
     InputOutputTypeIdVec,
-    InputOutputTypeIdVecDestructor
+    InputOutputTypeIdVecDestructor,
+    InputOutputTypeIdVecDestructorType
 );
 impl_vec_clone!(
     InputOutputTypeId,
@@ -304,7 +307,7 @@ pub struct NodeTypeField {
     pub value: NodeTypeFieldValue,
 }
 
-impl_vec!(NodeTypeField, NodeTypeFieldVec, NodeTypeFieldVecDestructor);
+impl_vec!(NodeTypeField, NodeTypeFieldVec, NodeTypeFieldVecDestructor, NodeTypeFieldVecDestructorType);
 impl_vec_clone!(NodeTypeField, NodeTypeFieldVec, NodeTypeFieldVecDestructor);
 impl_vec_debug!(NodeTypeField, NodeTypeFieldVec);
 impl_vec_mut!(NodeTypeField, NodeTypeFieldVec);
@@ -329,7 +332,8 @@ pub struct InputConnection {
 impl_vec!(
     InputConnection,
     InputConnectionVec,
-    InputConnectionVecDestructor
+    InputConnectionVecDestructor,
+    InputConnectionVecDestructorType
 );
 impl_vec_clone!(
     InputConnection,
@@ -349,7 +353,8 @@ pub struct OutputNodeAndIndex {
 impl_vec!(
     OutputNodeAndIndex,
     OutputNodeAndIndexVec,
-    OutputNodeAndIndexVecDestructor
+    OutputNodeAndIndexVecDestructor,
+    OutputNodeAndIndexVecDestructorType
 );
 impl_vec_clone!(
     OutputNodeAndIndex,
@@ -369,7 +374,8 @@ pub struct OutputConnection {
 impl_vec!(
     OutputConnection,
     OutputConnectionVec,
-    OutputConnectionVecDestructor
+    OutputConnectionVecDestructor,
+    OutputConnectionVecDestructorType
 );
 impl_vec_clone!(
     OutputConnection,
@@ -389,7 +395,8 @@ pub struct InputNodeAndIndex {
 impl_vec!(
     InputNodeAndIndex,
     InputNodeAndIndexVec,
-    InputNodeAndIndexVecDestructor
+    InputNodeAndIndexVecDestructor,
+    InputNodeAndIndexVecDestructorType
 );
 impl_vec_clone!(
     InputNodeAndIndex,

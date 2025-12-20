@@ -13601,10 +13601,10 @@
                 ],
                 "fn_args": [
                   {
-                    "value": "float"
+                    "value": "f32"
                   }
                 ],
-                "fn_body": "Self { inner: azul_css::corety::FloatValue::new(value) }"
+                "fn_body": "Self { inner: azul_css::props::basic::FloatValue::new(value) }"
               }
             },
             "repr": "C"
@@ -15501,10 +15501,10 @@
                 ],
                 "fn_args": [
                   {
-                    "value": "float"
+                    "value": "f32"
                   }
                 ],
-                "fn_body": "Self { inner: azul_css::corety::PixelValue::px(value) }"
+                "fn_body": "Self { inner: azul_css::props::basic::PixelValue::px(value) }"
               }
             },
             "repr": "C"

@@ -1946,7 +1946,8 @@ pub struct GlyphOutline {
 azul_css::impl_vec!(
     GlyphOutlineOperation,
     GlyphOutlineOperationVec,
-    GlyphOutlineOperationVecDestructor
+    GlyphOutlineOperationVecDestructor,
+    GlyphOutlineOperationVecDestructorType
 );
 azul_css::impl_vec_clone!(
     GlyphOutlineOperation,

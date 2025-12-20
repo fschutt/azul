@@ -256,7 +256,8 @@ impl SvgPathElement {
 impl_vec!(
     SvgPathElement,
     SvgPathElementVec,
-    SvgPathElementVecDestructor
+    SvgPathElementVecDestructor,
+    SvgPathElementVecDestructorType
 );
 impl_vec_debug!(SvgPathElement, SvgPathElementVec);
 impl_vec_clone!(
@@ -402,7 +403,7 @@ impl SvgMultiPolygon {
     }
 }
 
-impl_vec!(SvgPath, SvgPathVec, SvgPathVecDestructor);
+impl_vec!(SvgPath, SvgPathVec, SvgPathVecDestructor, SvgPathVecDestructorType);
 impl_vec_debug!(SvgPath, SvgPathVec);
 impl_vec_clone!(SvgPath, SvgPathVec, SvgPathVecDestructor);
 impl_vec_partialeq!(SvgPath, SvgPathVec);
@@ -411,7 +412,8 @@ impl_vec_partialord!(SvgPath, SvgPathVec);
 impl_vec!(
     SvgMultiPolygon,
     SvgMultiPolygonVec,
-    SvgMultiPolygonVecDestructor
+    SvgMultiPolygonVecDestructor,
+    SvgMultiPolygonVecDestructorType
 );
 impl_vec_debug!(SvgMultiPolygon, SvgMultiPolygonVec);
 impl_vec_clone!(
@@ -446,7 +448,7 @@ pub enum SvgSimpleNode {
     RectHole(SvgRect),
 }
 
-impl_vec!(SvgSimpleNode, SvgSimpleNodeVec, SvgSimpleNodeVecDestructor);
+impl_vec!(SvgSimpleNode, SvgSimpleNodeVec, SvgSimpleNodeVecDestructor, SvgSimpleNodeVecDestructorType);
 impl_vec_debug!(SvgSimpleNode, SvgSimpleNodeVec);
 impl_vec_clone!(SvgSimpleNode, SvgSimpleNodeVec, SvgSimpleNodeVecDestructor);
 impl_vec_partialeq!(SvgSimpleNode, SvgSimpleNodeVec);
@@ -653,7 +655,8 @@ impl Default for TessellatedSvgNode {
 impl_vec!(
     TessellatedSvgNode,
     TessellatedSvgNodeVec,
-    TessellatedSvgNodeVecDestructor
+    TessellatedSvgNodeVecDestructor,
+    TessellatedSvgNodeVecDestructorType
 );
 impl_vec_debug!(TessellatedSvgNode, TessellatedSvgNodeVec);
 impl_vec_partialord!(TessellatedSvgNode, TessellatedSvgNodeVec);
@@ -727,7 +730,8 @@ impl Default for TessellatedColoredSvgNode {
 impl_vec!(
     TessellatedColoredSvgNode,
     TessellatedColoredSvgNodeVec,
-    TessellatedColoredSvgNodeVecDestructor
+    TessellatedColoredSvgNodeVecDestructor,
+    TessellatedColoredSvgNodeVecDestructorType
 );
 impl_vec_debug!(TessellatedColoredSvgNode, TessellatedColoredSvgNodeVec);
 impl_vec_partialord!(TessellatedColoredSvgNode, TessellatedColoredSvgNodeVec);
@@ -782,7 +786,7 @@ impl TessellatedColoredSvgNodeVecRef {
     }
 }
 
-impl_vec!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor);
+impl_vec!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor, SvgVertexVecDestructorType);
 impl_vec_debug!(SvgVertex, SvgVertexVec);
 impl_vec_partialord!(SvgVertex, SvgVertexVec);
 impl_vec_clone!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor);
@@ -791,7 +795,8 @@ impl_vec_partialeq!(SvgVertex, SvgVertexVec);
 impl_vec!(
     SvgColoredVertex,
     SvgColoredVertexVec,
-    SvgColoredVertexVecDestructor
+    SvgColoredVertexVecDestructor,
+    SvgColoredVertexVecDestructorType
 );
 impl_vec_debug!(SvgColoredVertex, SvgColoredVertexVec);
 impl_vec_partialord!(SvgColoredVertex, SvgColoredVertexVec);

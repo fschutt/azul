@@ -592,7 +592,7 @@ pub struct DebugMessage {
     pub severity: GLenum,
 }
 
-impl_vec!(DebugMessage, DebugMessageVec, DebugMessageVecDestructor);
+impl_vec!(DebugMessage, DebugMessageVec, DebugMessageVecDestructor, DebugMessageVecDestructorType);
 impl_vec_debug!(DebugMessage, DebugMessageVec);
 impl_vec_partialord!(DebugMessage, DebugMessageVec);
 impl_vec_ord!(DebugMessage, DebugMessageVec);
@@ -601,7 +601,7 @@ impl_vec_partialeq!(DebugMessage, DebugMessageVec);
 impl_vec_eq!(DebugMessage, DebugMessageVec);
 impl_vec_hash!(DebugMessage, DebugMessageVec);
 
-impl_vec!(GLint, GLintVec, GLintVecDestructor);
+impl_vec!(GLint, GLintVec, GLintVecDestructor, GLintVecDestructorType);
 impl_vec_debug!(GLint, GLintVec);
 impl_vec_partialord!(GLint, GLintVec);
 impl_vec_ord!(GLint, GLintVec);
@@ -610,7 +610,7 @@ impl_vec_partialeq!(GLint, GLintVec);
 impl_vec_eq!(GLint, GLintVec);
 impl_vec_hash!(GLint, GLintVec);
 
-impl_vec!(GLuint, GLuintVec, GLuintVecDestructor);
+impl_vec!(GLuint, GLuintVec, GLuintVecDestructor, GLuintVecDestructorType);
 impl_vec_debug!(GLuint, GLuintVec);
 impl_vec_partialord!(GLuint, GLuintVec);
 impl_vec_ord!(GLuint, GLuintVec);
@@ -2858,7 +2858,8 @@ pub struct VertexLayout {
 impl_vec!(
     VertexAttribute,
     VertexAttributeVec,
-    VertexAttributeVecDestructor
+    VertexAttributeVecDestructor,
+    VertexAttributeVecDestructorType
 );
 impl_vec_debug!(VertexAttribute, VertexAttributeVec);
 impl_vec_partialord!(VertexAttribute, VertexAttributeVec);

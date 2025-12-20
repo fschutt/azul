@@ -52,7 +52,7 @@ impl LogicalRect {
 
     /// Returns whether this rectangle intersects with another rectangle
     #[inline]
-    pub fn intersects(&self, other: &Self) -> bool {
+    pub fn intersects(&self, other: Self) -> bool {
         // Check if one rectangle is to the left of the other
         if self.max_x() <= other.min_x() || other.max_x() <= self.min_x() {
             return false;
@@ -139,7 +139,7 @@ impl LogicalRect {
     }
 }
 
-impl_vec!(LogicalRect, LogicalRectVec, LogicalRectVecDestructor);
+impl_vec!(LogicalRect, LogicalRectVec, LogicalRectVecDestructor, LogicalRectVecDestructorType);
 impl_vec_clone!(LogicalRect, LogicalRectVec, LogicalRectVecDestructor);
 impl_vec_debug!(LogicalRect, LogicalRectVec);
 impl_vec_partialeq!(LogicalRect, LogicalRectVec);

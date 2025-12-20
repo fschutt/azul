@@ -93,7 +93,8 @@ impl PrintAsCssValue for GridTrackSizing {
 impl_vec!(
     GridTrackSizing,
     GridTrackSizingVec,
-    GridTrackSizingVecDestructor
+    GridTrackSizingVecDestructor,
+    GridTrackSizingVecDestructorType
 );
 impl_vec_clone!(
     GridTrackSizing,

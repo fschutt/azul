@@ -632,7 +632,7 @@ extern "C" fn invoke_py_layout_callback(
                 .unwrap_or_else(|| format!("__dll_api_inner::dll::{}{}", prefix, info_type));
             builder.line(&format!("let info_ffi: __dll_api_inner::dll::{}{} = unsafe {{ mem::transmute(info) }};", prefix, info_type));
             builder.line(&format!("let info_rust: &{} = unsafe {{ mem::transmute(&info_ffi) }};", info_external));
-            builder.line("let callable_opt = info_rust.get_callable();");
+            builder.line("let callable_opt = info_rust.get_ctx();");
             builder.line("let callable_refany = match callable_opt {");
             builder.line("    azul_core::refany::OptionRefAny::Some(r) => r,");
             builder.line("    azul_core::refany::OptionRefAny::None => return default,");
@@ -1182,22 +1182,16 @@ extern "C" fn invoke_py_layout_callback(
             // RefAny is ALWAYS converted from Py<PyAny> to RefAny
             if arg.type_name == "RefAny" {
                 // Wrap Python data in RefAny via PyDataWrapper
+                // Use the SAME name as the parameter so fn_body can use it unchanged
                 builder.line(&format!(
                     "let __py_{}_wrapper = PyDataWrapper {{ _py_data: Some({}.clone_ref(py)) }};",
                     arg.name, arg.name
                 ));
                 builder.line(&format!(
-                    "let {}_ext: azul_core::refany::RefAny = azul_core::refany::RefAny::new(__py_{}_wrapper);",
+                    "let {}: azul_core::refany::RefAny = azul_core::refany::RefAny::new(__py_{}_wrapper);",
                     arg.name, arg.name
                 ));
-                // Replace arg references in fn_body
-                transformed_body = transformed_body
-                    .replace(&format!("({},", arg.name), &format!("({}_ext,", arg.name))
-                    .replace(&format!("({}, ", arg.name), &format!("({}_ext, ", arg.name))
-                    .replace(&format!(" {}, ", arg.name), &format!(" {}_ext, ", arg.name))
-                    .replace(&format!(" {})", arg.name), &format!(" {}_ext)", arg.name))
-                    .replace(&format!("({})", arg.name), &format!("({}_ext)", arg.name))
-                    .replace(&format!(", {})", arg.name), &format!(", {}_ext)", arg.name));
+                // No fn_body replacement needed - we used the same variable name as the parameter
                 continue;
             }
             
@@ -1218,9 +1212,10 @@ extern "C" fn invoke_py_layout_callback(
                     .unwrap_or_else(|| format!("crate::{}", cb_info.callback_wrapper_name));
                 
                 // Create the callback wrapper with trampoline + callable using the INTERNAL type
-                // We transmute the trampoline and refany to match the internal types
+                // Use the SAME name as the parameter so fn_body can use it unchanged
+                // The .into() in fn_body will accept this callback struct
                 builder.line(&format!(
-                    "let {}_ext: {} = {} {{",
+                    "let {}: {} = {} {{",
                     arg.name, wrapper_external, wrapper_external
                 ));
                 builder.line(&format!(
@@ -1232,27 +1227,12 @@ extern "C" fn invoke_py_layout_callback(
                     arg.name
                 ));
                 builder.line("};");
-                // Replace arg references in fn_body
-                // Also strip Callback::create() wrapper since we already created the Callback struct
-                transformed_body = transformed_body
-                    // Strip the Callback::create() wrapper pattern - since we already created callback_ext as a Callback struct
-                    .replace(&format!("azul_layout::callbacks::Callback::create({}).to_core()", arg.name), 
-                             &format!("{}_ext.to_core()", arg.name))
-                    .replace(&format!("Callback::create({}).to_core()", arg.name), 
-                             &format!("{}_ext.to_core()", arg.name))
-                    .replace(&format!("Callback::create({})", arg.name), 
-                             &format!("{}_ext", arg.name))
-                    // Standard replacements for other patterns
-                    .replace(&format!("({},", arg.name), &format!("({}_ext,", arg.name))
-                    .replace(&format!("({}, ", arg.name), &format!("({}_ext, ", arg.name))
-                    .replace(&format!(" {}, ", arg.name), &format!(" {}_ext, ", arg.name))
-                    .replace(&format!(" {})", arg.name), &format!(" {}_ext)", arg.name))
-                    .replace(&format!("({})", arg.name), &format!("({}_ext)", arg.name))
-                    .replace(&format!(", {})", arg.name), &format!(", {}_ext)", arg.name));
+                // No fn_body replacement needed - we used the same variable name as the parameter
                 continue;
             }
             
             // Normal argument handling
+            // Use the SAME name as the parameter so fn_body can use it unchanged
             let arg_external = self.find_external_path(&arg.type_name, ir)
                 .unwrap_or_else(|| {
                     if is_primitive_type(&arg.type_name) {
@@ -1265,65 +1245,30 @@ extern "C" fn invoke_py_layout_callback(
                 });
 
             if is_primitive_type(&arg.type_name) {
-                // Primitive types - transmute directly uses the arg
-                builder.line(&format!(
-                    "let mut {}_ext: {} = {};",
-                    arg.name, arg_external, arg.name
-                ));
+                // Primitive types - use directly, no conversion needed
+                // The parameter already has the correct type
+                // No shadowing needed for primitives
             } else if arg.type_name == "String" {
-                // String args: convert to AzString
+                // String args: convert to AzString, shadow the parameter
                 builder.line(&format!(
-                    "let mut {}_ext: {} = azul_css::corety::AzString::from({}.clone());",
+                    "let {}: {} = azul_css::corety::AzString::from({}.clone());",
                     arg.name, arg_external, arg.name
                 ));
             } else if is_direct_ffi_type(&arg.type_name) {
                 // Direct FFI types (StringVec, U8Vec, etc.) - no .inner wrapper
                 // These are type-aliased directly to the C-API types
                 builder.line(&format!(
-                    "let mut {}_ext: {} = core::mem::transmute({}.clone());",
+                    "let {}: {} = core::mem::transmute({}.clone());",
                     arg.name, arg_external, arg.name
                 ));
             } else {
-                // Other types use transmute with .inner
+                // Other types use transmute with .inner, shadow the parameter
                 builder.line(&format!(
-                    "let mut {}_ext: {} = core::mem::transmute({}.inner.clone());",
+                    "let {}: {} = core::mem::transmute({}.inner.clone());",
                     arg.name, arg_external, arg.name
                 ));
             }
-            
-            // Replace arg references in fn_body
-            // IMPORTANT: Be careful not to replace already-replaced `_ext` names
-            // We use a placeholder approach: first mark all places that need replacement,
-            // then do the actual replacement at the end
-            let arg_name = &arg.name;
-            
-            // Check if this is a shadow pattern: "let mut X = X" - in this case
-            // we only replace the RHS X, the local var X should stay as is
-            let shadow_pattern = format!("let mut {} = {}", arg_name, arg_name);
-            if transformed_body.contains(&shadow_pattern) {
-                // Replace only the parameter assignment, keep local var uses
-                transformed_body = transformed_body.replace(
-                    &shadow_pattern,
-                    &format!("let mut {} = {}_ext", arg_name, arg_name)
-                );
-                // Don't replace other occurrences - they refer to the local var
-            } else {
-                // No shadow - replace all occurrences
-                transformed_body = transformed_body
-                    .replace(&format!(" {}, ", arg_name), &format!(" {}_ext, ", arg_name))
-                    .replace(&format!(" {})", arg_name), &format!(" {}_ext)", arg_name))
-                    .replace(&format!("({})", arg_name), &format!("({}_ext)", arg_name))
-                    .replace(&format!("({},", arg_name), &format!("({}_ext,", arg_name))
-                    .replace(&format!(", {})", arg_name), &format!(", {}_ext)", arg_name))
-                    .replace(&format!("({}, ", arg_name), &format!("({}_ext, ", arg_name))
-                    .replace(&format!("{}.into()", arg_name), &format!("{}_ext.into()", arg_name))
-                    .replace(&format!("&mut {},", arg_name), &format!("&mut {}_ext,", arg_name))
-                    .replace(&format!("&mut {})", arg_name), &format!("&mut {}_ext)", arg_name))
-                    .replace(&format!("&{},", arg_name), &format!("&{}_ext,", arg_name))
-                    .replace(&format!("&{})", arg_name), &format!("&{}_ext)", arg_name))
-                    // Assignment patterns: = X; (with semicolon as boundary)
-                    .replace(&format!("= {};", arg_name), &format!("= {}_ext;", arg_name));
-            }
+            // No fn_body replacement needed - we used the same variable name as the parameter
         }
 
         // Check if fn_body contains statements (has `;` which means multiple statements)
@@ -1933,7 +1878,9 @@ extern "C" fn invoke_py_layout_callback(
         // Callback typedef types (e.g., CallbackType, ButtonOnClickCallbackType) → Py<PyAny>
         // These are raw function pointer types that Python can't use directly
         // We accept a Python callable and use a trampoline to invoke it
-        if base_type.ends_with("CallbackType") {
+        // EXCEPTION: Destructor callback types are internal and should NOT be exposed to Python
+        // as Py<PyAny> - they are low-level function pointers for cleanup, not user callbacks
+        if base_type.ends_with("CallbackType") && !base_type.contains("Destructor") {
             return "Py<PyAny>".to_string();
         }
         
