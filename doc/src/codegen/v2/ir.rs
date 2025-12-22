@@ -476,7 +476,7 @@ impl FunctionKind {
     pub fn c_suffix(&self) -> &'static str {
         match self {
             FunctionKind::Delete => "_delete",
-            FunctionKind::DeepCopy => "_deepCopy",
+            FunctionKind::DeepCopy => "_clone",
             FunctionKind::PartialEq => "_partialEq",
             FunctionKind::PartialCmp => "_partialCmp",
             FunctionKind::Cmp => "_cmp",

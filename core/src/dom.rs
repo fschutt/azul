@@ -2920,6 +2920,12 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
+impl_vec!(DomId, DomIdVec, DomIdVecDestructor, DomIdVecDestructorType);
+impl_vec_debug!(DomId, DomIdVec);
+impl_vec_clone!(DomId, DomIdVec, DomIdVecDestructor);
+impl_vec_partialeq!(DomId, DomIdVec);
+impl_vec_partialord!(DomId, DomIdVec);
+
 /// A UUID for a DOM node within a `LayoutWindow`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -3228,6 +3234,19 @@ impl Dom {
     pub fn create_image(image: ImageRef) -> Self {
         Self::create_node(NodeType::Image(image))
     }
+
+    /// Alias for `create_body()` - creates a body container.
+    #[inline(always)]
+    pub const fn body() -> Self {
+        Self::create_body()
+    }
+
+    /// Alias for `create_image()` - creates an image node.
+    #[inline(always)]
+    pub fn image(image: ImageRef) -> Self {
+        Self::create_image(image)
+    }
+
     #[inline(always)]
     pub fn create_iframe(data: RefAny, callback: impl Into<IFrameCallback>) -> Self {
         Self::create_node(NodeType::IFrame(IFrameNode {

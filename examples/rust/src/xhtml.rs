@@ -1,25 +1,30 @@
-use azul::{
-    app::{App, AppConfig, LayoutSolver},
-    callbacks::{LayoutCallbackInfo, RefAny},
-    css::Css,
-    style::StyledDom,
-    window::WindowCreateOptions,
-};
+use azul::prelude::*;
 
 // Include XHTML at compile time
 static XHTML: &str = include_str!("../assets/spreadsheet.xhtml");
 
-struct Data;
+struct AppData {
+    dom: StyledDom,
+}
 
 extern "C" 
-fn layout(_data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
-    StyledDom::from_xml(XHTML.to_string())
+fn layout(data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
+    match data.downcast_ref::<AppData>() {
+        Some(d) => d.dom.clone(),
+        None => StyledDom::default(),
+    }
 }
 
 fn main() {
-    let data = RefAny::new(Data);
-    let app = App::new(data, AppConfig::new());
-    let mut options = WindowCreateOptions::new(layout);
-    options.state.title = "XHTML Spreadsheet".into();
+    let data = RefAny::new(AppData {
+        dom: Dom::parse_xhtml(XHTML)
+            .unwrap_or_else(|e| {
+                eprintln!("Failed to parse XHTML: {}", e);
+                StyledDom::default()
+            }),
+    });
+    let app = App::create(data, AppConfig::create());
+    let mut options = WindowCreateOptions::create(layout);
+    options.set_window_title("XHTML Spreadsheet");
     app.run(options);
 }

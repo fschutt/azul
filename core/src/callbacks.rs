@@ -868,3 +868,10 @@ pub struct CoreImageCallback {
     pub refany: RefAny,
     pub callback: CoreRenderImageCallback,
 }
+
+impl_option!(
+    CoreImageCallback,
+    OptionCoreImageCallback,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);

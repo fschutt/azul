@@ -169,6 +169,123 @@ fn main() -> anyhow::Result<()> {
             autofix::debug::debug_parse_file(std::path::Path::new(file_path))?;
             return Ok(());
         }
+        ["autofix", "debug", "difficult"] | ["autofix", "difficult"] => {
+            // Analyze and rank types by FFI difficulty
+            let api_data = load_api_json(&api_path)?;
+            autofix::debug::analyze_ffi_difficulty(&api_data);
+            return Ok(());
+        }
+        ["autofix", "debug", "internal"] | ["autofix", "internal"] => {
+            // Show types that should be internal-only
+            let api_data = load_api_json(&api_path)?;
+            autofix::debug::show_internal_only_types(&api_data);
+            return Ok(());
+        }
+        ["autofix", "difficult", "remove", items @ ..] if !items.is_empty() => {
+            // Remove multiple functions/types from api.json
+            // Usage: autofix difficult remove ImageRef.get_data ImageRef.into_inner DecodedImage
+            
+            // Clear the patches folder to avoid stale patches
+            let patches_dir = project_root.join("target").join("autofix").join("patches");
+            if patches_dir.exists() {
+                let _ = fs::remove_dir_all(&patches_dir);
+            }
+            fs::create_dir_all(&patches_dir)?;
+
+            let api_data = load_api_json(&api_path)?;
+
+            // Get the latest version
+            let version = api_data
+                .get_latest_version_str()
+                .ok_or_else(|| anyhow::anyhow!("No versions in api.json"))?
+                .to_string();
+
+            let version_data = api_data
+                .get_version(&version)
+                .ok_or_else(|| anyhow::anyhow!("Version not found"))?;
+
+            println!("[REMOVE] Generating patches to remove {} items...\n", items.len());
+
+            let mut patch_count = 0;
+
+            for item in items {
+                if item.contains('.') {
+                    // It's a function: TypeName.method
+                    let parts: Vec<&str> = item.split('.').collect();
+                    let (type_name, method_name) = if parts.len() == 2 {
+                        (parts[0], parts[1])
+                    } else {
+                        (parts[parts.len() - 2], parts[parts.len() - 1])
+                    };
+
+                    if let Some(module_name) = autofix::function_diff::find_type_module(type_name, version_data) {
+                        println!("  - {}.{} (from {} module)", type_name, method_name, module_name);
+                        
+                        let patch = autofix::function_diff::generate_remove_functions_patch(
+                            type_name,
+                            &[method_name],
+                            module_name,
+                            &version,
+                        );
+
+                        let patch_filename = format!(
+                            "remove_{}_{}.patch.json",
+                            type_name.to_lowercase(),
+                            method_name
+                        );
+                        let patch_path = patches_dir.join(&patch_filename);
+                        let json = serde_json::to_string_pretty(&patch)?;
+                        fs::write(&patch_path, &json)?;
+                        patch_count += 1;
+                    } else {
+                        eprintln!("  [WARN] Type '{}' not found in api.json", type_name);
+                    }
+                } else {
+                    // It's a type name - remove the entire type
+                    if let Some(module_name) = autofix::function_diff::find_type_module(item, version_data) {
+                        println!("  - {} (entire type from {} module)", item, module_name);
+                        
+                        let patch = autofix::function_diff::generate_remove_type_patch(
+                            item,
+                            module_name,
+                            &version,
+                        );
+
+                        let patch_filename = format!("remove_{}.patch.json", item.to_lowercase());
+                        let patch_path = patches_dir.join(&patch_filename);
+                        let json = serde_json::to_string_pretty(&patch)?;
+                        fs::write(&patch_path, &json)?;
+                        patch_count += 1;
+                    } else {
+                        eprintln!("  [WARN] Type '{}' not found in api.json", item);
+                    }
+                }
+            }
+
+            if patch_count > 0 {
+                println!("\n[OK] {} patches written to: {}", patch_count, patches_dir.display());
+                println!("\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:");
+                println!("  cargo run --bin azul-doc -- autofix apply {}", patches_dir.display());
+                println!("\nTo preview changes without applying:");
+                println!("  cargo run --bin azul-doc -- autofix explain");
+            } else {
+                println!("\n[WARN] No patches generated - items not found in api.json");
+            }
+
+            return Ok(());
+        }
+        ["autofix", "debug", "modules"] | ["autofix", "modules"] => {
+            // Show types in wrong modules
+            let api_data = load_api_json(&api_path)?;
+            autofix::debug::show_wrong_module_types(&api_data);
+            return Ok(());
+        }
+        ["autofix", "debug", "deps"] | ["autofix", "deps"] => {
+            // Analyze function dependencies on difficult/internal types
+            let api_data = load_api_json(&api_path)?;
+            autofix::debug::analyze_function_dependencies(&api_data);
+            return Ok(());
+        }
         ["autofix", "explain"] => {
             let patches_dir = project_root.join("target").join("autofix").join("patches");
 
@@ -395,7 +512,7 @@ fn main() -> anyhow::Result<()> {
                             patches_dir.display()
                         );
                         println!("\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:");
-                        println!("  cargo run --bin azul-doc -- patch {}", patches_dir.display());
+                        println!("  cargo run --bin azul-doc -- autofix apply {}", patches_dir.display());
                         println!("\nTo preview changes without applying:");
                         println!("  cargo run --bin azul-doc -- autofix explain");
                     }
@@ -481,7 +598,7 @@ fn main() -> anyhow::Result<()> {
 
             println!("\n[OK] Patch written to: {}", patch_path.display());
             println!("\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:");
-            println!("  cargo run --bin azul-doc -- patch {}", patches_dir.display());
+            println!("  cargo run --bin azul-doc -- autofix apply {}", patches_dir.display());
             println!("\nTo preview changes without applying:");
             println!("  cargo run --bin azul-doc -- autofix explain");
 
@@ -553,7 +670,7 @@ fn main() -> anyhow::Result<()> {
 
             println!("[OK] Patch written to: {}", patch_path.display());
             println!("\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:");
-            println!("  cargo run --bin azul-doc -- patch {}", patches_dir.display());
+            println!("  cargo run --bin azul-doc -- autofix apply {}", patches_dir.display());
             println!("\nTo preview changes without applying:");
             println!("  cargo run --bin azul-doc -- autofix explain");
 
@@ -643,11 +760,11 @@ fn main() -> anyhow::Result<()> {
             println!("\nTo review a patch:");
             println!("  cat {}/*.patch.json", patches_dir.display());
             println!("\nTo apply the patches:");
-            println!("  cargo run -- patch {}", patches_dir.display());
+            println!("  cargo run -- autofix apply {}", patches_dir.display());
 
             return Ok(());
         }
-        ["patch", "safe", patch_dir] => {
+        ["autofix", "apply", "safe", patch_dir] | ["patch", "safe", patch_dir] => {
             println!("[FIX] Applying safe (path-only) patches to api.json...\n");
 
             // Load API data (need mutable copy for patching)
@@ -702,7 +819,68 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        ["patch", patch_file] => {
+        ["autofix", "apply"] => {
+            // Default to target/autofix/patches - intelligently discover it
+            let patches_dir = find_patches_dir(&project_root)?;
+            
+            println!("[FIX] Applying patches from {}...\n", patches_dir.display());
+
+            // Load API data (need mutable copy for patching)
+            let api_json_str = fs::read_to_string(&api_path)
+                .with_context(|| format!("Failed to read api.json from {}", api_path.display()))?;
+            let mut api_data =
+                api::ApiData::from_str(&api_json_str).context("Failed to parse API definition")?;
+
+            // Apply all patches from directory
+            let stats = patch::apply_patches_from_directory(&mut api_data, &patches_dir)?;
+
+            stats.print_summary();
+
+            if stats.successful > 0 || stats.total_changes > 0 {
+                // Normalize class names where external path differs from API name
+                match patch::normalize_class_names(&mut api_data) {
+                    Ok(count) if count > 0 => {
+                        println!("[OK] Renamed {} classes to match external paths", count);
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("[WARN]  Warning: Failed to normalize class names: {}", e);
+                    }
+                }
+            }
+
+            // Always normalize Az prefixes (even if no patches applied)
+            let az_renamed = patch::normalize_az_prefixes(&mut api_data);
+            if az_renamed > 0 {
+                println!("[FIX] Renamed {} types to remove Az prefix", az_renamed);
+            }
+
+            // Save updated api.json if any changes
+            if stats.successful > 0 || stats.total_changes > 0 || az_renamed > 0 {
+                let api_json = serde_json::to_string_pretty(&api_data)?;
+                fs::write(&api_path, api_json)?;
+                println!("\n[SAVE] Saved updated api.json");
+            }
+
+            // Remove empty modules after patching
+            let api_json_str = fs::read_to_string(&api_path)?;
+            let mut fresh_api_data = api::ApiData::from_str(&api_json_str)?;
+            let empty_modules_removed = api::remove_empty_modules(&mut fresh_api_data);
+
+            if empty_modules_removed > 0 {
+                println!("[OK] Removed {} empty modules", empty_modules_removed);
+                let api_json = serde_json::to_string_pretty(&fresh_api_data)?;
+                fs::write(&api_path, api_json)?;
+                println!("\n[SAVE] Saved updated api.json");
+            }
+
+            if stats.has_errors() {
+                std::process::exit(1);
+            }
+
+            return Ok(());
+        }
+        ["autofix", "apply", patch_file] | ["patch", patch_file] => {
             println!("[FIX] Applying patches to api.json...\n");
 
             // Load API data (need mutable copy for patching)
@@ -1397,6 +1575,49 @@ fn load_api_json(api_path: &PathBuf) -> anyhow::Result<api::ApiData> {
     Ok(api_data)
 }
 
+/// Find the patches directory, trying multiple locations
+fn find_patches_dir(project_root: &PathBuf) -> anyhow::Result<PathBuf> {
+    // Try locations in order of priority
+    let candidates = [
+        // 1. Standard location relative to project root
+        project_root.join("target").join("autofix").join("patches"),
+        // 2. Current working directory's target/autofix/patches
+        PathBuf::from("target").join("autofix").join("patches"),
+        // 3. If we're in doc/, go up one level
+        PathBuf::from("..").join("target").join("autofix").join("patches"),
+        // 4. If we're in target/, look in autofix/patches
+        PathBuf::from("autofix").join("patches"),
+    ];
+    
+    for candidate in &candidates {
+        if candidate.exists() && candidate.is_dir() {
+            // Check if it has any .patch.json files
+            if let Ok(entries) = fs::read_dir(candidate) {
+                let has_patches = entries
+                    .filter_map(|e| e.ok())
+                    .any(|e| e.path().extension().map_or(false, |ext| ext == "json"));
+                if has_patches {
+                    return Ok(candidate.clone());
+                }
+            }
+        }
+    }
+    
+    // Default to the standard location even if it doesn't exist yet
+    let default = project_root.join("target").join("autofix").join("patches");
+    if default.exists() {
+        Ok(default)
+    } else {
+        anyhow::bail!(
+            "No patches directory found. Generate patches first with:\n  \
+             azul-doc autofix difficult remove <items...>\n  \
+             azul-doc autofix remove <Type.method>\n\n\
+             Expected location: {}", 
+            default.display()
+        )
+    }
+}
+
 fn print_cli_help() -> anyhow::Result<()> {
     println!("Azul Documentation and Deployment Tool");
     println!();
@@ -1413,17 +1634,20 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autofix add <Type.method>     - Add function(s) to api.json");
     println!("    autofix add <Type.*>          - Add all public methods of a type");
     println!("    autofix remove <Type.method>  - Remove function from api.json");
+    println!("    autofix apply                 - Apply patches from target/autofix/patches");
+    println!("    autofix apply <file|dir>      - Apply a patch file or directory");
+    println!("    autofix apply safe <dir>      - Apply and delete safe (path-only) patches");
+    println!("    autofix difficult remove ...  - Remove multiple functions/types at once");
     println!();
     println!("  AUTOFIX DEBUG (inspect type resolution):");
     println!("    autofix debug type <name>     - Show type definition in workspace index");
     println!("    autofix debug chain <name>    - Show recursive type resolution chain");
     println!("    autofix debug api <name>      - Compare workspace vs api.json for a type");
     println!("    autofix debug file <path>     - Debug parsing of a specific file");
-    println!();
-    println!("  PATCHING:");
-    println!("    patch <file>                  - Apply a patch file to api.json");
-    println!("    patch <dir>                   - Apply all patch files from a directory");
-    println!("    patch safe <dir>              - Apply and delete safe (path-only) patches");
+    println!("    autofix difficult             - Rank types by FFI difficulty");
+    println!("    autofix internal              - Show types that should be internal-only");
+    println!("    autofix modules               - Show types in wrong modules");
+    println!("    autofix deps                  - Analyze function dependencies on difficult types");
     println!();
     println!("  API MANAGEMENT:");
     println!("    normalize                     - Normalize/reformat api.json");

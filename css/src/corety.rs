@@ -377,6 +377,16 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 impl_option!(
+    u64,
+    OptionU64,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl_option!(
+    usize,
+    OptionUsize,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl_option!(
     i16,
     OptionI16,
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]

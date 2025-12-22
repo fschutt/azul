@@ -856,6 +856,13 @@ pub struct WindowFlags {
     pub prevent_system_sleep: bool,
 }
 
+impl_option!(
+    WindowFlags,
+    OptionWindowFlags,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
 /// Window type classification for behavior control
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]

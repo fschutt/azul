@@ -30,7 +30,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&button, AzDom_createText(button_text));
     
     AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
-    AzRefAny data_clone = AzRefAny_deepCopy(&data);
+    AzRefAny data_clone = AzRefAny_clone(&data);
     AzDom_addCallback(&button, event, data_clone, on_click);
 
     AzDom body = AzDom_createBody();

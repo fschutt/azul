@@ -82,7 +82,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     const ButtonData* bd = ButtonData_downcast_ref(data_wrapper);
     if (!bd) return AzUpdate_DoNothing;
     
-    RefAny calc_wrapper(AzRefAny_deepCopy(&bd->calc));
+    RefAny calc_wrapper(AzRefAny_clone(&bd->calc));
     Calculator* c = Calculator_downcast_mut(calc_wrapper);
     if (!c) return AzUpdate_DoNothing;
     

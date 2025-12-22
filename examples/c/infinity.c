@@ -36,7 +36,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_setInlineStyle(&title, title_style);
     
     AzIFrameCallback iframe_cb = { .cb = render_iframe };
-    AzDom iframe = AzDom_createIframe(AzRefAny_deepCopy(&data), iframe_cb);
+    AzDom iframe = AzDom_createIframe(AzRefAny_clone(&data), iframe_cb);
     AzString iframe_style = AzString_copyFromBytes((const uint8_t*)"flex-grow: 1; overflow: scroll; background: #f5f5f5;", 0, 53);
     AzDom_setInlineStyle(&iframe, iframe_style);
     

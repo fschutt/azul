@@ -849,7 +849,7 @@ fn render_image(
     renderer_resources: &RendererResources,
 ) -> Result<(), String> {
     // Look up the image in renderer_resources
-    let image_ref_hash = ImageRefHash(key.key as usize);
+    let image_ref_hash = ImageRefHash { inner: key.key as usize };
 
     let resolved_image = match renderer_resources.get_image(&image_ref_hash) {
         Some(img) => img,

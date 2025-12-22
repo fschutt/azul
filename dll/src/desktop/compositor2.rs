@@ -581,7 +581,7 @@ pub fn translate_displaylist_to_wr(
 
             DisplayListItem::Image { bounds, key } => {
                 // Look up the ImageKey in renderer_resources
-                let image_ref_hash = ImageRefHash(key.key as usize);
+                let image_ref_hash = ImageRefHash { inner: key.key as usize };
 
                 if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
                     let wr_image_key = translate_image_key(resolved_image.key);

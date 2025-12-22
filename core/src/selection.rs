@@ -58,6 +58,7 @@ pub struct ContentIndex {
 /// This survives Bidi reordering and line breaking, making it ideal for tracking
 /// text positions for selection and cursor logic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
 pub struct GraphemeClusterId {
     /// The `run_index` from the source `ContentIndex`.
     pub source_run: u32,
@@ -78,6 +79,7 @@ pub enum CursorAffinity {
 
 /// Represents a precise cursor location in the logical text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[repr(C)]
 pub struct TextCursor {
     /// The grapheme cluster the cursor is associated with.
     pub cluster_id: GraphemeClusterId,
@@ -88,23 +90,38 @@ pub struct TextCursor {
 /// Represents a range of selected text. The direction is implicit (start can be
 /// logically after end if selecting backwards).
 #[derive(Debug, PartialOrd, Ord, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub struct SelectionRange {
     pub start: TextCursor,
     pub end: TextCursor,
 }
 
+impl_vec!(SelectionRange, SelectionRangeVec, SelectionRangeVecDestructor, SelectionRangeVecDestructorType);
+impl_vec_debug!(SelectionRange, SelectionRangeVec);
+impl_vec_clone!(SelectionRange, SelectionRangeVec, SelectionRangeVecDestructor);
+impl_vec_partialeq!(SelectionRange, SelectionRangeVec);
+impl_vec_partialord!(SelectionRange, SelectionRangeVec);
+
 /// A single selection, which can be either a blinking cursor or a highlighted range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C, u8)]
 pub enum Selection {
     Cursor(TextCursor),
     Range(SelectionRange),
 }
 
+impl_vec!(Selection, SelectionVec, SelectionVecDestructor, SelectionVecDestructorType);
+impl_vec_debug!(Selection, SelectionVec);
+impl_vec_clone!(Selection, SelectionVec, SelectionVecDestructor);
+impl_vec_partialeq!(Selection, SelectionVec);
+impl_vec_partialord!(Selection, SelectionVec);
+
 /// The complete selection state for a single text block, supporting multiple cursors/ranges.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct SelectionState {
     /// A list of all active selections. This list is kept sorted and non-overlapping.
-    pub selections: Vec<Selection>,
+    pub selections: SelectionVec,
     /// The DOM node this selection state applies to.
     pub node_id: DomNodeId,
 }
@@ -114,14 +131,19 @@ impl SelectionState {
     pub fn add(&mut self, new_selection: Selection) {
         // A full implementation would handle merging overlapping ranges.
         // For now, we simply add and sort for simplicity.
-        self.selections.push(new_selection);
-        self.selections.sort_unstable();
-        self.selections.dedup(); // Removes duplicate cursors
+        let mut selections: Vec<Selection> = self.selections.as_ref().to_vec();
+        selections.push(new_selection);
+        selections.sort_unstable();
+        selections.dedup(); // Removes duplicate cursors
+        self.selections = selections.into();
     }
 
     /// Clears all selections and replaces them with a single cursor.
     pub fn set_cursor(&mut self, cursor: TextCursor) {
-        self.selections.clear();
-        self.selections.push(Selection::Cursor(cursor));
+        self.selections = vec![Selection::Cursor(cursor)].into();
     }
 }
+
+impl_option!(TextCursor, OptionTextCursor, copy = false, clone = false, [Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd]);
+impl_option!(SelectionRange, OptionSelectionRange, copy = false, clone = false, [Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd]);
+impl_option!(SelectionState, OptionSelectionState, copy = false, clone = false, [Debug, Clone, PartialEq]);

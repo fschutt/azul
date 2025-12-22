@@ -40,7 +40,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         .cb = (AzCoreRenderImageCallbackType)render_texture, 
         .ctx = { .None = { .tag = AzOptionRefAny_Tag_None } }
     };
-    AzDom image = AzDom_createImage(AzImageRef_callback(callback, AzRefAny_deepCopy(&data)));
+    AzDom image = AzDom_createImage(AzImageRef_callback(callback, AzRefAny_clone(&data)));
     AzString image_style = AzString_copyFromBytes((const uint8_t*)
         "flex-grow: 1;"
         "min-height: 300px;"
@@ -94,7 +94,7 @@ AzUpdate on_startup(AzRefAny data, AzCallbackInfo info) {
     AzSystemTimeDiff interval_diff = AzSystemTimeDiff_fromMillis(16);
     AzDuration interval = { .System = { .tag = AzDuration_Tag_System, .payload = interval_diff } };
     AzGetSystemTimeCallback time_fn = { .cb = get_current_system_time };
-    AzTimer timer = AzTimer_create(AzRefAny_deepCopy(&data), (AzTimerCallbackType)animate, time_fn);
+    AzTimer timer = AzTimer_create(AzRefAny_clone(&data), (AzTimerCallbackType)animate, time_fn);
     timer = AzTimer_withInterval(timer, interval);
     AzTimerId timer_id = AzTimerId_unique();
     AzCallbackInfo_addTimer(&info, timer_id, timer);
@@ -128,7 +128,7 @@ int main() {
     window.window_state.size.dimensions.height = 600.0;
     
     // Set onCreate callback
-    AzCallback on_create_cb = { .cb = (AzCallbackType)on_startup, .ctx = { .Some = { .tag = AzOptionRefAny_Tag_Some, .payload = AzRefAny_deepCopy(&data) } } };
+    AzCallback on_create_cb = { .cb = (AzCallbackType)on_startup, .ctx = { .Some = { .tag = AzOptionRefAny_Tag_Some, .payload = AzRefAny_clone(&data) } } };
     window.create_callback = (AzOptionCallback){ .Some = { .tag = AzOptionCallback_Tag_Some, .payload = on_create_cb } };
     
     AzAppConfig config = AzAppConfig_default();

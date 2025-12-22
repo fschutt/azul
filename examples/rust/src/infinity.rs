@@ -127,9 +127,6 @@ fn main() {
     
     let data = RefAny::new(state);
     let app = App::create(data, AppConfig::create());
-    
-    // Now we can pass the function pointer directly!
     let window = WindowCreateOptions::create(layout);
-    
     app.run(window);
 }

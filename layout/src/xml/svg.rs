@@ -2498,3 +2498,20 @@ fn translate_xmlwriter_indent(f: Indent) -> xmlwriter::Indent {
         Indent::Tabs => xmlwriter::Indent::Tabs,
     }
 }
+
+/// Trait for tessellating SvgMultiPolygon shapes
+pub trait SvgMultiPolygonTessellation {
+    /// Tessellates the polygon with fill style, returns CPU-side vertex buffers
+    fn tessellate_fill(&self, fill_style: SvgFillStyle) -> TessellatedSvgNode;
+    /// Tessellates the polygon with stroke style, returns CPU-side vertex buffers
+    fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle) -> TessellatedSvgNode;
+}
+
+impl SvgMultiPolygonTessellation for SvgMultiPolygon {
+    fn tessellate_fill(&self, fill_style: SvgFillStyle) -> TessellatedSvgNode {
+        tessellate_multi_polygon_fill(self, fill_style)
+    }
+    fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle) -> TessellatedSvgNode {
+        tessellate_multi_polygon_stroke(self, stroke_style)
+    }
+}

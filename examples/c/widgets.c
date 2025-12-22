@@ -31,7 +31,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString btn_text = AzString_copyFromBytes((const uint8_t*)"Click me!", 0, 9);
     AzDom_addChild(&button, AzDom_createText(btn_text));
     AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
-    AzDom_addCallback(&button, event, AzRefAny_deepCopy(&data), on_button_click);
+    AzDom_addCallback(&button, event, AzRefAny_clone(&data), on_button_click);
 
     // Create checkbox
     AzDom checkbox = AzCheckBox_dom(AzCheckBox_create(d.ptr->checkbox_checked));

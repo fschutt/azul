@@ -28,14 +28,14 @@ struct OpenGlAppState {
 
 extern "C" 
 fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
-    Dom::create_body()
+    Dom::body()
         .with_inline_style("
             background: linear-gradient(blue, black);
             padding: 10px;
         ")
         .with_child(
             Dom::image(
-                ImageRef::callback(data.clone(), render_my_texture)
+                ImageRef::callback(RenderImageCallback::create(render_my_texture), data.clone())
             )
             .with_inline_style("
                 flex-grow: 1;
@@ -152,7 +152,8 @@ fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()
         ));
     }
 
-    info.start_timer(Timer::new(data.clone(), animate, info.get_system_time_fn()));
+    let timer_id = TimerId::unique();
+    info.add_timer(timer_id, Timer::create(data.clone(), animate, info.get_system_time_fn()));
 
     Some(())
 }
@@ -270,10 +271,10 @@ fn main() {
     });
 
     println!("starting app");
-    let mut app = App::new(data, AppConfig::new());
+    let mut app = App::create(data, AppConfig::create());
 
-    let mut window = WindowCreateOptions::new(layout);
-    window.state.flags.frame = WindowFrame::Maximized;
+    let mut window = WindowCreateOptions::create(layout);
+    window.window_state.flags.frame = WindowFrame::Maximized;
     window.create_callback = Some(Callback { cb: startup_window }).into();
     app.run(window);
 }

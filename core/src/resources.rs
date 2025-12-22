@@ -313,7 +313,10 @@ impl ImageRef {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
-pub struct ImageRefHash(pub usize);
+#[repr(C)]
+pub struct ImageRefHash {
+    pub inner: usize,
+}
 
 impl_option!(
     ImageRef,
@@ -594,7 +597,7 @@ impl Drop for ImageRef {
 }
 
 pub fn image_ref_get_hash(ir: &ImageRef) -> ImageRefHash {
-    ImageRefHash(ir.data as usize)
+    ImageRefHash { inner: ir.data as usize }
 }
 
 /// Convert a stable ImageRefHash directly to an ImageKey.
@@ -603,7 +606,7 @@ pub fn image_ref_get_hash(ir: &ImageRef) -> ImageRefHash {
 pub fn image_ref_hash_to_image_key(hash: ImageRefHash, namespace: IdNamespace) -> ImageKey {
     ImageKey {
         namespace,
-        key: hash.0 as u32,
+        key: hash.inner as u32,
     }
 }
 

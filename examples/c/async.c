@@ -63,7 +63,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
             AzString connect_text = AzString_copyFromBytes((const uint8_t*)"Connect", 0, 7);
             AzDom_addChild(&content, AzDom_createText(connect_text));
             AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
-            AzDom_addCallback(&content, event, AzRefAny_deepCopy(&data), start_connection);
+            AzDom_addCallback(&content, event, AzRefAny_clone(&data), start_connection);
             break;
         }
         case Stage_Connecting:
@@ -87,7 +87,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
             AzString reset_text = AzString_copyFromBytes((const uint8_t*)"Reset", 0, 5);
             AzDom_addChild(&reset_btn, AzDom_createText(reset_text));
             AzEventFilter reset_event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
-            AzDom_addCallback(&reset_btn, reset_event, AzRefAny_deepCopy(&data), reset_connection);
+            AzDom_addCallback(&reset_btn, reset_event, AzRefAny_clone(&data), reset_connection);
             
             content = AzDom_createDiv();
             AzString status_text = AzString_copyFromBytes((const uint8_t*)status_buf, 0, strlen(status_buf));
@@ -126,7 +126,7 @@ AzUpdate start_connection(AzRefAny data, AzCallbackInfo info) {
     AzSystemTimeDiff sys_time_diff = { .secs = 0, .nanos = 100000000 }; // 100ms
     AzDuration interval = AzDuration_system(sys_time_diff);
     AzGetSystemTimeCallback sys_time_cb = { .cb = get_current_system_time };
-    AzTimer timer = AzTimer_create(AzRefAny_deepCopy(&data), on_timer_tick, sys_time_cb);
+    AzTimer timer = AzTimer_create(AzRefAny_clone(&data), on_timer_tick, sys_time_cb);
     timer = AzTimer_withInterval(timer, interval);
     AzTimerId timer_id = { .id = 1 };
     AzCallbackInfo_addTimer(&info, timer_id, timer);

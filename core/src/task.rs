@@ -81,6 +81,12 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
+impl_vec!(TimerId, TimerIdVec, TimerIdVecDestructor, TimerIdVecDestructorType);
+impl_vec_debug!(TimerId, TimerIdVec);
+impl_vec_clone!(TimerId, TimerIdVec, TimerIdVecDestructor);
+impl_vec_partialeq!(TimerId, TimerIdVec);
+impl_vec_partialord!(TimerId, TimerIdVec);
+
 static MAX_THREAD_ID: AtomicUsize = AtomicUsize::new(5);
 
 /// ID for uniquely identifying a background thread
@@ -95,6 +101,12 @@ impl_option!(
     OptionThreadId,
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+
+impl_vec!(ThreadId, ThreadIdVec, ThreadIdVecDestructor, ThreadIdVecDestructorType);
+impl_vec_debug!(ThreadId, ThreadIdVec);
+impl_vec_clone!(ThreadId, ThreadIdVec, ThreadIdVecDestructor);
+impl_vec_partialeq!(ThreadId, ThreadIdVec);
+impl_vec_partialord!(ThreadId, ThreadIdVec);
 
 impl ThreadId {
     /// Generates a new, unique `ThreadId`.

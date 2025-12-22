@@ -1435,7 +1435,7 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
             // Generate deepCopy if the type has Clone impl (regardless of allocation)
             if class_has_clone {
                 code.push_str(&format!(
-                    "extern DLLIMPORT {} {}_deepCopy({}* const instance);\r\n",
+                    "extern DLLIMPORT {} {}_clone({}* const instance);\r\n",
                     class_ptr_name, class_ptr_name, class_ptr_name
                 ));
             }

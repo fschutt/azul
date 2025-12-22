@@ -312,7 +312,7 @@ pub enum DisplayListItem {
         /// The total size of the scrollable content.
         content_size: LogicalSize,
         /// An ID for the renderer to track this scrollable area between frames.
-        scroll_id: ExternalScrollId, // This would be a renderer-agnostic ID type
+        scroll_id: LocalScrollId, // This would be a renderer-agnostic ID type
     },
     /// Pops the current scroll frame.
     PopScrollFrame,
@@ -407,7 +407,7 @@ impl BorderRadius {
 }
 
 // Dummy types for compilation
-pub type ExternalScrollId = u64;
+pub type LocalScrollId = u64;
 pub type DisplayListTagId = u64;
 
 /// Internal builder to accumulate display list items during generation.
@@ -550,7 +550,7 @@ impl DisplayListBuilder {
         &mut self,
         clip_bounds: LogicalRect,
         content_size: LogicalSize,
-        scroll_id: ExternalScrollId,
+        scroll_id: LocalScrollId,
     ) {
         self.push_item(DisplayListItem::PushScrollFrame {
             clip_bounds,
@@ -825,7 +825,7 @@ where
             .unwrap_or_default();
 
         // Iterate through all selections (multi-cursor/multi-selection support)
-        for selection in &selection_state.selections {
+        for selection in selection_state.selections.as_slice() {
             match &selection {
                 Selection::Cursor(cursor) => {
                     // Draw cursor
@@ -2028,7 +2028,7 @@ impl OverflowBehavior {
     }
 }
 
-fn get_scroll_id(id: Option<NodeId>) -> ExternalScrollId {
+fn get_scroll_id(id: Option<NodeId>) -> LocalScrollId {
     id.map(|i| i.index() as u64).unwrap_or(0)
 }
 

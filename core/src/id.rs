@@ -137,7 +137,7 @@ mod node_id {
 use azul_css::impl_option;
 impl_option!(
     NodeId,
-    OptionNodeIdData,
+    OptionNodeId,
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 

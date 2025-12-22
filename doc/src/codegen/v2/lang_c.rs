@@ -1088,12 +1088,12 @@ impl CGenerator {
         builder.line("    typedef struct { structName* restrict ptr; AzRefCount sharing_info; } structName##RefMut; \\");
         builder.line("    \\");
         builder.line("    structName##Ref structName##Ref_create(AzRefAny* const refany) { \\");
-        builder.line("        structName##Ref val = { .ptr = 0, .sharing_info = AzRefCount_deepCopy(&refany->sharing_info) };    \\");
+        builder.line("        structName##Ref val = { .ptr = 0, .sharing_info = AzRefCount_clone(&refany->sharing_info) };    \\");
         builder.line("        return val;    \\");
         builder.line("    } \\");
         builder.line("    \\");
         builder.line("    structName##RefMut structName##RefMut_create(AzRefAny* const refany) { \\");
-        builder.line("        structName##RefMut val = { .ptr = 0, .sharing_info = AzRefCount_deepCopy(&refany->sharing_info), };    \\");
+        builder.line("        structName##RefMut val = { .ptr = 0, .sharing_info = AzRefCount_clone(&refany->sharing_info), };    \\");
         builder.line("        return val;    \\");
         builder.line("    } \\");
         builder.line("    \\");

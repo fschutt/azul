@@ -94,6 +94,13 @@ pub struct FullWindowState {
     pub window_focused: bool,
 }
 
+impl_option!(
+    FullWindowState,
+    OptionFullWindowState,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
 impl Default for FullWindowState {
     fn default() -> Self {
         Self {

@@ -28,6 +28,7 @@
 
 use alloc::{collections::VecDeque, vec::Vec};
 
+use azul_css::{impl_option, impl_option_inner};
 use azul_core::{
     dom::NodeId,
     geom::LogicalPosition,
@@ -72,6 +73,13 @@ pub struct UndoableOperation {
     /// Node state BEFORE the changeset was applied
     pub pre_state: NodeStateSnapshot,
 }
+
+impl_option!(
+    UndoableOperation,
+    OptionUndoableOperation,
+    copy = false,
+    [Debug, Clone]
+);
 
 /// Per-node undo/redo stack
 #[derive(Debug, Clone)]

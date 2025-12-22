@@ -9,7 +9,7 @@
 use alloc::collections::BTreeMap;
 
 use azul_core::{
-    dom::{DomId, NodeId},
+    dom::{DomId, NodeId, ScrollbarOrientation},
     events::{
         EasingFunction, EventData, EventProvider, EventSource, EventType, ScrollDeltaMode,
         ScrollEventData, SyntheticEvent,
@@ -35,15 +35,6 @@ pub enum ScrollbarComponent {
     TopButton,
     /// Bottom/right button (scrolls by one page down/right)
     BottomButton,
-}
-
-/// Orientation of a scrollbar (vertical or horizontal)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum ScrollbarOrientation {
-    /// Vertical scrollbar (right edge of container)
-    Vertical,
-    /// Horizontal scrollbar (bottom edge of container)
-    Horizontal,
 }
 
 /// Scrollbar geometry state (calculated per frame, used for hit-testing and rendering)
@@ -156,7 +147,7 @@ pub struct ScrollbarHit {
 #[derive(Debug, Clone, Default)]
 pub struct ScrollManager {
     /// Maps (DomId, NodeId) to their scroll state
-    states: BTreeMap<(DomId, NodeId), ScrollState>,
+    states: BTreeMap<(DomId, NodeId), AnimatedScrollState>,
     /// Maps (DomId, NodeId) to WebRender ExternalScrollId
     external_scroll_ids: BTreeMap<(DomId, NodeId), ExternalScrollId>,
     /// Counter for generating unique ExternalScrollId values
@@ -171,9 +162,9 @@ pub struct ScrollManager {
     had_new_doms: bool,
 }
 
-/// The complete scroll state for a single node
+/// The complete scroll state for a single node (with animation support)
 #[derive(Debug, Clone)]
-pub struct ScrollState {
+pub struct AnimatedScrollState {
     /// Current scroll offset (live, may be animating)
     pub current_offset: LogicalPosition,
     /// Previous frame's scroll offset (for delta calculation)
@@ -399,7 +390,7 @@ impl ScrollManager {
         let state = self
             .states
             .entry((dom_id, node_id))
-            .or_insert_with(|| ScrollState::new(now.clone()));
+            .or_insert_with(|| AnimatedScrollState::new(now.clone()));
         state.current_offset = state.clamp(position);
         state.animation = None;
         state.last_activity = now;
@@ -436,7 +427,7 @@ impl ScrollManager {
         let state = self
             .states
             .entry((dom_id, node_id))
-            .or_insert_with(|| ScrollState::new(now.clone()));
+            .or_insert_with(|| AnimatedScrollState::new(now.clone()));
         let clamped_target = state.clamp(target);
         state.animation = Some(ScrollAnimation {
             start_time: now.clone(),
@@ -463,7 +454,7 @@ impl ScrollManager {
         let state = self
             .states
             .entry((dom_id, node_id))
-            .or_insert_with(|| ScrollState::new(now));
+            .or_insert_with(|| AnimatedScrollState::new(now));
         state.container_rect = container_rect;
         state.content_rect = content_rect;
         state.current_offset = state.clamp(state.current_offset);
@@ -484,7 +475,7 @@ impl ScrollManager {
     }
 
     /// Returns the internal scroll state for a node
-    pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&ScrollState> {
+    pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&AnimatedScrollState> {
         self.states.get(&(dom_id, node_id))
     }
 
@@ -587,7 +578,7 @@ impl ScrollManager {
     }
 
     /// Calculate vertical scrollbar geometry
-    fn calculate_vertical_scrollbar_static(scroll_state: &ScrollState) -> ScrollbarState {
+    fn calculate_vertical_scrollbar_static(scroll_state: &AnimatedScrollState) -> ScrollbarState {
         const SCROLLBAR_WIDTH: f32 = 12.0; // Base size (1:1 square)
 
         let container_height = scroll_state.container_rect.size.height;
@@ -628,7 +619,7 @@ impl ScrollManager {
     }
 
     /// Calculate horizontal scrollbar geometry
-    fn calculate_horizontal_scrollbar_static(scroll_state: &ScrollState) -> ScrollbarState {
+    fn calculate_horizontal_scrollbar_static(scroll_state: &AnimatedScrollState) -> ScrollbarState {
         const SCROLLBAR_HEIGHT: f32 = 12.0; // Base size (1:1 square)
 
         let container_width = scroll_state.container_rect.size.width;
@@ -773,9 +764,9 @@ impl ScrollManager {
     }
 }
 
-// ScrollState Implementation
+// AnimatedScrollState Implementation
 
-impl ScrollState {
+impl AnimatedScrollState {
     /// Create a new scroll state initialized at offset (0, 0).
     pub fn new(now: Instant) -> Self {
         Self {

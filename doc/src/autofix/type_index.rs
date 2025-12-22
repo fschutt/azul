@@ -716,7 +716,7 @@ impl TypeIndex {
             eprintln!("[TypeIndex] Found {} Rust files to parse", all_files.len());
         }
 
-        // Parse files in parallel
+        // Phase 1: Parse files in parallel and collect types (with same-file methods)
         let results: Vec<_> = all_files
             .par_iter()
             .map(|(crate_name, file_path)| parse_file_for_types(crate_name, file_path))
@@ -736,6 +736,20 @@ impl TypeIndex {
             }
         }
 
+        // Phase 2: Collect cross-file impl blocks and attach methods to types
+        // This handles cases where `impl SomeType` is in a different file than `struct SomeType`
+        let cross_file_methods: Vec<_> = all_files
+            .par_iter()
+            .filter_map(|(_, file_path)| parse_file_for_cross_file_methods(file_path).ok())
+            .collect();
+
+        // Merge cross-file methods into existing types
+        for methods_map in cross_file_methods {
+            for (type_name, methods) in methods_map {
+                index.attach_methods_to_type(&type_name, methods);
+            }
+        }
+
         if verbose {
             eprintln!(
                 "[TypeIndex] Indexed {} unique type names, {} total paths",
@@ -745,6 +759,24 @@ impl TypeIndex {
         }
 
         Ok(index)
+    }
+
+    /// Attach methods from cross-file impl blocks to existing types
+    fn attach_methods_to_type(&mut self, type_name: &str, methods: Vec<MethodDef>) {
+        if let Some(candidates) = self.by_name.get_mut(type_name) {
+            // Attach to all candidates (usually there's only one definition)
+            for arc in candidates.iter_mut() {
+                // We need to get a mutable reference to the TypeDefinition
+                // Since we use Arc, we need to use Arc::make_mut
+                let typedef = Arc::make_mut(arc);
+                for method in &methods {
+                    // Avoid duplicates by checking if method already exists
+                    if !typedef.methods.iter().any(|m| m.name == method.name) {
+                        typedef.methods.push(method.clone());
+                    }
+                }
+            }
+        }
     }
 
     /// Add a type definition to the index
@@ -1086,6 +1118,92 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
     }
 
     Ok(types)
+}
+
+/// Parse a file to extract impl blocks for cross-file method attachment.
+/// This extracts both inherent impl blocks (`impl Type`) and trait impl blocks
+/// (`impl Trait for Type`) where we want to expose the trait methods as type methods.
+fn parse_file_for_cross_file_methods(file_path: &Path) -> Result<BTreeMap<String, Vec<MethodDef>>, String> {
+    let content = fs::read_to_string(file_path)
+        .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
+
+    let syntax_tree: File = syn::parse_file(&content)
+        .map_err(|e| format!("Failed to parse {}: {}", file_path.display(), e))?;
+
+    let mut all_methods: BTreeMap<String, Vec<MethodDef>> = BTreeMap::new();
+
+    // Extract inherent methods from `impl Type { ... }` blocks
+    let inherent_methods = extract_inherent_methods_from_items(&syntax_tree.items);
+    for (type_name, methods) in inherent_methods {
+        all_methods.entry(type_name).or_default().extend(methods);
+    }
+
+    // Extract methods from trait implementations `impl Trait for Type { ... }`
+    // This allows wrapper traits to expose methods on the original type
+    let trait_impl_methods = extract_trait_impl_methods_from_items(&syntax_tree.items);
+    for (type_name, methods) in trait_impl_methods {
+        all_methods.entry(type_name).or_default().extend(methods);
+    }
+
+    Ok(all_methods)
+}
+
+/// Extract methods from `impl Trait for Type` blocks.
+/// This allows traits that wrap free functions to expose them as methods on the type.
+fn extract_trait_impl_methods_from_items(items: &[Item]) -> BTreeMap<String, Vec<MethodDef>> {
+    let mut methods_map: BTreeMap<String, Vec<MethodDef>> = BTreeMap::new();
+
+    for item in items {
+        if let Item::Impl(impl_item) = item {
+            // Only interested in trait impls (has a trait)
+            if impl_item.trait_.is_none() {
+                continue;
+            }
+
+            // Get the type name that this impl block is for
+            let type_name = if let syn::Type::Path(type_path) = impl_item.self_ty.as_ref() {
+                type_path
+                    .path
+                    .segments
+                    .last()
+                    .map(|seg| seg.ident.to_string())
+                    .unwrap_or_default()
+            } else {
+                continue;
+            };
+
+            if type_name.is_empty() {
+                continue;
+            }
+
+            // Extract methods from this impl block
+            // Trait impl methods are always public (via the trait)
+            for impl_item_fn in &impl_item.items {
+                if let syn::ImplItem::Fn(method) = impl_item_fn {
+                    if let Some(mut method_def) = extract_method_def(method, &type_name) {
+                        // Trait impl methods are implicitly public
+                        method_def.is_public = true;
+                        methods_map
+                            .entry(type_name.clone())
+                            .or_default()
+                            .push(method_def);
+                    }
+                }
+            }
+        }
+
+        // Recursively handle inline modules
+        if let Item::Mod(m) = item {
+            if let Some((_, nested_items)) = &m.content {
+                let nested_methods = extract_trait_impl_methods_from_items(nested_items);
+                for (type_name, methods) in nested_methods {
+                    methods_map.entry(type_name).or_default().extend(methods);
+                }
+            }
+        }
+    }
+
+    methods_map
 }
 
 /// Extract types from a list of items (used for both top-level and nested modules)

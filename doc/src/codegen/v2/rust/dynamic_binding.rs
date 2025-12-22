@@ -160,9 +160,9 @@ impl RustDynamicGenerator {
         };
         let full_name = format!("{}{}", name, generics);
 
-        // Clone trait - calls Az{Type}_deepCopy
+        // Clone trait - calls Az{Type}_clone
         if struct_def.traits.is_clone {
-            let clone_fn = format!("{}_deepCopy", name);
+            let clone_fn = format!("{}_clone", name);
             builder.line(&format!("impl{} Clone for {} {{", generics, full_name));
             builder.indent();
             builder.line("fn clone(&self) -> Self {");
@@ -274,7 +274,7 @@ impl RustDynamicGenerator {
         let full_name = format!("{}{}", name, generics);
 
         if enum_def.traits.is_clone {
-            let clone_fn = format!("{}_deepCopy", name);
+            let clone_fn = format!("{}_clone", name);
             builder.line(&format!("impl{} Clone for {} {{", generics, full_name));
             builder.indent();
             builder.line("fn clone(&self) -> Self {");

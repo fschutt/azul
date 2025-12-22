@@ -1,15 +1,6 @@
-//! Hello World example for Azul GUI
-//!
-//! This example demonstrates:
-//! - Creating a simple counter application
-//! - Using RefAny for type-safe data storage
-//! - Handling button click events
-//! - Updating the DOM based on state changes
-
 use azul::prelude::*;
 use azul::widgets::Button;
 use azul::css::StyledDom;
-use azul::callbacks::LayoutCallback;
 
 struct DataModel {
     counter: usize,
@@ -52,7 +43,6 @@ fn main() {
     let data = DataModel { counter: 0 };
     let config = AppConfig::create();
     let app = App::create(RefAny::new(data), config);
-    // The API accepts the function pointer directly - it builds the wrapper internally
     let window = WindowCreateOptions::create(my_layout_func);
     app.run(window);
 }

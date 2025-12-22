@@ -91,7 +91,7 @@ AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info);
 
 AzDom create_button(AzRefAny* calc, const char* label, EventType evt, char digit, Operation op, const char* style) {
     ButtonData bd;
-    bd.calc = AzRefAny_deepCopy(calc);
+    bd.calc = AzRefAny_clone(calc);
     bd.event_type = evt;
     bd.digit = digit;
     bd.operation = op;
@@ -224,7 +224,7 @@ AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {
         return AzUpdate_DoNothing;
     }
     
-    AzRefAny calc_ref = AzRefAny_deepCopy(&bd.ptr->calc);
+    AzRefAny calc_ref = AzRefAny_clone(&bd.ptr->calc);
     EventType evt = bd.ptr->event_type;
     char digit = bd.ptr->digit;
     Operation op = bd.ptr->operation;

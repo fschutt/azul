@@ -22,11 +22,6 @@ use crate::{
     },
 };
 
-/// Type alias for backwards compatibility - CssApiWrapper is now just Css
-/// All parsing methods are available directly on Css::empty(), Css::from_string(), etc.
-#[deprecated(note = "Use Css directly instead of CssApiWrapper")]
-pub type CssApiWrapper = Css;
-
 /// Error that can happen during the parsing of a CSS value
 #[derive(Debug, Clone, PartialEq)]
 pub struct CssParseError<'a> {

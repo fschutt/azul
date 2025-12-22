@@ -12035,7 +12035,7 @@
                   }
                 ],
                 "returns": {
-                  "type": "OptionNodeId"
+                  "type": "OptionNodeIdData"
                 },
                 "fn_body": "azul_core::id::NodeId::from_usize(value).into()"
               }
@@ -12128,7 +12128,7 @@
                   "type": "String"
                 },
                 "styled_runs": {
-                  "type": "StyledTextRunVec"
+                  "type": "Vec<StyledTextRun>"
                 }
               }
             ],
@@ -12455,7 +12455,7 @@
             "struct_fields": [
               {
                 "selections": {
-                  "type": "SelectionVec"
+                  "type": "Vec<Selection>"
                 },
                 "node_id": {
                   "type": "DomNodeId"
@@ -24528,6 +24528,45 @@
               "generic_args": [
                 "LayoutInsetBottom"
               ]
+            }
+          },
+          "CssApiWrapper": {
+            "external": "azul_css::parser2::CssApiWrapper",
+            "custom_impls": [
+              "From"
+            ],
+            "derive": [
+              "Debug",
+              "Default",
+              "PartialEq",
+              "PartialOrd",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "css": {
+                  "type": "Css"
+                }
+              }
+            ],
+            "constructors": {
+              "empty": {
+                "fn_args": [],
+                "fn_body": "azul_css::parser2::CssApiWrapper::empty()"
+              },
+              "from_string": {
+                "fn_args": [
+                  {
+                    "s": "String"
+                  }
+                ],
+                "fn_body": "azul_css::parser2::CssApiWrapper::from_string(s)"
+              }
+            },
+            "functions": {},
+            "repr": "C",
+            "type_alias": {
+              "target": "Css"
             }
           },
           "ContentGroup": {
@@ -40868,6 +40907,29 @@
             ],
             "repr": "C"
           },
+          "DecodedImage": {
+            "external": "azul_core::resources::DecodedImage",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "NullImage": {
+                  "type": "usize, usize, RawImageFormat, Vec<u8>"
+                },
+                "Gl": {
+                  "type": "Texture"
+                },
+                "Raw": {
+                  "type": "(ImageDescriptor, ImageData)"
+                },
+                "Callback": {
+                  "type": "CoreImageCallback"
+                }
+              }
+            ],
+            "repr": "C"
+          },
           "ImageRefHash": {
             "external": "azul_core::resources::ImageRefHash",
             "derive": [
@@ -48173,61 +48235,6 @@
               ],
               "returns": null
             }
-          },
-          "StyledTextRunVecDestructor": {
-            "external": "azul_layout::managers::selection::StyledTextRunVecDestructor",
-            "derive": [
-              "Debug"
-            ],
-            "enum_fields": [
-              {
-                "DefaultRust": {},
-                "NoDestructor": {},
-                "External": {
-                  "type": "StyledTextRunVecDestructorType"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "StyledTextRunVecDestructorType": {
-            "external": "azul_layout::managers::selection::StyledTextRunVecDestructorType",
-            "callback_typedef": {
-              "fn_args": [
-                {
-                  "type": "StyledTextRunVec",
-                  "ref_kind": "mutptr"
-                }
-              ],
-              "returns": null
-            }
-          },
-          "StyledTextRunVec": {
-            "external": "azul_layout::managers::selection::StyledTextRunVec",
-            "derive": [
-              "Debug"
-            ],
-            "struct_fields": [
-              {
-                "ptr": {
-                  "type": "StyledTextRun",
-                  "ref_kind": "constptr"
-                },
-                "len": {
-                  "type": "usize"
-                },
-                "cap": {
-                  "type": "usize"
-                },
-                "destructor": {
-                  "type": "StyledTextRunVecDestructor"
-                },
-                "run_destructor": {
-                  "type": "bool"
-                }
-              }
-            ],
-            "repr": "C"
           }
         }
       },
@@ -49566,7 +49573,7 @@
             "repr": "C"
           },
           "OptionNodeId": {
-            "external": "azul_core::id::OptionNodeId",
+            "external": "azul_core::styled_dom::OptionNodeId",
             "derive": [
               "Debug",
               "Clone",
@@ -49579,11 +49586,9 @@
             ],
             "enum_fields": [
               {
-                "None": {}
-              },
-              {
+                "None": {},
                 "Some": {
-                  "type": "NodeId"
+                  "type": "NodeHierarchyItemId"
                 }
               }
             ],
@@ -49981,97 +49986,6 @@
                 "None": {},
                 "Some": {
                   "type": "TextCursor"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "OptionU64": {
-            "external": "azul_css::OptionU64",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialOrd",
-              "Ord",
-              "PartialEq",
-              "Eq",
-              "Hash"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "u64"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "OptionWindowFlags": {
-            "external": "azul_core::window::OptionWindowFlags",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialOrd",
-              "Ord",
-              "PartialEq",
-              "Eq",
-              "Hash"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "WindowFlags"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "OptionScrollState": {
-            "external": "azul_core::hit_test::OptionScrollState",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialOrd",
-              "PartialEq"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "ScrollState"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "OptionCoreImageCallback": {
-            "external": "azul_core::callbacks::OptionCoreImageCallback",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialOrd",
-              "Ord",
-              "PartialEq",
-              "Eq",
-              "Hash"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "CoreImageCallback"
                 }
               }
             ],

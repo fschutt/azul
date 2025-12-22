@@ -322,6 +322,12 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, PartialOrd]
 );
 
+impl_option!(
+    LogicalRect,
+    OptionLogicalRect,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
+
 impl Ord for LogicalSize {
     fn cmp(&self, other: &LogicalSize) -> Ordering {
         let self_width = (self.width * DECIMAL_MULTIPLIER) as usize;

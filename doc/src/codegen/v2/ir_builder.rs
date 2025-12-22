@@ -1458,12 +1458,12 @@ impl<'a> IRBuilder<'a> {
             });
         }
 
-        // _deepCopy (Clone)
+        // _clone (Clone)
         if traits.needs_deep_copy() {
             self.ir.functions.push(FunctionDef {
-                c_name: format!("Az{}_deepCopy", type_name),
+                c_name: format!("Az{}_clone", type_name),
                 class_name: type_name.to_string(),
-                method_name: "deepCopy".to_string(),
+                method_name: "clone".to_string(),
                 kind: FunctionKind::DeepCopy,
                 args: vec![FunctionArg {
                     name: "instance".to_string(),

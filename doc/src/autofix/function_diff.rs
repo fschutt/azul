@@ -711,6 +711,28 @@ pub fn generate_remove_functions_patch(
     ApiPatch { versions }
 }
 
+/// Generate a patch to remove an entire type from api.json
+pub fn generate_remove_type_patch(
+    type_name: &str,
+    module_name: &str,
+    version: &str,
+) -> ApiPatch {
+    let mut class_patch = ClassPatch::default();
+    // Set remove to signal that the entire class should be removed
+    class_patch.remove = Some(true);
+
+    let mut classes = BTreeMap::new();
+    classes.insert(type_name.to_string(), class_patch);
+
+    let mut modules = BTreeMap::new();
+    modules.insert(module_name.to_string(), ModulePatch { classes });
+
+    let mut versions = BTreeMap::new();
+    versions.insert(version.to_string(), VersionPatch { modules });
+
+    ApiPatch { versions }
+}
+
 /// Convert a MethodDef to FunctionData for api.json
 fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData {
     use super::type_index::SelfKind;

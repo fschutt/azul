@@ -6,7 +6,7 @@
 use core::ffi::c_void;
 
 use azul_core::{
-    callbacks::Update,
+    callbacks::{TimerCallbackReturn, Update},
     dom::OptionDomNodeId,
     geom::{LogicalPosition, LogicalSize, OptionLogicalPosition},
     menu::Menu,
@@ -467,51 +467,6 @@ impl TimerCallbackInfo {
     }
 }
 
-/// Return value from a timer callback
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct TimerCallbackReturn {
-    pub should_update: Update,
-    pub should_terminate: TerminateTimer,
-}
-
-impl TimerCallbackReturn {
-    pub fn create(should_update: Update, should_terminate: TerminateTimer) -> Self {
-        Self {
-            should_update,
-            should_terminate,
-        }
-    }
-
-    pub fn continue_unchanged() -> Self {
-        Self {
-            should_update: Update::DoNothing,
-            should_terminate: TerminateTimer::Continue,
-        }
-    }
-
-    pub fn continue_and_update() -> Self {
-        Self {
-            should_update: Update::RefreshDom,
-            should_terminate: TerminateTimer::Continue,
-        }
-    }
-
-    pub fn terminate_unchanged() -> Self {
-        Self {
-            should_update: Update::DoNothing,
-            should_terminate: TerminateTimer::Terminate,
-        }
-    }
-
-    pub fn terminate_and_update() -> Self {
-        Self {
-            should_update: Update::RefreshDom,
-            should_terminate: TerminateTimer::Terminate,
-        }
-    }
-}
-
 /// Invokes the timer if it should run
 pub fn invoke_timer(
     timer: &mut Timer,
@@ -559,4 +514,30 @@ pub fn invoke_timer(
     timer.run_count += 1;
 
     res
+}
+
+/// Optional Timer type for API compatibility
+#[derive(Debug, Clone)]
+#[repr(C, u8)]
+pub enum OptionTimer {
+    None,
+    Some(Timer),
+}
+
+impl From<Option<Timer>> for OptionTimer {
+    fn from(o: Option<Timer>) -> Self {
+        match o {
+            None => OptionTimer::None,
+            Some(t) => OptionTimer::Some(t),
+        }
+    }
+}
+
+impl OptionTimer {
+    pub fn into_option(self) -> Option<Timer> {
+        match self {
+            OptionTimer::None => None,
+            OptionTimer::Some(t) => Some(t),
+        }
+    }
 }

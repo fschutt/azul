@@ -272,6 +272,12 @@ pub struct ScrollState {
     pub scroll_position: LogicalPosition,
 }
 
+impl_option!(
+    ScrollState,
+    OptionScrollState,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
+
 impl ScrollState {
     /// Return the current position of the scroll state
     pub fn get(&self) -> LogicalPosition {
@@ -308,6 +314,13 @@ pub struct FullHitTest {
     pub hovered_nodes: BTreeMap<DomId, HitTest>,
     pub focused_node: Option<(DomId, NodeId)>,
 }
+
+impl_option!(
+    FullHitTest,
+    OptionFullHitTest,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 impl FullHitTest {
     /// Create an empty hit-test result

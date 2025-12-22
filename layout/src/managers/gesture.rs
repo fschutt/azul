@@ -7,6 +7,7 @@ use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 #[cfg(feature = "std")]
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use azul_css::{impl_option, impl_option_inner};
 use azul_core::{
     dom::{DomId, NodeId},
     geom::{LogicalPosition, PhysicalPositionI32},
@@ -128,6 +129,13 @@ pub struct InputSample {
     /// For mouse input, this is (0.0, 0.0)
     pub touch_radius: (f32, f32),
 }
+
+impl_option!(
+    InputSample,
+    OptionInputSample,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 /// A sequence of input samples forming one button press session
 #[derive(Debug, Clone, PartialEq)]
@@ -329,6 +337,13 @@ pub struct PenState {
     /// Unique identifier for this pen device
     pub device_id: u64,
 }
+
+impl_option!(
+    PenState,
+    OptionPenState,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 impl Default for PenState {
     fn default() -> Self {

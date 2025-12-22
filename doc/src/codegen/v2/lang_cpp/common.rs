@@ -41,7 +41,6 @@ pub fn escape_method_name(name: &str) -> String {
     match name {
         "new" => "new_".to_string(),
         "default" => "default_".to_string(),
-        "deepCopy" => "clone".to_string(), // Rust-like naming
         _ => escape_cpp_keyword(name),
     }
 }

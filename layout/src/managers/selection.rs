@@ -3,14 +3,16 @@
 //! Manages text selection ranges across all DOMs.
 
 use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 use core::time::Duration;
 
 use azul_core::{
     dom::{DomId, DomNodeId},
     events::SelectionManagerQuery,
     geom::LogicalPosition,
-    selection::{Selection, SelectionRange, SelectionState, TextCursor},
+    selection::{Selection, SelectionRange, SelectionState, TextCursor, SelectionVec},
 };
+use azul_css::{impl_option, impl_option_inner, AzString, OptionString};
 
 /// Click state for detecting double/triple clicks
 #[derive(Debug, Clone, PartialEq)]
@@ -152,8 +154,8 @@ impl SelectionManager {
 
     /// Set a single cursor for a DOM, replacing all existing selections
     pub fn set_cursor(&mut self, dom_id: DomId, node_id: DomNodeId, cursor: TextCursor) {
-        let mut state = SelectionState {
-            selections: alloc::vec![Selection::Cursor(cursor)],
+        let state = SelectionState {
+            selections: vec![Selection::Cursor(cursor)].into(),
             node_id,
         };
         self.selections.insert(dom_id, state);
@@ -162,7 +164,7 @@ impl SelectionManager {
     /// Set a selection range for a DOM, replacing all existing selections
     pub fn set_range(&mut self, dom_id: DomId, node_id: DomNodeId, range: SelectionRange) {
         let state = SelectionState {
-            selections: alloc::vec![Selection::Range(range)],
+            selections: vec![Selection::Range(range)].into(),
             node_id,
         };
         self.selections.insert(dom_id, state);
@@ -173,7 +175,7 @@ impl SelectionManager {
         self.selections
             .entry(dom_id)
             .or_insert_with(|| SelectionState {
-                selections: alloc::vec![],
+                selections: SelectionVec::from_const_slice(&[]),
                 node_id,
             })
             .add(selection);
@@ -209,11 +211,12 @@ impl SelectionManager {
         self.selections
             .get(dom_id)?
             .selections
+            .as_slice()
             .first()
             .and_then(|s| match s {
-                Selection::Cursor(c) => Some(*c),
+                Selection::Cursor(c) => Some(c.clone()),
                 // Primary cursor is at the end of selection
-                Selection::Range(r) => Some(r.end),
+                Selection::Range(r) => Some(r.end.clone()),
             })
     }
 
@@ -224,6 +227,7 @@ impl SelectionManager {
             .map(|state| {
                 state
                     .selections
+                    .as_slice()
                     .iter()
                     .filter_map(|s| match s {
                         Selection::Range(r) => Some(r.clone()),
@@ -288,11 +292,12 @@ impl SelectionManager {
 
 /// Styled text run for rich clipboard content
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct StyledTextRun {
     /// The actual text content
-    pub text: String,
+    pub text: AzString,
     /// Font family name
-    pub font_family: Option<String>,
+    pub font_family: OptionString,
     /// Font size in pixels
     pub font_size_px: f32,
     /// Text color
@@ -303,25 +308,38 @@ pub struct StyledTextRun {
     pub is_italic: bool,
 }
 
+azul_css::impl_vec!(StyledTextRun, StyledTextRunVec, StyledTextRunVecDestructor, StyledTextRunVecDestructorType);
+azul_css::impl_vec_debug!(StyledTextRun, StyledTextRunVec);
+azul_css::impl_vec_clone!(StyledTextRun, StyledTextRunVec, StyledTextRunVecDestructor);
+azul_css::impl_vec_partialeq!(StyledTextRun, StyledTextRunVec);
+
 /// Clipboard content with both plain text and styled (HTML) representation
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct ClipboardContent {
     /// Plain text representation (UTF-8)
-    pub plain_text: String,
+    pub plain_text: AzString,
     /// Rich text runs with styling information
-    pub styled_runs: alloc::vec::Vec<StyledTextRun>,
+    pub styled_runs: StyledTextRunVec,
 }
+
+impl_option!(
+    ClipboardContent,
+    OptionClipboardContent,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 impl ClipboardContent {
     /// Convert styled runs to HTML for rich clipboard formats
     pub fn to_html(&self) -> String {
         let mut html = String::from("<div>");
 
-        for run in &self.styled_runs {
+        for run in self.styled_runs.as_slice() {
             html.push_str("<span style=\"");
 
-            if let Some(font_family) = &run.font_family {
-                html.push_str(&format!("font-family: {}; ", font_family));
+            if let Some(font_family) = run.font_family.as_ref() {
+                html.push_str(&format!("font-family: {}; ", font_family.as_str()));
             }
             html.push_str(&format!("font-size: {}px; ", run.font_size_px));
             html.push_str(&format!(
@@ -342,6 +360,7 @@ impl ClipboardContent {
             // Escape HTML entities
             let escaped = run
                 .text
+                .as_str()
                 .replace('&', "&amp;")
                 .replace('<', "&lt;")
                 .replace('>', "&gt;");

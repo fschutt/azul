@@ -21,6 +21,8 @@ use azul_core::{
     callbacks::Update,
     refany::RefAny,
     task::{
+        CheckThreadFinishedCallback, CheckThreadFinishedCallbackType,
+        LibrarySendThreadMsgCallback, LibrarySendThreadMsgCallbackType,
         OptionThreadSendMsg, ThreadId, ThreadReceiver, ThreadReceiverDestructorCallback,
         ThreadReceiverInner, ThreadRecvCallback, ThreadSendMsg,
     },
@@ -363,54 +365,6 @@ impl core::hash::Hash for ThreadCallback {
     }
 }
 
-// Callback types for thread operations
-pub type CheckThreadFinishedCallbackType = extern "C" fn(*const core::ffi::c_void) -> bool;
-
-#[repr(C)]
-pub struct CheckThreadFinishedCallback {
-    pub cb: CheckThreadFinishedCallbackType,
-}
-
-impl core::fmt::Debug for CheckThreadFinishedCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(
-            f,
-            "CheckThreadFinishedCallback {{ cb: {:p} }}",
-            self.cb as *const ()
-        )
-    }
-}
-
-impl Clone for CheckThreadFinishedCallback {
-    fn clone(&self) -> Self {
-        Self { cb: self.cb }
-    }
-}
-
-pub type LibrarySendThreadMsgCallbackType =
-    extern "C" fn(*const core::ffi::c_void, ThreadSendMsg) -> bool;
-
-#[repr(C)]
-pub struct LibrarySendThreadMsgCallback {
-    pub cb: LibrarySendThreadMsgCallbackType,
-}
-
-impl core::fmt::Debug for LibrarySendThreadMsgCallback {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(
-            f,
-            "LibrarySendThreadMsgCallback {{ cb: {:p} }}",
-            self.cb as *const ()
-        )
-    }
-}
-
-impl Clone for LibrarySendThreadMsgCallback {
-    fn clone(&self) -> Self {
-        Self { cb: self.cb }
-    }
-}
-
 pub type LibraryReceiveThreadMsgCallbackType =
     extern "C" fn(*const core::ffi::c_void) -> OptionThreadReceiveMsg;
 
@@ -499,6 +453,27 @@ impl Thread {
             ptr: core::ptr::null(),
             run_destructor: false,
         }
+    }
+
+    /// Creates a new thread that will execute the given callback function.
+    ///
+    /// # Arguments
+    /// * `thread_initialize_data` - Data passed to the callback when the thread starts
+    /// * `writeback_data` - Data that will be passed back when writeback messages are received
+    /// * `callback` - The function to execute in the background thread
+    ///
+    /// # Returns
+    /// A new Thread handle that can be added to the event loop with `CallbackInfo::add_thread`
+    pub fn create(
+        thread_initialize_data: RefAny,
+        writeback_data: RefAny,
+        callback: ThreadCallbackType,
+    ) -> Self {
+        create_thread_libstd(
+            thread_initialize_data,
+            writeback_data,
+            ThreadCallback { cb: callback },
+        )
     }
 }
 
@@ -847,5 +822,31 @@ mod tests {
         let callback = WriteBackCallback::new(test_writeback_callback);
         let cloned = callback.clone();
         assert_eq!(callback, cloned);
+    }
+}
+
+/// Optional Thread type for API compatibility
+#[derive(Debug, Clone)]
+#[repr(C, u8)]
+pub enum OptionThread {
+    None,
+    Some(Thread),
+}
+
+impl From<Option<Thread>> for OptionThread {
+    fn from(o: Option<Thread>) -> Self {
+        match o {
+            None => OptionThread::None,
+            Some(t) => OptionThread::Some(t),
+        }
+    }
+}
+
+impl OptionThread {
+    pub fn into_option(self) -> Option<Thread> {
+        match self {
+            OptionThread::None => None,
+            OptionThread::Some(t) => Some(t),
+        }
     }
 }

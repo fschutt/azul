@@ -56,7 +56,7 @@ extern "C"
 fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     use self::ConnectionStatus::*;
 
-    let mut body = Dom::create_body()
+    let mut body = Dom::body()
     .with_inline_style(
         "font-family: sans-serif;
         align-items: center;
@@ -71,14 +71,14 @@ fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     };
 
     body.add_child(
-        Dom::create_div()
+        Dom::div()
             .with_inline_style(
                 "flex-direction: column; 
                 align-items: center; 
                 justify-content: center;",
             )
             .with_children(vec![
-                downcasted.connection_status.dom()
+                downcasted.connection_status.dom(data_clone)
                 .with_inline_style(
                     "max-width: 350px; display:block;"
                 )
@@ -89,10 +89,10 @@ fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
 }
 
 impl ConnectionStatus {
-    pub fn dom(&self) -> Dom {
+    pub fn dom(&self, data_clone: RefAny) -> Dom {
         match self {
-            NotConnected { database } => Dom::create_div().with_children(vec![
-                Dom::create_text("Enter database to connect to:"),
+            NotConnected { database } => Dom::div().with_children(vec![
+                Dom::text("Enter database to connect to:"),
                 TextInput::new()
                     .with_text(database.clone())
                     .with_on_text_input(data_clone.clone(), edit_database_input)
@@ -110,48 +110,48 @@ impl ConnectionStatus {
                 use self::ConnectionStage::*;
 
                 let progress_div = match stage {
-                    EstablishingConnection => Dom::create_text("Establishing connection..."),
+                    EstablishingConnection => Dom::text("Establishing connection..."),
                     ConnectionEstablished => {
-                        Dom::create_text("Connection established! Waiting for data...")
+                        Dom::text("Connection established! Waiting for data...")
                     }
-                    LoadingData { percent_done } => Dom::create_div().with_children(vec![
-                        Dom::create_text("Loading data..."),
+                    LoadingData { percent_done } => Dom::div().with_children(vec![
+                        Dom::text("Loading data..."),
                         ProgressBar::new(*percent_done).dom(),
                     ]),
-                    LoadingFinished => Dom::create_text("Loading finished!"),
+                    LoadingFinished => Dom::text("Loading finished!"),
                 };
 
                 let data_rendered_div = data_in_progress
                     .chunks(10)
-                    .map(|chunk| Dom::create_text(format!("{:?}", chunk)))
+                    .map(|chunk| Dom::text(format!("{:?}", chunk)))
                     .collect::<Dom>();
 
                 let stop_btn = Button::new("Stop thread")
                     .with_on_click(data_clone.clone(), stop_background_thread)
                     .dom();
 
-                Dom::create_div().with_children(vec![progress_div, data_rendered_div, stop_btn])
+                Dom::div().with_children(vec![progress_div, data_rendered_div, stop_btn])
             }
             DataLoaded { data: data_loaded } => {
                 let data_rendered_div = data_loaded
                     .chunks(10)
-                    .map(|chunk| Dom::create_text(format!("{:?}", chunk)))
+                    .map(|chunk| Dom::text(format!("{:?}", chunk)))
                     .collect::<Dom>();
 
                 let reset_btn = Button::new("Reset")
                     .with_on_click(data_clone.clone(), reset)
                     .dom();
 
-                Dom::create_div().with_children(vec![data_rendered_div, reset_btn])
+                Dom::div().with_children(vec![data_rendered_div, reset_btn])
             }
             Error { error } => {
-                let error_div = Dom::create_text(format!("{}", error));
+                let error_div = Dom::text(format!("{}", error));
 
                 let reset_btn = Button::new("Reset")
                     .with_on_click(data_clone.clone(), reset)
                     .dom();
 
-                Dom::create_div().with_children(vec![error_div, reset_btn])
+                Dom::div().with_children(vec![error_div, reset_btn])
             }
         }
     }
@@ -211,13 +211,9 @@ fn start_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update 
         database: database_to_connect_to,
     });
 
-    let thread_id = match event
-        .start_thread(init_data, data_clone.clone(), background_thread)
-        .into_option()
-    {
-        Some(s) => s,
-        None => return Update::DoNothing, // thread creation failed
-    };
+    let thread = Thread::create(init_data, data_clone.clone(), background_thread);
+    let thread_id = ThreadId::unique();
+    event.add_thread(thread_id.clone(), thread);
 
     data_mut.connection_status = InProgress {
         background_thread_id: thread_id,
@@ -247,7 +243,7 @@ fn stop_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
         _ => return Update::DoNothing, // error
     };
 
-    event.stop_thread(thread_id);
+    event.remove_thread(thread_id);
 
     data_mut.connection_status = ConnectionStatus::default();
 
@@ -350,7 +346,7 @@ fn background_thread(
         Ok(db) => db,
         Err(e) => {
             sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
-                data: RefAny::new(ErrorOccurred { error: e }),
+                refany: RefAny::new(ErrorOccurred { error: e }),
                 callback: WriteBackCallback {
                     cb: writeback_callback,
                 },
@@ -360,13 +356,13 @@ fn background_thread(
     };
 
     // if in the meantime we got a "cancel" message, quit the thread
-    if recv.receive() == Some(ThreadSendMsg::TerminateThread).into() {
+    if recv.recv() == Some(ThreadSendMsg::TerminateThread).into() {
         return;
     }
 
     // update the UI again to notify that the connection has been established
     sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
-        data: RefAny::new(StatusUpdated {
+        refany: RefAny::new(StatusUpdated {
             new: ConnectionStage::ConnectionEstablished,
         }),
         callback: WriteBackCallback {
@@ -380,14 +376,14 @@ fn background_thread(
 
     for row in postgres::query_rows(&connection, query) {
         // If in the meantime we got a "cancel" message, quit the thread
-        if recv.receive() == Some(ThreadSendMsg::TerminateThread).into() {
+        if recv.recv() == Some(ThreadSendMsg::TerminateThread).into() {
             return;
         } else {
             items_loaded += row.len();
 
             // As soon as each row is loaded, update the UI
             sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
-                data: RefAny::new(NewDataLoaded { data: row.to_vec() }),
+                refany: RefAny::new(NewDataLoaded { data: row.to_vec() }),
                 callback: WriteBackCallback {
                     cb: writeback_callback,
                 },
@@ -396,7 +392,7 @@ fn background_thread(
             let percent_done = (items_loaded as f32 / total_items as f32) * 100.0;
             // Calculate and update the percentage count
             sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
-                data: RefAny::new(StatusUpdated {
+                refany: RefAny::new(StatusUpdated {
                     new: ConnectionStage::LoadingData {
                         percent_done,
                     },
@@ -411,7 +407,7 @@ fn background_thread(
     println!("all rows sent!");
 
     sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
-        data: RefAny::new(StatusUpdated {
+        refany: RefAny::new(StatusUpdated {
             new: ConnectionStage::LoadingFinished,
         }),
         callback: WriteBackCallback {
@@ -463,9 +459,9 @@ mod postgres {
 }
 
 fn main() {
-    let app = App::new(
+    let app = App::create(
         RefAny::new(MyDataModel::default()),
-        AppConfig::new(),
+        AppConfig::create(),
     );
-    app.run(WindowCreateOptions::new(render_ui));
+    app.run(WindowCreateOptions::create(render_ui));
 }

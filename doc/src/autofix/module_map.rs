@@ -185,6 +185,17 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "mousestate",
             "keyboardstate",
             "debugstate",
+            "hittest",       // HitTest, HitTestItem, etc.
+            "virtualkey",    // VirtualKeyCode
+            "scancode",      // ScanCode
+            "keycode",       // KeyCode
+            "drag",          // DragData, DragState, DragEffect
+            "drop",          // DropEffect
+            "clipboard",     // ClipboardContent
+            "selection",     // Selection, SelectionManager, SelectionState
+            "gesture",       // GestureAndDragManager
+            "input",         // InputSample, InputSession
+            "bidi",          // BidiDirection, BidiLevel
         ],
     );
 
@@ -202,6 +213,9 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "rendercallback",
             "writebackcallback",
             "layoutcallback",
+            "refany",        // RefAny, RefCount
+            "refcount",
+            "update",        // Update enum
         ],
     );
 
@@ -283,6 +297,7 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
     map.insert(
         "task",
         vec![
+            "thread",       // Thread, ThreadId, ThreadInner, ThreadSender, etc.
             "threadsend",
             "threadreceive",
             "threadwrite",
@@ -290,11 +305,12 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "sender",
             "receiver",
             "channel",
+            "timer",        // Timer types
         ],
     );
 
     // App module
-    map.insert("app", vec!["appconfig", "apploglevel", "apptermination"]);
+    map.insert("app", vec!["appconfig", "apploglevel", "apptermination", "renderer"]);
 
     // Str module
     map.insert("str", vec!["string", "refstr", "azstring"]);
@@ -445,6 +461,93 @@ pub fn get_correct_module(type_name: &str, current_module: &str) -> Option<Strin
     } else {
         None
     }
+}
+
+/// Types that should be excluded from the C API entirely
+/// These contain non-FFI-safe types like BTreeMap, HashMap, Arc, VecDeque
+pub const INTERNAL_ONLY_TYPES: &[&str] = &[
+    // Manager types with BTreeMap/HashMap internals
+    "ScrollManager",
+    "HoverManager", 
+    "GpuStateManager",
+    "GpuValueCache",
+    "SelectionManager",
+    "IFrameManager",
+    "FocusManager",
+    "GestureAndDragManager",
+    "DragDropManager",
+    "FileDropManager",
+    "UndoRedoManager",
+    "TextInputManager",
+    // Types with BTreeMap fields
+    "HitTest",
+    "FullHitTest",
+    "DragData",
+    // Cache types with HashMap/Arc
+    "LayoutCache",
+    "TextLayoutCache",
+    // Types with Arc<T> fields
+    "ShapedGlyph",
+    "ShapedCluster",
+    "LogicalItem",
+    // Types with VecDeque
+    "NodeUndoRedoStack",
+];
+
+/// Check if a type should be internal-only (not exported to C API)
+pub fn is_internal_only_type(type_name: &str) -> bool {
+    INTERNAL_ONLY_TYPES.contains(&type_name)
+}
+
+/// FFI difficulty score for a type field
+/// Higher score = more difficult to port to C
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FfiDifficulty {
+    /// Primitive types, repr(C) structs - trivial
+    Easy = 0,
+    /// Option<T> where T is Easy - needs wrapper
+    Medium = 1,
+    /// Vec<T>, String - needs destructor
+    Hard = 2,
+    /// BTreeMap, HashMap, Arc, VecDeque - not directly portable
+    VeryHard = 3,
+    /// Generic types, trait objects - requires redesign
+    Impossible = 4,
+}
+
+/// Analyze a type string and return its FFI difficulty
+pub fn analyze_ffi_difficulty(type_str: &str) -> FfiDifficulty {
+    // Check for impossible patterns first
+    if type_str.contains("dyn ") || type_str.contains("impl ") {
+        return FfiDifficulty::Impossible;
+    }
+    
+    // Very hard patterns - requires redesign
+    if type_str.contains("BTreeMap") 
+        || type_str.contains("HashMap") 
+        || type_str.contains("Arc<")
+        || type_str.contains("Rc<")
+        || type_str.contains("VecDeque")
+        || type_str.contains("Box<dyn")
+        || type_str.contains("Mutex")
+        || type_str.contains("RwLock")
+    {
+        return FfiDifficulty::VeryHard;
+    }
+    
+    // Note: Vec<T> and String are NOT flagged as difficult anymore
+    // because the api.json system already has wrappers for these (StringVec, OptionString, etc.)
+    // Only truly non-FFI-safe types are flagged
+    
+    // Medium patterns - Option types need wrapper but are generally fine
+    if type_str.starts_with("Option<") {
+        // Check if the inner type is problematic
+        if type_str.contains("BTreeMap") || type_str.contains("HashMap") || type_str.contains("Arc<") {
+            return FfiDifficulty::VeryHard;
+        }
+    }
+    
+    FfiDifficulty::Easy
 }
 
 #[cfg(test)]

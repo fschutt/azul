@@ -1,7 +1,7 @@
 //! **Node** drag and drop state management
 
 use azul_core::dom::{DomId, DomNodeId, NodeId};
-use azul_css::AzString;
+use azul_css::{impl_option, impl_option_inner, AzString};
 
 /// Type of drag operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +24,13 @@ pub struct DragState {
     /// File path (for file dragging)
     pub file_path: Option<AzString>,
 }
+
+impl_option!(
+    DragState,
+    OptionDragState,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 /// Manager for drag-and-drop operations
 #[derive(Debug, Clone, PartialEq)]

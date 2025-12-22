@@ -292,7 +292,7 @@ impl NodeHierarchyItemId {
 
 impl_option!(
     NodeHierarchyItemId,
-    OptionNodeId,
+    OptionNodeHierarchyItemId,
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 

@@ -19,7 +19,7 @@ use std::{
 use azul_core::{
     animation::UpdateImageType,
     callbacks::{FocusTarget, HidpiAdjustedBounds, IFrameCallbackReason, Update},
-    dom::{AccessibilityAction, AttributeType, Dom, DomId, DomNodeId, NodeId, NodeType, On},
+    dom::{AccessibilityAction, AttributeType, Dom, DomId, DomIdVec, DomNodeId, NodeId, NodeType, On},
     events::{EasingFunction, EventFilter, FocusEventFilter, HoverEventFilter},
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
@@ -34,7 +34,7 @@ use azul_core::{
         CursorAffinity, GraphemeClusterId, Selection, SelectionRange, SelectionState, TextCursor,
     },
     styled_dom::{NodeHierarchyItemId, StyledDom},
-    task::{Duration, Instant, SystemTimeDiff, TerminateTimer, ThreadId, ThreadSendMsg, TimerId},
+    task::{Duration, Instant, SystemTimeDiff, TerminateTimer, ThreadId, ThreadIdVec, ThreadSendMsg, TimerId, TimerIdVec},
     window::{CursorPosition, RawWindowHandle, RendererType},
     FastBTreeSet, FastHashMap,
 };
@@ -44,7 +44,7 @@ use azul_css::{
         basic::FontRef,
         property::{CssProperty, CssPropertyVec},
     },
-    AzString, LayoutDebugMessage,
+    AzString, LayoutDebugMessage, OptionString,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -167,8 +167,8 @@ pub struct ScrollbarDragState {
 
 /// Information about the last text edit operation
 /// Allows callbacks to query what changed during text input
-// Re-export TextChangeset from text_input manager
-pub use crate::managers::text_input::TextChangeset;
+// Re-export PendingTextEdit from text_input manager
+pub use crate::managers::text_input::PendingTextEdit;
 
 /// Cached text layout constraints for a node
 /// These are the layout parameters that were used to shape the text
@@ -1127,8 +1127,8 @@ impl LayoutWindow {
     }
 
     /// Get all timer IDs
-    pub fn get_timer_ids(&self) -> Vec<TimerId> {
-        self.timers.keys().copied().collect()
+    pub fn get_timer_ids(&self) -> TimerIdVec {
+        self.timers.keys().copied().collect::<Vec<_>>().into()
     }
 
     /// Tick all timers (called once per frame)
@@ -1170,8 +1170,8 @@ impl LayoutWindow {
     }
 
     /// Get all thread IDs
-    pub fn get_thread_ids(&self) -> Vec<ThreadId> {
-        self.threads.keys().copied().collect()
+    pub fn get_thread_ids(&self) -> ThreadIdVec {
+        self.threads.keys().copied().collect::<Vec<_>>().into()
     }
 
     // CallbackChange Processing
@@ -1713,8 +1713,8 @@ impl LayoutWindow {
     }
 
     /// Get all DOM IDs that have layout results
-    pub fn get_dom_ids(&self) -> Vec<DomId> {
-        self.layout_results.keys().copied().collect()
+    pub fn get_dom_ids(&self) -> DomIdVec {
+        self.layout_results.keys().copied().collect::<Vec<_>>().into()
     }
 
     // Hit-Test Computation
@@ -4213,7 +4213,7 @@ impl LayoutWindow {
                             let selection = Selection::Range(SelectionRange { start, end });
 
                             let selection_state = SelectionState {
-                                selections: vec![selection],
+                                selections: vec![selection].into(),
                                 node_id: dom_node_id,
                             };
 
@@ -4536,7 +4536,7 @@ impl LayoutWindow {
     }
 
     /// Get the last text changeset (what was changed in the last text input)
-    pub fn get_last_text_changeset(&self) -> Option<&TextChangeset> {
+    pub fn get_last_text_changeset(&self) -> Option<&PendingTextEdit> {
         self.text_input_manager.get_pending_changeset()
     }
 
@@ -5013,7 +5013,7 @@ impl LayoutWindow {
                 };
 
                 let selection_state = SelectionState {
-                    selections: vec![selection],
+                    selections: vec![selection].into(),
                     node_id: dom_node_id,
                 };
 
@@ -5281,9 +5281,9 @@ impl LayoutWindow {
             // Set cursor at deletion point
             let state = SelectionState {
                 selections: vec![Selection::Range(SelectionRange {
-                    start: cursor,
+                    start: cursor.clone(),
                     end: cursor,
-                })],
+                })].into(),
                 node_id: target,
             };
             self.selection_manager.set_selection(dom_id, state);
@@ -5360,7 +5360,7 @@ impl LayoutWindow {
                                     let default_font = FontSelector::default();
                                     let first_font =
                                         style.font_stack.first().unwrap_or(&default_font);
-                                    let font_family = Some(first_font.family.clone());
+                                    let font_family: OptionString = Some(AzString::from(first_font.family.as_str())).into();
 
                                     // Check if bold/italic from font selector
                                     use rust_fontconfig::FcWeight;
@@ -5374,7 +5374,7 @@ impl LayoutWindow {
                                     );
 
                                     styled_runs.push(StyledTextRun {
-                                        text: cluster.text.clone(),
+                                        text: cluster.text.clone().into(),
                                         font_family,
                                         font_size_px: style.font_size_px,
                                         color: style.color,
@@ -5395,8 +5395,8 @@ impl LayoutWindow {
             None
         } else {
             Some(ClipboardContent {
-                plain_text,
-                styled_runs,
+                plain_text: plain_text.into(),
+                styled_runs: styled_runs.into(),
             })
         }
     }

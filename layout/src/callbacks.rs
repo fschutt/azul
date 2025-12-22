@@ -15,7 +15,7 @@ use alloc::{
 use azul_core::{
     animation::UpdateImageType,
     callbacks::{CoreCallback, FocusTarget, FocusTargetPath, HidpiAdjustedBounds, Update},
-    dom::{DomId, DomNodeId, IdOrClass, NodeId, NodeType},
+    dom::{DomId, DomIdVec, DomNodeId, IdOrClass, NodeId, NodeType},
     events::CallbackResultRef,
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
@@ -26,9 +26,9 @@ use azul_core::{
     menu::Menu,
     refany::{OptionRefAny, RefAny},
     resources::{ImageCache, ImageMask, ImageRef, RendererResources},
-    selection::{Selection, SelectionRange, SelectionState, TextCursor},
+    selection::{Selection, SelectionRange, SelectionRangeVec, SelectionState, TextCursor},
     styled_dom::{NodeHierarchyItemId, StyledDom},
-    task::{self, GetSystemTimeCallback, Instant, ThreadId, TimerId},
+    task::{self, GetSystemTimeCallback, Instant, ThreadId, ThreadIdVec, TimerId, TimerIdVec},
     window::{KeyboardState, MouseState, RawWindowHandle, WindowFlags, WindowSize},
     FastBTreeSet, FastHashMap,
 };
@@ -53,9 +53,9 @@ use crate::{
         gpu_state::GpuStateManager,
         hover::{HoverManager, InputPointId},
         iframe::IFrameManager,
-        scroll_state::{ScrollManager, ScrollState},
+        scroll_state::{AnimatedScrollState, ScrollManager},
         selection::{ClipboardContent, SelectionManager},
-        text_input::{TextChangeset, TextInputManager},
+        text_input::{PendingTextEdit, TextInputManager},
         undo_redo::{UndoRedoManager, UndoableOperation},
     },
     text3::cache::{LayoutCache as TextLayoutCache, UnifiedLayout},
@@ -200,7 +200,7 @@ pub enum CallbackChange {
     },
     /// Set/override the text changeset for the current text input operation
     /// This allows callbacks to modify what text will be inserted during text input events
-    SetTextChangeset { changeset: TextChangeset },
+    SetTextChangeset { changeset: PendingTextEdit },
 
     // Cursor Movement Operations
     /// Move cursor left (arrow left)
@@ -819,7 +819,7 @@ impl CallbackInfo {
     ///     Update::DoNothing
     /// }
     /// ```
-    pub fn get_text_changeset(&self) -> Option<&TextChangeset> {
+    pub fn get_text_changeset(&self) -> Option<&PendingTextEdit> {
         self.get_layout_window()
             .text_input_manager
             .get_pending_changeset()
@@ -854,7 +854,7 @@ impl CallbackInfo {
     ///     Update::DoNothing
     /// }
     /// ```
-    pub fn set_text_changeset(&mut self, changeset: TextChangeset) {
+    pub fn set_text_changeset(&mut self, changeset: PendingTextEdit) {
         self.push_change(CallbackChange::SetTextChangeset { changeset });
     }
 
@@ -1187,7 +1187,7 @@ impl CallbackInfo {
     }
 
     /// Get all timer IDs
-    pub fn get_timer_ids(&self) -> Vec<TimerId> {
+    pub fn get_timer_ids(&self) -> TimerIdVec {
         self.get_layout_window().get_timer_ids()
     }
 
@@ -1199,7 +1199,7 @@ impl CallbackInfo {
     }
 
     /// Get all thread IDs
-    pub fn get_thread_ids(&self) -> Vec<ThreadId> {
+    pub fn get_thread_ids(&self) -> ThreadIdVec {
         self.get_layout_window().get_thread_ids()
     }
 
@@ -1218,7 +1218,7 @@ impl CallbackInfo {
     }
 
     /// Get all DOM IDs that have layout results
-    pub fn get_dom_ids(&self) -> Vec<DomId> {
+    pub fn get_dom_ids(&self) -> DomIdVec {
         self.get_layout_window().get_dom_ids()
     }
 
@@ -1383,7 +1383,7 @@ impl CallbackInfo {
         let mut found: Option<(u64, DomNodeId)> = None;
         let search_type_id = search_key.get_type_id();
 
-        for dom_id in self.get_dom_ids() {
+        for dom_id in self.get_dom_ids().as_ref().iter().copied() {
             let layout_window = self.get_layout_window();
             let layout_result = match layout_window.get_layout_result(&dom_id) {
                 Some(lr) => lr,
@@ -1454,10 +1454,11 @@ impl CallbackInfo {
     }
 
     /// Get all selection ranges (excludes plain cursors)
-    pub fn get_selection_ranges(&self, dom_id: &DomId) -> Vec<SelectionRange> {
+    pub fn get_selection_ranges(&self, dom_id: &DomId) -> SelectionRangeVec {
         self.get_layout_window()
             .selection_manager
             .get_ranges(dom_id)
+            .into()
     }
 
     /// Get direct access to the text layout cache
@@ -1989,7 +1990,7 @@ impl CallbackInfo {
     }
 
     /// Get the scroll state (container rect, content rect, current offset) for a node
-    pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&ScrollState> {
+    pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&AnimatedScrollState> {
         self.get_scroll_manager().get_scroll_state(dom_id, node_id)
     }
 
@@ -2297,12 +2298,12 @@ impl CallbackInfo {
     /// Get the current selection ranges in a node
     ///
     /// Returns all active selection ranges for the specified DOM.
-    pub fn get_node_selection_ranges(&self, target: DomNodeId) -> Vec<SelectionRange> {
+    pub fn get_node_selection_ranges(&self, target: DomNodeId) -> SelectionRangeVec {
         let layout_window = self.get_layout_window();
         layout_window
             .selection_manager
             .get_ranges(&target.dom)
-            .to_vec()
+            .into()
     }
 
     /// Check if a specific node has an active selection
@@ -2310,7 +2311,7 @@ impl CallbackInfo {
     /// This checks if the specific node (identified by DomNodeId) has a selection,
     /// as opposed to has_selection(DomId) which checks the entire DOM.
     pub fn node_has_selection(&self, target: DomNodeId) -> bool {
-        !self.get_node_selection_ranges(target).is_empty()
+        self.get_node_selection_ranges(target).as_ref().is_empty() == false
     }
 
     /// Get the length of text in a node

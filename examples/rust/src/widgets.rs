@@ -1,187 +1,130 @@
-use azul::{prelude::*, str::String as AzString, widgets::*};
+use azul::prelude::*;
+use azul::widgets::*;
+use azul::css::ColorU;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct WidgetShowcase {
     enable_padding: bool,
-    active_tab: usize,
+    progress: f32,
 }
 
 extern "C" 
 fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
 
     let showcase = match data.downcast_ref::<WidgetShowcase>() {
-        Some(s) => s,
+        Some(s) => (*s).clone(),
         None => return StyledDom::default(),
     };
 
     let enable_padding = showcase.enable_padding;
-    let active_tab = showcase.active_tab;
+    let progress = showcase.progress;
 
-    let text = if enable_padding {
+    let toggle_text = if enable_padding {
         "Disable padding"
     } else {
         "Enable padding"
     };
 
-    println!("layout!");
+    let padding = if enable_padding { "padding: 10px;" } else { "" };
+    let margin = "margin-bottom: 10px;";
 
-    let menu = Menu::new(vec![MenuItem::String(
-        StringMenuItem::new("Menu Item 1").with_children(vec![MenuItem::String(
-            StringMenuItem::new("Submenu Item 1..."),
-        )]),
-    )]);
+    // Button
+    let mut button = Button::create(toggle_text);
+    button.set_on_click(data.clone(), toggle_padding);
+    let button_dom = button.dom().with_inline_style(margin);
 
-    let padding = match enable_padding { 
-        true => "padding: 10px",
-        false => "",
-    };
+    // Checkbox
+    let mut checkbox = CheckBox::create(enable_padding);
+    checkbox.set_on_toggle(data.clone(), toggle_padding_checkbox);
+    let checkbox_dom = checkbox.dom().with_inline_style("margin-bottom: 10px;");
 
+    // Progress Bar
+    let progress_bar = ProgressBar::create(progress)
+        .dom()
+        .with_inline_style("margin-bottom: 10px; width: 200px;");
+
+    // Text Input
+    let text_input = TextInput::create()
+        .with_placeholder("Type something...")
+        .dom()
+        .with_inline_style(margin);
+
+    // Number Input
+    let number_input = NumberInput::create(42.0)
+        .dom()
+        .with_inline_style(margin);
+
+    // Color Input
+    let color_input = ColorInput::create(ColorU::from_str("#FF5733"))
+        .dom()
+        .with_inline_style(margin);
+
+    // Increase progress button (with callback)
+    let mut increase_button = Button::create("Increase Progress");
+    increase_button.set_on_click(data.clone(), increase_progress);
+    let increase_dom = increase_button.dom().with_inline_style(margin);
+
+    // Heading
+    let heading = Dom::create_p("Widget Showcase")
+        .with_inline_style("font-size: 24px; font-weight: bold; margin-bottom: 20px;");
+
+    // Final DOM composition
     Dom::create_body()
-        .with_menu_bar(menu)
         .with_inline_style(padding)
-        .with_child(
-            TabHeader::new(vec![
-                format!("Test"),
-                format!("Inactive"),
-                format!("Inactive 2"),
-            ])
-            .with_active_tab(active_tab)
-            .with_on_click(data.clone(), switch_active_tab)
-            .dom(),
-        )
-        .with_child(
-            TabContent::new(match active_tab {
-                0 => Frame::new(
-                    "Frame",
-                    Dom::create_div().with_children(vec![
-                        Button::new(text)
-                            .with_on_click(data.clone(), enable_disable_padding)
-                            .dom()
-                            .with_inline_style("margin-bottom: 5px;"),
-                        CheckBox::new(enable_padding)
-                            .with_on_toggle(data.clone(), enable_disable_padding_check)
-                            .dom()
-                            .with_inline_style("margin-bottom: 5px;"),
-                        DropDown::new(Vec::<AzString>::new())
-                            .dom()
-                            .with_inline_style("margin-bottom: 5px;"),
-                        ProgressBar::new(20.0)
-                            .dom()
-                            .with_inline_style("margin-bottom: 5px;"),
-                        ColorInput::new(ColorU {
-                            r: 0,
-                            g: 0,
-                            b: 0,
-                            a: 255,
-                        })
-                        .dom()
-                        .with_inline_style("margin-bottom: 5px;"),
-                        TextInput::new()
-                            .with_placeholder("Input text...")
-                            .dom()
-                            .with_inline_style("margin-bottom: 5px;"),
-                        NumberInput::new(5.0)
-                            .dom()
-                            .with_inline_style("margin-bottom: 5px;"),
-                        Dom::create_div()
-                            .with_inline_style("flex-direction: row;")
-                            .with_children(vec![ListView::new(vec![
-                                format!("Column 1"),
-                                format!("Column 2"),
-                                format!("Column 3"),
-                                format!("Column 4"),
-                            ])
-                            .with_rows(
-                                (0..100)
-                                    .map(|i| ListViewRow {
-                                        cells: vec![Dom::create_text(format!("{}", i))].into(),
-                                        height: None.into(),
-                                    })
-                                    .collect::<Vec<_>>(),
-                            )
-                            .dom()]),
-                    ]),
-                )
-                .dom(),
-                _ => Dom::create_div(),
-            })
-            .with_padding(enable_padding)
-            .dom(),
-        )
+        .with_child(heading)
+        .with_child(button_dom)
+        .with_child(checkbox_dom)
+        .with_child(progress_bar)
+        .with_child(increase_dom)
+        .with_child(text_input)
+        .with_child(number_input)
+        .with_child(color_input)
         .style(Css::empty())
 }
 
 extern "C" 
-fn text_mouse_down(mut data: RefAny, info: CallbackInfo) -> Update {
-    use azul::option::OptionInlineText;
-
-    let cursor_relative_to_node = match info.get_cursor_relative_to_node().into_option() {
-        Some(s) => s,
+fn toggle_padding(mut data: RefAny, _: CallbackInfo) -> Update {
+    let data = match data.downcast_mut::<WidgetShowcase>() {
+        Some(mut s) => s,
         None => return Update::DoNothing,
     };
 
-    println!("cursor_relative_to_node: {:?}", cursor_relative_to_node);
+    data.enable_padding = !data.enable_padding;
+    Update::RefreshDom
+}
 
-    let inline_text = match info.get_inline_text(info.get_hit_node()) {
-        OptionInlineText::Some(s) => s,
-        OptionInlineText::None => return Update::DoNothing,
+extern "C" 
+fn toggle_padding_checkbox(
+    mut data: RefAny,
+    _: CallbackInfo,
+    state: CheckBoxState,
+) -> Update {
+    let data = match data.downcast_mut::<WidgetShowcase>() {
+        Some(mut s) => s,
+        None => return Update::DoNothing,
     };
 
-    let hit = inline_text.hit_test(cursor_relative_to_node);
-
-    println!("hit: {:#?}", hit);
-
-    Update::DoNothing
+    data.enable_padding = state.checked;
+    Update::RefreshDom
 }
 
 extern "C" 
-fn switch_active_tab(
-    mut data: RefAny,
-    _: CallbackInfo,
-    h: &TabHeaderState,
-) -> Update {
-    match data.downcast_mut::<WidgetShowcase>() {
-        Some(mut s) => {
-            s.active_tab = h.active_tab;
-            Update::RefreshDom
-        }
-        None => Update::DoNothing,
-    }
-}
+fn increase_progress(mut data: RefAny, _: CallbackInfo) -> Update {
+    let data = match data.downcast_mut::<WidgetShowcase>() {
+        Some(mut s) => s,
+        None => return Update::DoNothing,
+    };
 
-extern "C" 
-fn enable_disable_padding_check(
-    mut data: RefAny,
-    _: CallbackInfo,
-    c: &CheckBoxState,
-) -> Update {
-    match data.downcast_mut::<WidgetShowcase>() {
-        Some(mut s) => {
-            s.enable_padding = c.checked;
-            Update::RefreshDom
-        }
-        None => Update::DoNothing,
-    }
-}
-
-extern "C" 
-fn enable_disable_padding(mut data: RefAny, _: CallbackInfo) -> Update {
-    match data.downcast_mut::<WidgetShowcase>() {
-        Some(mut s) => {
-            s.enable_padding = !s.enable_padding;
-            Update::RefreshDom
-        }
-        None => Update::DoNothing,
-    }
+    data.progress = (data.progress + 10.0).min(100.0);
+    Update::RefreshDom
 }
 
 fn main() {
     let data = RefAny::new(WidgetShowcase {
         enable_padding: true,
-        active_tab: 0,
+        progress: 20.0,
     });
-    let app = App::new(data, AppConfig::new());
-    let mut options = WindowCreateOptions::new(layout);
-    options.state.flags.frame = WindowFrame::Maximized;
+    let app = App::create(data, AppConfig::create());
+    let options = WindowCreateOptions::create(layout);
     app.run(options);
 }

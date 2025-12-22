@@ -1,7 +1,3 @@
-//! Calculator example for Azul GUI
-//!
-//! A simple calculator with basic arithmetic operations using CSS Grid layout.
-
 use azul::prelude::*;
 
 /// Calculator state
@@ -15,10 +11,10 @@ struct Calculator {
 
 extern "C" 
 fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
-    let display_text = match data.downcast_ref::<Calculator>() {
-        Some(calc) => calc.display.clone(),
-        None => "0".to_string(),
-    };
+
+    let display_text = data.downcast_ref::<Calculator>()
+    .map(|calc| calc.get_display())
+    .unwrap_or_else(|| "0".to_string());
 
     // Build the calculator DOM using CSS Grid
     let display = Dom::create_div()
@@ -130,6 +126,7 @@ enum Operation {
 
 extern "C" 
 fn on_button_click(mut data: RefAny, _info: CallbackInfo) -> Update {
+
     let mut button_data = match data.downcast_mut::<ButtonData>() {
         Some(d) => d,
         None => return Update::DoNothing,
@@ -166,6 +163,10 @@ impl Calculator {
         }
     }
 
+    fn get_display(&self) -> String {
+        self.display.clone()
+    }
+
     fn input_digit(&mut self, digit: char) {
         if self.clear_on_next_input {
             self.display = String::new();
@@ -189,31 +190,40 @@ impl Calculator {
     }
 
     fn calculate(&mut self) {
-        if let (Some(op), Some(pending)) = (self.pending_operation, self.pending_value) {
-            let result = match op {
-                Operation::Add => pending + self.current_value,
-                Operation::Subtract => pending - self.current_value,
-                Operation::Multiply => pending * self.current_value,
-                Operation::Divide => {
-                    if self.current_value != 0.0 {
-                        pending / self.current_value
-                    } else {
-                        f64::NAN
-                    }
+        let op = match self.pending_operation {
+            Some(o) => o,
+            None => return,
+        };
+        let pending = match self.pending_value {
+            Some(v) => v,
+            None => return,
+        };
+
+        let result = match op {
+            Operation::Add => pending + self.current_value,
+            Operation::Subtract => pending - self.current_value,
+            Operation::Multiply => pending * self.current_value,
+            Operation::Divide => {
+                if self.current_value != 0.0 {
+                    pending / self.current_value
+                } else {
+                    f64::NAN
                 }
-            };
-            self.current_value = result;
-            self.display = if result.is_nan() {
-                "Error".to_string()
-            } else if result.fract() == 0.0 && result.abs() < 1e15 {
-                format!("{}", result as i64)
-            } else {
-                format!("{}", result)
-            };
-            self.pending_operation = None;
-            self.pending_value = None;
-            self.clear_on_next_input = true;
-        }
+            }
+        };
+
+        self.current_value = result;
+        self.display = if result.is_nan() {
+            "Error".to_string()
+        } else if result.fract() == 0.0 && result.abs() < 1e15 {
+            format!("{}", result as i64)
+        } else {
+            format!("{}", result)
+        };
+
+        self.pending_operation = None;
+        self.pending_value = None;
+        self.clear_on_next_input = true;
     }
 
     fn clear(&mut self) {
@@ -275,7 +285,6 @@ fn calc_button(calc: &RefAny, label: &str, event: CalcEvent, style: &str) -> Dom
 fn main() {
     let data = RefAny::new(Calculator::new());
     let app = App::create(data, AppConfig::create());
-    // The API accepts the function pointer directly - it builds the wrapper internally
     let window = WindowCreateOptions::create(layout);
     app.run(window);
 }

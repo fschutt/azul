@@ -43,7 +43,7 @@ use azul_core::{
 
 /// Information about a pending text edit that hasn't been applied yet
 #[derive(Debug, Clone)]
-pub struct TextChangeset {
+pub struct PendingTextEdit {
     /// The node that was edited
     pub node: DomNodeId,
     /// The text that was inserted
@@ -52,7 +52,7 @@ pub struct TextChangeset {
     pub old_text: String,
 }
 
-impl TextChangeset {
+impl PendingTextEdit {
     /// Compute the resulting text after applying the edit
     ///
     /// This is a pure function that applies the inserted_text to old_text
@@ -93,7 +93,7 @@ pub enum TextInputSource {
 pub struct TextInputManager {
     /// The pending text changeset that hasn't been applied yet.
     /// This is set during the "record" phase and cleared after the "apply" phase.
-    pub pending_changeset: Option<TextChangeset>,
+    pub pending_changeset: Option<PendingTextEdit>,
     /// Source of the current text input
     pub input_source: Option<TextInputSource>,
 }
@@ -131,7 +131,7 @@ impl TextInputManager {
         self.pending_changeset = None;
 
         // Store the new changeset
-        self.pending_changeset = Some(TextChangeset {
+        self.pending_changeset = Some(PendingTextEdit {
             node,
             inserted_text,
             old_text,
@@ -143,7 +143,7 @@ impl TextInputManager {
     }
 
     /// Get the pending changeset (if any)
-    pub fn get_pending_changeset(&self) -> Option<&TextChangeset> {
+    pub fn get_pending_changeset(&self) -> Option<&PendingTextEdit> {
         self.pending_changeset.as_ref()
     }
 

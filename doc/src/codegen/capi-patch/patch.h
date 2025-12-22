@@ -65,12 +65,12 @@
     typedef struct { structName* restrict ptr; AzRefCount sharing_info; } structName##RefMut; \
     \
     structName##Ref structName##Ref_create(AzRefAny* const refany) { \
-        structName##Ref val = { .ptr = 0, .sharing_info = AzRefCount_deepCopy(&refany->sharing_info) };    \
+        structName##Ref val = { .ptr = 0, .sharing_info = AzRefCount_clone(&refany->sharing_info) };    \
         return val;    \
     } \
     \
     structName##RefMut structName##RefMut_create(AzRefAny* const refany) { \
-        structName##RefMut val = { .ptr = 0, .sharing_info = AzRefCount_deepCopy(&refany->sharing_info), };    \
+        structName##RefMut val = { .ptr = 0, .sharing_info = AzRefCount_clone(&refany->sharing_info), };    \
         return val;    \
     } \
     \

@@ -1135,7 +1135,7 @@ impl RustGenerator {
 
         // Clone impl calling C-ABI function
         if struct_def.traits.is_clone && !struct_def.traits.is_copy {
-            let deep_copy_fn = format!("{}_deepCopy", name);
+            let deep_copy_fn = format!("{}_clone", name);
             builder.line(&format!("impl Clone for {} {{", name));
             builder.indent();
             builder.line("fn clone(&self) -> Self {");
@@ -1174,7 +1174,7 @@ impl RustGenerator {
 
         // Clone impl calling C-ABI function
         if enum_def.traits.is_clone && !enum_def.traits.is_copy {
-            let deep_copy_fn = format!("{}_deepCopy", name);
+            let deep_copy_fn = format!("{}_clone", name);
             builder.line(&format!("impl Clone for {} {{", name));
             builder.indent();
             builder.line("fn clone(&self) -> Self {");
