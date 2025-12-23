@@ -1825,12 +1825,26 @@ impl WaylandWindow {
     /// Generate frame if needed and reset flag
     ///
     /// This method implements the Wayland frame callback pattern for VSync:
-    /// 1. Render to WebRender
-    /// 2. Swap buffers (if GPU mode)
-    /// 3. Set up frame callback for next frame
+    /// 1. Send WebRender transaction with updated display list
+    /// 2. Render to WebRender
+    /// 3. Swap buffers (if GPU mode)
+    /// 4. Set up frame callback for next frame
     pub fn generate_frame_if_needed(&mut self) {
         if !self.frame_needs_regeneration || self.frame_callback_pending {
             return;
+        }
+
+        // Send the WebRender transaction BEFORE rendering
+        if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) = (
+            self.layout_window.as_mut(),
+            self.render_api.as_mut(),
+            self.document_id,
+        ) {
+            crate::desktop::shell2::common::layout_v2::generate_frame(
+                layout_window,
+                render_api,
+                document_id,
+            );
         }
 
         match &mut self.render_mode {

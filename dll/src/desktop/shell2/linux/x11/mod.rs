@@ -793,8 +793,16 @@ impl X11Window {
             }
         }
 
-        // Mark that frame needs regeneration (will be called once at event processing end)
-        self.frame_needs_regeneration = true;
+        // Send frame immediately (like Windows - ensures WebRender transaction is sent)
+        let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
+        crate::desktop::shell2::common::layout_v2::generate_frame(
+            layout_window,
+            self.render_api.as_mut().ok_or("No render API")?,
+            self.document_id.ok_or("No document ID")?,
+        );
+        if let Some(render_api) = self.render_api.as_mut() {
+            render_api.flush_scene_builder();
+        }
 
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
