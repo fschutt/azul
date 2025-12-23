@@ -23,6 +23,9 @@ autoexamples = true
 azul-css                = { version = "0.0.5", path = "../css", default-features = false, features = ["parser"] }
 azul-core               = { version = "0.0.5", path = "../core", default-features = false }
 image                   = { version = "0.25", default-features = false, optional = true }
+# Explicit override to disable SIMD features that are broken on some Rust versions
+# See: https://github.com/image-rs/image/issues/2705
+zune-jpeg               = { version = "0.4", default-features = false, features = ["std"], optional = true }
 rust-fontconfig         = { version = "1.2.1", default-features = false, optional = true }
 serde                   = { version = "1.0", features = ["derive"] }
 accesskit               = { version = "0.21.1", default-features = false, optional = true }
@@ -95,7 +98,7 @@ image_decoding = ["dep:image"]
 
 # Individual image format features (require image_decoding)
 gif = ["image_decoding", "image/gif"]
-jpeg = ["image_decoding", "image/jpeg"]
+jpeg = ["image_decoding", "image/jpeg", "dep:zune-jpeg"]
 png = ["image_decoding", "image/png"]
 tiff = ["image_decoding", "image/tiff"]
 bmp = ["image_decoding", "image/bmp"]
