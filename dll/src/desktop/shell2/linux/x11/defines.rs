@@ -272,6 +272,17 @@ pub const ExposureMask: c_long = 1 << 15;
 pub const StructureNotifyMask: c_long = 1 << 17;
 pub const FocusChangeMask: c_long = 1 << 21;
 
+// X11 modifier masks (from X.h)
+// These are used in the 'state' field of XButtonEvent, XMotionEvent, XKeyEvent, XCrossingEvent
+pub const SHIFT_MASK: c_uint = 1 << 0;
+pub const LOCK_MASK: c_uint = 1 << 1;   // Caps Lock
+pub const CONTROL_MASK: c_uint = 1 << 2;
+pub const MOD1_MASK: c_uint = 1 << 3;   // Usually Alt
+pub const MOD2_MASK: c_uint = 1 << 4;   // Usually Num Lock
+pub const MOD3_MASK: c_uint = 1 << 5;
+pub const MOD4_MASK: c_uint = 1 << 6;   // Usually Super/Windows key
+pub const MOD5_MASK: c_uint = 1 << 7;
+
 // Event types
 pub const KeyPress: c_int = 2;
 pub const KeyRelease: c_int = 3;

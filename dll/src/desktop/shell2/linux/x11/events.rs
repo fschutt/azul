@@ -289,6 +289,9 @@ impl X11Window {
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
 
+        // Update modifier state from X11 event state field
+        self.update_modifiers_from_x11_state(event.state);
+
         // Update mouse state
         self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
 
@@ -336,6 +339,9 @@ impl X11Window {
 
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
+
+        // Update modifier state from X11 event state field
+        self.update_modifiers_from_x11_state(event.state);
 
         // Update mouse state
         self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
@@ -385,6 +391,9 @@ impl X11Window {
 
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
+
+        // Update modifier state from X11 event state field
+        self.update_modifiers_from_x11_state(event.state);
 
         // Update mouse state based on enter/leave
         if event.type_ == EnterNotify {
@@ -534,6 +543,54 @@ impl X11Window {
     }
 
     // Helper Functions for V2 Event System
+
+    /// Update keyboard state based on X11 event state field.
+    ///
+    /// X11 events (XButtonEvent, XMotionEvent, XCrossingEvent, XKeyEvent) contain a `state`
+    /// field that indicates which modifier keys were held when the event occurred.
+    /// This function synchronizes the KeyboardState with that information.
+    fn update_modifiers_from_x11_state(&mut self, state: std::ffi::c_uint) {
+        use azul_core::window::VirtualKeyCode;
+
+        // Check each modifier mask and update the keyboard state accordingly
+        let keyboard_state = &mut self.current_window_state.keyboard_state;
+
+        // Shift
+        let shift_down = (state & SHIFT_MASK) != 0;
+        if shift_down {
+            keyboard_state.pressed_virtual_keycodes.insert_hm_item(VirtualKeyCode::LShift);
+        } else {
+            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::LShift);
+            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::RShift);
+        }
+
+        // Control
+        let ctrl_down = (state & CONTROL_MASK) != 0;
+        if ctrl_down {
+            keyboard_state.pressed_virtual_keycodes.insert_hm_item(VirtualKeyCode::LControl);
+        } else {
+            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::LControl);
+            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::RControl);
+        }
+
+        // Alt (Mod1)
+        let alt_down = (state & MOD1_MASK) != 0;
+        if alt_down {
+            keyboard_state.pressed_virtual_keycodes.insert_hm_item(VirtualKeyCode::LAlt);
+        } else {
+            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::LAlt);
+            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::RAlt);
+        }
+
+        // Super/Windows (Mod4)
+        let super_down = (state & MOD4_MASK) != 0;
+        if super_down {
+            keyboard_state.pressed_virtual_keycodes.insert_hm_item(VirtualKeyCode::LWin);
+        } else {
+            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::LWin);
+            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::RWin);
+        }
+    }
 
     /// Update hit test at given position and store in current_window_state
     fn update_hit_test(&mut self, position: LogicalPosition) {
