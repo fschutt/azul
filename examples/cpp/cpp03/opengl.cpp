@@ -34,8 +34,7 @@ int main() {
     state.rotation_deg = 0.0f;
     RefAny data = OpenGlState_upcast(state);
     
-    LayoutCallback cb = LayoutCallback::create(layout);
-    WindowCreateOptions window = WindowCreateOptions::create(cb);
+    WindowCreateOptions window = WindowCreateOptions::create(layout);
     window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"OpenGL Integration", 0, 18);
     window.inner().window_state.size.dimensions.width = 800.0;
     window.inner().window_state.size.dimensions.height = 600.0;

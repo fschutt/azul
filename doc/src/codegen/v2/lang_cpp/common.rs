@@ -63,6 +63,13 @@ pub fn should_skip_method(func: &FunctionDef) -> bool {
     func.kind.is_default_constructor()  // handled separately as static constructor
 }
 
+/// Check if callback substitution should be applied for a function
+/// This should be true for Constructor and Method, but NOT for EnumVariantConstructor, Delete, DeepCopy
+pub fn should_substitute_callbacks(func: &FunctionDef) -> bool {
+    matches!(func.kind, FunctionKind::Constructor | FunctionKind::Method) ||
+    func.kind.is_default_constructor()
+}
+
 // ============================================================================
 // Primitive Type Handling
 // ============================================================================
@@ -151,6 +158,15 @@ pub fn needs_destructor(struct_def: &StructDef) -> bool {
 /// Check if a struct has the Default trait
 pub fn has_default(struct_def: &StructDef) -> bool {
     struct_def.traits.is_default
+}
+
+/// Check if a type is a callback wrapper and return its typedef name
+/// For types like LayoutCallback, IFrameCallback, etc. that have a `cb` field
+/// with a CallbackType typedef
+pub fn get_callback_typedef_name(type_name: &str, ir: &CodegenIR) -> Option<String> {
+    ir.find_struct(type_name)
+        .and_then(|s| s.callback_wrapper_info.as_ref())
+        .map(|info| info.callback_typedef_name.clone())
 }
 
 /// Get the element type of a Vec (from the ptr field)
@@ -257,8 +273,23 @@ pub fn func_has_self(func: &FunctionDef) -> bool {
 // ============================================================================
 
 /// Convert a function argument to C++ type
-pub fn arg_to_cpp_type(arg: &FunctionArg, ir: &CodegenIR, config: &CodegenConfig) -> String {
+/// If `substitute_callbacks` is true and the type is a callback wrapper,
+/// use the raw C callback type instead (e.g., AzLayoutCallbackType instead of LayoutCallback)
+pub fn arg_to_cpp_type_ex(
+    arg: &FunctionArg, 
+    ir: &CodegenIR, 
+    config: &CodegenConfig,
+    substitute_callbacks: bool,
+) -> String {
     let base_type = &arg.type_name;
+    
+    // Check if this is a callback wrapper that should be substituted
+    if substitute_callbacks {
+        if let Some(callback_typedef) = get_callback_typedef_name(base_type, ir) {
+            // Use the C type (e.g., AzLayoutCallbackType)
+            return config.apply_prefix(&callback_typedef);
+        }
+    }
     
     if is_primitive(base_type) {
         let c_type = primitive_to_c(base_type);
@@ -281,6 +312,11 @@ pub fn arg_to_cpp_type(arg: &FunctionArg, ir: &CodegenIR, config: &CodegenConfig
             _ => c_type,
         }
     }
+}
+
+/// Convert a function argument to C++ type (without callback substitution)
+pub fn arg_to_cpp_type(arg: &FunctionArg, ir: &CodegenIR, config: &CodegenConfig) -> String {
+    arg_to_cpp_type_ex(arg, ir, config, false)
 }
 
 /// Get C++ return type for a function
@@ -329,6 +365,18 @@ pub fn generate_args_signature(
     is_method: bool,
     class_name: &str,
 ) -> String {
+    generate_args_signature_ex(args, ir, config, is_method, class_name, false)
+}
+
+/// Generate C++ argument signature with optional callback substitution
+pub fn generate_args_signature_ex(
+    args: &[FunctionArg], 
+    ir: &CodegenIR, 
+    config: &CodegenConfig, 
+    is_method: bool,
+    class_name: &str,
+    substitute_callbacks: bool,
+) -> String {
     let mut result = Vec::new();
     
     for (i, arg) in args.iter().enumerate() {
@@ -338,7 +386,7 @@ pub fn generate_args_signature(
         }
 
         let escaped_name = escape_cpp_keyword(&arg.name);
-        let cpp_type = arg_to_cpp_type(arg, ir, config);
+        let cpp_type = arg_to_cpp_type_ex(arg, ir, config, substitute_callbacks);
         result.push(format!("{} {}", cpp_type, escaped_name));
     }
 
@@ -352,6 +400,17 @@ pub fn generate_call_args(
     is_method: bool, 
     class_name: &str,
 ) -> String {
+    generate_call_args_ex(args, ir, is_method, class_name, false)
+}
+
+/// Generate C++ function call arguments with optional callback substitution
+pub fn generate_call_args_ex(
+    args: &[FunctionArg], 
+    ir: &CodegenIR, 
+    is_method: bool, 
+    class_name: &str,
+    substitute_callbacks: bool,
+) -> String {
     let mut result = Vec::new();
     
     for (i, arg) in args.iter().enumerate() {
@@ -361,6 +420,15 @@ pub fn generate_call_args(
         }
 
         let escaped_name = escape_cpp_keyword(&arg.name);
+        
+        // Check if this is a callback wrapper type that should be passed directly
+        if substitute_callbacks {
+            if get_callback_typedef_name(&arg.type_name, ir).is_some() {
+                // Callback types are raw function pointers, pass directly
+                result.push(escaped_name);
+                continue;
+            }
+        }
         
         if type_has_wrapper(&arg.type_name, ir) {
             let is_pointer = matches!(arg.ref_kind, 

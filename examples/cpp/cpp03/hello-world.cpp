@@ -51,8 +51,7 @@ int main() {
     model.counter = 5;
     RefAny data = MyDataModel_upcast(model);
     
-    LayoutCallback layout_cb = LayoutCallback::create(layout);
-    WindowCreateOptions window = WindowCreateOptions::create(layout_cb);
+    WindowCreateOptions window = WindowCreateOptions::create(layout);
     window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"Hello World", 0, 11);
     
     App app = App::create(data, AppConfig::default_());

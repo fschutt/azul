@@ -196,8 +196,9 @@ impl CppDialect for Cpp17Generator {
         {
             let cpp_fn_name = escape_method_name(&func.method_name);
             let c_fn_name = &func.c_name;
-            let cpp_args = generate_args_signature(&func.args, ir, config, false, class_name);
-            let call_args = generate_call_args(&func.args, ir, false, class_name);
+            let substitute = should_substitute_callbacks(func);
+            let cpp_args = generate_args_signature_ex(&func.args, ir, config, false, class_name, substitute);
+            let call_args = generate_call_args_ex(&func.args, ir, false, class_name, substitute);
             
             code.push_str(&format!(
                 "inline {} {}::{}({}) {{\r\n",
@@ -218,8 +219,9 @@ impl CppDialect for Cpp17Generator {
             let cpp_fn_name = escape_method_name(&func.method_name);
             let c_fn_name = &func.c_name;
             let cpp_return_type = get_cpp_return_type(func.return_type.as_deref(), ir);
-            let cpp_args = generate_args_signature(&func.args, ir, config, false, class_name);
-            let call_args = generate_call_args(&func.args, ir, false, class_name);
+            let substitute = should_substitute_callbacks(func);
+            let cpp_args = generate_args_signature_ex(&func.args, ir, config, false, class_name, substitute);
+            let call_args = generate_call_args_ex(&func.args, ir, false, class_name, substitute);
             
             code.push_str(&format!(
                 "inline {} {}::{}({}) {{\r\n",
@@ -241,8 +243,9 @@ impl CppDialect for Cpp17Generator {
             let is_const = has_self && (matches!(func.kind, FunctionKind::Method) || func.is_const);
             let const_suffix = if is_const { " const" } else { "" };
             let cpp_return_type = get_cpp_return_type(func.return_type.as_deref(), ir);
-            let cpp_args = generate_args_signature(&func.args, ir, config, true, class_name);
-            let call_args = generate_call_args(&func.args, ir, true, class_name);
+            let substitute = should_substitute_callbacks(func);
+            let cpp_args = generate_args_signature_ex(&func.args, ir, config, true, class_name, substitute);
+            let call_args = generate_call_args_ex(&func.args, ir, true, class_name, substitute);
             
             let full_call_args = if has_self {
                 let self_is_value = func.args.first()
@@ -449,7 +452,8 @@ impl Cpp17Generator {
             code.push_str("\r\n");
             for func in constructors {
                 let cpp_fn_name = escape_method_name(&func.method_name);
-                let cpp_args = generate_args_signature(&func.args, ir, config, false, class_name);
+                let substitute = should_substitute_callbacks(func);
+                let cpp_args = generate_args_signature_ex(&func.args, ir, config, false, class_name, substitute);
                 code.push_str(&format!(
                     "    [[nodiscard]] static {} {}({});\r\n",
                     class_name, cpp_fn_name, cpp_args
@@ -465,7 +469,8 @@ impl Cpp17Generator {
         
         for func in factories {
             let cpp_fn_name = escape_method_name(&func.method_name);
-            let cpp_args = generate_args_signature(&func.args, ir, config, false, class_name);
+            let substitute = should_substitute_callbacks(func);
+            let cpp_args = generate_args_signature_ex(&func.args, ir, config, false, class_name, substitute);
             let cpp_return_type = get_cpp_return_type(func.return_type.as_deref(), ir);
             code.push_str(&format!(
                 "    [[nodiscard]] static {} {}({});\r\n",
@@ -496,7 +501,8 @@ impl Cpp17Generator {
                 let const_suffix = if is_const { " const" } else { "" };
                 let static_prefix = if !has_self { "static " } else { "" };
                 let cpp_return_type = get_cpp_return_type(func.return_type.as_deref(), ir);
-                let cpp_args = generate_args_signature(&func.args, ir, config, true, class_name);
+                let substitute = should_substitute_callbacks(func);
+                let cpp_args = generate_args_signature_ex(&func.args, ir, config, true, class_name, substitute);
                 code.push_str(&format!(
                     "    {}{} {}({}){};\r\n",
                     static_prefix, cpp_return_type, cpp_fn_name, cpp_args, const_suffix

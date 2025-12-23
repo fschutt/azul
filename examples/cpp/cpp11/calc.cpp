@@ -161,8 +161,7 @@ int main() {
     Calculator model;
     RefAny data = Calculator_upcast(model);
     
-    LayoutCallback cb = LayoutCallback::create(layout);
-    WindowCreateOptions window = WindowCreateOptions::create(std::move(cb));
+    WindowCreateOptions window = WindowCreateOptions::create(layout);
     window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"Calculator", 0, 10);
     
     App app = App::create(std::move(data), AppConfig::default_());

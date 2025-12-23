@@ -38,8 +38,7 @@ int main() {
     state.connection_status = 0;
     RefAny data = AsyncState_upcast(state);
     
-    LayoutCallback layout_cb = LayoutCallback::create(layout);
-    WindowCreateOptions window = WindowCreateOptions::create(layout_cb);
+    WindowCreateOptions window = WindowCreateOptions::create(layout);
     window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"Async Demo", 0, 10);
     
     App app = App::create(data, AppConfig::default_());

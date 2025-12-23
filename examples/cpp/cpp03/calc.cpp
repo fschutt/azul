@@ -117,8 +117,7 @@ int main() {
     model.clear_next = 0;
     RefAny data = Calculator_upcast(model);
     
-    LayoutCallback cb = LayoutCallback::create(layout);
-    WindowCreateOptions window = WindowCreateOptions::create(cb);
+    WindowCreateOptions window = WindowCreateOptions::create(layout);
     window.inner().window_state.title = AzString_copyFromBytes((const uint8_t*)"Calculator", 0, 10);
     
     App app = App::create(data, AppConfig::default_());

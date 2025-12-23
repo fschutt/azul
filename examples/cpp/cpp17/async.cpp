@@ -101,8 +101,7 @@ int main() {
     AsyncState state = { Stage_NotConnected, "postgres://localhost:5432/mydb", {}, 0.0f };
     RefAny data = AsyncState_upcast(state);
     
-    LayoutCallback layout_cb = LayoutCallback::create(layout);
-    WindowCreateOptions window = WindowCreateOptions::create(std::move(layout_cb));
+    WindowCreateOptions window = WindowCreateOptions::create(layout);
     
     App app = App::create(std::move(data), AppConfig::default_());
     app.run(std::move(window));

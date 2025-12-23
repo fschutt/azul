@@ -44,8 +44,7 @@ int main() {
     MyDataModel model = {5};
     RefAny data = MyDataModel_upcast(model);
     
-    LayoutCallback layout_cb = LayoutCallback::create(layout);
-    WindowCreateOptions window = WindowCreateOptions::create(std::move(layout_cb));
+    WindowCreateOptions window = WindowCreateOptions::create(layout);
     
     App app = App::create(std::move(data), AppConfig::default_());
     app.run(std::move(window));
