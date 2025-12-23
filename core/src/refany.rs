@@ -828,11 +828,12 @@ impl RefAny {
             )
         };
 
-        // Simple hash: sum bytes with position-based bit shifts
+        // Convert first 8 bytes to u64 using proper bit positions
         struct_as_bytes
             .into_iter()
             .enumerate()
-            .map(|(s_pos, s)| ((*s as u64) << s_pos))
+            .take(8) // Only use first 8 bytes (64 bits fit in u64)
+            .map(|(s_pos, s)| (*s as u64) << (s_pos * 8))
             .sum()
     }
 
