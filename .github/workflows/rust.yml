@@ -364,11 +364,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang lldb
 
-      - name: Generate DLL API bindings for c-api feature
+      - name: Generate DLL API bindings for build-dll feature
         run: cargo run -r -p azul-doc codegen all
 
-      - name: Build azul-dll with c-api feature (debug)
-        run: cargo build -p azul-dll --features c-api
+      - name: Build azul-dll with build-dll feature (debug)
+        run: cargo build -p azul-dll --features build-dll
 
       - name: Compile C hello-world with Address Sanitizer
         run: |
@@ -419,11 +419,11 @@ jobs:
         with:
           toolchain: 1.87.0
 
-      - name: Generate DLL API bindings for c-api feature
+      - name: Generate DLL API bindings for build-dll feature
         run: cargo run -r -p azul-doc codegen all
 
-      - name: Build azul-dll with c-api feature (debug)
-        run: cargo build -p azul-dll --features c-api
+      - name: Build azul-dll with build-dll feature (debug)
+        run: cargo build -p azul-dll --features build-dll
 
       - name: Compile C hello-world with Address Sanitizer
         run: |
@@ -516,9 +516,9 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: clang target/codegen/v2/azul.h -ferror-limit=0
 
-      - name: Build DLL with c-api feature
+      - name: Build DLL with build-dll feature
         run: |
-          cargo build --release -p azul-dll --features="c-api"
+          cargo build --release -p azul-dll --features="build-dll"
 
       - name: Build Python extension
         run: |
