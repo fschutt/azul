@@ -430,7 +430,7 @@ fn is_primitive_or_builtin(name: &str) -> bool {
         // Other primitives
         "char" | "()" |
         // C types (NOT String - that's a custom Azul type, not std::string::String)
-        "c_void"
+        "c_void" | "c_int" | "c_uint" | "c_long" | "c_ulong" | "c_char" | "c_uchar"
     )
 }
 
@@ -456,7 +456,9 @@ impl CodegenConfig {
             module_wrapper: Some("dll".into()),
             imports: vec![
                 "use core::ffi::c_void;".into(),
+                "use core::ffi::c_int;".into(),
                 "use core::mem::transmute;".into(),
+                "use azul_layout::xml::svg::SvgMultiPolygonTessellation;".into(),
             ],
             type_filter: None,
             type_exclude: BTreeSet::new(),
@@ -485,7 +487,9 @@ impl CodegenConfig {
             module_wrapper: Some("dll".into()),
             imports: vec![
                 "use core::ffi::c_void;".into(),
+                "use core::ffi::c_int;".into(),
                 "use core::mem::transmute;".into(),
+                "use azul_layout::xml::svg::SvgMultiPolygonTessellation;".into(),
             ],
             type_filter: None,
             type_exclude: BTreeSet::new(),
@@ -653,6 +657,7 @@ impl CodegenConfig {
             module_wrapper: Some("dll".into()),
             imports: vec![
                 "use core::ffi::c_void;".into(),
+                "use core::ffi::c_int;".into(),
                 "use core::mem::transmute;".into(),
             ],
             type_filter: None,

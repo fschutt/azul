@@ -370,7 +370,7 @@ pub fn translate_hit_test_result(
 
     FullHitTest {
         hovered_nodes,
-        focused_node: _focused_node.and_then(|f| f.node.into_crate_internal().map(|n| (f.dom, n))),
+        focused_node: _focused_node.into(),
     }
 }
 
@@ -536,7 +536,7 @@ pub fn fullhittest_new_webrender(
 
                 // Update focused node if this item is focusable
                 if item.is_focusable {
-                    ret.focused_node = Some((*dom_id, node_id));
+                    ret.focused_node = Some(azul_core::dom::DomNodeId { dom: *dom_id, node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id)) }).into();
                 }
 
                 // Always insert into regular_hit_test_nodes
@@ -1229,7 +1229,7 @@ pub fn generate_frame(
 
             eprintln!(
                 "[generate_frame] Registered ImageRefHash({}) -> ImageKey {:?}",
-                image_ref_hash.0, add_image_msg.0.key
+                image_ref_hash.inner, add_image_msg.0.key
             );
         }
 

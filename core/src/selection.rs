@@ -87,6 +87,8 @@ pub struct TextCursor {
     pub affinity: CursorAffinity,
 }
 
+impl_option!(TextCursor, OptionTextCursor,  [Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd]);
+
 /// Represents a range of selected text. The direction is implicit (start can be
 /// logically after end if selecting backwards).
 #[derive(Debug, PartialOrd, Ord, Clone, Copy, PartialEq, Eq, Hash)]
@@ -95,6 +97,8 @@ pub struct SelectionRange {
     pub start: TextCursor,
     pub end: TextCursor,
 }
+
+impl_option!(SelectionRange, OptionSelectionRange, [Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd]);
 
 impl_vec!(SelectionRange, SelectionRangeVec, SelectionRangeVecDestructor, SelectionRangeVecDestructorType);
 impl_vec_debug!(SelectionRange, SelectionRangeVec);
@@ -144,6 +148,4 @@ impl SelectionState {
     }
 }
 
-impl_option!(TextCursor, OptionTextCursor, copy = false, clone = false, [Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd]);
-impl_option!(SelectionRange, OptionSelectionRange, copy = false, clone = false, [Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd]);
 impl_option!(SelectionState, OptionSelectionState, copy = false, clone = false, [Debug, Clone, PartialEq]);

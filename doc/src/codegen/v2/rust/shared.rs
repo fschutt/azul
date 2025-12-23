@@ -296,7 +296,8 @@ pub fn is_primitive_type(type_name: &str) -> bool {
         "bool" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
         "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
         "f32" | "f64" | "char" | "()" |
-        "c_void"
+        "c_void" |
+        "c_int" | "c_uint" | "c_long" | "c_ulong" | "c_char" | "c_uchar"
         // NOTE: "String" is NOT a primitive - it's AzString in Azul
     )
 }

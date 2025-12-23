@@ -4020,7 +4020,7 @@ impl MacOSWindow {
                 use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
 
                 let new_content = vec![InlineContent::Text(StyledRun {
-                    text: operation.pre_state.text_content.clone(),
+                    text: operation.pre_state.text_content.as_str().to_string(),
                     style: Arc::new(StyleProperties::default()),
                     logical_start_byte: 0,
                 })];
@@ -4033,7 +4033,7 @@ impl MacOSWindow {
                 );
 
                 // Restore cursor position
-                if let Some(cursor) = operation.pre_state.cursor_position {
+                if let Some(cursor) = operation.pre_state.cursor_position.into_option() {
                     layout_window.cursor_manager.move_cursor_to(
                         cursor,
                         target.dom,
@@ -4084,9 +4084,9 @@ impl MacOSWindow {
                 use azul_layout::managers::changeset::TextOperation;
 
                 match &operation.changeset.operation {
-                    TextOperation::InsertText { text, .. } => {
+                    TextOperation::InsertText(op) => {
                         // Re-insert the text
-                        let _ = layout_window.process_text_input(text);
+                        let _ = layout_window.process_text_input(&op.text);
                     }
                     _ => {
                         // Other operations not yet fully supported

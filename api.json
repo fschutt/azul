@@ -2829,6 +2829,20 @@
                 },
                 "fn_body": "object.get_ctx()"
               },
+              "get_gl_context": {
+                "doc": [
+                  "Returns the OpenGL context if available"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionGlContextPtr"
+                },
+                "fn_body": "object.get_gl_context()"
+              },
               "add_timer": {
                 "doc": [
                   "Add a timer to this window (applied after callback returns)"
@@ -3591,7 +3605,7 @@
                 "returns": {
                   "type": "OptionNodeId"
                 },
-                "fn_body": "object.get_node_id_by_id_attribute(dom_id.as_str(), id.as_str()).into()"
+                "fn_body": "object.get_node_id_by_id_attribute(dom_id, id.as_str()).into()"
               },
               "get_parent_node": {
                 "doc": [
@@ -3922,7 +3936,7 @@
                 "returns": {
                   "type": "OptionTimer"
                 },
-                "fn_body": "object.get_timer(timer_id).into()"
+                "fn_body": "object.get_timer(&timer_id).cloned().into()"
               },
               "get_timer_ids": {
                 "doc": [
@@ -3953,7 +3967,7 @@
                 "returns": {
                   "type": "OptionThread"
                 },
-                "fn_body": "object.get_thread(thread_id).into()"
+                "fn_body": "object.get_thread(&thread_id).cloned().into()"
               },
               "get_thread_ids": {
                 "doc": [
@@ -3968,23 +3982,6 @@
                   "type": "ThreadIdVec"
                 },
                 "fn_body": "object.get_thread_ids()"
-              },
-              "get_layout_result": {
-                "doc": [
-                  "Get a layout result for a specific DOM"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "dom_id": "DomId"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionDomLayoutResult"
-                },
-                "fn_body": "object.get_layout_result(dom_id).into()"
               },
               "get_dom_ids": {
                 "doc": [
@@ -4138,7 +4135,7 @@
                 "returns": {
                   "type": "OptionSelectionState"
                 },
-                "fn_body": "object.get_selection(dom_id).into()"
+                "fn_body": "object.get_selection(&dom_id).cloned().into()"
               },
               "has_selection": {
                 "doc": [
@@ -4155,7 +4152,7 @@
                 "returns": {
                   "type": "bool"
                 },
-                "fn_body": "object.has_selection(dom_id)"
+                "fn_body": "object.has_selection(&dom_id)"
               },
               "get_primary_cursor": {
                 "doc": [
@@ -4172,7 +4169,7 @@
                 "returns": {
                   "type": "OptionTextCursor"
                 },
-                "fn_body": "object.get_primary_cursor(dom_id).into()"
+                "fn_body": "object.get_primary_cursor(&dom_id).into()"
               },
               "get_selection_ranges": {
                 "doc": [
@@ -4189,7 +4186,7 @@
                 "returns": {
                   "type": "SelectionRangeVec"
                 },
-                "fn_body": "object.get_selection_ranges(dom_id)"
+                "fn_body": "object.get_selection_ranges(&dom_id)"
               },
               "get_current_window_state": {
                 "doc": [
@@ -4203,21 +4200,7 @@
                 "returns": {
                   "type": "FullWindowState"
                 },
-                "fn_body": "object.get_current_window_state()"
-              },
-              "get_previous_window_state": {
-                "doc": [
-                  "Get full previous window state (immutable reference)"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionFullWindowState"
-                },
-                "fn_body": "object.get_previous_window_state().into()"
+                "fn_body": "object.get_current_window_state().clone()"
               },
               "get_previous_window_flags": {
                 "doc": [
@@ -4400,7 +4383,7 @@
                 "returns": {
                   "type": "OptionPenState"
                 },
-                "fn_body": "object.get_pen_state().into()"
+                "fn_body": "object.get_pen_state().cloned().into()"
               },
               "get_pen_pressure": {
                 "doc": [
@@ -4413,7 +4396,7 @@
                   }
                 ],
                 "returns": {
-                  "type": "Optionf32"
+                  "type": "OptionF32"
                 },
                 "fn_body": "object.get_pen_pressure().into()"
               },
@@ -4428,23 +4411,9 @@
                   }
                 ],
                 "returns": {
-                  "type": "Option(f32, f32)"
+                  "type": "OptionPenTilt"
                 },
                 "fn_body": "object.get_pen_tilt().into()"
-              },
-              "get_last_input_sample": {
-                "doc": [
-                  "Get the last recorded input sample (for event_id and detailed input data)"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionInputSample"
-                },
-                "fn_body": "object.get_last_input_sample().into()"
               },
               "get_current_event_id": {
                 "doc": [
@@ -4456,7 +4425,7 @@
                   }
                 ],
                 "returns": {
-                  "type": "Optionu64"
+                  "type": "OptionU64"
                 },
                 "fn_body": "object.get_current_event_id().into()"
               },
@@ -4524,7 +4493,7 @@
                 "returns": {
                   "type": "OptionString"
                 },
-                "fn_body": "object.get_hovered_file().into()"
+                "fn_body": "object.get_hovered_file().cloned().into()"
               },
               "get_dropped_file": {
                 "doc": [
@@ -4541,54 +4510,7 @@
                 "returns": {
                   "type": "OptionString"
                 },
-                "fn_body": "object.get_dropped_file().into()"
-              },
-              "get_drag_state": {
-                "doc": [
-                  "Get the current drag/drop state (if any)",
-                  "",
-                  "Returns None if no drag is active, or Some with drag details."
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionDragState"
-                },
-                "fn_body": "object.get_drag_state().into()"
-              },
-              "get_current_hit_test": {
-                "doc": [
-                  "Get the current mouse cursor hit test result (most recent frame)"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionFullHitTest"
-                },
-                "fn_body": "object.get_current_hit_test().into()"
-              },
-              "get_hit_test_frame": {
-                "doc": [
-                  "Get mouse cursor hit test from N frames ago (0 = current, 1 = previous, etc.)"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "frames_ago": "usize"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionFullHitTest"
-                },
-                "fn_body": "object.get_hit_test_frame(frames_ago).into()"
+                "fn_body": "object.get_dropped_file().cloned().into()"
               },
               "get_dragged_node": {
                 "doc": [
@@ -4616,7 +4538,23 @@
                 "returns": {
                   "type": "OptionString"
                 },
-                "fn_body": "object.get_dragged_file().into()"
+                "fn_body": "object.get_dragged_file().cloned().into()"
+              },
+              "get_drag_state": {
+                "doc": [
+                  "Get the current drag/drop state (if any)",
+                  "",
+                  "Returns None if no drag is active, or Some with drag details."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionDragState"
+                },
+                "fn_body": "object.get_drag_state().cloned().into()"
               },
               "get_scroll_offset_for_node": {
                 "doc": [
@@ -4696,60 +4634,7 @@
                 "returns": {
                   "type": "OptionScrollState"
                 },
-                "fn_body": "object.get_scroll_state(dom_id, node_id).into()"
-              },
-              "inspect_copy_changeset": {
-                "doc": [
-                  "Inspect a pending copy operation",
-                  "",
-                  "Returns the clipboard content that would be copied if the operation proceeds.",
-                  "Use this to validate or transform clipboard content before copying.",
-                  "",
-                  "# Example",
-                  "```ignore",
-                  "On::Copy -> |info| {",
-                  "    if let Some(content) = info.inspect_copy_changeset() {",
-                  "        if content.plain_text.contains(\"secret\") {",
-                  "            info.prevent_default(); // Block copying secrets",
-                  "            return Update::PreventDefault;",
-                  "        }",
-                  "    }",
-                  "    Update::DoNothing",
-                  "}",
-                  "```"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "target": "DomNodeId"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionClipboardContent"
-                },
-                "fn_body": "object.inspect_copy_changeset(target).into()"
-              },
-              "inspect_cut_changeset": {
-                "doc": [
-                  "Inspect a pending cut operation",
-                  "",
-                  "Returns the clipboard content that would be cut (copied + deleted).",
-                  "Use this to validate or transform content before cutting."
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "target": "DomNodeId"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionClipboardContent"
-                },
-                "fn_body": "object.inspect_cut_changeset(target).into()"
+                "fn_body": "object.get_scroll_state(dom_id, node_id).map(|s| azul_core::hit_test::ScrollState { scroll_position: s.current_offset }).into()"
               },
               "inspect_paste_target_range": {
                 "doc": [
@@ -4786,7 +4671,7 @@
                   }
                 ],
                 "returns": {
-                  "type": "Option(String, SelectionRange)"
+                  "type": "OptionSelectAllResult"
                 },
                 "fn_body": "object.inspect_select_all_changeset(target).into()"
               },
@@ -4825,61 +4710,9 @@
                   }
                 ],
                 "returns": {
-                  "type": "Option(SelectionRange, String)"
+                  "type": "OptionDeleteResult"
                 },
                 "fn_body": "object.inspect_delete_changeset(target, forward).into()"
-              },
-              "inspect_undo_operation": {
-                "doc": [
-                  "Inspect a pending undo operation",
-                  "",
-                  "Returns the operation that would be undone, allowing inspection",
-                  "of what state will be restored.",
-                  "",
-                  "# Example",
-                  "```ignore",
-                  "On::KeyDown(VirtualKeyCode::Z) -> |info| {",
-                  "    if let Some(op) = info.inspect_undo_operation(node_id) {",
-                  "        if op.is_critical() {",
-                  "            info.prevent_default(); // Protect critical edits",
-                  "            return Update::PreventDefault;",
-                  "        }",
-                  "    }",
-                  "    Update::DoNothing",
-                  "}",
-                  "```"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "node_id": "NodeId"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionUndoableOperation"
-                },
-                "fn_body": "object.inspect_undo_operation(node_id).into()"
-              },
-              "inspect_redo_operation": {
-                "doc": [
-                  "Inspect a pending redo operation",
-                  "",
-                  "Returns the operation that would be reapplied."
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "node_id": "NodeId"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionUndoableOperation"
-                },
-                "fn_body": "object.inspect_redo_operation(node_id).into()"
               },
               "get_clipboard_content": {
                 "doc": [
@@ -4888,24 +4721,7 @@
                   "This returns content that was read from the system clipboard when Ctrl+V was pressed.",
                   "It's only available in On::Paste callbacks or similar clipboard-related callbacks.",
                   "",
-                  "Use this to inspect what will be pasted before allowing or modifying the paste operation.",
-                  "",
-                  "# Returns",
-                  "* `Some(&ClipboardContent)` - If paste is in progress and clipboard has content",
-                  "* `None` - If no paste operation is active or clipboard is empty",
-                  "",
-                  "# Example",
-                  "```ignore",
-                  "On::Paste -> |info| {",
-                  "    if let Some(content) = info.get_clipboard_content() {",
-                  "        // Check if pasted text contains forbidden characters",
-                  "        if content.plain_text.contains(\"forbidden\") {",
-                  "            info.prevent_default(); // Block paste",
-                  "        }",
-                  "    }",
-                  "    Update::DoNothing",
-                  "}",
-                  "```"
+                  "Use this to inspect what will be pasted before allowing or modifying the paste operation."
                 ],
                 "fn_args": [
                   {
@@ -4915,7 +4731,47 @@
                 "returns": {
                   "type": "OptionClipboardContent"
                 },
-                "fn_body": "object.get_clipboard_content().into()"
+                "fn_body": "object.get_clipboard_content().cloned().into()"
+              },
+              "inspect_copy_changeset": {
+                "doc": [
+                  "Inspect a pending copy operation",
+                  "",
+                  "Returns the clipboard content that would be copied from the current selection.",
+                  "Use this to validate or transform content before copying."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "target": "DomNodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionClipboardContent"
+                },
+                "fn_body": "object.inspect_copy_changeset(target).into()"
+              },
+              "inspect_cut_changeset": {
+                "doc": [
+                  "Inspect a pending cut operation",
+                  "",
+                  "Returns the clipboard content that would be cut (copied + deleted).",
+                  "Use this to validate or transform content before cutting."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "target": "DomNodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionClipboardContent"
+                },
+                "fn_body": "object.inspect_cut_changeset(target).into()"
               },
               "set_clipboard_content": {
                 "doc": [
@@ -5039,7 +4895,7 @@
                 "returns": {
                   "type": "OptionString"
                 },
-                "fn_body": "object.get_node_text_content(target).into()"
+                "fn_body": "object.get_node_text_content(target).map(|s| azul_css::AzString::from(s)).into()"
               },
               "get_node_cursor_position": {
                 "doc": [
@@ -5114,9 +4970,127 @@
                   }
                 ],
                 "returns": {
-                  "type": "Optionusize"
+                  "type": "OptionUsize"
                 },
                 "fn_body": "object.get_node_text_length(target).into()"
+              },
+              "can_undo": {
+                "doc": [
+                  "Check if undo is available for a specific node",
+                  "",
+                  "Returns true if there is at least one undoable operation in the stack."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "node_id": "NodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.can_undo(node_id)"
+              },
+              "can_redo": {
+                "doc": [
+                  "Check if redo is available for a specific node",
+                  "",
+                  "Returns true if there is at least one redoable operation in the stack."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "node_id": "NodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.can_redo(node_id)"
+              },
+              "get_undo_text": {
+                "doc": [
+                  "Get the text that would be restored by undo for a specific node",
+                  "",
+                  "Returns the pre-state text content that would be restored if undo is performed.",
+                  "Returns None if no undo operation is available."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "node_id": "NodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionString"
+                },
+                "fn_body": "object.get_undo_text(node_id).into()"
+              },
+              "get_redo_text": {
+                "doc": [
+                  "Get the text that would be restored by redo for a specific node",
+                  "",
+                  "Returns the pre-state text content that would be restored if redo is performed.",
+                  "Returns None if no redo operation is available."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "node_id": "NodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionString"
+                },
+                "fn_body": "object.get_redo_text(node_id).into()"
+              },
+              "inspect_undo_operation": {
+                "doc": [
+                  "Inspect a pending undo operation",
+                  "",
+                  "Returns the full UndoableOperation that would be undone.",
+                  "Use this to inspect the changeset and pre-state before allowing undo."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "node_id": "NodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionUndoableOperation"
+                },
+                "fn_body": "object.inspect_undo_operation(node_id).cloned().into()"
+              },
+              "inspect_redo_operation": {
+                "doc": [
+                  "Inspect a pending redo operation",
+                  "",
+                  "Returns the full UndoableOperation that would be redone.",
+                  "Use this to inspect the changeset and pre-state before allowing redo."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "node_id": "NodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionUndoableOperation"
+                },
+                "fn_body": "object.inspect_redo_operation(node_id).cloned().into()"
               },
               "inspect_move_cursor_left": {
                 "doc": [
@@ -5307,7 +5281,7 @@
                   }
                 ],
                 "returns": {
-                  "type": "Option(SelectionRange, String)"
+                  "type": "OptionDeleteResult"
                 },
                 "fn_body": "object.inspect_backspace(target).into()"
               },
@@ -5327,7 +5301,7 @@
                   }
                 ],
                 "returns": {
-                  "type": "Option(SelectionRange, String)"
+                  "type": "OptionDeleteResult"
                 },
                 "fn_body": "object.inspect_delete(target).into()"
               },
@@ -6382,6 +6356,516 @@
                 "fn_body": "self.decrease_refmut()"
               }
             },
+            "repr": "C"
+          },
+          "PenTilt": {
+            "external": "azul_layout::callbacks::PenTilt",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "x_tilt": {
+                  "type": "f32"
+                },
+                "y_tilt": {
+                  "type": "f32"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "PenState": {
+            "external": "azul_layout::managers::gesture::PenState",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "position": {
+                  "type": "LogicalPosition"
+                },
+                "pressure": {
+                  "type": "f32"
+                },
+                "tilt": {
+                  "type": "PenTilt"
+                },
+                "in_contact": {
+                  "type": "bool"
+                },
+                "is_eraser": {
+                  "type": "bool"
+                },
+                "barrel_button_pressed": {
+                  "type": "bool"
+                },
+                "device_id": {
+                  "type": "u64"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionPenState": {
+            "external": "azul_layout::managers::gesture::OptionPenState",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "PenState"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "DragType": {
+            "external": "azul_layout::managers::drag_drop::DragType",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Node": {}
+              },
+              {
+                "File": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "DragState": {
+            "external": "azul_layout::managers::drag_drop::DragState",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "drag_type": {
+                  "type": "DragType"
+                },
+                "source_node": {
+                  "type": "OptionDomNodeId"
+                },
+                "current_drop_target": {
+                  "type": "OptionDomNodeId"
+                },
+                "file_path": {
+                  "type": "OptionString"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionDragState": {
+            "external": "azul_layout::managers::drag_drop::OptionDragState",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "DragState"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionClipboardContent": {
+            "external": "azul_layout::managers::selection::OptionClipboardContent",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "ClipboardContent"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "CursorMovement": {
+            "external": "azul_layout::managers::changeset::CursorMovement",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Left": {},
+                "Right": {},
+                "Up": {},
+                "Down": {},
+                "WordLeft": {},
+                "WordRight": {},
+                "LineStart": {},
+                "LineEnd": {},
+                "DocumentStart": {},
+                "DocumentEnd": {},
+                "Absolute": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "SelectionDirection": {
+            "external": "azul_layout::managers::changeset::SelectionDirection",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Forward": {},
+                "Backward": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpInsertText": {
+            "external": "azul_layout::managers::changeset::TextOpInsertText",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "position": { "type": "CursorPosition" },
+                "text": { "type": "String" },
+                "new_cursor": { "type": "CursorPosition" }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpDeleteText": {
+            "external": "azul_layout::managers::changeset::TextOpDeleteText",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "range": { "type": "SelectionRange" },
+                "deleted_text": { "type": "String" },
+                "new_cursor": { "type": "CursorPosition" }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpReplaceText": {
+            "external": "azul_layout::managers::changeset::TextOpReplaceText",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "range": { "type": "SelectionRange" },
+                "old_text": { "type": "String" },
+                "new_text": { "type": "String" },
+                "new_cursor": { "type": "CursorPosition" }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpSetSelection": {
+            "external": "azul_layout::managers::changeset::TextOpSetSelection",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "old_range": { "type": "OptionSelectionRange" },
+                "new_range": { "type": "SelectionRange" }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpExtendSelection": {
+            "external": "azul_layout::managers::changeset::TextOpExtendSelection",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "old_range": { "type": "SelectionRange" },
+                "new_range": { "type": "SelectionRange" },
+                "direction": { "type": "SelectionDirection" }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpClearSelection": {
+            "external": "azul_layout::managers::changeset::TextOpClearSelection",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "old_range": { "type": "SelectionRange" }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpMoveCursor": {
+            "external": "azul_layout::managers::changeset::TextOpMoveCursor",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "old_position": { "type": "CursorPosition" },
+                "new_position": { "type": "CursorPosition" },
+                "movement": { "type": "CursorMovement" }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpCopy": {
+            "external": "azul_layout::managers::changeset::TextOpCopy",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "range": { "type": "SelectionRange" },
+                "content": { "type": "ClipboardContent" }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpCut": {
+            "external": "azul_layout::managers::changeset::TextOpCut",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "range": { "type": "SelectionRange" },
+                "content": { "type": "ClipboardContent" },
+                "new_cursor": { "type": "CursorPosition" }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpPaste": {
+            "external": "azul_layout::managers::changeset::TextOpPaste",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "position": { "type": "CursorPosition" },
+                "content": { "type": "ClipboardContent" },
+                "new_cursor": { "type": "CursorPosition" }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpSelectAll": {
+            "external": "azul_layout::managers::changeset::TextOpSelectAll",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "old_range": { "type": "OptionSelectionRange" },
+                "new_range": { "type": "SelectionRange" }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOperation": {
+            "external": "azul_layout::managers::changeset::TextOperation",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "InsertText": { "type": "TextOpInsertText" },
+                "DeleteText": { "type": "TextOpDeleteText" },
+                "ReplaceText": { "type": "TextOpReplaceText" },
+                "SetSelection": { "type": "TextOpSetSelection" },
+                "ExtendSelection": { "type": "TextOpExtendSelection" },
+                "ClearSelection": { "type": "TextOpClearSelection" },
+                "MoveCursor": { "type": "TextOpMoveCursor" },
+                "Copy": { "type": "TextOpCopy" },
+                "Cut": { "type": "TextOpCut" },
+                "Paste": { "type": "TextOpPaste" },
+                "SelectAll": { "type": "TextOpSelectAll" }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "TextChangeset": {
+            "external": "azul_layout::managers::changeset::TextChangeset",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "id": {
+                  "type": "usize"
+                },
+                "target": {
+                  "type": "DomNodeId"
+                },
+                "operation": {
+                  "type": "TextOperation"
+                },
+                "timestamp": {
+                  "type": "Instant"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "NodeStateSnapshot": {
+            "external": "azul_layout::managers::undo_redo::NodeStateSnapshot",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "node_id": {
+                  "type": "NodeId"
+                },
+                "text_content": {
+                  "type": "String"
+                },
+                "cursor_position": {
+                  "type": "OptionTextCursor"
+                },
+                "selection_range": {
+                  "type": "OptionSelectionRange"
+                },
+                "timestamp": {
+                  "type": "Instant"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "UndoableOperation": {
+            "external": "azul_layout::managers::undo_redo::UndoableOperation",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "changeset": {
+                  "type": "TextChangeset"
+                },
+                "pre_state": {
+                  "type": "NodeStateSnapshot"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionUndoableOperation": {
+            "external": "azul_layout::managers::undo_redo::OptionUndoableOperation",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "UndoableOperation"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "SelectAllResult": {
+            "external": "azul_layout::callbacks::SelectAllResult",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "full_text": {
+                  "type": "String"
+                },
+                "selection_range": {
+                  "type": "SelectionRange"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "DeleteResult": {
+            "external": "azul_layout::callbacks::DeleteResult",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "range_to_delete": {
+                  "type": "SelectionRange"
+                },
+                "deleted_text": {
+                  "type": "String"
+                }
+              }
+            ],
             "repr": "C"
           }
         }
@@ -11796,6 +12280,35 @@
                 }
               }
             ],
+            "constructors": {
+              "create": {
+                "doc": [
+                  "Create a new callback with just a function pointer (for native Rust code)"
+                ],
+                "fn_args": [
+                  {
+                    "cb": "CallbackType"
+                  }
+                ],
+                "fn_body": "azul_layout::callbacks::Callback::create(cb)"
+              }
+            },
+            "functions": {
+              "to_core": {
+                "doc": [
+                  "Converts this Callback to a CoreCallback for use with Dom::set_callback"
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  }
+                ],
+                "fn_body": "self.to_core()",
+                "returns": {
+                  "type": "CoreCallback"
+                }
+              }
+            },
             "repr": "C"
           },
           "DebugState": {
@@ -12158,6 +12671,64 @@
             ],
             "repr": "C"
           },
+          "SelectionVec": {
+            "external": "azul_core::selection::SelectionVec",
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "Selection",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "SelectionVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "SelectionVecDestructor": {
+            "external": "azul_core::selection::SelectionVecDestructor",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "SelectionVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "SelectionVecDestructorType": {
+            "external": "azul_core::selection::SelectionVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "SelectionVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
+          },
           "CheckThreadFinishedCallback": {
             "external": "azul_core::task::CheckThreadFinishedCallback",
             "struct_fields": [
@@ -12449,8 +13020,7 @@
               "Debug",
               "Clone",
               "PartialEq",
-              "Eq",
-              "Hash"
+              "Eq"
             ],
             "struct_fields": [
               {
@@ -17404,6 +17974,54 @@
               }
             ],
             "functions": {
+              "deg": {
+                "doc": ["Creates an AngleValue from degrees"],
+                "fn_args": [
+                  {
+                    "value": "f32"
+                  }
+                ],
+                "returns": {
+                  "type": "AngleValue"
+                },
+                "fn_body": "AngleValue::deg(value)"
+              },
+              "rad": {
+                "doc": ["Creates an AngleValue from radians"],
+                "fn_args": [
+                  {
+                    "value": "f32"
+                  }
+                ],
+                "returns": {
+                  "type": "AngleValue"
+                },
+                "fn_body": "AngleValue::rad(value)"
+              },
+              "grad": {
+                "doc": ["Creates an AngleValue from gradians"],
+                "fn_args": [
+                  {
+                    "value": "f32"
+                  }
+                ],
+                "returns": {
+                  "type": "AngleValue"
+                },
+                "fn_body": "AngleValue::grad(value)"
+              },
+              "turn": {
+                "doc": ["Creates an AngleValue from turns (1 turn = 360 degrees)"],
+                "fn_args": [
+                  {
+                    "value": "f32"
+                  }
+                ],
+                "returns": {
+                  "type": "AngleValue"
+                },
+                "fn_body": "AngleValue::turn(value)"
+              },
               "get_degrees": {
                 "fn_args": [
                   {
@@ -24846,7 +25464,7 @@
                   "type": "String"
                 },
                 "font_family": {
-                  "type": "Option<String>"
+                  "type": "OptionString"
                 },
                 "font_size_px": {
                   "type": "f32"
@@ -27192,7 +27810,7 @@
                 "returns": {
                   "type": "bool"
                 },
-                "fn_body": "object.draw_tesselated_svg_gpu_node(node, size, color, transforms)"
+                "fn_body": "object.draw_tesselated_svg_gpu_node(&node, size, color, transforms)"
               },
               "get_descriptor": {
                 "fn_args": [
@@ -27226,7 +27844,7 @@
                 "returns": {
                   "type": "bool"
                 },
-                "fn_body": "object.draw_tesselated_colored_svg_gpu_node(node, size, transforms)"
+                "fn_body": "object.draw_tesselated_colored_svg_gpu_node(&node, size, transforms)"
               }
             },
             "repr": "C"
@@ -40293,7 +40911,7 @@
                     "tag": "U8VecRef"
                   }
                 ],
-                "fn_body": "azul_core::resources::ImageRef::null_image(width, height, format, tag.as_slice())"
+                "fn_body": "azul_core::resources::ImageRef::null_image(width, height, format, tag.as_slice().to_vec())"
               }
             },
             "functions": {
@@ -40393,7 +41011,7 @@
                 "returns": {
                   "type": "OptionU8VecRef"
                 },
-                "fn_body": "object.get_bytes().into()"
+                "fn_body": "object.get_bytes().map(|b| azul_core::gl::U8VecRef::from(b)).into()"
               },
               "get_size": {
                 "doc": [
@@ -40420,31 +41038,6 @@
                 },
                 "fn_body": "object.get_hash()"
               },
-              "into_inner": {
-                "doc": [
-                  "If *copies = 1, returns the internal image data"
-                ],
-                "fn_args": [
-                  {
-                    "self": "value"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionDecodedImage"
-                },
-                "fn_body": "object.into_inner().into()"
-              },
-              "get_data": {
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  }
-                ],
-                "returns": {
-                  "type": "DecodedImage"
-                },
-                "fn_body": "object.get_data()"
-              },
               "get_image_callback": {
                 "fn_args": [
                   {
@@ -40454,7 +41047,7 @@
                 "returns": {
                   "type": "OptionCoreImageCallback"
                 },
-                "fn_body": "object.get_image_callback().into()"
+                "fn_body": "object.get_image_callback().cloned().into()"
               },
               "get_image_callback_mut": {
                 "fn_args": [
@@ -40465,7 +41058,7 @@
                 "returns": {
                   "type": "OptionCoreImageCallback"
                 },
-                "fn_body": "object.get_image_callback_mut().into()"
+                "fn_body": "object.get_image_callback_mut().cloned().into()"
               },
               "deep_copy": {
                 "doc": [
@@ -40964,6 +41557,9 @@
             "derive": [
               "Debug"
             ],
+            "custom_impls": [
+              "Clone"
+            ],
             "struct_fields": [
               {
                 "data": {
@@ -41001,6 +41597,171 @@
                 "Buffer": {}
               }
             ],
+            "repr": "C"
+          },
+          "RenderImageCallbackInfo": {
+            "doc": [
+              "Information passed to image rendering callbacks"
+            ],
+            "external": "azul_layout::callbacks::RenderImageCallbackInfo",
+            "custom_impls": [
+              "Clone",
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "callback_node_id": {
+                  "type": "DomNodeId"
+                },
+                "bounds": {
+                  "type": "HidpiAdjustedBounds"
+                },
+                "gl_context": {
+                  "type": "OptionGlContextPtr",
+                  "ref_kind": "constptr"
+                },
+                "image_cache": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "system_fonts": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "callable_ptr": {
+                  "type": "OptionRefAny",
+                  "ref_kind": "constptr"
+                },
+                "_abi_mut": {
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
+                }
+              }
+            ],
+            "functions": {
+              "get_bounds": {
+                "doc": [
+                  "Returns the bounds of the laid-out node"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "HidpiAdjustedBounds"
+                },
+                "fn_body": "object.get_bounds()"
+              },
+              "get_callback_node_id": {
+                "doc": [
+                  "Returns the DOM node ID that the callback is attached to"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "DomNodeId"
+                },
+                "fn_body": "object.get_callback_node_id()"
+              },
+              "get_gl_context": {
+                "doc": [
+                  "Returns the OpenGL context if available"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionGlContextPtr"
+                },
+                "fn_body": "object.get_gl_context()"
+              },
+              "get_ctx": {
+                "doc": [
+                  "Returns the context RefAny for FFI callbacks"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionRefAny"
+                },
+                "fn_body": "object.get_ctx()"
+              }
+            },
+            "repr": "C"
+          },
+          "RenderImageCallbackType": {
+            "external": "azul_layout::callbacks::RenderImageCallbackType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "RefAny"
+                },
+                {
+                  "type": "RenderImageCallbackInfo"
+                }
+              ],
+              "returns": {
+                "type": "ImageRef"
+              }
+            }
+          },
+          "RenderImageCallback": {
+            "doc": [
+              "Callback for rendering dynamic images"
+            ],
+            "external": "azul_layout::callbacks::RenderImageCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "cb": {
+                  "type": "RenderImageCallbackType"
+                },
+                "ctx": {
+                  "type": "OptionRefAny"
+                }
+              }
+            ],
+            "constructors": {
+              "create": {
+                "doc": [
+                  "Creates a new RenderImageCallback from a function pointer"
+                ],
+                "fn_args": [
+                  {
+                    "cb": "RenderImageCallbackType"
+                  }
+                ],
+                "fn_body": "azul_layout::callbacks::RenderImageCallback::create(cb)"
+              }
+            },
+            "functions": {
+              "to_core": {
+                "doc": [
+                  "Converts this RenderImageCallback to a CoreRenderImageCallback for use with ImageRef::callback"
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  }
+                ],
+                "fn_body": "self.to_core()",
+                "returns": {
+                  "type": "CoreRenderImageCallback"
+                }
+              }
+            },
             "repr": "C"
           }
         }
@@ -41841,7 +42602,7 @@
                 "returns": {
                   "type": "TessellatedSvgNode"
                 },
-                "fn_body": "object.tessellate_fill(fill_style)"
+                "fn_body": "{ use azul_layout::xml::svg::SvgMultiPolygonTessellation; object.tessellate_fill(fill_style) }"
               },
               "tessellate_stroke": {
                 "fn_args": [
@@ -41855,7 +42616,7 @@
                 "returns": {
                   "type": "TessellatedSvgNode"
                 },
-                "fn_body": "object.tessellate_stroke(stroke_style)"
+                "fn_body": "{ use azul_layout::xml::svg::SvgMultiPolygonTessellation; object.tessellate_stroke(stroke_style) }"
               }
             },
             "repr": "C"
@@ -41967,9 +42728,9 @@
                   }
                 ],
                 "returns": {
-                  "type": "Option()"
+                  "type": "bool"
                 },
-                "fn_body": "object.join_with(path).into()"
+                "fn_body": "object.join_with(path).is_some()"
               },
               "offset": {
                 "doc": [
@@ -43414,7 +44175,7 @@
                     "gl": "GlContextPtr"
                   }
                 ],
-                "fn_body": "azul_core::svg::TessellatedGPUSvgNode::new(node, gl)"
+                "fn_body": "azul_core::svg::TessellatedGPUSvgNode::new(&node, gl)"
               }
             },
             "functions": {
@@ -43427,7 +44188,7 @@
                     "self": "ref"
                   },
                   {
-                    "texture": "Texture"
+                    "texture": "&mut Texture"
                   },
                   {
                     "target_size": "PhysicalSizeU32"
@@ -44002,6 +44763,23 @@
                   }
                 ],
                 "fn_body": "azul_css::corety::AzString::from_c_str(ptr)"
+              }
+            },
+            "functions": {
+              "as_refstr": {
+                "doc": [
+                  "Returns the String as a borrowed Refstr (pointer + length).",
+                  "This does not copy the string data."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "Refstr"
+                },
+                "fn_body": "{ let s = string.as_str(); azul_core::gl::Refstr { ptr: s.as_ptr() as *const _, len: s.len() } }"
               }
             },
             "repr": "C"
@@ -44679,6 +45457,59 @@
                 }
               }
             ],
+            "repr": "C"
+          },
+          "TessellatedSvgNodeVec": {
+            "doc": [
+              "Wrapper over a Rust-allocated `Vec<TessellatedSvgNode>"
+            ],
+            "external": "azul_core::svg::TessellatedSvgNodeVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "custom_destructor": true,
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "TessellatedSvgNode",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "TessellatedSvgNodeVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "functions": {
+              "as_ref_vec": {
+                "doc": [
+                  "Returns a reference to the underlying slice"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "TessellatedSvgNodeVecRef"
+                },
+                "fn_body": "object.get_ref()"
+              }
+            },
             "repr": "C"
           },
           "SvgPathVec": {
@@ -46930,6 +47761,18 @@
               "returns": null
             }
           },
+          "TessellatedSvgNodeVecDestructorType": {
+            "external": "azul_core::svg::TessellatedSvgNodeVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "TessellatedSvgNodeVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            }
+          },
           "GridTrackSizingVecDestructorType": {
             "external": "azul_css::props::layout::grid::GridTrackSizingVecDestructorType",
             "callback_typedef": {
@@ -47069,6 +47912,22 @@
                 "NoDestructor": {},
                 "External": {
                   "type": "SvgSimpleNodeVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TessellatedSvgNodeVecDestructor": {
+            "external": "azul_core::svg::TessellatedSvgNodeVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "TessellatedSvgNodeVecDestructorType"
                 }
               }
             ],
@@ -48236,6 +49095,45 @@
           "Definition of azuls internal `Option<*>` wrappers"
         ],
         "classes": {
+          "ScrollState": {
+            "external": "azul_core::hit_test::ScrollState",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "scroll_position": {
+                  "type": "LogicalPosition"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionScrollState": {
+            "external": "azul_core::hit_test::OptionScrollState",
+            "derive": [
+              "Clone",
+              "Copy",
+              "Debug",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "ScrollState"
+                }
+              }
+            ],
+            "repr": "C"
+          },
           "OptionSvgPoint": {
             "external": "azul_css::props::basic::animation::OptionSvgPoint",
             "derive": [
@@ -49909,8 +50807,7 @@
               "Debug",
               "Clone",
               "PartialEq",
-              "Eq",
-              "Hash"
+              "Eq"
             ],
             "enum_fields": [
               {
@@ -50033,27 +50930,6 @@
             ],
             "repr": "C"
           },
-          "OptionScrollState": {
-            "external": "azul_core::hit_test::OptionScrollState",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialOrd",
-              "PartialEq"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "ScrollState"
-                }
-              }
-            ],
-            "repr": "C"
-          },
           "OptionCoreImageCallback": {
             "external": "azul_core::callbacks::OptionCoreImageCallback",
             "derive": [
@@ -50072,6 +50948,65 @@
               {
                 "Some": {
                   "type": "CoreImageCallback"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionPenTilt": {
+            "external": "azul_layout::callbacks::OptionPenTilt",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "PenTilt"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionSelectAllResult": {
+            "external": "azul_layout::callbacks::OptionSelectAllResult",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "SelectAllResult"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionDeleteResult": {
+            "external": "azul_layout::callbacks::OptionDeleteResult",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "DeleteResult"
                 }
               }
             ],
@@ -51439,52 +52374,6 @@
             ],
             "repr": "C, u8"
           },
-          "ThreadWriteBackMsg": {
-            "external": "azul_layout::thread::ThreadWriteBackMsg",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq",
-              "PartialOrd",
-              "Eq",
-              "Ord",
-              "Hash"
-            ],
-            "struct_fields": [
-              {
-                "refany": {
-                  "type": "RefAny"
-                },
-                "callback": {
-                  "type": "WriteBackCallback"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "ThreadReceiveMsg": {
-            "external": "azul_layout::thread::ThreadReceiveMsg",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq",
-              "PartialOrd",
-              "Eq",
-              "Ord",
-              "Hash"
-            ],
-            "enum_fields": [
-              {
-                "WriteBack": {
-                  "type": "ThreadWriteBackMsg"
-                },
-                "Update": {
-                  "type": "Update"
-                }
-              }
-            ],
-            "repr": "C, u8"
-          },
           "ThreadSender": {
             "external": "azul_layout::thread::ThreadSender",
             "custom_impls": [
@@ -51511,6 +52400,9 @@
                   "Sends a message from the background thread to the main thread"
                 ],
                 "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
                   {
                     "msg": "ThreadReceiveMsg"
                   }
@@ -51548,7 +52440,11 @@
                 "doc": [
                   "Receives a message from the main thread, if available"
                 ],
-                "fn_args": [],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  }
+                ],
                 "returns": {
                   "type": "OptionThreadSendMsg"
                 },
@@ -51693,7 +52589,7 @@
                 "returns": {
                   "type": "bool"
                 },
-                "fn_body": "object.is_about_to_finish(instant_now)"
+                "fn_body": "object.is_about_to_finish(&instant_now)"
               },
               "invoke": {
                 "doc": [
@@ -51713,7 +52609,7 @@
                 "returns": {
                   "type": "TimerCallbackReturn"
                 },
-                "fn_body": "object.invoke(callback_info, get_system_time_fn)"
+                "fn_body": "object.invoke(&callback_info, &get_system_time_fn)"
               }
             },
             "repr": "C"

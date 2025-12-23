@@ -10,6 +10,7 @@ vendor/
 .vscode/*
 .vs/*
 *.dSYM
+*.pyc
 azul.h
 *.log
 .idea/*

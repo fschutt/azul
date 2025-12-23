@@ -8,7 +8,7 @@ struct AppData {
 }
 
 extern "C" 
-fn layout(data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
+fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     match data.downcast_ref::<AppData>() {
         Some(d) => d.dom.clone(),
         None => StyledDom::default(),
@@ -17,14 +17,10 @@ fn layout(data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
 
 fn main() {
     let data = RefAny::new(AppData {
-        dom: Dom::parse_xhtml(XHTML)
-            .unwrap_or_else(|e| {
-                eprintln!("Failed to parse XHTML: {}", e);
-                StyledDom::default()
-            }),
+        dom: StyledDom::from_xml(XHTML),
     });
     let app = App::create(data, AppConfig::create());
     let mut options = WindowCreateOptions::create(layout);
-    options.set_window_title("XHTML Spreadsheet");
+    options.window_state.title = "XHTML Spreadsheet".into();
     app.run(options);
 }

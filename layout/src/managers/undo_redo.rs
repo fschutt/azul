@@ -28,11 +28,11 @@
 
 use alloc::{collections::VecDeque, vec::Vec};
 
-use azul_css::{impl_option, impl_option_inner};
+use azul_css::{impl_option, impl_option_inner, AzString};
 use azul_core::{
     dom::NodeId,
     geom::LogicalPosition,
-    selection::{CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor},
+    selection::{CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor, OptionTextCursor, OptionSelectionRange},
     task::Instant,
     window::CursorPosition,
 };
@@ -49,16 +49,17 @@ pub const MAX_REDO_HISTORY: usize = 10;
 ///
 /// This contains enough information to fully revert a text operation.
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct NodeStateSnapshot {
     /// The node this snapshot belongs to
     pub node_id: NodeId,
     /// Full text content before changeset
-    pub text_content: String,
+    pub text_content: AzString,
     /// Cursor position before changeset (if applicable)
     /// For now, we store the logical position, not the TextCursor
-    pub cursor_position: Option<TextCursor>,
+    pub cursor_position: OptionTextCursor,
     /// Selection range before changeset (if applicable)
-    pub selection_range: Option<SelectionRange>,
+    pub selection_range: OptionSelectionRange,
     /// When this snapshot was taken
     pub timestamp: Instant,
 }
@@ -67,6 +68,7 @@ pub struct NodeStateSnapshot {
 ///
 /// Combines the changeset that was applied with the state before application.
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct UndoableOperation {
     /// The changeset that was applied
     pub changeset: TextChangeset,
@@ -136,7 +138,8 @@ impl NodeUndoRedoStack {
     }
 
     /// Check if undo is available
-    fn can_undo(&self) -> bool {
+    /// Check if undo is available
+    pub fn can_undo(&self) -> bool {
         !self.undo_stack.is_empty()
     }
 
@@ -333,14 +336,16 @@ impl UndoRedoManager {
 ///
 /// Returns: `TextChangeset` - The changeset that reverts the operation
 pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant) -> TextChangeset {
+    use crate::managers::changeset::{
+        TextOpClearSelection, TextOpCopy, TextOpCut, TextOpDeleteText, TextOpExtendSelection,
+        TextOpInsertText, TextOpMoveCursor, TextOpPaste, TextOpReplaceText, TextOpSelectAll,
+        TextOpSetSelection,
+    };
+
     // Create the inverse operation based on what was done
     let revert_operation = match &operation.changeset.operation {
         // InsertText → DeleteText (remove what was inserted)
-        TextOperation::InsertText {
-            text,
-            position,
-            new_cursor,
-        } => {
+        TextOperation::InsertText(op) => {
             // To revert an insert, we need to delete the inserted text
             // The range is from old position to new position
             // For now, we use a simplified approach - restore the old text completely
@@ -358,12 +363,12 @@ pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant
                 },
                 affinity: CursorAffinity::Leading,
             };
-            TextOperation::ReplaceText {
+            TextOperation::ReplaceText(TextOpReplaceText {
                 range: SelectionRange {
                     start: dummy_cursor,
                     end: end_cursor,
                 },
-                old_text: text.clone(), // What's currently there (will be removed)
+                old_text: op.text.clone(), // What's currently there (will be removed)
                 new_text: operation.pre_state.text_content.clone(), // What to restore
                 new_cursor: operation
                     .pre_state
@@ -373,15 +378,11 @@ pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant
                         CursorPosition::InWindow(azul_core::geom::LogicalPosition::new(0.0, 0.0))
                     })
                     .unwrap_or(CursorPosition::Uninitialized),
-            }
+            })
         }
 
         // DeleteText → InsertText (re-insert what was deleted)
-        TextOperation::DeleteText {
-            range,
-            deleted_text,
-            new_cursor,
-        } => {
+        TextOperation::DeleteText(op) => {
             let dummy_cursor = TextCursor {
                 cluster_id: GraphemeClusterId {
                     source_run: 0,
@@ -389,14 +390,14 @@ pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant
                 },
                 affinity: CursorAffinity::Leading,
             };
-            TextOperation::ReplaceText {
+            TextOperation::ReplaceText(TextOpReplaceText {
                 range: SelectionRange {
                     start: dummy_cursor,
                     // Empty current content
                     end: dummy_cursor,
                 },
                 // What's currently there (nothing)
-                old_text: String::new(),
+                old_text: AzString::from(""),
                 // Restore full text
                 new_text: operation.pre_state.text_content.clone(),
                 new_cursor: operation
@@ -407,24 +408,19 @@ pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant
                         CursorPosition::InWindow(azul_core::geom::LogicalPosition::new(0.0, 0.0))
                     })
                     .unwrap_or(CursorPosition::Uninitialized),
-            }
+            })
         }
 
         // ReplaceText → ReplaceText (swap old and new)
-        TextOperation::ReplaceText {
-            range,
-            old_text,
-            new_text,
-            new_cursor,
-        } => {
+        TextOperation::ReplaceText(op) => {
             let end_cursor = TextCursor {
                 cluster_id: GraphemeClusterId {
                     source_run: 0,
-                    start_byte_in_run: new_text.len() as u32,
+                    start_byte_in_run: op.new_text.len() as u32,
                 },
                 affinity: CursorAffinity::Leading,
             };
-            TextOperation::ReplaceText {
+            TextOperation::ReplaceText(TextOpReplaceText {
                 range: SelectionRange {
                     start: TextCursor {
                         cluster_id: GraphemeClusterId {
@@ -436,7 +432,7 @@ pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant
                     end: end_cursor,
                 },
                 // What's currently there
-                old_text: new_text.clone(),
+                old_text: op.new_text.clone(),
                 // Restore to pre-state
                 new_text: operation.pre_state.text_content.clone(),
                 new_cursor: operation
@@ -445,54 +441,40 @@ pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant
                     .as_ref()
                     .map(|_| CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0)))
                     .unwrap_or(CursorPosition::Uninitialized),
-            }
+            })
         }
 
         // For non-text-mutating operations, return the inverse
-        TextOperation::SetSelection {
-            old_range,
-            new_range,
-        } => TextOperation::SetSelection {
-            old_range: Some(*new_range),
-            new_range: old_range.unwrap_or(*new_range),
-        },
+        TextOperation::SetSelection(op) => TextOperation::SetSelection(TextOpSetSelection {
+            old_range: OptionSelectionRange::Some(op.new_range),
+            new_range: op.old_range.into_option().unwrap_or(op.new_range),
+        }),
 
-        TextOperation::ExtendSelection {
-            old_range,
-            new_range,
-            direction,
-        } => TextOperation::SetSelection {
-            old_range: Some(*new_range),
-            new_range: *old_range,
-        },
+        TextOperation::ExtendSelection(op) => TextOperation::SetSelection(TextOpSetSelection {
+            old_range: OptionSelectionRange::Some(op.new_range),
+            new_range: op.old_range,
+        }),
 
-        TextOperation::ClearSelection { old_range } => TextOperation::SetSelection {
-            old_range: None,
-            new_range: *old_range,
-        },
+        TextOperation::ClearSelection(op) => TextOperation::SetSelection(TextOpSetSelection {
+            old_range: OptionSelectionRange::None,
+            new_range: op.old_range,
+        }),
 
-        TextOperation::MoveCursor {
-            old_position,
-            new_position,
-            movement,
-        } => {
-            TextOperation::MoveCursor {
-                old_position: *new_position,
-                new_position: *old_position,
-                movement: *movement, // Keep same movement type
-            }
+        TextOperation::MoveCursor(op) => {
+            TextOperation::MoveCursor(TextOpMoveCursor {
+                old_position: op.new_position,
+                new_position: op.old_position,
+                movement: op.movement, // Keep same movement type
+            })
         }
 
         // SelectAll → restore old selection
-        TextOperation::SelectAll {
-            old_range,
-            new_range,
-        } => {
-            if let Some(old_sel) = old_range {
-                TextOperation::SetSelection {
-                    old_range: Some(*new_range),
-                    new_range: *old_sel,
-                }
+        TextOperation::SelectAll(op) => {
+            if let OptionSelectionRange::Some(old_sel) = op.old_range {
+                TextOperation::SetSelection(TextOpSetSelection {
+                    old_range: OptionSelectionRange::Some(op.new_range),
+                    new_range: old_sel,
+                })
             } else {
                 // If there was no selection, clear it
                 // We use a zero-width selection at start
@@ -503,18 +485,18 @@ pub fn create_revert_changeset(operation: &UndoableOperation, timestamp: Instant
                     },
                     affinity: CursorAffinity::Leading,
                 };
-                TextOperation::SetSelection {
-                    old_range: Some(*new_range),
+                TextOperation::SetSelection(TextOpSetSelection {
+                    old_range: OptionSelectionRange::Some(op.new_range),
                     new_range: SelectionRange {
                         start: dummy_cursor,
                         end: dummy_cursor,
                     },
-                }
+                })
             }
         }
 
         // Clipboard operations - these don't change text, so no revert needed
-        TextOperation::Copy { .. } | TextOperation::Cut { .. } | TextOperation::Paste { .. } => {
+        TextOperation::Copy(_) | TextOperation::Cut(_) | TextOperation::Paste(_) => {
             // For clipboard operations, we treat them as no-op for revert
             // The actual text changes are tracked separately
             operation.changeset.operation.clone()

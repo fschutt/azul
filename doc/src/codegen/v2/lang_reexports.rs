@@ -213,56 +213,66 @@ fn is_primitive_alias(name: &str) -> bool {
 }
 
 /// Generate the prelude module with commonly used types
+/// 
+/// This function searches for types across ALL modules, so you only need to
+/// specify the type name - the module is automatically determined from where
+/// the type actually exists in the generated code.
 fn generate_prelude(builder: &mut CodeBuilder, modules: &BTreeMap<String, Vec<TypeExport>>) {
     builder.line("/// Prelude module - import commonly used types with `use azul::prelude::*`");
     builder.line("pub mod prelude {");
     builder.indent();
 
     // List of commonly used types to include in prelude
-    let prelude_types = [
+    // NOTE: Module is automatically determined - just list the type names
+    let prelude_types: &[&str] = &[
         // Core application types
-        ("app", &["App", "AppConfig"][..]),
+        "App", "AppConfig",
         // DOM types
-        ("dom", &["Dom", "NodeData", "DomVec", "NodeType", "On", "Callback"]),
-        // Callbacks - includes IFrameCallbackInfo
-        ("callbacks", &["LayoutCallback", "LayoutCallbackInfo", "CallbackInfo", 
-                        "IFrameCallback", "IFrameCallbackInfo", "IFrameCallbackReturn",
-                        "WriteBackCallback", "TimerCallback", "TimerCallbackInfo", "TimerCallbackReturn"]),
+        "Dom", "NodeData", "DomVec", "NodeType", "On", "Callback",
+        // Callbacks - includes IFrameCallbackInfo, RefAny, Update
+        "LayoutCallback", "LayoutCallbackInfo", "CallbackInfo", 
+        "IFrameCallback", "IFrameCallbackInfo", "IFrameCallbackReturn",
+        "WriteBackCallback", "TimerCallback", "TimerCallbackInfo", "TimerCallbackReturn",
+        "RefAny", "Update",
         // CSS types - includes EventFilter types and StyledDom
-        ("css", &["Css", "CssProperty", "StyledDom",
-                  "EventFilter", "HoverEventFilter", "FocusEventFilter", "WindowEventFilter", 
-                  "ApplicationEventFilter", "ComponentEventFilter", "NotEventFilter",
-                  "LogicalSize", "LogicalPosition", "LayoutSize", "LayoutPoint",
-                  "LogicalRect", "LayoutRect"]),
+        "Css", "CssProperty", "StyledDom",
+        "EventFilter", "HoverEventFilter", "FocusEventFilter", "WindowEventFilter", 
+        "ApplicationEventFilter", "ComponentEventFilter", "NotEventFilter",
+        "LogicalSize", "LogicalPosition", "LayoutSize", "LayoutPoint",
+        "LogicalRect", "LayoutRect",
         // Option types
-        ("option", &["OptionStyledDom", "OptionLogicalPosition"]),
-        // Geometry option types
-        ("geom", &["OptionLogicalPosition"]),
+        "OptionStyledDom", "OptionLogicalPosition",
         // Window types
-        ("window", &["WindowCreateOptions", "WindowState", "WindowEventFilter"]),
+        "WindowCreateOptions", "WindowState",
         // Widgets
-        ("widgets", &["Button", "Label", "TextInput", "CheckBox", "NumberInput", "ProgressBar", "ColorInput", "FileInput"]),
+        "Button", "Label", "TextInput", "CheckBox", "NumberInput", "ProgressBar", "ColorInput", "FileInput",
         // Task / Threading
-        ("task", &["Thread", "ThreadSender", "ThreadReceiver", "ThreadReceiveMsg", "ThreadSendMsg", "ThreadWriteBackMsg"]),
-        ("time", &["TimerId", "Timer", "Duration", "Instant"]),
-        // Misc
-        ("misc", &["ThreadId", "RefAny", "Update"]),
+        "Thread", "ThreadId", "ThreadSender", "ThreadReceiver", "ThreadSendMsg",
+        "ThreadReceiveMsg", "ThreadWriteBackMsg",
+        // Time
+        "TimerId", "Timer", "Duration", "Instant",
         // NOTE: String is intentionally NOT included in prelude to avoid conflicts with std::string::String
         // Users should use azul::str::String explicitly or .into() for conversions
     ];
 
-    for (module, types) in &prelude_types {
-        for type_name in *types {
-            // Check if this type exists in the module
-            if let Some(exports) = modules.get(*module) {
-                if exports.iter().any(|e| e.public_name == *type_name && !e.is_generic) {
-                    builder.line("#[doc(inline)]");
-                    builder.line(&format!(
-                        "pub use crate::ffi::dll::Az{} as {};",
-                        type_name, type_name
-                    ));
-                }
+    // Search for each type across all modules
+    for type_name in prelude_types {
+        // Find which module contains this type
+        let mut found = false;
+        for (_module_name, exports) in modules.iter() {
+            if exports.iter().any(|e| e.public_name == *type_name && !e.is_generic) {
+                builder.line("#[doc(inline)]");
+                builder.line(&format!(
+                    "pub use crate::ffi::dll::Az{} as {};",
+                    type_name, type_name
+                ));
+                found = true;
+                break; // Type found, no need to check other modules
             }
+        }
+        if !found {
+            // Emit a compile-time warning comment for missing types
+            builder.line(&format!("// WARNING: Type '{}' not found in any module", type_name));
         }
     }
 

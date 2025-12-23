@@ -2,7 +2,7 @@
 
 use azul_core::{
     callbacks::LayoutCallbackInfo,
-    dom::{DomId, NodeId},
+    dom::{DomId, NodeId, ScrollbarOrientation},
     events::{EventFilter, MouseButton, ProcessEventResult, SyntheticEvent},
     geom::{LogicalPosition, PhysicalPositionI32},
     hit_test::{CursorTypeHitTest, FullHitTest},
@@ -15,7 +15,7 @@ use azul_layout::{
     callbacks::CallbackInfo,
     managers::{
         hover::InputPointId,
-        scroll_state::{ScrollbarComponent, ScrollbarHit, ScrollbarOrientation},
+        scroll_state::{ScrollbarComponent, ScrollbarHit},
     },
     solver3::display_list::DisplayList,
     window::LayoutWindow,

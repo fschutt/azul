@@ -5,7 +5,7 @@ use core::{
 };
 
 use crate::{
-    dom::{DomId, DomNodeHash, DomNodeId, ScrollTagId, ScrollbarOrientation},
+    dom::{DomId, DomNodeHash, DomNodeId, OptionDomNodeId, ScrollTagId, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     id::NodeId,
     resources::IdNamespace,
@@ -312,7 +312,12 @@ impl Default for ScrollState {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FullHitTest {
     pub hovered_nodes: BTreeMap<DomId, HitTest>,
-    pub focused_node: Option<(DomId, NodeId)>,
+    pub focused_node: OptionDomNodeId,
+}
+
+pub struct FullHitTestHoveredNode {
+    pub dom_id: DomId,
+    pub hit_test: HitTest,
 }
 
 impl_option!(
@@ -327,7 +332,7 @@ impl FullHitTest {
     pub fn empty(focused_node: Option<DomNodeId>) -> Self {
         Self {
             hovered_nodes: BTreeMap::new(),
-            focused_node: focused_node.and_then(|f| Some((f.dom, f.node.into_crate_internal()?))),
+            focused_node: focused_node.into(),
         }
     }
 

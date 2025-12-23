@@ -1,13 +1,19 @@
-use azul::{prelude::*, str::String as AzString, widgets::Button};
+#![cfg(feature = "serde_support")]
 
-extern crate serde;
-#[macro_use(Deserialize)]
-extern crate serde_derive;
-extern crate serde_json;
+use azul::{prelude::*, str::String as AzString, widgets::Button};
+use azul::svg::*;
+use azul::gl::Texture;
+use azul::image::{ImageRef, RawImageFormat, RenderImageCallback, RenderImageCallbackInfo};
+use azul::css::{ColorU, StyleTransform, StyleTransformTranslate2D, PixelValue, AngleValue, PhysicalSizeU32, SvgFillStyle};
+use azul::vec::{TessellatedSvgNodeVec, U8VecRef};
+use azul::window::WindowFrame;
+use azul::task::TerminateTimer;
+
+use serde::Deserialize;
 
 static DATA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../assets/data/testdata.json"
+    "/../assets/testdata.json"
 ));
 
 #[derive(Debug, Clone, Deserialize)]
@@ -28,14 +34,14 @@ struct OpenGlAppState {
 
 extern "C" 
 fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
-    Dom::body()
+    Dom::create_body()
         .with_inline_style("
             background: linear-gradient(blue, black);
             padding: 10px;
         ")
         .with_child(
-            Dom::image(
-                ImageRef::callback(RenderImageCallback::create(render_my_texture), data.clone())
+            Dom::create_image(
+                ImageRef::callback(RenderImageCallback::create(render_my_texture).to_core(), data.clone())
             )
             .with_inline_style("
                 flex-grow: 1;
@@ -44,7 +50,7 @@ fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
                 box-shadow: 0px 0px 10px black;
             ")
             .with_child(
-                Button::new("Button drawn on top of OpenGL!")
+                Button::create("Button drawn on top of OpenGL!")
                     .dom()
                     .with_inline_style(
                         "
@@ -58,7 +64,7 @@ fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
 }
 
 extern "C" 
-fn render_my_texture(mut data: RefAny, info: RenderImageCallbackInfo) -> ImageRef {
+fn render_my_texture(mut data: RefAny, mut info: RenderImageCallbackInfo) -> ImageRef {
 
     // size = the calculated size that the div has AFTER LAYOUTING
     // this way you can render the OpenGL texture with the correct size
@@ -69,10 +75,10 @@ fn render_my_texture(mut data: RefAny, info: RenderImageCallbackInfo) -> ImageRe
         size.width as usize,
         size.height as usize,
         RawImageFormat::R8,
-        Vec::new(),
+        U8VecRef::from(&[][..]),
     );
 
-    match render_my_texture_inner(data, info, size) {
+    match render_my_texture_inner(&mut data, &mut info, size) {
         Some(s) => s,
         None => invalid,
     }
@@ -100,23 +106,23 @@ fn render_my_texture_inner(
     texture.clear();
 
     texture.draw_tesselated_svg_gpu_node(
-        fill_vertex_buffer as *const _,
+        fill_vertex_buffer.clone(),
         texture_size,
         ColorU::from_str("#cc00cc"),
         vec![
             StyleTransform::Translate(StyleTransformTranslate2D {
-                x: PixelValue::const_percent(50),
-                y: PixelValue::const_percent(50),
+                x: PixelValue::percent(50.0),
+                y: PixelValue::percent(50.0),
             }),
             StyleTransform::Rotate(AngleValue::deg(rotation_deg)),
-        ],
+        ].into(),
     );
 
     texture.draw_tesselated_svg_gpu_node(
-        stroke_vertex_buffer as *const _,
+        stroke_vertex_buffer.clone(),
         texture_size,
         ColorU::from_str("#158DE3"),
-        vec![StyleTransform::Rotate(AngleValue::deg(rotation_deg))],
+        vec![StyleTransform::Rotate(AngleValue::deg(rotation_deg))].into(),
     );
 
     // TODO: segfault when inserting the following line:
@@ -142,12 +148,12 @@ fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()
         let gl_context = info.get_gl_context().into_option()?;
 
         data.fill_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
-            &fill_vertex_buffer as *const _,
+            fill_vertex_buffer,
             gl_context.clone(),
         ));
 
         data.stroke_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
-            &stroke_vertex_buffer as *const _,
+            stroke_vertex_buffer,
             gl_context.clone(),
         ));
     }
@@ -163,7 +169,7 @@ fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
     let parsed: Vec<Dataset> = match serde_json::from_str(data) {
         Ok(s) => s,
         Err(e) => {
-            MsgBox::error(format!("{}", e));
+            eprintln!("Error parsing JSON: {}", e);
             return Vec::new();
         }
     };
@@ -275,6 +281,6 @@ fn main() {
 
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.flags.frame = WindowFrame::Maximized;
-    window.create_callback = Some(Callback { cb: startup_window }).into();
+    window.create_callback = Some(Callback::create(startup_window)).into();
     app.run(window);
 }

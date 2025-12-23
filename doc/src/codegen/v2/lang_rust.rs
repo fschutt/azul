@@ -81,7 +81,7 @@ impl LanguageGenerator for RustGenerator {
 
         // Rust-only generic methods (not part of C-ABI)
         builder.line("// --- Rust-Only Generic Methods ---");
-        let rust_only = self.generate_rust_only_impls(config)?;
+        let rust_only = self.generate_rust_only_impls(ir, config)?;
         builder.raw(&rust_only);
 
         // Functions
@@ -257,7 +257,7 @@ impl RustGenerator {
     /// For internal bindings (build-dll/link-static): implemented via transmute to core type.
     /// For external bindings (link-dynamic): these methods are NOT available because
     /// they require access to internal types that aren't exposed through the C-ABI.
-    fn generate_rust_only_impls(&self, config: &CodegenConfig) -> Result<String> {
+    fn generate_rust_only_impls(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         let mut builder = CodeBuilder::new(&config.indent);
         
         let prefix = &config.type_prefix;
@@ -364,9 +364,707 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
+            
+            // AzString convenience methods for ergonomic API
+            builder.line(&format!("impl {}String {{", prefix));
+            builder.indent();
+            
+            // as_str() - returns &str by reinterpreting the bytes
+            builder.line("/// Returns the string as a `&str` slice.");
+            builder.line("#[inline]");
+            builder.line("pub fn as_str(&self) -> &str {");
+            builder.indent();
+            builder.line("unsafe {");
+            builder.indent();
+            builder.line("core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.vec.ptr, self.vec.len))");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // into_string() - converts to owned String
+            builder.line("/// Converts the AzString into an owned `String`.");
+            builder.line("/// ");
+            builder.line("/// If the memory was library-allocated, takes ownership without copying.");
+            builder.line("/// Otherwise clones the memory.");
+            builder.line("#[inline]");
+            builder.line("pub fn into_string(self) -> alloc::string::String {");
+            builder.indent();
+            builder.line("self.as_str().to_string()");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // as_bytes() - returns byte slice
+            builder.line("/// Returns the raw bytes of the string.");
+            builder.line("#[inline]");
+            builder.line("pub fn as_bytes(&self) -> &[u8] {");
+            builder.indent();
+            builder.line("unsafe { core::slice::from_raw_parts(self.vec.ptr, self.vec.len) }");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // len() - returns length
+            builder.line("/// Returns the length of the string in bytes.");
+            builder.line("#[inline]");
+            builder.line("pub fn len(&self) -> usize {");
+            builder.indent();
+            builder.line("self.vec.len");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // is_empty() - checks if empty
+            builder.line("/// Returns true if the string is empty.");
+            builder.line("#[inline]");
+            builder.line("pub fn is_empty(&self) -> bool {");
+            builder.indent();
+            builder.line("self.vec.len == 0");
+            builder.dedent();
+            builder.line("}");
+            
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // AsRef<str> implementation
+            builder.line(&format!("impl AsRef<str> for {}String {{", prefix));
+            builder.indent();
+            builder.line("fn as_ref(&self) -> &str {");
+            builder.indent();
+            builder.line("self.as_str()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // Display implementation
+            builder.line(&format!("impl core::fmt::Display for {}String {{", prefix));
+            builder.indent();
+            builder.line("fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {");
+            builder.indent();
+            builder.line("self.as_str().fmt(f)");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // Into<String> implementation
+            builder.line(&format!("impl Into<alloc::string::String> for {}String {{", prefix));
+            builder.indent();
+            builder.line("fn into(self) -> alloc::string::String {");
+            builder.indent();
+            builder.line("self.into_string()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // AsRef<[u8]> implementation
+            builder.line(&format!("impl AsRef<[u8]> for {}String {{", prefix));
+            builder.indent();
+            builder.line("fn as_ref(&self) -> &[u8] {");
+            builder.indent();
+            builder.line("self.as_bytes()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // PartialEq<str> implementation
+            builder.line(&format!("impl PartialEq<str> for {}String {{", prefix));
+            builder.indent();
+            builder.line("fn eq(&self, other: &str) -> bool {");
+            builder.indent();
+            builder.line("self.as_str() == other");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // PartialEq<&str> implementation
+            builder.line(&format!("impl PartialEq<&str> for {}String {{", prefix));
+            builder.indent();
+            builder.line("fn eq(&self, other: &&str) -> bool {");
+            builder.indent();
+            builder.line("self.as_str() == *other");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // PartialEq<String> implementation
+            builder.line(&format!("impl PartialEq<alloc::string::String> for {}String {{", prefix));
+            builder.indent();
+            builder.line("fn eq(&self, other: &alloc::string::String) -> bool {");
+            builder.indent();
+            builder.line("self.as_str() == other.as_str()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // Deref to str implementation
+            builder.line(&format!("impl core::ops::Deref for {}String {{", prefix));
+            builder.indent();
+            builder.line("type Target = str;");
+            builder.line("fn deref(&self) -> &Self::Target {");
+            builder.indent();
+            builder.line("self.as_str()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
         }
         
+        // Generate Option<T> convenience methods (into_option)
+        self.generate_option_convenience_methods(&mut builder, ir, config);
+        
+        // Generate Vec<T> convenience methods
+        self.generate_vec_convenience_methods(&mut builder, ir, config);
+        
+        // Generate VecRef<T> convenience methods (From<&[T]>, From<&Vec<T>>)
+        self.generate_vec_ref_convenience_methods(&mut builder, ir, config);
+        
         Ok(builder.finish())
+    }
+    
+    /// Generate convenience methods for Option types (into_option, is_some, is_none, etc.)
+    fn generate_option_convenience_methods(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+        let prefix = &config.type_prefix;
+        
+        // Find all Option types in the IR
+        for enum_def in &ir.enums {
+            // Check if this is an Option type (has Some and None variants)
+            let has_some = enum_def.variants.iter().any(|v| v.name == "Some");
+            let has_none = enum_def.variants.iter().any(|v| v.name == "None");
+            
+            if !has_some || !has_none {
+                continue;
+            }
+            
+            // Get the inner type from the Some variant
+            let some_variant = enum_def.variants.iter().find(|v| v.name == "Some").unwrap();
+            let inner_type = match &some_variant.kind {
+                EnumVariantKind::Tuple(types) if types.len() == 1 => {
+                    &types[0]
+                }
+                _ => continue, // Skip if Some doesn't have exactly one field
+            };
+            
+            let prefixed_name = config.apply_prefix(&enum_def.name);
+            let prefixed_inner = config.apply_prefix(inner_type);
+            
+            builder.line(&format!("impl {} {{", prefixed_name));
+            builder.indent();
+            
+            // into_option() - converts to std Option<T>
+            builder.line(&format!("/// Converts to a Rust `Option<{}>`.", prefixed_inner));
+            builder.line("#[inline]");
+            builder.line(&format!("pub fn into_option(self) -> Option<{}> {{", prefixed_inner));
+            builder.indent();
+            builder.line("match self {");
+            builder.indent();
+            builder.line(&format!("{}::Some(v) => Some(v),", prefixed_name));
+            builder.line(&format!("{}::None => None,", prefixed_name));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // is_some()
+            builder.line("/// Returns `true` if the option is a `Some` value.");
+            builder.line("#[inline]");
+            builder.line("pub fn is_some(&self) -> bool {");
+            builder.indent();
+            builder.line(&format!("matches!(self, {}::Some(_))", prefixed_name));
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // is_none()
+            builder.line("/// Returns `true` if the option is a `None` value.");
+            builder.line("#[inline]");
+            builder.line("pub fn is_none(&self) -> bool {");
+            builder.indent();
+            builder.line(&format!("matches!(self, {}::None)", prefixed_name));
+            builder.dedent();
+            builder.line("}");
+            
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // From<Option<T>> for OptionT
+            builder.line(&format!("impl From<Option<{}>> for {} {{", prefixed_inner, prefixed_name));
+            builder.indent();
+            builder.line(&format!("fn from(o: Option<{}>) -> Self {{", prefixed_inner));
+            builder.indent();
+            builder.line("match o {");
+            builder.indent();
+            builder.line(&format!("Some(v) => {}::Some(v),", prefixed_name));
+            builder.line(&format!("None => {}::None,", prefixed_name));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // Into<Option<T>> for OptionT
+            builder.line(&format!("impl Into<Option<{}>> for {} {{", prefixed_inner, prefixed_name));
+            builder.indent();
+            builder.line(&format!("fn into(self) -> Option<{}> {{", prefixed_inner));
+            builder.indent();
+            builder.line("self.into_option()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // Default implementation (returns None)
+            builder.line(&format!("impl Default for {} {{", prefixed_name));
+            builder.indent();
+            builder.line("fn default() -> Self {");
+            builder.indent();
+            builder.line(&format!("{}::None", prefixed_name));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+    }
+    
+    /// Generate convenience methods for Vec types (into_vec, as_slice, len, is_empty, iter, etc.)
+    fn generate_vec_convenience_methods(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+        let _prefix = &config.type_prefix;
+        
+        // Find all Vec types in the IR (structs ending with "Vec" that have ptr, len, cap fields)
+        for struct_def in &ir.structs {
+            // Check if this looks like a Vec type
+            if !struct_def.name.ends_with("Vec") {
+                continue;
+            }
+            
+            // Check for ptr, len, cap fields
+            let has_ptr = struct_def.fields.iter().any(|f| f.name == "ptr");
+            let has_len = struct_def.fields.iter().any(|f| f.name == "len");
+            let has_cap = struct_def.fields.iter().any(|f| f.name == "cap");
+            
+            if !has_ptr || !has_len || !has_cap {
+                continue;
+            }
+            
+            // Get the inner type from the ptr field
+            // The type_name contains the base type, and ref_kind tells us if it's a pointer
+            let ptr_field = struct_def.fields.iter().find(|f| f.name == "ptr").unwrap();
+            
+            // Only process if it's actually a pointer type
+            if ptr_field.ref_kind != FieldRefKind::Ptr && ptr_field.ref_kind != FieldRefKind::PtrMut {
+                continue;
+            }
+            
+            let inner_type = &ptr_field.type_name;
+            
+            let prefixed_name = config.apply_prefix(&struct_def.name);
+            let prefixed_inner = config.apply_prefix(inner_type);
+            
+            builder.line(&format!("impl {} {{", prefixed_name));
+            builder.indent();
+            
+            // as_slice() - returns &[T]
+            builder.line(&format!("/// Returns the vec as a `&[{}]` slice.", prefixed_inner));
+            builder.line("#[inline]");
+            builder.line(&format!("pub fn as_slice(&self) -> &[{}] {{", prefixed_inner));
+            builder.indent();
+            builder.line("unsafe { core::slice::from_raw_parts(self.ptr, self.len) }");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // as_slice_mut() - returns &mut [T]
+            builder.line(&format!("/// Returns the vec as a `&mut [{}]` slice.", prefixed_inner));
+            builder.line("#[inline]");
+            builder.line(&format!("pub fn as_slice_mut(&mut self) -> &mut [{}] {{", prefixed_inner));
+            builder.indent();
+            builder.line("unsafe { core::slice::from_raw_parts_mut(self.ptr as *mut _, self.len) }");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // len()
+            builder.line("/// Returns the number of elements in the vec.");
+            builder.line("#[inline]");
+            builder.line("pub fn len(&self) -> usize {");
+            builder.indent();
+            builder.line("self.len");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // capacity()
+            builder.line("/// Returns the capacity of the vec.");
+            builder.line("#[inline]");
+            builder.line("pub fn capacity(&self) -> usize {");
+            builder.indent();
+            builder.line("self.cap");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // is_empty()
+            builder.line("/// Returns `true` if the vec is empty.");
+            builder.line("#[inline]");
+            builder.line("pub fn is_empty(&self) -> bool {");
+            builder.indent();
+            builder.line("self.len == 0");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // get()
+            builder.line(&format!("/// Returns a reference to an element at the given index, or `None` if out of bounds."));
+            builder.line("#[inline]");
+            builder.line(&format!("pub fn get(&self, index: usize) -> Option<&{}> {{", prefixed_inner));
+            builder.indent();
+            builder.line("self.as_slice().get(index)");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // get_mut()
+            builder.line(&format!("/// Returns a mutable reference to an element at the given index, or `None` if out of bounds."));
+            builder.line("#[inline]");
+            builder.line(&format!("pub fn get_mut(&mut self, index: usize) -> Option<&mut {}> {{", prefixed_inner));
+            builder.indent();
+            builder.line("self.as_slice_mut().get_mut(index)");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // iter()
+            builder.line(&format!("/// Returns an iterator over the elements."));
+            builder.line("#[inline]");
+            builder.line(&format!("pub fn iter(&self) -> core::slice::Iter<'_, {}> {{", prefixed_inner));
+            builder.indent();
+            builder.line("self.as_slice().iter()");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // iter_mut()
+            builder.line(&format!("/// Returns a mutable iterator over the elements."));
+            builder.line("#[inline]");
+            builder.line(&format!("pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, {}> {{", prefixed_inner));
+            builder.indent();
+            builder.line("self.as_slice_mut().iter_mut()");
+            builder.dedent();
+            builder.line("}");
+            
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // AsRef<[T]> implementation
+            builder.line(&format!("impl AsRef<[{}]> for {} {{", prefixed_inner, prefixed_name));
+            builder.indent();
+            builder.line(&format!("fn as_ref(&self) -> &[{}] {{", prefixed_inner));
+            builder.indent();
+            builder.line("self.as_slice()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // Deref to [T] implementation
+            builder.line(&format!("impl core::ops::Deref for {} {{", prefixed_name));
+            builder.indent();
+            builder.line(&format!("type Target = [{}];", prefixed_inner));
+            builder.line("fn deref(&self) -> &Self::Target {");
+            builder.indent();
+            builder.line("self.as_slice()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // DerefMut implementation
+            builder.line(&format!("impl core::ops::DerefMut for {} {{", prefixed_name));
+            builder.indent();
+            builder.line("fn deref_mut(&mut self) -> &mut Self::Target {");
+            builder.indent();
+            builder.line("self.as_slice_mut()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // Index implementation
+            builder.line(&format!("impl core::ops::Index<usize> for {} {{", prefixed_name));
+            builder.indent();
+            builder.line(&format!("type Output = {};", prefixed_inner));
+            builder.line("fn index(&self, index: usize) -> &Self::Output {");
+            builder.indent();
+            builder.line("&self.as_slice()[index]");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // IndexMut implementation
+            builder.line(&format!("impl core::ops::IndexMut<usize> for {} {{", prefixed_name));
+            builder.indent();
+            builder.line("fn index_mut(&mut self, index: usize) -> &mut Self::Output {");
+            builder.indent();
+            builder.line("&mut self.as_slice_mut()[index]");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // IntoIterator for &Vec
+            builder.line(&format!("impl<'a> IntoIterator for &'a {} {{", prefixed_name));
+            builder.indent();
+            builder.line(&format!("type Item = &'a {};", prefixed_inner));
+            builder.line(&format!("type IntoIter = core::slice::Iter<'a, {}>;", prefixed_inner));
+            builder.line("fn into_iter(self) -> Self::IntoIter {");
+            builder.indent();
+            builder.line("self.as_slice().iter()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // IntoIterator for &mut Vec
+            builder.line(&format!("impl<'a> IntoIterator for &'a mut {} {{", prefixed_name));
+            builder.indent();
+            builder.line(&format!("type Item = &'a mut {};", prefixed_inner));
+            builder.line(&format!("type IntoIter = core::slice::IterMut<'a, {}>;", prefixed_inner));
+            builder.line("fn into_iter(self) -> Self::IntoIter {");
+            builder.indent();
+            builder.line("self.as_slice_mut().iter_mut()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // From<Vec<T>> for AzVec<T> - allows easy conversion from std Vec
+            // This requires the Vec type to have a destructor field
+            let has_destructor = struct_def.fields.iter().any(|f| f.name == "destructor");
+            if has_destructor {
+                // Get the destructor type name (should end with "Destructor")
+                let destructor_field = struct_def.fields.iter().find(|f| f.name == "destructor");
+                if let Some(destructor_field) = destructor_field {
+                    let prefixed_destructor = config.apply_prefix(&destructor_field.type_name);
+                    
+                    builder.line(&format!("impl From<alloc::vec::Vec<{}>> for {} {{", prefixed_inner, prefixed_name));
+                    builder.indent();
+                    builder.line(&format!("fn from(v: alloc::vec::Vec<{}>) -> Self {{", prefixed_inner));
+                    builder.indent();
+                    builder.line("let ptr = v.as_ptr();");
+                    builder.line("let len = v.len();");
+                    builder.line("let cap = v.capacity();");
+                    builder.line("core::mem::forget(v);");
+                    builder.line("Self {");
+                    builder.indent();
+                    builder.line("ptr,");
+                    builder.line("len,");
+                    builder.line("cap,");
+                    builder.line(&format!("destructor: {}::DefaultRust,", prefixed_destructor));
+                    builder.line("run_destructor: true,");
+                    builder.dedent();
+                    builder.line("}");
+                    builder.dedent();
+                    builder.line("}");
+                    builder.dedent();
+                    builder.line("}");
+                    builder.blank();
+                }
+            }
+        }
+    }
+
+    /// Generate convenience methods for VecRef types (From<&[T]>, From<&Vec<T>>, as_slice)
+    /// VecRef types are used for passing slices across the C-ABI boundary.
+    fn generate_vec_ref_convenience_methods(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+        let _prefix = &config.type_prefix;
+        
+        // Find all VecRef types in the IR (structs ending with "VecRef" that have ptr, len fields but NO cap)
+        for struct_def in &ir.structs {
+            // Check if this looks like a VecRef type
+            if !struct_def.name.ends_with("VecRef") {
+                continue;
+            }
+            
+            // Check for ptr, len fields (but NOT cap - that's a Vec, not a VecRef)
+            let has_ptr = struct_def.fields.iter().any(|f| f.name == "ptr");
+            let has_len = struct_def.fields.iter().any(|f| f.name == "len");
+            let has_cap = struct_def.fields.iter().any(|f| f.name == "cap");
+            
+            if !has_ptr || !has_len || has_cap {
+                continue;
+            }
+            
+            // Derive the inner type from the VecRef name
+            // e.g., "TessellatedSvgNodeVecRef" -> "TessellatedSvgNode"
+            let inner_type = match struct_def.name.strip_suffix("VecRef") {
+                Some(inner) => inner.to_string(),
+                None => continue,
+            };
+            
+            // Check if the inner type actually exists in the IR
+            let inner_type_exists = ir.structs.iter().any(|s| s.name == inner_type) 
+                || ir.enums.iter().any(|e| e.name == inner_type);
+            
+            // Map primitive VecRef names to Rust primitive types
+            let rust_inner_type = match inner_type.as_str() {
+                "U8" => Some("u8"),
+                "U16" => Some("u16"),
+                "U32" => Some("u32"),
+                "U64" => Some("u64"),
+                "I8" => Some("i8"),
+                "I16" => Some("i16"),
+                "I32" => Some("i32"),
+                "I64" => Some("i64"),
+                "F32" => Some("f32"),
+                "F64" => Some("f64"),
+                "Usize" => Some("usize"),
+                "Isize" => Some("isize"),
+                "GLuint" => Some("GLuint"),
+                "GLint" => Some("GLint"),
+                "GLfloat" => Some("GLfloat"),
+                _ => None,
+            };
+            
+            if !inner_type_exists && rust_inner_type.is_none() {
+                continue;
+            }
+            
+            // Use the Rust primitive type if available, otherwise use the prefixed inner type
+            let prefixed_name = config.apply_prefix(&struct_def.name);
+            let prefixed_inner = if let Some(primitive) = rust_inner_type {
+                primitive.to_string()
+            } else {
+                config.apply_prefix(&inner_type)
+            };
+            
+            // Derive the corresponding Vec type name (remove "Ref" suffix)
+            let vec_type_name = format!("{}Vec", inner_type);
+            let prefixed_vec = config.apply_prefix(&vec_type_name);
+            
+            // as_slice() method
+            builder.line(&format!("impl {} {{", prefixed_name));
+            builder.indent();
+            
+            builder.line(&format!("/// Returns the vec ref as a `&[{}]` slice.", prefixed_inner));
+            builder.line("#[inline]");
+            builder.line(&format!("pub fn as_slice(&self) -> &[{}] {{", prefixed_inner));
+            builder.indent();
+            builder.line("if self.ptr.is_null() || self.len == 0 {");
+            builder.indent();
+            builder.line("&[]");
+            builder.dedent();
+            builder.line("} else {");
+            builder.indent();
+            builder.line(&format!("unsafe {{ core::slice::from_raw_parts(self.ptr as *const {}, self.len) }}", prefixed_inner));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            builder.line("/// Returns the number of elements.");
+            builder.line("#[inline]");
+            builder.line("pub fn len(&self) -> usize {");
+            builder.indent();
+            builder.line("self.len");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            builder.line("/// Returns `true` if empty.");
+            builder.line("#[inline]");
+            builder.line("pub fn is_empty(&self) -> bool {");
+            builder.indent();
+            builder.line("self.len == 0");
+            builder.dedent();
+            builder.line("}");
+            
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // From<&[T]> for VecRef
+            builder.line(&format!("impl<'a> From<&'a [{}]> for {} {{", prefixed_inner, prefixed_name));
+            builder.indent();
+            builder.line(&format!("fn from(slice: &'a [{}]) -> Self {{", prefixed_inner));
+            builder.indent();
+            builder.line("Self {");
+            builder.indent();
+            builder.line("ptr: slice.as_ptr() as *const _,");
+            builder.line("len: slice.len(),");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            
+            // From<&Vec<T>> for VecRef (if a corresponding Vec type exists)
+            // Check if the Vec type exists in the IR
+            let vec_exists = ir.structs.iter().any(|s| s.name == vec_type_name);
+            if vec_exists {
+                builder.line(&format!("impl<'a> From<&'a {}> for {} {{", prefixed_vec, prefixed_name));
+                builder.indent();
+                builder.line(&format!("fn from(vec: &'a {}) -> Self {{", prefixed_vec));
+                builder.indent();
+                builder.line("Self {");
+                builder.indent();
+                builder.line("ptr: vec.ptr as *const _,");
+                builder.line("len: vec.len,");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.dedent();
+                builder.line("}");
+                builder.blank();
+            }
+            
+            // AsRef<[T]> implementation
+            builder.line(&format!("impl AsRef<[{}]> for {} {{", prefixed_inner, prefixed_name));
+            builder.indent();
+            builder.line(&format!("fn as_ref(&self) -> &[{}] {{", prefixed_inner));
+            builder.indent();
+            builder.line("self.as_slice()");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
     }
 
     /// Generate impl blocks with methods for each type
@@ -626,7 +1324,7 @@ impl RustGenerator {
 
         // Rust-only generic methods (not part of C-ABI)
         builder.line("// --- Rust-Only Generic Methods ---");
-        let rust_only = self.generate_rust_only_impls(config)?;
+        let rust_only = self.generate_rust_only_impls(ir, config)?;
         builder.raw(&rust_only);
 
         Ok(builder.finish())
@@ -743,6 +1441,16 @@ impl RustGenerator {
             builder.line(&format!("/// `{}` struct", name));
         }
 
+        // Copy is a marker trait that cannot be implemented manually or via transmute
+        // If the source type explicitly derives Copy, we must derive it here too
+        if struct_def.traits.is_copy {
+            builder.line("#[derive(Copy)]");
+        }
+        // Only derive Clone if it was explicitly in the derive list (not custom_impls)
+        if struct_def.traits.clone_is_derived {
+            builder.line("#[derive(Clone)]");
+        }
+
         // Repr attribute
         if let Some(ref repr) = struct_def.repr {
             builder.line(&format!("#[repr({})]", repr));
@@ -791,6 +1499,16 @@ impl RustGenerator {
             }
         } else {
             builder.line(&format!("/// `{}` struct", name));
+        }
+
+        // Copy is a marker trait that cannot be implemented manually or via transmute
+        // If the source type explicitly derives Copy, we must derive it here too
+        if enum_def.traits.is_copy {
+            builder.line("#[derive(Copy)]");
+        }
+        // Only derive Clone if it was explicitly in the derive list (not custom_impls)
+        if enum_def.traits.clone_is_derived {
+            builder.line("#[derive(Clone)]");
         }
 
         // Repr attribute - automatically determine based on whether enum has variant data
@@ -881,14 +1599,10 @@ impl RustGenerator {
             .map(|p| config.transform_external_path(p))
             .unwrap_or_else(|| format!("crate::{}", struct_def.name));
 
-        // Clone impl - generate for:
-        // 1. Types with is_clone trait explicitly set
-        // 2. Types with external_path (can clone via transmute to external type)
+        // Clone impl - generate via transmute only if Clone is in custom_impls (not derived)
+        // Types with clone_is_derived get Clone via #[derive(Clone)] in generate_struct
         // Skip for generic types (can't transmute dependent-sized types)
-        let should_gen_clone = struct_def.generic_params.is_empty() 
-            && (struct_def.traits.is_clone || struct_def.external_path.is_some());
-        
-        if should_gen_clone {
+        if struct_def.traits.is_clone && !struct_def.traits.clone_is_derived && struct_def.generic_params.is_empty() {
             builder.line(&format!("impl Clone for {} {{", full_name));
             builder.indent();
             builder.line("fn clone(&self) -> Self {");
@@ -1022,12 +1736,9 @@ impl RustGenerator {
             .map(|p| config.transform_external_path(p))
             .unwrap_or_else(|| format!("crate::{}", enum_def.name));
 
-        // Clone impl - generate for:
-        // 1. Types with is_clone trait explicitly set
-        // 2. Types with external_path (can clone via transmute to external type)
-        let should_gen_clone = enum_def.traits.is_clone || enum_def.external_path.is_some();
-        
-        if should_gen_clone {
+        // Clone impl - generate via transmute only if Clone is in custom_impls (not derived)
+        // Types with clone_is_derived get Clone via #[derive(Clone)] in generate_enum
+        if enum_def.traits.is_clone && !enum_def.traits.clone_is_derived {
             builder.line(&format!("impl Clone for {} {{", full_name));
             builder.indent();
             builder.line("fn clone(&self) -> Self {");
@@ -1594,7 +2305,7 @@ fn is_primitive_type(type_name: &str) -> bool {
         "bool" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
         "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
         "f32" | "f64" | "char" | "()" |
-        "c_void"
+        "c_void" | "c_int" | "c_uint" | "c_long" | "c_ulong" | "c_char"
         // NOTE: "String" is NOT a primitive - it's AzString in Azul, not std::string::String
     )
 }

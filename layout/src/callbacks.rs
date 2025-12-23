@@ -65,6 +65,72 @@ use crate::{
     window_state::{FullWindowState, WindowCreateOptions},
 };
 
+use azul_css::{impl_option, impl_option_inner};
+
+// ============================================================================
+// FFI-safe wrapper types for tuple returns
+// ============================================================================
+
+/// FFI-safe wrapper for pen tilt angles (x_tilt, y_tilt) in degrees
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct PenTilt {
+    /// X-axis tilt angle in degrees (-90 to 90)
+    pub x_tilt: f32,
+    /// Y-axis tilt angle in degrees (-90 to 90)
+    pub y_tilt: f32,
+}
+
+impl From<(f32, f32)> for PenTilt {
+    fn from((x, y): (f32, f32)) -> Self {
+        Self { x_tilt: x, y_tilt: y }
+    }
+}
+
+impl_option!(PenTilt, OptionPenTilt, [Debug, Clone, Copy, PartialEq, PartialOrd]);
+
+/// FFI-safe wrapper for select-all result (full_text, selected_range)
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct SelectAllResult {
+    /// The full text content of the node
+    pub full_text: AzString,
+    /// The range that would be selected
+    pub selection_range: SelectionRange,
+}
+
+impl From<(alloc::string::String, SelectionRange)> for SelectAllResult {
+    fn from((text, range): (alloc::string::String, SelectionRange)) -> Self {
+        Self {
+            full_text: text.into(),
+            selection_range: range,
+        }
+    }
+}
+
+impl_option!(SelectAllResult, OptionSelectAllResult, copy = false, [Debug, Clone, PartialEq]);
+
+/// FFI-safe wrapper for delete inspection result (range_to_delete, deleted_text)
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct DeleteResult {
+    /// The range that would be deleted
+    pub range_to_delete: SelectionRange,
+    /// The text that would be deleted
+    pub deleted_text: AzString,
+}
+
+impl From<(SelectionRange, alloc::string::String)> for DeleteResult {
+    fn from((range, text): (SelectionRange, alloc::string::String)) -> Self {
+        Self {
+            range_to_delete: range,
+            deleted_text: text.into(),
+        }
+    }
+}
+
+impl_option!(DeleteResult, OptionDeleteResult, copy = false, [Debug, Clone, PartialEq]);
+
 /// Represents a change made by a callback that will be applied after the callback returns
 ///
 /// This transaction-based system provides:
@@ -503,6 +569,11 @@ impl CallbackInfo {
     /// is a native Rust callback.
     pub fn get_ctx(&self) -> OptionRefAny {
         unsafe { (*self.ref_data).ctx.clone() }
+    }
+
+    /// Returns the OpenGL context if available
+    pub fn get_gl_context(&self) -> OptionGlContextPtr {
+        unsafe { (*self.ref_data).gl_context.clone() }
     }
 
     // Helper methods for transaction system
@@ -1738,7 +1809,7 @@ impl CallbackInfo {
 
     /// Get current pen tilt angles (x_tilt, y_tilt) in degrees
     /// Returns None if no pen is active
-    pub fn get_pen_tilt(&self) -> Option<(f32, f32)> {
+    pub fn get_pen_tilt(&self) -> Option<PenTilt> {
         self.get_pen_state().map(|pen| pen.tilt)
     }
 
@@ -1942,7 +2013,7 @@ impl CallbackInfo {
             .get_drag_state()
             .and_then(|state| {
                 if state.drag_type == DragType::Node {
-                    state.source_node
+                    state.source_node.into_option()
                 } else {
                     None
                 }
@@ -2063,7 +2134,7 @@ impl CallbackInfo {
     pub fn inspect_select_all_changeset(
         &self,
         target: DomNodeId,
-    ) -> Option<(String, SelectionRange)> {
+    ) -> Option<SelectAllResult> {
         use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
 
         let layout_window = self.get_layout_window();
@@ -2095,7 +2166,10 @@ impl CallbackInfo {
             end: end_cursor,
         };
 
-        Some((text, range))
+        Some(SelectAllResult {
+            full_text: text.into(),
+            selection_range: range,
+        })
     }
 
     /// Inspect what would be deleted by a backspace/delete operation
@@ -2122,7 +2196,7 @@ impl CallbackInfo {
         &self,
         target: DomNodeId,
         forward: bool,
-    ) -> Option<(SelectionRange, String)> {
+    ) -> Option<DeleteResult> {
         let layout_window = self.get_layout_window();
         let dom_id = &target.dom;
         let node_id = target.node.into_crate_internal()?;
@@ -2142,6 +2216,10 @@ impl CallbackInfo {
 
         // Use text3::edit::inspect_delete to determine what would be deleted
         crate::text3::edit::inspect_delete(&content, &selection, forward)
+            .map(|(range, text)| DeleteResult {
+                range_to_delete: range,
+                deleted_text: text.into(),
+            })
     }
 
     /// Inspect a pending undo operation
@@ -2170,6 +2248,46 @@ impl CallbackInfo {
     /// Returns the operation that would be reapplied.
     pub fn inspect_redo_operation(&self, node_id: NodeId) -> Option<&UndoableOperation> {
         self.get_undo_redo_manager().peek_redo(node_id)
+    }
+
+    /// Check if undo is available for a specific node
+    ///
+    /// Returns true if there is at least one undoable operation in the stack.
+    pub fn can_undo(&self, node_id: NodeId) -> bool {
+        self.get_undo_redo_manager()
+            .get_stack(node_id)
+            .map(|stack| stack.can_undo())
+            .unwrap_or(false)
+    }
+
+    /// Check if redo is available for a specific node
+    ///
+    /// Returns true if there is at least one redoable operation in the stack.
+    pub fn can_redo(&self, node_id: NodeId) -> bool {
+        self.get_undo_redo_manager()
+            .get_stack(node_id)
+            .map(|stack| stack.can_redo())
+            .unwrap_or(false)
+    }
+
+    /// Get the text that would be restored by undo for a specific node
+    ///
+    /// Returns the pre-state text content that would be restored if undo is performed.
+    /// Returns None if no undo operation is available.
+    pub fn get_undo_text(&self, node_id: NodeId) -> Option<AzString> {
+        self.get_undo_redo_manager()
+            .peek_undo(node_id)
+            .map(|op| op.pre_state.text_content.clone())
+    }
+
+    /// Get the text that would be restored by redo for a specific node
+    ///
+    /// Returns the pre-state text content that would be restored if redo is performed.
+    /// Returns None if no redo operation is available.
+    pub fn get_redo_text(&self, node_id: NodeId) -> Option<AzString> {
+        self.get_undo_redo_manager()
+            .peek_redo(node_id)
+            .map(|op| op.pre_state.text_content.clone())
     }
 
     // Clipboard Helper Methods
@@ -2506,7 +2624,7 @@ impl CallbackInfo {
     ///
     /// Returns (range_to_delete, deleted_text).
     /// This is a convenience wrapper around inspect_delete_changeset(target, false).
-    pub fn inspect_backspace(&self, target: DomNodeId) -> Option<(SelectionRange, String)> {
+    pub fn inspect_backspace(&self, target: DomNodeId) -> Option<DeleteResult> {
         self.inspect_delete_changeset(target, false)
     }
 
@@ -2514,7 +2632,7 @@ impl CallbackInfo {
     ///
     /// Returns (range_to_delete, deleted_text).
     /// This is a convenience wrapper around inspect_delete_changeset(target, true).
-    pub fn inspect_delete(&self, target: DomNodeId) -> Option<(SelectionRange, String)> {
+    pub fn inspect_delete(&self, target: DomNodeId) -> Option<DeleteResult> {
         self.inspect_delete_changeset(target, true)
     }
 

@@ -176,8 +176,9 @@ impl RustStaticGenerator {
         };
         let external_path = config.transform_external_path(external_path);
 
-        // Clone trait
-        if struct_def.traits.is_clone {
+        // Clone trait - generate via transmute only if Clone is in custom_impls (not derived)
+        // Types with clone_is_derived get Clone via #[derive(Clone)] in generate_struct
+        if struct_def.traits.is_clone && !struct_def.traits.clone_is_derived {
             builder.line(&format!("impl{} Clone for {} {{", generics, full_name));
             builder.indent();
             builder.line("fn clone(&self) -> Self {");
@@ -235,8 +236,9 @@ impl RustStaticGenerator {
         };
         let external_path = config.transform_external_path(external_path);
 
-        // Clone trait
-        if enum_def.traits.is_clone {
+        // Clone trait - generate via transmute only if Clone is in custom_impls (not derived)
+        // Types with clone_is_derived get Clone via #[derive(Clone)] in generate_enum
+        if enum_def.traits.is_clone && !enum_def.traits.clone_is_derived {
             builder.line(&format!("impl{} Clone for {} {{", generics, full_name));
             builder.indent();
             builder.line("fn clone(&self) -> Self {");

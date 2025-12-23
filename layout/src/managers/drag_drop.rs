@@ -1,10 +1,11 @@
 //! **Node** drag and drop state management
 
-use azul_core::dom::{DomId, DomNodeId, NodeId};
-use azul_css::{impl_option, impl_option_inner, AzString};
+use azul_core::dom::{DomId, DomNodeId, NodeId, OptionDomNodeId};
+use azul_css::{impl_option, impl_option_inner, AzString, OptionString};
 
 /// Type of drag operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub enum DragType {
     /// Dragging a DOM node
     Node,
@@ -14,15 +15,16 @@ pub enum DragType {
 
 /// State of an active drag operation
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct DragState {
     /// Type of drag
     pub drag_type: DragType,
     /// Source node (for node dragging)
-    pub source_node: Option<DomNodeId>,
+    pub source_node: OptionDomNodeId,
     /// Current drop target (if hovering over valid drop zone)
-    pub current_drop_target: Option<DomNodeId>,
+    pub current_drop_target: OptionDomNodeId,
     /// File path (for file dragging)
-    pub file_path: Option<AzString>,
+    pub file_path: OptionString,
 }
 
 impl_option!(
@@ -55,9 +57,9 @@ impl DragDropManager {
     pub fn start_node_drag(&mut self, source_node: DomNodeId) {
         self.active_drag = Some(DragState {
             drag_type: DragType::Node,
-            source_node: Some(source_node),
-            current_drop_target: None,
-            file_path: None,
+            source_node: OptionDomNodeId::Some(source_node),
+            current_drop_target: OptionDomNodeId::None,
+            file_path: OptionString::None,
         });
     }
 
@@ -65,16 +67,16 @@ impl DragDropManager {
     pub fn start_file_drag(&mut self, file_path: AzString) {
         self.active_drag = Some(DragState {
             drag_type: DragType::File,
-            source_node: None,
-            current_drop_target: None,
-            file_path: Some(file_path),
+            source_node: OptionDomNodeId::None,
+            current_drop_target: OptionDomNodeId::None,
+            file_path: OptionString::Some(file_path),
         });
     }
 
     /// Update the current drop target
     pub fn set_drop_target(&mut self, target: Option<DomNodeId>) {
         if let Some(drag) = &mut self.active_drag {
-            drag.current_drop_target = target;
+            drag.current_drop_target = target.into();
         }
     }
 

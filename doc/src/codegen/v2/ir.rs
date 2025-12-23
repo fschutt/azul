@@ -847,6 +847,9 @@ pub struct TypeTraits {
 
     /// Can be cloned (implements Clone or has _deepCopy)
     pub is_clone: bool,
+    
+    /// Clone should be derived (vs manual impl via custom_impls)
+    pub clone_is_derived: bool,
 
     /// Can be compared for equality (implements PartialEq)
     pub is_partial_eq: bool,
@@ -890,14 +893,18 @@ impl TypeTraits {
         let mut traits = Self::default();
         traits.has_custom_drop = has_custom_drop;
 
-        // Process both derives and custom_impls
-        for derive in derives.iter().chain(custom_impls.iter()) {
+        // First process derives - these are traits that should be auto-derived
+        for derive in derives.iter() {
             match derive.as_str() {
                 "Copy" => {
                     traits.is_copy = true;
                     traits.is_clone = true; // Copy implies Clone
+                    traits.clone_is_derived = true;
                 }
-                "Clone" => traits.is_clone = true,
+                "Clone" => {
+                    traits.is_clone = true;
+                    traits.clone_is_derived = true;
+                }
                 "PartialEq" => traits.is_partial_eq = true,
                 "Eq" => {
                     traits.is_eq = true;
@@ -907,6 +914,38 @@ impl TypeTraits {
                 "Ord" => {
                     traits.is_ord = true;
                     traits.is_partial_ord = true; // Ord implies PartialOrd
+                }
+                "Hash" => traits.is_hash = true,
+                "Default" => traits.is_default = true,
+                "Debug" => traits.is_debug = true,
+                "Serialize" => traits.is_serialize = true,
+                "Deserialize" => traits.is_deserialize = true,
+                _ => {}
+            }
+        }
+        
+        // Then process custom_impls - these have manual implementations
+        // Clone in custom_impls means the type has Clone but it's manually implemented
+        for custom_impl in custom_impls.iter() {
+            match custom_impl.as_str() {
+                "Copy" => {
+                    traits.is_copy = true;
+                    traits.is_clone = true;
+                    // Don't set clone_is_derived - Copy with custom impl is rare but possible
+                }
+                "Clone" => {
+                    traits.is_clone = true;
+                    // Don't set clone_is_derived - it's manually implemented
+                }
+                "PartialEq" => traits.is_partial_eq = true,
+                "Eq" => {
+                    traits.is_eq = true;
+                    traits.is_partial_eq = true;
+                }
+                "PartialOrd" => traits.is_partial_ord = true,
+                "Ord" => {
+                    traits.is_ord = true;
+                    traits.is_partial_ord = true;
                 }
                 "Hash" => traits.is_hash = true,
                 "Default" => traits.is_default = true,

@@ -21,9 +21,10 @@
 //! - Inspection (user callbacks can see planned changes)
 
 use azul_core::{
-    dom::DomNodeId, geom::LogicalPosition, selection::SelectionRange, task::Instant,
+    dom::DomNodeId, geom::LogicalPosition, selection::{SelectionRange, OptionSelectionRange}, task::Instant,
     window::CursorPosition,
 };
+use azul_css::AzString;
 
 use crate::managers::selection::ClipboardContent;
 
@@ -32,6 +33,7 @@ pub type ChangesetId = usize;
 
 /// A text editing changeset that can be inspected before application
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct TextChangeset {
     /// Unique ID for undo/redo tracking
     pub id: ChangesetId,
@@ -43,90 +45,132 @@ pub struct TextChangeset {
     pub timestamp: Instant,
 }
 
+/// Insert text at cursor position
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct TextOpInsertText {
+    pub position: CursorPosition,
+    pub text: AzString,
+    pub new_cursor: CursorPosition,
+}
+
+/// Delete text in range
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct TextOpDeleteText {
+    pub range: SelectionRange,
+    pub deleted_text: AzString,
+    pub new_cursor: CursorPosition,
+}
+
+/// Replace text in range with new text
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct TextOpReplaceText {
+    pub range: SelectionRange,
+    pub old_text: AzString,
+    pub new_text: AzString,
+    pub new_cursor: CursorPosition,
+}
+
+/// Set selection to new range
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct TextOpSetSelection {
+    pub old_range: OptionSelectionRange,
+    pub new_range: SelectionRange,
+}
+
+/// Extend selection in a direction
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct TextOpExtendSelection {
+    pub old_range: SelectionRange,
+    pub new_range: SelectionRange,
+    pub direction: SelectionDirection,
+}
+
+/// Clear all selections
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct TextOpClearSelection {
+    pub old_range: SelectionRange,
+}
+
+/// Move cursor to new position
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct TextOpMoveCursor {
+    pub old_position: CursorPosition,
+    pub new_position: CursorPosition,
+    pub movement: CursorMovement,
+}
+
+/// Copy selection to clipboard (no text change)
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct TextOpCopy {
+    pub range: SelectionRange,
+    pub content: ClipboardContent,
+}
+
+/// Cut selection to clipboard (deletes text)
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct TextOpCut {
+    pub range: SelectionRange,
+    pub content: ClipboardContent,
+    pub new_cursor: CursorPosition,
+}
+
+/// Paste from clipboard (inserts text)
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct TextOpPaste {
+    pub position: CursorPosition,
+    pub content: ClipboardContent,
+    pub new_cursor: CursorPosition,
+}
+
+/// Select all text in node
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct TextOpSelectAll {
+    pub old_range: OptionSelectionRange,
+    pub new_range: SelectionRange,
+}
+
 /// Text editing operation (what will change)
 #[derive(Debug, Clone)]
+#[repr(C, u8)]
 pub enum TextOperation {
-    // Text Mutations (actually modify text)
     /// Insert text at cursor position
-    InsertText {
-        position: CursorPosition,
-        text: String,
-        new_cursor: CursorPosition,
-    },
-
+    InsertText(TextOpInsertText),
     /// Delete text in range
-    DeleteText {
-        range: SelectionRange,
-        deleted_text: String, // For undo
-        new_cursor: CursorPosition,
-    },
-
+    DeleteText(TextOpDeleteText),
     /// Replace text in range with new text
-    ReplaceText {
-        range: SelectionRange,
-        old_text: String, // For undo
-        new_text: String,
-        new_cursor: CursorPosition,
-    },
-
-    // Selection Mutations (no text change, only selection)
+    ReplaceText(TextOpReplaceText),
     /// Set selection to new range
-    SetSelection {
-        old_range: Option<SelectionRange>, // For undo
-        new_range: SelectionRange,
-    },
-
+    SetSelection(TextOpSetSelection),
     /// Extend selection in a direction
-    ExtendSelection {
-        old_range: SelectionRange,
-        new_range: SelectionRange,
-        direction: SelectionDirection,
-    },
-
+    ExtendSelection(TextOpExtendSelection),
     /// Clear all selections
-    ClearSelection {
-        old_range: SelectionRange, // For undo
-    },
-
-    // Cursor Mutations (no text change, only cursor position)
+    ClearSelection(TextOpClearSelection),
     /// Move cursor to new position
-    MoveCursor {
-        old_position: CursorPosition,
-        new_position: CursorPosition,
-        movement: CursorMovement,
-    },
-
-    // Clipboard Operations
+    MoveCursor(TextOpMoveCursor),
     /// Copy selection to clipboard (no text change)
-    Copy {
-        range: SelectionRange,
-        content: ClipboardContent,
-    },
-
+    Copy(TextOpCopy),
     /// Cut selection to clipboard (deletes text)
-    Cut {
-        range: SelectionRange,
-        content: ClipboardContent,
-        new_cursor: CursorPosition,
-    },
-
+    Cut(TextOpCut),
     /// Paste from clipboard (inserts text)
-    Paste {
-        position: CursorPosition,
-        content: ClipboardContent,
-        new_cursor: CursorPosition,
-    },
-
-    // Compound Operations
+    Paste(TextOpPaste),
     /// Select all text in node
-    SelectAll {
-        old_range: Option<SelectionRange>, // For undo
-        new_range: SelectionRange,
-    },
+    SelectAll(TextOpSelectAll),
 }
 
 /// Direction of selection extension
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub enum SelectionDirection {
     /// Extending selection forward (to the right/down)
     Forward,
@@ -136,6 +180,7 @@ pub enum SelectionDirection {
 
 /// Type of cursor movement
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub enum CursorMovement {
     /// Move left one character
     Left,
@@ -210,15 +255,12 @@ impl TextChangeset {
     /// Get the target cursor position after this changeset is applied
     pub fn resulting_cursor_position(&self) -> Option<CursorPosition> {
         match &self.operation {
-            TextOperation::InsertText { new_cursor, .. }
-            | TextOperation::DeleteText { new_cursor, .. }
-            | TextOperation::ReplaceText { new_cursor, .. }
-            | TextOperation::Cut { new_cursor, .. }
-            | TextOperation::Paste { new_cursor, .. }
-            | TextOperation::MoveCursor {
-                new_position: new_cursor,
-                ..
-            } => Some(*new_cursor),
+            TextOperation::InsertText(op) => Some(op.new_cursor),
+            TextOperation::DeleteText(op) => Some(op.new_cursor),
+            TextOperation::ReplaceText(op) => Some(op.new_cursor),
+            TextOperation::Cut(op) => Some(op.new_cursor),
+            TextOperation::Paste(op) => Some(op.new_cursor),
+            TextOperation::MoveCursor(op) => Some(op.new_position),
             _ => None,
         }
     }
@@ -226,9 +268,9 @@ impl TextChangeset {
     /// Get the target selection range after this changeset is applied
     pub fn resulting_selection_range(&self) -> Option<SelectionRange> {
         match &self.operation {
-            TextOperation::SetSelection { new_range, .. }
-            | TextOperation::ExtendSelection { new_range, .. }
-            | TextOperation::SelectAll { new_range, .. } => Some(*new_range),
+            TextOperation::SetSelection(op) => Some(op.new_range),
+            TextOperation::ExtendSelection(op) => Some(op.new_range),
+            TextOperation::SelectAll(op) => Some(op.new_range),
             _ => None,
         }
     }
@@ -259,10 +301,10 @@ pub fn create_copy_changeset(
 
     Some(TextChangeset::new(
         target,
-        TextOperation::Copy {
+        TextOperation::Copy(TextOpCopy {
             range: *range,
             content,
-        },
+        }),
         timestamp,
     ))
 }
@@ -291,11 +333,11 @@ pub fn create_cut_changeset(
 
     Some(TextChangeset::new(
         target,
-        TextOperation::Cut {
+        TextOperation::Cut(TextOpCut {
             range: *range,
             content,
             new_cursor: new_cursor_position,
-        },
+        }),
         timestamp,
     ))
 }
@@ -365,10 +407,10 @@ pub fn create_select_all_changeset(
 
     Some(TextChangeset::new(
         target,
-        TextOperation::SelectAll {
-            old_range,
+        TextOperation::SelectAll(TextOpSelectAll {
+            old_range: old_range.into(),
             new_range,
-        },
+        }),
         timestamp,
     ))
 }
@@ -467,11 +509,11 @@ pub fn create_delete_selection_changeset(
 
     Some(TextChangeset::new(
         target,
-        TextOperation::DeleteText {
+        TextOperation::DeleteText(TextOpDeleteText {
             range: delete_range,
-            deleted_text,
+            deleted_text: deleted_text.into(),
             new_cursor,
-        },
+        }),
         timestamp,
     ))
 }

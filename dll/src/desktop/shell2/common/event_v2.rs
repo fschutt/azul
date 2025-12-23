@@ -248,7 +248,7 @@ fn set_system_clipboard(text: String) -> bool {
 extern "C" fn auto_scroll_timer_callback(
     _data: azul_core::refany::RefAny,
     timer_info: azul_layout::timer::TimerCallbackInfo,
-) -> azul_layout::timer::TimerCallbackReturn {
+) -> azul_core::callbacks::TimerCallbackReturn {
     use azul_core::task::TerminateTimer;
     use azul_layout::window::SelectionScrollType;
 
@@ -264,7 +264,7 @@ extern "C" fn auto_scroll_timer_callback(
     // Check if still dragging (left mouse button is down)
     if !full_window_state.mouse_state.left_down {
         // Mouse released - stop timer
-        return azul_layout::timer::TimerCallbackReturn::terminate_unchanged();
+        return azul_core::callbacks::TimerCallbackReturn::terminate_unchanged();
     }
 
     // Get mouse position - if mouse is outside window, terminate timer
@@ -272,7 +272,7 @@ extern "C" fn auto_scroll_timer_callback(
         Some(pos) => pos,
         None => {
             // Mouse outside window - stop auto-scroll
-            return azul_layout::timer::TimerCallbackReturn::terminate_unchanged();
+            return azul_core::callbacks::TimerCallbackReturn::terminate_unchanged();
         }
     };
 
@@ -289,12 +289,12 @@ extern "C" fn auto_scroll_timer_callback(
     //     SelectionScrollType::DragSelection { mouse_position },
     //     ScrollMode::Accelerated,
     // ) {
-    //     return azul_layout::timer::TimerCallbackReturn::continue_and_update();
+    //     return azul_core::callbacks::TimerCallbackReturn::continue_and_update();
     // }
 
     // No scroll needed (mouse within container or no scrollable ancestor)
     // Continue timer in case mouse moves outside again
-    azul_layout::timer::TimerCallbackReturn::continue_unchanged()
+    azul_core::callbacks::TimerCallbackReturn::continue_unchanged()
 }
 
 // Platform-Specific Timer Management
@@ -1184,7 +1184,7 @@ pub trait PlatformWindowV2 {
                                     layout_window.get_selected_content_for_clipboard(&dom_id)
                                 {
                                     // Copy text to system clipboard
-                                    set_system_clipboard(clipboard_content.plain_text);
+                                    set_system_clipboard(clipboard_content.plain_text.as_str().to_string());
                                 }
                             }
                         }
@@ -1198,7 +1198,7 @@ pub trait PlatformWindowV2 {
                                 if let Some(clipboard_content) =
                                     layout_window.get_selected_content_for_clipboard(&dom_id)
                                 {
-                                    if set_system_clipboard(clipboard_content.plain_text.clone()) {
+                                    if set_system_clipboard(clipboard_content.plain_text.as_str().to_string()) {
                                         // Then delete the selection
                                         if let Some(affected_nodes) =
                                             layout_window.delete_selection(*target, false)
@@ -1266,7 +1266,7 @@ pub trait PlatformWindowV2 {
 
                                             let new_content =
                                                 vec![InlineContent::Text(StyledRun {
-                                                    text: operation.pre_state.text_content.clone(),
+                                                    text: operation.pre_state.text_content.as_str().to_string(),
                                                     // TODO: Preserve original style
                                                     style: Arc::new(StyleProperties::default()),
                                                     logical_start_byte: 0,
@@ -1281,7 +1281,7 @@ pub trait PlatformWindowV2 {
 
                                             // Restore cursor position
                                             if let Some(cursor) =
-                                                operation.pre_state.cursor_position
+                                                operation.pre_state.cursor_position.into_option()
                                             {
                                                 layout_window.cursor_manager.move_cursor_to(
                                                     cursor,
@@ -1314,10 +1314,10 @@ pub trait PlatformWindowV2 {
 
                                             // Determine what to re-apply based on the operation
                                             match &operation.changeset.operation {
-                                                TextOperation::InsertText { text, .. } => {
+                                                TextOperation::InsertText(op) => {
                                                     // Re-insert the text via process_text_input
                                                     let affected =
-                                                        layout_window.process_text_input(text);
+                                                        layout_window.process_text_input(&op.text);
                                                     for (node, _) in affected {
                                                         text_selection_affected_nodes.push(node);
                                                     }
@@ -2048,7 +2048,7 @@ pub trait PlatformWindowV2 {
         click_position: azul_core::geom::LogicalPosition,
         is_vertical: bool,
     ) -> ProcessEventResult {
-        use azul_layout::managers::scroll_state::ScrollbarOrientation;
+        use azul_core::dom::ScrollbarOrientation;
 
         // Get scrollbar state to calculate target position
         let layout_window = match self.get_layout_window() {
@@ -2141,7 +2141,7 @@ pub trait PlatformWindowV2 {
         current_pos: azul_core::geom::LogicalPosition,
     ) -> ProcessEventResult {
         use azul_core::hit_test::ScrollbarHitId;
-        use azul_layout::managers::scroll_state::ScrollbarOrientation;
+        use azul_core::dom::ScrollbarOrientation;
 
         let drag_state = match self.get_scrollbar_drag_state() {
             Some(ds) => ds.clone(),

@@ -65,7 +65,8 @@ fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     let increase_dom = increase_button.dom().with_inline_style(margin);
 
     // Heading
-    let heading = Dom::create_p("Widget Showcase")
+    let heading = Dom::create_p()
+        .with_child(Dom::create_text("Widget Showcase"))
         .with_inline_style("font-size: 24px; font-weight: bold; margin-bottom: 20px;");
 
     // Final DOM composition
@@ -84,8 +85,8 @@ fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
 
 extern "C" 
 fn toggle_padding(mut data: RefAny, _: CallbackInfo) -> Update {
-    let data = match data.downcast_mut::<WidgetShowcase>() {
-        Some(mut s) => s,
+    let mut data = match data.downcast_mut::<WidgetShowcase>() {
+        Some(s) => s,
         None => return Update::DoNothing,
     };
 
@@ -99,8 +100,8 @@ fn toggle_padding_checkbox(
     _: CallbackInfo,
     state: CheckBoxState,
 ) -> Update {
-    let data = match data.downcast_mut::<WidgetShowcase>() {
-        Some(mut s) => s,
+    let mut data = match data.downcast_mut::<WidgetShowcase>() {
+        Some(s) => s,
         None => return Update::DoNothing,
     };
 
@@ -110,8 +111,8 @@ fn toggle_padding_checkbox(
 
 extern "C" 
 fn increase_progress(mut data: RefAny, _: CallbackInfo) -> Update {
-    let data = match data.downcast_mut::<WidgetShowcase>() {
-        Some(mut s) => s,
+    let mut data = match data.downcast_mut::<WidgetShowcase>() {
+        Some(s) => s,
         None => return Update::DoNothing,
     };
 

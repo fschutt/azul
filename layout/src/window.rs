@@ -4408,9 +4408,9 @@ impl LayoutWindow {
 
         let pre_state = crate::managers::undo_redo::NodeStateSnapshot {
             node_id: azul_core::id::NodeId::new(node_id.index()),
-            text_content: old_text,
-            cursor_position: old_cursor,
-            selection_range: old_selection_range,
+            text_content: old_text.into(),
+            cursor_position: old_cursor.into(),
+            selection_range: old_selection_range.into(),
             timestamp: azul_core::task::Instant::System(std::time::Instant::now().into()),
         };
 
@@ -4431,7 +4431,7 @@ impl LayoutWindow {
 
         // Record this operation to the undo/redo manager AFTER successful mutation
 
-        use crate::managers::changeset::{TextChangeset, TextOperation};
+        use crate::managers::changeset::{TextChangeset, TextOperation, TextOpInsertText};
 
         // Get the new cursor position after edit
         let new_cursor = new_selections
@@ -4466,11 +4466,11 @@ impl LayoutWindow {
         let undo_changeset = TextChangeset {
             id: changeset_id,
             target: changeset.node,
-            operation: TextOperation::InsertText {
-                text: changeset.inserted_text.clone(),
+            operation: TextOperation::InsertText(TextOpInsertText {
+                text: changeset.inserted_text.clone().into(),
                 position: old_cursor_pos,
                 new_cursor,
-            },
+            }),
             timestamp: azul_core::task::Instant::System(std::time::Instant::now().into()),
         };
         self.undo_redo_manager

@@ -33,7 +33,7 @@ pub type NodeDepths = Vec<(usize, NodeId)>;
 use alloc::string::ToString;
 
 // Simple FFI-safe NodeId - just a wrapper around usize
-mod node_id {
+pub mod node_id {
 
     use alloc::vec::Vec;
     use core::{

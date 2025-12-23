@@ -46,6 +46,7 @@ path = "src/infinity.rs"
 [[example]]
 name = "opengl"
 path = "src/opengl.rs"
+required-features = ["serde_support"]
 
 [[example]]
 name = "widgets"

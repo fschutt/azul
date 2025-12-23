@@ -577,7 +577,8 @@ impl<'a> IRBuilder<'a> {
         matches!(type_name, 
             "bool" | "u8" | "u16" | "u32" | "u64" | "usize" |
             "i8" | "i16" | "i32" | "i64" | "isize" |
-            "f32" | "f64" | "c_void" | "()"
+            "f32" | "f64" | "c_void" | "()" |
+            "c_int" | "c_uint" | "c_long" | "c_ulong" | "c_char" | "c_uchar"
         )
     }
 
@@ -683,12 +684,26 @@ impl<'a> IRBuilder<'a> {
         let custom_impls = class_data.custom_impls.clone().unwrap_or_default();
         let has_explicit_derive = class_data.derive.is_some();
         let has_custom_drop = class_data.has_custom_drop();
-        let traits = TypeTraits::from_derives_and_custom_impls(&derives, &custom_impls, has_custom_drop);
+        let mut traits = TypeTraits::from_derives_and_custom_impls(&derives, &custom_impls, has_custom_drop);
 
         let fields = self.build_struct_fields(class_data)?;
         
         // Classify the type category
         let category = classify_struct_type(name, class_data, self.version_data);
+        
+        // Destructor and callback types are Copy+Clone (they only contain function pointers)
+        if matches!(category, TypeCategory::DestructorOrClone) {
+            traits.is_copy = true;
+            traits.is_clone = true;
+            traits.clone_is_derived = true; // These can be derived
+        }
+        
+        // Vec types should have Clone (they have a deep_copy function that clones the data)
+        // Vec types end with "Vec" but NOT "VecRef"
+        if name.ends_with("Vec") && !name.ends_with("VecRef") {
+            traits.is_clone = true;
+            traits.clone_is_derived = true; // Vec Clone can be derived
+        }
 
         Ok(StructDef {
             name: name.to_string(),
@@ -758,12 +773,19 @@ impl<'a> IRBuilder<'a> {
         let custom_impls = class_data.custom_impls.clone().unwrap_or_default();
         let has_explicit_derive = class_data.derive.is_some();
         let has_custom_drop = class_data.has_custom_drop();
-        let traits = TypeTraits::from_derives_and_custom_impls(&derives, &custom_impls, has_custom_drop);
+        let mut traits = TypeTraits::from_derives_and_custom_impls(&derives, &custom_impls, has_custom_drop);
 
         let (variants, is_union) = self.build_enum_variants(class_data)?;
         
         // Classify the type category
         let category = classify_enum_type(name, class_data, self.version_data);
+        
+        // Destructor and callback types are Copy+Clone (they only contain function pointers)
+        if matches!(category, TypeCategory::DestructorOrClone) {
+            traits.is_copy = true;
+            traits.is_clone = true;
+            traits.clone_is_derived = true; // These can be derived
+        }
 
         Ok(EnumDef {
             name: name.to_string(),
@@ -1133,7 +1155,8 @@ impl<'a> IRBuilder<'a> {
                 // Build methods
                 if let Some(ref functions) = class_data.functions {
                     for (fn_name, fn_data) in functions {
-                        let kind = self.determine_method_kind(fn_data);
+                        let kind = self.determine_method_kind(fn_data)
+                            .map_err(|e| anyhow::anyhow!("{}", e))?;
                         let func = self.build_function_def(class_name, fn_name, fn_data, kind)?;
                         self.ir.functions.push(func);
                     }
@@ -1227,7 +1250,7 @@ impl<'a> IRBuilder<'a> {
         })
     }
 
-    fn determine_method_kind(&self, fn_data: &crate::api::FunctionData) -> FunctionKind {
+    fn determine_method_kind(&self, fn_data: &crate::api::FunctionData) -> Result<FunctionKind, String> {
         // Analyze fn_data to determine if method, method_mut, or static
         // Look at first argument to see if it's self/&self/&mut self
         // Note: fn_args is Vec<IndexMap<String, String>>, not Option
@@ -1238,21 +1261,36 @@ impl<'a> IRBuilder<'a> {
                 if name == "self" {
                     // Check the value to determine ref kind
                     if value == "refmut" {
-                        return FunctionKind::MethodMut;
+                        return Ok(FunctionKind::MethodMut);
                     } else {
                         // "ref" or "value" are both treated as Method
-                        return FunctionKind::Method;
+                        return Ok(FunctionKind::Method);
                     }
                 }
                 if name == "&self" {
-                    return FunctionKind::Method;
+                    return Ok(FunctionKind::Method);
                 }
                 if name == "&mut self" {
-                    return FunctionKind::MethodMut;
+                    return Ok(FunctionKind::MethodMut);
                 }
             }
         }
-        FunctionKind::StaticMethod
+        
+        // Error: functions without self should be constructors
+        // This is an error in api.json - functions in "functions" section
+        // should have self as the first argument. Use "constructors" section for
+        // static factory methods.
+        if fn_data.fn_body.as_ref().map(|b| b.contains("self.")).unwrap_or(false) {
+            return Err(format!(
+                "[ERROR] Function uses 'self.' in fn_body but has no 'self' parameter. \
+                 This is an error in api.json. The function should have \
+                 {{\"self\": \"ref\"}} or {{\"self\": \"value\"}} as the first fn_arg. \
+                 fn_body: {:?}",
+                fn_data.fn_body
+            ));
+        }
+        
+        Ok(FunctionKind::StaticMethod)
     }
 
     // ========================================================================
@@ -1825,10 +1863,12 @@ pub fn classify_struct_type(
         return TypeCategory::GenericTemplate;
     }
 
-    // 6. Check for destructor/clone callback types
+    // 6. Check for destructor/clone callback types (wrapper structs containing function pointers)
     if name.ends_with("Destructor") || 
        name.ends_with("DestructorType") ||
-       name.ends_with("CloneCallbackType") {
+       name.ends_with("CloneCallbackType") ||
+       name.ends_with("CloneCallback") ||
+       name.ends_with("DestructorCallback") {
         return TypeCategory::DestructorOrClone;
     }
 

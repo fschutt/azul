@@ -56,7 +56,7 @@ extern "C"
 fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     use self::ConnectionStatus::*;
 
-    let mut body = Dom::body()
+    let mut body = Dom::create_body()
     .with_inline_style(
         "font-family: sans-serif;
         align-items: center;
@@ -71,18 +71,18 @@ fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     };
 
     body.add_child(
-        Dom::div()
+        Dom::create_div()
             .with_inline_style(
                 "flex-direction: column; 
                 align-items: center; 
                 justify-content: center;",
             )
-            .with_children(vec![
+            .with_child(
                 downcasted.connection_status.dom(data_clone)
                 .with_inline_style(
                     "max-width: 350px; display:block;"
                 )
-            ]),
+            ),
     );
 
     body.style(Css::empty())
@@ -91,16 +91,15 @@ fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
 impl ConnectionStatus {
     pub fn dom(&self, data_clone: RefAny) -> Dom {
         match self {
-            NotConnected { database } => Dom::div().with_children(vec![
-                Dom::text("Enter database to connect to:"),
-                TextInput::new()
+            NotConnected { database } => Dom::create_div()
+                .with_child(Dom::create_text("Enter database to connect to:"))
+                .with_child(TextInput::create()
                     .with_text(database.clone())
                     .with_on_text_input(data_clone.clone(), edit_database_input)
-                    .dom(),
-                Button::new("Connect")
+                    .dom())
+                .with_child(Button::create("Connect")
                     .with_on_click(data_clone.clone(), start_background_thread)
-                    .dom(),
-            ]),
+                    .dom()),
             InProgress {
                 stage,
 
@@ -110,48 +109,54 @@ impl ConnectionStatus {
                 use self::ConnectionStage::*;
 
                 let progress_div = match stage {
-                    EstablishingConnection => Dom::text("Establishing connection..."),
+                    EstablishingConnection => Dom::create_text("Establishing connection..."),
                     ConnectionEstablished => {
-                        Dom::text("Connection established! Waiting for data...")
+                        Dom::create_text("Connection established! Waiting for data...")
                     }
-                    LoadingData { percent_done } => Dom::div().with_children(vec![
-                        Dom::text("Loading data..."),
-                        ProgressBar::new(*percent_done).dom(),
-                    ]),
-                    LoadingFinished => Dom::text("Loading finished!"),
+                    LoadingData { percent_done } => Dom::create_div()
+                        .with_child(Dom::create_text("Loading data..."))
+                        .with_child(ProgressBar::create(*percent_done).dom()),
+                    LoadingFinished => Dom::create_text("Loading finished!"),
                 };
 
-                let data_rendered_div = data_in_progress
-                    .chunks(10)
-                    .map(|chunk| Dom::text(format!("{:?}", chunk)))
-                    .collect::<Dom>();
+                let mut data_rendered_div = Dom::create_div();
+                for chunk in data_in_progress.chunks(10) {
+                    data_rendered_div.add_child(Dom::create_text(format!("{:?}", chunk).as_str()));
+                }
 
-                let stop_btn = Button::new("Stop thread")
+                let stop_btn = Button::create("Stop thread")
                     .with_on_click(data_clone.clone(), stop_background_thread)
                     .dom();
 
-                Dom::div().with_children(vec![progress_div, data_rendered_div, stop_btn])
+                Dom::create_div()
+                    .with_child(progress_div)
+                    .with_child(data_rendered_div)
+                    .with_child(stop_btn)
             }
             DataLoaded { data: data_loaded } => {
-                let data_rendered_div = data_loaded
-                    .chunks(10)
-                    .map(|chunk| Dom::text(format!("{:?}", chunk)))
-                    .collect::<Dom>();
+                let mut data_rendered_div = Dom::create_div();
+                for chunk in data_loaded.chunks(10) {
+                    data_rendered_div.add_child(Dom::create_text(format!("{:?}", chunk).as_str()));
+                }
 
-                let reset_btn = Button::new("Reset")
+                let reset_btn = Button::create("Reset")
                     .with_on_click(data_clone.clone(), reset)
                     .dom();
 
-                Dom::div().with_children(vec![data_rendered_div, reset_btn])
+                Dom::create_div()
+                    .with_child(data_rendered_div)
+                    .with_child(reset_btn)
             }
             Error { error } => {
-                let error_div = Dom::text(format!("{}", error));
+                let error_div = Dom::create_text(format!("{}", error).as_str());
 
-                let reset_btn = Button::new("Reset")
+                let reset_btn = Button::create("Reset")
                     .with_on_click(data_clone.clone(), reset)
                     .dom();
 
-                Dom::div().with_children(vec![error_div, reset_btn])
+                Dom::create_div()
+                    .with_child(error_div)
+                    .with_child(reset_btn)
             }
         }
     }
@@ -169,8 +174,8 @@ enum ConnectionStage {
 extern "C" 
 fn edit_database_input(
     mut data: RefAny,
-    event: CallbackInfo,
-    textinputstate: &TextInputState,
+    _event: CallbackInfo,
+    textinputstate: TextInputState,
 ) -> OnTextInputReturn {
     let ret = OnTextInputReturn {
         update: Update::DoNothing,
@@ -184,7 +189,7 @@ fn edit_database_input(
 
     match &mut data_mut.connection_status {
         NotConnected { database } => {
-            *database = textinputstate.get_text().as_str().into();
+            *database = textinputstate.get_text().into_string();
         }
         _ => return ret,
     }
@@ -235,7 +240,7 @@ fn stop_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
         None => return Update::DoNothing,
     };
 
-    let thread_id = match data_mut.connection_status {
+    let thread_id = match &data_mut.connection_status {
         InProgress {
             background_thread_id,
             ..
@@ -356,7 +361,7 @@ fn background_thread(
     };
 
     // if in the meantime we got a "cancel" message, quit the thread
-    if recv.recv() == Some(ThreadSendMsg::TerminateThread).into() {
+    if recv.recv().into_option() == Some(ThreadSendMsg::TerminateThread) {
         return;
     }
 
@@ -376,7 +381,7 @@ fn background_thread(
 
     for row in postgres::query_rows(&connection, query) {
         // If in the meantime we got a "cancel" message, quit the thread
-        if recv.recv() == Some(ThreadSendMsg::TerminateThread).into() {
+        if recv.recv().into_option() == Some(ThreadSendMsg::TerminateThread) {
             return;
         } else {
             items_loaded += row.len();

@@ -111,6 +111,8 @@ fn translate_cursor(cursor: StyleCursor) -> MouseCursorType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use azul_core::dom::DomNodeId;
+    use azul_core::dom::OptionDomNodeId;
 
     #[test]
     fn test_full_hit_test_empty() {
@@ -131,7 +133,12 @@ mod tests {
         assert!(hit_test.is_empty()); // No hovered nodes
         assert_eq!(
             hit_test.focused_node,
-            Some((DomId { inner: 0 }, NodeId::new(5)))
+            OptionDomNodeId::Some(DomNodeId {
+                dom: DomId { inner: 0 },
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                    NodeId::new(5),
+                )),
+            })
         );
     }
 

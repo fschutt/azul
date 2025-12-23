@@ -57,16 +57,37 @@ test_c_examples() {
     echo ""
     echo "=== Testing C Examples ==="
     local c_dir="$PROJECT_ROOT/examples/c"
+    local header_dir="$PROJECT_ROOT/target/codegen/v2"
+    local output_dir="$PROJECT_ROOT/target/cpp_test"
     
     if [ ! -d "$c_dir" ]; then
         echo "C examples directory not found, skipping"
         return
     fi
     
+    if [ ! -f "$header_dir/azul.h" ]; then
+        echo "azul.h not found at $header_dir, run 'cargo run --manifest-path doc/Cargo.toml -- codegen all' first"
+        return
+    fi
+    
+    mkdir -p "$output_dir"
+    
     for c_file in "$c_dir"/*.c; do
         if [ -f "$c_file" ]; then
             local name=$(basename "$c_file" .c)
-            print_status "PASS" "c/$name"
+            local output_file="$output_dir/${name}_c"
+            
+            # Compile with clang, linking is not required - just check compilation
+            if clang -c -o "${output_file}.o" -I"$header_dir" "$c_file" 2>/dev/null; then
+                if [ -f "${output_file}.o" ]; then
+                    print_status "PASS" "c/$name"
+                    rm -f "${output_file}.o"
+                else
+                    print_status "FAIL" "c/$name"
+                fi
+            else
+                print_status "FAIL" "c/$name"
+            fi
         fi
     done
 }
@@ -76,20 +97,58 @@ test_cpp_examples() {
     echo ""
     echo "=== Testing C++ Examples ==="
     local cpp_dir="$PROJECT_ROOT/examples/cpp"
+    local header_dir="$PROJECT_ROOT/target/codegen/v2"
+    local output_dir="$PROJECT_ROOT/target/cpp_test"
     
     if [ ! -d "$cpp_dir" ]; then
         echo "C++ examples directory not found, skipping"
         return
     fi
     
+    mkdir -p "$output_dir"
+    
     # C++ examples are in version subdirectories (cpp03, cpp11, cpp14, cpp17, cpp20, cpp23)
     for version_dir in "$cpp_dir"/cpp*; do
         if [ -d "$version_dir" ]; then
             local version=$(basename "$version_dir")
+            
+            # Determine the C++ standard flag based on version
+            local std_flag=""
+            case "$version" in
+                cpp03) std_flag="-std=c++03" ;;
+                cpp11) std_flag="-std=c++11" ;;
+                cpp14) std_flag="-std=c++14" ;;
+                cpp17) std_flag="-std=c++17" ;;
+                cpp20) std_flag="-std=c++20" ;;
+                cpp23) std_flag="-std=c++23" ;;
+                *) std_flag="-std=c++17" ;;
+            esac
+            
+            # Find matching header file (azul03.hpp, azul11.hpp, etc.)
+            local header_version=$(echo "$version" | sed 's/cpp//')
+            local header_file="$header_dir/azul${header_version}.hpp"
+            
+            if [ ! -f "$header_file" ]; then
+                echo "Header $header_file not found, skipping $version examples"
+                continue
+            fi
+            
             for cpp_file in "$version_dir"/*.cpp; do
                 if [ -f "$cpp_file" ]; then
                     local name=$(basename "$cpp_file" .cpp)
-                    print_status "PASS" "cpp/$version/$name"
+                    local output_file="$output_dir/${version}_${name}"
+                    
+                    # Compile with clang++, just check compilation (no linking)
+                    if clang++ -c $std_flag -o "${output_file}.o" -I"$header_dir" "$cpp_file" 2>/dev/null; then
+                        if [ -f "${output_file}.o" ]; then
+                            print_status "PASS" "cpp/$version/$name"
+                            rm -f "${output_file}.o"
+                        else
+                            print_status "FAIL" "cpp/$version/$name"
+                        fi
+                    else
+                        print_status "FAIL" "cpp/$version/$name"
+                    fi
                 fi
             done
         fi

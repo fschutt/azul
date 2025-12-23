@@ -7,9 +7,9 @@ use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 #[cfg(feature = "std")]
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use azul_css::{impl_option, impl_option_inner};
+use azul_css::{impl_option, impl_option_inner, StringVec};
 use azul_core::{
-    dom::{DomId, NodeId},
+    dom::{DomId, NodeId, OptionDomNodeId},
     geom::{LogicalPosition, PhysicalPositionI32},
     hit_test::HitTest,
     task::{Duration as CoreDuration, Instant as CoreInstant},
@@ -308,26 +308,28 @@ pub struct WindowDragState {
 
 /// State of file(s) being dragged from OS over the window
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct FileDropState {
     /// Files being dragged (as string paths)
-    pub files: Vec<AzString>,
+    pub files: StringVec,
     /// Current position of drag cursor
     pub position: LogicalPosition,
     /// DOM node under cursor (potential drop target)
-    pub drop_target: Option<(DomId, NodeId)>,
+    pub drop_target: OptionDomNodeId,
     /// Allowed drop effect
     pub drop_effect: DropEffect,
 }
 
 /// State of pen/stylus input
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct PenState {
     /// Current pen position
     pub position: LogicalPosition,
     /// Current pressure (0.0 to 1.0)
     pub pressure: f32,
     /// Current tilt angles (x_tilt, y_tilt) in degrees
-    pub tilt: (f32, f32),
+    pub tilt: crate::callbacks::PenTilt,
     /// Whether pen is in contact with surface
     pub in_contact: bool,
     /// Whether pen is inverted (eraser mode)
@@ -341,8 +343,7 @@ pub struct PenState {
 impl_option!(
     PenState,
     OptionPenState,
-    copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, Copy, PartialEq]
 );
 
 impl Default for PenState {
@@ -350,7 +351,7 @@ impl Default for PenState {
         Self {
             position: LogicalPosition::zero(),
             pressure: 0.0,
-            tilt: (0.0, 0.0),
+            tilt: crate::callbacks::PenTilt { x_tilt: 0.0, y_tilt: 0.0 },
             in_contact: false,
             is_eraser: false,
             barrel_button_pressed: false,
@@ -361,6 +362,7 @@ impl Default for PenState {
 
 /// Drop effect (what happens when dropped)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub enum DropEffect {
     /// No effect
     None,
@@ -665,7 +667,7 @@ impl GestureAndDragManager {
         self.pen_state = Some(PenState {
             position,
             pressure,
-            tilt,
+            tilt: crate::callbacks::PenTilt { x_tilt: tilt.0, y_tilt: tilt.1 },
             in_contact,
             is_eraser,
             barrel_button_pressed,
@@ -1075,9 +1077,9 @@ impl GestureAndDragManager {
     }
 
     /// Update drop target for file drop
-    pub fn update_file_drop_target(&mut self, target: Option<(DomId, NodeId)>) {
+    pub fn update_file_drop_target(&mut self, target: Option<azul_core::dom::DomNodeId>) {
         if let Some(ref mut file_drop) = self.file_drop {
-            file_drop.drop_target = target;
+            file_drop.drop_target = target.into();
         }
     }
 
@@ -1101,9 +1103,9 @@ impl GestureAndDragManager {
     /// Start file drop from OS
     pub fn start_file_drop(&mut self, files: Vec<azul_css::AzString>, position: LogicalPosition) {
         self.file_drop = Some(FileDropState {
-            files,
+            files: files.into(),
             position,
-            drop_target: None,
+            drop_target: OptionDomNodeId::None,
             drop_effect: DropEffect::Copy,
         });
     }
