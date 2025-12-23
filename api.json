@@ -12109,6 +12109,15 @@
           },
           "InstantPtrCloneCallback": {
             "external": "azul_core::task::InstantPtrCloneCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -12120,6 +12129,15 @@
           },
           "InstantPtrDestructorCallback": {
             "external": "azul_core::task::InstantPtrDestructorCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -12548,7 +12566,13 @@
           "CheckThreadFinishedCallback": {
             "external": "azul_core::task::CheckThreadFinishedCallback",
             "custom_impls": [
-              "Clone"
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -12682,7 +12706,13 @@
           "LibrarySendThreadMsgCallback": {
             "external": "azul_core::task::LibrarySendThreadMsgCallback",
             "custom_impls": [
-              "Clone"
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {
@@ -44899,7 +44929,13 @@
           "GetSystemTimeCallback": {
             "external": "azul_core::task::GetSystemTimeCallback",
             "custom_impls": [
-              "Clone"
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
             ],
             "struct_fields": [
               {

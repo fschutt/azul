@@ -2464,6 +2464,22 @@ fn extract_custom_impls_from_items(items: &[Item]) -> BTreeMap<String, Vec<Strin
                 }
             }
             
+            // Handle impl_callback_simple! macro (1-parameter version)
+            // impl_callback_simple!(CallbackValue) - adds traits to CallbackValue
+            // Used for simple callbacks that only have a cb field (no ctx)
+            if macro_name == "impl_callback_simple" {
+                let tokens = m.mac.tokens.to_string();
+                let type_name = tokens.trim().to_string();
+                if !type_name.is_empty() {
+                    let callback_traits = vec![
+                        "Clone", "Debug", "Hash", "PartialEq", "Eq", "PartialOrd", "Ord"
+                    ];
+                    for trait_name in callback_traits {
+                        custom_impls.entry(type_name.clone()).or_default().push(trait_name.to_string());
+                    }
+                }
+            }
+            
             // Handle impl_widget_callback! macro (4-parameter version for widgets)
             // impl_widget_callback!(Wrapper, OptionWrapper, CallbackValue, CallbackType)
             // Adds traits to CallbackValue (generated type)
