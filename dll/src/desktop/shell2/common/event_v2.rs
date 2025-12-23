@@ -1749,13 +1749,10 @@ pub trait PlatformWindowV2 {
             // Get current window position before mutable borrow
             let current_pos = self.get_current_window_state().position;
 
-            // Check if drag was on a titlebar element (class="csd-title")
+            // Check if drag was on a titlebar element (class="csd-title" or "csd-titlebar")
             if let Some(hit_test) = hit_test_for_dispatch.as_ref() {
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    let is_titlebar_drag = hit_test
-                        .hovered_nodes
-                        .iter()
-                        .any(|(dom_id, hit)| hit.regular_hit_test_nodes.len() > 0);
+                    let is_titlebar_drag = is_hit_on_titlebar(hit_test, layout_window);
 
                     if is_titlebar_drag && !layout_window.gesture_drag_manager.is_window_dragging()
                     {
@@ -2248,4 +2245,47 @@ pub trait PlatformWindowV2 {
 
         ProcessEventResult::ShouldReRenderCurrentWindow
     }
+}
+
+/// Checks if any hit node has the CSD titlebar class ("csd-title" or "csd-titlebar").
+///
+/// This is used to determine if a drag gesture should activate window dragging.
+fn is_hit_on_titlebar(
+    hit_test: &azul_core::hit_test::FullHitTest,
+    layout_window: &LayoutWindow,
+) -> bool {
+    use azul_core::dom::IdOrClass;
+
+    for (dom_id, hit) in hit_test.hovered_nodes.iter() {
+        let (node_id, _hit_item) = match hit.regular_hit_test_nodes.iter().next() {
+            Some(n) => n,
+            None => continue,
+        };
+
+        let layout_result = match layout_window.layout_results.get(dom_id) {
+            Some(lr) => lr,
+            None => continue,
+        };
+
+        let binding = layout_result.styled_dom.node_data.as_container();
+        let node_data = match binding.get(*node_id) {
+            Some(nd) => nd,
+            None => continue,
+        };
+
+        let has_titlebar_class = node_data
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|id_or_class| matches!(
+                id_or_class,
+                IdOrClass::Class(c) if c.as_str() == "csd-title" || c.as_str() == "csd-titlebar"
+            ));
+
+        if has_titlebar_class {
+            return true;
+        }
+    }
+
+    false
 }
