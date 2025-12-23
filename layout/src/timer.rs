@@ -35,11 +35,14 @@ pub type TimerCallbackType =
 #[repr(C)]
 pub struct TimerCallback {
     pub cb: TimerCallbackType,
+    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// Native Rust code sets this to None
+    pub ctx: OptionRefAny,
 }
 
 impl TimerCallback {
     pub fn create(cb: TimerCallbackType) -> Self {
-        Self { cb }
+        Self { cb, ctx: OptionRefAny::None }
     }
 }
 
@@ -51,7 +54,13 @@ impl core::fmt::Debug for TimerCallback {
 
 impl Clone for TimerCallback {
     fn clone(&self) -> Self {
-        Self { cb: self.cb }
+        Self { cb: self.cb, ctx: self.ctx.clone() }
+    }
+}
+
+impl From<TimerCallbackType> for TimerCallback {
+    fn from(cb: TimerCallbackType) -> Self {
+        Self { cb, ctx: OptionRefAny::None }
     }
 }
 
@@ -97,9 +106,9 @@ pub struct Timer {
 }
 
 impl Timer {
-    pub fn create(
+    pub fn create<C: Into<TimerCallback>>(
         refany: RefAny,
-        callback: TimerCallbackType,
+        callback: C,
         get_system_time_fn: GetSystemTimeCallback,
     ) -> Self {
         Timer {
@@ -111,7 +120,7 @@ impl Timer {
             delay: OptionDuration::None,
             interval: OptionDuration::None,
             timeout: OptionDuration::None,
-            callback: TimerCallback { cb: callback },
+            callback: callback.into(),
         }
     }
 
@@ -208,7 +217,7 @@ impl Default for Timer {
 
         Timer::create(
             RefAny::new(()),
-            default_callback,
+            default_callback as TimerCallbackType,
             GetSystemTimeCallback { cb: default_time },
         )
     }

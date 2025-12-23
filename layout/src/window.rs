@@ -2628,6 +2628,11 @@ impl LayoutWindow {
             let mut callback_changes = Vec::new();
 
             // Create reference data container (syntax sugar to reduce parameter count)
+            // First get the ctx from the timer's callback before we borrow timer again
+            let timer_ctx = self.timers.get(&TimerId { id: timer_id })
+                .map(|t| t.callback.ctx.clone())
+                .unwrap_or(OptionRefAny::None);
+            
             let ref_data = crate::callbacks::CallbackInfoRefData {
                 layout_window: self,
                 renderer_resources,
@@ -2638,7 +2643,7 @@ impl LayoutWindow {
                 current_window_handle,
                 system_callbacks,
                 system_style,
-                ctx: OptionRefAny::None,
+                ctx: timer_ctx,
             };
 
             let callback_info = CallbackInfo::new(
@@ -2855,7 +2860,7 @@ impl LayoutWindow {
                 current_window_handle,
                 system_callbacks,
                 system_style: system_style.clone(),
-                ctx: OptionRefAny::None,
+                ctx: callback.ctx.clone(),
             };
 
             let callback_info = CallbackInfo::new(

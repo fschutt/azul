@@ -1522,7 +1522,7 @@ pub trait PlatformWindowV2 {
                                 refany::RefAny,
                                 task::{Duration as AzulDuration, SystemTimeDiff},
                             };
-                            use azul_layout::timer::Timer;
+                            use azul_layout::timer::{Timer, TimerCallbackType};
 
                             // TODO: Get actual monitor refresh rate from platform
                             // For now, default to 60Hz (16.67ms per frame)
@@ -1540,7 +1540,7 @@ pub trait PlatformWindowV2 {
                             // Create timer with monitor refresh rate interval
                             let timer = Timer::create(
                                 RefAny::new(()), // Empty data
-                                auto_scroll_timer_callback,
+                                auto_scroll_timer_callback as TimerCallbackType,
                                 external.get_system_time_fn,
                             )
                             .with_interval(AzulDuration::System(SystemTimeDiff {

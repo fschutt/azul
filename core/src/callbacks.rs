@@ -469,6 +469,12 @@ impl TimerCallbackReturn {
     }
 }
 
+impl Default for TimerCallbackReturn {
+    fn default() -> Self {
+        Self::continue_unchanged()
+    }
+}
+
 /// Gives the `layout()` function access to the `RendererResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
 #[derive(Debug)]

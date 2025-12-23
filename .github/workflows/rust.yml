@@ -78,16 +78,18 @@ jobs:
             echo "No uncommitted changes after autofix."
           fi
 
-      - name: Generate DLL API bindings
+      - name: Generate DLL API bindings and run tests
         run: |
-          cargo run -r -p azul-doc memtest dll
+          cargo run -r -p azul-doc codegen all
+          cd dll && cargo test
 
       - name: Check crates
         run: |
           cargo check -p azul-css
           cargo check -p azul-core
           cargo check -p azul-layout
-          cargo check -p azul-dll --no-default-features --features "desktop,logging,css_parser,all_img_formats,a11y"
+          # Note: jpeg is excluded on Linux due to zune-jpeg SIMD issues on Ubuntu
+          cargo check -p azul-dll --no-default-features --features "link-static,logging,ico,tga,hdr,webp,pnm,gif,png,tiff,bmp,a11y"
 
   codegen_headers:
     name: Generate & Validate C/C++ Headers

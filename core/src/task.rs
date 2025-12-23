@@ -40,7 +40,7 @@ use crate::{
     gl::OptionGlContextPtr,
     hit_test::ScrollPosition,
     id::NodeId,
-    refany::RefAny,
+    refany::{OptionRefAny, RefAny},
     resources::{ImageCache, ImageMask, ImageRef},
     styled_dom::NodeHierarchyItemId,
     window::RawWindowHandle,
@@ -682,6 +682,8 @@ pub struct ThreadReceiver {
     #[cfg(not(feature = "std"))]
     pub ptr: *const c_void,
     pub run_destructor: bool,
+    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    pub ctx: OptionRefAny,
 }
 
 impl Clone for ThreadReceiver {
@@ -689,6 +691,7 @@ impl Clone for ThreadReceiver {
         Self {
             ptr: self.ptr.clone(),
             run_destructor: true,
+            ctx: self.ctx.clone(),
         }
     }
 }
@@ -706,6 +709,7 @@ impl ThreadReceiver {
         Self {
             ptr: core::ptr::null(),
             run_destructor: false,
+            ctx: OptionRefAny::None,
         }
     }
 
@@ -715,7 +719,13 @@ impl ThreadReceiver {
         Self {
             ptr: Box::new(Arc::new(Mutex::new(t))),
             run_destructor: true,
+            ctx: OptionRefAny::None,
         }
+    }
+
+    /// Get the FFI context (e.g., Python callable)
+    pub fn get_ctx(&self) -> OptionRefAny {
+        self.ctx.clone()
     }
 
     /// Receives a message (returns None on no_std).

@@ -354,8 +354,8 @@ impl_callback!(Callback, CallbackType);
 
 impl Callback {
     /// Create a new callback with just a function pointer (for native Rust code)
-    pub fn create(cb: CallbackType) -> Self {
-        Self { cb, ctx: OptionRefAny::None }
+    pub fn create<C: Into<Callback>>(cb: C) -> Self {
+        cb.into()
     }
 
     /// Convert from CoreCallback (stored as usize) to Callback (actual function pointer)

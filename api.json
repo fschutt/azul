@@ -5862,6 +5862,7 @@
               "Clone",
               "Debug",
               "Eq",
+              "From",
               "Hash",
               "Ord",
               "PartialEq",
@@ -5871,6 +5872,11 @@
               {
                 "cb": {
                   "type": "TimerCallbackType"
+                }
+              },
+              {
+                "ctx": {
+                  "type": "OptionRefAny"
                 }
               }
             ],
@@ -5975,6 +5981,9 @@
           },
           "TimerCallbackReturn": {
             "external": "azul_core::callbacks::TimerCallbackReturn",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -6127,6 +6136,7 @@
               "Clone",
               "Debug",
               "Eq",
+              "From",
               "Hash",
               "Ord",
               "PartialEq",
@@ -6136,6 +6146,11 @@
               {
                 "cb": {
                   "type": "WriteBackCallbackType"
+                }
+              },
+              {
+                "ctx": {
+                  "type": "OptionRefAny"
                 }
               }
             ],
@@ -6171,6 +6186,32 @@
               ],
               "returns": null
             }
+          },
+          "ThreadCallback": {
+            "external": "azul_layout::thread::ThreadCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "From",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "cb": {
+                  "type": "ThreadCallbackType"
+                }
+              },
+              {
+                "ctx": {
+                  "type": "OptionRefAny"
+                }
+              }
+            ],
+            "repr": "C"
           },
           "RefAnyDestructorType": {
             "doc": [
@@ -12506,6 +12547,9 @@
           },
           "CheckThreadFinishedCallback": {
             "external": "azul_core::task::CheckThreadFinishedCallback",
+            "custom_impls": [
+              "Clone"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -12637,6 +12681,9 @@
           },
           "LibrarySendThreadMsgCallback": {
             "external": "azul_core::task::LibrarySendThreadMsgCallback",
+            "custom_impls": [
+              "Clone"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -44851,6 +44898,9 @@
           },
           "GetSystemTimeCallback": {
             "external": "azul_core::task::GetSystemTimeCallback",
+            "custom_impls": [
+              "Clone"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -52319,6 +52369,9 @@
                 },
                 "run_destructor": {
                   "type": "bool"
+                },
+                "ctx": {
+                  "type": "OptionRefAny"
                 }
               }
             ],
@@ -52360,6 +52413,9 @@
                 },
                 "run_destructor": {
                   "type": "bool"
+                },
+                "ctx": {
+                  "type": "OptionRefAny"
                 }
               }
             ],
@@ -52431,7 +52487,7 @@
                     "refany": "RefAny"
                   },
                   {
-                    "callback": "TimerCallbackType"
+                    "callback": "TimerCallback"
                   },
                   {
                     "get_system_time_fn": "GetSystemTimeCallback"
@@ -52675,7 +52731,7 @@
                     "writeback_data": "RefAny"
                   },
                   {
-                    "callback": "ThreadCallbackType"
+                    "callback": "ThreadCallback"
                   }
                 ],
                 "fn_body": "azul_layout::thread::Thread::create(thread_initialize_data, writeback_data, callback)"
@@ -52741,7 +52797,7 @@
                 ],
                 "fn_args": [
                   {
-                    "callback": "WriteBackCallbackType"
+                    "callback": "WriteBackCallback"
                   },
                   {
                     "data": "RefAny"

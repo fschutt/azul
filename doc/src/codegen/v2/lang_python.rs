@@ -565,7 +565,20 @@ extern "C" fn invoke_py_layout_callback(
         
         // Build argument signature
         let mut args_sig = String::new();
-        let mut info_type = String::new();
+        let mut ctx_source_type = String::new();
+        let mut ctx_source_arg_name = String::new();
+        
+        // Find the first non-RefAny argument that can provide get_ctx()
+        // All non-RefAny, non-primitive types have get_ctx() method
+        // For callbacks like (RefAny, RefAny, CallbackInfo) -> Update, we want CallbackInfo
+        // For callbacks like (RefAny, TimerCallbackInfo) -> Update, we want TimerCallbackInfo
+        // For callbacks like (RefAny, ThreadSender, ThreadReceiver) -> (), we want ThreadSender
+        for (i, arg) in callback.args.iter().enumerate() {
+            if arg.type_name != "RefAny" && !is_primitive_type(&arg.type_name) && ctx_source_type.is_empty() {
+                ctx_source_type = arg.type_name.clone();
+                ctx_source_arg_name = if i == 0 { "data".to_string() } else if i == 1 { "info".to_string() } else { format!("arg{}", i) };
+            }
+        }
         
         for (i, arg) in callback.args.iter().enumerate() {
             let arg_name = if i == 0 { "data".to_string() } else if i == 1 { "info".to_string() } else { format!("arg{}", i) };
@@ -577,10 +590,6 @@ extern "C" fn invoke_py_layout_callback(
             } else {
                 format!("__dll_api_inner::dll::{}{}", prefix, arg.type_name)
             };
-            
-            if i == 1 {
-                info_type = arg.type_name.clone();
-            }
             
             if i > 0 {
                 args_sig.push_str(",\n    ");
@@ -627,12 +636,13 @@ extern "C" fn invoke_py_layout_callback(
         builder.line("};");
         builder.blank();
         
-        if !info_type.is_empty() {
-            let info_external = self.find_external_path(&info_type, ir)
-                .unwrap_or_else(|| format!("__dll_api_inner::dll::{}{}", prefix, info_type));
-            builder.line(&format!("let info_ffi: __dll_api_inner::dll::{}{} = unsafe {{ mem::transmute(info) }};", prefix, info_type));
-            builder.line(&format!("let info_rust: &{} = unsafe {{ mem::transmute(&info_ffi) }};", info_external));
-            builder.line("let callable_opt = info_rust.get_ctx();");
+        if !ctx_source_type.is_empty() {
+            let ctx_external = self.find_external_path(&ctx_source_type, ir)
+                .unwrap_or_else(|| format!("__dll_api_inner::dll::{}{}", prefix, ctx_source_type));
+            // Clone the source to avoid move issues when it's also used for Python wrapper
+            builder.line(&format!("let ctx_source_ffi: __dll_api_inner::dll::{}{} = unsafe {{ mem::transmute({}.clone()) }};", prefix, ctx_source_type, ctx_source_arg_name));
+            builder.line(&format!("let ctx_source_rust: &{} = unsafe {{ mem::transmute(&ctx_source_ffi) }};", ctx_external));
+            builder.line("let callable_opt = ctx_source_rust.get_ctx();");
             builder.line("let callable_refany = match callable_opt {");
             builder.line("    azul_core::refany::OptionRefAny::Some(r) => r,");
             builder.line("    azul_core::refany::OptionRefAny::None => return default,");
@@ -652,12 +662,21 @@ extern "C" fn invoke_py_layout_callback(
         builder.line("Python::attach(|py| {");
         builder.indent();
         
-        if !info_type.is_empty() {
-            builder.line(&format!("let info_py = {}{} {{ inner: info_ffi }};", prefix, info_type));
+        // For *Info types, we wrap and pass to Python
+        // Find the info type for passing to Python (if any)
+        let info_type_for_python = callback.args.iter()
+            .find(|arg| arg.type_name.ends_with("Info") && arg.type_name != "RefAny")
+            .map(|arg| arg.type_name.clone());
+        
+        if let Some(ref info_type) = info_type_for_python {
+            let info_arg_idx = callback.args.iter().position(|arg| &arg.type_name == info_type).unwrap();
+            let info_arg_name = if info_arg_idx == 0 { "data".to_string() } else if info_arg_idx == 1 { "info".to_string() } else { format!("arg{}", info_arg_idx) };
+            builder.line(&format!("let info_ffi_py: __dll_api_inner::dll::{}{} = unsafe {{ mem::transmute({}) }};", prefix, info_type, info_arg_name));
+            builder.line(&format!("let info_py = {}{} {{ inner: info_ffi_py }};", prefix, info_type));
         }
         
-        let call_args = if info_type.is_empty() {
-            "py_data.clone_ref(py)".to_string()
+        let call_args = if info_type_for_python.is_none() {
+            "py_data.clone_ref(py),".to_string()  // Single-element tuple needs trailing comma
         } else {
             "py_data.clone_ref(py), info_py".to_string()
         };
@@ -1137,11 +1156,19 @@ extern "C" fn invoke_py_layout_callback(
 
         // Transform the fn_body for Python bindings:
         // 1. Replace "azul_dll::" with "crate::" (we're in azul-dll crate)
-        // 2. Replace "self." with transmuted variable
-        // 3. Replace parameter names with transmuted versions
-        // 4. Replace type constructors (TypeName::method) with fully qualified paths
+        // 2. Replace "Self " and "Self::" with the external path (since Self in Python wrapper is AzXxx)
+        // 3. Replace self references with transmuted variable
+        // 4. Replace parameter names with transmuted versions
+        // 5. Replace type constructors (TypeName::method) with fully qualified paths
         let mut transformed_body = fn_body
             .replace("azul_dll::", "crate::");
+        
+        // Replace Self with external path (Self in fn_body refers to the Rust type, not the Python wrapper)
+        // Handle both "Self::" (associated functions) and "Self {" or "Self " (struct construction)
+        transformed_body = transformed_body
+            .replace("Self::", &format!("{}::", external_path))
+            .replace("Self {", &format!("{} {{", external_path))
+            .replace("Self(", &format!("{}(", external_path));
         
         // Replace type constructors with fully qualified paths
         // Only replace if it's at the start of fn_body (e.g., "TypeName::method(args)")
@@ -1455,17 +1482,18 @@ extern "C" fn invoke_py_layout_callback(
         config.base.should_include_type(&enum_def.name)
     }
 
-    /// Check if a struct can be cloned (has Clone derive or all fields are clonable)
-    /// Callback types and types containing callbacks cannot be cloned
-    fn struct_supports_clone(&self, _struct_def: &StructDef) -> bool {
-        // All structs support Clone - callbacks have Clone impl
-        true
+    /// Check if a struct can be cloned (has Clone derive or custom_impl)
+    /// Types without Clone cannot be cloned
+    fn struct_supports_clone(&self, struct_def: &StructDef) -> bool {
+        // Check if struct has Clone in derive list or custom_impls
+        struct_def.derives.contains(&"Clone".to_string()) ||
+            struct_def.custom_impls.contains(&"Clone".to_string())
     }
 
     /// Check if an enum can be cloned
-    fn enum_supports_clone(&self, _enum_def: &EnumDef) -> bool {
-        // All enums support Clone - callbacks have Clone impl
-        true
+    fn enum_supports_clone(&self, enum_def: &EnumDef) -> bool {
+        // Check if enum has Clone in derive list (enums don't have custom_impls)
+        enum_def.derives.contains(&"Clone".to_string())
     }
 
     /// Check if a struct type needs the `unsendable` marker in PyO3
@@ -1503,6 +1531,13 @@ extern "C" fn invoke_py_layout_callback(
             "ResultParsedSvgSvgParseError", // Result type containing ParsedSvg
             "GridMinMax",            // CSS grid layout type
             "GridTrackSizing",       // CSS grid layout type
+            // Window/Thread types - Send but not Sync
+            "RawWindowHandle",
+            "OptionThread",
+            "ThreadSendMsg",
+            "OptionThreadSendMsg",
+            "OptionTimer",
+            "OptionThreadReceiveMsg",
         ];
         if PYTHON_SEND_SAFE_TYPES.contains(&struct_def.name.as_str()) {
             return false;
@@ -1536,11 +1571,27 @@ extern "C" fn invoke_py_layout_callback(
     /// 
     /// An enum is sendable if:
     /// - It has `is_send_safe: true` in the IR, OR
+    /// - It's in the PYTHON_SEND_SAFE_TYPES list, OR
     /// - All its variant payloads are transitively sendable
     fn enum_needs_unsendable(&self, enum_def: &EnumDef, ir: &CodegenIR) -> bool {
         // Types marked as send_safe in the IR don't need unsendable
         if enum_def.is_send_safe {
             return false;
+        }
+        
+        // Python-specific: These enum types NEED unsendable because they contain raw pointers
+        // but we want to use them in Python anyway
+        const PYTHON_FORCE_UNSENDABLE_ENUMS: &[&str] = &[
+            "RawWindowHandle",
+            "OptionRawWindowHandle",
+            "OptionThread",
+            "OptionThreadSendMsg",
+            "OptionTimer",
+            "OptionThreadReceiveMsg",
+            "ThreadSendMsg",
+        ];
+        if PYTHON_FORCE_UNSENDABLE_ENUMS.contains(&enum_def.name.as_str()) {
+            return true;  // Force unsendable for these types
         }
         
         // Check all variant payload types
@@ -1597,6 +1648,38 @@ extern "C" fn invoke_py_layout_callback(
             "ResultParsedSvgSvgParseError",
             "GridMinMax",
             "GridTrackSizing",
+            // Window handle types - contain *mut c_void but are conceptually sendable
+            "RawWindowHandle",
+            "IOSHandle",
+            "MacOSHandle",
+            "XlibHandle",
+            "XcbHandle",
+            "WaylandHandle",
+            "WindowsHandle",
+            "WebHandle",
+            "AndroidHandle",
+            "OptionRawWindowHandle",
+            // Thread types - contain Arc<Mutex<...>> which are Send
+            "Thread",
+            "OptionThread",
+            "ThreadSender",
+            "ThreadReceiver",
+            "ThreadInner",
+            "ThreadSendMsg",
+            "OptionThreadSendMsg",
+            "ThreadReceiveMsg",
+            "OptionThreadReceiveMsg",
+            // Timer types
+            "Timer",
+            "OptionTimer",
+            "TimerCallbackInfo",
+            "TimerCallbackReturn",
+            // Callback types that have ctx (function pointers are usize internally)
+            "GetSystemTimeCallback",
+            "CheckThreadFinishedCallback",
+            "LibrarySendThreadMsgCallback",
+            "ThreadSenderInner",
+            "ThreadReceiverInner",
         ];
         if PYTHON_SEND_SAFE_TYPES.contains(&type_name) {
             return false;

@@ -30,7 +30,7 @@ use crate::{
     extra::coloru_from_str,
     widgets::{
         check_box::{CheckBox, CheckBoxState, CheckBoxOnToggleCallbackType},
-        color_input::{ColorInput, ColorInputState},
+        color_input::{ColorInput, ColorInputState, ColorInputOnValueChangeCallbackType},
         file_input::{FileInput, FileInputState, FileInputOnPathChangeCallbackType},
         number_input::{NumberInput, NumberInputState, NumberInputOnFocusLostCallbackType},
         text_input::{TextInput, TextInputState, TextInputOnFocusLostCallbackType},
@@ -2495,7 +2495,7 @@ fn render_node(
                                        },
                                        NodeTypeFieldValue::ColorInput(initial_color) => {
                                            ColorInput::create(*initial_color)
-                                           .with_on_value_change(field_local_dataset, nodegraph_on_colorinput_value_changed)
+                                           .with_on_value_change(field_local_dataset, nodegraph_on_colorinput_value_changed as ColorInputOnValueChangeCallbackType)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::FileInput(file_path) => {

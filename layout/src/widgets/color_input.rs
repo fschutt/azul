@@ -110,10 +110,10 @@ impl ColorInput {
     }
 
     #[inline]
-    pub fn with_on_value_change(
+    pub fn with_on_value_change<C: Into<ColorInputOnValueChangeCallback>>(
         mut self,
         data: RefAny,
-        callback: ColorInputOnValueChangeCallbackType,
+        callback: C,
     ) -> Self {
         self.set_on_value_change(data, callback);
         self

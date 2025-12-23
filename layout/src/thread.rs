@@ -19,7 +19,7 @@ use std::thread::{self, JoinHandle};
 
 use azul_core::{
     callbacks::Update,
-    refany::RefAny,
+    refany::{OptionRefAny, RefAny},
     task::{
         CheckThreadFinishedCallback, CheckThreadFinishedCallbackType,
         LibrarySendThreadMsgCallback, LibrarySendThreadMsgCallbackType,
@@ -81,10 +81,10 @@ pub struct ThreadWriteBackMsg {
 }
 
 impl ThreadWriteBackMsg {
-    pub fn new(callback: WriteBackCallbackType, data: RefAny) -> Self {
+    pub fn new<C: Into<WriteBackCallback>>(callback: C, data: RefAny) -> Self {
         Self {
             refany: data,
-            callback: WriteBackCallback { cb: callback },
+            callback: callback.into(),
         }
     }
 }
@@ -98,6 +98,8 @@ pub struct ThreadSender {
     #[cfg(not(feature = "std"))]
     pub ptr: *const core::ffi::c_void,
     pub run_destructor: bool,
+    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    pub ctx: OptionRefAny,
 }
 
 impl Clone for ThreadSender {
@@ -105,6 +107,7 @@ impl Clone for ThreadSender {
         Self {
             ptr: self.ptr.clone(),
             run_destructor: true,
+            ctx: self.ctx.clone(),
         }
     }
 }
@@ -121,6 +124,7 @@ impl ThreadSender {
         Self {
             ptr: core::ptr::null(),
             run_destructor: false,
+            ctx: OptionRefAny::None,
         }
     }
 
@@ -129,7 +133,13 @@ impl ThreadSender {
         Self {
             ptr: alloc::boxed::Box::new(Arc::new(Mutex::new(t))),
             run_destructor: true,
+            ctx: OptionRefAny::None,
         }
+    }
+
+    /// Get the FFI context (e.g., Python callable)
+    pub fn get_ctx(&self) -> OptionRefAny {
+        self.ctx.clone()
     }
 
     #[cfg(not(feature = "std"))]
@@ -262,12 +272,15 @@ pub type WriteBackCallbackType = extern "C" fn(
 #[repr(C)]
 pub struct WriteBackCallback {
     pub cb: WriteBackCallbackType,
+    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// Native Rust code sets this to None
+    pub ctx: OptionRefAny,
 }
 
 impl WriteBackCallback {
     /// Create a new WriteBackCallback
     pub fn new(cb: WriteBackCallbackType) -> Self {
-        Self { cb }
+        Self { cb, ctx: OptionRefAny::None }
     }
 
     /// Invoke the callback
@@ -289,7 +302,13 @@ impl core::fmt::Debug for WriteBackCallback {
 
 impl Clone for WriteBackCallback {
     fn clone(&self) -> Self {
-        Self { cb: self.cb }
+        Self { cb: self.cb, ctx: self.ctx.clone() }
+    }
+}
+
+impl From<WriteBackCallbackType> for WriteBackCallback {
+    fn from(cb: WriteBackCallbackType) -> Self {
+        Self { cb, ctx: OptionRefAny::None }
     }
 }
 
@@ -325,6 +344,16 @@ pub type ThreadCallbackType = extern "C" fn(RefAny, ThreadSender, ThreadReceiver
 #[repr(C)]
 pub struct ThreadCallback {
     pub cb: ThreadCallbackType,
+    /// For FFI: stores the foreign callable (e.g., PyFunction)
+    /// Native Rust code sets this to None
+    pub ctx: OptionRefAny,
+}
+
+impl ThreadCallback {
+    /// Create a new ThreadCallback
+    pub fn new(cb: ThreadCallbackType) -> Self {
+        Self { cb, ctx: OptionRefAny::None }
+    }
 }
 
 impl core::fmt::Debug for ThreadCallback {
@@ -335,7 +364,13 @@ impl core::fmt::Debug for ThreadCallback {
 
 impl Clone for ThreadCallback {
     fn clone(&self) -> Self {
-        Self { cb: self.cb }
+        Self { cb: self.cb, ctx: self.ctx.clone() }
+    }
+}
+
+impl From<ThreadCallbackType> for ThreadCallback {
+    fn from(cb: ThreadCallbackType) -> Self {
+        Self { cb, ctx: OptionRefAny::None }
     }
 }
 
@@ -460,19 +495,19 @@ impl Thread {
     /// # Arguments
     /// * `thread_initialize_data` - Data passed to the callback when the thread starts
     /// * `writeback_data` - Data that will be passed back when writeback messages are received
-    /// * `callback` - The function to execute in the background thread
+    /// * `callback` - The callback to execute in the background thread
     ///
     /// # Returns
     /// A new Thread handle that can be added to the event loop with `CallbackInfo::add_thread`
-    pub fn create(
+    pub fn create<C: Into<ThreadCallback>>(
         thread_initialize_data: RefAny,
         writeback_data: RefAny,
-        callback: ThreadCallbackType,
+        callback: C,
     ) -> Self {
         create_thread_libstd(
             thread_initialize_data,
             writeback_data,
-            ThreadCallback { cb: callback },
+            callback.into(),
         )
     }
 }
@@ -729,7 +764,7 @@ pub extern "C" fn create_thread_libstd(
     callback: ThreadCallback,
 ) -> Thread {
     let (sender_receiver, receiver_receiver) = channel::<ThreadReceiveMsg>();
-    let sender_receiver = ThreadSender::new(ThreadSenderInner {
+    let mut sender_receiver = ThreadSender::new(ThreadSenderInner {
         ptr: alloc::boxed::Box::new(sender_receiver),
         send_fn: ThreadSendCallback {
             cb: default_send_thread_msg_fn,
@@ -738,9 +773,11 @@ pub extern "C" fn create_thread_libstd(
             cb: thread_sender_drop,
         },
     });
+    // Set the ctx from the callback for FFI
+    sender_receiver.ctx = callback.ctx.clone();
 
     let (sender_sender, receiver_sender) = channel::<ThreadSendMsg>();
-    let receiver_sender = ThreadReceiver::new(ThreadReceiverInner {
+    let mut receiver_sender = ThreadReceiver::new(ThreadReceiverInner {
         ptr: alloc::boxed::Box::new(receiver_sender),
         recv_fn: ThreadRecvCallback {
             cb: default_receive_thread_msg_fn,
@@ -749,6 +786,8 @@ pub extern "C" fn create_thread_libstd(
             cb: thread_receiver_drop,
         },
     });
+    // Set the ctx from the callback for FFI
+    receiver_sender.ctx = callback.ctx.clone();
 
     let thread_check = Arc::new(());
     let dropcheck = Arc::downgrade(&thread_check);

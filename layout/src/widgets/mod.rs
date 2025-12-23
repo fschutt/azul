@@ -117,6 +117,17 @@ macro_rules! impl_widget_callback {
                 }
             }
         }
+        
+        /// Allow creating widget callback from a generic Callback
+        /// This enables Python/FFI code to pass generic callbacks to widget methods
+        impl From<crate::callbacks::Callback> for $callback_value {
+            fn from(cb: crate::callbacks::Callback) -> $callback_value {
+                $callback_value {
+                    cb: unsafe { core::mem::transmute(cb.cb) },
+                    ctx: cb.ctx,
+                }
+            }
+        }
     };
 }
 
