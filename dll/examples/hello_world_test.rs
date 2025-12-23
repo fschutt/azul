@@ -3,7 +3,7 @@
 //! Run with: cargo run --bin hello_world_test --package azul-dll --features "c-api desktop"
 
 use azul_core::{refany::RefAny, resources::AppConfig};
-use azul_dll::desktop::app::App;
+use azul::desktop::app::App;
 use azul_layout::window_state::{FullWindowState, WindowCreateOptions};
 
 #[derive(Debug, Clone)]

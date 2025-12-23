@@ -17,7 +17,7 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::{system::SystemStyle, AzString};
-use azul_dll::desktop::menu_renderer::{create_menu_styled_dom, SystemStyleMenuExt};
+use azul::desktop::menu_renderer::{create_menu_styled_dom, SystemStyleMenuExt};
 
 /// Example: Create a simple context menu
 fn create_simple_context_menu() -> Menu {
@@ -102,7 +102,7 @@ fn render_menu_example() {
     use std::sync::Arc;
 
     use azul_core::geom::{LogicalPosition, LogicalRect};
-    use azul_dll::desktop::menu::MenuWindowData;
+    use azul::desktop::menu::MenuWindowData;
 
     let menu_window_data = MenuWindowData {
         menu: menu.clone(),

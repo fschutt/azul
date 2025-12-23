@@ -16,7 +16,7 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 use azul_css::css::Css;
-use azul_dll::desktop::app::App;
+use azul::desktop::app::App;
 use azul_layout::window_state::WindowCreateOptions;
 
 #[derive(Debug, Clone)]

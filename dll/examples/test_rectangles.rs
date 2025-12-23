@@ -13,7 +13,7 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 use azul_css::css::Css;
-use azul_dll::desktop::{app::App, resources::AppConfig};
+use azul::desktop::{app::App, resources::AppConfig};
 use azul_layout::{callbacks::CallbackInfo, window_state::WindowCreateOptions};
 
 const XHTML_BYTES: &str = include_str!("../../doc/working/showcase-flexbox-complex-001.xht");

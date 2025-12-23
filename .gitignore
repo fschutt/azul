@@ -11,6 +11,7 @@ vendor/
 .vs/*
 *.dSYM
 *.pyc
+crash.log
 azul.h
 *.log
 .idea/*

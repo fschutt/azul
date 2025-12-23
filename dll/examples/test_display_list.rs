@@ -72,7 +72,7 @@ extern "C" fn layout_callback(_data: RefAny, _info: LayoutCallbackInfo) -> Style
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    use azul_dll::desktop::{app::App, resources::AppConfig};
+    use azul::desktop::{app::App, resources::AppConfig};
     use azul_layout::window_state::WindowCreateOptions;
 
     eprintln!("\nStarting Azul Display List Debug Test...\n");

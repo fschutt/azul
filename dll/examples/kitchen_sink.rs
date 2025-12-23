@@ -85,7 +85,7 @@ use azul_css::{
         style::background::{StyleBackgroundContent, StyleBackgroundContentVec},
     },
 };
-use azul_dll::desktop::{
+use azul::desktop::{
     app::App, dialogs::save_file_dialog, resources::AppConfig as DllAppConfig,
 };
 use azul_layout::{callbacks::CallbackInfo, window_state::WindowCreateOptions, xml::DomXmlExt};
