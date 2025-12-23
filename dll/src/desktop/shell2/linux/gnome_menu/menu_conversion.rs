@@ -170,25 +170,26 @@ impl MenuConversion {
                         | azul_core::menu::MenuItemState::Disabled => false,
                     };
 
-                    // Clone the callback data
-                    let callback_data = callback.refany.clone();
-                    let callback_fn = callback.callback.cb;
+                    // Clone the menu callback data for storage
+                    let menu_callback = callback.clone();
+                    let action_name_for_closure = action_name.clone();
+                    let menu_callback_for_closure = menu_callback.clone();
 
                     actions.push(DbusAction {
                         name: action_name,
                         enabled,
                         parameter_type: None,
                         state: None,
-                        callback: Arc::new(move |_param| unsafe {
-                            type CallbackFn = unsafe extern "C" fn(
-                                *const std::ffi::c_void,
-                                *const std::ffi::c_void,
-                            )
-                                -> u8;
-
-                            let cb_fn: CallbackFn = std::mem::transmute(callback_fn);
-                            (cb_fn)(std::ptr::null(), std::ptr::null());
+                        // When the DBus action is activated, queue the callback
+                        // for processing in the main event loop where we have
+                        // access to the full window state (CallbackInfo)
+                        callback: Arc::new(move |_param| {
+                            super::queue_menu_callback(super::PendingMenuCallback {
+                                action_name: action_name_for_closure.clone(),
+                                menu_callback: menu_callback_for_closure.clone(),
+                            });
                         }),
+                        menu_callback: Some(menu_callback),
                     });
                 }
 
@@ -253,6 +254,7 @@ impl MenuConversion {
             parameter_type: None,
             state: None,
             callback: Arc::new(callback),
+            menu_callback: None,
         }
     }
 }

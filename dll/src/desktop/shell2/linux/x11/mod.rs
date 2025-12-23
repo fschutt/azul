@@ -722,9 +722,96 @@ impl X11Window {
             manager.process_messages();
         }
 
+        // Process any pending menu callbacks from DBus
+        self.process_pending_menu_callbacks();
+
         let result = self.process_window_events_recursive_v2(0);
         if result != ProcessEventResult::DoNothing {
             self.request_redraw();
+        }
+    }
+
+    /// Process pending menu callbacks from GNOME DBus.
+    ///
+    /// When a menu item is clicked in GNOME Shell, the DBus handler queues
+    /// the callback data. This function drains the queue and invokes each
+    /// callback with proper CallbackInfo context.
+    fn process_pending_menu_callbacks(&mut self) {
+        use super::gnome_menu::drain_pending_menu_callbacks;
+
+        let pending_callbacks = drain_pending_menu_callbacks();
+        if pending_callbacks.is_empty() {
+            return;
+        }
+
+        for pending in pending_callbacks {
+            eprintln!(
+                "[X11Window] Processing menu callback for action: {}",
+                pending.action_name
+            );
+
+            // Convert CoreMenuCallback to layout MenuCallback
+            use azul_layout::callbacks::{Callback, MenuCallback};
+
+            let layout_callback = Callback::from_core(pending.menu_callback.callback);
+            let mut menu_callback = MenuCallback {
+                callback: layout_callback,
+                refany: pending.menu_callback.refany,
+            };
+
+            // Get layout window
+            let layout_window = match self.layout_window.as_mut() {
+                Some(lw) => lw,
+                None => {
+                    eprintln!("[X11Window] No layout window available for menu callback");
+                    continue;
+                }
+            };
+
+            use azul_core::window::RawWindowHandle;
+
+            let raw_handle = RawWindowHandle::Xlib(azul_core::window::XlibHandle {
+                display: self.display as *mut _,
+                window: self.window as u64,
+            });
+
+            // Clone fc_cache (cheap Arc clone) since invoke_single_callback needs &mut
+            let mut fc_cache_clone = (*self.resources.fc_cache).clone();
+
+            // Use LayoutWindow::invoke_single_callback which handles all the borrow complexity
+            let callback_result = layout_window.invoke_single_callback(
+                &mut menu_callback.callback,
+                &mut menu_callback.refany,
+                &raw_handle,
+                &self.gl_context_ptr,
+                &mut self.image_cache,
+                &mut fc_cache_clone,
+                self.resources.system_style.clone(),
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &self.previous_window_state,
+                &self.current_window_state,
+                &self.renderer_resources,
+            );
+
+            // Process callback result using the V2 unified system
+            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            let event_result = self.process_callback_result_v2(&callback_result);
+
+            // Handle the event result
+            use azul_core::events::ProcessEventResult;
+            match event_result {
+                ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                | ProcessEventResult::ShouldRegenerateDomAllWindows
+                | ProcessEventResult::ShouldReRenderCurrentWindow
+                | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                    self.frame_needs_regeneration = true;
+                    self.request_redraw();
+                }
+                ProcessEventResult::DoNothing => {
+                    // No action needed
+                }
+            }
         }
     }
 

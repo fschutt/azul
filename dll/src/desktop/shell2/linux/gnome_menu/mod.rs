@@ -48,7 +48,10 @@ use std::{
     },
 };
 
-pub use actions_protocol::{ActionsProtocol, DbusAction};
+pub use actions_protocol::{
+    drain_pending_menu_callbacks, queue_menu_callback, ActionsProtocol, DbusAction,
+    PendingMenuCallback,
+};
 pub use dbus_connection::DbusConnection;
 pub use manager_v2::GnomeMenuManagerV2; // New dlopen-based manager
 pub use menu_conversion::MenuConversion;
