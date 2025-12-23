@@ -337,12 +337,12 @@ impl ReleaseAssets {
         }
 
         let cpp_headers = vec![
-            AssetInfo::from_path(&version_dir.join("azul_cpp03.hpp"), "C++03 Header"),
-            AssetInfo::from_path(&version_dir.join("azul_cpp11.hpp"), "C++11 Header"),
-            AssetInfo::from_path(&version_dir.join("azul_cpp14.hpp"), "C++14 Header"),
-            AssetInfo::from_path(&version_dir.join("azul_cpp17.hpp"), "C++17 Header"),
-            AssetInfo::from_path(&version_dir.join("azul_cpp20.hpp"), "C++20 Header"),
-            AssetInfo::from_path(&version_dir.join("azul_cpp23.hpp"), "C++23 Header"),
+            AssetInfo::from_path(&version_dir.join("azul03.hpp"), "C++03 Header"),
+            AssetInfo::from_path(&version_dir.join("azul11.hpp"), "C++11 Header"),
+            AssetInfo::from_path(&version_dir.join("azul14.hpp"), "C++14 Header"),
+            AssetInfo::from_path(&version_dir.join("azul17.hpp"), "C++17 Header"),
+            AssetInfo::from_path(&version_dir.join("azul20.hpp"), "C++20 Header"),
+            AssetInfo::from_path(&version_dir.join("azul23.hpp"), "C++23 Header"),
         ];
 
         ReleaseAssets {
@@ -670,17 +670,17 @@ pub fn create_examples(
     source_zip.write_all(azul_h.as_bytes())?;
 
     // C++ headers for all standards
-    source_zip.start_file("include/cpp/azul_cpp03.hpp", options)?;
+    source_zip.start_file("include/cpp/azul03.hpp", options)?;
     source_zip.write_all(cpp_headers.cpp03.as_bytes())?;
-    source_zip.start_file("include/cpp/azul_cpp11.hpp", options)?;
+    source_zip.start_file("include/cpp/azul11.hpp", options)?;
     source_zip.write_all(cpp_headers.cpp11.as_bytes())?;
-    source_zip.start_file("include/cpp/azul_cpp14.hpp", options)?;
+    source_zip.start_file("include/cpp/azul14.hpp", options)?;
     source_zip.write_all(cpp_headers.cpp14.as_bytes())?;
-    source_zip.start_file("include/cpp/azul_cpp17.hpp", options)?;
+    source_zip.start_file("include/cpp/azul17.hpp", options)?;
     source_zip.write_all(cpp_headers.cpp17.as_bytes())?;
-    source_zip.start_file("include/cpp/azul_cpp20.hpp", options)?;
+    source_zip.start_file("include/cpp/azul20.hpp", options)?;
     source_zip.write_all(cpp_headers.cpp20.as_bytes())?;
-    source_zip.start_file("include/cpp/azul_cpp23.hpp", options)?;
+    source_zip.start_file("include/cpp/azul23.hpp", options)?;
     source_zip.write_all(cpp_headers.cpp23.as_bytes())?;
 
     // Add README

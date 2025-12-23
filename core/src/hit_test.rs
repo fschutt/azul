@@ -267,6 +267,7 @@ impl ScrollStates {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
 pub struct ScrollState {
     /// Amount in pixel that the current node is scrolled
     pub scroll_position: LogicalPosition,

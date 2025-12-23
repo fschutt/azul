@@ -108,52 +108,49 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang
 
-      - name: Generate C header
-        run: cargo run -r -p azul-doc codegen c
+      - name: Generate all headers
+        run: cargo run -r -p azul-doc codegen all
 
       - name: Validate C header syntax
         run: |
-          cd target/codegen
+          cd target/codegen/v2
           clang -fsyntax-only -std=c99 -x c azul.h
           echo "C header (C99) compiles successfully"
 
-      - name: Generate C++ headers for all standards
-        run: cargo run -r -p azul-doc codegen cpp
-
       - name: Validate C++03 header
         run: |
-          cd target/codegen
-          clang++ -std=c++03 -fsyntax-only -I. cpp/azul_cpp03.hpp
+          cd target/codegen/v2
+          clang++ -std=c++03 -fsyntax-only -I. azul03.hpp
           echo "C++03 header compiles successfully"
 
       - name: Validate C++11 header
         run: |
-          cd target/codegen
-          clang++ -std=c++11 -fsyntax-only -I. cpp/azul_cpp11.hpp
+          cd target/codegen/v2
+          clang++ -std=c++11 -fsyntax-only -I. azul11.hpp
           echo "C++11 header compiles successfully"
 
       - name: Validate C++14 header
         run: |
-          cd target/codegen
-          clang++ -std=c++14 -fsyntax-only -I. cpp/azul_cpp14.hpp
+          cd target/codegen/v2
+          clang++ -std=c++14 -fsyntax-only -I. azul14.hpp
           echo "C++14 header compiles successfully"
 
       - name: Validate C++17 header
         run: |
-          cd target/codegen
-          clang++ -std=c++17 -fsyntax-only -I. cpp/azul_cpp17.hpp
+          cd target/codegen/v2
+          clang++ -std=c++17 -fsyntax-only -I. azul17.hpp
           echo "C++17 header compiles successfully"
 
       - name: Validate C++20 header
         run: |
-          cd target/codegen
-          clang++ -std=c++20 -fsyntax-only -I. cpp/azul_cpp20.hpp
+          cd target/codegen/v2
+          clang++ -std=c++20 -fsyntax-only -I. azul20.hpp
           echo "C++20 header compiles successfully"
 
       - name: Validate C++23 header
         run: |
-          cd target/codegen
-          clang++ -std=c++2b -fsyntax-only -I. cpp/azul_cpp23.hpp
+          cd target/codegen/v2
+          clang++ -std=c++2b -fsyntax-only -I. azul23.hpp
           echo "C++23 header compiles successfully"
 
   verify_examples:
@@ -199,7 +196,7 @@ jobs:
             if [ -f "$example" ]; then
               echo "Compiling C: $example"
               clang -fsyntax-only -std=c99 \
-                -I../../target/codegen \
+                -I../../target/codegen/v2 \
                 "$example" && echo "  ✓ $example"
             fi
           done
@@ -211,8 +208,7 @@ jobs:
             if [ -f "$example" ]; then
               echo "Compiling C++03: $example"
               clang++ -fsyntax-only -std=c++03 \
-                -I../../../target/codegen \
-                -I../../../target/codegen/cpp \
+                -I../../../target/codegen/v2 \
                 "$example" && echo "  ✓ $example"
             fi
           done
@@ -224,8 +220,7 @@ jobs:
             if [ -f "$example" ]; then
               echo "Compiling C++11: $example"
               clang++ -fsyntax-only -std=c++11 \
-                -I../../../target/codegen \
-                -I../../../target/codegen/cpp \
+                -I../../../target/codegen/v2 \
                 "$example" && echo "  ✓ $example"
             fi
           done
@@ -237,8 +232,7 @@ jobs:
             if [ -f "$example" ]; then
               echo "Compiling C++14: $example"
               clang++ -fsyntax-only -std=c++14 \
-                -I../../../target/codegen \
-                -I../../../target/codegen/cpp \
+                -I../../../target/codegen/v2 \
                 "$example" && echo "  ✓ $example"
             fi
           done
@@ -250,8 +244,7 @@ jobs:
             if [ -f "$example" ]; then
               echo "Compiling C++17: $example"
               clang++ -fsyntax-only -std=c++17 \
-                -I../../../target/codegen \
-                -I../../../target/codegen/cpp \
+                -I../../../target/codegen/v2 \
                 "$example" && echo "  ✓ $example"
             fi
           done
@@ -263,8 +256,7 @@ jobs:
             if [ -f "$example" ]; then
               echo "Compiling C++23: $example"
               clang++ -fsyntax-only -std=c++2b \
-                -I../../../target/codegen \
-                -I../../../target/codegen/cpp \
+                -I../../../target/codegen/v2 \
                 "$example" && echo "  ✓ $example"
             fi
           done
@@ -298,7 +290,7 @@ jobs:
           for example in *.c; do
             if [ -f "$example" ]; then
               echo "Checking C: $example"
-              cl.exe /Zs /I..\\..\\target\\codegen "$example" 2>&1 || echo "  Note: cl.exe may not be available"
+              cl.exe /Zs /I..\\..\\target\\codegen\\v2 "$example" 2>&1 || echo "  Note: cl.exe may not be available"
             fi
           done
         continue-on-error: true
@@ -310,7 +302,7 @@ jobs:
           for example in *.cpp; do
             if [ -f "$example" ]; then
               echo "Checking C++17: $example"
-              cl.exe /Zs /std:c++17 /I..\\..\\..\\target\\codegen /I..\\..\\..\\target\\codegen\\cpp "$example" 2>&1 || echo "  Note: cl.exe may not be available"
+              cl.exe /Zs /std:c++17 /I..\\..\\..\\target\\codegen\\v2 "$example" 2>&1 || echo "  Note: cl.exe may not be available"
             fi
           done
         continue-on-error: true
@@ -390,7 +382,7 @@ jobs:
       - name: Compile C hello-world with Address Sanitizer
         run: |
           # Copy header to examples/c for #include <azul.h> to work
-          cp target/codegen/azul.h examples/c/
+          cp target/codegen/v2/azul.h examples/c/
           cd examples/c
           clang -g -O0 -fsanitize=address \
             -I. \
@@ -448,7 +440,7 @@ jobs:
       - name: Compile C hello-world with Address Sanitizer
         run: |
           # Copy header to examples/c for #include <azul.h> to work
-          cp target/codegen/azul.h examples/c/
+          cp target/codegen/v2/azul.h examples/c/
           cd examples/c
           clang -g -O0 -fsanitize=address \
             -I. \
@@ -534,7 +526,7 @@ jobs:
 
       - name: Check azul.h syntax (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: clang target/codegen/azul.h -ferror-limit=0
+        run: clang target/codegen/v2/azul.h -ferror-limit=0
 
       - name: Build DLL with c-api feature
         run: |
@@ -625,7 +617,7 @@ jobs:
         run: |
           mkdir -p target/packages
           cp target/release/libazul.so target/packages/
-          cp target/codegen/azul.h target/packages/
+          cp target/codegen/v2/azul.h target/packages/
           cp LICENSE target/packages/
 
       - name: Build .deb package

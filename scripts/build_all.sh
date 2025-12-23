@@ -138,7 +138,7 @@ fi
 echo -e "\n${BLUE}--- Step 7: Build C Examples ---${NC}"
 
 C_EXAMPLES_DIR="${PROJECT_ROOT}/examples/c"
-C_HEADER="${PROJECT_ROOT}/target/codegen/azul.h"
+C_HEADER="${PROJECT_ROOT}/target/codegen/v2/azul.h"
 
 # Check if header exists
 if [[ ! -f "${C_HEADER}" ]]; then
@@ -174,7 +174,7 @@ else
         c_file="${C_EXAMPLES_DIR}/${example}.c"
         if [[ -f "${c_file}" ]]; then
             run_build "C example: ${example}" \
-                "cc -o ${PROJECT_ROOT}/target/c-examples/${example} ${c_file} -I${PROJECT_ROOT}/target/codegen ${CC_FLAGS} ${LINK_FLAGS}" || true
+                "cc -o ${PROJECT_ROOT}/target/c-examples/${example} ${c_file} -I${PROJECT_ROOT}/target/codegen/v2 ${CC_FLAGS} ${LINK_FLAGS}" || true
         else
             echo -e "${YELLOW}[SKIP]${NC} C example: ${example} - file not found"
         fi

@@ -75,14 +75,18 @@ impl LanguageGenerator for RustGenerator {
         builder.raw(&trait_impls);
 
         // Methods (impl blocks for Rust API)
-        builder.line("// --- Method Implementations ---");
-        let impl_blocks = self.generate_impl_blocks(ir, config)?;
-        builder.raw(&impl_blocks);
+        // Only generate if we have C-ABI functions to call
+        // When CAbiFunctionMode::None, the impl blocks would call non-existent functions
+        if !matches!(config.cabi_functions, CAbiFunctionMode::None) {
+            builder.line("// --- Method Implementations ---");
+            let impl_blocks = self.generate_impl_blocks(ir, config)?;
+            builder.raw(&impl_blocks);
 
-        // Rust-only generic methods (not part of C-ABI)
-        builder.line("// --- Rust-Only Generic Methods ---");
-        let rust_only = self.generate_rust_only_impls(ir, config)?;
-        builder.raw(&rust_only);
+            // Rust-only generic methods (not part of C-ABI)
+            builder.line("// --- Rust-Only Generic Methods ---");
+            let rust_only = self.generate_rust_only_impls(ir, config)?;
+            builder.raw(&rust_only);
+        }
 
         // Functions
         builder.line("// --- C-ABI Functions ---");

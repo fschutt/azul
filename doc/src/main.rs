@@ -1481,14 +1481,14 @@ fn generate_release_pages(
         };
 
         // Write individual C++ header files
-        fs::write(version_dir.join("azul_cpp03.hpp"), &cpp_headers.cpp03)?;
-        fs::write(version_dir.join("azul_cpp11.hpp"), &cpp_headers.cpp11)?;
-        fs::write(version_dir.join("azul_cpp14.hpp"), &cpp_headers.cpp14)?;
-        fs::write(version_dir.join("azul_cpp17.hpp"), &cpp_headers.cpp17)?;
-        fs::write(version_dir.join("azul_cpp20.hpp"), &cpp_headers.cpp20)?;
-        fs::write(version_dir.join("azul_cpp23.hpp"), &cpp_headers.cpp23)?;
+        fs::write(version_dir.join("azul03.hpp"), &cpp_headers.cpp03)?;
+        fs::write(version_dir.join("azul11.hpp"), &cpp_headers.cpp11)?;
+        fs::write(version_dir.join("azul14.hpp"), &cpp_headers.cpp14)?;
+        fs::write(version_dir.join("azul17.hpp"), &cpp_headers.cpp17)?;
+        fs::write(version_dir.join("azul20.hpp"), &cpp_headers.cpp20)?;
+        fs::write(version_dir.join("azul23.hpp"), &cpp_headers.cpp23)?;
         println!(
-            "  [OK] Generated: release/{}/azul_cpp*.hpp (all C++ versions)",
+            "  [OK] Generated: release/{}/azul*.hpp (all C++ versions)",
             version
         );
 

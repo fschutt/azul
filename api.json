@@ -112,7 +112,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul03.hpp"
                 },
                 {
                   "type": "command",
@@ -129,7 +129,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul03.hpp"
                 },
                 {
                   "type": "command",
@@ -146,7 +146,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp03.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul03.hpp"
                 },
                 {
                   "type": "command",
@@ -169,7 +169,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul11.hpp"
                 },
                 {
                   "type": "command",
@@ -186,7 +186,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul11.hpp"
                 },
                 {
                   "type": "command",
@@ -203,7 +203,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp11.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul11.hpp"
                 },
                 {
                   "type": "command",
@@ -226,7 +226,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul14.hpp"
                 },
                 {
                   "type": "command",
@@ -243,7 +243,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul14.hpp"
                 },
                 {
                   "type": "command",
@@ -260,7 +260,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp14.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul14.hpp"
                 },
                 {
                   "type": "command",
@@ -283,7 +283,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul17.hpp"
                 },
                 {
                   "type": "command",
@@ -300,7 +300,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul17.hpp"
                 },
                 {
                   "type": "command",
@@ -317,7 +317,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp17.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul17.hpp"
                 },
                 {
                   "type": "command",
@@ -340,7 +340,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul20.hpp"
                 },
                 {
                   "type": "command",
@@ -357,7 +357,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul20.hpp"
                 },
                 {
                   "type": "command",
@@ -374,7 +374,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp20.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul20.hpp"
                 },
                 {
                   "type": "command",
@@ -397,7 +397,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul23.hpp"
                 },
                 {
                   "type": "command",
@@ -414,7 +414,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul23.hpp"
                 },
                 {
                   "type": "command",
@@ -431,7 +431,7 @@
                 },
                 {
                   "type": "command",
-                  "content": "curl -O $HOSTNAME/release/$VERSION/azul_cpp23.hpp"
+                  "content": "curl -O $HOSTNAME/release/$VERSION/azul23.hpp"
                 },
                 {
                   "type": "command",
@@ -2238,6 +2238,53 @@
               {
                 "Leading": {},
                 "Trailing": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "CursorMovement": {
+            "external": "azul_layout::managers::changeset::CursorMovement",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Left": {},
+                "Right": {},
+                "Up": {},
+                "Down": {},
+                "WordLeft": {},
+                "WordRight": {},
+                "LineStart": {},
+                "LineEnd": {},
+                "DocumentStart": {},
+                "DocumentEnd": {},
+                "Absolute": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpMoveCursor": {
+            "external": "azul_layout::managers::changeset::TextOpMoveCursor",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "old_position": {
+                  "type": "CursorPosition"
+                },
+                "new_position": {
+                  "type": "CursorPosition"
+                },
+                "movement": {
+                  "type": "CursorMovement"
+                }
               }
             ],
             "repr": "C"
@@ -6358,29 +6405,128 @@
             },
             "repr": "C"
           },
-          "PenTilt": {
-            "external": "azul_layout::callbacks::PenTilt",
+          "RenderImageCallbackInfo": {
+            "doc": [
+              "Information passed to image rendering callbacks"
+            ],
+            "external": "azul_layout::callbacks::RenderImageCallbackInfo",
+            "custom_impls": [
+              "Clone"
+            ],
             "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialEq",
-              "PartialOrd"
+              "Debug"
             ],
             "struct_fields": [
               {
-                "x_tilt": {
-                  "type": "f32"
+                "callback_node_id": {
+                  "type": "DomNodeId"
                 },
-                "y_tilt": {
-                  "type": "f32"
+                "bounds": {
+                  "type": "HidpiAdjustedBounds"
+                },
+                "gl_context": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "image_cache": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "system_fonts": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "callable_ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                },
+                "_abi_mut": {
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
                 }
               }
             ],
+            "functions": {
+              "get_bounds": {
+                "doc": [
+                  "Returns the bounds of the laid-out node"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "HidpiAdjustedBounds"
+                },
+                "fn_body": "object.get_bounds()"
+              },
+              "get_callback_node_id": {
+                "doc": [
+                  "Returns the DOM node ID that the callback is attached to"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "DomNodeId"
+                },
+                "fn_body": "object.get_callback_node_id()"
+              },
+              "get_gl_context": {
+                "doc": [
+                  "Returns the OpenGL context if available"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionGlContextPtr"
+                },
+                "fn_body": "object.get_gl_context()"
+              },
+              "get_ctx": {
+                "doc": [
+                  "Returns the context RefAny for FFI callbacks"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionRefAny"
+                },
+                "fn_body": "object.get_ctx()"
+              }
+            },
             "repr": "C"
+          },
+          "RenderImageCallbackType": {
+            "external": "azul_layout::callbacks::RenderImageCallbackType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "RefAny"
+                },
+                {
+                  "type": "RenderImageCallbackInfo"
+                }
+              ],
+              "returns": {
+                "type": "ImageRef"
+              }
+            }
           },
           "PenState": {
             "external": "azul_layout::managers::gesture::PenState",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Clone",
@@ -6414,386 +6560,6 @@
             ],
             "repr": "C"
           },
-          "OptionPenState": {
-            "external": "azul_layout::managers::gesture::OptionPenState",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialEq"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "PenState"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "DragType": {
-            "external": "azul_layout::managers::drag_drop::DragType",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialEq",
-              "Eq"
-            ],
-            "enum_fields": [
-              {
-                "Node": {}
-              },
-              {
-                "File": {}
-              }
-            ],
-            "repr": "C"
-          },
-          "DragState": {
-            "external": "azul_layout::managers::drag_drop::DragState",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq"
-            ],
-            "struct_fields": [
-              {
-                "drag_type": {
-                  "type": "DragType"
-                },
-                "source_node": {
-                  "type": "OptionDomNodeId"
-                },
-                "current_drop_target": {
-                  "type": "OptionDomNodeId"
-                },
-                "file_path": {
-                  "type": "OptionString"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "OptionDragState": {
-            "external": "azul_layout::managers::drag_drop::OptionDragState",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "DragState"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "OptionClipboardContent": {
-            "external": "azul_layout::managers::selection::OptionClipboardContent",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "ClipboardContent"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "CursorMovement": {
-            "external": "azul_layout::managers::changeset::CursorMovement",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialEq",
-              "Eq"
-            ],
-            "enum_fields": [
-              {
-                "Left": {},
-                "Right": {},
-                "Up": {},
-                "Down": {},
-                "WordLeft": {},
-                "WordRight": {},
-                "LineStart": {},
-                "LineEnd": {},
-                "DocumentStart": {},
-                "DocumentEnd": {},
-                "Absolute": {}
-              }
-            ],
-            "repr": "C"
-          },
-          "SelectionDirection": {
-            "external": "azul_layout::managers::changeset::SelectionDirection",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialEq",
-              "Eq"
-            ],
-            "enum_fields": [
-              {
-                "Forward": {},
-                "Backward": {}
-              }
-            ],
-            "repr": "C"
-          },
-          "TextOpInsertText": {
-            "external": "azul_layout::managers::changeset::TextOpInsertText",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "position": { "type": "CursorPosition" },
-                "text": { "type": "String" },
-                "new_cursor": { "type": "CursorPosition" }
-              }
-            ],
-            "repr": "C"
-          },
-          "TextOpDeleteText": {
-            "external": "azul_layout::managers::changeset::TextOpDeleteText",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "range": { "type": "SelectionRange" },
-                "deleted_text": { "type": "String" },
-                "new_cursor": { "type": "CursorPosition" }
-              }
-            ],
-            "repr": "C"
-          },
-          "TextOpReplaceText": {
-            "external": "azul_layout::managers::changeset::TextOpReplaceText",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "range": { "type": "SelectionRange" },
-                "old_text": { "type": "String" },
-                "new_text": { "type": "String" },
-                "new_cursor": { "type": "CursorPosition" }
-              }
-            ],
-            "repr": "C"
-          },
-          "TextOpSetSelection": {
-            "external": "azul_layout::managers::changeset::TextOpSetSelection",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "old_range": { "type": "OptionSelectionRange" },
-                "new_range": { "type": "SelectionRange" }
-              }
-            ],
-            "repr": "C"
-          },
-          "TextOpExtendSelection": {
-            "external": "azul_layout::managers::changeset::TextOpExtendSelection",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "old_range": { "type": "SelectionRange" },
-                "new_range": { "type": "SelectionRange" },
-                "direction": { "type": "SelectionDirection" }
-              }
-            ],
-            "repr": "C"
-          },
-          "TextOpClearSelection": {
-            "external": "azul_layout::managers::changeset::TextOpClearSelection",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "old_range": { "type": "SelectionRange" }
-              }
-            ],
-            "repr": "C"
-          },
-          "TextOpMoveCursor": {
-            "external": "azul_layout::managers::changeset::TextOpMoveCursor",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "old_position": { "type": "CursorPosition" },
-                "new_position": { "type": "CursorPosition" },
-                "movement": { "type": "CursorMovement" }
-              }
-            ],
-            "repr": "C"
-          },
-          "TextOpCopy": {
-            "external": "azul_layout::managers::changeset::TextOpCopy",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "range": { "type": "SelectionRange" },
-                "content": { "type": "ClipboardContent" }
-              }
-            ],
-            "repr": "C"
-          },
-          "TextOpCut": {
-            "external": "azul_layout::managers::changeset::TextOpCut",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "range": { "type": "SelectionRange" },
-                "content": { "type": "ClipboardContent" },
-                "new_cursor": { "type": "CursorPosition" }
-              }
-            ],
-            "repr": "C"
-          },
-          "TextOpPaste": {
-            "external": "azul_layout::managers::changeset::TextOpPaste",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "position": { "type": "CursorPosition" },
-                "content": { "type": "ClipboardContent" },
-                "new_cursor": { "type": "CursorPosition" }
-              }
-            ],
-            "repr": "C"
-          },
-          "TextOpSelectAll": {
-            "external": "azul_layout::managers::changeset::TextOpSelectAll",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "old_range": { "type": "OptionSelectionRange" },
-                "new_range": { "type": "SelectionRange" }
-              }
-            ],
-            "repr": "C"
-          },
-          "TextOperation": {
-            "external": "azul_layout::managers::changeset::TextOperation",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "enum_fields": [
-              {
-                "InsertText": { "type": "TextOpInsertText" },
-                "DeleteText": { "type": "TextOpDeleteText" },
-                "ReplaceText": { "type": "TextOpReplaceText" },
-                "SetSelection": { "type": "TextOpSetSelection" },
-                "ExtendSelection": { "type": "TextOpExtendSelection" },
-                "ClearSelection": { "type": "TextOpClearSelection" },
-                "MoveCursor": { "type": "TextOpMoveCursor" },
-                "Copy": { "type": "TextOpCopy" },
-                "Cut": { "type": "TextOpCut" },
-                "Paste": { "type": "TextOpPaste" },
-                "SelectAll": { "type": "TextOpSelectAll" }
-              }
-            ],
-            "repr": "C, u8"
-          },
-          "TextChangeset": {
-            "external": "azul_layout::managers::changeset::TextChangeset",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "id": {
-                  "type": "usize"
-                },
-                "target": {
-                  "type": "DomNodeId"
-                },
-                "operation": {
-                  "type": "TextOperation"
-                },
-                "timestamp": {
-                  "type": "Instant"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "NodeStateSnapshot": {
-            "external": "azul_layout::managers::undo_redo::NodeStateSnapshot",
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "node_id": {
-                  "type": "NodeId"
-                },
-                "text_content": {
-                  "type": "String"
-                },
-                "cursor_position": {
-                  "type": "OptionTextCursor"
-                },
-                "selection_range": {
-                  "type": "OptionSelectionRange"
-                },
-                "timestamp": {
-                  "type": "Instant"
-                }
-              }
-            ],
-            "repr": "C"
-          },
           "UndoableOperation": {
             "external": "azul_layout::managers::undo_redo::UndoableOperation",
             "derive": [
@@ -6812,58 +6578,121 @@
             ],
             "repr": "C"
           },
-          "OptionUndoableOperation": {
-            "external": "azul_layout::managers::undo_redo::OptionUndoableOperation",
+          "ChangesetId": {
+            "external": "azul_layout::managers::changeset::ChangesetId",
+            "repr": "C",
+            "type_alias": {
+              "target": "usize"
+            }
+          },
+          "GraphemeClusterId": {
+            "external": "azul_core::selection::GraphemeClusterId",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash",
+              "PartialOrd",
+              "Ord"
+            ],
+            "struct_fields": [
+              {
+                "source_run": {
+                  "type": "u32"
+                },
+                "start_byte_in_run": {
+                  "type": "u32"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "PenTilt": {
+            "external": "azul_layout::callbacks::PenTilt",
+            "custom_impls": [
+              "From"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "x_tilt": {
+                  "type": "f32"
+                },
+                "y_tilt": {
+                  "type": "f32"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ScrollState": {
+            "external": "azul_core::hit_test::ScrollState",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "scroll_position": {
+                  "type": "LogicalPosition"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextChangeset": {
+            "external": "azul_layout::managers::changeset::TextChangeset",
             "derive": [
               "Debug",
               "Clone"
             ],
+            "struct_fields": [
+              {
+                "id": {
+                  "type": "ChangesetId"
+                },
+                "target": {
+                  "type": "DomNodeId"
+                },
+                "operation": {
+                  "type": "TextOperation"
+                },
+                "timestamp": {
+                  "type": "Instant"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "EdgeType": {
+            "external": "azul_core::callbacks::EdgeType",
+            "derive": [
+              "Debug",
+              "PartialEq",
+              "Eq",
+              "Clone",
+              "Copy"
+            ],
             "enum_fields": [
               {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "UndoableOperation"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "SelectAllResult": {
-            "external": "azul_layout::callbacks::SelectAllResult",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq"
-            ],
-            "struct_fields": [
-              {
-                "full_text": {
-                  "type": "String"
-                },
-                "selection_range": {
-                  "type": "SelectionRange"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "DeleteResult": {
-            "external": "azul_layout::callbacks::DeleteResult",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq"
-            ],
-            "struct_fields": [
-              {
-                "range_to_delete": {
-                  "type": "SelectionRange"
-                },
-                "deleted_text": {
-                  "type": "String"
-                }
+                "Top": {},
+                "Bottom": {},
+                "Left": {},
+                "Right": {}
               }
             ],
             "repr": "C"
@@ -12303,10 +12132,10 @@
                     "self": "value"
                   }
                 ],
-                "fn_body": "self.to_core()",
                 "returns": {
                   "type": "CoreCallback"
-                }
+                },
+                "fn_body": "self.to_core()"
               }
             },
             "repr": "C"
@@ -12619,6 +12448,10 @@
           },
           "LibraryReceiveThreadMsgCallback": {
             "external": "azul_layout::thread::LibraryReceiveThreadMsgCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -12669,65 +12502,7 @@
                 }
               }
             ],
-            "repr": "C"
-          },
-          "SelectionVec": {
-            "external": "azul_core::selection::SelectionVec",
-            "derive": [
-              "Debug"
-            ],
-            "struct_fields": [
-              {
-                "ptr": {
-                  "type": "Selection",
-                  "ref_kind": "constptr"
-                },
-                "len": {
-                  "type": "usize"
-                },
-                "cap": {
-                  "type": "usize"
-                },
-                "destructor": {
-                  "type": "SelectionVecDestructor"
-                },
-                "run_destructor": {
-                  "type": "bool"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "SelectionVecDestructor": {
-            "external": "azul_core::selection::SelectionVecDestructor",
-            "derive": [
-              "Debug",
-              "Copy",
-              "Clone"
-            ],
-            "enum_fields": [
-              {
-                "DefaultRust": {},
-                "NoDestructor": {},
-                "External": {
-                  "type": "SelectionVecDestructorType"
-                }
-              }
-            ],
             "repr": "C, u8"
-          },
-          "SelectionVecDestructorType": {
-            "external": "azul_core::selection::SelectionVecDestructorType",
-            "callback_typedef": {
-              "fn_args": [
-                {
-                  "type": "SelectionVec",
-                  "ref_kind": "mutptr"
-                }
-              ],
-              "returns": null
-            },
-            "repr": "C"
           },
           "CheckThreadFinishedCallback": {
             "external": "azul_core::task::CheckThreadFinishedCallback",
@@ -12917,6 +12692,10 @@
           },
           "ThreadDestructorCallback": {
             "external": "azul_layout::thread::ThreadDestructorCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug"
+            ],
             "struct_fields": [
               {
                 "cb": {
@@ -13019,8 +12798,7 @@
             "derive": [
               "Debug",
               "Clone",
-              "PartialEq",
-              "Eq"
+              "PartialEq"
             ],
             "struct_fields": [
               {
@@ -13214,6 +12992,250 @@
               }
             ],
             "repr": "C"
+          },
+          "TextOpExtendSelection": {
+            "external": "azul_layout::managers::changeset::TextOpExtendSelection",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "old_range": {
+                  "type": "SelectionRange"
+                },
+                "new_range": {
+                  "type": "SelectionRange"
+                },
+                "direction": {
+                  "type": "SelectionDirection"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "RenderImageCallback": {
+            "doc": [
+              "Callback for rendering dynamic images"
+            ],
+            "external": "azul_layout::callbacks::RenderImageCallback",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "cb": {
+                  "type": "RenderImageCallbackType"
+                },
+                "ctx": {
+                  "type": "OptionRefAny"
+                }
+              }
+            ],
+            "constructors": {
+              "create": {
+                "doc": [
+                  "Creates a new RenderImageCallback from a function pointer"
+                ],
+                "fn_args": [
+                  {
+                    "cb": "RenderImageCallbackType"
+                  }
+                ],
+                "fn_body": "azul_layout::callbacks::RenderImageCallback::create(cb)"
+              }
+            },
+            "functions": {
+              "to_core": {
+                "doc": [
+                  "Converts this RenderImageCallback to a CoreRenderImageCallback for use with ImageRef::callback"
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  }
+                ],
+                "returns": {
+                  "type": "CoreRenderImageCallback"
+                },
+                "fn_body": "self.to_core()"
+              }
+            },
+            "repr": "C"
+          },
+          "SelectionDirection": {
+            "external": "azul_layout::managers::changeset::SelectionDirection",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Forward": {},
+                "Backward": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "DragState": {
+            "external": "azul_layout::managers::drag_drop::DragState",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "drag_type": {
+                  "type": "DragType"
+                },
+                "source_node": {
+                  "type": "OptionDomNodeId"
+                },
+                "current_drop_target": {
+                  "type": "OptionDomNodeId"
+                },
+                "file_path": {
+                  "type": "OptionString"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpSetSelection": {
+            "external": "azul_layout::managers::changeset::TextOpSetSelection",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "old_range": {
+                  "type": "OptionSelectionRange"
+                },
+                "new_range": {
+                  "type": "SelectionRange"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpClearSelection": {
+            "external": "azul_layout::managers::changeset::TextOpClearSelection",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "old_range": {
+                  "type": "SelectionRange"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "NodeStateSnapshot": {
+            "external": "azul_layout::managers::undo_redo::NodeStateSnapshot",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "node_id": {
+                  "type": "NodeId"
+                },
+                "text_content": {
+                  "type": "String"
+                },
+                "cursor_position": {
+                  "type": "OptionTextCursor"
+                },
+                "selection_range": {
+                  "type": "OptionSelectionRange"
+                },
+                "timestamp": {
+                  "type": "Instant"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "DragType": {
+            "external": "azul_layout::managers::drag_drop::DragType",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Node": {}
+              },
+              {
+                "File": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "SmallAriaInfo": {
+            "external": "azul_core::dom::SmallAriaInfo",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "label": {
+                  "type": "OptionString"
+                },
+                "role": {
+                  "type": "OptionAccessibilityRole"
+                },
+                "description": {
+                  "type": "OptionString"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "IdOrClass": {
+            "external": "azul_core::dom::IdOrClass",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Hash",
+              "Ord",
+              "PartialOrd",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Id": {
+                  "type": "String"
+                },
+                "Class": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C, u8"
           }
         }
       },
@@ -17975,7 +17997,9 @@
             ],
             "functions": {
               "deg": {
-                "doc": ["Creates an AngleValue from degrees"],
+                "doc": [
+                  "Creates an AngleValue from degrees"
+                ],
                 "fn_args": [
                   {
                     "value": "f32"
@@ -17987,7 +18011,9 @@
                 "fn_body": "AngleValue::deg(value)"
               },
               "rad": {
-                "doc": ["Creates an AngleValue from radians"],
+                "doc": [
+                  "Creates an AngleValue from radians"
+                ],
                 "fn_args": [
                   {
                     "value": "f32"
@@ -17999,7 +18025,9 @@
                 "fn_body": "AngleValue::rad(value)"
               },
               "grad": {
-                "doc": ["Creates an AngleValue from gradians"],
+                "doc": [
+                  "Creates an AngleValue from gradians"
+                ],
                 "fn_args": [
                   {
                     "value": "f32"
@@ -18011,7 +18039,9 @@
                 "fn_body": "AngleValue::grad(value)"
               },
               "turn": {
-                "doc": ["Creates an AngleValue from turns (1 turn = 360 degrees)"],
+                "doc": [
+                  "Creates an AngleValue from turns (1 turn = 360 degrees)"
+                ],
                 "fn_args": [
                   {
                     "value": "f32"
@@ -25476,6 +25506,349 @@
                   "type": "bool"
                 },
                 "is_italic": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpReplaceText": {
+            "external": "azul_layout::managers::changeset::TextOpReplaceText",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "range": {
+                  "type": "SelectionRange"
+                },
+                "old_text": {
+                  "type": "String"
+                },
+                "new_text": {
+                  "type": "String"
+                },
+                "new_cursor": {
+                  "type": "CursorPosition"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOperation": {
+            "external": "azul_layout::managers::changeset::TextOperation",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "InsertText": {
+                  "type": "TextOpInsertText"
+                },
+                "DeleteText": {
+                  "type": "TextOpDeleteText"
+                },
+                "ReplaceText": {
+                  "type": "TextOpReplaceText"
+                },
+                "SetSelection": {
+                  "type": "TextOpSetSelection"
+                },
+                "ExtendSelection": {
+                  "type": "TextOpExtendSelection"
+                },
+                "ClearSelection": {
+                  "type": "TextOpClearSelection"
+                },
+                "MoveCursor": {
+                  "type": "TextOpMoveCursor"
+                },
+                "Copy": {
+                  "type": "TextOpCopy"
+                },
+                "Cut": {
+                  "type": "TextOpCut"
+                },
+                "Paste": {
+                  "type": "TextOpPaste"
+                },
+                "SelectAll": {
+                  "type": "TextOpSelectAll"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "TextOpCopy": {
+            "external": "azul_layout::managers::changeset::TextOpCopy",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "range": {
+                  "type": "SelectionRange"
+                },
+                "content": {
+                  "type": "ClipboardContent"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpDeleteText": {
+            "external": "azul_layout::managers::changeset::TextOpDeleteText",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "range": {
+                  "type": "SelectionRange"
+                },
+                "deleted_text": {
+                  "type": "String"
+                },
+                "new_cursor": {
+                  "type": "CursorPosition"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpSelectAll": {
+            "external": "azul_layout::managers::changeset::TextOpSelectAll",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "old_range": {
+                  "type": "OptionSelectionRange"
+                },
+                "new_range": {
+                  "type": "SelectionRange"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpInsertText": {
+            "external": "azul_layout::managers::changeset::TextOpInsertText",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "position": {
+                  "type": "CursorPosition"
+                },
+                "text": {
+                  "type": "String"
+                },
+                "new_cursor": {
+                  "type": "CursorPosition"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpPaste": {
+            "external": "azul_layout::managers::changeset::TextOpPaste",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "position": {
+                  "type": "CursorPosition"
+                },
+                "content": {
+                  "type": "ClipboardContent"
+                },
+                "new_cursor": {
+                  "type": "CursorPosition"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TextOpCut": {
+            "external": "azul_layout::managers::changeset::TextOpCut",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "range": {
+                  "type": "SelectionRange"
+                },
+                "content": {
+                  "type": "ClipboardContent"
+                },
+                "new_cursor": {
+                  "type": "CursorPosition"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "FlowFromValue": {
+            "doc": [
+              "Type alias for CssPropertyValue < FlowFrom >"
+            ],
+            "external": "azul_css::props::property::FlowFromValue",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "FlowFrom"
+              ]
+            }
+          },
+          "ExtendMode": {
+            "external": "azul_css::props::style::background::ExtendMode",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Clone",
+              "PartialEq",
+              "Debug",
+              "Copy",
+              "Hash",
+              "Ord",
+              "PartialOrd",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Clamp": {},
+                "Repeat": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "FlowFrom": {
+            "external": "azul_css::props::layout::flow::FlowFrom",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Eq",
+              "Clone",
+              "PartialOrd",
+              "Ord",
+              "Hash",
+              "PartialEq",
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Named": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "FlowIntoValue": {
+            "doc": [
+              "Type alias for CssPropertyValue < FlowInto >"
+            ],
+            "external": "azul_css::props::property::FlowIntoValue",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "FlowInto"
+              ]
+            }
+          },
+          "FlowInto": {
+            "external": "azul_css::props::layout::flow::FlowInto",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Eq",
+              "Hash",
+              "Ord",
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Named": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "ArithmeticCoefficients": {
+            "external": "azul_css::props::style::filter::ArithmeticCoefficients",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "k1": {
+                  "type": "FloatValue"
+                },
+                "k2": {
+                  "type": "FloatValue"
+                },
+                "k3": {
+                  "type": "FloatValue"
+                },
+                "k4": {
+                  "type": "FloatValue"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "CascadeInfo": {
+            "doc": [
+              "Has all the necessary information about the style CSS path"
+            ],
+            "external": "azul_core::style::CascadeInfo",
+            "derive": [
+              "Hash",
+              "Default",
+              "Clone",
+              "Debug",
+              "PartialOrd",
+              "Ord",
+              "Eq",
+              "PartialEq",
+              "Copy"
+            ],
+            "struct_fields": [
+              {
+                "index_in_parent": {
+                  "type": "u32"
+                }
+              },
+              {
+                "is_last_child": {
                   "type": "bool"
                 }
               }
@@ -40782,23 +41155,34 @@
             ],
             "repr": "C"
           },
-          "ImageBufferKind": {
-            "external": "azul_core::resources::ImageBufferKind",
+          "DebugMessage": {
+            "external": "azul_core::gl::DebugMessage",
             "derive": [
-              "Copy",
-              "Clone",
-              "Debug",
               "Eq",
               "Hash",
-              "PartialEq",
+              "Ord",
+              "Debug",
               "PartialOrd",
-              "Ord"
+              "PartialEq",
+              "Clone"
             ],
-            "enum_fields": [
+            "struct_fields": [
               {
-                "Texture2D": {},
-                "TextureRect": {},
-                "TextureExternal": {}
+                "message": {
+                  "type": "String"
+                },
+                "source": {
+                  "type": "GLenum"
+                },
+                "ty": {
+                  "type": "GLenum"
+                },
+                "id": {
+                  "type": "GLenum"
+                },
+                "severity": {
+                  "type": "GLenum"
+                }
               }
             ],
             "repr": "C"
@@ -41481,288 +41865,6 @@
               }
             ],
             "repr": "C"
-          },
-          "ImageData": {
-            "external": "azul_core::resources::ImageData",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq",
-              "Eq",
-              "Ord",
-              "PartialOrd",
-              "Hash"
-            ],
-            "enum_fields": [
-              {
-                "Raw": {
-                  "type": "SharedRawImageData"
-                },
-                "External": {
-                  "type": "ExternalImageData"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "ExternalImageId": {
-            "external": "azul_core::resources::ExternalImageId",
-            "derive": [
-              "Copy",
-              "Clone",
-              "Debug",
-              "Eq",
-              "PartialEq",
-              "Hash",
-              "PartialOrd",
-              "Ord"
-            ],
-            "struct_fields": [
-              {
-                "inner": {
-                  "type": "u64"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "ExternalImageData": {
-            "external": "azul_core::resources::ExternalImageData",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Eq",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord"
-            ],
-            "struct_fields": [
-              {
-                "id": {
-                  "type": "ExternalImageId"
-                },
-                "channel_index": {
-                  "type": "u8"
-                },
-                "image_type": {
-                  "type": "ExternalImageType"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "SharedRawImageData": {
-            "external": "azul_core::resources::SharedRawImageData",
-            "derive": [
-              "Debug"
-            ],
-            "custom_impls": [
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "data": {
-                  "type": "c_void",
-                  "ref_kind": "constptr"
-                },
-                "copies": {
-                  "type": "c_void",
-                  "ref_kind": "constptr"
-                },
-                "run_destructor": {
-                  "type": "bool"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "ExternalImageType": {
-            "external": "azul_core::resources::ExternalImageType",
-            "derive": [
-              "Debug",
-              "Copy",
-              "Clone",
-              "Eq",
-              "Hash",
-              "PartialEq",
-              "PartialOrd",
-              "Ord"
-            ],
-            "enum_fields": [
-              {
-                "TextureHandle": {
-                  "type": "ImageBufferKind"
-                },
-                "Buffer": {}
-              }
-            ],
-            "repr": "C"
-          },
-          "RenderImageCallbackInfo": {
-            "doc": [
-              "Information passed to image rendering callbacks"
-            ],
-            "external": "azul_layout::callbacks::RenderImageCallbackInfo",
-            "custom_impls": [
-              "Clone",
-              "Debug"
-            ],
-            "struct_fields": [
-              {
-                "callback_node_id": {
-                  "type": "DomNodeId"
-                },
-                "bounds": {
-                  "type": "HidpiAdjustedBounds"
-                },
-                "gl_context": {
-                  "type": "OptionGlContextPtr",
-                  "ref_kind": "constptr"
-                },
-                "image_cache": {
-                  "type": "c_void",
-                  "ref_kind": "constptr"
-                },
-                "system_fonts": {
-                  "type": "c_void",
-                  "ref_kind": "constptr"
-                },
-                "callable_ptr": {
-                  "type": "OptionRefAny",
-                  "ref_kind": "constptr"
-                },
-                "_abi_mut": {
-                  "type": "c_void",
-                  "ref_kind": "mutptr"
-                }
-              }
-            ],
-            "functions": {
-              "get_bounds": {
-                "doc": [
-                  "Returns the bounds of the laid-out node"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  }
-                ],
-                "returns": {
-                  "type": "HidpiAdjustedBounds"
-                },
-                "fn_body": "object.get_bounds()"
-              },
-              "get_callback_node_id": {
-                "doc": [
-                  "Returns the DOM node ID that the callback is attached to"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  }
-                ],
-                "returns": {
-                  "type": "DomNodeId"
-                },
-                "fn_body": "object.get_callback_node_id()"
-              },
-              "get_gl_context": {
-                "doc": [
-                  "Returns the OpenGL context if available"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionGlContextPtr"
-                },
-                "fn_body": "object.get_gl_context()"
-              },
-              "get_ctx": {
-                "doc": [
-                  "Returns the context RefAny for FFI callbacks"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionRefAny"
-                },
-                "fn_body": "object.get_ctx()"
-              }
-            },
-            "repr": "C"
-          },
-          "RenderImageCallbackType": {
-            "external": "azul_layout::callbacks::RenderImageCallbackType",
-            "callback_typedef": {
-              "fn_args": [
-                {
-                  "type": "RefAny"
-                },
-                {
-                  "type": "RenderImageCallbackInfo"
-                }
-              ],
-              "returns": {
-                "type": "ImageRef"
-              }
-            }
-          },
-          "RenderImageCallback": {
-            "doc": [
-              "Callback for rendering dynamic images"
-            ],
-            "external": "azul_layout::callbacks::RenderImageCallback",
-            "custom_impls": [
-              "Clone",
-              "Debug"
-            ],
-            "struct_fields": [
-              {
-                "cb": {
-                  "type": "RenderImageCallbackType"
-                },
-                "ctx": {
-                  "type": "OptionRefAny"
-                }
-              }
-            ],
-            "constructors": {
-              "create": {
-                "doc": [
-                  "Creates a new RenderImageCallback from a function pointer"
-                ],
-                "fn_args": [
-                  {
-                    "cb": "RenderImageCallbackType"
-                  }
-                ],
-                "fn_body": "azul_layout::callbacks::RenderImageCallback::create(cb)"
-              }
-            },
-            "functions": {
-              "to_core": {
-                "doc": [
-                  "Converts this RenderImageCallback to a CoreRenderImageCallback for use with ImageRef::callback"
-                ],
-                "fn_args": [
-                  {
-                    "self": "value"
-                  }
-                ],
-                "fn_body": "self.to_core()",
-                "returns": {
-                  "type": "CoreRenderImageCallback"
-                }
-              }
-            },
-            "repr": "C"
           }
         }
       },
@@ -42404,6 +42506,57 @@
               {
                 "load_outlines": {
                   "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "Panose": {
+            "external": "azul_css::props::basic::font::Panose",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "family_type": {
+                  "type": "u8"
+                },
+                "serif_style": {
+                  "type": "u8"
+                },
+                "weight": {
+                  "type": "u8"
+                },
+                "proportion": {
+                  "type": "u8"
+                },
+                "contrast": {
+                  "type": "u8"
+                },
+                "stroke_variation": {
+                  "type": "u8"
+                },
+                "arm_style": {
+                  "type": "u8"
+                },
+                "letterform": {
+                  "type": "u8"
+                },
+                "midline": {
+                  "type": "u8"
+                },
+                "x_height": {
+                  "type": "u8"
                 }
               }
             ],
@@ -49063,6 +49216,11 @@
           },
           "StyledTextRunVec": {
             "external": "azul_layout::managers::selection::StyledTextRunVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq"
+            ],
             "derive": [
               "Debug"
             ],
@@ -49087,6 +49245,68 @@
               }
             ],
             "repr": "C"
+          },
+          "SelectionVecDestructorType": {
+            "external": "azul_core::selection::SelectionVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "SelectionVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
+          },
+          "SelectionVec": {
+            "external": "azul_core::selection::SelectionVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "Selection",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "SelectionVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "SelectionVecDestructor": {
+            "external": "azul_core::selection::SelectionVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "SelectionVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -49095,24 +49315,6 @@
           "Definition of azuls internal `Option<*>` wrappers"
         ],
         "classes": {
-          "ScrollState": {
-            "external": "azul_core::hit_test::ScrollState",
-            "derive": [
-              "Debug",
-              "Copy",
-              "Clone",
-              "PartialEq",
-              "PartialOrd"
-            ],
-            "struct_fields": [
-              {
-                "scroll_position": {
-                  "type": "LogicalPosition"
-                }
-              }
-            ],
-            "repr": "C"
-          },
           "OptionScrollState": {
             "external": "azul_core::hit_test::OptionScrollState",
             "derive": [
@@ -50050,7 +50252,7 @@
             "repr": "C"
           },
           "OptionUsize": {
-            "external": "azul_core::gl::OptionUsize",
+            "external": "azul_css::corety::OptionUsize",
             "derive": [
               "Clone",
               "Debug",
@@ -50618,68 +50820,6 @@
             ],
             "repr": "C"
           },
-          "ThreadReceiveMsg": {
-            "external": "azul_layout::thread::ThreadReceiveMsg",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq",
-              "PartialOrd",
-              "Eq",
-              "Ord",
-              "Hash"
-            ],
-            "enum_fields": [
-              {
-                "WriteBack": {
-                  "type": "ThreadWriteBackMsg"
-                },
-                "Update": {
-                  "type": "Update"
-                }
-              }
-            ],
-            "repr": "C, u8"
-          },
-          "ThreadWriteBackMsg": {
-            "external": "azul_layout::thread::ThreadWriteBackMsg",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq",
-              "PartialOrd",
-              "Eq",
-              "Ord",
-              "Hash"
-            ],
-            "struct_fields": [
-              {
-                "refany": {
-                  "type": "RefAny"
-                },
-                "callback": {
-                  "type": "WriteBackCallback"
-                }
-              }
-            ],
-            "constructors": {
-              "new": {
-                "doc": [
-                  "Creates a new ThreadWriteBackMsg with the given callback and data"
-                ],
-                "fn_args": [
-                  {
-                    "callback": "WriteBackCallbackType"
-                  },
-                  {
-                    "data": "RefAny"
-                  }
-                ],
-                "fn_body": "azul_layout::thread::ThreadWriteBackMsg::new(callback, data)"
-              }
-            },
-            "repr": "C"
-          },
           "OptionThreadReceiveMsg": {
             "external": "azul_layout::thread::OptionThreadReceiveMsg",
             "custom_impls": [
@@ -50806,8 +50946,7 @@
             "derive": [
               "Debug",
               "Clone",
-              "PartialEq",
-              "Eq"
+              "PartialEq"
             ],
             "enum_fields": [
               {
@@ -50884,7 +51023,7 @@
             "repr": "C"
           },
           "OptionU64": {
-            "external": "azul_css::OptionU64",
+            "external": "azul_css::corety::OptionU64",
             "derive": [
               "Debug",
               "Clone",
@@ -51007,6 +51146,82 @@
               {
                 "Some": {
                   "type": "DeleteResult"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionDragState": {
+            "external": "azul_layout::managers::drag_drop::OptionDragState",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "DragState"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionPenState": {
+            "external": "azul_layout::managers::gesture::OptionPenState",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "PenState"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionUndoableOperation": {
+            "external": "azul_layout::managers::undo_redo::OptionUndoableOperation",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "UndoableOperation"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionClipboardContent": {
+            "external": "azul_layout::managers::selection::OptionClipboardContent",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "ClipboardContent"
                 }
               }
             ],
@@ -51800,333 +52015,46 @@
               }
             ],
             "repr": "C"
-          }
-        }
-      },
-      "misc": {
-        "classes": {
-          "CascadeInfo": {
-            "doc": [
-              "Has all the necessary information about the style CSS path"
-            ],
-            "external": "azul_core::style::CascadeInfo",
-            "derive": [
-              "Hash",
-              "Default",
-              "Clone",
-              "Debug",
-              "PartialOrd",
-              "Ord",
-              "Eq",
-              "PartialEq",
-              "Copy"
-            ],
-            "struct_fields": [
-              {
-                "index_in_parent": {
-                  "type": "u32"
-                }
-              },
-              {
-                "is_last_child": {
-                  "type": "bool"
-                }
-              }
-            ],
-            "repr": "C"
           },
-          "ExtendMode": {
-            "external": "azul_css::props::style::background::ExtendMode",
+          "SelectAllResult": {
+            "external": "azul_layout::callbacks::SelectAllResult",
             "custom_impls": [
-              "Default"
+              "From"
             ],
             "derive": [
-              "Clone",
-              "PartialEq",
               "Debug",
-              "Copy",
-              "Hash",
-              "Ord",
-              "PartialOrd",
-              "Eq"
+              "Clone",
+              "PartialEq"
             ],
-            "enum_fields": [
+            "struct_fields": [
               {
-                "Clamp": {},
-                "Repeat": {}
+                "full_text": {
+                  "type": "String"
+                },
+                "selection_range": {
+                  "type": "SelectionRange"
+                }
               }
             ],
             "repr": "C"
           },
-          "FlowInto": {
-            "external": "azul_css::props::layout::flow::FlowInto",
+          "DeleteResult": {
+            "external": "azul_layout::callbacks::DeleteResult",
             "custom_impls": [
-              "Default"
+              "From"
             ],
-            "derive": [
-              "Eq",
-              "Hash",
-              "Ord",
-              "Clone",
-              "Debug",
-              "PartialEq",
-              "PartialOrd"
-            ],
-            "enum_fields": [
-              {
-                "None": {},
-                "Named": {
-                  "type": "String"
-                }
-              }
-            ],
-            "repr": "C, u8"
-          },
-          "FlowFromValue": {
-            "doc": [
-              "Type alias for CssPropertyValue < FlowFrom >"
-            ],
-            "external": "azul_css::props::property::FlowFromValue",
-            "type_alias": {
-              "target": "CssPropertyValue",
-              "generic_args": [
-                "FlowFrom"
-              ]
-            }
-          },
-          "IdOrClass": {
-            "external": "azul_core::dom::IdOrClass",
             "derive": [
               "Debug",
               "Clone",
-              "PartialEq",
-              "Hash",
-              "Ord",
-              "PartialOrd",
-              "Eq"
-            ],
-            "enum_fields": [
-              {
-                "Id": {
-                  "type": "String"
-                },
-                "Class": {
-                  "type": "String"
-                }
-              }
-            ],
-            "repr": "C, u8"
-          },
-          "FlowFrom": {
-            "external": "azul_css::props::layout::flow::FlowFrom",
-            "custom_impls": [
-              "Default"
-            ],
-            "derive": [
-              "Eq",
-              "Clone",
-              "PartialOrd",
-              "Ord",
-              "Hash",
-              "PartialEq",
-              "Debug"
-            ],
-            "enum_fields": [
-              {
-                "None": {},
-                "Named": {
-                  "type": "String"
-                }
-              }
-            ],
-            "repr": "C, u8"
-          },
-          "FlowIntoValue": {
-            "doc": [
-              "Type alias for CssPropertyValue < FlowInto >"
-            ],
-            "external": "azul_css::props::property::FlowIntoValue",
-            "type_alias": {
-              "target": "CssPropertyValue",
-              "generic_args": [
-                "FlowInto"
-              ]
-            }
-          },
-          "EdgeType": {
-            "external": "azul_core::callbacks::EdgeType",
-            "derive": [
-              "Debug",
-              "PartialEq",
-              "Eq",
-              "Clone",
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "Top": {},
-                "Bottom": {},
-                "Left": {},
-                "Right": {}
-              }
-            ],
-            "repr": "C"
-          },
-          "DebugMessage": {
-            "external": "azul_core::gl::DebugMessage",
-            "derive": [
-              "Eq",
-              "Hash",
-              "Ord",
-              "Debug",
-              "PartialOrd",
-              "PartialEq",
-              "Clone"
+              "PartialEq"
             ],
             "struct_fields": [
               {
-                "message": {
+                "range_to_delete": {
+                  "type": "SelectionRange"
+                },
+                "deleted_text": {
                   "type": "String"
-                },
-                "source": {
-                  "type": "GLenum"
-                },
-                "ty": {
-                  "type": "GLenum"
-                },
-                "id": {
-                  "type": "GLenum"
-                },
-                "severity": {
-                  "type": "GLenum"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "ArithmeticCoefficients": {
-            "external": "azul_css::props::style::filter::ArithmeticCoefficients",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq",
-              "Eq",
-              "PartialOrd",
-              "Ord",
-              "Hash"
-            ],
-            "struct_fields": [
-              {
-                "k1": {
-                  "type": "FloatValue"
-                },
-                "k2": {
-                  "type": "FloatValue"
-                },
-                "k3": {
-                  "type": "FloatValue"
-                },
-                "k4": {
-                  "type": "FloatValue"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "Panose": {
-            "external": "azul_css::props::basic::font::Panose",
-            "custom_impls": [
-              "Default"
-            ],
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialEq",
-              "Eq",
-              "PartialOrd",
-              "Ord",
-              "Hash"
-            ],
-            "struct_fields": [
-              {
-                "family_type": {
-                  "type": "u8"
-                },
-                "serif_style": {
-                  "type": "u8"
-                },
-                "weight": {
-                  "type": "u8"
-                },
-                "proportion": {
-                  "type": "u8"
-                },
-                "contrast": {
-                  "type": "u8"
-                },
-                "stroke_variation": {
-                  "type": "u8"
-                },
-                "arm_style": {
-                  "type": "u8"
-                },
-                "letterform": {
-                  "type": "u8"
-                },
-                "midline": {
-                  "type": "u8"
-                },
-                "x_height": {
-                  "type": "u8"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "SmallAriaInfo": {
-            "external": "azul_core::dom::SmallAriaInfo",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq",
-              "Eq",
-              "Hash"
-            ],
-            "struct_fields": [
-              {
-                "label": {
-                  "type": "OptionString"
-                },
-                "role": {
-                  "type": "OptionAccessibilityRole"
-                },
-                "description": {
-                  "type": "OptionString"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "GraphemeClusterId": {
-            "external": "azul_core::selection::GraphemeClusterId",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialEq",
-              "Eq",
-              "Hash",
-              "PartialOrd",
-              "Ord"
-            ],
-            "struct_fields": [
-              {
-                "source_run": {
-                  "type": "u32"
-                },
-                "start_byte_in_run": {
-                  "type": "u32"
                 }
               }
             ],
@@ -52616,6 +52544,9 @@
           },
           "ThreadInner": {
             "external": "azul_layout::thread::ThreadInner",
+            "custom_impls": [
+              "Drop"
+            ],
             "derive": [
               "Debug"
             ],
@@ -52781,6 +52712,68 @@
               }
             },
             "repr": "C"
+          },
+          "ThreadWriteBackMsg": {
+            "external": "azul_layout::thread::ThreadWriteBackMsg",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "PartialOrd",
+              "Eq",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "refany": {
+                  "type": "RefAny"
+                },
+                "callback": {
+                  "type": "WriteBackCallback"
+                }
+              }
+            ],
+            "constructors": {
+              "new": {
+                "doc": [
+                  "Creates a new ThreadWriteBackMsg with the given callback and data"
+                ],
+                "fn_args": [
+                  {
+                    "callback": "WriteBackCallbackType"
+                  },
+                  {
+                    "data": "RefAny"
+                  }
+                ],
+                "fn_body": "azul_layout::thread::ThreadWriteBackMsg::new(callback, data)"
+              }
+            },
+            "repr": "C"
+          },
+          "ThreadReceiveMsg": {
+            "external": "azul_layout::thread::ThreadReceiveMsg",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "PartialOrd",
+              "Eq",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "WriteBack": {
+                  "type": "ThreadWriteBackMsg"
+                },
+                "Update": {
+                  "type": "Update"
+                }
+              }
+            ],
+            "repr": "C, u8"
           }
         }
       }

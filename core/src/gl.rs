@@ -16,7 +16,7 @@ use azul_css::{
         basic::{ColorF, ColorU},
         style::StyleTransformVec,
     },
-    AzString, StringVec, U8Vec,
+    AzString, StringVec, U8Vec, OptionUsize,
 };
 pub use gl_context_loader::{
     ctypes::*, gl, GLeglImageOES, GLsync, GLvoid, GenericGlContext, GlType as GlContextGlType,
@@ -2937,12 +2937,6 @@ pub struct VertexAttribute {
     /// f32 values))
     pub item_count: usize,
 }
-
-impl_option!(
-    usize,
-    OptionUsize,
-    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
-);
 
 impl VertexAttribute {
     pub fn get_stride(&self) -> usize {

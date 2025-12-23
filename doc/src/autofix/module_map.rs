@@ -129,6 +129,10 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "rgb",
             "hsl",
             "hsv",
+            "cascade",      // CascadeInfo
+            "extendmode",   // ExtendMode
+            "flow",         // FlowInto, FlowFrom, FlowIntoValue, FlowFromValue
+            "arithmetic",   // ArithmeticCoefficients
         ],
     );
 
@@ -196,6 +200,8 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "gesture",       // GestureAndDragManager
             "input",         // InputSample, InputSession
             "bidi",          // BidiDirection, BidiLevel
+            "idorclass",     // IdOrClass
+            "aria",          // SmallAriaInfo
         ],
     );
 
@@ -216,6 +222,13 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "refany",        // RefAny, RefCount
             "refcount",
             "update",        // Update enum
+            "edgetype",      // EdgeType
+            "grapheme",      // GraphemeClusterId
+            "scrollstate",   // ScrollState
+            "pentilt",       // PenTilt
+            "penstate",      // PenState
+            "changeset",     // ChangesetId
+            "undoable",      // UndoableOperation
         ],
     );
 
@@ -236,6 +249,7 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "framebuffer",
             "renderbuffer",
             "sync",
+            "debugmessage",  // DebugMessage
         ],
     );
 
@@ -275,7 +289,7 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
     // Font module
     map.insert(
         "font",
-        vec!["fontref", "fontmetric", "parsedfont", "loadedfont", "glyph"],
+        vec!["fontref", "fontmetric", "parsedfont", "loadedfont", "glyph", "panose"],
     );
 
     // Menu module
