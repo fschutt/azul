@@ -186,9 +186,8 @@ impl Win32Window {
         })?;
 
         // Get HINSTANCE from GetModuleHandleW(NULL)
-        let hinstance = {
-            let null_str = vec![0u16];
-            unsafe { (win32.user32.GetModuleHandleW)(null_str.as_ptr()) }
+        let hinstance = unsafe {
+            (win32.user32.GetModuleHandleW)(ptr::null())
         };
 
         if hinstance.is_null() {
