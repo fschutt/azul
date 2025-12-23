@@ -277,3 +277,100 @@ fn test_dom_deep_tree() {
     let dom = create_deep(20);
     assert_eq!(dom.children.len(), 1);
 }
+
+// ============================================================================
+// Tests for estimated_total_children bug in add_child
+// ============================================================================
+
+#[test]
+fn test_add_child_estimated_total_children_with_nested_children() {
+    // Create a parent node
+    let mut parent = Dom::create_div();
+
+    // Create a child with its own children (grandchildren)
+    let mut child = Dom::create_div();
+    child.add_child(Dom::create_node(NodeType::Span));
+    child.add_child(Dom::create_node(NodeType::Span));
+
+    // At this point, child should have estimated_total_children = 2
+    // (one for each of its 2 children)
+    assert_eq!(child.estimated_total_children, 2);
+
+    // Now add this child (with its 2 descendants) to parent
+    parent.add_child(child);
+
+    // Expected behavior: parent should have estimated_total_children = 3
+    // (the child itself + its 2 descendants)
+    assert_eq!(
+        parent.estimated_total_children,
+        3,
+        "add_child should increment estimated_total_children by (child.estimated_total_children + 1), not just 1"
+    );
+}
+
+#[test]
+fn test_set_children_estimated_total_children_correct() {
+    // Create a parent node
+    let mut parent = Dom::create_div();
+
+    // Create a child with its own children (grandchildren)
+    let mut child = Dom::create_div();
+    child.add_child(Dom::create_node(NodeType::Span));
+    child.add_child(Dom::create_node(NodeType::Span));
+
+    // At this point, child should have estimated_total_children = 2
+    assert_eq!(child.estimated_total_children, 2);
+
+    // Now use set_children instead
+    parent.set_children(vec![child].into());
+
+    // This should correctly be 3 (the child + its 2 descendants)
+    assert_eq!(
+        parent.estimated_total_children,
+        3,
+        "set_children correctly calculates estimated_total_children"
+    );
+}
+
+#[test]
+fn test_add_child_vs_set_children_consistency() {
+    // Create identical structures using add_child and set_children
+
+    // Method 1: Using add_child
+    let mut parent1 = Dom::create_div();
+    let mut child1 = Dom::create_div();
+    child1.add_child(Dom::create_node(NodeType::Span));
+    child1.add_child(Dom::create_node(NodeType::Span));
+    parent1.add_child(child1);
+
+    // Method 2: Using set_children
+    let mut parent2 = Dom::create_div();
+    let mut child2 = Dom::create_div();
+    child2.add_child(Dom::create_node(NodeType::Span));
+    child2.add_child(Dom::create_node(NodeType::Span));
+    parent2.set_children(vec![child2].into());
+
+    // These should produce identical DOM structures with identical estimated_total_children
+    assert_eq!(
+        parent1.estimated_total_children,
+        parent2.estimated_total_children,
+        "add_child and set_children should produce the same estimated_total_children for identical DOM structures"
+    );
+}
+
+#[test]
+fn test_add_child_node_count_matches_actual() {
+    let mut parent = Dom::create_div();
+    let mut child = Dom::create_div();
+    child.add_child(Dom::create_node(NodeType::Span));
+    child.add_child(Dom::create_node(NodeType::Span));
+    parent.add_child(child);
+
+    // node_count() = estimated_total_children + 1
+    // Parent (1) + child (1) + 2 grandchildren (2) = 4 total nodes
+    assert_eq!(
+        parent.node_count(),
+        4,
+        "node_count() should return the actual total node count including all descendants"
+    );
+}

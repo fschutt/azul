@@ -15,7 +15,6 @@ use azul_core::{
 };
 use azul_css::{
     css::Css,
-    css::Css,
     props::{
         basic::font::{StyleFontSize, StyleFontStyle, StyleFontWeight},
         property::{CssProperty, CssPropertyType},

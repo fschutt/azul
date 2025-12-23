@@ -4506,12 +4506,13 @@ impl Dom {
 
     #[inline]
     pub fn add_child(&mut self, child: Dom) {
+        let estimated = child.estimated_total_children;
         let mut v: DomVec = Vec::new().into();
         mem::swap(&mut v, &mut self.children);
         let mut v = v.into_library_owned_vec();
         v.push(child);
         self.children = v.into();
-        self.estimated_total_children += 1;
+        self.estimated_total_children += estimated + 1;
     }
 
     #[inline(always)]
