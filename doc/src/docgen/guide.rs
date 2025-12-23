@@ -201,13 +201,13 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             margin-left: 30px;
         }
         #guide li {
-            font-size: 1.2em;
+            font-size: 1.1em;
             margin-bottom: 1em;
             margin-top: 1em;
         }
         #guide p {
-            margin-bottom: 15px;
-            margin-top: 10px;
+            margin-bottom: 1.5em;
+            margin-top: 1.5em;
         }
         #guide code {
             font-family: monospace;
@@ -240,7 +240,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
         }
         .markdown-alert-warning .markdown-alert-title {
             font-weight: bold;
-            font-size: 1.2em;
+            font-size: 1.1em;
         }
     ";
 
