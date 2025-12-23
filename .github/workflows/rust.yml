@@ -50,7 +50,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.86.0 # Pinning version for consistency
+          toolchain: 1.87.0 # Pinning version for consistency
 
       - name: Run autofix and normalize
         run: |
@@ -103,7 +103,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.87.0
 
       - name: Install clang
         run: |
@@ -172,7 +172,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.87.0
 
       - name: Install clang (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
@@ -275,7 +275,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.87.0
 
       - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc memtest dll
@@ -321,7 +321,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.87.0
 
       - name: Install Miri
         run: |
@@ -360,7 +360,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.87.0
 
       - name: Install Miri
         run: |
@@ -428,7 +428,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.87.0
 
       - name: Generate DLL API bindings for c-api feature
         run: cargo run -r -p azul-doc memtest dll
@@ -513,7 +513,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.87.0
 
       - name: Install clang (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -599,7 +599,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.86.0
+          toolchain: 1.87.0
 
       - name: Install NFPM
         run: |
