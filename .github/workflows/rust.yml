@@ -181,7 +181,7 @@ jobs:
           sudo apt-get install -y clang
 
       - name: Generate DLL API bindings
-        run: cargo run -r -p azul-doc memtest dll
+        run: cargo run -r -p azul-doc codegen all
 
       - name: Build azul-dll (for linking)
         run: cargo build -p azul-dll --release
@@ -278,12 +278,7 @@ jobs:
           toolchain: 1.87.0
 
       - name: Generate DLL API bindings
-        run: cargo run -r -p azul-doc memtest dll
-
-      - name: Generate all headers
-        run: |
-          cargo run -r -p azul-doc codegen c
-          cargo run -r -p azul-doc codegen cpp
+        run: cargo run -r -p azul-doc codegen all
 
       - name: Compile C examples (syntax check)
         shell: bash
@@ -332,10 +327,7 @@ jobs:
         run: cargo +nightly miri test --lib -p azul-core
 
       - name: Generate DLL API bindings
-        run: cargo run -r -p azul-doc memtest dll
-
-      - name: Run memtest
-        run: cargo run -r -p azul-doc memtest run
+        run: cargo run -r -p azul-doc codegen all
 
       - name: Cache Chrome reference images
         uses: actions/cache@v4
@@ -373,13 +365,10 @@ jobs:
           sudo apt-get install -y clang lldb
 
       - name: Generate DLL API bindings for c-api feature
-        run: cargo run -r -p azul-doc memtest dll
+        run: cargo run -r -p azul-doc codegen all
 
       - name: Build azul-dll with c-api feature (debug)
         run: cargo build -p azul-dll --features c-api
-
-      - name: Generate C header
-        run: cargo run -r -p azul-doc codegen
 
       - name: Compile C hello-world with Address Sanitizer
         run: |
@@ -431,13 +420,10 @@ jobs:
           toolchain: 1.87.0
 
       - name: Generate DLL API bindings for c-api feature
-        run: cargo run -r -p azul-doc memtest dll
+        run: cargo run -r -p azul-doc codegen all
 
       - name: Build azul-dll with c-api feature (debug)
         run: cargo build -p azul-dll --features c-api
-
-      - name: Generate C header
-        run: cargo run -r -p azul-doc codegen
 
       - name: Compile C hello-world with Address Sanitizer
         run: |
@@ -520,7 +506,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang
 
       - name: Generate DLL API bindings
-        run: cargo run -r -p azul-doc memtest dll
+        run: cargo run -r -p azul-doc codegen all
 
       - name: Generate C header for syntax check (Linux)
         if: matrix.os == 'ubuntu-latest'
