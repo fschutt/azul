@@ -380,7 +380,7 @@ impl Win32Window {
         // TODO: Use monitor_id to look up actual Monitor from global state
         position_window_on_monitor(
             hwnd,
-            Monitor::default().id,
+            Monitor::default().monitor_id,
             current_window_state.position,
             current_window_state.size,
             &win32,
@@ -2093,7 +2093,7 @@ unsafe extern "system" fn window_proc(
                 let layout_callback = Callback::from_core(callback.callback);
                 let mut menu_callback = MenuCallback {
                     callback: layout_callback,
-                    data: callback.data,
+                    refany: callback.refany,
                 };
 
                 // Get layout window
@@ -3006,12 +3006,12 @@ fn position_window_on_monitor(
     let target_monitor = monitors
         .as_slice()
         .iter()
-        .find(|m| m.id.index == monitor_id.index)
+        .find(|m| m.monitor_id.index == monitor_id.index)
         .or_else(|| {
             monitors
                 .as_slice()
                 .iter()
-                .find(|m| m.id.hash == monitor_id.hash && monitor_id.hash != 0)
+                .find(|m| m.monitor_id.hash == monitor_id.hash && monitor_id.hash != 0)
         })
         .unwrap_or(&monitors.as_slice()[0]); // Fallback to primary
 
