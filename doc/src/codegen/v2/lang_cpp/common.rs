@@ -72,7 +72,11 @@ pub fn is_primitive(type_name: &str) -> bool {
     matches!(type_name,
         "bool" | "u8" | "u16" | "u32" | "u64" | "usize" |
         "i8" | "i16" | "i32" | "i64" | "isize" |
-        "f32" | "f64" | "c_void" | "()"
+        "f32" | "f64" | "c_void" | "()" |
+        // C FFI types
+        "c_int" | "c_uint" | "c_long" | "c_ulong" |
+        "c_char" | "c_uchar" | "c_short" | "c_ushort" |
+        "c_longlong" | "c_ulonglong" | "c_float" | "c_double"
     )
 }
 
@@ -93,6 +97,19 @@ pub fn primitive_to_c(type_name: &str) -> String {
         "f32" => "float".to_string(),
         "f64" => "double".to_string(),
         "c_void" | "()" => "void".to_string(),
+        // C FFI types
+        "c_char" => "char".to_string(),
+        "c_uchar" => "unsigned char".to_string(),
+        "c_short" => "short".to_string(),
+        "c_ushort" => "unsigned short".to_string(),
+        "c_int" => "int".to_string(),
+        "c_uint" => "unsigned int".to_string(),
+        "c_long" => "long".to_string(),
+        "c_ulong" => "unsigned long".to_string(),
+        "c_longlong" => "long long".to_string(),
+        "c_ulonglong" => "unsigned long long".to_string(),
+        "c_float" => "float".to_string(),
+        "c_double" => "double".to_string(),
         _ => type_name.to_string(),
     }
 }
@@ -271,6 +288,28 @@ pub fn get_cpp_return_type(return_type: Option<&str>, ir: &CodegenIR) -> String 
     match return_type {
         None => "void".to_string(),
         Some(rt) => {
+            let trimmed = rt.trim();
+            
+            // Handle pointer types: *const T, *mut T
+            if trimmed.starts_with("*const ") {
+                let inner = trimmed.strip_prefix("*const ").unwrap().trim();
+                let c_inner = if is_primitive(inner) {
+                    primitive_to_c(inner)
+                } else {
+                    format!("Az{}", inner)
+                };
+                return format!("const {}*", c_inner);
+            }
+            if trimmed.starts_with("*mut ") {
+                let inner = trimmed.strip_prefix("*mut ").unwrap().trim();
+                let c_inner = if is_primitive(inner) {
+                    primitive_to_c(inner)
+                } else {
+                    format!("Az{}", inner)
+                };
+                return format!("{}*", c_inner);
+            }
+            
             if is_primitive(rt) {
                 primitive_to_c(rt)
             } else if type_has_wrapper(rt, ir) {
