@@ -108,11 +108,11 @@ aside {
     display: block;
 }
 
-/* Fake bold for version number using text-shadow */
+/* Fake bold for version number using text-shadow - uses same font as regular p */
 #latestrelease p strong {
-    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+    font-family: "Source Serif Pro", Georgia, "Times New Roman", serif;
     font-weight: normal;
-    text-shadow: 0.013em 0 0 currentColor, -0.013em 0 0 currentColor;
+    text-shadow: 0.3px 0 0 currentColor, -0.3px 0 0 currentColor;
 }
 
 img.showcase {
@@ -202,10 +202,10 @@ main h1, main h2, h1, h2 {
     font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
 }
 
-/* Main page h1 - large eye-catcher with smooth scaling */
+/* Main page h1 - large eye-catcher with responsive scaling */
 main h1 {
-    /* clamp(min, preferred, max) for smooth font scaling */
-    font-size: clamp(2.2em, 4.5vw, 3.5em);
+    /* Base size for large screens */
+    font-size: 3.5em;
     font-weight: normal;
     line-height: 1.0;
     margin-bottom: 20px;
@@ -228,9 +228,8 @@ main h1 {
     left: 0;
     margin: 0;
     padding: 8px 15px;
-    /* Responsive font-size with clamp for smooth scaling */
-    /* min 1.8em on mobile, scales up to 3em on large screens */
-    font-size: clamp(1.8em, 3vw, 3em);
+    /* Base size for large screens */
+    font-size: 2.5em;
     font-weight: normal;
     line-height: 1.0;
     color: #000;
@@ -251,7 +250,7 @@ main h3, h3 {
 
 main p, p {
     font-family: "Source Serif Pro", Georgia, "Times New Roman", serif;
-    font-size: 1em;
+    font-size: 1.2em;
     line-height: 1.6;
     color: #444;
 }
@@ -546,11 +545,17 @@ main > header h3 {
 }
 
 /* Install controls - grouped together */
+/* Hidden by default, only shown on first example */
 .install-controls {
-  display: flex;
+  display: none;
   gap: 4px;
   align-items: center;
   margin-left: auto;
+}
+
+/* Show install controls (OS/method dropdowns) only on first example */
+.feature-section[data-is-first="true"] .install-controls {
+  display: flex;
 }
 
 .tab-bar select {
@@ -732,4 +737,57 @@ main > header h3 {
     padding: 4px 6px;
     font-size: 11px;
   }
+  
+  /* Frontpage h1/h2/tagline sizing for tablet - remove h1 override to keep desktop size */
+  .feature-image h2.feature-title {
+    font-size: 2.2em;
+  }
+  
+  .tagline {
+    font-size: 1.15em;
+  }
 }
+
+/* Medium mobile: 768px and below */
+@media screen and (max-width: 768px) {
+  main h1 {
+    font-size: 2.6em;
+  }
+  
+  .feature-image h2.feature-title {
+    font-size: 2.3em;
+  }
+  
+  .tagline {
+    font-size: 1.2em;
+  }
+}
+
+/* Small mobile: 480px and below */
+@media screen and (max-width: 480px) {
+  main h1 {
+    font-size: 2em;
+  }
+  
+  .feature-image h2.feature-title {
+    font-size: 1.8em;
+  }
+  
+  .tagline {
+    font-size: 1em;
+  }
+}
+
+/* Extra small: 360px and below */
+@media screen and (max-width: 360px) {
+  main h1 {
+    font-size: 1.7em;
+  }
+  
+  .feature-image h2.feature-title {
+    font-size: 1.5em;
+  }
+  
+  .tagline {
+    font-size: 0.95em;
+  }

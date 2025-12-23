@@ -132,9 +132,7 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
         },
         &Plugins {
             render: RenderPlugins {
-                codefence_syntax_highlighter: Some(&comrak::plugins::syntect::SyntectAdapter::new(
-                    None,
-                )),
+                codefence_syntax_highlighter: None, // Syntax highlighting handled by Prism.js
                 heading_adapter: None,
             },
         },
@@ -146,34 +144,41 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
     let css = "
         h1 { 
             font-family: 'Instrument Serif', Georgia, serif;
-            font-size: clamp(2.2em, 4.5vw, 3.5em);
+            font-size: 2.5em;
             font-weight: normal;
-            line-height: 1.0;
+            line-height: 1.2;
             margin-top: 0;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
             text-shadow: currentColor 0.5px 0.5px 0.5px, currentColor -0.5px -0.5px 0.5px, currentColor 0px -0.5px 0.5px, currentColor -0.5px 0px 0.5px;
             letter-spacing: 0.02em;
+        }
+        @media screen and (max-width: 768px) {
+            h1 { font-size: 2.2em; }
+        }
+        @media screen and (max-width: 480px) {
+            h1 { font-size: 1.8em; }
         }
         h2, h3, h4 { cursor: pointer; }
         h2 { 
             font-family: 'Instrument Serif', Georgia, serif;
-            font-size: 2em;
+            font-size: 1.6em;
             font-weight: normal;
-            margin-top: 30px; 
-            margin-bottom: 10px;
+            margin-top: 40px; 
+            margin-bottom: 15px;
             text-shadow: 0.3px 0 0 currentColor, -0.3px 0 0 currentColor;
         }
-        h3 { margin-top: 25px; margin-bottom: 5px; }
-        h4 { margin-top: 20px; margin-bottom: 5px; }
-        #blog { max-width: 700px; line-height: 1.5; font-size: 1.2em; }
-        #blog img { max-width: 700px; margin-top: 10px; margin-bottom: 10px;}
+        h3 { margin-top: 35px; margin-bottom: 10px; font-size: 1.3em; }
+        h4 { margin-top: 25px; margin-bottom: 8px; font-size: 1.1em; }
+        #blog { max-width: 700px; line-height: 1.7; font-size: 1.1em; }
+        #blog img { max-width: 700px; margin-top: 15px; margin-bottom: 15px;}
         #blog ul, #blog ol {
-            margin-top: 10px;
-            margin-bottom: 10px;
+            margin-top: 15px;
+            margin-bottom: 15px;
             margin-left: 30px;
         }
         #blog li {
             font-size: 1em;
+            margin-bottom: 8px;
         }
         #blog p {
             margin-bottom: 15px;
@@ -182,18 +187,21 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
         #blog code {
             font-family: monospace;
             font-weight: bold;
+            font-size: 10pt;
             border-radius: 3px;
-            padding: 2.5px 10px;
+            padding: 0px 3px;
         }
         #blog pre code {
-            font-weight: bold;
+            font-weight: normal;
             font-family: monospace;
-            margin-top: 10px;
-            margin-bottom: 10px;
-            display: flex;
-            flex-direction: column;
-            padding: 10px;
+            font-size: 10pt;
+            margin-top: 5px;
+            margin-bottom: 5px;
+            display: block;
+            padding: 3px;
             border-radius: 3px;
+            white-space: pre;
+            overflow-x: auto;
         }
         .blog-date {
             color: #666;

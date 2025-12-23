@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::api::{ClassData, ModuleData, VersionData};
 
@@ -253,6 +253,16 @@ pub fn class_is_typedef(class: &ClassData) -> bool {
 
 /// Check if a class has a recursive destructor
 pub fn has_recursive_destructor(version_data: &VersionData, class: &ClassData) -> bool {
+    let mut visited = HashSet::new();
+    has_recursive_destructor_inner(version_data, class, &mut visited)
+}
+
+/// Inner function with cycle detection
+fn has_recursive_destructor_inner(
+    version_data: &VersionData, 
+    class: &ClassData,
+    visited: &mut HashSet<String>,
+) -> bool {
     // Simple typedef has no destructor
     if class_is_typedef(class) {
         return false;
@@ -270,17 +280,23 @@ pub fn has_recursive_destructor(version_data: &VersionData, class: &ClassData) -
     // Check struct fields for types with destructors
     if let Some(struct_fields) = &class.struct_fields {
         for field_map in struct_fields {
-            for (field_name, field_data) in field_map {
+            for (_field_name, field_data) in field_map {
                 let field_type = &field_data.r#type;
                 let (_, field_type_base, _) = analyze_type(field_type);
 
                 if !is_primitive_arg(&field_type_base) {
+                    // Skip if already visited (cycle detection)
+                    if visited.contains(&field_type_base) {
+                        continue;
+                    }
+                    
                     if let Some((module_name, class_name)) =
                         search_for_class_by_class_name(version_data, &field_type_base)
                     {
                         if let Some(field_class) = get_class(version_data, module_name, class_name)
                         {
-                            if has_recursive_destructor(version_data, field_class) {
+                            visited.insert(field_type_base.clone());
+                            if has_recursive_destructor_inner(version_data, field_class, visited) {
                                 return true;
                             }
                         }
@@ -298,13 +314,19 @@ pub fn has_recursive_destructor(version_data: &VersionData, class: &ClassData) -
                     let (_, variant_type_base, _) = analyze_type(variant_type);
 
                     if !is_primitive_arg(&variant_type_base) {
+                        // Skip if already visited (cycle detection)
+                        if visited.contains(&variant_type_base) {
+                            continue;
+                        }
+                        
                         if let Some((module_name, class_name)) =
                             search_for_class_by_class_name(version_data, &variant_type_base)
                         {
                             if let Some(variant_class) =
                                 get_class(version_data, module_name, class_name)
                             {
-                                if has_recursive_destructor(version_data, variant_class) {
+                                visited.insert(variant_type_base.clone());
+                                if has_recursive_destructor_inner(version_data, variant_class, visited) {
                                     return true;
                                 }
                             }
