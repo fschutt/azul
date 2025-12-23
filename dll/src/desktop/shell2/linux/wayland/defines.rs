@@ -282,6 +282,30 @@ pub struct xdg_surface_listener {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
+pub struct xdg_toplevel_listener {
+    pub configure: extern "C" fn(
+        data: *mut c_void,
+        xdg_toplevel: *mut xdg_toplevel,
+        width: i32,
+        height: i32,
+        states: *mut wl_array,
+    ),
+    pub close: extern "C" fn(data: *mut c_void, xdg_toplevel: *mut xdg_toplevel),
+    pub configure_bounds: extern "C" fn(
+        data: *mut c_void,
+        xdg_toplevel: *mut xdg_toplevel,
+        width: i32,
+        height: i32,
+    ),
+    pub wm_capabilities: extern "C" fn(
+        data: *mut c_void,
+        xdg_toplevel: *mut xdg_toplevel,
+        capabilities: *mut wl_array,
+    ),
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
 pub struct xdg_popup_listener {
     pub configure: extern "C" fn(
         data: *mut c_void,

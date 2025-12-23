@@ -433,6 +433,85 @@ pub(super) extern "C" fn xdg_surface_configure_handler(
     window.request_redraw();
 }
 
+// xdg_toplevel listener handlers
+pub(super) extern "C" fn xdg_toplevel_configure_handler(
+    data: *mut c_void,
+    _xdg_toplevel: *mut xdg_toplevel,
+    width: i32,
+    height: i32,
+    states: *mut wl_array,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+
+    // Parse states array to determine window state (maximized, fullscreen, etc.)
+    if !states.is_null() {
+        let array = unsafe { &*states };
+        let states_data = array.data as *const u32;
+        let states_count = array.size / std::mem::size_of::<u32>();
+
+        let mut is_maximized = false;
+        let mut is_fullscreen = false;
+        let mut is_activated = false;
+
+        for i in 0..states_count {
+            let state = unsafe { *states_data.add(i) };
+            // XDG toplevel states: 1=maximized, 2=fullscreen, 3=resizing, 4=activated
+            match state {
+                1 => is_maximized = true,
+                2 => is_fullscreen = true,
+                4 => is_activated = true,
+                _ => {}
+            }
+        }
+
+        window.current_window_state.flags.is_maximized = is_maximized;
+        window.current_window_state.flags.is_fullscreen = is_fullscreen;
+        let _ = is_activated; // Can be used for focus indication if needed
+    }
+
+    // If width/height are non-zero, the compositor is requesting a specific size
+    if width > 0 && height > 0 {
+        let current_width = window.current_window_state.size.dimensions.width as i32;
+        let current_height = window.current_window_state.size.dimensions.height as i32;
+
+        if width != current_width || height != current_height {
+            window.current_window_state.size.dimensions.width = width as usize;
+            window.current_window_state.size.dimensions.height = height as usize;
+            window.frame_needs_regeneration = true;
+
+            // Resize the rendering surface
+            window.resize_surface(width, height);
+        }
+    }
+}
+
+pub(super) extern "C" fn xdg_toplevel_close_handler(
+    data: *mut c_void,
+    _xdg_toplevel: *mut xdg_toplevel,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.is_open = false;
+}
+
+pub(super) extern "C" fn xdg_toplevel_configure_bounds_handler(
+    _data: *mut c_void,
+    _xdg_toplevel: *mut xdg_toplevel,
+    _width: i32,
+    _height: i32,
+) {
+    // Optional: could store bounds for future reference
+    // This event provides hints about maximum window size
+}
+
+pub(super) extern "C" fn xdg_toplevel_wm_capabilities_handler(
+    _data: *mut c_void,
+    _xdg_toplevel: *mut xdg_toplevel,
+    _capabilities: *mut wl_array,
+) {
+    // Optional: could parse capabilities to know what the compositor supports
+    // (e.g., maximize, minimize, fullscreen, window menu)
+}
+
 // wl_pointer listeners
 pub(super) extern "C" fn pointer_enter_handler(
     data: *mut c_void,

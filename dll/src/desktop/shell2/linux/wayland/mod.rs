@@ -1026,6 +1026,22 @@ impl WaylandWindow {
 
         window.xdg_toplevel =
             unsafe { (window.wayland.xdg_surface_get_toplevel)(window.xdg_surface) };
+
+        // Attach listener to receive configure and close events from compositor
+        let xdg_toplevel_listener = defines::xdg_toplevel_listener {
+            configure: events::xdg_toplevel_configure_handler,
+            close: events::xdg_toplevel_close_handler,
+            configure_bounds: events::xdg_toplevel_configure_bounds_handler,
+            wm_capabilities: events::xdg_toplevel_wm_capabilities_handler,
+        };
+        unsafe {
+            (window.wayland.xdg_toplevel_add_listener)(
+                window.xdg_toplevel,
+                &xdg_toplevel_listener,
+                &mut window as *mut _ as *mut _,
+            )
+        };
+
         let title = CString::new(options.window_state.title.as_str()).unwrap();
         unsafe { (window.wayland.xdg_toplevel_set_title)(window.xdg_toplevel, title.as_ptr()) };
 
@@ -2255,6 +2271,23 @@ impl Drop for CpuFallbackState {
 
 // Helper methods for WaylandWindow to get display information
 impl WaylandWindow {
+    /// Resize the rendering surface to match compositor's requested size
+    pub(super) fn resize_surface(&mut self, width: i32, height: i32) {
+        match &mut self.render_mode {
+            RenderMode::Gpu(gl_context, _gl_functions) => {
+                gl_context.resize(&self.wayland, width, height);
+            }
+            RenderMode::Cpu(Some(cpu_state)) => {
+                // For CPU rendering, we need to recreate the buffer with new size
+                // This is a simplified approach - in practice, you might want to
+                // recreate the entire CpuFallbackState
+                let _ = (cpu_state, width, height);
+                // TODO: Implement CPU buffer resizing if needed
+            }
+            RenderMode::Cpu(None) => {}
+        }
+    }
+
     /// Check timers and threads, trigger callbacks if needed
     /// This is called on every poll_event() to simulate timer ticks
     fn check_timers_and_threads(&mut self) {
