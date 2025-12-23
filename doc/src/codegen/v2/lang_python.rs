@@ -1139,8 +1139,30 @@ extern "C" fn invoke_py_layout_callback(
         // 1. Replace "azul_dll::" with "crate::" (we're in azul-dll crate)
         // 2. Replace "self." with transmuted variable
         // 3. Replace parameter names with transmuted versions
+        // 4. Replace type constructors (TypeName::method) with fully qualified paths
         let mut transformed_body = fn_body
             .replace("azul_dll::", "crate::");
+        
+        // Replace type constructors with fully qualified paths
+        // Only replace if it's at the start of fn_body (e.g., "TypeName::method(args)")
+        for struct_def in &ir.structs {
+            if let Some(ref ext_path) = struct_def.external_path {
+                let pattern = format!("{}::", struct_def.name);
+                if transformed_body.starts_with(&pattern) {
+                    let replacement = format!("{}::", ext_path);
+                    transformed_body = replacement + &transformed_body[pattern.len()..];
+                }
+            }
+        }
+        for enum_def in &ir.enums {
+            if let Some(ref ext_path) = enum_def.external_path {
+                let pattern = format!("{}::", enum_def.name);
+                if transformed_body.starts_with(&pattern) {
+                    let replacement = format!("{}::", ext_path);
+                    transformed_body = replacement + &transformed_body[pattern.len()..];
+                }
+            }
+        }
 
         // Convert self to external type if needed
         let self_var = func.class_name.to_lowercase();
@@ -1926,7 +1948,10 @@ fn is_primitive_type(name: &str) -> bool {
     matches!(name,
         "bool" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
         "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
-        "f32" | "f64" | "char" | "()" | "c_void"
+        "f32" | "f64" | "char" | "()" | "c_void" |
+        // GL type aliases (these are type aliases for primitive types)
+        "GLuint" | "GLint" | "GLenum" | "GLint64" | "GLuint64" | "GLsizei" |
+        "GLfloat" | "GLboolean" | "GLbitfield" | "GLclampf" | "GLsizeiptr" | "GLintptr"
     )
 }
 

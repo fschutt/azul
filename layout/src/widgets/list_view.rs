@@ -7,11 +7,11 @@ use azul_core::{
         NodeDataInlineCssPropertyVec, TabIndex,
     },
     geom::{LogicalPosition, LogicalSize},
-    gl::OptionUsize,
     menu::{Menu, OptionMenu},
     refany::RefAny,
 };
 use azul_css::{
+    corety::OptionUsize,
     props::{
         basic::*,
         layout::*,
