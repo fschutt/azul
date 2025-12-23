@@ -113,8 +113,8 @@ int main() {
     };
     AzRefAny data = WidgetShowcase_upcast(model);
     
-    AzLayoutCallback layout_cb = { .cb = layout };
-    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
+    
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     AzString window_title = AzString_copyFromBytes("Widget Showcase", 0, 15);
     window.window_state.title = window_title;
     window.window_state.size.dimensions.width = 600.0;

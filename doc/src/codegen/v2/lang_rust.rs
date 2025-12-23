@@ -1172,25 +1172,21 @@ impl RustGenerator {
                 let arg_type = config.apply_prefix(&arg.type_name);
                 
                 // Check if this type is a callback wrapper
-                // If so, accept the CallbackType (fn pointer) and build the wrapper in the call
+                // If so, accept the CallbackType (fn pointer) and pass it directly
+                // (The C-ABI function now accepts CallbackType directly, not the wrapper struct)
                 // BUT: Don't apply this transformation when we're in a method of the callback wrapper itself
                 // (e.g., deep_copy on IFrameCallback should take &IFrameCallback, not IFrameCallbackType)
+                // ALSO: Don't apply for EnumVariantConstructor - enum variants need exact types
+                // (e.g., OptionCallback::Some needs Callback, not CallbackType)
                 let is_method_of_this_callback = arg.type_name == func.class_name;
+                let is_enum_variant_constructor = matches!(func.kind, FunctionKind::EnumVariantConstructor);
                 
-                if !is_method_of_this_callback {
-                    if let Some((callback_type_name, callback_field_name, context_field_name)) = callback_wrappers.get(arg.type_name.as_str()) {
+                if !is_method_of_this_callback && !is_enum_variant_constructor {
+                    if let Some((callback_type_name, _callback_field_name, _context_field_name)) = callback_wrappers.get(arg.type_name.as_str()) {
                         let fn_ptr_type = config.apply_prefix(callback_type_name);
-                        let wrapper_type = &arg_type;
                         args.push(format!("{}: {}", arg.name, fn_ptr_type));
-                        // Build the wrapper: AzIFrameCallback { cb: callback, ctx: AzOptionRefAny::None }
-                        call_args.push(format!(
-                            "{} {{ {}: {}, {}: {}OptionRefAny::None }}",
-                            wrapper_type,
-                            callback_field_name,
-                            arg.name,
-                            context_field_name,
-                            config.type_prefix
-                        ));
+                        // Pass the callback type directly to the C-ABI function
+                        call_args.push(arg.name.clone());
                         continue;
                     }
                 }
@@ -1938,7 +1934,22 @@ impl RustGenerator {
             builder.line("#[no_mangle]");
         }
 
-        let args = self.format_function_args(func, config);
+        // Only apply callback wrapper substitution for API functions (Constructor, Method, etc.)
+        // NOT for trait functions (Delete, DeepCopy, PartialEq, etc.) which operate on the
+        // callback wrapper struct itself
+        // NOT for EnumVariantConstructor because enum variants need the exact type (e.g.,
+        // OptionCallback::Some needs Callback, not CallbackType)
+        let should_substitute_callbacks = matches!(
+            func.kind,
+            FunctionKind::Constructor | FunctionKind::StaticMethod |
+            FunctionKind::Method | FunctionKind::MethodMut
+        );
+        
+        let args = if should_substitute_callbacks {
+            self.format_function_args_for_cabi(func, ir, config)
+        } else {
+            self.format_function_args(func, config)
+        };
         let return_str = func.return_type.as_ref()
             .map(|r| format!(" -> {}", config.apply_prefix(r)))
             .unwrap_or_default();
@@ -2042,8 +2053,15 @@ impl RustGenerator {
                             .map(|(k, v)| (config.apply_prefix(k), v.clone()))
                             .collect();
                     
-                    // Format fn_args as the old generator expects: "arg1: Type1, arg2: Type2"
-                    let fn_args = self.format_function_args(func, config);
+                    // Format fn_args - for EnumVariantConstructor, use the regular version
+                    // (no callback wrapper substitution) because enum variants need exact types.
+                    // For other functions, use the CABI version which replaces callback wrappers
+                    // with their raw fn pointer types.
+                    let fn_args = if matches!(func.kind, FunctionKind::EnumVariantConstructor) {
+                        self.format_function_args(func, config)
+                    } else {
+                        self.format_function_args_for_cabi(func, ir, config)
+                    };
                     
                     // Determine return type with prefix
                     let return_type = func.return_type.as_ref()
@@ -2067,7 +2085,7 @@ impl RustGenerator {
                         true, // is_for_dll
                         false, // keep_self_name
                         false, // force_clone_self
-                        &BTreeSet::new(), // skip_args
+                        &BTreeSet::new(), // skip_args - empty, we want to transmute all args
                     )
                 } else {
                     // No fn_body - generate error or stub
@@ -2196,6 +2214,58 @@ impl RustGenerator {
     fn format_function_args(&self, func: &FunctionDef, config: &CodegenConfig) -> String {
         func.args.iter().map(|arg| {
             let type_name = config.apply_prefix(&arg.type_name);
+            let formatted = match arg.ref_kind {
+                ArgRefKind::Owned => type_name,
+                ArgRefKind::Ref => format!("&{}", type_name),
+                ArgRefKind::RefMut => format!("&mut {}", type_name),
+                ArgRefKind::Ptr => format!("*const {}", type_name),
+                ArgRefKind::PtrMut => format!("*mut {}", type_name),
+            };
+            format!("{}: {}", arg.name, formatted)
+        }).collect::<Vec<_>>().join(", ")
+    }
+
+    /// Format function arguments for C-ABI functions.
+    /// This replaces callback wrapper types (like TimerCallback) with their
+    /// raw function pointer types (like TimerCallbackType) so that C/C++ users
+    /// can pass function pointers directly without wrapping in a struct.
+    /// The underlying Rust function uses `T: Into<Callback>` so the raw fn pointer
+    /// is automatically converted via the From impl.
+    fn format_function_args_for_cabi(
+        &self,
+        func: &FunctionDef,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) -> String {
+        // Build a map of callback wrapper types for quick lookup
+        // Maps: "IFrameCallback" -> "IFrameCallbackType"
+        let callback_wrappers: std::collections::HashMap<&str, &str> = ir.structs.iter()
+            .filter_map(|s| {
+                s.callback_wrapper_info.as_ref().map(|info| {
+                    (s.name.as_str(), info.callback_typedef_name.as_str())
+                })
+            })
+            .collect();
+
+        func.args.iter().map(|arg| {
+            // Don't substitute callback wrappers for 'self' parameter or for the class's own type
+            // (e.g., Callback::to_core takes self which IS a Callback, not a CallbackType)
+            let is_self_or_own_type = arg.name == "self" || 
+                                       arg.name == "instance" ||
+                                       arg.type_name == func.class_name;
+            
+            // Check if this type is a callback wrapper - if so, use the raw fn pointer type
+            let base_type = if !is_self_or_own_type {
+                if let Some(callback_type) = callback_wrappers.get(arg.type_name.as_str()) {
+                    (*callback_type).to_string()
+                } else {
+                    arg.type_name.clone()
+                }
+            } else {
+                arg.type_name.clone()
+            };
+            
+            let type_name = config.apply_prefix(&base_type);
             let formatted = match arg.ref_kind {
                 ArgRefKind::Owned => type_name,
                 ArgRefKind::Ref => format!("&{}", type_name),

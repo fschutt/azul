@@ -120,8 +120,7 @@ int main() {
     OpenGlState state = { .rotation_deg = 0.0f };
     AzRefAny data = OpenGlState_upcast(state);
     
-    AzLayoutCallback layout_cb = { .cb = layout };
-    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     AzString title = AzString_copyFromBytes((const uint8_t*)"OpenGL Integration", 0, 18);
     window.window_state.title = title;
     window.window_state.size.dimensions.width = 800.0;

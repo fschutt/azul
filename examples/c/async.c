@@ -180,8 +180,7 @@ int main() {
     
     AzRefAny data = AsyncState_upcast(state);
     
-    AzLayoutCallback layout_cb = { .cb = layout };
-    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     window.window_state.title = AzString_copyFromBytes((const uint8_t*)"Async Operations", 0, 16);
     window.window_state.size.dimensions.width = 600.0;
     window.window_state.size.dimensions.height = 400.0;

@@ -16,7 +16,7 @@ EXAMPLES_DIR="$PROJECT_ROOT/examples/cpp"
 OUTPUT_DIR="$PROJECT_ROOT/target/cpp_examples"
 
 # Library name (without lib prefix and extension)
-LIB_NAME="azul_dll"
+LIB_NAME="azul"
 
 # Stubs file for missing destructor functions
 STUBS_FILE="$HEADER_DIR/azul_stubs.c"

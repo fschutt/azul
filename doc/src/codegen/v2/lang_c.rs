@@ -192,11 +192,21 @@ impl LanguageGenerator for CGenerator {
         builder.line("/* Functions */");
         builder.blank();
 
+        // Build a map of callback wrapper types for quick lookup
+        // Maps: "IFrameCallback" -> "IFrameCallbackType"
+        let callback_wrappers: std::collections::HashMap<&str, &str> = ir.structs.iter()
+            .filter_map(|s| {
+                s.callback_wrapper_info.as_ref().map(|info| {
+                    (s.name.as_str(), info.callback_typedef_name.as_str())
+                })
+            })
+            .collect();
+
         for func in &ir.functions {
             if !config.should_include_type(&func.class_name) {
                 continue;
             }
-            self.generate_function_declaration(&mut builder, func, config);
+            self.generate_function_declaration(&mut builder, func, config, &callback_wrappers);
         }
 
         Ok(builder.finish())
@@ -696,11 +706,39 @@ impl CGenerator {
         builder: &mut CodeBuilder,
         func: &FunctionDef,
         config: &CodegenConfig,
+        callback_wrappers: &std::collections::HashMap<&str, &str>,
     ) {
-        // TODO: Generate C function declaration
+        // Only apply callback wrapper substitution for API functions (Constructor, Method, etc.)
+        // NOT for trait functions (Delete, DeepCopy, PartialEq, etc.) which operate on the
+        // callback wrapper struct itself
+        // NOT for EnumVariantConstructor because enum variants need the exact type (e.g.,
+        // OptionCallback::Some needs Callback, not CallbackType)
+        let should_substitute_callbacks = matches!(
+            func.kind,
+            FunctionKind::Constructor | FunctionKind::StaticMethod |
+            FunctionKind::Method | FunctionKind::MethodMut
+        );
         
         let args: Vec<String> = func.args.iter().map(|arg| {
-            let c_type = self.rust_type_to_c_with_prefix(&arg.type_name, config);
+            // Don't substitute callback wrappers for 'self' parameter or for the class's own type
+            // (e.g., Callback::to_core takes self which IS a Callback, not a CallbackType)
+            let is_self_or_own_type = arg.name == "self" || 
+                                       arg.name == "instance" ||
+                                       arg.type_name == func.class_name;
+            
+            // Check if this type is a callback wrapper - if so, use the raw fn pointer type instead
+            // This allows C users to pass function pointers directly without wrapping in a struct
+            let type_name = if should_substitute_callbacks && !is_self_or_own_type {
+                if let Some(callback_type) = callback_wrappers.get(arg.type_name.as_str()) {
+                    (*callback_type).to_string()
+                } else {
+                    arg.type_name.clone()
+                }
+            } else {
+                arg.type_name.clone()
+            };
+            
+            let c_type = self.rust_type_to_c_with_prefix(&type_name, config);
             let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
                 ArgRefKind::Owned => ("", ""),
                 ArgRefKind::Ref => ("const ", "*"),

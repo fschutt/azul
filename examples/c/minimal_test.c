@@ -1,5 +1,5 @@
 // Minimal C test to check if the GUI renders and responds to events
-#include "azul.h"
+#include <azul.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -47,8 +47,8 @@ int main() {
     AzRefAny data = MyData_upcast(model);
     
     // Create window with our layout callback
-    AzLayoutCallback layout_cb = { .cb = layout };
-    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
+    
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     
     // Set window title
     const char* title = "C Test Window";

@@ -55,8 +55,8 @@ int main() {
     MyDataModel model = { .counter = 5 };
     AzRefAny data = MyDataModel_upcast(model);
     
-    AzLayoutCallback layout_cb = { .cb = layout };
-    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
+    
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     AzString title = AzString_copyFromBytes("Hello World", 0, 11);
     window.window_state.title = title;
     window.window_state.size.dimensions.width = 400.0;

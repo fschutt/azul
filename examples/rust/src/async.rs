@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use azul::{prelude::*, widgets::*};
+use azul::{option::OptionRefAny, prelude::*, widgets::*};
 
 use self::{BackgroundThreadReturn::*, ConnectionStatus::*};
 

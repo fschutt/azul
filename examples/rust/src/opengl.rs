@@ -3,7 +3,9 @@
 use azul::{prelude::*, str::String as AzString, widgets::Button};
 use azul::svg::*;
 use azul::gl::Texture;
-use azul::image::{ImageRef, RawImageFormat, RenderImageCallback, RenderImageCallbackInfo};
+use azul::dom::RenderImageCallback;
+use azul::callbacks::RenderImageCallbackInfo;
+use azul::image::{ImageRef, RawImageFormat};
 use azul::css::{ColorU, StyleTransform, StyleTransformTranslate2D, PixelValue, AngleValue, PhysicalSizeU32, SvgFillStyle};
 use azul::vec::{TessellatedSvgNodeVec, U8VecRef};
 use azul::window::WindowFrame;

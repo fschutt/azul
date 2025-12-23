@@ -31,8 +31,8 @@ int main() {
     AzRefAny empty_data = AzRefAny_newC((AzGlVoidPtrConst){.ptr = NULL}, 0, 1, 0, empty_type, NULL);
     AzAppConfig config = AzAppConfig_default();
     AzApp app = AzApp_create(empty_data, config);
-    AzLayoutCallback layout_cb = { .cb = layout };
-    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
+    
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     AzString window_title = AzString_copyFromBytes((const uint8_t*)"XHTML Spreadsheet", 0, 17);
     window.window_state.title = window_title;
     AzApp_run(&app, window);

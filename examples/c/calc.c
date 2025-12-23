@@ -294,8 +294,8 @@ int main() {
     Calculator_init(&model);
     AzRefAny data = Calculator_upcast(model);
     
-    AzLayoutCallback layout_cb = { .cb = layout };
-    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
+    
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     window.window_state.title = AzString_copyFromBytes("Calculator - CSS Grid Demo", 0, 26);
     window.window_state.size.dimensions.width = 320.0;
     window.window_state.size.dimensions.height = 480.0;

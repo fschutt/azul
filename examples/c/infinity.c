@@ -35,8 +35,8 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzString title_style = AzString_copyFromBytes((const uint8_t*)"font-size: 20px; margin-bottom: 10px;", 0, 38);
     AzDom_setInlineStyle(&title, title_style);
     
-    AzIFrameCallback iframe_cb = { .cb = render_iframe };
-    AzDom iframe = AzDom_createIframe(AzRefAny_clone(&data), iframe_cb);
+    // Pass the raw function pointer directly - the C-ABI accepts CallbackType, not Callback struct
+    AzDom iframe = AzDom_createIframe(AzRefAny_clone(&data), render_iframe);
     AzString iframe_style = AzString_copyFromBytes((const uint8_t*)"flex-grow: 1; overflow: scroll; background: #f5f5f5;", 0, 53);
     AzDom_setInlineStyle(&iframe, iframe_style);
     
@@ -112,8 +112,8 @@ int main() {
     
     AzRefAny data = InfinityState_upcast(state);
     
-    AzLayoutCallback layout_cb = { .cb = layout };
-    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
+    
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     window.window_state.title = AzString_copyFromBytes((const uint8_t*)"Infinite Scrolling Gallery", 0, 27);
     window.window_state.size.dimensions.width = 800.0;
     window.window_state.size.dimensions.height = 600.0;
