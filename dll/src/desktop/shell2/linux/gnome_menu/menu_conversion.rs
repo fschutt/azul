@@ -89,7 +89,7 @@ impl MenuConversion {
                         None
                     };
 
-                    let enabled = match string_item.state {
+                    let enabled = match string_item.menu_item_state {
                         azul_core::menu::MenuItemState::Normal => true,
                         azul_core::menu::MenuItemState::Greyed
                         | azul_core::menu::MenuItemState::Disabled => false,
@@ -164,14 +164,14 @@ impl MenuConversion {
                 // Extract callback if present
                 if let Some(ref callback) = string_item.callback.as_ref() {
                     let action_name = Self::generate_action_name(&string_item.label);
-                    let enabled = match string_item.state {
+                    let enabled = match string_item.menu_item_state {
                         azul_core::menu::MenuItemState::Normal => true,
                         azul_core::menu::MenuItemState::Greyed
                         | azul_core::menu::MenuItemState::Disabled => false,
                     };
 
                     // Clone the callback data
-                    let callback_data = callback.data.clone();
+                    let callback_data = callback.refany.clone();
                     let callback_fn = callback.callback.cb;
 
                     actions.push(DbusAction {
