@@ -1573,18 +1573,25 @@ pub fn str_to_dom<'a>(
     component_map: &'a mut XmlComponentMap,
     max_width: Option<f32>,
 ) -> Result<StyledDom, DomXmlParseError> {
+    println!("[str_to_dom] Starting with {} root nodes, max_width={:?}", root_nodes.len(), max_width);
+    
     let html_node = get_html_node(root_nodes)?;
+    println!("[str_to_dom] Found html_node with {} children", html_node.children.len());
+    
     let body_node = get_body_node(html_node.children.as_ref())?;
+    println!("[str_to_dom] Found body_node: type={:?}, {} children", body_node.node_type, body_node.children.len());
 
     let mut global_style = None;
 
     if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
+        println!("[str_to_dom] Found head_node with {} children", head_node.children.len());
         // parse all dynamic XML components from the head node
         for child in head_node.children.as_ref() {
             if let XmlNodeChild::Element(node) = child {
                 match DynamicXmlComponent::new(node) {
                     Ok(comp) => {
                         let node_name = comp.name.clone();
+                        println!("[str_to_dom] Registered component: {:?}", node_name);
                         component_map.register_component(XmlComponent {
                             id: normalize_casing(&node_name),
                             renderer: Box::new(comp),
@@ -1849,12 +1856,19 @@ pub fn render_dom_from_body_node<'a>(
     component_map: &'a XmlComponentMap,
     max_width: Option<f32>,
 ) -> Result<StyledDom, RenderDomError> {
+    println!("[render_dom_from_body_node] Starting...");
+    
     // Render the body node itself (which will render its children)
     let mut body_styled = render_dom_from_body_node_inner(
         body_node,
         component_map,
         &FilteredComponentArguments::default(),
     )?;
+
+    println!("[render_dom_from_body_node] body_styled: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+             body_styled.root.into_crate_internal(), 
+             body_styled.node_hierarchy.as_ref().len(),
+             body_styled.cascade_info.as_ref().len());
 
     // Check if the rendered result is already wrapped in HTML
     let root_node_id = match body_styled.root.into_crate_internal() {
@@ -1884,24 +1898,61 @@ pub fn render_dom_from_body_node<'a>(
 
     use crate::dom::NodeType;
 
+    println!("[render_dom_from_body_node] root_node_type={:?}", root_node_type);
+
     // Wrap in HTML if needed
     let mut dom = match root_node_type {
         NodeType::Html => {
+            println!("[render_dom_from_body_node] Already has HTML root");
             // Already has proper HTML root, return as-is
             body_styled
         }
         NodeType::Body => {
+            println!("[render_dom_from_body_node] Has Body root, wrapping in HTML");
             // Has Body root, wrap in HTML
             let mut html_dom = Dom::create_html().style(Css::empty());
+            println!("[render_dom_from_body_node] html_dom before append: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+                     html_dom.root.into_crate_internal(), 
+                     html_dom.node_hierarchy.as_ref().len(),
+                     html_dom.cascade_info.as_ref().len());
+            println!("[render_dom_from_body_node] body_styled before append: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+                     body_styled.root.into_crate_internal(), 
+                     body_styled.node_hierarchy.as_ref().len(),
+                     body_styled.cascade_info.as_ref().len());
             html_dom.append_child(body_styled);
+            println!("[render_dom_from_body_node] html_dom after append: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+                     html_dom.root.into_crate_internal(), 
+                     html_dom.node_hierarchy.as_ref().len(),
+                     html_dom.cascade_info.as_ref().len());
             html_dom
         }
         _ => {
+            println!("[render_dom_from_body_node] Other element, wrapping in HTML > Body");
             // Other elements (div, etc), wrap in HTML > Body
             let mut body_dom = Dom::create_body().style(Css::empty());
+            println!("[render_dom_from_body_node] body_dom before append: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+                     body_dom.root.into_crate_internal(), 
+                     body_dom.node_hierarchy.as_ref().len(),
+                     body_dom.cascade_info.as_ref().len());
+            println!("[render_dom_from_body_node] body_styled before append: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+                     body_styled.root.into_crate_internal(), 
+                     body_styled.node_hierarchy.as_ref().len(),
+                     body_styled.cascade_info.as_ref().len());
             body_dom.append_child(body_styled);
+            println!("[render_dom_from_body_node] body_dom after append: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+                     body_dom.root.into_crate_internal(), 
+                     body_dom.node_hierarchy.as_ref().len(),
+                     body_dom.cascade_info.as_ref().len());
             let mut html_dom = Dom::create_html().style(Css::empty());
+            println!("[render_dom_from_body_node] html_dom before append: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+                     html_dom.root.into_crate_internal(), 
+                     html_dom.node_hierarchy.as_ref().len(),
+                     html_dom.cascade_info.as_ref().len());
             html_dom.append_child(body_dom);
+            println!("[render_dom_from_body_node] html_dom after append: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+                     html_dom.root.into_crate_internal(), 
+                     html_dom.node_hierarchy.as_ref().len(),
+                     html_dom.cascade_info.as_ref().len());
             html_dom
         }
     };
@@ -1926,6 +1977,7 @@ pub fn render_dom_from_body_node_inner<'a>(
     parent_xml_attributes: &FilteredComponentArguments,
 ) -> Result<StyledDom, RenderDomError> {
     let component_name = normalize_casing(&xml_node.node_type);
+    println!("[render_dom_from_body_node_inner] Rendering component: {:?}", component_name);
 
     let xml_component = component_map
         .components
@@ -1958,25 +2010,56 @@ pub fn render_dom_from_body_node_inner<'a>(
         &filtered_xml_attributes,
         &OptionString::None,
     )?;
+    println!("[render_dom_from_body_node_inner] After render_dom for {:?}: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+             component_name,
+             dom.root.into_crate_internal(), 
+             dom.node_hierarchy.as_ref().len(),
+             dom.cascade_info.as_ref().len());
     set_attributes(&mut dom, &xml_node.attributes, &filtered_xml_attributes);
 
-    for child in xml_node.children.as_ref() {
+    for (idx, child) in xml_node.children.as_ref().iter().enumerate() {
         match child {
             XmlNodeChild::Element(child_node) => {
-                dom.append_child(render_dom_from_body_node_inner(
+                println!("[render_dom_from_body_node_inner] Processing Element child #{} for {:?}", idx, component_name);
+                let child_dom = render_dom_from_body_node_inner(
                     child_node,
                     component_map,
                     &filtered_xml_attributes,
-                )?);
+                )?;
+                println!("[render_dom_from_body_node_inner] Child #{} dom: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+                         idx,
+                         child_dom.root.into_crate_internal(), 
+                         child_dom.node_hierarchy.as_ref().len(),
+                         child_dom.cascade_info.as_ref().len());
+                println!("[render_dom_from_body_node_inner] Parent dom before append: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+                         dom.root.into_crate_internal(), 
+                         dom.node_hierarchy.as_ref().len(),
+                         dom.cascade_info.as_ref().len());
+                dom.append_child(child_dom);
+                println!("[render_dom_from_body_node_inner] Parent dom after append: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+                         dom.root.into_crate_internal(), 
+                         dom.node_hierarchy.as_ref().len(),
+                         dom.cascade_info.as_ref().len());
             }
             XmlNodeChild::Text(text) => {
+                println!("[render_dom_from_body_node_inner] Processing Text child #{} for {:?}: {:?}", idx, component_name, text);
                 // Create a text node for text children
                 let text_dom =
                     Dom::create_text(AzString::from(text.as_str())).style(Css::empty());
+                println!("[render_dom_from_body_node_inner] Text dom: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+                         text_dom.root.into_crate_internal(), 
+                         text_dom.node_hierarchy.as_ref().len(),
+                         text_dom.cascade_info.as_ref().len());
                 dom.append_child(text_dom);
             }
         }
     }
+
+    println!("[render_dom_from_body_node_inner] Final dom for {:?}: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
+             component_name,
+             dom.root.into_crate_internal(), 
+             dom.node_hierarchy.as_ref().len(),
+             dom.cascade_info.as_ref().len());
 
     Ok(dom)
 }
