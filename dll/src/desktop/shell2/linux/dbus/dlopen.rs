@@ -455,7 +455,7 @@ mod tests {
             Ok(dbus) => {
                 println!("Successfully loaded libdbus-1.so.3");
                 // Verify we can access function pointers
-                assert!(!std::ptr::null::<DBusLib>().is_null());
+                assert!(!dbus.dbus_error_init.is_null());
             }
             Err(e) => {
                 println!("Could not load libdbus-1.so.3: {}", e);

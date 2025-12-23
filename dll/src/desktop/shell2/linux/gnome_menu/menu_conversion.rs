@@ -293,7 +293,7 @@ mod tests {
     fn test_action_name_generation() {
         let label = azul_css::AzString::from_const_str("File > New");
         let action_name = MenuConversion::generate_action_name(&label);
-        assert_eq!(action_name, "app.file...new");
+        assert_eq!(action_name, "app.file._.new");
     }
 
     #[test]
