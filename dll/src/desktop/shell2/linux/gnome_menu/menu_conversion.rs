@@ -162,7 +162,7 @@ impl MenuConversion {
         for item in items.as_ref().iter() {
             if let azul_core::menu::MenuItem::String(string_item) = item {
                 // Extract callback if present
-                if let Some(ref callback) = string_item.callback.as_ref() {
+                if let Some(callback) = string_item.callback.as_ref() {
                     let action_name = Self::generate_action_name(&string_item.label);
                     let enabled = match string_item.menu_item_state {
                         azul_core::menu::MenuItemState::Normal => true,

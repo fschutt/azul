@@ -354,6 +354,7 @@ fn background_thread(
                 refany: RefAny::new(ErrorOccurred { error: e }),
                 callback: WriteBackCallback {
                     cb: writeback_callback,
+                    ctx: OptionRefAny::None,
                 },
             }));
             return;
@@ -372,6 +373,7 @@ fn background_thread(
         }),
         callback: WriteBackCallback {
             cb: writeback_callback,
+            ctx: OptionRefAny::None,
         },
     }));
 
@@ -391,6 +393,7 @@ fn background_thread(
                 refany: RefAny::new(NewDataLoaded { data: row.to_vec() }),
                 callback: WriteBackCallback {
                     cb: writeback_callback,
+                    ctx: OptionRefAny::None,
                 },
             }));
 
@@ -404,6 +407,7 @@ fn background_thread(
                 }),
                 callback: WriteBackCallback {
                     cb: writeback_callback,
+                    ctx: OptionRefAny::None,
                 },
             }));
         }
@@ -417,6 +421,7 @@ fn background_thread(
         }),
         callback: WriteBackCallback {
             cb: writeback_callback,
+            ctx: OptionRefAny::None,
         },
     }));
 }

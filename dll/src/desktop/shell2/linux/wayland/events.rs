@@ -10,7 +10,7 @@ use azul_core::{
     events::{EventFilter, MouseButton, ProcessEventResult},
     geom::LogicalPosition,
     hit_test::FullHitTest,
-    window::{CursorPosition, VirtualKeyCode},
+    window::{CursorPosition, VirtualKeyCode, WindowFrame},
 };
 
 use super::{defines::*, WaylandWindow};
@@ -465,11 +465,11 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
         }
 
         window.current_window_state.flags.frame = if is_fullscreen {
-            crate::WindowFrame::Fullscreen
+            WindowFrame::Fullscreen
         } else if is_maximized {
-            crate::WindowFrame::Maximized
+            WindowFrame::Maximized
         } else {
-            crate::WindowFrame::Normal
+            WindowFrame::Normal
         };
         let _ = is_activated; // Can be used for focus indication if needed
     }
