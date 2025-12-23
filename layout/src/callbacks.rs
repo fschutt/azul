@@ -638,11 +638,6 @@ impl CallbackInfo {
     /// # Arguments
     /// * `node_id` - The text node to modify (DomNodeId containing both DOM and node IDs)
     /// * `text` - The new text content
-    ///
-    /// # Example
-    /// ```ignore
-    /// info.change_node_text(label_node_id, "Hello World".into());
-    /// ```
     pub fn change_node_text(&mut self, node_id: DomNodeId, text: AzString) {
         self.push_change(CallbackChange::ChangeNodeText { node_id, text });
     }
@@ -670,12 +665,6 @@ impl CallbackInfo {
     /// - Responding to window resize (image needs to match new size)
     /// - Animation frames (update OpenGL texture each frame)
     /// - Interactive content (user input changes rendering)
-    ///
-    /// # Example
-    /// ```ignore
-    /// // In a timer callback, update the OpenGL texture each frame
-    /// info.update_image_callback(dom_id, node_id);
-    /// ```
     pub fn update_image_callback(&mut self, dom_id: DomId, node_id: NodeId) {
         self.push_change(CallbackChange::UpdateImageCallback { dom_id, node_id });
     }
@@ -690,12 +679,6 @@ impl CallbackInfo {
     /// - Live preview panes (update when source code changes)
     /// - Dynamic content that needs manual refresh
     /// - Editor previews (re-parse and display new DOM)
-    ///
-    /// # Example
-    /// ```ignore
-    /// // After text input changes, update the preview IFrame
-    /// info.trigger_iframe_rerender(preview_dom_id, iframe_node_id);
-    /// ```
     pub fn trigger_iframe_rerender(&mut self, dom_id: DomId, node_id: NodeId) {
         self.push_change(CallbackChange::UpdateIFrame { dom_id, node_id });
     }
@@ -705,13 +688,6 @@ impl CallbackInfo {
     /// Find a node by ID attribute in the layout tree
     ///
     /// Returns the NodeId of the first node with the given ID attribute, or None if not found.
-    ///
-    /// # Example
-    /// ```ignore
-    /// if let Some(node_id) = info.get_node_id_by_id_attribute(DomId::ROOT_ID, "preview-iframe") {
-    ///     info.trigger_iframe_rerender(DomId::ROOT_ID, node_id);
-    /// }
-    /// ```
     pub fn get_node_id_by_id_attribute(&self, dom_id: DomId, id: &str) -> Option<NodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.layout_results.get(&dom_id)?;
@@ -817,14 +793,6 @@ impl CallbackInfo {
     /// # Arguments
     /// * `node_id` - The node to set the property on (uses hit node's DOM ID)
     /// * `property` - The CSS property to set
-    ///
-    /// # Example
-    /// ```ignore
-    /// info.set_css_property(
-    ///     placeholder_node_id,
-    ///     CssProperty::const_opacity(StyleOpacity::const_new(0)),
-    /// );
-    /// ```
     pub fn set_css_property(&mut self, node_id: DomNodeId, property: CssProperty) {
         let dom_id = node_id.dom;
         let internal_node_id = NodeId::new(node_id.node.inner);
@@ -871,25 +839,6 @@ impl CallbackInfo {
     ///
     /// Use `set_text_changeset()` to modify the text that will be inserted,
     /// and `prevent_default()` to block the text input entirely.
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::TextInput -> |info| {
-    ///     if let Some(changeset) = info.get_text_changeset() {
-    ///         eprintln!("About to insert: {}", changeset.inserted_text);
-    ///         eprintln!("Current text: {}", changeset.old_text);
-    ///         
-    ///         // Prevent default and apply custom text
-    ///         info.prevent_default();
-    ///         
-    ///         // Convert to uppercase
-    ///         let mut modified = changeset.clone();
-    ///         modified.inserted_text = changeset.inserted_text.to_uppercase();
-    ///         info.set_text_changeset(modified);
-    ///     }
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn get_text_changeset(&self) -> Option<&PendingTextEdit> {
         self.get_layout_window()
             .text_input_manager
@@ -903,28 +852,6 @@ impl CallbackInfo {
     ///
     /// # Arguments
     /// * `changeset` - The modified text changeset to apply
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::TextInput -> |info| {
-    ///     if let Some(changeset) = info.get_text_changeset() {
-    ///         // Only allow digits
-    ///         let filtered: String = changeset.inserted_text
-    ///             .chars()
-    ///             .filter(|c| c.is_digit(10))
-    ///             .collect();
-    ///         
-    ///         if filtered != changeset.inserted_text {
-    ///             info.prevent_default();
-    ///             
-    ///             let mut modified = changeset.clone();
-    ///             modified.inserted_text = filtered;
-    ///             info.set_text_changeset(modified);
-    ///         }
-    ///     }
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn set_text_changeset(&mut self, changeset: PendingTextEdit) {
         self.push_change(CallbackChange::SetTextChangeset { changeset });
     }
@@ -933,19 +860,6 @@ impl CallbackInfo {
     ///
     /// When called in a TextInput callback, prevents the typed text from being inserted.
     /// Useful for custom validation, filtering, or text transformation.
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::TextInput -> |info| {
-    ///     if let Some(changeset) = info.get_text_changeset() {
-    ///         // Only allow digits
-    ///         if !changeset.inserted_text.chars().all(|c| c.is_digit(10)) {
-    ///             info.prevent_default();
-    ///         }
-    ///     }
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn prevent_default(&mut self) {
         self.push_change(CallbackChange::PreventDefault);
     }
@@ -992,14 +906,6 @@ impl CallbackInfo {
     ///
     /// # Arguments
     /// * `text` - The tooltip text to display
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::MouseOver -> |info| {
-    ///     info.show_tooltip("Click to open".into());
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn show_tooltip(&mut self, text: AzString) {
         let position = self
             .get_cursor_relative_to_viewport()
@@ -1013,28 +919,11 @@ impl CallbackInfo {
     /// # Arguments
     /// * `text` - The tooltip text to display
     /// * `position` - The position where the tooltip should appear (in window coordinates)
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::Click -> |info| {
-    ///     let pos = LogicalPosition::new(100, 200);
-    ///     info.show_tooltip_at("Clicked here!".into(), pos);
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn show_tooltip_at(&mut self, text: AzString, position: LogicalPosition) {
         self.push_change(CallbackChange::ShowTooltip { text, position });
     }
 
     /// Hide the currently displayed tooltip
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::MouseOut -> |info| {
-    ///     info.hide_tooltip();
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn hide_tooltip(&mut self) {
         self.push_change(CallbackChange::HideTooltip);
     }
@@ -1050,14 +939,6 @@ impl CallbackInfo {
     /// * `dom_id` - The DOM containing the text node
     /// * `node_id` - The node to insert text into
     /// * `text` - The text to insert
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::Click -> |info| {
-    ///     info.insert_text(info.get_hit_dom_id(), info.get_hit_node_id(), "Hello!");
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn insert_text(&mut self, dom_id: DomId, node_id: NodeId, text: AzString) {
         self.push_change(CallbackChange::InsertText {
             dom_id,
@@ -1072,23 +953,6 @@ impl CallbackInfo {
     /// * `dom_id` - The DOM containing the text node
     /// * `node_id` - The node containing the cursor
     /// * `cursor` - The new cursor position
-    ///
-    /// # Example
-    /// ```ignore
-    /// use azul_core::selection::{TextCursor, GraphemeClusterId, CursorAffinity};
-    ///
-    /// On::Click -> |info| {
-    ///     let cursor = TextCursor {
-    ///         cluster_id: GraphemeClusterId {
-    ///             source_run: 0,
-    ///             start_byte_in_run: 0,
-    ///         },
-    ///         affinity: CursorAffinity::Leading,
-    ///     };
-    ///     info.move_cursor(info.get_hit_dom_id(), info.get_hit_node_id(), cursor);
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn move_cursor(&mut self, dom_id: DomId, node_id: NodeId, cursor: TextCursor) {
         self.push_change(CallbackChange::MoveCursor {
             dom_id,
@@ -1103,29 +967,6 @@ impl CallbackInfo {
     /// * `dom_id` - The DOM containing the text node
     /// * `node_id` - The node containing the selection
     /// * `selection` - The new selection (can be a cursor or range)
-    ///
-    /// # Example
-    /// ```ignore
-    /// use azul_core::selection::{
-    ///   Selection, SelectionRange, TextCursor,
-    ///   GraphemeClusterId, CursorAffinity
-    /// };
-    ///
-    /// On::DoubleClick -> |info| {
-    ///     // Select entire word
-    ///     let start_cursor = TextCursor {
-    ///         cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
-    ///         affinity: CursorAffinity::Leading,
-    ///     };
-    ///     let end_cursor = TextCursor {
-    ///         cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 5 },
-    ///         affinity: CursorAffinity::Trailing,
-    ///     };
-    ///     let selection = Selection::Range(SelectionRange { start: start_cursor, end: end_cursor });
-    ///     info.set_selection(info.get_hit_dom_id(), info.get_hit_node_id(), selection);
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn set_selection(&mut self, dom_id: DomId, node_id: NodeId, selection: Selection) {
         self.push_change(CallbackChange::SetSelection {
             dom_id,
@@ -1741,21 +1582,6 @@ impl CallbackInfo {
     ///
     /// This allows user callbacks to query the undo/redo state and intercept
     /// undo/redo operations via preventDefault().
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::KeyDown(VirtualKeyCode::Z) -> |info| {
-    ///     let undo_manager = info.get_undo_redo_manager();
-    ///     if undo_manager.can_undo(node_id) {
-    ///         // Allow default undo behavior
-    ///         Update::DoNothing
-    ///     } else {
-    ///         // Prevent default if no undo available
-    ///         info.prevent_default();
-    ///         Update::DoNothing
-    ///     }
-    /// }
-    /// ```
     pub fn get_undo_redo_manager(&self) -> &UndoRedoManager {
         &self.get_layout_window().undo_redo_manager
     }
@@ -2086,19 +1912,6 @@ impl CallbackInfo {
     ///
     /// Returns the clipboard content that would be copied if the operation proceeds.
     /// Use this to validate or transform clipboard content before copying.
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::Copy -> |info| {
-    ///     if let Some(content) = info.inspect_copy_changeset() {
-    ///         if content.plain_text.contains("secret") {
-    ///             info.prevent_default(); // Block copying secrets
-    ///             return Update::PreventDefault;
-    ///         }
-    ///     }
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn inspect_copy_changeset(&self, target: DomNodeId) -> Option<ClipboardContent> {
         let layout_window = self.get_layout_window();
         let dom_id = &target.dom;
@@ -2180,18 +1993,6 @@ impl CallbackInfo {
     /// Returns (range_to_delete, deleted_text).
     /// - forward=true: Delete key (delete character after cursor)
     /// - forward=false: Backspace key (delete character before cursor)
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::KeyDown(VirtualKeyCode::Backspace) -> |info| {
-    ///     if let Some((range, text)) = info.inspect_delete_changeset(target, false) {
-    ///         if text.contains("important") {
-    ///             info.prevent_default(); // Prevent deleting important text
-    ///         }
-    ///     }
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn inspect_delete_changeset(
         &self,
         target: DomNodeId,
@@ -2226,19 +2027,6 @@ impl CallbackInfo {
     ///
     /// Returns the operation that would be undone, allowing inspection
     /// of what state will be restored.
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::KeyDown(VirtualKeyCode::Z) -> |info| {
-    ///     if let Some(op) = info.inspect_undo_operation(node_id) {
-    ///         if op.is_critical() {
-    ///             info.prevent_default(); // Protect critical edits
-    ///             return Update::PreventDefault;
-    ///         }
-    ///     }
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn inspect_undo_operation(&self, node_id: NodeId) -> Option<&UndoableOperation> {
         self.get_undo_redo_manager().peek_undo(node_id)
     }
@@ -2302,19 +2090,6 @@ impl CallbackInfo {
     /// # Returns
     /// * `Some(&ClipboardContent)` - If paste is in progress and clipboard has content
     /// * `None` - If no paste operation is active or clipboard is empty
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::Paste -> |info| {
-    ///     if let Some(content) = info.get_clipboard_content() {
-    ///         // Check if pasted text contains forbidden characters
-    ///         if content.plain_text.contains("forbidden") {
-    ///             info.prevent_default(); // Block paste
-    ///         }
-    ///     }
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn get_clipboard_content(&self) -> Option<&ClipboardContent> {
         unsafe {
             (*self.ref_data)
@@ -2331,18 +2106,6 @@ impl CallbackInfo {
     ///
     /// # Arguments
     /// * `content` - The clipboard content to write to system clipboard
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::Copy -> |info| {
-    ///     let mut content = ClipboardContent {
-    ///         plain_text: "Custom copied text".to_string(),
-    ///         styled_runs: vec![],
-    ///     };
-    ///     info.set_clipboard_content(content);
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn set_clipboard_content(&mut self, content: ClipboardContent) {
         // Queue the clipboard content to be set after callback returns
         // This will be picked up by the clipboard manager
@@ -2357,18 +2120,6 @@ impl CallbackInfo {
     /// Use this to transform clipboard content before copying.
     /// The change is queued and will be applied after the callback returns,
     /// if preventDefault() was not called.
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::Copy -> |info| {
-    ///     if let Some(mut content) = info.inspect_copy_changeset(target) {
-    ///         // Add prefix to copied text
-    ///         content.plain_text = format!("[COPIED] {}", content.plain_text);
-    ///         info.set_copy_content(target, content);
-    ///     }
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn set_copy_content(&mut self, target: DomNodeId, content: ClipboardContent) {
         self.push_change(CallbackChange::SetCopyContent { target, content });
     }
@@ -2448,20 +2199,6 @@ impl CallbackInfo {
     ///
     /// # Arguments
     /// * `target` - The node containing the cursor
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// On::KeyDown(VirtualKeyCode::Left) -> |info| {
-    ///     if let Some(new_pos) = info.inspect_move_cursor_left(target) {
-    ///         // Check if we're moving past a special boundary
-    ///         if is_special_boundary(new_pos) {
-    ///             info.prevent_default(); // Block movement
-    ///         }
-    ///     }
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn inspect_move_cursor_left(&self, target: DomNodeId) -> Option<TextCursor> {
         let layout_window = self.get_layout_window();
         let cursor = layout_window.cursor_manager.get_cursor()?;
@@ -2644,15 +2381,6 @@ impl CallbackInfo {
     /// # Arguments
     /// * `target` - The node containing the cursor
     /// * `extend_selection` - If true, extends selection (Shift+Left); if false, moves cursor
-    ///
-    /// # Example
-    /// ```ignore
-    /// On::KeyDown(VirtualKeyCode::Left) -> |info| {
-    ///     let shift_pressed = info.get_current_keyboard_state().shift_down;
-    ///     info.move_cursor_left(target, shift_pressed);
-    ///     Update::DoNothing
-    /// }
-    /// ```
     pub fn move_cursor_left(&mut self, target: DomNodeId, extend_selection: bool) {
         self.push_change(CallbackChange::MoveCursorLeft {
             dom_id: target.dom,

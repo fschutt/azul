@@ -31,13 +31,6 @@ pub const PT_TO_PX: f32 = 96.0 / 72.0;
 /// This type prevents double-division bugs by making it explicit that the value
 /// is already normalized to the 0.0-1.0 range. When you have a `NormalizedPercentage`,
 /// you should multiply it directly with the containing block size, NOT divide by 100 again.
-///
-/// # Example
-/// ```ignore
-/// let percent = NormalizedPercentage::new(1.0); // 100%
-/// let containing_block = 640.0;
-/// let result = percent.resolve(containing_block); // 640.0, not 6.4!
-/// ```
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct NormalizedPercentage(f32);
@@ -47,12 +40,6 @@ impl NormalizedPercentage {
     ///
     /// # Arguments
     /// * `value` - A normalized percentage where 0.0 = 0% and 1.0 = 100%
-    ///
-    /// # Example
-    /// ```ignore
-    /// let fifty_percent = NormalizedPercentage::new(0.5); // 50%
-    /// let hundred_percent = NormalizedPercentage::new(1.0); // 100%
-    /// ```
     #[inline]
     pub const fn new(value: f32) -> Self {
         Self(value)
@@ -62,11 +49,6 @@ impl NormalizedPercentage {
     ///
     /// This divides by 100 internally, so you should use this when converting
     /// from CSS percentage syntax like "50%" which is stored as 50.0.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let percent = NormalizedPercentage::from_unnormalized(50.0); // 50% -> 0.5
-    /// ```
     #[inline]
     pub fn from_unnormalized(value: f32) -> Self {
         Self(value / 100.0)
@@ -82,12 +64,6 @@ impl NormalizedPercentage {
     ///
     /// This multiplies the normalized percentage by the containing block size.
     /// For example, 50% (0.5) of 640px = 320px.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let percent = NormalizedPercentage::new(0.5); // 50%
-    /// let size = percent.resolve(640.0); // 320.0
-    /// ```
     #[inline]
     pub fn resolve(self, containing_block_size: f32) -> f32 {
         self.0 * containing_block_size
@@ -168,23 +144,6 @@ impl PhysicalSize {
 ///   - Margin/padding: relative to containing block width (even top/bottom!)
 ///   - Border-radius: relative to element's own border box dimensions
 ///   - Font-size: relative to parent's font-size
-///
-/// # Example
-/// ```ignore
-/// let context = ResolutionContext {
-///     element_font_size: 32.0, // H1 has font-size: 2em = 32px
-///     parent_font_size: 16.0,  // Body has font-size: 16px
-///     root_font_size: 16.0,    // Root has default 16px
-///     containing_block_size: PhysicalSize::new(800.0, 600.0),
-///     element_size: None, // Not yet laid out
-///     dpi_scale: 1.0,
-/// };
-///
-/// // H1 margin: 0.67em → 0.67 * 32px = 21.44px
-/// let margin = PixelValue::em(0.67);
-/// let resolved = margin.resolve_with_context(&context, PropertyContext::Margin);
-/// assert_eq!(resolved, 21.44);
-/// ```
 #[derive(Debug, Copy, Clone)]
 pub struct ResolutionContext {
     /// The computed font-size of the current element (for em in non-font properties)
@@ -524,14 +483,6 @@ impl PixelValue {
     /// Returns `Some(NormalizedPercentage)` if this is a percentage value, `None` otherwise.
     /// The returned `NormalizedPercentage` is already normalized to 0.0-1.0 range,
     /// so you should multiply it directly with the containing block size.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let px = PixelValue::parse("100%").unwrap();
-    /// if let Some(percent) = px.to_percent() {
-    ///     let size = percent.resolve(640.0); // 640.0
-    /// }
-    /// ```
     #[inline]
     pub fn to_percent(&self) -> Option<NormalizedPercentage> {
         match self.metric {
@@ -577,31 +528,6 @@ impl PixelValue {
     /// # Arguments
     /// * `context` - Resolution context with font sizes and dimensions
     /// * `property_context` - Which property we're resolving for (affects % and em resolution)
-    ///
-    /// # Example
-    /// ```ignore
-    /// // H1 with font-size: 2em (32px), margin: 0.67em
-    /// let context = ResolutionContext {
-    ///     element_font_size: 32.0,
-    ///     parent_font_size: 16.0,
-    ///     root_font_size: 16.0,
-    ///     ..Default::default()
-    /// };
-    ///
-    /// let margin = PixelValue::em(0.67);
-    /// // Margin em uses element's own font-size: 0.67 * 32 = 21.44px
-    /// assert_eq!(
-    ///     margin.resolve_with_context(&context, PropertyContext::Margin),
-    ///     21.44
-    /// );
-    ///
-    /// let font_size = PixelValue::em(2.0);
-    /// // Font-size em uses parent's font-size: 2.0 * 16 = 32px
-    /// assert_eq!(
-    ///     font_size.resolve_with_context(&context, PropertyContext::FontSize),
-    ///     32.0
-    /// );
-    /// ```
     #[inline]
     pub fn resolve_with_context(
         &self,

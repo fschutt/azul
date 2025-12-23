@@ -468,24 +468,6 @@ pub fn show_menu(
 ///
 /// This is the recommended way to spawn menus from callbacks. It automatically
 /// extracts the necessary information from CallbackInfo.
-///
-/// # Example
-/// ```no_run
-/// use azul_core::{
-///     callbacks::Update,
-///     menu::{Menu, MenuPopupPosition},
-/// };
-/// use azul_dll::desktop::menu::spawn_menu_from_callback;
-///
-/// extern "C" fn my_callback(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-///     let menu = Menu::create("Context Menu")
-///         .with_item("Copy", copy_callback)
-///         .with_item("Paste", paste_callback);
-///
-///     spawn_menu_from_callback(info, menu, MenuPopupPosition::AutoCursor);
-///     Update::DoNothing
-/// }
-/// ```
 pub fn spawn_menu_from_callback(
     info: &mut azul_layout::callbacks::CallbackInfo,
     menu: Menu,

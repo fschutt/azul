@@ -10,14 +10,6 @@
 //!
 //! The module uses Lyon for geometric tessellation and generates vertex/index buffers
 //! that can be uploaded to WebRender for hardware-accelerated rendering.
-//!
-//! ```rust,no_run,ignore
-//! use azul_core::svg::{SvgPath, SvgStrokeOptions};
-//!
-//! // Parse and tessellate an SVG path
-//! let path_str = "M 10 10 L 100 100";
-//! // let path = SvgPath::parse(path_str);
-//! ```
 
 use alloc::{
     string::{String, ToString},

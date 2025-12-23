@@ -616,15 +616,6 @@ impl LayoutCallbackInfo {
 
     // Responsive layout helper methods
     /// Returns true if the window width is less than the given pixel value
-    ///
-    /// # Example
-    /// ```ignore
-    /// if info.window_width_less_than(750.0) {
-    ///     // Show mobile view
-    /// } else {
-    ///     // Show desktop view
-    /// }
-    /// ```
     pub fn window_width_less_than(&self, px: f32) -> bool {
         self.window_size.dimensions.width < px
     }
@@ -788,17 +779,6 @@ impl_option!(
 );
 
 /// Data associated with a callback (event filter, callback, and user data)
-///
-/// **IMPORTANT**: The `callback` field contains a CoreCallback whose `cb` field is actually
-/// a function pointer stored as usize. You can directly assign function pointers when creating
-/// CoreCallbackData - Rust will implicitly cast them. Example:
-/// ```ignore
-/// CoreCallbackData {
-///     event: EventFilter::Hover(HoverEventFilter::MouseDown),
-///     callback: CoreCallback { cb: my_callback_function }, // function pointer auto-casts to usize
-///     data: RefAny::new(my_data),
-/// }
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CoreCallbackData {

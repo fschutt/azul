@@ -37,7 +37,7 @@ struct MenuLayoutData {
 /// This callback uses menu_renderer to create a StyledDom from the Menu structure.
 /// It's called by Azul's normal layout system, so rendering happens through the
 /// standard WebRender pipeline.
-extern "C" fn menu_layout_callback(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn menu_layout_callback(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     // Clone data early to avoid borrow issues
     let data_clone = data.clone();
 
@@ -72,30 +72,6 @@ extern "C" fn menu_layout_callback(data: &mut RefAny, _info: &mut LayoutCallback
 ///
 /// # Returns
 /// * `WindowCreateOptions` - Window options for creating the popup
-///
-/// # Example
-/// ```rust,ignore
-/// use azul_core::menu::Menu;
-/// use azul_css::system::SystemStyle;
-///
-/// // In a callback:
-/// extern "C" fn on_right_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-///     let menu = Menu::create(vec![/* ... */]);
-///     let system_style = SystemStyle::default();
-///     let trigger_rect = info.get_hit_node_rect()?;
-///     
-///     let menu_options = create_menu_popup_options(
-///         parent_window,
-///         &menu,
-///         &system_style,
-///         trigger_rect,
-///         LogicalSize::new(200.0, 300.0),
-///     );
-///     
-///     // Create popup using WaylandPopup::new()
-///     Update::DoNothing
-/// }
-/// ```
 pub fn create_menu_popup_options(
     parent: &WaylandWindow,
     menu: &Menu,
@@ -157,16 +133,16 @@ mod tests {
 
     #[test]
     fn test_calculate_menu_size() {
-        use azul_core::menu::MenuItem;
+        use azul_core::menu::{MenuItem, StringMenuItem};
 
         let menu = Menu {
             items: vec![
-                MenuItem::String("Item 1".into()),
-                MenuItem::String("Item 2".into()),
-                MenuItem::String("Item 3".into()),
-            ],
+                MenuItem::String(StringMenuItem::create("Item 1".to_string().into())),
+                MenuItem::String(StringMenuItem::create("Item 2".to_string().into())),
+                MenuItem::String(StringMenuItem::create("Item 3".to_string().into())),
+            ].into(),
             position: azul_core::menu::MenuPopupPosition::AutoCursor,
-            context_mouse_btn: azul_core::events::MouseButton::Left,
+            context_mouse_btn: azul_core::window::ContextMenuMouseButton::Left,
         };
 
         let system_style = SystemStyle::default();

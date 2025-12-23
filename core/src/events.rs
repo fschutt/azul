@@ -1652,20 +1652,6 @@ impl EventFilter {
 
 /// Creates a function inside an impl <enum type> block that returns a single
 /// variant if the enum is that variant.
-///
-/// ```rust,no_run,ignore
-/// # use azul_core::events::get_single_enum_type;
-/// enum A {
-///     Abc(AbcType),
-/// }
-///
-/// struct AbcType {}
-///
-/// impl A {
-///     // fn as_abc_type(&self) -> Option<AbcType>
-///     get_single_enum_type!(as_abc_type, A::Abc(AbcType));
-/// }
-/// ```
 macro_rules! get_single_enum_type {
     ($fn_name:ident, $enum_name:ident:: $variant:ident($return_type:ty)) => {
         pub fn $fn_name(&self) -> Option<$return_type> {

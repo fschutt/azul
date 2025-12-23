@@ -1885,18 +1885,6 @@ pub struct FontLoadResult<T> {
 ///
 /// # Returns
 /// A `FontLoadResult` containing successfully loaded fonts and any failures
-///
-/// # Example
-/// ```ignore
-/// use azul_layout::text3::default::PathLoader;
-///
-/// let loader = PathLoader::new();
-/// let result = load_fonts_from_disk(
-///     &fonts_to_load,
-///     &fc_cache,
-///     |bytes, index| loader.load_font(bytes, index),
-/// );
-/// ```
 pub fn load_fonts_from_disk<T, F>(
     font_ids: &HashSet<FontId>,
     fc_cache: &FcFontCache,

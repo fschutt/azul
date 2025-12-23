@@ -7,24 +7,6 @@
 //! 2. generate_display_lists_paged() creates per-page DisplayLists by filtering
 //! 3. No post-hoc fragmentation is needed
 //!
-//! ## Page Header/Footer Configuration
-//!
-//! Page headers and footers can be configured using `FakePageConfig`:
-//!
-//! ```rust,ignore
-//! use azul_layout::solver3::pagination::FakePageConfig;
-//!
-//! // Simple footer with "Page X of Y"
-//! let page_config = FakePageConfig::new()
-//!     .with_footer_page_numbers();
-//!
-//! // Or with custom text
-//! let page_config = FakePageConfig::new()
-//!     .with_header_text("My Document")
-//!     .with_footer_page_numbers()
-//!     .skip_first_page(true);
-//! ```
-//!
 //! **Note**: Full CSS `@page` rule parsing is not yet implemented. The `FakePageConfig`
 //! provides programmatic control over page decoration as a temporary solution.
 
@@ -123,35 +105,6 @@ where
 /// # Arguments
 /// * `page_config` - Configuration for page headers/footers (see `FakePageConfig`)
 /// * Other arguments same as `layout_document_paged()`
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use azul_layout::solver3::pagination::FakePageConfig;
-///
-/// let page_config = FakePageConfig::new()
-///     .with_header_text("Company Report 2024")
-///     .with_footer_page_numbers()
-///     .skip_first_page(true);
-///
-/// let pages = layout_document_paged_with_config(
-///     &mut cache,
-///     &mut text_cache,
-///     fragmentation_context,
-///     dom,
-///     viewport,
-///     &mut font_manager,
-///     &scroll_offsets,
-///     &selections,
-///     &mut debug_messages,
-///     gpu_value_cache,
-///     renderer_resources,
-///     id_namespace,
-///     dom_id,
-///     font_loader,
-///     page_config,
-/// )?;
-/// ```
 #[cfg(feature = "text_layout")]
 pub fn layout_document_paged_with_config<T, F>(
     cache: &mut LayoutCache,

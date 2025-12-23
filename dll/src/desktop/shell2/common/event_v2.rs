@@ -895,13 +895,6 @@ pub trait PlatformWindowV2 {
     ///   - Key: Affected node
     ///   - Value: (Synthetic events to dispatch, needs_relayout flag)
     ///   - Empty map = action not applicable or nothing changed
-    ///
-    /// ## Usage
-    /// Call this from platform event handlers when accessibility actions arrive:
-    /// ```rust
-    /// let affected_nodes = self.record_accessibility_action(dom_id, node_id, action);
-    /// // Process affected_nodes: dispatch events and mark dirty nodes for re-layout
-    /// ```
     #[cfg(feature = "a11y")]
     fn record_accessibility_action(
         &mut self,

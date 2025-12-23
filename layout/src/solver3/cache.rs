@@ -1281,11 +1281,8 @@ fn should_use_content_height(css_height: &MultiValue<LayoutHeight>) -> bool {
 ///
 /// **Note**: This function respects min-height/max-height constraints from Phase 1.
 ///
-/// According to CSS 2.2 § 10.7, when height is 'auto', the final height must be:
-///
-/// ```ignore
-///   max(min_height, min(content_height, max_height))
-/// ```
+/// According to CSS 2.2 § 10.7, when height is 'auto', the final height must be
+/// max(min_height, min(content_height, max_height)).
 ///
 /// The `used_size` parameter already contains the size constrained by
 /// min-height/max-height from the initial sizing pass. We must take the

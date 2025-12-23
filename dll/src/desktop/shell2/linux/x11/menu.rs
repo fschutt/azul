@@ -35,7 +35,7 @@ struct MenuLayoutData {
 /// This callback uses menu_renderer to create a StyledDom from the Menu structure.
 /// It's called by Azul's normal layout system, so rendering happens through the
 /// standard WebRender pipeline.
-extern "C" fn menu_layout_callback(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn menu_layout_callback(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     // Clone data early to avoid borrow issues
     let data_clone = data.clone();
 
@@ -69,28 +69,6 @@ extern "C" fn menu_layout_callback(data: &mut RefAny, _info: &mut LayoutCallback
 ///
 /// # Returns
 /// * `WindowCreateOptions` - Window options that can be passed to info.create_window()
-///
-/// # Example
-/// ```rust,ignore
-/// use azul_core::menu::Menu;
-/// use azul_css::system::SystemStyle;
-///
-/// // In a callback:
-/// extern "C" fn on_right_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-///     let menu = Menu::create(vec![/* ... */]);
-///     let system_style = SystemStyle::default();
-///     
-///     let menu_options = create_menu_window_options(
-///         &menu,
-///         &system_style,
-///         100, // x
-///         100, // y
-///     );
-///     
-///     info.create_window(menu_options);
-///     Update::DoNothing
-/// }
-/// ```
 pub fn create_menu_window_options(
     menu: &Menu,
     system_style: &SystemStyle,

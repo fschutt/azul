@@ -249,11 +249,6 @@ use crate::{
 
 /// Macro to match on any CssProperty variant and access the inner CssPropertyValue<T>.
 /// This allows generic operations on cascade keywords without writing 190+ match arms.
-///
-/// # Usage
-/// ```ignore
-/// let has_inherit = match_property_value!(property, p, p.is_inherit());
-/// ```
 macro_rules! match_property_value {
     ($property:expr, $value:ident, $expr:expr) => {
         match $property {

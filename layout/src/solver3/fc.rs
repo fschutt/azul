@@ -5411,27 +5411,6 @@ pub(crate) fn collapse_margins(a: f32, b: f32) -> f32 {
 /// - Adjacent vertical margins of block boxes collapse
 /// - The resulting margin width is the maximum of the adjoining margins (if both positive)
 /// - Or the sum of the most positive and most negative (if signs differ)
-///
-/// # Example Flow
-///
-/// ```ignore
-/// // Element 1: margin-bottom = 20px
-/// // Element 2: margin-top = 30px, margin-bottom = 15px
-///
-/// let mut pen = 0.0;
-/// let mut last_margin = 0.0;
-///
-/// // After element 1:
-/// pen += element1_height;
-/// last_margin = 20.0;
-///
-/// // Before element 2:
-/// let collapsed = collapse_margins(20.0, 30.0); // = 30.0 (larger wins)
-/// pen += collapsed; // Advance by 30px, not 50px
-/// // Position element 2 at pen
-/// pen += element2_height;
-/// last_margin = 15.0; // Save for next element
-/// ```
 fn advance_pen_with_margin_collapse(
     pen: &mut f32,
     last_margin_bottom: f32,

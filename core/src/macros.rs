@@ -34,17 +34,6 @@ macro_rules! impl_task_api {
 }
 
 /// Implement the `From` trait for any type.
-/// Example usage:
-/// ```rust,no_run,ignore
-/// # use azul_core::impl_from;
-/// enum MyError<'a> {
-///     Bar(BarError<'a>)
-///     Foo(FooError<'a>)
-/// }
-///
-/// impl_from!(BarError<'a>, Error::Bar);
-/// impl_from!(BarError<'a>, Error::Bar);
-/// ```
 #[macro_export]
 macro_rules! impl_from {
     // From a type with a lifetime to a type which also has a lifetime
@@ -67,20 +56,6 @@ macro_rules! impl_from {
 }
 
 /// Implement `Display` for an enum.
-///
-/// Example usage:
-/// ```rust,no_run,ignore
-/// # use azul_core::impl_display;
-/// enum Foo<'a> {
-///     Bar(&'a str),
-///     Baz(i32),
-/// }
-///
-/// impl_display! { Foo<'a>, {
-///     Bar(s) => s,
-///     Baz(i) => format!("{}", i)
-/// }}
-/// ```
 #[macro_export]
 macro_rules! impl_display {
     // For a type with a lifetime
@@ -117,18 +92,7 @@ macro_rules! impl_display {
 }
 
 /// Implements `Display, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Hash`
-/// for a Callback with a `.0` field:
-///
-/// ```
-/// # use azul_core::impl_callback;
-/// type T = String;
-/// struct MyCallback {
-///     cb: fn(&T),
-/// };
-///
-/// // impl Display, Debug, etc. for MyCallback
-/// impl_callback!(MyCallback, MyCallbackType);  // Also generates From<MyCallbackType> for MyCallback
-/// ```
+/// for a Callback with a `.cb` and `.ctx` field.
 ///
 /// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
 #[macro_export]

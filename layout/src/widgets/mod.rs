@@ -1,22 +1,7 @@
 //! Built-in widgets for the Azul GUI system
 
 /// Implements `Display, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Hash`
-/// for a Callback with a `.cb` field:
-///
-/// ```
-/// # use azul_core::impl_callback;
-/// # use std::fmt;
-///
-/// type OnClickCallbackType = fn(&T);
-/// 
-/// struct OnClickCallback {
-///     cb: OnClickCallbackType,
-///     ctx: OptionRefAny,
-/// };
-///
-/// // impl Display, Debug, etc. for MyCallback
-/// impl_widget_callback!(OnClick, OptionOnClick, OnClickCallback, OnClickCallbackType);
-/// ```
+/// for a Callback with a `.cb` field.
 ///
 /// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
 #[macro_export]

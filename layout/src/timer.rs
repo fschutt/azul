@@ -228,24 +228,6 @@ impl Default for Timer {
 /// This wraps `CallbackInfo` and adds timer-specific fields like call_count and frame_start.
 /// Through `Deref<Target = CallbackInfo>`, all methods from `CallbackInfo` are available,
 /// including the transactional `push_change()` API.
-///
-/// # Example
-/// ```ignore
-/// extern "C" fn animate_timer(
-///     refany: &mut RefAny,
-///     info: &mut TimerCallbackInfo,
-/// ) -> TimerCallbackReturn {
-///     // Timer-specific fields
-///     let call_count = info.call_count;
-///     let frame_start = info.frame_start;
-///     
-///     // All CallbackInfo methods are available via Deref:
-///     info.update_image_callback(dom_id, node_id);  // ← from CallbackInfo
-///     info.add_timer(timer_id, timer);              // ← from CallbackInfo
-///     
-///     TimerCallbackReturn::continue_unchanged()
-/// }
-/// ```
 #[derive(Clone)]
 #[repr(C)]
 pub struct TimerCallbackInfo {

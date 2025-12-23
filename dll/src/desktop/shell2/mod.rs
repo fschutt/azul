@@ -19,14 +19,6 @@
 //! └── stub/            Headless testing backend
 //! ```
 //!
-//! # Usage
-//!
-//! ```rust,ignore
-//! use shell2::{PlatformWindow, WindowCreateOptions};
-//!
-//! let window = PlatformWindow::new(WindowCreateOptions::default())?;
-//! ```
-//!
 //! # Feature Flags
 //!
 //! - `shell2` - Enable new shell2 implementation (default)

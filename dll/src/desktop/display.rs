@@ -58,18 +58,6 @@ pub fn get_displays() -> Vec<DisplayInfo> {
 ///
 /// This is the recommended API for getting monitor information.
 /// Returns a MonitorVec with stable MonitorId values that persist across frames.
-///
-/// # Example
-///
-/// ```no_run
-/// let monitors = get_monitors();
-/// for monitor in monitors.as_ref() {
-///     println!(
-///         "Monitor {}: {}x{} @ {:?}",
-///         monitor.monitor_id.id, monitor.size.width, monitor.size.height, monitor.position
-///     );
-/// }
-/// ```
 pub fn get_monitors() -> MonitorVec {
     get_displays()
         .into_iter()

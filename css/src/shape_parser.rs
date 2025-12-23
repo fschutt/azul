@@ -47,17 +47,6 @@ impl core::fmt::Display for ShapeParseError {
 }
 
 /// Parses a CSS shape value
-///
-/// # Examples
-///
-/// ```ignore
-/// use azul_css::shape_parser::parse_shape;
-///
-/// let circle = parse_shape("circle(50px at 100px 100px)").unwrap();
-/// let ellipse = parse_shape("ellipse(50px 75px at 100px 100px)").unwrap();
-/// let polygon = parse_shape("polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)").unwrap();
-/// let inset = parse_shape("inset(10px 20px 30px 40px)").unwrap();
-/// ```
 pub fn parse_shape(input: &str) -> Result<CssShape, ShapeParseError> {
     let input = input.trim();
 

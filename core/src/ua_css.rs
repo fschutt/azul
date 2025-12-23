@@ -480,26 +480,6 @@ const LINE_HEIGHT_1_15: CssProperty = CssProperty::LineHeight(LayoutLineHeightVa
 /// # Returns
 ///
 /// `Some(CssProperty)` if a default value is defined for this combination, otherwise `None`.
-///
-/// # Examples
-///
-/// ```ignore
-/// use azul_core::ua_css::get_ua_property;
-/// use azul_core::dom::NodeType;
-/// use azul_css::props::property::CssPropertyType;
-///
-/// // Get default width for <body> - returns 100%
-/// let width = get_ua_property(NodeType::Body, CssPropertyType::Width);
-/// assert!(width.is_some());
-///
-/// // Get default display for <div> - returns block
-/// let display = get_ua_property(NodeType::Div, CssPropertyType::Display);
-/// assert!(display.is_some());
-///
-/// // Get undefined property - returns None
-/// let undefined = get_ua_property(NodeType::Span, CssPropertyType::Width);
-/// assert!(undefined.is_none());
-/// ```
 pub fn get_ua_property(
     node_type: &NodeType,
     property_type: CssPropertyType,

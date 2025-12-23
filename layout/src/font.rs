@@ -61,20 +61,6 @@ pub mod mock {
     ///
     /// This allows testing text shaping, layout, and rendering code paths
     /// without needing to load actual TrueType/OpenType font files.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let metrics = LayoutFontMetrics {
-    ///     units_per_em: 1000,
-    ///     ascent: 800.0,
-    ///     descent: 200.0,
-    ///     line_gap: 100.0,
-    /// };
-    /// let mock = MockFont::new(metrics)
-    ///     .with_space_width(250)
-    ///     .with_glyph_advance(65, 600); // 'A' = 600 units
-    /// ```
     #[derive(Debug, Clone)]
     pub struct MockFont {
         /// Font metrics (ascent, descent, etc.).

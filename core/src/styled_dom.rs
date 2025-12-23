@@ -1469,14 +1469,9 @@ impl StyledDom {
             .collect()
     }
 
-    /// Returns a HTML-formatted version of the DOM for easier debugging, i.e.
+    /// Returns a HTML-formatted version of the DOM for easier debugging.
     ///
-    /// ```rust,no_run,ignore
-    /// Dom::create_div().with_id("hello")
-    ///     .with_child(Dom::create_div().with_id("test"))
-    /// ```
-    ///
-    /// will return:
+    /// For example, a DOM with a parent div containing a child div would return:
     ///
     /// ```xml,no_run,ignore
     /// <div id="hello">
