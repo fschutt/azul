@@ -464,8 +464,13 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
             }
         }
 
-        window.current_window_state.flags.is_maximized = is_maximized;
-        window.current_window_state.flags.is_fullscreen = is_fullscreen;
+        window.current_window_state.flags.frame = if is_fullscreen {
+            crate::WindowFrame::Fullscreen
+        } else if is_maximized {
+            crate::WindowFrame::Maximized
+        } else {
+            crate::WindowFrame::Normal
+        };
         let _ = is_activated; // Can be used for focus indication if needed
     }
 
@@ -475,8 +480,8 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
         let current_height = window.current_window_state.size.dimensions.height as i32;
 
         if width != current_width || height != current_height {
-            window.current_window_state.size.dimensions.width = width as usize;
-            window.current_window_state.size.dimensions.height = height as usize;
+            window.current_window_state.size.dimensions.width = width as f32;
+            window.current_window_state.size.dimensions.height = height as f32;
             window.frame_needs_regeneration = true;
 
             // Resize the rendering surface

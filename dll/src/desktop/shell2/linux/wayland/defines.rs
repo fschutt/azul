@@ -50,6 +50,13 @@ pub struct wl_shm_pool {
 pub struct wl_buffer {
     _private: [u8; 0],
 }
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct wl_array {
+    pub size: usize,
+    pub alloc: usize,
+    pub data: *mut c_void,
+}
 
 // wl_cursor types (from wayland-cursor.h)
 #[repr(C)]
