@@ -304,8 +304,8 @@ pub fn get_monitors() -> azul_core::window::MonitorVec {
     };
 
     let monitor = Monitor {
-        id: azul_core::window::MonitorId::new(0),
-        name: if std::env::var("WAYLAND_DISPLAY").is_ok() {
+        monitor_id: azul_core::window::MonitorId::new(0),
+        monitor_name: if std::env::var("WAYLAND_DISPLAY").is_ok() {
             Some("wayland-0".to_string().into()).into()
         } else {
             Some("x11-0".to_string().into()).into()

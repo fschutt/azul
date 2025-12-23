@@ -979,7 +979,7 @@ fn get_parent_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
         .node_hierarchy
         .as_container()
         .get(dom_id)
-        .and_then(|node| Some(NodeId::new(node.parent)))
+        .and_then(|node| node.parent_id())
         .map(|parent_id| get_element_font_size(styled_dom, parent_id))
         .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)
 }

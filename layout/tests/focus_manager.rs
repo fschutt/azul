@@ -423,7 +423,7 @@ fn test_multiple_selection_clear_operations() {
                     start_byte_in_run: (i * 5) as u32,
                 },
                 affinity: CursorAffinity::Leading,
-            })],
+            })].into(),
             node_id: node,
         };
         selection_manager.set_selection(*dom_id, sel_state);
@@ -457,7 +457,7 @@ fn test_multiple_selection_clear_operations() {
                     start_byte_in_run: (i * 10) as u32,
                 },
                 affinity: CursorAffinity::Trailing,
-            })],
+            })].into(),
             node_id: node,
         };
         selection_manager.set_selection(*dom_id, sel_state);

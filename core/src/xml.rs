@@ -1716,7 +1716,7 @@ extern \"C\" fn render(_: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     .style(Css::empty()) // styles are applied inline
 }
 
-fn create_main() {
+fn main() {
     let app = App::new(RefAny::new(Data { }), AppConfig::new(LayoutSolver::Default));
     let mut window = WindowCreateOptions::new(render);
     window.state.flags.frame = WindowFrame::Maximized;
@@ -2815,26 +2815,38 @@ pub fn compile_body_node_to_rust_code<'a>(
         dom_string.push_str(&format!("\r\n.with_children(DomVec::from_vec(vec![\r\n"));
 
         for (child_idx, child) in body_node.children.as_ref().iter().enumerate() {
-            if let XmlNodeChild::Element(child_node) = child {
-                let mut matcher = matcher.clone();
-                matcher.path.push(CssPathSelector::Children);
-                matcher.indices_in_parent.push(child_idx);
-                matcher.children_length.push(body_node.children.len());
+            match child {
+                XmlNodeChild::Element(child_node) => {
+                    let mut matcher = matcher.clone();
+                    matcher.path.push(CssPathSelector::Children);
+                    matcher.indices_in_parent.push(child_idx);
+                    matcher.children_length.push(body_node.children.len());
 
-                dom_string.push_str(&format!(
-                    "{}{},\r\n",
-                    t,
-                    compile_node_to_rust_code_inner(
-                        child_node,
-                        component_map,
-                        &ComponentArguments::default(),
-                        1,
-                        extra_blocks,
-                        css_blocks,
-                        css,
-                        matcher,
-                    )?
-                ));
+                    dom_string.push_str(&format!(
+                        "{}{},\r\n",
+                        t,
+                        compile_node_to_rust_code_inner(
+                            child_node,
+                            component_map,
+                            &ComponentArguments::default(),
+                            1,
+                            extra_blocks,
+                            css_blocks,
+                            css,
+                            matcher,
+                        )?
+                    ));
+                }
+                XmlNodeChild::Text(text) => {
+                    let text = text.trim();
+                    if !text.is_empty() {
+                        let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
+                        dom_string.push_str(&format!(
+                            "{}Dom::text(\"{}\".into()),\r\n",
+                            t, escaped
+                        ));
+                    }
+                }
             }
         }
         dom_string.push_str(&format!("\r\n{}]))", t));
@@ -3112,27 +3124,37 @@ pub fn compile_node_to_rust_code_inner<'a>(
         .iter()
         .enumerate()
         .filter_map(|(child_idx, c)| {
-            if let XmlNodeChild::Element(child_node) = c {
-                let mut matcher = matcher.clone();
-                matcher.path.push(CssPathSelector::Children);
-                matcher.indices_in_parent.push(child_idx);
-                matcher.children_length.push(node.children.len());
+            match c {
+                XmlNodeChild::Element(child_node) => {
+                    let mut matcher = matcher.clone();
+                    matcher.path.push(CssPathSelector::Children);
+                    matcher.indices_in_parent.push(child_idx);
+                    matcher.children_length.push(node.children.len());
 
-                Some(compile_node_to_rust_code_inner(
-                    child_node,
-                    component_map,
-                    &ComponentArguments {
-                        args: filtered_xml_attributes.types.clone(),
-                        accepts_text: filtered_xml_attributes.accepts_text,
-                    },
-                    tabs + 1,
-                    extra_blocks,
-                    css_blocks,
-                    css,
-                    matcher,
-                ))
-            } else {
-                None
+                    Some(compile_node_to_rust_code_inner(
+                        child_node,
+                        component_map,
+                        &ComponentArguments {
+                            args: filtered_xml_attributes.types.clone(),
+                            accepts_text: filtered_xml_attributes.accepts_text,
+                        },
+                        tabs + 1,
+                        extra_blocks,
+                        css_blocks,
+                        css,
+                        matcher,
+                    ))
+                }
+                XmlNodeChild::Text(text) => {
+                    let text = text.trim();
+                    if text.is_empty() {
+                        None
+                    } else {
+                        let t2 = String::from("    ").repeat(tabs);
+                        let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
+                        Some(Ok(format!("{}Dom::text(\"{}\".into())", t2, escaped)))
+                    }
+                }
             }
         })
         .collect::<Result<Vec<_>, _>>()?

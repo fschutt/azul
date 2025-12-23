@@ -677,12 +677,12 @@ impl X11Window {
         let target_monitor = monitors
             .as_slice()
             .iter()
-            .find(|m| m.id.index == monitor_id.index)
+            .find(|m| m.monitor_id.index == monitor_id.index)
             .or_else(|| {
                 monitors
                     .as_slice()
                     .iter()
-                    .find(|m| m.id.hash == monitor_id.hash && monitor_id.hash != 0)
+                    .find(|m| m.monitor_id.hash == monitor_id.hash && monitor_id.hash != 0)
             })
             .unwrap_or(&monitors.as_slice()[0]); // Fallback to primary
 

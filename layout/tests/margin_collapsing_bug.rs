@@ -19,7 +19,7 @@ fn test_margin_collapsing() {
             Dom::h1("Heading").with_ids_and_classes(vec![IdOrClass::Class("my-h1".into())].into()),
         )
         .with_child(
-            Dom::p()
+            Dom::create_p()
                 .with_child(Dom::create_text("Paragraph"))
                 .with_ids_and_classes(vec![IdOrClass::Class("my-p".into())].into()),
         );
