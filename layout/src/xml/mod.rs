@@ -195,6 +195,13 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                 let tag_name = local.to_string();
                 let is_void_element = VOID_ELEMENTS.contains(&tag_name.as_str());
 
+                // HTML5-lite: If last element was a void element (like <img src="...">),
+                // pop it from hierarchy before processing the new element
+                if last_was_void {
+                    current_hierarchy.pop();
+                    last_was_void = false;
+                }
+
                 // HTML5-lite: Check if we need to auto-close the current element
                 if !current_hierarchy.is_empty() {
                     if let Some(current_element) = get_item(&current_hierarchy, &mut root_node) {
@@ -220,32 +227,31 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                         children: Vec::new().into(),
                     }));
 
-                    // Only push to hierarchy if not a void element
-                    // Void elements auto-close and don't expect children
-                    if !is_void_element {
-                        current_hierarchy.push(children_len);
-                        last_was_void = false;
-                    } else {
-                        last_was_void = true;
-                    }
+                    // Always push to hierarchy so attributes get assigned correctly
+                    // For void elements, we'll pop immediately after attributes are processed
+                    current_hierarchy.push(children_len);
+                    last_was_void = is_void_element;
                 }
             }
             ElementEnd { end: Empty, .. } => {
-                // Don't pop hierarchy for void elements
-                if !last_was_void {
-                    current_hierarchy.pop();
-                }
+                // Pop hierarchy for all elements (including void elements after their attributes)
+                current_hierarchy.pop();
                 last_was_void = false;
             }
             ElementEnd {
                 end: Close(_, close_value),
                 ..
             } => {
+                // HTML5-lite: If last element was a void element, pop it first
+                if last_was_void {
+                    current_hierarchy.pop();
+                    last_was_void = false;
+                }
+
                 // HTML5-lite: Check if this is a void element - if so, ignore the closing tag
                 let is_void_element = VOID_ELEMENTS.contains(&close_value.as_str());
                 if is_void_element {
                     // Void elements shouldn't have closing tags, but tolerate them
-                    last_was_void = false;
                     continue;
                 }
 
@@ -287,6 +293,12 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                 }
             }
             Text { text } => {
+                // HTML5-lite: If last element was a void element, pop it before adding text
+                if last_was_void {
+                    current_hierarchy.pop();
+                    last_was_void = false;
+                }
+
                 // Skip whitespace-only text nodes between block elements
                 // but preserve them within inline contexts (e.g., between inline elements)
                 let is_whitespace_only = text.trim().is_empty();
@@ -302,6 +314,11 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
             }
             _ => {}
         }
+    }
+
+    // Clean up: if we ended with a void element, pop it
+    if last_was_void {
+        current_hierarchy.pop();
     }
 
     Ok(root_node.children.into())
@@ -561,13 +578,6 @@ const fn translate_roxml_textpos(o: roxmltree::TextPos) -> XmlTextPos {
 /// This trait provides methods to parse XML/XHTML strings and convert them
 /// into Azul DOM trees. It's implemented as a trait to avoid circular dependencies
 /// between azul-core and azul-layout.
-///
-/// # Example
-/// ```ignore
-/// use azul_layout::xml::DomXmlExt;
-///
-/// let dom = Dom::from_xml_string("<div><p>Hello</p></div>");
-/// ```
 #[cfg(feature = "xml")]
 pub trait DomXmlExt {
     /// Parse XML/XHTML string into a DOM tree

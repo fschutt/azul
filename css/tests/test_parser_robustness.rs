@@ -45,24 +45,21 @@ fn test_css_parser_missing_selector() {
 fn test_css_parser_empty_string() {
     let css = "";
     let (result, _warnings) = new_from_str(css);
-    let _ = result;
-    assert!(wrapper.css.rules().next().is_none());
+    assert!(result.rules().next().is_none());
 }
 
 #[test]
 fn test_css_parser_whitespace_only() {
     let css = "   \n\t  \r\n  ";
     let (result, _warnings) = new_from_str(css);
-    let _ = result;
-    assert!(wrapper.css.rules().next().is_none());
+    assert!(result.rules().next().is_none());
 }
 
 #[test]
 fn test_css_parser_comments_only() {
     let css = "/* This is a comment */ /* Another comment */";
     let (result, _warnings) = new_from_str(css);
-    let _ = result;
-    assert!(wrapper.css.rules().next().is_none());
+    assert!(result.rules().next().is_none());
 }
 
 #[test]
@@ -153,8 +150,7 @@ fn test_css_parser_multiple_rules() {
         div.class#id { color: yellow }
     "#;
     let (result, _warnings) = new_from_str(css);
-    let _ = result;
-    assert!(wrapper.css.rules().count() >= 4);
+    assert!(result.rules().count() >= 4);
 }
 
 #[test]
