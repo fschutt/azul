@@ -4,7 +4,7 @@ use azul_core::{
     dom::{Dom, NodeData, NodeDataInlineCssProperty},
     id_tree::{Node, NodeDataContainer, NodeHierarchy, NodeId},
     styled_dom::{
-        DomId, NodeHierarchyItem, NodeHierarchyItemId, ParentWithNodeDepth, StyledDom, StyledNode,
+        DomId, NodeHierarchyItem, OptionNodeId, ParentWithNodeDepth, StyledDom, StyledNode,
     },
     ui_solver::{WhConstraint, WidthSolvedResult},
     window::{LogicalPosition, LogicalRect, LogicalSize},

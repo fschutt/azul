@@ -1227,9 +1227,11 @@ pub trait PlatformWindowV2 {
                         KeyboardShortcut::Undo | KeyboardShortcut::Redo => {
                             // Handle Ctrl+Z (Undo) / Ctrl+Y or Ctrl+Shift+Z (Redo)
                             if let Some(layout_window) = self.get_layout_window_mut() {
-                                // Convert DomNodeId to NodeId
-                                let node_id =
-                                    azul_core::id::NodeId::new(target.node.inner as usize);
+                                // Convert DomNodeId to NodeId using proper decoding
+                                let node_id = match target.node.into_crate_internal() {
+                                    Some(id) => id,
+                                    None => continue,
+                                };
 
                                 // Get external callbacks for system time
                                 let external = ExternalSystemCallbacks::rust_internal();

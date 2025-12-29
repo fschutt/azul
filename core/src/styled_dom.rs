@@ -265,10 +265,53 @@ impl StyleFontFamiliesHash {
     }
 }
 
+/// FFI-safe representation of `Option<NodeId>` as a single `usize`.
+///
+/// # Encoding (1-based)
+///
+/// - `inner = 0` → `None` (no node)
+/// - `inner = n > 0` → `Some(NodeId(n - 1))`
+///
+/// This type exists because C/C++ cannot use Rust's `Option` type.
+/// Use [`NodeHierarchyItemId::into_crate_internal`] to decode and
+/// [`NodeHierarchyItemId::from_crate_internal`] to encode.
+///
+/// # Difference from `NodeId`
+///
+/// - **`NodeId`**: A 0-based array index. `NodeId::new(0)` refers to the first node.
+///   Use directly for array indexing: `nodes[node_id.index()]`.
+///
+/// - **`NodeHierarchyItemId`**: A 1-based encoded `Option<NodeId>`.
+///   `inner = 0` means `None`, `inner = 1` means `Some(NodeId(0))`.
+///   **Never use `inner` as an array index!** Always decode first.
+///
+/// # Warning
+///
+/// The `inner` field uses **1-based encoding**, not a direct index!
+/// Never use `inner` directly as an array index - always decode first.
+///
+/// # Example
+///
+/// ```ignore
+/// // Encoding: Option<NodeId> -> NodeHierarchyItemId
+/// let opt = NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(5)));
+/// assert_eq!(opt.into_raw(), 6);  // 5 + 1 = 6
+///
+/// // Decoding: NodeHierarchyItemId -> Option<NodeId>
+/// let decoded = opt.into_crate_internal();
+/// assert_eq!(decoded, Some(NodeId::new(5)));
+///
+/// // None case
+/// let none = NodeHierarchyItemId::NONE;
+/// assert_eq!(none.into_raw(), 0);
+/// assert_eq!(none.into_crate_internal(), None);
+/// ```
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub struct NodeHierarchyItemId {
-    pub inner: usize,
+    // Uses 1-based encoding: 0 = None, n > 0 = Some(NodeId(n-1))
+    // Do NOT use directly as an array index!
+    inner: usize,
 }
 
 impl fmt::Debug for NodeHierarchyItemId {
@@ -287,7 +330,29 @@ impl fmt::Display for NodeHierarchyItemId {
 }
 
 impl NodeHierarchyItemId {
+    /// Represents `None` (no node). Encoded as `inner = 0`.
     pub const NONE: NodeHierarchyItemId = NodeHierarchyItemId { inner: 0 };
+    
+    /// Creates an `NodeHierarchyItemId` from a raw 1-based encoded value.
+    ///
+    /// # Warning
+    ///
+    /// The value must use 1-based encoding (0 = None, n = NodeId(n-1)).
+    /// Prefer using [`NodeHierarchyItemId::from_crate_internal`] instead.
+    #[inline]
+    pub const fn from_raw(value: usize) -> Self {
+        Self { inner: value }
+    }
+    
+    /// Returns the raw 1-based encoded value.
+    ///
+    /// # Warning
+    ///
+    /// The returned value uses 1-based encoding. Do NOT use as an array index!
+    #[inline]
+    pub const fn into_raw(&self) -> usize {
+        self.inner
+    }
 }
 
 impl_option!(
@@ -307,18 +372,32 @@ impl_vec_clone!(NodeHierarchyItemId, NodeIdVec, NodeIdVecDestructor);
 impl_vec_partialeq!(NodeHierarchyItemId, NodeIdVec);
 
 impl NodeHierarchyItemId {
-    /// Converts to internal NodeId representation (0 = None).
+    /// Decodes to `Option<NodeId>` (0 = None, n > 0 = Some(NodeId(n-1))).
     #[inline]
     pub const fn into_crate_internal(&self) -> Option<NodeId> {
         NodeId::from_usize(self.inner)
     }
 
-    /// Creates from internal NodeId representation (None becomes 0).
+    /// Encodes from `Option<NodeId>` (None → 0, Some(NodeId(n)) → n+1).
     #[inline]
     pub const fn from_crate_internal(t: Option<NodeId>) -> Self {
         Self {
-            inner: NodeId::into_usize(&t),
+            inner: NodeId::into_raw(&t),
         }
+    }
+}
+
+impl From<Option<NodeId>> for NodeHierarchyItemId {
+    #[inline]
+    fn from(opt: Option<NodeId>) -> Self {
+        NodeHierarchyItemId::from_crate_internal(opt)
+    }
+}
+
+impl From<NodeHierarchyItemId> for Option<NodeId> {
+    #[inline]
+    fn from(id: NodeHierarchyItemId) -> Self {
+        id.into_crate_internal()
     }
 }
 
@@ -346,10 +425,10 @@ impl NodeHierarchyItem {
 impl From<Node> for NodeHierarchyItem {
     fn from(node: Node) -> NodeHierarchyItem {
         NodeHierarchyItem {
-            parent: NodeId::into_usize(&node.parent),
-            previous_sibling: NodeId::into_usize(&node.previous_sibling),
-            next_sibling: NodeId::into_usize(&node.next_sibling),
-            last_child: NodeId::into_usize(&node.last_child),
+            parent: NodeId::into_raw(&node.parent),
+            previous_sibling: NodeId::into_raw(&node.previous_sibling),
+            next_sibling: NodeId::into_raw(&node.next_sibling),
+            last_child: NodeId::into_raw(&node.last_child),
         }
     }
 }
@@ -775,10 +854,10 @@ impl StyledDom {
         }
 
         other.node_hierarchy.as_container_mut()[other_root_id].parent =
-            NodeId::into_usize(&Some(self_root_id));
+            NodeId::into_raw(&Some(self_root_id));
         let current_last_child = self.node_hierarchy.as_container()[self_root_id].last_child_id();
         other.node_hierarchy.as_container_mut()[other_root_id].previous_sibling =
-            NodeId::into_usize(&current_last_child);
+            NodeId::into_raw(&current_last_child);
         if let Some(current_last) = current_last_child {
             if self.node_hierarchy.as_container_mut()[current_last]
                 .next_sibling_id()
@@ -788,11 +867,11 @@ impl StyledDom {
                     other_root_id.index() + other_len;
             } else {
                 self.node_hierarchy.as_container_mut()[current_last].next_sibling =
-                    NodeId::into_usize(&Some(NodeId::new(self_len + other_root_id.index())));
+                    NodeId::into_raw(&Some(NodeId::new(self_len + other_root_id.index())));
             }
         }
         self.node_hierarchy.as_container_mut()[self_root_id].last_child =
-            NodeId::into_usize(&Some(NodeId::new(self_len + other_root_id.index())));
+            NodeId::into_raw(&Some(NodeId::new(self_len + other_root_id.index())));
 
         self.node_hierarchy.append(&mut other.node_hierarchy);
         self.node_data.append(&mut other.node_data);

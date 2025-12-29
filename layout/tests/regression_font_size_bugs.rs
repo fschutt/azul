@@ -78,25 +78,25 @@ fn test_bug2_parent_node_id_decoding() {
     // Test the NodeId encoding/decoding directly
 
     // Encoding test: None -> 0
-    assert_eq!(NodeId::into_usize(&None), 0, "None should encode to 0");
+    assert_eq!(NodeId::into_raw(&None), 0, "None should encode to 0");
 
     // Encoding test: Some(NodeId(0)) -> 1
     assert_eq!(
-        NodeId::into_usize(&Some(NodeId::new(0))),
+        NodeId::into_raw(&Some(NodeId::new(0))),
         1,
         "NodeId(0) should encode to 1"
     );
 
     // Encoding test: Some(NodeId(1)) -> 2
     assert_eq!(
-        NodeId::into_usize(&Some(NodeId::new(1))),
+        NodeId::into_raw(&Some(NodeId::new(1))),
         2,
         "NodeId(1) should encode to 2"
     );
 
     // Encoding test: Some(NodeId(2)) -> 3
     assert_eq!(
-        NodeId::into_usize(&Some(NodeId::new(2))),
+        NodeId::into_raw(&Some(NodeId::new(2))),
         3,
         "NodeId(2) should encode to 3"
     );

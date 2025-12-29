@@ -19,6 +19,7 @@
 
 use alloc::vec::Vec;
 use core::{
+    num::NonZeroUsize,
     ops::{Index, IndexMut},
     slice::Iter,
 };
@@ -43,16 +44,42 @@ pub mod node_id {
 
     /// A type-safe identifier for a node within a DOM tree.
     ///
-    /// `NodeId` is a simple wrapper around `usize` that is FFI-safe.
-    /// The `inner` field directly stores the zero-based index.
+    /// `NodeId` is FFI-safe (`#[repr(C)]`) and stores a **zero-based** index internally.
+    /// Use `NodeId::index()` to get the array index for direct node access.
+    ///
+    /// # Zero-based indexing
+    ///
+    /// - `NodeId::new(0)` → first node (index 0)
+    /// - `NodeId::new(5)` → sixth node (index 5)
+    /// - Use `node_id.index()` to get the array index
+    ///
+    /// # FFI Encoding (for `Option<NodeId>`)
+    ///
+    /// When storing `Option<NodeId>` in FFI structs (like `NodeHierarchyItem`),
+    /// we use a **1-based encoding** to represent None:
+    ///
+    /// - `0` means `None` (no node)
+    /// - `n > 0` means `Some(NodeId(n - 1))`
+    ///
+    /// Use [`NodeId::from_usize`] to decode and [`NodeId::into_raw`] to encode.
+    /// See also: [`crate::styled_dom::NodeHierarchyItemId`] for the FFI wrapper type.
+    ///
+    /// # Warning
+    ///
+    /// **Never manually construct raw usize values for node hierarchy fields!**
+    /// Always use the provided `from_usize`/`into_raw` functions to avoid
+    /// off-by-one errors that can cause index-out-of-bounds panics.
+    ///
     #[repr(C)]
     #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
     pub struct NodeId {
-        pub inner: usize,
+        // Private field to prevent direct manipulation.
+        // Use NodeId::new() to create, NodeId::index() to read.
+        inner: usize,
     }
 
     impl NodeId {
-        /// The zero/first node ID.
+        /// The zero/first node ID (index 0).
         pub const ZERO: NodeId = NodeId { inner: 0 };
 
         /// Creates a new `NodeId` from a zero-based index.
@@ -61,9 +88,19 @@ pub mod node_id {
             NodeId { inner: value }
         }
 
-        /// Converts a usize to an Option<NodeId>.
-        /// Returns None if value is 0, otherwise Some(NodeId(value - 1)).
-        /// This maintains the invariant that 0 means "no node" for FFI compatibility.
+        /// Decodes a raw `usize` to `Option<NodeId>` using 1-based encoding.
+        ///
+        /// This is the inverse of [`NodeId::into_usize`].
+        ///
+        /// - `0` → `None` (no node)
+        /// - `n > 0` → `Some(NodeId(n - 1))`
+        ///
+        /// # Warning
+        ///
+        /// This function is for decoding values stored in FFI structs like
+        /// `NodeHierarchyItem`. Do not use raw usize values directly - always
+        /// decode them first!
+        #[inline]
         pub const fn from_usize(value: usize) -> Option<Self> {
             match value {
                 0 => None,
@@ -71,28 +108,28 @@ pub mod node_id {
             }
         }
 
-        /// Converts an Option<NodeId> to a usize.
-        /// Returns 0 for None, otherwise the inner value + 1.
-        /// This maintains the invariant that 0 means "no node" for FFI compatibility.
-        pub const fn into_usize(val: &Option<Self>) -> usize {
+        /// Encodes `Option<NodeId>` to a raw `usize` for storage in FFI structs.
+        ///
+        /// - `None` → `0`
+        /// - `Some(NodeId(n))` → `n + 1`
+        ///
+        /// The returned value uses **1-based encoding**! A value of `0` means "no node",
+        /// NOT "node at index 0". Use [`NodeId::from_usize`] to decode.
+        ///
+        #[inline]
+        pub const fn into_raw(val: &Option<Self>) -> usize {
             match val {
                 None => 0,
                 Some(s) => s.inner + 1,
             }
         }
 
-        /// Returns the zero-based index of this node.
+        /// Returns the **zero-based** index of this node.
+        ///
+        /// This is the actual array index where the node data is stored.
         #[inline(always)]
         pub const fn index(&self) -> usize {
             self.inner
-        }
-
-        /// Return an iterator of references to this node's children.
-        #[inline]
-        pub fn range(start: Self, end: Self) -> Vec<NodeId> {
-            (start.index()..end.index())
-                .map(|u| NodeId::new(u))
-                .collect()
         }
     }
 
@@ -135,13 +172,6 @@ pub mod node_id {
         }
     }
 }
-
-use azul_css::impl_option;
-impl_option!(
-    NodeId,
-    OptionNodeId,
-    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
-);
 
 /// Hierarchical information about a node (stores the indicies of the parent / child nodes).
 #[derive(Debug, Default, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]

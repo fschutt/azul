@@ -213,9 +213,9 @@ impl UndoRedoManager {
     /// * `pre_state` - Node state before the changeset
     pub fn record_operation(&mut self, changeset: TextChangeset, pre_state: NodeStateSnapshot) {
         // Convert DomNodeId to NodeId for indexing
-        // DomNodeId contains both DomId and NodeId, we only need the NodeId
-        // NodeHierarchyItemId can be converted to NodeId
-        let node_id = NodeId::new(changeset.target.node.inner as usize);
+        // NodeHierarchyItemId.into_crate_internal() decodes the 1-based encoding to Option<NodeId>
+        let node_id = changeset.target.node.into_crate_internal()
+            .expect("TextChangeset target node should not be None");
         let stack = self.get_or_create_stack_mut(node_id);
 
         let operation = UndoableOperation {
@@ -282,7 +282,8 @@ impl UndoRedoManager {
     ///
     /// This should be called AFTER an undo operation has been successfully applied.
     pub fn push_redo(&mut self, operation: UndoableOperation) {
-        let node_id = NodeId::new(operation.changeset.target.node.inner as usize);
+        let node_id = operation.changeset.target.node.into_crate_internal()
+            .expect("TextChangeset target node should not be None");
         let stack = self.get_or_create_stack_mut(node_id);
         stack.push_redo(operation);
     }
@@ -291,7 +292,8 @@ impl UndoRedoManager {
     ///
     /// This should be called AFTER a redo operation has been successfully applied.
     pub fn push_undo(&mut self, operation: UndoableOperation) {
-        let node_id = NodeId::new(operation.changeset.target.node.inner as usize);
+        let node_id = operation.changeset.target.node.into_crate_internal()
+            .expect("TextChangeset target node should not be None");
         let stack = self.get_or_create_stack_mut(node_id);
         stack.push_undo(operation);
     }

@@ -795,7 +795,8 @@ impl CallbackInfo {
     /// * `property` - The CSS property to set
     pub fn set_css_property(&mut self, node_id: DomNodeId, property: CssProperty) {
         let dom_id = node_id.dom;
-        let internal_node_id = NodeId::new(node_id.node.inner);
+        let internal_node_id = node_id.node.into_crate_internal()
+            .expect("DomNodeId node should not be None");
         self.change_node_css_properties(dom_id, internal_node_id, vec![property].into());
     }
 
@@ -1158,7 +1159,7 @@ impl CallbackInfo {
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
-        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_id_internal = node_id.node.into_crate_internal()?;
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
 
@@ -1168,9 +1169,7 @@ impl CallbackInfo {
             if !self.is_node_anonymous(&node_id.dom, current_parent_id) {
                 return Some(DomNodeId {
                     dom: node_id.dom,
-                    node: NodeHierarchyItemId {
-                        inner: current_parent_id.index(),
-                    },
+                    node: NodeHierarchyItemId::from_crate_internal(Some(current_parent_id)),
                 });
             }
 
@@ -1183,7 +1182,7 @@ impl CallbackInfo {
     pub fn get_previous_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
-        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_id_internal = node_id.node.into_crate_internal()?;
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
 
@@ -1193,9 +1192,7 @@ impl CallbackInfo {
             if !self.is_node_anonymous(&node_id.dom, current_sibling_id) {
                 return Some(DomNodeId {
                     dom: node_id.dom,
-                    node: NodeHierarchyItemId {
-                        inner: current_sibling_id.index(),
-                    },
+                    node: NodeHierarchyItemId::from_crate_internal(Some(current_sibling_id)),
                 });
             }
 
@@ -1208,7 +1205,7 @@ impl CallbackInfo {
     pub fn get_next_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
-        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_id_internal = node_id.node.into_crate_internal()?;
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
 
@@ -1218,9 +1215,7 @@ impl CallbackInfo {
             if !self.is_node_anonymous(&node_id.dom, current_sibling_id) {
                 return Some(DomNodeId {
                     dom: node_id.dom,
-                    node: NodeHierarchyItemId {
-                        inner: current_sibling_id.index(),
-                    },
+                    node: NodeHierarchyItemId::from_crate_internal(Some(current_sibling_id)),
                 });
             }
 
@@ -1233,7 +1228,7 @@ impl CallbackInfo {
     pub fn get_first_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
-        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_id_internal = node_id.node.into_crate_internal()?;
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
 
@@ -1243,9 +1238,7 @@ impl CallbackInfo {
             if !self.is_node_anonymous(&node_id.dom, current_child_id) {
                 return Some(DomNodeId {
                     dom: node_id.dom,
-                    node: NodeHierarchyItemId {
-                        inner: current_child_id.index(),
-                    },
+                    node: NodeHierarchyItemId::from_crate_internal(Some(current_child_id)),
                 });
             }
 
@@ -1258,7 +1251,7 @@ impl CallbackInfo {
     pub fn get_last_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
-        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_id_internal = node_id.node.into_crate_internal()?;
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = node_hierarchy.get(node_id_internal)?;
 
@@ -1268,9 +1261,7 @@ impl CallbackInfo {
             if !self.is_node_anonymous(&node_id.dom, current_child_id) {
                 return Some(DomNodeId {
                     dom: node_id.dom,
-                    node: NodeHierarchyItemId {
-                        inner: current_child_id.index(),
-                    },
+                    node: NodeHierarchyItemId::from_crate_internal(Some(current_child_id)),
                 });
             }
 
@@ -1285,7 +1276,7 @@ impl CallbackInfo {
     pub fn get_dataset(&mut self, node_id: DomNodeId) -> Option<RefAny> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
-        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_id_internal = node_id.node.into_crate_internal()?;
         let node_data_cont = layout_result.styled_dom.node_data.as_container();
         let node_data = node_data_cont.get(node_id_internal)?;
         node_data.get_dataset().clone().into_option()
@@ -1308,7 +1299,7 @@ impl CallbackInfo {
                     if dataset.get_type_id() == search_type_id {
                         let node_id = DomNodeId {
                             dom: dom_id,
-                            node: NodeHierarchyItemId { inner: node_idx },
+                            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_idx))),
                         };
                         let instance_id = dataset.instance_id;
 
@@ -1331,7 +1322,7 @@ impl CallbackInfo {
     pub fn get_string_contents(&self, node_id: DomNodeId) -> Option<AzString> {
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
-        let node_id_internal = NodeId::new(node_id.node.inner);
+        let node_id_internal = node_id.node.into_crate_internal()?;
         let node_data_cont = layout_result.styled_dom.node_data.as_container();
         let node_data = node_data_cont.get(node_id_internal)?;
 
@@ -1505,8 +1496,8 @@ impl CallbackInfo {
         // Get the styled DOM
         let styled_dom = &layout_result.styled_dom;
 
-        // Convert DomNodeId to NodeId
-        let internal_node_id = CoreNodeId::from_usize(node_id.node.inner)?;
+        // Convert DomNodeId to NodeId using proper decoding
+        let internal_node_id = node_id.node.into_crate_internal()?;
 
         // Get the node data
         let node_data_container = styled_dom.node_data.as_container();

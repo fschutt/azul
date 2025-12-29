@@ -3650,7 +3650,7 @@
                   }
                 ],
                 "returns": {
-                  "type": "OptionNodeId"
+                  "type": "NodeHierarchyItemId"
                 },
                 "fn_body": "object.get_node_id_by_id_attribute(dom_id, id.as_str()).into()"
               },
@@ -3672,7 +3672,7 @@
                   }
                 ],
                 "returns": {
-                  "type": "OptionNodeId"
+                  "type": "NodeHierarchyItemId"
                 },
                 "fn_body": "object.get_parent_node(dom_id, node_id).into()"
               },
@@ -3694,7 +3694,7 @@
                   }
                 ],
                 "returns": {
-                  "type": "OptionNodeId"
+                  "type": "NodeHierarchyItemId"
                 },
                 "fn_body": "object.get_next_sibling_node(dom_id, node_id).into()"
               },
@@ -3716,7 +3716,7 @@
                   }
                 ],
                 "returns": {
-                  "type": "OptionNodeId"
+                  "type": "NodeHierarchyItemId"
                 },
                 "fn_body": "object.get_previous_sibling_node(dom_id, node_id).into()"
               },
@@ -3738,7 +3738,7 @@
                   }
                 ],
                 "returns": {
-                  "type": "OptionNodeId"
+                  "type": "NodeHierarchyItemId"
                 },
                 "fn_body": "object.get_first_child_node(dom_id, node_id).into()"
               },
@@ -3760,7 +3760,7 @@
                   }
                 ],
                 "returns": {
-                  "type": "OptionNodeId"
+                  "type": "NodeHierarchyItemId"
                 },
                 "fn_body": "object.get_last_child_node(dom_id, node_id).into()"
               },
@@ -11308,7 +11308,8 @@
             "external": "azul_core::styled_dom::NodeHierarchyItemId",
             "custom_impls": [
               "Debug",
-              "Display"
+              "Display",
+              "From"
             ],
             "derive": [
               "Hash",
@@ -11326,6 +11327,44 @@
                 }
               }
             ],
+            "constructors": {
+              "from_raw": {
+                "doc": [
+                  "Creates an `NodeHierarchyItemId` from a raw 1-based encoded value.",
+                  "",
+                  "# Warning",
+                  "",
+                  "The value must use 1-based encoding (0 = None, n = NodeId(n-1)).",
+                  "Prefer using [`NodeHierarchyItemId::from_crate_internal`] instead."
+                ],
+                "fn_args": [
+                  {
+                    "value": "usize"
+                  }
+                ],
+                "fn_body": "azul_core::styled_dom::NodeHierarchyItemId::from_raw(value)"
+              }
+            },
+            "functions": {
+              "into_raw": {
+                "doc": [
+                  "Returns the raw 1-based encoded value.",
+                  "",
+                  "# Warning",
+                  "",
+                  "The returned value uses 1-based encoding. Do NOT use as an array index!"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "object.into_raw()"
+              }
+            },
             "repr": "C"
           },
           "CoreCallbackData": {
@@ -12428,17 +12467,6 @@
                   }
                 ],
                 "fn_body": "azul_core::id::NodeId::new(value)"
-              },
-              "from_usize": {
-                "fn_args": [
-                  {
-                    "value": "usize"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionNodeId"
-                },
-                "fn_body": "azul_core::id::NodeId::from_usize(value).into()"
               }
             },
             "functions": {
@@ -50746,30 +50774,6 @@
                 "None": {},
                 "Some": {
                   "type": "LogicalRect"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "OptionNodeId": {
-            "external": "azul_core::id::OptionNodeId",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialOrd",
-              "Ord",
-              "PartialEq",
-              "Eq",
-              "Hash"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "NodeId"
                 }
               }
             ],

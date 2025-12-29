@@ -4,8 +4,8 @@
 //! These tests verify the invariant that:
 //! - `from_usize(0)` returns `None`
 //! - `from_usize(n)` for n > 0 returns `Some(NodeId(n-1))`
-//! - `into_usize(None)` returns `0`
-//! - `into_usize(Some(NodeId(n)))` returns `n + 1`
+//! - `into_raw(None)` returns `0`
+//! - `into_raw(Some(NodeId(n)))` returns `n + 1`
 //!
 //! This encoding prevents underflow issues when manipulating node hierarchies.
 
@@ -48,32 +48,32 @@ fn test_from_usize_max_minus_one() {
     assert_eq!(result.unwrap().index(), usize::MAX - 2);
 }
 
-// ==================== into_usize Tests ====================
+// ==================== into_raw Tests ====================
 
 #[test]
-fn test_into_usize_none_is_zero() {
-    let result = NodeId::into_usize(&None);
-    assert_eq!(result, 0, "into_usize(None) should return 0");
+fn test_into_raw_none_is_zero() {
+    let result = NodeId::into_raw(&None);
+    assert_eq!(result, 0, "into_raw(None) should return 0");
 }
 
 #[test]
-fn test_into_usize_node_zero_is_one() {
+fn test_into_raw_node_zero_is_one() {
     let node = Some(NodeId::new(0));
-    let result = NodeId::into_usize(&node);
-    assert_eq!(result, 1, "into_usize(Some(NodeId(0))) should return 1");
+    let result = NodeId::into_raw(&node);
+    assert_eq!(result, 1, "into_raw(Some(NodeId(0))) should return 1");
 }
 
 #[test]
-fn test_into_usize_node_one_is_two() {
+fn test_into_raw_node_one_is_two() {
     let node = Some(NodeId::new(1));
-    let result = NodeId::into_usize(&node);
-    assert_eq!(result, 2, "into_usize(Some(NodeId(1))) should return 2");
+    let result = NodeId::into_raw(&node);
+    assert_eq!(result, 2, "into_raw(Some(NodeId(1))) should return 2");
 }
 
 #[test]
-fn test_into_usize_large_value() {
+fn test_into_raw_large_value() {
     let node = Some(NodeId::new(999));
-    let result = NodeId::into_usize(&node);
+    let result = NodeId::into_raw(&node);
     assert_eq!(result, 1000);
 }
 
@@ -82,7 +82,7 @@ fn test_into_usize_large_value() {
 #[test]
 fn test_roundtrip_none() {
     let original: Option<NodeId> = None;
-    let encoded = NodeId::into_usize(&original);
+    let encoded = NodeId::into_raw(&original);
     let decoded = NodeId::from_usize(encoded);
     assert_eq!(decoded, original, "None should roundtrip correctly");
 }
@@ -90,7 +90,7 @@ fn test_roundtrip_none() {
 #[test]
 fn test_roundtrip_zero() {
     let original = Some(NodeId::new(0));
-    let encoded = NodeId::into_usize(&original);
+    let encoded = NodeId::into_raw(&original);
     let decoded = NodeId::from_usize(encoded);
     assert_eq!(decoded, original, "NodeId(0) should roundtrip correctly");
 }
@@ -99,7 +99,7 @@ fn test_roundtrip_zero() {
 fn test_roundtrip_various_values() {
     for i in 0..100 {
         let original = Some(NodeId::new(i));
-        let encoded = NodeId::into_usize(&original);
+        let encoded = NodeId::into_raw(&original);
         let decoded = NodeId::from_usize(encoded);
         assert_eq!(decoded, original, "NodeId({}) should roundtrip correctly", i);
     }
@@ -114,7 +114,7 @@ fn test_zero_encoding_invariant() {
     
     // Encoding 0 should produce 1 (not 0)
     let node = Some(NodeId::new(0));
-    let encoded = NodeId::into_usize(&node);
+    let encoded = NodeId::into_raw(&node);
     assert_ne!(encoded, 0, "NodeId(0) should NOT encode to 0");
     assert_eq!(encoded, 1, "NodeId(0) should encode to 1");
 }
@@ -124,7 +124,7 @@ fn test_no_underflow_on_none_check() {
     // This test verifies that checking for "no node" uses 0, not usize::MAX
     // The old buggy code would check `value != usize::MAX` which was wrong
     
-    let none_encoded = NodeId::into_usize(&None);
+    let none_encoded = NodeId::into_raw(&None);
     assert_eq!(none_encoded, 0, "None should encode to 0, not usize::MAX");
     
     // Verify that usize::MAX is a valid encoded value (represents NodeId(usize::MAX - 1))
@@ -140,7 +140,7 @@ fn test_encoded_zero_is_always_none() {
     
     // There's no valid NodeId that encodes to 0
     for i in 0..1000 {
-        let encoded = NodeId::into_usize(&Some(NodeId::new(i)));
+        let encoded = NodeId::into_raw(&Some(NodeId::new(i)));
         assert_ne!(encoded, 0, "No valid NodeId should encode to 0");
     }
 }

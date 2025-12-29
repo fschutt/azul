@@ -1231,7 +1231,10 @@ impl LayoutWindow {
                 }
                 CallbackChange::ChangeNodeText { node_id, text } => {
                     let dom_id = node_id.dom;
-                    let internal_node_id = NodeId::new(node_id.node.inner);
+                    let internal_node_id = match node_id.node.into_crate_internal() {
+                        Some(id) => id,
+                        None => continue,
+                    };
                     result
                         .words_changed
                         .entry(dom_id)

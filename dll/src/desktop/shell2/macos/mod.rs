@@ -4006,14 +4006,16 @@ impl MacOSWindow {
             None => return,
         };
 
-        // Convert DomNodeId to NodeId
-        let node_id = azul_core::id::NodeId::new(target.node.inner as usize);
+        // Convert DomNodeId to NodeId using proper decoding
+        let node_id = match target.node.into_crate_internal() {
+            Some(id) => id,
+            None => return,
+        };
 
         // Pop from undo stack
         if let Some(operation) = layout_window.undo_redo_manager.pop_undo(node_id) {
             // Apply the revert - restore pre-state text
-            let node_id_internal = target.node.into_crate_internal();
-            if let Some(node_id_internal) = node_id_internal {
+            if let Some(node_id_internal) = target.node.into_crate_internal() {
                 // Create InlineContent from pre-state text
                 use std::sync::Arc;
 
@@ -4073,8 +4075,11 @@ impl MacOSWindow {
             None => return,
         };
 
-        // Convert DomNodeId to NodeId
-        let node_id = azul_core::id::NodeId::new(target.node.inner as usize);
+        // Convert DomNodeId to NodeId using proper decoding
+        let node_id = match target.node.into_crate_internal() {
+            Some(id) => id,
+            None => return,
+        };
 
         // Pop from redo stack
         if let Some(operation) = layout_window.undo_redo_manager.pop_redo(node_id) {
@@ -4109,8 +4114,9 @@ impl MacOSWindow {
     pub fn can_undo(&self) -> bool {
         if let Some(layout_window) = self.layout_window.as_ref() {
             if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
-                let node_id = azul_core::id::NodeId::new(focused_node.node.inner as usize);
-                return layout_window.undo_redo_manager.can_undo(node_id);
+                if let Some(node_id) = focused_node.node.into_crate_internal() {
+                    return layout_window.undo_redo_manager.can_undo(node_id);
+                }
             }
         }
         false
@@ -4120,8 +4126,9 @@ impl MacOSWindow {
     pub fn can_redo(&self) -> bool {
         if let Some(layout_window) = self.layout_window.as_ref() {
             if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
-                let node_id = azul_core::id::NodeId::new(focused_node.node.inner as usize);
-                return layout_window.undo_redo_manager.can_redo(node_id);
+                if let Some(node_id) = focused_node.node.into_crate_internal() {
+                    return layout_window.undo_redo_manager.can_redo(node_id);
+                }
             }
         }
         false
