@@ -1421,7 +1421,10 @@ extern "C" fn on_code_scroll(data: &mut RefAny, info: &mut CallbackInfo) -> Upda
     // For now, use DomId(0) as the main DOM
     use azul_core::dom::DomId;
     let dom_id = DomId::ROOT_ID;
-    let node_id = hit_node.node;
+    let node_id = match hit_node.node.into_crate_internal() {
+        Some(n) => n,
+        None => return Update::DoNothing,
+    };
 
     if let Some(scroll_state) = info.get_scroll_state(dom_id, node_id) {
         // Calculate which line is at the top based on scroll offset
