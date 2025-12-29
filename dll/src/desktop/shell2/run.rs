@@ -9,6 +9,9 @@ use azul_core::{refany::RefAny, resources::AppConfig};
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
 
+use super::common::debug_server;
+use crate::{log_debug, log_error, log_info};
+
 #[cfg(target_os = "macos")]
 use super::macos::MacOSWindow;
 use super::{PlatformWindow, WindowError};
@@ -155,17 +158,11 @@ pub fn run(
                         if super::macos::registry::is_empty() {
                             match config.termination_behavior {
                                 AppTerminationBehavior::ReturnToMain => {
-                                    eprintln!(
-                                        "[macOS Event Loop] All windows closed, returning to \
-                                         main()"
-                                    );
+                                    log_info!(debug_server::LogCategory::EventLoop, "[macOS] All windows closed, returning to main()");
                                     return;
                                 }
                                 AppTerminationBehavior::EndProcess => {
-                                    eprintln!(
-                                        "[macOS Event Loop] All windows closed, terminating \
-                                         process"
-                                    );
+                                    log_info!(debug_server::LogCategory::EventLoop, "[macOS] All windows closed, terminating process");
                                     std::process::exit(0);
                                 }
                                 AppTerminationBehavior::RunForever => unreachable!(),
@@ -183,11 +180,7 @@ pub fn run(
                                 // Process pending window creates (for popup menus, dialogs, etc.)
                                 while let Some(pending_create) = window.pending_window_creates.pop()
                                 {
-                                    eprintln!(
-                                        "[macOS Event Loop] Creating new window from queue (type: \
-                                         {:?})",
-                                        pending_create.window_state.flags.window_type
-                                    );
+                                    log_debug!(debug_server::LogCategory::Window, "[macOS] Creating new window from queue (type: {:?})", pending_create.window_state.flags.window_type);
 
                                     match MacOSWindow::new_with_fc_cache(
                                         pending_create,
@@ -215,17 +208,10 @@ pub fn run(
                                             // Request initial redraw
                                             (*new_window_ptr).request_redraw();
 
-                                            eprintln!(
-                                                "[macOS Event Loop] Successfully created and \
-                                                 registered new window"
-                                            );
+                                            log_debug!(debug_server::LogCategory::Window, "[macOS] Successfully created and registered new window");
                                         }
                                         Err(e) => {
-                                            eprintln!(
-                                                "[macOS Event Loop] ERROR: Failed to create \
-                                                 window: {:?}",
-                                                e
-                                            );
+                                            log_error!(debug_server::LogCategory::Window, "[macOS] Failed to create window: {:?}", e);
                                         }
                                     }
                                 }
@@ -378,10 +364,7 @@ pub fn run(
 
                     // Process pending window creates (for popup menus, dialogs, etc.)
                     while let Some(pending_create) = window.pending_window_creates.pop() {
-                        eprintln!(
-                            "[Windows Event Loop] Creating new window from queue (type: {:?})",
-                            pending_create.window_state.flags.window_type
-                        );
+                        log_debug!(debug_server::LogCategory::Window, "[Windows] Creating new window from queue (type: {:?})", pending_create.window_state.flags.window_type);
 
                         match Win32Window::new(
                             pending_create,
@@ -404,16 +387,10 @@ pub fn run(
                                 // Register in global registry
                                 registry::register_window(new_hwnd, new_window_ptr);
 
-                                eprintln!(
-                                    "[Windows Event Loop] Successfully created and registered new \
-                                     window"
-                                );
+                                log_debug!(debug_server::LogCategory::Window, "[Windows] Successfully created and registered new window");
                             }
                             Err(e) => {
-                                eprintln!(
-                                    "[Windows Event Loop] ERROR: Failed to create window: {:?}",
-                                    e
-                                );
+                                log_error!(debug_server::LogCategory::Window, "[Windows] Failed to create window: {:?}", e);
                             }
                         }
                     }
@@ -429,7 +406,7 @@ pub fn run(
 
                     if window.frame_needs_regeneration {
                         if let Err(e) = window.regenerate_layout() {
-                            eprintln!("[Windows Event Loop] Layout regeneration error: {}", e);
+                            log_error!(debug_server::LogCategory::Layout, "[Windows] Layout regeneration error: {}", e);
                         }
                         window.frame_needs_regeneration = false;
 
@@ -504,7 +481,7 @@ pub fn run(
     // Initialize shared resources once at startup
     let resources = Arc::new(AppResources::new(config.clone(), fc_cache));
 
-    eprintln!("[Linux run()] Creating root window with shared resources");
+    log_debug!(debug_server::LogCategory::EventLoop, "[Linux] Creating root window with shared resources");
 
     // Wrap app_data in Arc<RefCell<>> for shared access
     let app_data_arc = Arc::new(RefCell::new(app_data));
@@ -535,10 +512,7 @@ pub fn run(
         registry::register_x11_window(window_id, window_ptr as *mut _);
     }
 
-    eprintln!(
-        "[Linux run()] Window registered (ID: {}), entering event loop",
-        window_id
-    );
+    log_debug!(debug_server::LogCategory::EventLoop, "[Linux] Window registered (ID: {}), entering event loop", window_id);
 
     // Main event loop with multi-window support
     loop {
@@ -546,7 +520,7 @@ pub fn run(
         let window_ids = registry::get_all_x11_window_ids();
 
         if window_ids.is_empty() {
-            eprintln!("[Linux run()] All windows closed, exiting event loop");
+            log_info!(debug_server::LogCategory::EventLoop, "[Linux] All windows closed, exiting event loop");
             break;
         }
 
@@ -573,11 +547,7 @@ pub fn run(
                 match window {
                     LinuxWindow::X11(x11_window) => {
                         while let Some(pending_create) = x11_window.pending_window_creates.pop() {
-                            eprintln!(
-                                "[Linux Event Loop] Creating new X11 window from queue (type: \
-                                 {:?})",
-                                pending_create.window_state.flags.window_type
-                            );
+                            log_debug!(debug_server::LogCategory::Window, "[Linux] Creating new X11 window from queue (type: {:?})", pending_create.window_state.flags.window_type);
 
                             match super::linux::x11::X11Window::new_with_resources(
                                 pending_create,
@@ -604,11 +574,7 @@ pub fn run(
                                         );
                                     }
 
-                                    eprintln!(
-                                        "[Linux Event Loop] Successfully created and registered \
-                                         new X11 window (ID: {})",
-                                        new_window_id
-                                    );
+                                    log_debug!(debug_server::LogCategory::Window, "[Linux] Successfully created and registered new X11 window (ID: {})", new_window_id);
 
                                     // Request initial redraw
                                     unsafe {
@@ -618,11 +584,7 @@ pub fn run(
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!(
-                                        "[Linux Event Loop] ERROR: Failed to create X11 window: \
-                                         {:?}",
-                                        e
-                                    );
+                                    log_error!(debug_server::LogCategory::Window, "[Linux] Failed to create X11 window: {:?}", e);
                                 }
                             }
                         }
@@ -630,11 +592,7 @@ pub fn run(
                     LinuxWindow::Wayland(wayland_window) => {
                         while let Some(pending_create) = wayland_window.pending_window_creates.pop()
                         {
-                            eprintln!(
-                                "[Linux Event Loop] Creating new Wayland window from queue (type: \
-                                 {:?})",
-                                pending_create.window_state.flags.window_type
-                            );
+                            log_debug!(debug_server::LogCategory::Window, "[Linux] Creating new Wayland window from queue (type: {:?})", pending_create.window_state.flags.window_type);
 
                             match super::linux::wayland::WaylandWindow::new(
                                 pending_create,
@@ -662,11 +620,7 @@ pub fn run(
                                         );
                                     }
 
-                                    eprintln!(
-                                        "[Linux Event Loop] Successfully created and registered \
-                                         new Wayland window (ID: {})",
-                                        new_window_id
-                                    );
+                                    log_debug!(debug_server::LogCategory::Window, "[Linux] Successfully created and registered new Wayland window (ID: {})", new_window_id);
 
                                     // Request initial redraw
                                     unsafe {
@@ -676,11 +630,7 @@ pub fn run(
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!(
-                                        "[Linux Event Loop] ERROR: Failed to create Wayland \
-                                         window: {:?}",
-                                        e
-                                    );
+                                    log_error!(debug_server::LogCategory::Window, "[Linux] Failed to create Wayland window: {:?}", e);
                                 }
                             }
                         }
@@ -704,7 +654,7 @@ pub fn run(
     }
 
     // Clean up: Unregister and drop all windows
-    eprintln!("[Linux run()] Cleaning up windows");
+    log_debug!(debug_server::LogCategory::EventLoop, "[Linux] Cleaning up windows");
     let window_ids = registry::get_all_x11_window_ids();
     for wid in window_ids {
         if let Some(win_ptr) = registry::unregister_x11_window(wid) {
@@ -717,15 +667,15 @@ pub fn run(
     // Handle termination behavior
     match config.termination_behavior {
         AppTerminationBehavior::EndProcess => {
-            eprintln!("[Linux run()] Terminating process");
+            log_info!(debug_server::LogCategory::EventLoop, "[Linux] Terminating process");
             std::process::exit(0);
         }
         AppTerminationBehavior::ReturnToMain => {
-            eprintln!("[Linux run()] Returning to main()");
+            log_info!(debug_server::LogCategory::EventLoop, "[Linux] Returning to main()");
             // Return normally
         }
         AppTerminationBehavior::RunForever => {
-            eprintln!("[Linux run()] RunForever mode - but all windows closed");
+            log_debug!(debug_server::LogCategory::EventLoop, "[Linux] RunForever mode - but all windows closed");
             // Should not exit, but all windows are closed
         }
     }

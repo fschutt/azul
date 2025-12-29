@@ -9,6 +9,9 @@ use objc::runtime::{Class, Object};
 use objc_foundation::{INSArray, INSObject, INSString, NSArray, NSDictionary, NSObject, NSString};
 use objc_id::{Id, Owned};
 
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::super::common::debug_server::LogCategory;
+
 #[macro_use]
 use objc::{msg_send, sel, sel_impl};
 
@@ -26,7 +29,7 @@ pub fn sync_clipboard(clipboard_manager: &mut ClipboardManager) {
     if let Some(content) = clipboard_manager.get_copy_content() {
         // Write to pasteboard
         if let Err(e) = write_to_pasteboard(&content.plain_text) {
-            eprintln!("[macOS Clipboard] Failed to write: {:?}", e);
+            log_error!(LogCategory::Resources, "[macOS Clipboard] Failed to write: {:?}", e);
         }
     }
 

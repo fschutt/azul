@@ -13,6 +13,9 @@
 //! - WebRender: Rendering and display lists
 //! - Common shell2 modules: Compositor, error handling
 
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::super::common::debug_server::LogCategory;
+
 pub mod accessibility;
 pub mod clipboard;
 pub mod dlopen;
@@ -507,7 +510,7 @@ impl Win32Window {
                 (result.win32.user32.SetTimer)(result.hwnd, timer_id, interval_ms, ptr::null()) 
             };
             result.timers.insert(timer_id, native_timer_id);
-            eprintln!("[Window Init] Debug timer registered with ID 0x{:X}, interval {}ms", timer_id, interval_ms);
+            log_debug!(LogCategory::Timer, "Debug timer registered with ID 0x{:X}, interval {}ms", timer_id, interval_ms);
         }
 
         Ok(result)
@@ -609,7 +612,7 @@ impl Win32Window {
 
             // CI testing: Exit successfully after first frame render if env var is set
             if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
-                eprintln!("[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success");
+                log_info!(LogCategory::General, "AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success");
                 std::process::exit(0);
             }
 
@@ -773,14 +776,14 @@ impl Win32Window {
         // is_top_level flag changed?
         if previous.flags.is_top_level != current.flags.is_top_level {
             if let Err(e) = self.set_is_top_level(current.flags.is_top_level) {
-                eprintln!("[Windows] Failed to set is_top_level: {}", e);
+                log_error!(LogCategory::Window, "Failed to set is_top_level: {}", e);
             }
         }
 
         // prevent_system_sleep flag changed?
         if previous.flags.prevent_system_sleep != current.flags.prevent_system_sleep {
             if let Err(e) = self.set_prevent_system_sleep(current.flags.prevent_system_sleep) {
-                eprintln!("[Windows] Failed to set prevent_system_sleep: {}", e);
+                log_error!(LogCategory::Window, "Failed to set prevent_system_sleep: {}", e);
             }
         }
 
@@ -919,7 +922,7 @@ impl Win32Window {
         if frame_ready {
             // A frame is ready in WebRender's backbuffer - present it
             if let Err(e) = self.render_and_present() {
-                eprintln!("[poll_event] Failed to present frame: {:?}", e);
+                log_error!(LogCategory::Rendering, "Failed to present frame: {:?}", e);
             }
         }
 
@@ -1111,9 +1114,9 @@ impl Win32Window {
 
         // Queue window creation request for processing in Phase 3 of the event loop
         // The event loop will create the window with Win32Window::new()
-        eprintln!(
-            "[Windows] Queuing window-based context menu at screen ({}, {}) - will be created in \
-             event loop Phase 3",
+        log_debug!(
+            LogCategory::Window,
+            "Queuing window-based context menu at screen ({}, {}) - will be created in event loop Phase 3",
             pt.x, pt.y
         );
 
@@ -1266,7 +1269,7 @@ unsafe extern "system" fn window_proc(
                 (window.win32.user32.DestroyWindow)(hwnd);
             } else {
                 // Callback cancelled close - clear flag and keep window open
-                eprintln!("[WM_CLOSE] Close cancelled by callback");
+                log_debug!(LogCategory::Callbacks, "WM_CLOSE cancelled by callback");
             }
 
             0
@@ -1282,7 +1285,7 @@ unsafe extern "system" fn window_proc(
             if window.frame_needs_regeneration {
                 // Initial render: build display list and generate frame
                 if let Err(e) = window.regenerate_layout() {
-                    eprintln!("Layout regeneration error: {:?}", e);
+                    log_error!(LogCategory::Layout, "Layout regeneration error: {:?}", e);
                 }
                 window.frame_needs_regeneration = false;
             }
@@ -1290,7 +1293,7 @@ unsafe extern "system" fn window_proc(
             match window.render_and_present() {
                 Ok(_) => {}
                 Err(e) => {
-                    eprintln!("Render error: {:?}", e);
+                    log_error!(LogCategory::Rendering, "Render error: {:?}", e);
                 }
             }
             (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
@@ -2029,7 +2032,7 @@ unsafe extern "system" fn window_proc(
                                 if result > 0 {
                                     // Convert to String and store
                                     window.ime_composition = String::from_utf16(&buffer).ok();
-                                    eprintln!("[IME] Composition: {:?}", window.ime_composition);
+                                    log_trace!(LogCategory::Input, "IME Composition: {:?}", window.ime_composition);
                                 }
                             }
 
@@ -2144,7 +2147,7 @@ unsafe extern "system" fn window_proc(
                 }
                 
                 if needs_redraw {
-                    eprintln!("[WM_TIMER] Invoked {} timer callbacks", timer_results.len());
+                    log_trace!(LogCategory::Timer, "Invoked {} timer callbacks", timer_results.len());
                     window.frame_needs_regeneration = true;
                     (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                 }
@@ -2157,7 +2160,7 @@ unsafe extern "system" fn window_proc(
             // Menu command
             let command_id = (wparam & 0xFFFF) as u16;
 
-            eprintln!("[WndProc] WM_COMMAND received, command_id: {}", command_id);
+            log_trace!(LogCategory::EventLoop, "WM_COMMAND received, command_id: {}", command_id);
 
             // Look up menu callback and invoke it
             let callback_opt = if let Some(menu_bar) = &window.menu_bar {
@@ -2169,8 +2172,9 @@ unsafe extern "system" fn window_proc(
             };
 
             if let Some(callback) = callback_opt {
-                eprintln!(
-                    "[WndProc] Found menu callback for command_id: {}",
+                log_trace!(
+                    LogCategory::Callbacks,
+                    "Found menu callback for command_id: {}",
                     command_id
                 );
 
@@ -2235,10 +2239,10 @@ unsafe extern "system" fn window_proc(
                         }
                     }
                 } else {
-                    eprintln!("[WndProc] No layout window available for menu callback");
+                    log_warn!(LogCategory::Callbacks, "No layout window available for menu callback");
                 }
             } else {
-                eprintln!("[WndProc] No callback found for command_id: {}", command_id);
+                log_debug!(LogCategory::Callbacks, "No callback found for command_id: {}", command_id);
             }
 
             (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
@@ -3010,13 +3014,13 @@ impl PlatformWindowV2 for Win32Window {
         position: azul_core::geom::LogicalPosition,
     ) {
         if let Err(e) = self.show_tooltip(text, position) {
-            eprintln!("[Windows] Failed to show tooltip: {}", e);
+            log_error!(LogCategory::Window, "Failed to show tooltip: {}", e);
         }
     }
 
     fn hide_tooltip_from_callback(&mut self) {
         if let Err(e) = self.hide_tooltip() {
-            eprintln!("[Windows] Failed to hide tooltip: {}", e);
+            log_error!(LogCategory::Window, "Failed to hide tooltip: {}", e);
         }
     }
 }
@@ -3030,8 +3034,9 @@ impl Win32Window {
     ) {
         // TODO: Implement native Win32 TrackPopupMenu
         // For now, fall back to window-based menu
-        eprintln!(
-            "[Windows] Native menu at ({}, {}) - not yet implemented, using fallback",
+        log_debug!(
+            LogCategory::Window,
+            "Native menu at ({}, {}) - not yet implemented, using fallback",
             position.x, position.y
         );
         self.show_fallback_menu(menu, position);
@@ -3062,8 +3067,9 @@ impl Win32Window {
         );
 
         // Queue window creation request
-        eprintln!(
-            "[Windows] Queuing fallback menu window at ({}, {}) - will be created in event loop",
+        log_debug!(
+            LogCategory::Window,
+            "Queuing fallback menu window at ({}, {}) - will be created in event loop",
             position.x, position.y
         );
 

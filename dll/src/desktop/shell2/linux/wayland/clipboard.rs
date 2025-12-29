@@ -7,6 +7,9 @@ use std::time::Duration;
 use azul_layout::managers::clipboard::ClipboardManager;
 use x11_clipboard::Clipboard;
 
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::super::super::common::debug_server::LogCategory;
+
 /// Synchronize clipboard manager content to Wayland system clipboard
 ///
 /// This is called after user callbacks to commit clipboard changes.
@@ -17,7 +20,7 @@ pub fn sync_clipboard(clipboard_manager: &mut ClipboardManager) {
     if let Some(content) = clipboard_manager.get_copy_content() {
         // Write to Wayland clipboard
         if let Err(e) = write_to_clipboard(&content.plain_text) {
-            eprintln!("[Wayland Clipboard] Failed to write: {:?}", e);
+            log_error!(LogCategory::Resources, "[Wayland Clipboard] Failed to write: {:?}", e);
         }
     }
 

@@ -1,5 +1,8 @@
 //! macOS Event handling - converts NSEvent to Azul events and dispatches callbacks.
 
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::super::common::debug_server::LogCategory;
+
 use azul_core::{
     callbacks::LayoutCallbackInfo,
     dom::{DomId, NodeId, ScrollbarOrientation},
@@ -618,7 +621,7 @@ impl MacOSWindow {
         let old_hidpi = self.current_window_state.size.get_hidpi_factor();
 
         if (current_hidpi.inner.get() - old_hidpi.inner.get()).abs() > 0.001 {
-            eprintln!(
+            log_info!(LogCategory::Window,
                 "[Resize] DPI changed: {} -> {}",
                 old_hidpi.inner.get(),
                 current_hidpi.inner.get()
@@ -628,7 +631,7 @@ impl MacOSWindow {
 
         // Notify compositor of resize (this is private in mod.rs, so we inline it here)
         if let Err(e) = self.handle_compositor_resize() {
-            eprintln!("Compositor resize failed: {}", e);
+            log_error!(LogCategory::Rendering, "Compositor resize failed: {}", e);
         }
 
         // Resize requires full display list rebuild
@@ -936,7 +939,7 @@ impl MacOSWindow {
         // Clone the menu to avoid borrow conflicts
         let context_menu = node_data.get_context_menu()?.clone();
 
-        eprintln!(
+        log_debug!(LogCategory::Input,
             "[Context Menu] Showing context menu at ({}, {}) for node {:?} with {} items",
             position.x,
             position.y,
@@ -967,7 +970,7 @@ impl MacOSWindow {
         let mtm = match MainThreadMarker::new() {
             Some(m) => m,
             None => {
-                eprintln!("[Context Menu] Not on main thread, cannot show menu");
+                log_warn!(LogCategory::Platform, "[Context Menu] Not on main thread, cannot show menu");
                 return;
             }
         };
@@ -992,7 +995,7 @@ impl MacOSWindow {
         };
 
         if let Some(view) = view {
-            eprintln!(
+            log_debug!(LogCategory::Input,
                 "[Context Menu] Showing native menu at position ({}, {}) with {} items",
                 position.x,
                 position.y,
@@ -1044,7 +1047,7 @@ impl MacOSWindow {
 
         // Queue window creation request for processing in Phase 3 of the event loop
         // The event loop will create the window with MacOSWindow::new_with_fc_cache()
-        eprintln!(
+        log_debug!(LogCategory::Window,
             "[macOS] Queuing window-based context menu at screen ({}, {}) - will be created in \
              event loop Phase 3",
             position.x, position.y
@@ -1101,7 +1104,7 @@ impl MacOSWindow {
                         // Attach submenu to menu item
                         menu_item.setSubmenu(Some(&submenu));
 
-                        eprintln!(
+                        log_debug!(LogCategory::Input,
                             "[Context Menu] Created submenu '{}' with {} items",
                             string_item.label,
                             string_item.children.as_ref().len()

@@ -10,6 +10,9 @@ use objc2::{define_class, msg_send_id, rc::Retained, MainThreadMarker, MainThrea
 use objc2_app_kit::{NSMenu, NSMenuItem};
 use objc2_foundation::{NSObject, NSString};
 
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::super::common::debug_server::LogCategory;
+
 /// Global queue for pending menu actions
 /// When a menu item is clicked, its tag is pushed here and can be retrieved by the event loop
 static PENDING_MENU_ACTIONS: Mutex<Vec<isize>> = Mutex::new(Vec::new());
@@ -42,7 +45,7 @@ define_class!(
             if let Some(menu_item) = sender {
                 let tag = menu_item.tag();
 
-                eprintln!("[AzulMenuTarget] Menu item clicked with tag: {}", tag);
+                log_debug!(LogCategory::Input, "[AzulMenuTarget] Menu item clicked with tag: {}", tag);
 
                 // Push tag to global queue
                 if let Ok(mut queue) = PENDING_MENU_ACTIONS.lock() {

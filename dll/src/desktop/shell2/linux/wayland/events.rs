@@ -16,6 +16,9 @@ use azul_core::{
 use super::{defines::*, WaylandWindow};
 use crate::desktop::shell2::common::window::PlatformWindow;
 
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::super::super::common::debug_server::LogCategory;
+
 // -- State for input devices --
 
 pub(super) struct WaylandKeyboardState {
@@ -146,7 +149,7 @@ pub(super) extern "C" fn wl_surface_enter_handler(
 
     // Only regenerate if DPI changed significantly
     if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
-        eprintln!(
+        log_info!(LogCategory::Window,
             "[Wayland DPI Change] {} -> {} (entered new monitor)",
             old_dpi, new_dpi
         );
@@ -172,7 +175,7 @@ pub(super) extern "C" fn wl_surface_leave_handler(
 
     // Only regenerate if DPI changed significantly
     if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
-        eprintln!(
+        log_info!(LogCategory::Window,
             "[Wayland DPI Change] {} -> {} (left monitor)",
             old_dpi, new_dpi
         );

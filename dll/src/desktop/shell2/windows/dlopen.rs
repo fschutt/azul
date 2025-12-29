@@ -8,6 +8,9 @@
 
 use std::{ffi::CString, ptr};
 
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::super::common::debug_server::LogCategory;
+
 // Re-export types that will be used by Win32 API
 pub type HINSTANCE = *mut std::ffi::c_void;
 pub type HWND = *mut std::ffi::c_void;
@@ -258,7 +261,7 @@ mod windows_impl {
 
     // Stub implementations for non-Windows platforms (for cross-compilation)
     pub unsafe fn load_library(_name: &str) -> Option<HINSTANCE> {
-        eprintln!("WARNING: Attempted to load Win32 DLL on non-Windows platform");
+        log_warn!(LogCategory::Platform, "WARNING: Attempted to load Win32 DLL on non-Windows platform");
         None
     }
 

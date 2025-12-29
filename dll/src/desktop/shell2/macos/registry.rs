@@ -8,6 +8,9 @@ use std::{cell::RefCell, collections::BTreeMap};
 
 use objc2::runtime::AnyObject;
 
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::super::common::debug_server::LogCategory;
+
 thread_local! {
     /// Thread-local registry of all active windows (NSWindow -> raw pointer)
     ///
@@ -83,7 +86,7 @@ pub unsafe fn register_window(ns_window: *mut AnyObject, window_ptr: *mut super:
     WINDOW_REGISTRY.with(|registry| {
         registry.borrow_mut().add(ns_window, window_ptr);
     });
-    eprintln!(
+    log_debug!(LogCategory::Window,
         "[macOS Registry] Registered window {:p} -> {:p} (total: {})",
         ns_window,
         window_ptr,
@@ -94,7 +97,7 @@ pub unsafe fn register_window(ns_window: *mut AnyObject, window_ptr: *mut super:
 /// Remove a window from the global registry
 pub fn unregister_window(ns_window: *mut AnyObject) -> Option<*mut super::MacOSWindow> {
     let result = WINDOW_REGISTRY.with(|registry| registry.borrow_mut().remove(ns_window));
-    eprintln!(
+    log_debug!(LogCategory::Window,
         "[macOS Registry] Unregistered window {:p} (total: {})",
         ns_window,
         window_count()

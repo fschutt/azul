@@ -29,6 +29,9 @@ use rust_fontconfig::FcFontCache;
 use super::{PlatformWindow, WindowError, WindowProperties};
 use crate::desktop::shell2::common::RenderContext;
 
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::common::debug_server::LogCategory;
+
 /// Linux window - supports both X11 and Wayland
 pub enum LinuxWindow {
     X11(x11::X11Window),
@@ -161,7 +164,7 @@ impl LinuxWindow {
                 "x11" => return Ok(BackendType::X11),
                 "wayland" => return Ok(BackendType::Wayland),
                 _ => {
-                    eprintln!(
+                    log_warn!(LogCategory::Platform,
                         "Warning: Invalid AZUL_BACKEND='{}', auto-detecting",
                         backend
                     );
@@ -171,13 +174,13 @@ impl LinuxWindow {
 
         // Try Wayland first (check for WAYLAND_DISPLAY)
         if std::env::var("WAYLAND_DISPLAY").is_ok() {
-            eprintln!("[Linux] Detected Wayland session, using Wayland backend");
+            log_info!(LogCategory::Platform, "[Linux] Detected Wayland session, using Wayland backend");
             return Ok(BackendType::Wayland);
         }
 
         // Use X11
         if std::env::var("DISPLAY").is_ok() {
-            eprintln!("[Linux] Using X11 backend");
+            log_info!(LogCategory::Platform, "[Linux] Using X11 backend");
             return Ok(BackendType::X11);
         }
 

@@ -53,6 +53,8 @@ use crate::desktop::{
     },
     wr_translate2::{self, AsyncHitTester, Notifier},
 };
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::super::super::common::debug_server::LogCategory;
 
 /// X11 error handler to prevent application crashes
 ///
@@ -60,7 +62,8 @@ use crate::desktop::{
 /// This custom handler logs the error and allows the app to continue.
 extern "C" fn x11_error_handler(_display: *mut Display, event: *mut XErrorEvent) -> c_int {
     let error = unsafe { *event };
-    eprintln!(
+    log_error!(
+        LogCategory::Platform,
         "[X11 Error] Opcode: {}, Resource ID: {:#x}, Serial: {}, Error Code: {}",
         error.request_code, error.resourceid, error.serial, error.error_code
     );
@@ -248,7 +251,8 @@ impl PlatformWindow for X11Window {
 
                             // Only regenerate if DPI changed significantly (avoid rounding errors)
                             if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
-                                eprintln!(
+                                log_debug!(
+                                    LogCategory::Window,
                                     "[X11 DPI Change] {} -> {} (moved to different monitor)",
                                     old_dpi, new_dpi
                                 );
@@ -317,7 +321,7 @@ impl PlatformWindow for X11Window {
 
         // CI testing: Exit successfully after first frame render if env var is set
         if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
-            eprintln!("[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success");
+            log_info!(LogCategory::General, "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success");
             std::process::exit(0);
         }
 
@@ -396,17 +400,18 @@ impl X11Window {
         // Try to load GTK3 IM context for IME support (optional, fail silently)
         let (gtk_im, gtk_im_context) = match Gtk3Im::new() {
             Ok(gtk) => {
-                eprintln!("[X11] GTK3 IM context loaded for IME support");
+                log_info!(LogCategory::Platform, "[X11] GTK3 IM context loaded for IME support");
                 let ctx = unsafe { (gtk.gtk_im_context_simple_new)() };
                 if !ctx.is_null() {
                     (Some(gtk), Some(ctx))
                 } else {
-                    eprintln!("[X11] Failed to create GTK IM context instance");
+                    log_warn!(LogCategory::Platform, "[X11] Failed to create GTK IM context instance");
                     (None, None)
                 }
             }
             Err(e) => {
-                eprintln!(
+                log_debug!(
+                    LogCategory::Platform,
                     "[X11] GTK3 IM not available (IME positioning disabled): {:?}",
                     e
                 );
@@ -852,7 +857,8 @@ impl X11Window {
         }
 
         for pending in pending_callbacks {
-            eprintln!(
+            log_debug!(
+                LogCategory::Callbacks,
                 "[X11Window] Processing menu callback for action: {}",
                 pending.action_name
             );
@@ -870,7 +876,7 @@ impl X11Window {
             let layout_window = match self.layout_window.as_mut() {
                 Some(lw) => lw,
                 None => {
-                    eprintln!("[X11Window] No layout window available for menu callback");
+                    log_warn!(LogCategory::Callbacks, "[X11Window] No layout window available for menu callback");
                     continue;
                 }
             };
@@ -1586,13 +1592,13 @@ impl PlatformWindowV2 for X11Window {
                 
                 if libc::timerfd_settime(fd, 0, &spec, std::ptr::null_mut()) == 0 {
                     self.timer_fds.insert(timer_id, fd);
-                    eprintln!("[X11] Created timerfd {} for timer {} (interval {}ms)", fd, timer_id, interval_ms);
+                    log_debug!(LogCategory::Timer, "[X11] Created timerfd {} for timer {} (interval {}ms)", fd, timer_id, interval_ms);
                 } else {
                     libc::close(fd);
-                    eprintln!("[X11] Failed to set timerfd interval");
+                    log_error!(LogCategory::Timer, "[X11] Failed to set timerfd interval");
                 }
             } else {
-                eprintln!("[X11] Failed to create timerfd: errno={}", *libc::__errno_location());
+                log_error!(LogCategory::Timer, "[X11] Failed to create timerfd: errno={}", *libc::__errno_location());
             }
         }
     }
@@ -1608,7 +1614,7 @@ impl PlatformWindowV2 for X11Window {
         // Close timerfd
         if let Some(fd) = self.timer_fds.remove(&timer_id) {
             unsafe { libc::close(fd); }
-            eprintln!("[X11] Closed timerfd {} for timer {}", fd, timer_id);
+            log_debug!(LogCategory::Timer, "[X11] Closed timerfd {} for timer {}", fd, timer_id);
         }
     }
 
@@ -1661,7 +1667,8 @@ impl PlatformWindowV2 for X11Window {
         // Check if native menus are enabled (GNOME menus on Linux)
         if self.current_window_state.flags.use_native_context_menus {
             // TODO: Show GNOME native menu via DBus
-            eprintln!(
+            log_debug!(
+                LogCategory::Window,
                 "[X11] Native GNOME menu at ({}, {}) - not yet implemented, using fallback",
                 position.x, position.y
             );
@@ -1722,7 +1729,8 @@ impl X11Window {
         );
 
         // Queue window creation request
-        eprintln!(
+        log_debug!(
+            LogCategory::Window,
             "[X11] Queuing fallback menu window at ({}, {}) - will be created in event loop",
             position.x, position.y
         );
@@ -1742,7 +1750,7 @@ impl X11Window {
                     self.tooltip = Some(tooltip_window);
                 }
                 Err(e) => {
-                    eprintln!("[X11] Failed to create tooltip window: {}", e);
+                    log_error!(LogCategory::Window, "[X11] Failed to create tooltip window: {}", e);
                     return;
                 }
             }
@@ -1757,7 +1765,7 @@ impl X11Window {
             let dpi = DpiScaleFactor::new(1.0);
 
             if let Err(e) = tooltip.show(&text, position, dpi) {
-                eprintln!("[X11] Failed to show tooltip: {}", e);
+                log_error!(LogCategory::Window, "[X11] Failed to show tooltip: {}", e);
             }
         }
     }
@@ -1852,7 +1860,7 @@ impl X11Window {
         // Invoke expired timer callbacks
         let timer_results = self.invoke_expired_timers();
         if !timer_results.is_empty() {
-            eprintln!("[X11] Invoked {} timer callbacks", timer_results.len());
+            log_debug!(LogCategory::Timer, "[X11] Invoked {} timer callbacks", timer_results.len());
             self.frame_needs_regeneration = true;
         }
 
@@ -1967,8 +1975,8 @@ impl X11Window {
             let dbus_lib = match dbus::DBusLib::new() {
                 Ok(lib) => lib,
                 Err(e) => {
-                    eprintln!("[X11] Failed to load D-Bus library: {}", e);
-                    eprintln!("[X11] System sleep prevention not available");
+                    log_warn!(LogCategory::Platform, "[X11] Failed to load D-Bus library: {}", e);
+                    log_warn!(LogCategory::Platform, "[X11] System sleep prevention not available");
                     return;
                 }
             };
@@ -1981,7 +1989,7 @@ impl X11Window {
 
                     let conn = (dbus_lib.dbus_bus_get)(dbus::DBUS_BUS_SESSION, &mut error);
                     if (dbus_lib.dbus_error_is_set)(&error) != 0 {
-                        eprintln!("[X11] Failed to connect to D-Bus session bus");
+                        log_error!(LogCategory::Platform, "[X11] Failed to connect to D-Bus session bus");
                         (dbus_lib.dbus_error_free)(&mut error);
                         return;
                     }
@@ -2010,7 +2018,7 @@ impl X11Window {
                 );
 
                 if msg.is_null() {
-                    eprintln!("[X11] Failed to create D-Bus method call");
+                    log_error!(LogCategory::Platform, "[X11] Failed to create D-Bus method call");
                     return;
                 }
 
@@ -2047,27 +2055,27 @@ impl X11Window {
                 (dbus_lib.dbus_message_unref)(msg);
 
                 if (dbus_lib.dbus_error_is_set)(&error) != 0 {
-                    eprintln!("[X11] D-Bus ScreenSaver.Inhibit failed");
+                    log_error!(LogCategory::Platform, "[X11] D-Bus ScreenSaver.Inhibit failed");
                     (dbus_lib.dbus_error_free)(&mut error);
                     return;
                 }
 
                 if reply.is_null() {
-                    eprintln!("[X11] D-Bus ScreenSaver.Inhibit returned no reply");
+                    log_error!(LogCategory::Platform, "[X11] D-Bus ScreenSaver.Inhibit returned no reply");
                     return;
                 }
 
                 // Parse reply to get the cookie (uint32)
                 let mut reply_iter: dbus::DBusMessageIter = std::mem::zeroed();
                 if (dbus_lib.dbus_message_iter_init)(reply, &mut reply_iter) == 0 {
-                    eprintln!("[X11] D-Bus reply has no arguments");
+                    log_error!(LogCategory::Platform, "[X11] D-Bus reply has no arguments");
                     (dbus_lib.dbus_message_unref)(reply);
                     return;
                 }
 
                 let arg_type = (dbus_lib.dbus_message_iter_get_arg_type)(&mut reply_iter);
                 if arg_type != dbus::DBUS_TYPE_UINT32 {
-                    eprintln!("[X11] D-Bus reply has wrong type: expected uint32");
+                    log_error!(LogCategory::Platform, "[X11] D-Bus reply has wrong type: expected uint32");
                     (dbus_lib.dbus_message_unref)(reply);
                     return;
                 }
@@ -2081,7 +2089,7 @@ impl X11Window {
                 self.screensaver_inhibit_cookie = Some(cookie);
                 (dbus_lib.dbus_message_unref)(reply);
 
-                eprintln!("[X11] System sleep prevented (cookie: {})", cookie);
+                log_info!(LogCategory::Platform, "[X11] System sleep prevented (cookie: {})", cookie);
             }
         } else {
             // Remove inhibit
@@ -2099,7 +2107,7 @@ impl X11Window {
             let dbus_lib = match dbus::DBusLib::new() {
                 Ok(lib) => lib,
                 Err(e) => {
-                    eprintln!("[X11] Failed to load D-Bus library: {}", e);
+                    log_warn!(LogCategory::Platform, "[X11] Failed to load D-Bus library: {}", e);
                     return;
                 }
             };
@@ -2119,7 +2127,7 @@ impl X11Window {
                 );
 
                 if msg.is_null() {
-                    eprintln!("[X11] Failed to create D-Bus method call");
+                    log_error!(LogCategory::Platform, "[X11] Failed to create D-Bus method call");
                     return;
                 }
 
@@ -2144,7 +2152,7 @@ impl X11Window {
                 (dbus_lib.dbus_message_unref)(msg);
 
                 if (dbus_lib.dbus_error_is_set)(&error) != 0 {
-                    eprintln!("[X11] D-Bus ScreenSaver.UnInhibit failed");
+                    log_error!(LogCategory::Platform, "[X11] D-Bus ScreenSaver.UnInhibit failed");
                     (dbus_lib.dbus_error_free)(&mut error);
                     return;
                 }
@@ -2153,7 +2161,7 @@ impl X11Window {
                     (dbus_lib.dbus_message_unref)(reply);
                 }
 
-                eprintln!("[X11] System sleep allowed (cookie: {})", cookie);
+                log_info!(LogCategory::Platform, "[X11] System sleep allowed (cookie: {})", cookie);
             }
         }
     }

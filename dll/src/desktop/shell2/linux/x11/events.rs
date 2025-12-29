@@ -31,6 +31,9 @@ use azul_layout::{
 use super::{defines::*, dlopen::Xlib, X11Window};
 use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
 
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::super::super::common::debug_server::LogCategory;
+
 // IME Support (X Input Method)
 
 pub(super) struct ImeManager {
@@ -53,7 +56,7 @@ impl ImeManager {
                 std::ptr::null_mut(),
             );
             if xim.is_null() {
-                eprintln!("[X11 IME] Could not open input method. IME will not be available.");
+                log_warn!(LogCategory::Input, "[X11 IME] Could not open input method. IME will not be available.");
                 return None;
             }
 
@@ -70,7 +73,7 @@ impl ImeManager {
             );
 
             if xic.is_null() {
-                eprintln!("[X11 IME] Could not create input context. IME will not be available.");
+                log_warn!(LogCategory::Input, "[X11 IME] Could not create input context. IME will not be available.");
                 (xlib.XCloseIM)(xim);
                 return None;
             }
@@ -231,14 +234,14 @@ impl X11Window {
         match result.callbacks_update_screen {
             Update::RefreshDom => {
                 if let Err(e) = self.regenerate_layout() {
-                    eprintln!("Layout regeneration error: {}", e);
+                    log_error!(LogCategory::Layout, "Layout regeneration error: {}", e);
                 }
                 event_result =
                     event_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
             }
             Update::RefreshDomAllWindows => {
                 if let Err(e) = self.regenerate_layout() {
-                    eprintln!("Layout regeneration error: {}", e);
+                    log_error!(LogCategory::Layout, "Layout regeneration error: {}", e);
                 }
                 event_result = event_result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
             }
@@ -764,7 +767,7 @@ impl X11Window {
             None => return false,
         };
 
-        eprintln!(
+        log_debug!(LogCategory::Input,
             "[X11 Context Menu] Showing context menu at ({}, {}) for node {:?} with {} items",
             position.x,
             position.y,
@@ -802,7 +805,7 @@ impl X11Window {
             None,           // No parent menu
         );
 
-        eprintln!(
+        log_debug!(LogCategory::Window,
             "[X11] Queuing window-based context menu at screen ({}, {})",
             position.x, position.y
         );

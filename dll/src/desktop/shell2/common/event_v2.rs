@@ -166,6 +166,7 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
+use crate::{log_debug, log_warn};
 use crate::desktop::wr_translate2::{self, AsyncHitTester, WrRenderApi};
 
 /// Maximum depth for recursive event processing (prevents infinite loops from callbacks)
@@ -938,10 +939,7 @@ pub trait PlatformWindowV2 {
     /// infinite loops from callbacks that regenerate the DOM.
     fn process_window_events_recursive_v2(&mut self, depth: usize) -> ProcessEventResult {
         if depth >= MAX_EVENT_RECURSION_DEPTH {
-            eprintln!(
-                "[PlatformWindowV2] Max event recursion depth {} reached",
-                MAX_EVENT_RECURSION_DEPTH
-            );
+            log_warn!(super::debug_server::LogCategory::EventLoop, "[PlatformWindowV2] Max event recursion depth {} reached", MAX_EVENT_RECURSION_DEPTH);
             return ProcessEventResult::DoNothing;
         }
 
@@ -1765,7 +1763,7 @@ pub trait PlatformWindowV2 {
                             .gesture_drag_manager
                             .activate_window_drag(current_pos, hit_test_clone);
 
-                        eprintln!("[Event V2] Auto-activated window drag on titlebar DragStart");
+                        log_debug!(super::debug_server::LogCategory::Input, "[Event V2] Auto-activated window drag on titlebar DragStart");
                     }
                 }
             }
@@ -1907,10 +1905,7 @@ pub trait PlatformWindowV2 {
         if !result.windows_created.is_empty() {
             // TODO: Signal to event loop to create new windows
             // For now, just log
-            eprintln!(
-                "[PlatformWindowV2] {} new windows requested (not yet implemented)",
-                result.windows_created.len()
-            );
+            log_debug!(super::debug_server::LogCategory::Window, "[PlatformWindowV2] {} new windows requested (not yet implemented)", result.windows_created.len());
         }
 
         // Handle menus requested to be opened
@@ -2120,7 +2115,7 @@ pub trait PlatformWindowV2 {
             if is_vertical { 0.0 } else { scroll_delta },
             if is_vertical { scroll_delta } else { 0.0 },
         ) {
-            eprintln!("Track click scroll failed: {}", e);
+            log_warn!(super::debug_server::LogCategory::Input, "Track click scroll failed: {}", e);
             return ProcessEventResult::DoNothing;
         }
 
@@ -2336,7 +2331,7 @@ pub trait PlatformWindowV2 {
             if is_vertical { 0.0 } else { delta_from_current },
             if is_vertical { delta_from_current } else { 0.0 },
         ) {
-            eprintln!("Scrollbar drag failed: {}", e);
+            log_warn!(super::debug_server::LogCategory::Input, "Scrollbar drag failed: {}", e);
             return ProcessEventResult::DoNothing;
         }
 

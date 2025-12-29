@@ -22,7 +22,8 @@ use azul_layout::{
 use rust_fontconfig::FcFontCache;
 use webrender::{RenderApi as WrRenderApi, Transaction as WrTransaction};
 
-use crate::desktop::{csd, wr_translate2};
+use crate::{desktop::{csd, wr_translate2}, log_debug};
+use super::debug_server::{self, LogCategory};
 
 /// Regenerate layout after DOM changes.
 ///
@@ -56,16 +57,13 @@ pub fn regenerate_layout(
     system_style: &Arc<SystemStyle>,
     document_id: DocumentId,
 ) -> Result<(), String> {
-    use std::io::Write;
-
-    eprintln!("[regenerate_layout] START");
+    log_debug!(LogCategory::Layout, "[regenerate_layout] START");
 
     // Update layout_window's fc_cache with the shared one
     layout_window.font_manager.fc_cache = fc_cache.clone();
 
     // 1. Call user's layout callback to get new DOM
-    eprintln!("[regenerate_layout] Calling layout_callback");
-    let _ = std::io::stderr().flush();
+    log_debug!(LogCategory::Layout, "[regenerate_layout] Calling layout_callback");
 
     // Create reference data container (syntax sugar to reduce parameter count)
     let layout_ref_data = LayoutCallbackInfoRefData {
@@ -93,7 +91,7 @@ pub fn regenerate_layout(
         current_window_state.flags.has_decorations,
         current_window_state.flags.decorations,
     ) {
-        eprintln!("[regenerate_layout] Injecting CSD decorations");
+        log_debug!(LogCategory::Layout, "[regenerate_layout] Injecting CSD decorations");
         csd::wrap_user_dom_with_decorations(
             user_styled_dom,
             &current_window_state.title,
@@ -106,18 +104,10 @@ pub fn regenerate_layout(
         user_styled_dom
     };
 
-    eprintln!(
-        "[regenerate_layout] StyledDom received: {} nodes",
-        styled_dom.styled_nodes.len()
-    );
-    eprintln!(
-        "[regenerate_layout] StyledDom hierarchy length: {}",
-        styled_dom.node_hierarchy.len()
-    );
-    let _ = std::io::stderr().flush();
+    log_debug!(LogCategory::Layout, "[regenerate_layout] StyledDom: {} nodes, {} hierarchy", styled_dom.styled_nodes.len(), styled_dom.node_hierarchy.len());
 
     // 3. Perform layout with solver3
-    eprintln!("[regenerate_layout] Calling layout_and_generate_display_list");
+    log_debug!(LogCategory::Layout, "[regenerate_layout] Calling layout_and_generate_display_list");
     layout_window
         .layout_and_generate_display_list(
             styled_dom,
@@ -128,10 +118,7 @@ pub fn regenerate_layout(
         )
         .map_err(|e| format!("Layout error: {:?}", e))?;
 
-    eprintln!(
-        "[regenerate_layout] Layout completed, {} DOMs",
-        layout_window.layout_results.len()
-    );
+    log_debug!(LogCategory::Layout, "[regenerate_layout] Layout completed, {} DOMs", layout_window.layout_results.len());
 
     // 4. Calculate scrollbar states based on new layout
     // This updates scrollbar geometry (thumb position/size ratios, visibility)
@@ -153,7 +140,7 @@ pub fn regenerate_layout(
         );
     }
 
-    eprintln!("[regenerate_layout] COMPLETE");
+    log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
 
     Ok(())
 }

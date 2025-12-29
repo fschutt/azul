@@ -8,6 +8,9 @@ use std::rc::Rc;
 
 use super::{defines::*, dlopen::Wayland};
 
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::super::super::common::debug_server::LogCategory;
+
 /// Tooltip window using Wayland wl_subsurface
 ///
 /// Wayland doesn't have a direct "tooltip" protocol, so we implement tooltips
@@ -125,7 +128,7 @@ impl TooltipWindow {
                 );
 
                 if fd < 0 {
-                    eprintln!("[Wayland] Failed to create shared memory");
+                    log_error!(LogCategory::Resources, "[Wayland] Failed to create shared memory");
                     return;
                 }
 
@@ -133,7 +136,7 @@ impl TooltipWindow {
 
                 if libc::ftruncate(fd, size as i64) < 0 {
                     libc::close(fd);
-                    eprintln!("[Wayland] Failed to resize shared memory");
+                    log_error!(LogCategory::Resources, "[Wayland] Failed to resize shared memory");
                     return;
                 }
 
@@ -148,7 +151,7 @@ impl TooltipWindow {
 
                 if data == libc::MAP_FAILED as *mut u8 {
                     libc::close(fd);
-                    eprintln!("[Wayland] Failed to mmap shared memory");
+                    log_error!(LogCategory::Resources, "[Wayland] Failed to mmap shared memory");
                     return;
                 }
 
@@ -158,7 +161,7 @@ impl TooltipWindow {
 
                 if pool.is_null() {
                     libc::munmap(data as *mut libc::c_void, size as usize);
-                    eprintln!("[Wayland] Failed to create shm pool");
+                    log_error!(LogCategory::Resources, "[Wayland] Failed to create shm pool");
                     return;
                 }
 
@@ -175,7 +178,7 @@ impl TooltipWindow {
                 if buffer.is_null() {
                     (self.wayland.wl_shm_pool_destroy)(pool);
                     libc::munmap(data as *mut libc::c_void, size as usize);
-                    eprintln!("[Wayland] Failed to create buffer");
+                    log_error!(LogCategory::Resources, "[Wayland] Failed to create buffer");
                     return;
                 }
 

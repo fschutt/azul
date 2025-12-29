@@ -21,6 +21,9 @@ use azul_core::{
 use azul_css::system::SystemStyle;
 use azul_layout::window_state::WindowCreateOptions;
 
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::super::super::common::debug_server::LogCategory;
+
 /// Data passed to the menu layout callback
 #[derive(Debug, Clone)]
 struct MenuLayoutData {
@@ -43,7 +46,7 @@ extern "C" fn menu_layout_callback(mut data: RefAny, _info: LayoutCallbackInfo) 
     let menu_data = match data.downcast_ref::<MenuLayoutData>() {
         Some(d) => d,
         None => {
-            eprintln!("[Menu Layout] Failed to downcast menu data");
+            log_error!(LogCategory::Layout, "[Menu Layout] Failed to downcast menu data");
             return StyledDom::default();
         }
     };

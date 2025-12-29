@@ -48,6 +48,9 @@ use std::{
     },
 };
 
+use crate::{log_debug, log_error, log_info, log_warn, log_trace};
+use super::super::common::debug_server::LogCategory;
+
 pub use actions_protocol::{
     drain_pending_menu_callbacks, queue_menu_callback, ActionsProtocol, DbusAction,
     PendingMenuCallback,
@@ -96,7 +99,7 @@ pub fn should_use_gnome_menus() -> bool {
 /// Print debug log if `AZUL_GNOME_MENU_DEBUG=1`
 pub(crate) fn debug_log(msg: &str) {
     if env::var("AZUL_GNOME_MENU_DEBUG").unwrap_or_default() == "1" {
-        eprintln!("[AZUL GNOME MENU] {}", msg);
+        log_debug!(LogCategory::Platform, "[AZUL GNOME MENU] {}", msg);
     }
 }
 
