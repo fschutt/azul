@@ -42,6 +42,8 @@ pub mod gl_fxaa;
 pub mod glconst;
 /// GPU value synchronization (colors, transforms) for WebRender preparation
 pub mod gpu;
+/// GPU blacklist for problematic drivers/hardware
+pub mod gpu_blacklist;
 /// Hit-testing module
 pub mod hit_test;
 /// Internal, arena-based storage for Dom nodes

@@ -11,6 +11,8 @@ edition = "2018"
 [features]
 default = []
 # All profiling, capture/replay, and display_list_stats features removed for minimal build
+# Software WebGL fallback for GPUs without adequate OpenGL support
+swgl = ["swgl_shaders"]
 
 [build-dependencies]
 build-parallel = "0.1.2"
@@ -33,6 +35,7 @@ time = "0.3"
 api = { version = "0.62.0", path = "../api", package = "webrender_api" }
 webrender_build = { path = "../build" }
 glyph_rasterizer = { version = "0.1.0", path = "../glyph", package = "wr_azul_glyph_rasterizer", default-features = false }
+swgl_shaders = { path = "../swgl", optional = true }
 azul-layout = { path = "../../layout" }
 azul-core = { path = "../../core" }
 azul-css = { path = "../../css" }

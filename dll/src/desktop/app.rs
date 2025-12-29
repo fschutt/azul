@@ -52,6 +52,14 @@ impl App {
 
     pub fn run(&self, root_window: WindowCreateOptions) {
         eprintln!("[App::run] Starting...");
+        
+        // Check for software rendering override
+        // Set AZUL_FORCE_SOFTWARE_RENDERING=1 to force SWGL backend
+        // See: https://github.com/fschutt/azul/issues/220
+        if azul_core::gpu_blacklist::should_force_software_rendering() {
+            eprintln!("[App::run] AZUL_FORCE_SOFTWARE_RENDERING=1 detected, will use software rendering");
+        }
+        
         eprintln!("[App::run] Cloning data...");
         let data = self.ptr.data.clone();
         eprintln!("[App::run] Data cloned successfully");

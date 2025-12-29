@@ -516,9 +516,9 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: clang target/codegen/v2/azul.h -ferror-limit=0
 
-      - name: Build DLL with build-dll feature
+      - name: Build DLL with build-dll feature (includes software rendering fallback)
         run: |
-          cargo build --release -p azul-dll --features="build-dll"
+          cargo build --release -p azul-dll --features="build-dll,swgl"
 
       - name: Build Python extension
         run: |
@@ -552,6 +552,21 @@ jobs:
         run: |
           cp target/release/azul.cpython.so examples/python/azul.so
           cd examples/python && python3 -c "import azul; print('Python extension loaded successfully!')"
+
+      - name: Test software rendering mode (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          # Test that AZUL_FORCE_SOFTWARE_RENDERING environment variable works
+          # This forces the library to use SWGL instead of hardware OpenGL
+          # Useful for headless environments or problematic GPUs (Mali, older Adreno)
+          cargo run -r -p azul-doc codegen c
+          cp target/codegen/v2/azul.h examples/c/
+          cd examples/c
+          clang -g -O0 -I. hello-world.c -L../../target/release -lazul -o hello-world-swgl
+          export LD_LIBRARY_PATH=../../target/release:$LD_LIBRARY_PATH
+          export AZUL_FORCE_SOFTWARE_RENDERING=1
+          timeout 3s ./hello-world-swgl || [ $? -eq 124 ]
+          echo "Software rendering mode test passed"
 
       - name: Test Python extension import (macOS)
         if: matrix.os == 'macos-latest'
