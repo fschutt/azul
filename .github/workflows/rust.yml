@@ -378,7 +378,7 @@ jobs:
           clang -g -O0 -fsanitize=address \
             -I. \
             hello-world.c \
-            -L../../target/debug -lazul_dll \
+            -L../../target/debug -lazul \
             -o hello-world-asan
 
       - name: Run C hello-world with Address Sanitizer
@@ -433,7 +433,7 @@ jobs:
           clang -g -O0 -fsanitize=address \
             -I. \
             hello-world.c \
-            -L../../target/debug -lazul_dll \
+            -L../../target/debug -lazul \
             -o hello-world-asan
 
       - name: Run C hello-world with Address Sanitizer
@@ -527,15 +527,15 @@ jobs:
       - name: Rename Python extension (Windows)
         if: matrix.os == 'windows-latest'
         shell: bash
-        run: cp target/release/azul_dll.dll target/release/azul.pyd
+        run: cp target/release/azul.dll target/release/azul.pyd
 
       - name: Rename Python extension (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: cp target/release/libazul_dll.so target/release/azul.cpython.so
+        run: cp target/release/libazul.so target/release/azul.cpython.so
 
       - name: Rename Python extension (macOS)
         if: matrix.os == 'macos-latest'
-        run: cp target/release/libazul_dll.dylib target/release/azul.so
+        run: cp target/release/libazul.dylib target/release/azul.so
 
       - name: Build Rust examples
         run: cargo check --verbose --examples --all-features
