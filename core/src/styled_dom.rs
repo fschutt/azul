@@ -800,12 +800,15 @@ impl StyledDom {
             panic!("append_child: other_root_id.index() out of bounds");
         }
 
+        println!("[append_child] Step 1: Updating cascade_info...");
         other.cascade_info.as_mut()[other_root_id.index()].index_in_parent =
             current_root_children_count as u32;
         other.cascade_info.as_mut()[other_root_id.index()].is_last_child = true;
 
+        println!("[append_child] Step 2: Appending cascade_info...");
         self.cascade_info.append(&mut other.cascade_info);
 
+        println!("[append_child] Step 3: Adjusting node hierarchy offsets...");
         // adjust node hierarchy
         for other in other.node_hierarchy.as_mut().iter_mut() {
             other.parent += self_len;
@@ -818,58 +821,85 @@ impl StyledDom {
             other.last_child += if other.last_child == 0 { 0 } else { self_len };
         }
 
+        println!("[append_child] Step 4: Setting other parent to self_root_id... other_root_id={:?}", other_root_id);
         other.node_hierarchy.as_container_mut()[other_root_id].parent =
             NodeId::into_usize(&Some(self_root_id));
+        
+        println!("[append_child] Step 5: Getting current_last_child... self_root_id={:?}", self_root_id);
         let current_last_child = self.node_hierarchy.as_container()[self_root_id].last_child_id();
+        println!("[append_child] Step 5b: current_last_child={:?}", current_last_child);
+        
+        println!("[append_child] Step 6: Setting previous_sibling...");
         other.node_hierarchy.as_container_mut()[other_root_id].previous_sibling =
             NodeId::into_usize(&current_last_child);
+            
         if let Some(current_last) = current_last_child {
+            println!("[append_child] Step 7: Updating current_last ({:?}) next_sibling... self.node_hierarchy.len()={}", 
+                     current_last, self.node_hierarchy.as_ref().len());
+            if current_last.index() >= self.node_hierarchy.as_ref().len() {
+                println!("[append_child] ERROR: current_last.index()={} >= self.node_hierarchy.len()={}", 
+                         current_last.index(), self.node_hierarchy.as_ref().len());
+                panic!("append_child: current_last out of bounds");
+            }
             if self.node_hierarchy.as_container_mut()[current_last]
                 .next_sibling_id()
                 .is_some()
             {
+                println!("[append_child] Step 7a: Adding to existing next_sibling...");
                 self.node_hierarchy.as_container_mut()[current_last].next_sibling +=
                     other_root_id.index() + 1;
             } else {
+                println!("[append_child] Step 7b: Setting new next_sibling...");
                 self.node_hierarchy.as_container_mut()[current_last].next_sibling =
                     self_len + other_root_id.index() + 1;
             }
         }
+        
+        println!("[append_child] Step 8: Setting last_child...");
         self.node_hierarchy.as_container_mut()[self_root_id].last_child =
             self_len + other_root_id.index() + 1;
 
+        println!("[append_child] Step 9: Appending node_hierarchy, node_data, styled_nodes...");
         self.node_hierarchy.append(&mut other.node_hierarchy);
         self.node_data.append(&mut other.node_data);
         self.styled_nodes.append(&mut other.styled_nodes);
+        
+        println!("[append_child] Step 10: Appending css_property_cache...");
         self.get_css_property_cache_mut()
             .append(other.get_css_property_cache_mut());
 
+        println!("[append_child] Step 11: Adjusting tag_ids...");
         for tag_id_node_id in other.tag_ids_to_node_ids.iter_mut() {
             tag_id_node_id.tag_id.inner += self_tag_len as u64;
             tag_id_node_id.node_id.inner += self_len;
         }
 
+        println!("[append_child] Step 12: Appending tag_ids_to_node_ids...");
         self.tag_ids_to_node_ids
             .append(&mut other.tag_ids_to_node_ids);
 
+        println!("[append_child] Step 13: Adjusting nodes_with_window_callbacks...");
         for nid in other.nodes_with_window_callbacks.iter_mut() {
             nid.inner += self_len;
         }
         self.nodes_with_window_callbacks
             .append(&mut other.nodes_with_window_callbacks);
 
+        println!("[append_child] Step 14: Adjusting nodes_with_not_callbacks...");
         for nid in other.nodes_with_not_callbacks.iter_mut() {
             nid.inner += self_len;
         }
         self.nodes_with_not_callbacks
             .append(&mut other.nodes_with_not_callbacks);
 
+        println!("[append_child] Step 15: Adjusting nodes_with_datasets...");
         for nid in other.nodes_with_datasets.iter_mut() {
             nid.inner += self_len;
         }
         self.nodes_with_datasets
             .append(&mut other.nodes_with_datasets);
 
+        println!("[append_child] Step 16: Handling non_leaf_nodes (other_len={})...", other_len);
         // edge case: if the other StyledDom consists of only one node
         // then it is not a parent itself
         if other_len != 1 {
@@ -880,6 +910,7 @@ impl StyledDom {
             self.non_leaf_nodes.append(&mut other.non_leaf_nodes);
             self.non_leaf_nodes.sort_by(|a, b| a.depth.cmp(&b.depth));
         }
+        println!("[append_child] DONE!");
     }
 
     /// Same as `append_child()`, but as a builder method
