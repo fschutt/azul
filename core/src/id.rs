@@ -62,20 +62,22 @@ pub mod node_id {
         }
 
         /// Converts a usize to an Option<NodeId>.
-        /// Returns None if value is usize::MAX, otherwise Some(NodeId).
+        /// Returns None if value is 0, otherwise Some(NodeId(value - 1)).
+        /// This maintains the invariant that 0 means "no node" for FFI compatibility.
         pub const fn from_usize(value: usize) -> Option<Self> {
             match value {
-                usize::MAX => None,
-                i => Some(NodeId { inner: i }),
+                0 => None,
+                i => Some(NodeId { inner: i - 1 }),
             }
         }
 
         /// Converts an Option<NodeId> to a usize.
-        /// Returns usize::MAX for None, otherwise the inner value.
+        /// Returns 0 for None, otherwise the inner value + 1.
+        /// This maintains the invariant that 0 means "no node" for FFI compatibility.
         pub const fn into_usize(val: &Option<Self>) -> usize {
             match val {
-                None => usize::MAX,
-                Some(s) => s.inner,
+                None => 0,
+                Some(s) => s.inner + 1,
             }
         }
 

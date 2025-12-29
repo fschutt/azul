@@ -722,13 +722,6 @@ impl StyledDom {
             dom_id: DomId::ROOT_ID, // Will be assigned by layout engine for iframes
         };
 
-        println!("[StyledDom::new] Created StyledDom: root={:?}, node_hierarchy.len={}, cascade_info.len={}", 
-                 compact_dom.root, styled_dom.node_hierarchy.as_ref().len(), styled_dom.cascade_info.as_ref().len());
-        if compact_dom.root.index() >= styled_dom.cascade_info.as_ref().len() {
-            println!("[StyledDom::new] WARNING: root.index()={} >= cascade_info.len()={}", 
-                     compact_dom.root.index(), styled_dom.cascade_info.as_ref().len());
-        }
-
         // Generate anonymous table elements if needed (CSS 2.2 Section 17.2.1)
         // This must happen after CSS cascade but before layout
         // Anonymous nodes are marked with is_anonymous=true and are skipped by CallbackInfo
@@ -753,153 +746,86 @@ impl StyledDom {
         let self_root_id = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
         let other_root_id = other.root.into_crate_internal().unwrap_or(NodeId::ZERO);
 
-        println!("[append_child] self_len={}, other_len={}, self_tag_len={}", self_len, other_len, self_tag_len);
-        println!("[append_child] self_root_id={:?}, other_root_id={:?}", self_root_id, other_root_id);
-        println!("[append_child] self.cascade_info.len()={}", self.cascade_info.as_ref().len());
-        println!("[append_child] other.cascade_info.len()={}", other.cascade_info.as_ref().len());
-        println!("[append_child] other_root_id.index()={}", other_root_id.index());
-        println!("[append_child] self.node_hierarchy.len()={}", self.node_hierarchy.as_ref().len());
-        println!("[append_child] other.node_hierarchy.len()={}", other.node_hierarchy.as_ref().len());
-
         // iterate through the direct root children and adjust the cascade_info
         let current_root_children_count = self_root_id
             .az_children(&self.node_hierarchy.as_container())
             .count();
 
-        println!("[append_child] current_root_children_count={}", current_root_children_count);
-
-        if other_root_id.index() >= other.cascade_info.as_ref().len() {
-            println!("[append_child] ==================== ERROR DUMP ====================");
-            println!("[append_child] ERROR: other_root_id.index()={} >= other.cascade_info.len()={}", 
-                     other_root_id.index(), other.cascade_info.as_ref().len());
-            println!("[append_child] other.root raw value: {:?}", other.root);
-            println!("[append_child] --- other.node_hierarchy ({} nodes) ---", other.node_hierarchy.as_ref().len());
-            for (i, node) in other.node_hierarchy.as_ref().iter().enumerate() {
-                println!("[append_child]   node[{}]: parent={}, prev={}, next={}, last_child={}", 
-                         i, node.parent, node.previous_sibling, node.next_sibling, node.last_child);
-            }
-            println!("[append_child] --- other.node_data ({} nodes) ---", other.node_data.as_ref().len());
-            for (i, node_data) in other.node_data.as_ref().iter().enumerate() {
-                println!("[append_child]   node_data[{}]: type={:?}", i, node_data.node_type);
-            }
-            println!("[append_child] --- other.cascade_info ({} entries) ---", other.cascade_info.as_ref().len());
-            for (i, ci) in other.cascade_info.as_ref().iter().enumerate() {
-                println!("[append_child]   cascade_info[{}]: index_in_parent={}, is_last_child={}", 
-                         i, ci.index_in_parent, ci.is_last_child);
-            }
-            println!("[append_child] --- self.node_hierarchy ({} nodes) ---", self.node_hierarchy.as_ref().len());
-            for (i, node) in self.node_hierarchy.as_ref().iter().enumerate() {
-                println!("[append_child]   node[{}]: parent={}, prev={}, next={}, last_child={}", 
-                         i, node.parent, node.previous_sibling, node.next_sibling, node.last_child);
-            }
-            println!("[append_child] --- self.node_data ({} nodes) ---", self.node_data.as_ref().len());
-            for (i, node_data) in self.node_data.as_ref().iter().enumerate() {
-                println!("[append_child]   node_data[{}]: type={:?}", i, node_data.node_type);
-            }
-            println!("[append_child] ==================== END ERROR DUMP ====================");
-            panic!("append_child: other_root_id.index() out of bounds");
-        }
-
-        println!("[append_child] Step 1: Updating cascade_info...");
         other.cascade_info.as_mut()[other_root_id.index()].index_in_parent =
             current_root_children_count as u32;
         other.cascade_info.as_mut()[other_root_id.index()].is_last_child = true;
 
-        println!("[append_child] Step 2: Appending cascade_info...");
         self.cascade_info.append(&mut other.cascade_info);
 
-        println!("[append_child] Step 3: Adjusting node hierarchy offsets...");
         // adjust node hierarchy
+        // Note: 0 means "no node" (None) in the 1-based encoding used by from_usize/into_usize
         for other in other.node_hierarchy.as_mut().iter_mut() {
-            other.parent += self_len;
-            other.previous_sibling += if other.previous_sibling == 0 {
-                0
-            } else {
-                self_len
-            };
-            other.next_sibling += if other.next_sibling == 0 { 0 } else { self_len };
-            other.last_child += if other.last_child == 0 { 0 } else { self_len };
+            if other.parent != 0 {
+                other.parent += self_len;
+            }
+            if other.previous_sibling != 0 {
+                other.previous_sibling += self_len;
+            }
+            if other.next_sibling != 0 {
+                other.next_sibling += self_len;
+            }
+            if other.last_child != 0 {
+                other.last_child += self_len;
+            }
         }
 
-        println!("[append_child] Step 4: Setting other parent to self_root_id... other_root_id={:?}", other_root_id);
         other.node_hierarchy.as_container_mut()[other_root_id].parent =
             NodeId::into_usize(&Some(self_root_id));
-        
-        println!("[append_child] Step 5: Getting current_last_child... self_root_id={:?}", self_root_id);
         let current_last_child = self.node_hierarchy.as_container()[self_root_id].last_child_id();
-        println!("[append_child] Step 5b: current_last_child={:?}", current_last_child);
-        
-        println!("[append_child] Step 6: Setting previous_sibling...");
         other.node_hierarchy.as_container_mut()[other_root_id].previous_sibling =
             NodeId::into_usize(&current_last_child);
-            
         if let Some(current_last) = current_last_child {
-            println!("[append_child] Step 7: Updating current_last ({:?}) next_sibling... self.node_hierarchy.len()={}", 
-                     current_last, self.node_hierarchy.as_ref().len());
-            if current_last.index() >= self.node_hierarchy.as_ref().len() {
-                println!("[append_child] ERROR: current_last.index()={} >= self.node_hierarchy.len()={}", 
-                         current_last.index(), self.node_hierarchy.as_ref().len());
-                panic!("append_child: current_last out of bounds");
-            }
             if self.node_hierarchy.as_container_mut()[current_last]
                 .next_sibling_id()
                 .is_some()
             {
-                println!("[append_child] Step 7a: Adding to existing next_sibling...");
                 self.node_hierarchy.as_container_mut()[current_last].next_sibling +=
-                    other_root_id.index() + 1;
+                    other_root_id.index() + other_len;
             } else {
-                println!("[append_child] Step 7b: Setting new next_sibling...");
                 self.node_hierarchy.as_container_mut()[current_last].next_sibling =
-                    self_len + other_root_id.index() + 1;
+                    NodeId::into_usize(&Some(NodeId::new(self_len + other_root_id.index())));
             }
         }
-        
-        println!("[append_child] Step 8: Setting last_child...");
         self.node_hierarchy.as_container_mut()[self_root_id].last_child =
-            self_len + other_root_id.index() + 1;
+            NodeId::into_usize(&Some(NodeId::new(self_len + other_root_id.index())));
 
-        println!("[append_child] Step 9: Appending node_hierarchy, node_data, styled_nodes...");
         self.node_hierarchy.append(&mut other.node_hierarchy);
         self.node_data.append(&mut other.node_data);
         self.styled_nodes.append(&mut other.styled_nodes);
-        
-        println!("[append_child] Step 10: Appending css_property_cache...");
         self.get_css_property_cache_mut()
             .append(other.get_css_property_cache_mut());
 
-        println!("[append_child] Step 11: Adjusting tag_ids...");
         for tag_id_node_id in other.tag_ids_to_node_ids.iter_mut() {
             tag_id_node_id.tag_id.inner += self_tag_len as u64;
             tag_id_node_id.node_id.inner += self_len;
         }
 
-        println!("[append_child] Step 12: Appending tag_ids_to_node_ids...");
         self.tag_ids_to_node_ids
             .append(&mut other.tag_ids_to_node_ids);
 
-        println!("[append_child] Step 13: Adjusting nodes_with_window_callbacks...");
         for nid in other.nodes_with_window_callbacks.iter_mut() {
             nid.inner += self_len;
         }
         self.nodes_with_window_callbacks
             .append(&mut other.nodes_with_window_callbacks);
 
-        println!("[append_child] Step 14: Adjusting nodes_with_not_callbacks...");
         for nid in other.nodes_with_not_callbacks.iter_mut() {
             nid.inner += self_len;
         }
         self.nodes_with_not_callbacks
             .append(&mut other.nodes_with_not_callbacks);
 
-        println!("[append_child] Step 15: Adjusting nodes_with_datasets...");
         for nid in other.nodes_with_datasets.iter_mut() {
             nid.inner += self_len;
         }
         self.nodes_with_datasets
             .append(&mut other.nodes_with_datasets);
 
-        println!("[append_child] Step 16: Handling non_leaf_nodes (other_len={})...", other_len);
         // edge case: if the other StyledDom consists of only one node
         // then it is not a parent itself
         if other_len != 1 {
@@ -910,7 +836,6 @@ impl StyledDom {
             self.non_leaf_nodes.append(&mut other.non_leaf_nodes);
             self.non_leaf_nodes.sort_by(|a, b| a.depth.cmp(&b.depth));
         }
-        println!("[append_child] DONE!");
     }
 
     /// Same as `append_child()`, but as a builder method

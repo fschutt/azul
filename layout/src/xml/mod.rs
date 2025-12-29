@@ -17,21 +17,11 @@ use xmlparser::Tokenizer;
 
 #[cfg(feature = "xml")]
 pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml {
-    println!("[domxml_from_str] ========== PARSING XML ==========");
-    println!("[domxml_from_str] Input XML ({} bytes):", xml.len());
-    println!("----------------------------------------");
-    println!("{}", xml);
-    println!("----------------------------------------");
-    
     let error_css = Css::empty();
 
     let parsed = match parse_xml_string(&xml) {
-        Ok(parsed) => {
-            println!("[domxml_from_str] XML parsed successfully, {} root nodes", parsed.len());
-            parsed
-        },
+        Ok(parsed) => parsed,
         Err(e) => {
-            println!("[domxml_from_str] XML parse error: {}", e);
             return DomXml {
                 parsed_dom: Dom::create_body()
                     .with_children(vec![Dom::create_text(format!("{}", e))].into())
@@ -41,15 +31,8 @@ pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml
     };
 
     let parsed_dom = match str_to_dom(parsed.as_ref(), component_map, None) {
-        Ok(o) => {
-            println!("[domxml_from_str] str_to_dom succeeded: root={:?}, nodes={}, cascade_info={}", 
-                     o.root.into_crate_internal(),
-                     o.node_hierarchy.as_ref().len(),
-                     o.cascade_info.as_ref().len());
-            o
-        },
+        Ok(o) => o,
         Err(e) => {
-            println!("[domxml_from_str] str_to_dom error: {}", e);
             return DomXml {
                 parsed_dom: Dom::create_body()
                     .with_children(vec![Dom::create_text(format!("{}", e))].into())
@@ -58,7 +41,6 @@ pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml
         }
     };
 
-    println!("[domxml_from_str] ========== XML PARSING COMPLETE ==========");
     DomXml { parsed_dom }
 }
 

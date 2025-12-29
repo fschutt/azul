@@ -67,13 +67,7 @@ pub fn get_element_font_size(
         .node_hierarchy
         .as_container()
         .get(dom_id)
-        .and_then(|node| {
-            if node.parent == 0 {
-                None
-            } else {
-                Some(NodeId::new(node.parent))
-            }
-        })
+        .and_then(|node| node.parent_id())
         .and_then(|parent_id| {
             // Check parent's dependency chain first (avoids recursion)
             cache
@@ -127,13 +121,7 @@ pub fn get_parent_font_size(
         .node_hierarchy
         .as_container()
         .get(dom_id)
-        .and_then(|node| {
-            if node.parent == 0 {
-                None
-            } else {
-                Some(NodeId::new(node.parent))
-            }
-        })
+        .and_then(|node| node.parent_id())
         .map(|parent_id| get_element_font_size(styled_dom, parent_id, node_state))
         .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE)
 }
@@ -683,15 +671,7 @@ pub fn get_border_radius(
         .node_hierarchy
         .as_container()
         .get(node_id)
-        .and_then(|node| {
-            if node.parent == 0 && node_id.index() != 0 {
-                Some(NodeId::new(node.parent))
-            } else if node_id.index() == 0 {
-                None
-            } else {
-                Some(NodeId::new(node.parent))
-            }
-        })
+        .and_then(|node| node.parent_id())
         .map(|p| get_element_font_size(styled_dom, p, node_state))
         .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
     let root_font_size = get_root_font_size(styled_dom, node_state);
