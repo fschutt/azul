@@ -527,7 +527,7 @@ impl PlatformWindow for WaylandWindow {
     }
 
     fn present(&mut self) -> Result<(), WindowError> {
-        match &self.render_mode {
+        let result = match &self.render_mode {
             RenderMode::Gpu(gl_context, _) => gl_context.swap_buffers(),
             RenderMode::Cpu(Some(cpu_state)) => {
                 cpu_state.draw_blue();
@@ -548,7 +548,15 @@ impl PlatformWindow for WaylandWindow {
                 // CPU fallback not yet initialized - wait for wl_shm from registry
                 Ok(())
             }
+        };
+
+        // CI testing: Exit successfully after first frame render if env var is set
+        if result.is_ok() && std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+            eprintln!("[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success");
+            std::process::exit(0);
         }
+
+        result
     }
 
     fn is_open(&self) -> bool {

@@ -540,6 +540,12 @@ impl Win32Window {
             // Release device context
             (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
 
+            // CI testing: Exit successfully after first frame render if env var is set
+            if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+                eprintln!("[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success");
+                std::process::exit(0);
+            }
+
             Ok(())
         }
     }

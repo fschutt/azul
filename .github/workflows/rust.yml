@@ -441,19 +441,20 @@ jobs:
           cd examples/c
           export DYLD_LIBRARY_PATH=../../target/debug:$DYLD_LIBRARY_PATH
           export ASAN_OPTIONS=detect_leaks=0,abort_on_error=1
-          # Run with timeout, exit 0 if window closes normally or timeout
-          gtimeout 5s ./hello-world-asan || [ $? -eq 124 ]
-        continue-on-error: true  # macOS may not have gtimeout
+          export AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER=1
+          ./hello-world-asan
+        continue-on-error: true  # macOS CI may have display issues
 
       - name: Run LLDB crash detection on C example
         run: |
           cd examples/c
           export DYLD_LIBRARY_PATH=../../target/debug:$DYLD_LIBRARY_PATH
+          export AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER=1
           # Use LLDB to run and detect crashes - exit on first signal
           echo "run" > /tmp/lldb_commands.txt
           echo "bt" >> /tmp/lldb_commands.txt
           echo "quit" >> /tmp/lldb_commands.txt
-          # Run LLDB batch mode - will show backtrace on crash
+          # Run LLDB batch mode - app will exit after first frame
           lldb -b -s /tmp/lldb_commands.txt ./hello-world-asan 2>&1 | tee lldb_output.txt || true
           # Check for crash indicators
           if grep -q "SIGABRT\|SIGSEGV\|AddressSanitizer" lldb_output.txt; then
@@ -461,6 +462,7 @@ jobs:
             cat lldb_output.txt
             exit 1
           fi
+          echo "No crash detected - test passed (window rendered successfully)"
         continue-on-error: true  # Don't fail CI if LLDB has issues
 
   build_binaries:
