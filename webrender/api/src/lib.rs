@@ -11,7 +11,7 @@
 //! `webrender` crate directly, and so this distinction is not really relevant
 //! there.
 
-#![cfg_attr(feature = "nightly", feature(nonzero))]
+// Note: feature(nonzero) removed - stable since Rust 1.28.0
 #![allow(
     clippy::float_cmp,
     clippy::too_many_arguments,

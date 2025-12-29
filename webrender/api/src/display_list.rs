@@ -307,52 +307,39 @@ impl<'de> Deserialize<'de> for DisplayListWithCache {
 
         let capture = DisplayListCapture::deserialize(deserializer)?;
 
-        let spatial_tree = Vec::new();
-        // Serialization removed - spatial_tree items not needed for in-process rendering
+        // Create the new payload with direct Vec storage
+        let mut payload = DisplayListPayload::default();
 
-        let mut items_data = Vec::new();
-        let mut temp = Vec::new();
         for complete in capture.display_items {
             let item = match complete {
                 Debug::ClipChain(v, clip_chain_ids) => {
-                    DisplayListBuilder::push_iter_impl(&mut temp, clip_chain_ids);
+                    payload.clip_chain_items.extend(clip_chain_ids);
                     Real::ClipChain(v)
                 }
                 Debug::Text(v, glyphs) => {
-                    DisplayListBuilder::push_iter_impl(&mut temp, glyphs);
+                    payload.glyphs.extend(glyphs);
                     Real::Text(v)
                 }
                 Debug::Iframe(v) => Real::Iframe(v),
                 Debug::PushReferenceFrame(v) => Real::PushReferenceFrame(v),
                 Debug::SetFilterOps(filters) => {
-                    DisplayListBuilder::push_iter_impl(&mut temp, filters);
+                    payload.filters.extend(filters);
                     Real::SetFilterOps
                 }
                 Debug::SetFilterData(filter_data) => {
-                    let func_types: Vec<di::ComponentTransferFuncType> = [
-                        filter_data.func_r_type,
-                        filter_data.func_g_type,
-                        filter_data.func_b_type,
-                        filter_data.func_a_type,
-                    ]
-                    .to_vec();
-                    DisplayListBuilder::push_iter_impl(&mut temp, func_types);
-                    DisplayListBuilder::push_iter_impl(&mut temp, filter_data.r_values);
-                    DisplayListBuilder::push_iter_impl(&mut temp, filter_data.g_values);
-                    DisplayListBuilder::push_iter_impl(&mut temp, filter_data.b_values);
-                    DisplayListBuilder::push_iter_impl(&mut temp, filter_data.a_values);
+                    payload.filter_data.push(filter_data);
                     Real::SetFilterData
                 }
                 Debug::SetFilterPrimitives(filter_primitives) => {
-                    DisplayListBuilder::push_iter_impl(&mut temp, filter_primitives);
+                    payload.filter_primitives.extend(filter_primitives);
                     Real::SetFilterPrimitives
                 }
                 Debug::SetGradientStops(stops) => {
-                    DisplayListBuilder::push_iter_impl(&mut temp, stops);
+                    payload.stops.extend(stops);
                     Real::SetGradientStops
                 }
                 Debug::SetPoints(points) => {
-                    DisplayListBuilder::push_iter_impl(&mut temp, points);
+                    payload.points.extend(points);
                     Real::SetPoints
                 }
                 Debug::RectClip(v) => Real::RectClip(v),
@@ -378,18 +365,16 @@ impl<'de> Deserialize<'de> for DisplayListWithCache {
                 Debug::PopReferenceFrame => Real::PopReferenceFrame,
                 Debug::PopAllShadows => Real::PopAllShadows,
             };
-            // Serialization removed - items not serialized for in-process rendering
-            items_data.extend(temp.drain(..));
+            payload.items.push(item);
         }
+
+        // Add spatial tree items
+        payload.spatial_items = capture.spatial_tree_items;
 
         Ok(DisplayListWithCache {
             display_list: BuiltDisplayList {
                 descriptor: capture.descriptor,
-                payload: DisplayListPayload {
-                    cache_data: Vec::new(),
-                    items_data,
-                    spatial_tree,
-                },
+                payload,
             },
             cache: DisplayItemCache::new(),
         })
@@ -664,42 +649,37 @@ impl BuiltDisplayList {
         while let Some(item) = iterator.next_raw() {
             let serial_di = match *item.item() {
                 Real::ClipChain(v) => {
-                    Debug::ClipChain(v, item.iter.cur_clip_chain_items.iter().collect())
+                    Debug::ClipChain(v, item.iter.cur_clip_chain_items.iter().copied().collect())
                 }
-                Real::Text(v) => Debug::Text(v, item.iter.cur_glyphs.iter().collect()),
-                Real::SetFilterOps => Debug::SetFilterOps(item.iter.cur_filters.iter().collect()),
+                Real::Text(v) => Debug::Text(v, item.iter.cur_glyphs.iter().cloned().collect()),
+                Real::SetFilterOps => Debug::SetFilterOps(item.iter.cur_filters.iter().cloned().collect()),
                 Real::SetFilterData => {
                     debug_assert!(
                         !item.iter.cur_filter_data.is_empty(),
                         "next_raw should have populated cur_filter_data"
                     );
-                    let temp_filter_data =
+                    let filter_data =
                         &item.iter.cur_filter_data[item.iter.cur_filter_data.len() - 1];
 
-                    let func_types: Vec<di::ComponentTransferFuncType> =
-                        temp_filter_data.func_types.iter().collect();
-                    debug_assert!(
-                        func_types.len() == 4,
-                        "someone changed the number of filter funcs without updating this code"
-                    );
+                    // cur_filter_data contains &FilterData, so we clone it directly
                     Debug::SetFilterData(di::FilterData {
-                        func_r_type: func_types[0],
-                        r_values: temp_filter_data.r_values.iter().collect(),
-                        func_g_type: func_types[1],
-                        g_values: temp_filter_data.g_values.iter().collect(),
-                        func_b_type: func_types[2],
-                        b_values: temp_filter_data.b_values.iter().collect(),
-                        func_a_type: func_types[3],
-                        a_values: temp_filter_data.a_values.iter().collect(),
+                        func_r_type: filter_data.func_r_type,
+                        r_values: filter_data.r_values.clone(),
+                        func_g_type: filter_data.func_g_type,
+                        g_values: filter_data.g_values.clone(),
+                        func_b_type: filter_data.func_b_type,
+                        b_values: filter_data.b_values.clone(),
+                        func_a_type: filter_data.func_a_type,
+                        a_values: filter_data.a_values.clone(),
                     })
                 }
                 Real::SetFilterPrimitives => {
-                    Debug::SetFilterPrimitives(item.iter.cur_filter_primitives.iter().collect())
+                    Debug::SetFilterPrimitives(item.iter.cur_filter_primitives.iter().cloned().collect())
                 }
                 Real::SetGradientStops => {
-                    Debug::SetGradientStops(item.iter.cur_stops.iter().collect())
+                    Debug::SetGradientStops(item.iter.cur_stops.iter().cloned().collect())
                 }
-                Real::SetPoints => Debug::SetPoints(item.iter.cur_points.iter().collect()),
+                Real::SetPoints => Debug::SetPoints(item.iter.cur_points.iter().copied().collect()),
                 Real::RectClip(v) => Debug::RectClip(v),
                 Real::RoundedRectClip(v) => Debug::RoundedRectClip(v),
                 Real::ImageMaskClip(v) => Debug::ImageMaskClip(v),

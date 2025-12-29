@@ -30,8 +30,6 @@ use crate::{
 const GLYPH_BATCH_SIZE: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct FontTransform {
     pub scale_x: f32,
     pub skew_x: f32,
@@ -133,14 +131,11 @@ impl<Src, Dst> From<&euclid::Transform3D<f32, Src, Dst>> for FontTransform {
 }
 
 #[derive(Clone, Debug, Ord, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BaseFontInstance {
     pub instance_key: FontInstanceKey,
     pub font_key: FontKey,
     pub size: FontSize,
     pub options: FontInstanceOptions,
-    #[cfg_attr(any(feature = "capture", feature = "replay"), serde(skip))]
     pub platform_options: Option<FontInstancePlatformOptions>,
     pub variations: Vec<FontVariation>,
 }
@@ -194,8 +189,6 @@ impl PartialEq for BaseFontInstance {
 impl Eq for BaseFontInstance {}
 
 #[derive(Clone, Debug, Ord, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct FontInstance {
     pub base: Arc<BaseFontInstance>,
     pub transform: FontTransform,
@@ -318,8 +311,6 @@ impl SubpixelDirection {
 
 #[repr(u8)]
 #[derive(Hash, Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum SubpixelOffset {
     Zero = 0,
     Quarter = 1,
@@ -351,8 +342,6 @@ impl Into<f64> for SubpixelOffset {
 }
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GlyphKey(u32);
 
 impl GlyphKey {
@@ -381,8 +370,6 @@ impl GlyphKey {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum GlyphFormat {
     Alpha,
     Subpixel,            // Note: Not implemented by azul backend, will fall back to Alpha

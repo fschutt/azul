@@ -8,7 +8,9 @@ description = "Public API for WebRender"
 edition = "2018"
 
 [features]
-nightly = ["euclid/unstable", "serde/unstable"]
+# Note: nightly feature removed - serde/unstable causes compilation errors
+# on stable Rust with serde_core 1.0.228+ (never_type feature gate)
+nightly = ["euclid/unstable"]
 serialize = []
 deserialize = []
 display_list_stats = []
@@ -16,10 +18,10 @@ display_list_stats = []
 [dependencies]
 app_units = "0.7.3"
 azul-core = { path = "../../core", version = "0.0.5" }
-bitflags = { version = "2", features = ["serde"] }
+bitflags = { version = "2", default-features = false, features = ["serde"] }
 byteorder = "1.2.1"
-euclid = { version = "0.22.6", features = ["serde"] }
-serde = { version = "1.0", features = ["rc"] }
+euclid = { version = "0.22.6", default-features = false, features = ["serde"] }
+serde = { version = "1.0", default-features = false, features = ["rc", "derive", "alloc"] }
 serde_derive = "1.0"
 serde_bytes = "0.11"
 time = "0.3"

@@ -17,10 +17,7 @@ default = []
 dynamic_freetype = []
 static_freetype = []
 
-# --- Core Features ---
-# Enable serialization/deserialization for capturing and replaying render commands.
-capture = ["api/serialize"]
-replay = ["api/deserialize"]
+# capture/replay features removed - not needed for pure-Rust implementation
 
 [dependencies]
 # ===== Original WebRender Dependencies (Pure Rust) =====
