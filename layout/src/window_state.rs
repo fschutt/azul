@@ -74,6 +74,9 @@ impl_vec_mut!(WindowCreateOptions, WindowCreateOptionsVec);
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct FullWindowState {
+    /// Semantic window identifier for multi-window debugging
+    /// Can be set by the user to identify specific windows (e.g., "main", "settings", "popup-1")
+    pub window_id: AzString,
     pub theme: WindowTheme,
     pub title: AzString,
     pub size: WindowSize,
@@ -104,6 +107,7 @@ impl_option!(
 impl Default for FullWindowState {
     fn default() -> Self {
         Self {
+            window_id: AzString::from_const_str("azul-window"),
             theme: WindowTheme::default(),
             title: AzString::from_const_str("Azul Window"),
             size: WindowSize::default(),

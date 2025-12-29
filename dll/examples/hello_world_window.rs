@@ -29,22 +29,80 @@ mod static_impl {
         pub counter: u32,
     }
 
-    pub extern "C" fn my_layout_func(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
+    pub extern "C" fn my_layout_func(mut data: RefAny, info: LayoutCallbackInfo) -> StyledDom {
+        eprintln!("================================================================================");
         eprintln!("[my_layout_func] Called!");
+        eprintln!("[my_layout_func] Window size: {}x{} (logical)", 
+            info.window_size.dimensions.width,
+            info.window_size.dimensions.height);
+        eprintln!("[my_layout_func] DPI: {}, HiDPI factor: {}", 
+            info.window_size.dpi,
+            info.window_size.get_hidpi_factor().inner.get());
+        
         if let Some(model) = data.downcast_ref::<MyDataModel>() {
             eprintln!("[my_layout_func] counter = {}", model.counter);
         }
 
-        // Create a simple red rectangle
-        let mut dom =
-            Dom::create_div().with_inline_style("width: 200px; height: 200px; background-color: red;");
+        // Create a full-width container with border to see resize in action
+        let container_style = "
+            width: 100%;
+            height: 100%;
+            background-color: #f0f0f0;
+            border: 4px solid #333333;
+            box-sizing: border-box;
+            flex-direction: column;
+            padding: 20px;
+        ";
+        
+        // Create a label with large text to test font rendering
+        let label_style = "
+            font-size: 32px;
+            color: #000000;
+            margin-bottom: 20px;
+        ";
+        
+        // Create a colored box that shows dimensions
+        let box_style = "
+            width: 100%;
+            height: 100px;
+            background-color: #ff6b6b;
+            border: 2px solid #cc0000;
+            margin-bottom: 10px;
+        ";
+        
+        // Small info text
+        let info_style = "
+            font-size: 16px;
+            color: #666666;
+        ";
 
-        eprintln!("[my_layout_func] Created DOM with red rectangle");
-        let styled = dom.style(Css::empty());
+        let mut container = Dom::create_div().with_inline_style(container_style);
+        
+        // Add title text
+        let title_text = format!("Azul HiDPI Test - {}x{}", 
+            info.window_size.dimensions.width as i32,
+            info.window_size.dimensions.height as i32);
+        let title = Dom::create_text(title_text).with_inline_style(label_style);
+        container.add_child(title);
+        
+        // Add the red test box
+        let test_box = Dom::create_div().with_inline_style(box_style);
+        container.add_child(test_box);
+        
+        // Add info text
+        let info_text = format!("DPI: {} | Scale: {}x | Resize the window to test!", 
+            info.window_size.dpi,
+            info.window_size.get_hidpi_factor().inner.get());
+        let info_label = Dom::create_text(info_text).with_inline_style(info_style);
+        container.add_child(info_label);
+
+        eprintln!("[my_layout_func] Created DOM with {} children", 3);
+        let styled = container.style(Css::empty());
         eprintln!(
             "[my_layout_func] StyledDom has {} nodes",
             styled.styled_nodes.len()
         );
+        eprintln!("================================================================================");
         styled
     }
 

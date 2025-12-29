@@ -315,6 +315,9 @@ impl Win32Window {
             RendererType::Software
         };
 
+        // Extract create_callback before cloning (will be invoked after window is ready)
+        let create_callback = options.create_callback.clone();
+
         // Create initial window state
         let initial_window_state = options.window_state.clone();
 
@@ -341,6 +344,7 @@ impl Win32Window {
             layout_callback: initial_window_state.layout_callback,
             close_callback: initial_window_state.close_callback.clone(),
             monitor_id: OptionU32::None, // Monitor ID will be detected from platform
+            window_id: initial_window_state.window_id.clone(),
             window_focused: true,
         };
 
@@ -441,6 +445,69 @@ impl Win32Window {
             result.accessibility_adapter.initialize(hwnd).map_err(|e| {
                 WindowError::PlatformError(format!("Accessibility init failed: {}", e))
             })?;
+        }
+
+        // Invoke create_callback if provided (for GL resource upload, config loading, etc.)
+        // This runs AFTER GL context is ready but BEFORE any layout is done
+        if let Some(mut callback) = create_callback.into_option() {
+            use azul_core::window::RawWindowHandle;
+            
+            let raw_handle = RawWindowHandle::Windows(azul_core::window::WindowsHandle {
+                hwnd: hwnd as *mut _,
+                hinstance: hinstance as *mut _,
+            });
+            
+            // Get mutable references needed for invoke_single_callback
+            let layout_window = result.layout_window.as_mut()
+                .expect("LayoutWindow should exist at this point");
+            let mut fc_cache_clone = (*result.fc_cache).clone();
+            
+            // Get app_data for callback
+            let mut app_data_ref = result.app_data.borrow_mut();
+            
+            let callback_result = layout_window.invoke_single_callback(
+                &mut callback,
+                &mut *app_data_ref,
+                &raw_handle,
+                &result.gl_context_ptr,
+                &mut result.image_cache,
+                &mut fc_cache_clone,
+                result.system_style.clone(),
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &result.previous_window_state,
+                &result.current_window_state,
+                &result.renderer_resources,
+            );
+            
+            // Process callback result (timers, threads, etc.)
+            drop(app_data_ref); // Release borrow before process_callback_result_v2
+            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            let _ = result.process_callback_result_v2(&callback_result);
+        }
+
+        // Register debug timer if AZUL_DEBUG is enabled
+        #[cfg(feature = "std")]
+        if crate::desktop::shell2::common::debug_server::is_debug_enabled() {
+            use azul_core::task::TimerId;
+            use azul_layout::callbacks::ExternalSystemCallbacks;
+            
+            let timer_id: usize = 0xDEBE; // Special debug timer ID
+            let debug_timer = crate::desktop::shell2::common::debug_server::create_debug_timer(
+                ExternalSystemCallbacks::rust_internal().get_system_time_fn
+            );
+            
+            // Insert into layout_window
+            if let Some(layout_window) = result.layout_window.as_mut() {
+                layout_window.timers.insert(TimerId { id: timer_id }, debug_timer.clone());
+            }
+            
+            // Also create native Win32 timer
+            let interval_ms = debug_timer.tick_millis().min(u32::MAX as u64) as u32;
+            let native_timer_id = unsafe { 
+                (result.win32.user32.SetTimer)(result.hwnd, timer_id, interval_ms, ptr::null()) 
+            };
+            result.timers.insert(timer_id, native_timer_id);
+            eprintln!("[Window Init] Debug timer registered with ID 0x{:X}, interval {}ms", timer_id, interval_ms);
         }
 
         Ok(result)
@@ -2053,19 +2120,33 @@ unsafe extern "system" fn window_proc(
                     }
                 }
             } else {
-                // User timer from LayoutWindow - tick timers and mark for callback processing
-                if let Some(ref mut layout_window) = window.layout_window {
-                    let system_callbacks =
-                        azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-                    let current_time = (system_callbacks.get_system_time_fn.cb)();
-
-                    let expired_timers = layout_window.tick_timers(current_time);
-
-                    // Timer callbacks will be invoked during regenerate_layout
-                    if !expired_timers.is_empty() {
-                        window.frame_needs_regeneration = true;
-                        (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
+                // User timer from LayoutWindow - invoke expired timer callbacks
+                use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+                use azul_core::callbacks::Update;
+                
+                let timer_results = window.invoke_expired_timers();
+                
+                // Process each callback result to handle window state modifications
+                let mut needs_redraw = false;
+                for result in &timer_results {
+                    // Apply window state changes from callback result
+                    if result.modified_window_state.is_some() {
+                        // Save previous state BEFORE applying changes (for sync_window_state diff)
+                        window.previous_window_state = Some(window.current_window_state.clone());
+                        let _ = window.process_callback_result_v2(result);
+                        // Synchronize window state with OS immediately after change
+                        window.sync_window_state();
                     }
+                    // Check if redraw needed
+                    if matches!(result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                        needs_redraw = true;
+                    }
+                }
+                
+                if needs_redraw {
+                    eprintln!("[WM_TIMER] Invoked {} timer callbacks", timer_results.len());
+                    window.frame_needs_regeneration = true;
+                    (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                 }
             }
 

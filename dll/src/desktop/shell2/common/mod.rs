@@ -10,6 +10,7 @@ pub mod window;
 pub mod callback_processing;
 pub mod event_v2;
 pub mod layout_v2;
+pub mod debug_server;
 
 // Re-exports for convenience
 pub use compositor::{

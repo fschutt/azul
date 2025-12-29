@@ -609,6 +609,9 @@ impl DisplayListBuilder {
         color: ColorU,
         clip_rect: LogicalRect,
     ) {
+        eprintln!("[DEBUG push_text_run] {} glyphs, font_size={}px, color=({},{},{},{}), clip={:?}",
+            glyphs.len(), font_size_px, color.r, color.g, color.b, color.a, clip_rect);
+        
         if !glyphs.is_empty() && color.a > 0 {
             self.push_item(DisplayListItem::Text {
                 glyphs,
@@ -617,6 +620,9 @@ impl DisplayListBuilder {
                 color,
                 clip_rect,
             });
+        } else {
+            eprintln!("[DEBUG push_text_run] SKIPPED: glyphs.is_empty()={}, color.a={}",
+                glyphs.is_empty(), color.a);
         }
     }
 
@@ -686,6 +692,9 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     id_namespace: IdNamespace,
     dom_id: DomId,
 ) -> Result<DisplayList> {
+    eprintln!("[DEBUG DisplayList] generate_display_list: tree has {} nodes, {} positions calculated",
+        tree.nodes.len(), calculated_positions.len());
+    
     debug_info!(ctx, "Starting display list generation");
     debug_info!(
         ctx,
@@ -720,6 +729,7 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     generator.generate_for_stacking_context(&mut builder, &stacking_context_tree)?;
 
     let display_list = builder.build();
+    eprintln!("[DEBUG DisplayList] Generated {} display items", display_list.items.len());
     debug_info!(
         generator.ctx,
         "Generated display list with {} items",
@@ -1596,8 +1606,19 @@ where
         builder.set_current_node(node.dom_node_id);
 
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
+            eprintln!("[DEBUG paint_node] node {} has no paint_rect, skipping", node_index);
             return Ok(());
         };
+        
+        // Debug: Log node painting
+        if let Some(dom_id) = node.dom_node_id {
+            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+            eprintln!("[DEBUG paint_node] node {} ({:?}) paint_rect={:?}, has_inline_layout={}",
+                node_index, 
+                node_data.get_node_type(),
+                paint_rect,
+                node.inline_layout_result.is_some());
+        }
 
         // Add a hit-test area for this node if it's interactive.
         if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
@@ -1607,6 +1628,9 @@ where
         // Paint the node's visible content.
         if let Some(cached_layout) = &node.inline_layout_result {
             let inline_layout = &cached_layout.layout;
+            eprintln!("[DEBUG paint_node] node {} has inline_layout with {} items",
+                node_index, inline_layout.items.len());
+            
             if let Some(dom_id) = node.dom_node_id {
                 let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
                 debug_info!(

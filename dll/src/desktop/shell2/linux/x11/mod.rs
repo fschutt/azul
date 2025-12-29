@@ -109,6 +109,11 @@ pub struct X11Window {
     pub last_hovered_node: Option<event_v2::HitTestNode>,
     pub frame_needs_regeneration: bool,
 
+    // Native timer support via timerfd (Linux-specific)
+    // Maps TimerId -> (timerfd file descriptor)
+    // When timerfd becomes readable, the timer has fired
+    pub timer_fds: std::collections::BTreeMap<usize, i32>,
+
     // Multi-window support
     /// Pending window creation requests (for popup menus, dialogs, etc.)
     /// Processed in Phase 3 of the event loop
@@ -371,6 +376,9 @@ impl X11Window {
         options: WindowCreateOptions,
         resources: Arc<super::AppResources>,
     ) -> Result<Self, WindowError> {
+        // Extract create_callback before consuming options
+        let create_callback = options.create_callback.clone();
+        
         let xlib = Xlib::new()
             .map_err(|e| WindowError::PlatformError(format!("Failed to load libX11: {:?}", e)))?;
         let egl = Egl::new()
@@ -568,6 +576,7 @@ impl X11Window {
                 layout_callback: options.window_state.layout_callback,
                 close_callback: options.window_state.close_callback.clone(),
                 monitor_id: OptionU32::None, // Monitor ID will be detected from platform
+                window_id: options.window_state.window_id.clone(),
                 window_focused: true,
             },
             previous_window_state: None,
@@ -583,6 +592,7 @@ impl X11Window {
             scrollbar_drag_state: None,
             last_hovered_node: None,
             frame_needs_regeneration: false,
+            timer_fds: std::collections::BTreeMap::new(),
             pending_window_creates: Vec::new(),
             gnome_menu_v2: None, // New dlopen-based implementation
             resources,
@@ -659,6 +669,95 @@ impl X11Window {
         // Register window in global registry for multi-window support
         unsafe {
             super::registry::register_x11_window(window.window, &mut window as *mut _);
+        }
+
+        // Invoke create_callback if provided (for GL resource upload, config loading, etc.)
+        // This runs AFTER GL context is ready but BEFORE any layout is done
+        if let Some(mut callback) = create_callback.into_option() {
+            use azul_core::window::RawWindowHandle;
+            
+            let raw_handle = RawWindowHandle::Xlib(azul_core::window::XlibHandle {
+                window: window.window as u64,
+                display: window.display as *mut _,
+            });
+            
+            // Initialize LayoutWindow if not already done
+            if window.layout_window.is_none() {
+                let mut layout_window = azul_layout::window::LayoutWindow::new(
+                    (*window.resources.fc_cache).clone()
+                ).map_err(|e| {
+                    WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
+                })?;
+                
+                if let Some(doc_id) = window.document_id {
+                    layout_window.document_id = doc_id;
+                }
+                if let Some(ns_id) = window.id_namespace {
+                    layout_window.id_namespace = ns_id;
+                }
+                layout_window.current_window_state = window.current_window_state.clone();
+                layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
+                window.layout_window = Some(layout_window);
+            }
+            
+            // Get mutable references needed for invoke_single_callback
+            let layout_window = window.layout_window.as_mut()
+                .expect("LayoutWindow should exist at this point");
+            let mut fc_cache_clone = (*window.resources.fc_cache).clone();
+            
+            // Get app_data for callback
+            let mut app_data_ref = window.resources.app_data.borrow_mut();
+            
+            let callback_result = layout_window.invoke_single_callback(
+                &mut callback,
+                &mut *app_data_ref,
+                &raw_handle,
+                &window.gl_context_ptr,
+                &mut window.image_cache,
+                &mut fc_cache_clone,
+                window.resources.system_style.clone(),
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &window.previous_window_state,
+                &window.current_window_state,
+                &window.renderer_resources,
+            );
+            
+            // Process callback result (timers, threads, etc.)
+            drop(app_data_ref); // Release borrow before process_callback_result_v2
+            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            let _ = window.process_callback_result_v2(&callback_result);
+        }
+
+        // Register debug timer if AZUL_DEBUG is enabled
+        #[cfg(feature = "std")]
+        if crate::desktop::shell2::common::debug_server::is_debug_enabled() {
+            // Initialize LayoutWindow if not already done
+            if window.layout_window.is_none() {
+                if let Ok(mut layout_window) = azul_layout::window::LayoutWindow::new(
+                    (*window.resources.fc_cache).clone()
+                ) {
+                    if let Some(doc_id) = window.document_id {
+                        layout_window.document_id = doc_id;
+                    }
+                    if let Some(ns_id) = window.id_namespace {
+                        layout_window.id_namespace = ns_id;
+                    }
+                    layout_window.current_window_state = window.current_window_state.clone();
+                    layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
+                    window.layout_window = Some(layout_window);
+                }
+            }
+            
+            if let Some(layout_window) = window.layout_window.as_mut() {
+                use azul_core::task::TimerId;
+                use azul_layout::callbacks::ExternalSystemCallbacks;
+                
+                let timer_id = TimerId { id: 0xDEBE }; // Special debug timer ID
+                let debug_timer = crate::desktop::shell2::common::debug_server::create_debug_timer(
+                    ExternalSystemCallbacks::rust_internal().get_system_time_fn
+                );
+                layout_window.timers.insert(timer_id, debug_timer);
+            }
         }
 
         Ok(window)
@@ -824,10 +923,106 @@ impl X11Window {
     }
 
     pub fn wait_for_events(&mut self) -> Result<(), WindowError> {
-        unsafe { (self.xlib.XFlush)(self.display) };
-        let mut event: XEvent = unsafe { std::mem::zeroed() };
-        unsafe { (self.xlib.XNextEvent)(self.display, &mut event) };
-        self.handle_event(&mut event);
+        use std::mem;
+        use super::super::common::event_v2::PlatformWindowV2;
+        
+        let connection_fd = unsafe { (self.xlib.XConnectionNumber)(self.display) };
+        
+        unsafe {
+            // Flush pending requests first
+            (self.xlib.XFlush)(self.display);
+            
+            // Check if there are already pending events
+            if (self.xlib.XPending)(self.display) > 0 {
+                let mut event: XEvent = mem::zeroed();
+                (self.xlib.XNextEvent)(self.display, &mut event);
+                self.handle_event(&mut event);
+                return Ok(());
+            }
+            
+            // Build pollfd array: X11 connection + all timer fds
+            let mut pollfds: Vec<libc::pollfd> = Vec::with_capacity(1 + self.timer_fds.len());
+            
+            // Add X11 connection fd
+            pollfds.push(libc::pollfd {
+                fd: connection_fd,
+                events: libc::POLLIN,
+                revents: 0,
+            });
+            
+            // Add all timerfd's
+            let timer_ids: Vec<usize> = self.timer_fds.keys().copied().collect();
+            for &timer_id in &timer_ids {
+                if let Some(&fd) = self.timer_fds.get(&timer_id) {
+                    pollfds.push(libc::pollfd {
+                        fd,
+                        events: libc::POLLIN,
+                        revents: 0,
+                    });
+                }
+            }
+            
+            // If no timers, use -1 (block indefinitely), otherwise block until something fires
+            let timeout_ms = if self.timer_fds.is_empty() { -1 } else { -1 };
+            
+            let result = libc::poll(pollfds.as_mut_ptr(), pollfds.len() as libc::nfds_t, timeout_ms);
+            
+            if result > 0 {
+                // Check X11 connection
+                if pollfds[0].revents & libc::POLLIN != 0 {
+                    if (self.xlib.XPending)(self.display) > 0 {
+                        let mut event: XEvent = mem::zeroed();
+                        (self.xlib.XNextEvent)(self.display, &mut event);
+                        self.handle_event(&mut event);
+                    }
+                }
+                
+                // Check timerfd's - if any fired, invoke timer callbacks
+                let mut any_timer_fired = false;
+                for (i, &timer_id) in timer_ids.iter().enumerate() {
+                    let pollfd_idx = i + 1; // +1 because X11 fd is at index 0
+                    if pollfd_idx < pollfds.len() && pollfds[pollfd_idx].revents & libc::POLLIN != 0 {
+                        // Read from timerfd to acknowledge the timer
+                        if let Some(&fd) = self.timer_fds.get(&timer_id) {
+                            let mut expirations: u64 = 0;
+                            libc::read(fd, &mut expirations as *mut u64 as *mut libc::c_void, 8);
+                            any_timer_fired = true;
+                        }
+                    }
+                }
+                
+                // Invoke all expired timer callbacks
+                if any_timer_fired {
+                    use azul_core::callbacks::Update;
+                    
+                    let timer_results = self.invoke_expired_timers();
+                    
+                    // Process each callback result to handle window state modifications
+                    let mut needs_redraw = false;
+                    for result in &timer_results {
+                        // Apply window state changes from callback result
+                        if result.modified_window_state.is_some() {
+                            // Save previous state BEFORE applying changes (for sync_window_state diff)
+                            self.previous_window_state = Some(self.current_window_state.clone());
+                            let _ = self.process_callback_result_v2(result);
+                            // Synchronize window state with OS immediately after change
+                            self.sync_window_state();
+                        }
+                        // Check if redraw needed
+                        if matches!(result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                            needs_redraw = true;
+                        }
+                    }
+                    
+                    if needs_redraw {
+                        self.frame_needs_regeneration = true;
+                    }
+                }
+            }
+            // result == 0: timeout (shouldn't happen with -1)
+            // result < 0: error or EINTR - ignore and continue
+        }
+        
         Ok(())
     }
 
@@ -1362,26 +1557,58 @@ impl PlatformWindowV2 for X11Window {
         }
     }
 
-    // Timer Management (X11 Implementation - Stored in LayoutWindow)
+    // Timer Management (X11 Implementation - uses timerfd for native OS timer support)
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
-        // X11 has no native timer API, so we just store timers in layout_window
-        // They will be ticked manually in the event loop
+        // Get interval in milliseconds
+        let interval_ms = timer.tick_millis();
+        
+        // Store timer in layout_window for callback invocation
         if let Some(layout_window) = self.layout_window.as_mut() {
             layout_window
                 .timers
                 .insert(azul_core::task::TimerId { id: timer_id }, timer);
         }
 
-        // Mark for regeneration so the event loop checks timers
-        self.frame_needs_regeneration = true;
+        // Create timerfd for native timer support
+        // This allows the timer to fire even without window events
+        unsafe {
+            let fd = libc::timerfd_create(libc::CLOCK_MONOTONIC, libc::TFD_NONBLOCK | libc::TFD_CLOEXEC);
+            if fd >= 0 {
+                // Convert milliseconds to timespec
+                let secs = (interval_ms / 1000) as i64;
+                let nsecs = ((interval_ms % 1000) * 1_000_000) as i64;
+                
+                let spec = libc::itimerspec {
+                    it_interval: libc::timespec { tv_sec: secs, tv_nsec: nsecs },
+                    it_value: libc::timespec { tv_sec: secs, tv_nsec: nsecs },
+                };
+                
+                if libc::timerfd_settime(fd, 0, &spec, std::ptr::null_mut()) == 0 {
+                    self.timer_fds.insert(timer_id, fd);
+                    eprintln!("[X11] Created timerfd {} for timer {} (interval {}ms)", fd, timer_id, interval_ms);
+                } else {
+                    libc::close(fd);
+                    eprintln!("[X11] Failed to set timerfd interval");
+                }
+            } else {
+                eprintln!("[X11] Failed to create timerfd: errno={}", *libc::__errno_location());
+            }
+        }
     }
 
     fn stop_timer(&mut self, timer_id: usize) {
+        // Remove from layout_window
         if let Some(layout_window) = self.layout_window.as_mut() {
             layout_window
                 .timers
                 .remove(&azul_core::task::TimerId { id: timer_id });
+        }
+        
+        // Close timerfd
+        if let Some(fd) = self.timer_fds.remove(&timer_id) {
+            unsafe { libc::close(fd); }
+            eprintln!("[X11] Closed timerfd {} for timer {}", fd, timer_id);
         }
     }
 
@@ -1545,6 +1772,11 @@ impl X11Window {
 
 impl Drop for X11Window {
     fn drop(&mut self) {
+        // Close all timerfd's
+        for (_timer_id, fd) in std::mem::take(&mut self.timer_fds) {
+            unsafe { libc::close(fd); }
+        }
+        
         // Unregister from global registry before closing
         super::registry::unregister_x11_window(self.window);
         self.close();
@@ -1615,17 +1847,17 @@ impl X11Window {
     /// Check timers and threads, trigger callbacks if needed
     /// This is called on every poll_event() to simulate timer ticks
     fn check_timers_and_threads(&mut self) {
+        use super::super::common::event_v2::PlatformWindowV2;
+        
+        // Invoke expired timer callbacks
+        let timer_results = self.invoke_expired_timers();
+        if !timer_results.is_empty() {
+            eprintln!("[X11] Invoked {} timer callbacks", timer_results.len());
+            self.frame_needs_regeneration = true;
+        }
+
+        // Check if we have active threads (they need periodic checking)
         if let Some(layout_window) = self.layout_window.as_mut() {
-            let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-            let current_time = (system_callbacks.get_system_time_fn.cb)();
-
-            // Check if any timers expired
-            let expired_timers = layout_window.tick_timers(current_time);
-            if !expired_timers.is_empty() {
-                self.frame_needs_regeneration = true;
-            }
-
-            // Check if we have active threads (they need periodic checking)
             if !layout_window.threads.is_empty() {
                 self.frame_needs_regeneration = true;
             }

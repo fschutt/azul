@@ -15,6 +15,8 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
+use crate::desktop::shell2::common::debug_server::{self, DebugServerHandle};
+
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct App {
@@ -51,24 +53,27 @@ impl App {
     }
 
     pub fn run(&self, root_window: WindowCreateOptions) {
-        eprintln!("[App::run] Starting...");
-        eprintln!("[App::run] Cloning data...");
+        debug_server::log(
+            debug_server::LogLevel::Info,
+            debug_server::LogCategory::EventLoop,
+            "Starting App::run",
+            None,
+        );
         let data = self.ptr.data.clone();
-        eprintln!("[App::run] Data cloned successfully");
-        eprintln!("[App::run] Cloning config...");
         let config = self.ptr.config.clone();
-        eprintln!("[App::run] Config cloned successfully");
-        eprintln!("[App::run] Cloning fc_cache...");
         let fc_cache = (*self.ptr.fc_cache).clone();
-        eprintln!("[App::run] fc_cache cloned successfully");
-        eprintln!("[App::run] Calling shell2::run...");
 
         // Use shell2 for the actual run loop
         let err = crate::desktop::shell2::run(data, config, fc_cache, root_window);
 
         if let Err(e) = err {
             crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
-            eprintln!("Application error: {:?}", e);
+            debug_server::log(
+                debug_server::LogLevel::Error,
+                debug_server::LogCategory::EventLoop,
+                format!("Application error: {:?}", e),
+                None,
+            );
         }
     }
 }
@@ -86,6 +91,9 @@ pub struct AppInternal {
     pub windows: WindowCreateOptionsVec,
     /// Font configuration cache (shared across all windows)
     pub fc_cache: Box<Arc<FcFontCache>>,
+    /// Debug server handle (if AZUL_DEBUG is set)
+    #[allow(dead_code)]
+    pub debug_server: Option<Arc<DebugServerHandle>>,
 }
 
 impl AppInternal {
@@ -95,27 +103,51 @@ impl AppInternal {
     /// This does not open any windows, but it starts the event loop
     /// to the display server
     pub fn create(initial_data: RefAny, app_config: AppConfig) -> Self {
-        eprintln!("[AppInternal::new] Starting App creation");
-        eprintln!(
-            "[AppInternal::new] initial_data._internal_ptr: {:?}",
-            initial_data._internal_ptr
+        // Start debug server first if AZUL_DEBUG is set (blocks until ready)
+        let debug_server = if let Some(port) = debug_server::get_debug_port() {
+            eprintln!("[AppInternal::create] AZUL_DEBUG={}, starting debug server...", port);
+            // This will exit the process if port is already taken
+            let handle = debug_server::start_debug_server(port);
+            eprintln!("[AppInternal::create] Debug server started on port {}", port);
+            Some(Arc::new(handle))
+        } else {
+            eprintln!("[AppInternal::create] AZUL_DEBUG not set, skipping debug server");
+            None
+        };
+
+        debug_server::log(
+            debug_server::LogLevel::Info,
+            debug_server::LogCategory::General,
+            "Starting App creation",
+            None,
         );
-        eprintln!(
-            "[AppInternal::new] initial_data.sharing_info.ptr: {:?}",
-            initial_data.sharing_info.ptr
+
+        debug_server::log(
+            debug_server::LogLevel::Debug,
+            debug_server::LogCategory::General,
+            format!("initial_data._internal_ptr: {:?}", initial_data._internal_ptr),
+            None,
         );
 
         #[cfg(not(miri))]
         let fc_cache = {
-            eprintln!("[App::new] Building FcFontCache...");
+            debug_server::log(
+                debug_server::LogLevel::Info,
+                debug_server::LogCategory::Resources,
+                "Building FcFontCache...",
+                None,
+            );
             let cache = Arc::new(FcFontCache::build());
-            eprintln!("[App::new] FcFontCache built successfully");
+            debug_server::log(
+                debug_server::LogLevel::Info,
+                debug_server::LogCategory::Resources,
+                "FcFontCache built successfully",
+                None,
+            );
             cache
         };
         #[cfg(miri)]
         let fc_cache = Arc::new(FcFontCache::default());
-
-        eprintln!("[App::new] Setting up logging...");
 
         #[cfg(all(
             feature = "logging",
@@ -138,13 +170,19 @@ impl AppInternal {
             }
         }
 
-        eprintln!("[App::new] App created successfully");
+        debug_server::log(
+            debug_server::LogLevel::Info,
+            debug_server::LogCategory::General,
+            "App created successfully",
+            None,
+        );
 
         Self {
             windows: WindowCreateOptionsVec::from_const_slice(&[]),
             data: initial_data,
             config: app_config,
             fc_cache: Box::new(fc_cache),
+            debug_server,
         }
     }
 

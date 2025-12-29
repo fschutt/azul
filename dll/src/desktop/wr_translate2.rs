@@ -1052,13 +1052,20 @@ fn translate_add_font(add_font: azul_core::resources::AddFont) -> Option<webrend
 /// Translate AddFontInstance from azul-core to WebRender  
 fn translate_add_font_instance(add_instance: AddFontInstance) -> Option<WrAddFontInstance> {
     // Convert Au to f32 pixels: Au units are 1/60th of a pixel
-    // glyph_size is (Au, DpiScaleFactor)
+    // glyph_size is (Au, DpiScaleFactor) 
     let font_size_au = add_instance.glyph_size.0;
+    let _dpi_factor = add_instance.glyph_size.1.inner.get();
+    
+    // Convert Au to logical pixels (1 Au = 1/60 px)
+    // NOTE: We do NOT multiply by DPI factor here!
+    // WebRender internally handles the device_pixel_scale when rasterizing glyphs.
+    // See webrender/core/src/prim_store/text_run.rs:update_font_instance()
+    // which calculates: device_font_size = font_size * dps * raster_scale
     let glyph_size_px = (font_size_au.0 as f32) / 60.0;
 
     eprintln!(
-        "[translate_add_font_instance] Converting Au({}) to {}px",
-        font_size_au.0, glyph_size_px
+        "[translate_add_font_instance] Converting Au({}) to {}px (logical), dpi={}",
+        font_size_au.0, glyph_size_px, _dpi_factor
     );
 
     Some(WrAddFontInstance {

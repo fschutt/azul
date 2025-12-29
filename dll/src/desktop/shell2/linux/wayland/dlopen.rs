@@ -40,6 +40,7 @@ pub struct Wayland {
         unsafe extern "C" fn(display: *mut wl_display) -> *mut wl_event_queue,
     pub wl_event_queue_destroy: unsafe extern "C" fn(queue: *mut wl_event_queue),
     pub wl_display_flush: unsafe extern "C" fn(display: *mut wl_display) -> i32,
+    pub wl_display_get_fd: unsafe extern "C" fn(display: *mut wl_display) -> i32,
 
     pub wl_proxy_marshal_constructor:
         unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, ...) -> *mut wl_proxy,
@@ -218,6 +219,7 @@ impl Wayland {
             ),
             wl_event_queue_destroy: load_symbol!(lib_client, _, "wl_event_queue_destroy"),
             wl_display_flush: load_symbol!(lib_client, _, "wl_display_flush"),
+            wl_display_get_fd: load_symbol!(lib_client, _, "wl_display_get_fd"),
 
             wl_proxy_marshal_constructor,
             wl_proxy_add_listener: load_symbol!(lib_client, _, "wl_proxy_add_listener"),

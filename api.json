@@ -1899,6 +1899,10 @@
             ],
             "struct_fields": [
               {
+                "window_id": {
+                  "type": "String",
+                  "doc": "Semantic window identifier for multi-window debugging. Can be set to identify specific windows (e.g., 'main', 'settings', 'popup-1')"
+                },
                 "theme": {
                   "type": "WindowTheme"
                 },

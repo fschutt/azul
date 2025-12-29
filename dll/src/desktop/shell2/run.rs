@@ -44,21 +44,32 @@ pub fn run(
     use azul_core::resources::AppTerminationBehavior;
     use objc2::{rc::autoreleasepool, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventMask};
+    use super::common::debug_server;
 
-    eprintln!("[shell2::run] Starting macOS event loop setup");
+    // Note: Debug server is already started in App::create()
+    
+    debug_server::log(
+        debug_server::LogLevel::Info,
+        debug_server::LogCategory::EventLoop,
+        "Starting macOS event loop setup",
+        None,
+    );
 
     autoreleasepool(|_| {
         let mtm = MainThreadMarker::new()
             .ok_or_else(|| WindowError::PlatformError("Not on main thread".into()))?;
 
-        eprintln!("[shell2::run] Got MainThreadMarker");
+        debug_server::log(debug_server::LogLevel::Debug, debug_server::LogCategory::EventLoop,
+            "Got MainThreadMarker", None);
 
         // Create the root window with fc_cache and app_data
         // The window is automatically made visible after the first frame is ready
-        eprintln!("[shell2::run] Creating MacOSWindow...");
+        debug_server::log(debug_server::LogLevel::Info, debug_server::LogCategory::Window,
+            "Creating MacOSWindow...", None);
         let window =
             MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), fc_cache.clone(), mtm)?;
-        eprintln!("[shell2::run] MacOSWindow created successfully");
+        debug_server::log(debug_server::LogLevel::Info, debug_server::LogCategory::Window,
+            "MacOSWindow created successfully", None);
 
         // Box and leak the window to get a stable pointer for the registry
         // SAFETY: We manage the lifetime through the registry
@@ -96,10 +107,8 @@ pub fn run(
             AppTerminationBehavior::RunForever => {
                 // Standard macOS behavior: Use NSApplication.run()
                 // This blocks until the app is explicitly terminated (Cmd+Q or quit menu)
-                eprintln!(
-                    "[macOS Event Loop] Using NSApplication.run() - app will stay in dock when \
-                     windows close"
-                );
+                debug_server::log(debug_server::LogLevel::Info, debug_server::LogCategory::EventLoop,
+                    "Using NSApplication.run() - app will stay in dock when windows close", None);
                 unsafe {
                     app.run();
                 }
@@ -109,21 +118,18 @@ pub fn run(
                 // Checks if all windows are closed and takes appropriate action
                 let action = if config.termination_behavior == AppTerminationBehavior::ReturnToMain
                 {
-                    eprintln!(
-                        "[macOS Event Loop] Using manual event loop - will return to main() when \
-                         all windows close"
-                    );
+                    debug_server::log(debug_server::LogLevel::Info, debug_server::LogCategory::EventLoop,
+                        "Using manual event loop - will return to main() when all windows close", None);
                     "return to main()"
                 } else {
-                    eprintln!(
-                        "[macOS Event Loop] Using manual event loop - will exit process when all \
-                         windows close"
-                    );
+                    debug_server::log(debug_server::LogLevel::Info, debug_server::LogCategory::EventLoop,
+                        "Using manual event loop - will exit process when all windows close", None);
                     "exit process"
                 };
 
                 loop {
                     autoreleasepool(|_| {
+
                         // PHASE 1: Process all pending native events (non-blocking)
                         loop {
                             let event = unsafe {
@@ -727,9 +733,10 @@ pub fn run(
     Ok(())
 }
 
-/// Wait for activity on the X11 connection using select()
+/// Wait for activity on the X11 connection using select() with timeout
 ///
 /// This is more efficient than sleeping as it wakes immediately when events arrive.
+/// Uses a 16ms timeout to ensure timers fire even without window events.
 #[cfg(target_os = "linux")]
 fn wait_for_x11_connection_activity(display: *mut std::ffi::c_void) -> Result<(), WindowError> {
     use std::mem;
@@ -749,20 +756,32 @@ fn wait_for_x11_connection_activity(display: *mut std::ffi::c_void) -> Result<()
         libc::FD_ZERO(&mut read_fds);
         libc::FD_SET(connection_fd, &mut read_fds);
 
-        // Wait indefinitely for events (no timeout)
+        // Use 16ms timeout to ensure timers fire even without window events
+        // This allows ~60 timer checks per second while still being efficient
+        let mut timeout = libc::timeval {
+            tv_sec: 0,
+            tv_usec: 16_000, // 16ms = 16000 microseconds
+        };
+
         let result = libc::select(
             connection_fd + 1,
             &mut read_fds,
             std::ptr::null_mut(), // No write fds
             std::ptr::null_mut(), // No error fds
-            std::ptr::null_mut(), // No timeout - block indefinitely
+            &mut timeout,         // 16ms timeout for timer polling
         );
 
         if result < 0 {
-            return Err(WindowError::PlatformError(
-                "select() failed while waiting for X11 events".into(),
-            ));
+            let errno = *libc::__errno_location();
+            // EINTR is okay - just means a signal interrupted us
+            if errno != libc::EINTR {
+                return Err(WindowError::PlatformError(
+                    format!("select() failed while waiting for X11 events: errno={}", errno),
+                ));
+            }
         }
+        // result == 0 means timeout - that's fine, we'll check timers
+        // result > 0 means events are ready
     }
 
     Ok(())

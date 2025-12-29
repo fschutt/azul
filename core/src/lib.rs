@@ -13,6 +13,9 @@ extern crate azul_css;
 /// Useful macros for implementing Azul APIs without duplicating code
 #[macro_use]
 pub mod macros;
+/// Unified debug logging system
+#[macro_use]
+pub mod debug;
 /// Type definitions for various types of callbacks plus focus and scroll handling
 #[macro_use]
 pub mod callbacks;

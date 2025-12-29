@@ -2127,6 +2127,101 @@ pub trait PlatformWindowV2 {
         ProcessEventResult::ShouldReRenderCurrentWindow
     }
 
+    // PROVIDED: Timer Invocation (Cross-Platform Implementation)
+
+    /// Invoke all expired timer callbacks.
+    ///
+    /// This method checks for expired timers via `tick_timers()` and invokes
+    /// the callback for each expired timer using `run_single_timer()`.
+    ///
+    /// ## Returns
+    /// * `Vec<CallCallbacksResult>` - Results from all invoked timer callbacks
+    ///
+    /// ## Platform Usage
+    /// Call this from platform event loops when:
+    /// - **Windows**: In `WM_TIMER` handler
+    /// - **macOS**: In `performSelector:withObject:afterDelay:` callback
+    /// - **X11**: After `select()` timeout
+    /// - **Wayland**: After `timerfd` read
+    fn invoke_expired_timers(&mut self) -> Vec<azul_layout::callbacks::CallCallbacksResult> {
+        use azul_core::callbacks::Update;
+        use azul_core::task::TimerId;
+        use azul_layout::callbacks::{CallCallbacksResult, ExternalSystemCallbacks};
+
+        // Get current system time
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+        let current_time = (system_callbacks.get_system_time_fn.cb)();
+        let frame_start: azul_core::task::Instant = current_time.clone().into();
+
+        // First, get expired timer IDs without borrowing self
+        let expired_timer_ids: Vec<TimerId> = {
+            let layout_window = match self.get_layout_window_mut() {
+                Some(lw) => lw,
+                None => return Vec::new(),
+            };
+            layout_window.tick_timers(current_time)
+        };
+
+        if expired_timer_ids.is_empty() {
+            return Vec::new();
+        }
+
+        let mut all_results = Vec::new();
+
+        // Process each expired timer
+        for timer_id in expired_timer_ids {
+            // Prepare borrows fresh for each timer invocation
+            let mut borrows = self.prepare_callback_invocation();
+
+            let result = borrows.layout_window.run_single_timer(
+                timer_id.id,
+                frame_start.clone(),
+                &borrows.window_handle,
+                borrows.gl_context_ptr,
+                borrows.image_cache,
+                &mut borrows.fc_cache_clone,
+                borrows.system_style.clone(),
+                &ExternalSystemCallbacks::rust_internal(),
+                borrows.previous_window_state,
+                borrows.current_window_state,
+                borrows.renderer_resources,
+            );
+
+            // Apply results: add new timers/threads, remove terminated ones
+            if let Some(ref new_timers) = result.timers {
+                for (timer_id, timer) in new_timers {
+                    borrows.layout_window.timers.insert(*timer_id, timer.clone());
+                }
+            }
+            if let Some(ref removed_timers) = result.timers_removed {
+                for timer_id in removed_timers {
+                    borrows.layout_window.timers.remove(timer_id);
+                }
+            }
+            if let Some(ref new_threads) = result.threads {
+                for (thread_id, thread) in new_threads {
+                    borrows.layout_window.threads.insert(*thread_id, thread.clone());
+                }
+            }
+            if let Some(ref removed_threads) = result.threads_removed {
+                for thread_id in removed_threads {
+                    borrows.layout_window.threads.remove(thread_id);
+                }
+            }
+
+            // Mark frame for redraw if callback requested it
+            if result.callbacks_update_screen == Update::RefreshDom
+                || result.callbacks_update_screen == Update::RefreshDomAllWindows
+            {
+                self.mark_frame_needs_regeneration();
+            }
+
+            all_results.push(result);
+        }
+
+        all_results
+    }
+
     /// Handle scrollbar drag - update scroll position based on mouse delta.
     fn handle_scrollbar_drag(
         &mut self,

@@ -324,6 +324,46 @@ define_class!(
             Bool::from(true) // Default: enable other items
         }
 
+        /// Timer tick method - called by NSTimer with repeats:true
+        /// This method invokes expired timers via the stored MacOSWindow pointer.
+        #[unsafe(method(tickTimers:))]
+        fn tick_timers(&self, _sender: Option<&NSObject>) {
+            use azul_core::callbacks::Update;
+            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    
+                    // Invoke all expired timer callbacks
+                    let timer_results = macos_window.invoke_expired_timers();
+                    
+                    // Process each callback result to handle window state modifications
+                    let mut needs_redraw = false;
+                    for result in &timer_results {
+                        // Apply window state changes from callback result
+                        if result.modified_window_state.is_some() {
+                            // Save previous state BEFORE applying changes (for sync_window_state diff)
+                            macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
+                            let _ = macos_window.process_callback_result_v2(result);
+                            // Synchronize window state with OS immediately after change
+                            macos_window.sync_window_state();
+                        }
+                        // Check if redraw needed
+                        if matches!(result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                            needs_redraw = true;
+                        }
+                    }
+                    
+                    if needs_redraw {
+                        macos_window.frame_needs_regeneration = true;
+                        let _: () = msg_send![self, setNeedsDisplay: true];
+                    }
+                }
+            }
+            // Note: NSTimer with repeats:true automatically reschedules itself
+        }
+
         #[unsafe(method_id(initWithFrame:pixelFormat:))]
         fn init_with_frame_pixel_format(
             this: Allocated<Self>,
@@ -915,6 +955,12 @@ impl GLView {
     /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the view
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
         *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+        
+        // Start the timer tick loop - this will invoke timer callbacks every 16ms
+        // and reschedule itself via performSelector:withObject:afterDelay:
+        use objc2::sel;
+        let delay: f64 = 0.016;
+        let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
     }
 
     /// Get the back-pointer to the owning MacOSWindow
@@ -1065,12 +1111,39 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    let frame = macos_window.current_window_state.flags.frame;
+                    
+                    // Get new logical size from content view
+                    if let Some(content_view) = macos_window.window.contentView() {
+                        let bounds = content_view.bounds();
+                        let new_logical_width = bounds.size.width as f32;
+                        let new_logical_height = bounds.size.height as f32;
+                        
+                        // Update dimensions if changed
+                        let old_dims = macos_window.current_window_state.size.dimensions;
+                        if (old_dims.width - new_logical_width).abs() > 0.5 
+                            || (old_dims.height - new_logical_height).abs() > 0.5 
+                        {
+                            macos_window.current_window_state.size.dimensions = 
+                                azul_core::geom::LogicalSize {
+                                    width: new_logical_width,
+                                    height: new_logical_height,
+                                };
+                            
+                            // Trigger re-layout on next frame
+                            macos_window.frame_needs_regeneration = true;
+                            
+                            eprintln!(
+                                "[WindowDelegate] Window resized: {}x{} -> {}x{}",
+                                old_dims.width, old_dims.height,
+                                new_logical_width, new_logical_height
+                            );
+                        }
+                    }
+                    
                     // Only check for maximized state if not in fullscreen
+                    let frame = macos_window.current_window_state.flags.frame;
                     if frame != WindowFrame::Fullscreen {
-                        // Set flag to check maximized state in event loop
-                        // The event loop will compare window.frame() to screen.visibleFrame()
-                        eprintln!("[WindowDelegate] Window resized");
+                        // Check maximized state will be done in event loop
                     }
                 }
             }
@@ -1428,7 +1501,7 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
     // Timer Management (macOS/NSTimer Implementation)
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
-        use block2::RcBlock;
+        use super::common::event_v2::PlatformWindowV2;
 
         let interval: f64 = timer.tick_millis() as f64 / 1000.0;
 
@@ -1439,18 +1512,24 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
                 .insert(azul_core::task::TimerId { id: timer_id }, timer);
         }
 
-        // Create NSTimer that marks frame for regeneration when fired
-        let ns_window = self.window.clone();
-        let timer_obj: Retained<NSTimer> = unsafe {
-            msg_send_id![
-                NSTimer::class(),
-                scheduledTimerWithTimeInterval: interval,
-                repeats: true,
-                block: &*RcBlock::new(move || {
-                    // Timer fired - request redraw to process timer callbacks
-                    let _: () = msg_send![&*ns_window, setViewsNeedDisplay: true];
-                })
-            ]
+        // Create NSTimer that calls tickTimers: on the GLView
+        // This is safe because:
+        // 1. The timer is invalidated in stop_timer() before the view is released
+        // 2. NSTimer retains the target, so the view won't be deallocated while timer is active
+        // 3. tickTimers: checks if window_ptr is valid before dereferencing
+        let timer_obj: Retained<NSTimer> = if let Some(ref gl_view) = self.gl_view {
+            unsafe {
+                msg_send_id![
+                    NSTimer::class(),
+                    scheduledTimerWithTimeInterval: interval,
+                    target: &**gl_view,
+                    selector: objc2::sel!(tickTimers:),
+                    userInfo: std::ptr::null::<NSObject>(),
+                    repeats: true
+                ]
+            }
+        } else {
+            return; // No view, can't create timer
         };
 
         self.timers.insert(timer_id, timer_obj);
@@ -2091,6 +2170,7 @@ impl MacOSWindow {
         // Initialize window state with actual HiDPI factor from screen
         let actual_dpi = (actual_hidpi_factor * 96.0) as u32; // Convert scale factor to DPI
         let mut current_window_state = FullWindowState {
+            window_id: options.window_state.window_id.clone(),
             title: options.window_state.title.clone(),
             size: WindowSize {
                 dimensions: options.window_state.size.dimensions,
@@ -2238,6 +2318,66 @@ impl MacOSWindow {
         // NOTE: Don't send any transaction during initialization!
         // The first transaction will be sent in drawRect
         // when drawRect is called by macOS.
+
+        // Invoke create_callback if provided (for GL resource upload, config loading, etc.)
+        // This runs AFTER GL context is ready but BEFORE any layout is done
+        if let Some(mut callback) = options.create_callback.into_option() {
+            eprintln!("[Window Init] Invoking create_callback...");
+            
+            use azul_core::window::RawWindowHandle;
+            use std::ptr;
+            
+            let raw_handle = RawWindowHandle::MacOS(azul_core::window::MacOSHandle {
+                ns_window: Retained::as_ptr(&window.window) as *mut _,
+                ns_view: ptr::null_mut(),
+            });
+            
+            // Get mutable references needed for invoke_single_callback
+            let layout_window = window.layout_window.as_mut()
+                .expect("LayoutWindow should exist at this point");
+            let mut fc_cache_clone = (*window.fc_cache).clone();
+            
+            // Get app_data for callback
+            let mut app_data_ref = window.app_data.borrow_mut();
+            
+            let callback_result = layout_window.invoke_single_callback(
+                &mut callback,
+                &mut *app_data_ref,
+                &raw_handle,
+                &window.gl_context_ptr,
+                &mut window.image_cache,
+                &mut fc_cache_clone,
+                window.system_style.clone(),
+                &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
+                &window.previous_window_state,
+                &window.current_window_state,
+                &window.renderer_resources,
+            );
+            
+            // Process callback result (timers, threads, etc.)
+            drop(app_data_ref); // Release borrow before process_callback_result_v2
+            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            let _ = window.process_callback_result_v2(&callback_result);
+            
+            eprintln!("[Window Init] create_callback completed");
+        }
+
+        // Register debug timer if AZUL_DEBUG is enabled
+        #[cfg(feature = "std")]
+        if crate::desktop::shell2::common::debug_server::is_debug_enabled() {
+            eprintln!("[Window Init] Registering debug timer (AZUL_DEBUG is set)");
+            
+            use azul_layout::callbacks::ExternalSystemCallbacks;
+            use super::common::event_v2::PlatformWindowV2;
+            
+            let timer_id: usize = 0xDEBE; // Special debug timer ID
+            let debug_timer = crate::desktop::shell2::common::debug_server::create_debug_timer(
+                ExternalSystemCallbacks::rust_internal().get_system_time_fn
+            );
+            // Use start_timer to register both in layout_window AND create native NSTimer
+            window.start_timer(timer_id, debug_timer);
+            eprintln!("[Window Init] Debug timer registered with ID 0x{:X}", timer_id);
+        }
 
         // Perform initial layout
         eprintln!("[Window Init] Performing initial layout");
@@ -3058,6 +3198,53 @@ impl MacOSWindow {
         }
     }
 
+    /// Synchronize window size from content view bounds
+    ///
+    /// This ensures the window state always reflects the actual view size,
+    /// which is important for proper HiDPI rendering and layout.
+    /// Should be called before rendering to catch any size changes.
+    fn sync_window_size_from_content_view(&mut self) {
+        let content_view = match unsafe { self.window.contentView() } {
+            Some(view) => view,
+            None => return,
+        };
+
+        let bounds = unsafe { content_view.bounds() };
+        let new_logical_width = bounds.size.width as f32;
+        let new_logical_height = bounds.size.height as f32;
+
+        let old_dims = self.current_window_state.size.dimensions;
+        
+        // Only update if dimensions actually changed (with small tolerance for float comparison)
+        if (old_dims.width - new_logical_width).abs() > 0.5 
+            || (old_dims.height - new_logical_height).abs() > 0.5 
+        {
+            self.current_window_state.size.dimensions = azul_core::geom::LogicalSize {
+                width: new_logical_width,
+                height: new_logical_height,
+            };
+            
+            // Also update the DPI in case it changed (e.g., window moved to different display)
+            let scale_factor = unsafe {
+                self.window
+                    .screen()
+                    .map(|screen| screen.backingScaleFactor() as f32)
+                    .unwrap_or(1.0)
+            };
+            self.current_window_state.size.dpi = (scale_factor * 96.0) as u32;
+            
+            // Mark frame as needing regeneration
+            self.frame_needs_regeneration = true;
+            
+            eprintln!(
+                "[sync_window_size_from_content_view] Size updated: {}x{} -> {}x{} (dpi={})",
+                old_dims.width, old_dims.height,
+                new_logical_width, new_logical_height,
+                self.current_window_state.size.dpi
+            );
+        }
+    }
+
     /// Check if window is maximized by comparing frame to screen size
     ///
     /// Updates the window frame state based on the actual window and screen dimensions.
@@ -3481,7 +3668,20 @@ impl MacOSWindow {
     /// IMPORTANT: This should NEVER be called directly from Rust code. It's only
     /// called by the Objective-C drawRect: method when macOS schedules a redraw.
     pub fn render_and_present_in_draw_rect(&mut self) -> Result<(), WindowError> {
+        use super::common::event_v2::PlatformWindowV2;
+        
         eprintln!("[render_and_present_in_draw_rect] START");
+
+        // CRITICAL: Invoke expired timer callbacks FIRST, before any rendering
+        // This allows timer callbacks (like the debug server timer) to run
+        let timer_results = self.invoke_expired_timers();
+        if !timer_results.is_empty() {
+            eprintln!("[render_and_present_in_draw_rect] Invoked {} timer callbacks", timer_results.len());
+        }
+
+        // Step 0: Update window size from current content view bounds
+        // This ensures we always have the latest size, even if resize notifications were missed
+        self.sync_window_size_from_content_view();
 
         // Step 1: Prepare OpenGL context (if using OpenGL backend)
         if self.backend == RenderBackend::OpenGL {
@@ -3542,6 +3742,9 @@ impl MacOSWindow {
         // Build everything into this transaction (resources, display lists, etc.)
 
         eprintln!("[build_atomic_txn] START ");
+
+        // NOTE: Timer callbacks are now invoked in render_and_present_in_draw_rect()
+        // before this method is called, via invoke_expired_timers()
 
         // CRITICAL: Regenerate layout FIRST if needed
         // Layout must be current before building display lists

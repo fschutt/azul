@@ -34,7 +34,7 @@ use azul_core::{
         CursorAffinity, GraphemeClusterId, Selection, SelectionRange, SelectionState, TextCursor,
     },
     styled_dom::{NodeHierarchyItemId, StyledDom},
-    task::{Duration, Instant, SystemTimeDiff, TerminateTimer, ThreadId, ThreadIdVec, ThreadSendMsg, TimerId, TimerIdVec},
+    task::{Duration, Instant, SystemTickDiff, SystemTimeDiff, TerminateTimer, ThreadId, ThreadIdVec, ThreadSendMsg, TimerId, TimerIdVec},
     window::{CursorPosition, RawWindowHandle, RendererType},
     FastBTreeSet, FastHashMap,
 };
@@ -317,6 +317,29 @@ fn default_duration_200ms() -> Duration {
     Duration::System(SystemTimeDiff::from_millis(200))
 }
 
+/// Helper function to convert Duration to milliseconds
+///
+/// Duration is an enum with System (std::time::Duration) and Tick variants.
+/// We need to handle both cases for proper time calculations.
+fn duration_to_millis(duration: Duration) -> u64 {
+    match duration {
+        #[cfg(feature = "std")]
+        Duration::System(system_diff) => {
+            let std_duration: std::time::Duration = system_diff.into();
+            std_duration.as_millis() as u64
+        }
+        #[cfg(not(feature = "std"))]
+        Duration::System(system_diff) => {
+            // Manual calculation: secs * 1000 + nanos / 1_000_000
+            system_diff.secs * 1000 + (system_diff.nanos / 1_000_000) as u64
+        }
+        Duration::Tick(tick_diff) => {
+            // Assume tick = 1ms for simplicity (platform-specific)
+            tick_diff.tick_diff
+        }
+    }
+}
+
 impl LayoutWindow {
     /// Create a new layout window with empty caches.
     ///
@@ -528,18 +551,25 @@ impl LayoutWindow {
                 text3::default::PathLoader,
             };
 
+            eprintln!("[DEBUG FontLoading] Starting font resolution for DOM");
+
             // Step 1: Resolve font chains (cached by FontChainKey)
             let chains = collect_and_resolve_font_chains(&styled_dom, &self.font_manager.fc_cache);
+            eprintln!("[DEBUG FontLoading] Resolved {} font chains", chains.len());
 
             // Step 2: Get required font IDs from chains
             let required_fonts = collect_font_ids_from_chains(&chains);
+            eprintln!("[DEBUG FontLoading] Required fonts: {:?}", required_fonts);
 
             // Step 3: Compute which fonts need to be loaded (diff with already loaded)
             let already_loaded = self.font_manager.get_loaded_font_ids();
             let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
+            eprintln!("[DEBUG FontLoading] Already loaded: {:?}, need to load: {:?}", 
+                already_loaded.len(), fonts_to_load.len());
 
             // Step 4: Load missing fonts
             if !fonts_to_load.is_empty() {
+                eprintln!("[DEBUG FontLoading] Loading {} fonts from disk...", fonts_to_load.len());
                 let loader = PathLoader::new();
                 let load_result = load_fonts_from_disk(
                     &fonts_to_load,
@@ -547,11 +577,15 @@ impl LayoutWindow {
                     |bytes, index| loader.load_font(bytes, index),
                 );
 
+                eprintln!("[DEBUG FontLoading] Loaded {} fonts, {} failed", 
+                    load_result.loaded.len(), load_result.failed.len());
+
                 // Insert loaded fonts into the font manager
                 self.font_manager.insert_fonts(load_result.loaded);
 
                 // Log any failures
                 for (font_id, error) in &load_result.failed {
+                    eprintln!("[DEBUG FontLoading] FAILED to load font {:?}: {}", font_id, error);
                     if let Some(msgs) = debug_messages {
                         msgs.push(LayoutDebugMessage::warning(format!(
                             "[FontLoading] Failed to load font {:?}: {}",
@@ -1145,6 +1179,44 @@ impl LayoutWindow {
         }
 
         ready_timers
+    }
+
+    /// Calculate milliseconds until the next timer needs to fire.
+    /// 
+    /// Returns `None` if there are no timers, meaning the caller can block indefinitely.
+    /// Returns `Some(0)` if a timer is already overdue.
+    /// Otherwise returns the minimum time in milliseconds until any timer fires.
+    /// 
+    /// This is used by Linux (X11/Wayland) to set an efficient poll/select timeout
+    /// instead of always polling every 16ms.
+    pub fn time_until_next_timer_ms(
+        &self,
+        get_system_time_fn: &azul_core::task::GetSystemTimeCallback,
+    ) -> Option<u64> {
+        if self.timers.is_empty() {
+            return None; // No timers - can block indefinitely
+        }
+
+        let now = (get_system_time_fn.cb)();
+        let mut min_ms: Option<u64> = None;
+
+        for timer in self.timers.values() {
+            let next_run = timer.instant_of_next_run();
+            
+            // Calculate time difference in milliseconds
+            let ms_until = if next_run < now {
+                0 // Timer is overdue
+            } else {
+                duration_to_millis(next_run.duration_since(&now))
+            };
+
+            min_ms = Some(match min_ms {
+                Some(current_min) => current_min.min(ms_until),
+                None => ms_until,
+            });
+        }
+
+        min_ms
     }
 
     // Thread Management
