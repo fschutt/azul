@@ -173,12 +173,42 @@ impl Timer {
     }
 
     /// Invoke the timer callback and update internal state
+    /// 
+    /// Returns `DoNothing` + `Continue` if the timer is not ready to run yet
+    /// (delay not elapsed for first run, or interval not elapsed for subsequent runs).
     pub fn invoke(
         &mut self,
         callback_info: &CallbackInfo,
         get_system_time_fn: &GetSystemTimeCallback,
     ) -> TimerCallbackReturn {
         let now = (get_system_time_fn.cb)();
+
+        // Check if timer should run based on last_run, delay, and interval
+        match self.last_run.as_ref() {
+            Some(last_run) => {
+                // Timer has run before - check interval
+                if let OptionDuration::Some(interval) = self.interval {
+                    if now.duration_since(last_run).smaller_than(&interval) {
+                        return TimerCallbackReturn {
+                            should_update: Update::DoNothing,
+                            should_terminate: TerminateTimer::Continue,
+                        };
+                    }
+                }
+            }
+            None => {
+                // Timer has never run - check delay (first run)
+                if let OptionDuration::Some(delay) = self.delay {
+                    if now.duration_since(&self.created).smaller_than(&delay) {
+                        return TimerCallbackReturn {
+                            should_update: Update::DoNothing,
+                            should_terminate: TerminateTimer::Continue,
+                        };
+                    }
+                }
+            }
+        }
+
         let is_about_to_finish = self.is_about_to_finish(&now);
 
         // Create a new TimerCallbackInfo wrapping the callback_info
@@ -196,7 +226,11 @@ impl Timer {
             _abi_mut: core::ptr::null_mut(),
         };
 
-        let result = (self.callback.cb)(self.refany.clone(), timer_callback_info);
+        let mut result = (self.callback.cb)(self.refany.clone(), timer_callback_info);
+
+        if is_about_to_finish {
+            result.should_terminate = TerminateTimer::Terminate;
+        }
 
         self.run_count += 1;
         self.last_run = OptionInstant::Some(now);
@@ -467,20 +501,35 @@ pub fn invoke_timer(
 ) -> TimerCallbackReturn {
     let instant_now = (get_system_time_fn.cb)();
 
-    if let OptionDuration::Some(interval) = timer.interval {
-        let last_run = match timer.last_run.as_ref() {
-            Some(s) => s.clone(),
-            None => timer.created.add_optional_duration(timer.delay.as_ref()),
-        };
-
-        if instant_now
-            .duration_since(&last_run)
-            .smaller_than(&interval)
-        {
-            return TimerCallbackReturn {
-                should_update: Update::DoNothing,
-                should_terminate: TerminateTimer::Continue,
-            };
+    // Check if timer should run based on last_run, delay, and interval
+    match timer.last_run.as_ref() {
+        Some(last_run) => {
+            // Timer has run before - check interval
+            if let OptionDuration::Some(interval) = timer.interval {
+                if instant_now
+                    .duration_since(last_run)
+                    .smaller_than(&interval)
+                {
+                    return TimerCallbackReturn {
+                        should_update: Update::DoNothing,
+                        should_terminate: TerminateTimer::Continue,
+                    };
+                }
+            }
+        }
+        None => {
+            // Timer has never run - check delay (first run)
+            if let OptionDuration::Some(delay) = timer.delay {
+                if instant_now
+                    .duration_since(&timer.created)
+                    .smaller_than(&delay)
+                {
+                    return TimerCallbackReturn {
+                        should_update: Update::DoNothing,
+                        should_terminate: TerminateTimer::Continue,
+                    };
+                }
+            }
         }
     }
 
