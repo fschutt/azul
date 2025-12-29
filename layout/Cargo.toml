@@ -85,7 +85,7 @@ text_layout_hyphenation = ["text_layout", "dep:hyphenation"]
 pdf = ["text_layout"]
 
 # System font discovery (rust-fontconfig minimal, no parsing)
-font_loading = ["dep:rust-fontconfig", "rust-fontconfig/std", "rust-fontconfig/parsing"]
+font_loading = ["dep:rust-fontconfig", "rust-fontconfig/std", "rust-fontconfig/parsing", "rust-fontconfig/mmapio"]
 
 # Multithreading for font cache building (faster on desktop, not available on WASM)
 font_loading_multithreaded = ["font_loading", "rust-fontconfig/multithreading"]
