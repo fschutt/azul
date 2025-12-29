@@ -42,7 +42,7 @@ jobs:
     name: Lint & Static Checks
     # Run this job for push, pull_request, or if 'ci' or 'prod-deploy' mode is manually selected
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -95,7 +95,7 @@ jobs:
     name: Generate & Validate C/C++ Headers
     # This job only requires api.json, no Rust compilation needed
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -162,7 +162,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-22.04, macos-14]
         # Windows is handled separately due to different compiler commands
     runs-on: ${{ matrix.os }}
     steps:
@@ -175,7 +175,7 @@ jobs:
           toolchain: 1.87.0
 
       - name: Install clang (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y clang
@@ -267,7 +267,7 @@ jobs:
     name: Verify Examples Compile (Windows)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
     needs: codegen_headers
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -307,7 +307,7 @@ jobs:
   test_heavy:
     name: Run Heavy Tests
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: lint_and_check # Run after linting passes
     steps:
       - name: Checkout repository
@@ -344,7 +344,7 @@ jobs:
     name: FFI Safety Tests (ASan + Miri)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
     needs: lint_and_check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -409,7 +409,7 @@ jobs:
     name: FFI Safety Tests (macOS ASan + LLDB)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
     needs: lint_and_check
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -472,20 +472,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-14
             artifact_name: azul-macos-amd64
             artifact_path: |
               target/release/libazul.dylib
               target/release/libazul.a
               target/release/azul.so
-          - os: windows-latest
+          - os: windows-2022
             artifact_name: azul-windows-amd64
             artifact_path: |
               target/release/azul.dll
               target/release/libazul.a
               target/release/azul.dll.lib
               target/release/azul.pyd
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             artifact_name: azul-linux-amd64
             artifact_path: |
               target/release/libazul.so
@@ -502,18 +502,18 @@ jobs:
           toolchain: 1.87.0
 
       - name: Install clang (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y clang
 
       - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc codegen all
 
       - name: Generate C header for syntax check (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         run: cargo run -r -p azul-doc codegen c
 
       - name: Check azul.h syntax (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         run: clang target/codegen/v2/azul.h -ferror-limit=0
 
       - name: Build DLL with build-dll feature
@@ -525,36 +525,36 @@ jobs:
           cargo build --release -p azul-dll --lib --features="python-extension"
 
       - name: Rename Python extension (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-2022'
         shell: bash
         run: cp target/release/azul.dll target/release/azul.pyd
 
       - name: Rename Python extension (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         run: cp target/release/libazul.so target/release/azul.cpython.so
 
       - name: Rename Python extension (macOS)
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-14'
         run: cp target/release/libazul.dylib target/release/azul.so
 
       - name: Build Rust examples
         run: cargo check --verbose --examples --all-features
 
       - name: Test Python extension import (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-2022'
         shell: bash
         run: |
           export PATH=$PATH:$(pwd)/target/release
           python3 -c "import sys; sys.path.insert(0, 'target/release'); import azul; print('Python extension loaded successfully!')"
 
       - name: Test Python extension import (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           cp target/release/azul.cpython.so examples/python/azul.so
           cd examples/python && python3 -c "import azul; print('Python extension loaded successfully!')"
 
       - name: Test Python extension import (macOS)
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-14'
         run: |
           cp target/release/azul.so examples/python/azul.so
           cd examples/python && python3 -c "import azul; print('Python extension loaded successfully!')"
@@ -571,7 +571,7 @@ jobs:
     name: Build Linux Packages (.deb/.rpm)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
     needs: build_binaries
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -637,7 +637,7 @@ jobs:
   build_pages_fast:
     name: Fast Build Pages
     if: github.event.inputs.run_mode == 'fast-deploy'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -658,7 +658,7 @@ jobs:
   prepare_pages_fast:
     name: Prepare Pages Artifacts (Fast)
     if: github.event.inputs.run_mode == 'fast-deploy'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: build_pages_fast
     steps:
       - name: Download artifacts
@@ -678,7 +678,7 @@ jobs:
   deploy_pages_fast:
     name: Deploy to GitHub Pages (Fast)
     if: github.event.inputs.run_mode == 'fast-deploy'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: prepare_pages_fast
     environment:
       name: github-pages
@@ -691,7 +691,7 @@ jobs:
   build_pages_fast_with_reftests:
     name: Fast Build Pages with Reftests
     if: github.event.inputs.run_mode == 'fast-deploy-with-reftests'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -715,7 +715,7 @@ jobs:
   prepare_pages_fast_with_reftests:
     name: Prepare Pages Artifacts (Fast with Reftests)
     if: github.event.inputs.run_mode == 'fast-deploy-with-reftests'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: build_pages_fast_with_reftests
     steps:
       - name: Download artifacts
@@ -735,7 +735,7 @@ jobs:
   deploy_pages_fast_with_reftests:
     name: Deploy to GitHub Pages (Fast with Reftests)
     if: github.event.inputs.run_mode == 'fast-deploy-with-reftests'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: prepare_pages_fast_with_reftests
     environment:
       name: github-pages
@@ -753,11 +753,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             platform: linux
-          - os: macos-latest
+          - os: macos-14
             platform: macos
-          - os: windows-latest
+          - os: windows-2022
             platform: windows
     steps:
       - name: Checkout repository
@@ -767,11 +767,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Setup Chrome (Linux only)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         uses: browser-actions/setup-chrome@v1
 
       - name: Run Reftests (Linux only)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         continue-on-error: true
         run: cargo run --manifest-path doc/Cargo.toml --release -- reftest
 
@@ -796,7 +796,7 @@ jobs:
   merge_and_prepare_pages:
     name: Merge & Prepare Pages Artifacts
     if: github.event.inputs.run_mode == 'deploy'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: build_pages
     steps:
       - name: Create merged directory
@@ -827,7 +827,7 @@ jobs:
   deploy_pages:
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: merge_and_prepare_pages
     environment:
       name: github-pages
@@ -846,11 +846,11 @@ jobs:
       fail-fast: true  # Stop all builds if one fails
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             platform: linux
-          - os: macos-latest
+          - os: macos-14
             platform: macos
-          - os: windows-latest
+          - os: windows-2022
             platform: windows
     steps:
       - name: Checkout repository
@@ -860,11 +860,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Setup Chrome (Linux only)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         uses: browser-actions/setup-chrome@v1
 
       - name: Run Reftests (Linux only)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         run: cargo run --manifest-path doc/Cargo.toml --release -- reftest
 
       - name: Build website for ${{ matrix.platform }}
@@ -880,7 +880,7 @@ jobs:
   merge_and_prepare_pages_prod:
     name: Merge & Prepare Pages Artifacts (Prod)
     if: github.event.inputs.run_mode == 'prod-deploy'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: build_pages_prod
     steps:
       - name: Create merged directory
@@ -911,7 +911,7 @@ jobs:
   deploy_pages_prod:
     name: Deploy to GitHub Pages (Prod)
     if: github.event.inputs.run_mode == 'prod-deploy'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: merge_and_prepare_pages_prod
     environment:
       name: github-pages
