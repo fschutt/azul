@@ -184,6 +184,7 @@ link-static = [
     "text_layout",
     "svg",
     "xml",
+    "strum",
     # Platform-specific clipboard
     "x11-clipboard",
     "clipboard-win",
