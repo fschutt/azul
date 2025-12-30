@@ -669,7 +669,7 @@ pub enum CssPropertyCategory {
 
 /// Represents a CSS key (for example `"border-radius"` => `BorderRadius`).
 /// You can also derive this key from a `CssProperty` by calling `CssProperty::get_type()`.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, strum_macros::EnumIter)]
 #[repr(C)]
 pub enum CssPropertyType {
     CaretColor,

@@ -48,6 +48,9 @@ accesskit = { version = "0.21.1", default-features = false, optional = true }
 # Windows-only: libm for math functions
 libm = { version = "0.2.2", default-features = false, optional = true }
 
+# Enum iteration for debug server
+strum = { version = "0.26", default-features = false, optional = true }
+
 # Always required
 cfg-if = "1.0"
 
@@ -147,6 +150,7 @@ build-dll = [
     "text_layout",
     "svg",
     "xml",
+    "strum",
     # Platform-specific clipboard
     "x11-clipboard",
     "clipboard-win",
