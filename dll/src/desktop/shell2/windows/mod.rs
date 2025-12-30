@@ -14,7 +14,7 @@
 //! - Common shell2 modules: Compositor, error handling
 
 use crate::{log_debug, log_error, log_info, log_warn, log_trace};
-use super::super::common::debug_server::LogCategory;
+use crate::desktop::shell2::common::debug_server::LogCategory;
 
 pub mod accessibility;
 pub mod clipboard;
@@ -787,6 +787,11 @@ impl Win32Window {
             }
         }
 
+        // Background material changed? (Windows 11 Mica/Acrylic effects)
+        if previous.flags.background_material != current.flags.background_material {
+            self.apply_background_material(current.flags.background_material);
+        }
+
         // Mouse cursor synchronization - compute from current hit test
         if let Some(layout_window) = self.layout_window.as_ref() {
             if let Some(hit_test) = layout_window
@@ -840,7 +845,141 @@ impl Win32Window {
         }
     }
 
-    /// Query WebRender hit-tester for scrollbar hits at given position
+    /// Apply window background material using DWM (Windows 11+)
+    ///
+    /// This enables Mica, Acrylic, or transparent window effects using the
+    /// Desktop Window Manager (DWM) on Windows 11 22H2 and later.
+    ///
+    /// For `Transparent`, uses DwmEnableBlurBehindWindow with an empty blur region
+    /// to achieve true background transparency while keeping rendered content opaque.
+    /// This requires an alpha channel in the pixel format and glClearColor(0,0,0,0).
+    ///
+    /// On older Windows versions, this will gracefully fail (DWM returns error)
+    /// and the window will remain opaque.
+    fn apply_background_material(&mut self, material: azul_core::window::WindowBackgroundMaterial) {
+        use azul_core::window::WindowBackgroundMaterial;
+        use dlopen::{DWM_SYSTEMBACKDROP_TYPE, DWMWA_SYSTEMBACKDROP_TYPE, MARGINS, 
+                     DWM_BLURBEHIND, DWM_BB_ENABLE, DWM_BB_BLURREGION};
+
+        let dwmapi = match self.win32.dwmapi_funcs.as_ref() {
+            Some(d) => d,
+            None => {
+                log_debug!(LogCategory::Platform, 
+                    "[Windows] dwmapi not available, skipping background material");
+                return;
+            }
+        };
+
+        unsafe {
+            // For Transparent: use DwmEnableBlurBehindWindow with a minimal blur region
+            // This achieves true OpenGL background transparency where:
+            // - Background is fully transparent (shows desktop/windows behind)
+            // - Rendered content (UI elements) remains opaque
+            // Based on: https://stackoverflow.com/a/12290229
+            if material == WindowBackgroundMaterial::Transparent {
+                // Create a minimal region (0, 0, -1, -1) which effectively disables blur
+                // but enables the transparent background compositing
+                let hrgn = (self.win32.gdi32.CreateRectRgn)(0, 0, -1, -1);
+                
+                let bb = DWM_BLURBEHIND {
+                    dwFlags: DWM_BB_ENABLE | DWM_BB_BLURREGION,
+                    fEnable: 1, // TRUE
+                    hRgnBlur: hrgn as *mut core::ffi::c_void,
+                    fTransitionOnMaximized: 0,
+                };
+                
+                let result = (dwmapi.DwmEnableBlurBehindWindow)(self.hwnd, &bb);
+                
+                // Clean up the region handle
+                if !hrgn.is_null() {
+                    (self.win32.gdi32.DeleteObject)(hrgn as *mut core::ffi::c_void);
+                }
+                
+                if result != 0 {
+                    log_debug!(LogCategory::Platform,
+                        "[Windows] DwmEnableBlurBehindWindow failed with HRESULT 0x{:08X}",
+                        result as u32
+                    );
+                } else {
+                    log_debug!(LogCategory::Platform,
+                        "[Windows] Enabled transparent background via DwmEnableBlurBehindWindow");
+                }
+                return;
+            }
+
+            // For Opaque: disable blur-behind
+            if material == WindowBackgroundMaterial::Opaque {
+                let bb = DWM_BLURBEHIND {
+                    dwFlags: DWM_BB_ENABLE,
+                    fEnable: 0, // FALSE - disable blur
+                    hRgnBlur: std::ptr::null_mut(),
+                    fTransitionOnMaximized: 0,
+                };
+                let _ = (dwmapi.DwmEnableBlurBehindWindow)(self.hwnd, &bb);
+                
+                // Also reset backdrop type
+                let value = DWM_SYSTEMBACKDROP_TYPE::DWMSBT_NONE as i32;
+                let _ = (dwmapi.DwmSetWindowAttribute)(
+                    self.hwnd,
+                    DWMWA_SYSTEMBACKDROP_TYPE,
+                    &value as *const _ as *const core::ffi::c_void,
+                    std::mem::size_of::<i32>() as u32,
+                );
+                
+                log_debug!(LogCategory::Platform, "[Windows] Disabled transparency effects");
+                return;
+            }
+
+            // Map remaining WindowBackgroundMaterial values to DWM backdrop type
+            // These are Windows 11 22H2+ Mica/Acrylic effects
+            let backdrop_type = match material {
+                WindowBackgroundMaterial::Sidebar |
+                WindowBackgroundMaterial::Menu |
+                WindowBackgroundMaterial::HUD => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_TRANSIENTWINDOW, // Acrylic
+                WindowBackgroundMaterial::Titlebar => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_MAINWINDOW, // Mica
+                WindowBackgroundMaterial::MicaAlt => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_TABBEDWINDOW,
+                _ => return, // Already handled above
+            };
+
+            // Set the system backdrop type
+            let value = backdrop_type as i32;
+            let result = (dwmapi.DwmSetWindowAttribute)(
+                self.hwnd,
+                DWMWA_SYSTEMBACKDROP_TYPE,
+                &value as *const _ as *const core::ffi::c_void,
+                std::mem::size_of::<i32>() as u32,
+            );
+
+            if result != 0 {
+                // HRESULT != S_OK - this is expected on Windows 10 or older Windows 11 versions
+                log_debug!(LogCategory::Platform,
+                    "[Windows] DwmSetWindowAttribute failed with HRESULT 0x{:08X} - \
+                     likely Windows 10 or pre-22H2 Windows 11",
+                    result as u32
+                );
+                return;
+            }
+
+            // For Mica/Acrylic effects, extend frame into client area
+            // This is required for the effect to be visible
+            let margins = MARGINS::full_window();
+            let extend_result = (dwmapi.DwmExtendFrameIntoClientArea)(self.hwnd, &margins);
+            if extend_result != 0 {
+                log_warn!(LogCategory::Platform,
+                    "[Windows] DwmExtendFrameIntoClientArea failed: 0x{:08X}",
+                    extend_result as u32
+                );
+            }
+
+            log_debug!(LogCategory::Platform,
+                "[Windows] Applied background material {:?} (backdrop type {:?})",
+                material, backdrop_type
+            );
+        }
+    }
+
+    // Query WebRender hit-tester for scrollbar hits at given position
+    //
     // NOTE: perform_scrollbar_hit_test(), handle_scrollbar_click(), and handle_scrollbar_drag()
     // are now provided by the PlatformWindowV2 trait as default methods.
     // The trait methods are cross-platform and work identically.

@@ -42,8 +42,10 @@ pub struct Wayland {
     pub wl_display_flush: unsafe extern "C" fn(display: *mut wl_display) -> i32,
     pub wl_display_get_fd: unsafe extern "C" fn(display: *mut wl_display) -> i32,
 
-    pub wl_proxy_marshal_constructor:
-        unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, ...) -> *mut wl_proxy,
+    // Note: These are variadic C functions. Rust doesn't support variadic fn pointers,
+    // so we store them as raw pointers and cast when calling.
+    pub wl_proxy_marshal_constructor: *const c_void,
+    pub wl_proxy_marshal: *const c_void,
     pub wl_proxy_add_listener:
         unsafe extern "C" fn(*mut wl_proxy, *const c_void, *mut c_void) -> i32,
     pub wl_proxy_destroy: unsafe extern "C" fn(proxy: *mut wl_proxy),
@@ -138,6 +140,14 @@ pub struct Wayland {
     pub wl_surface_add_listener:
         unsafe extern "C" fn(*mut wl_surface, *const wl_surface_listener, *mut c_void) -> i32,
 
+    // wl_region functions (for transparency)
+    pub wl_compositor_create_region:
+        unsafe extern "C" fn(*mut wl_compositor) -> *mut wl_region,
+    pub wl_region_destroy: unsafe extern "C" fn(*mut wl_region),
+    pub wl_region_add: unsafe extern "C" fn(*mut wl_region, i32, i32, i32, i32),
+    pub wl_surface_set_opaque_region:
+        unsafe extern "C" fn(*mut wl_surface, *mut wl_region),
+
     // wayland-egl functions
     pub wl_egl_window_create: unsafe extern "C" fn(
         surface: *mut wl_surface,
@@ -186,8 +196,13 @@ impl Wayland {
         // Wayland uses a proxy-based system where most functions are actually `wl_proxy_marshal`.
         // The type-safe wrappers are often macros in C, so we load the core marshalling function
         // and then cast function pointers to the specific signatures we need.
-        let wl_proxy_marshal_constructor =
-            load_symbol!(lib_client, _, "wl_proxy_marshal_constructor");
+        // Note: These are variadic C functions. Rust doesn't support variadic fn pointers,
+        // so we load them as raw pointers and transmute when calling.
+        let wl_proxy_marshal_constructor_ptr = unsafe {
+            lib_client
+                .get_symbol::<*const c_void>("wl_proxy_marshal_constructor")
+                .expect("wl_proxy_marshal_constructor not found")
+        };
 
         // Load wl_proxy_marshal and wl_proxy_add_listener once
         let wl_proxy_marshal_ptr = unsafe {
@@ -221,7 +236,8 @@ impl Wayland {
             wl_display_flush: load_symbol!(lib_client, _, "wl_display_flush"),
             wl_display_get_fd: load_symbol!(lib_client, _, "wl_display_get_fd"),
 
-            wl_proxy_marshal_constructor,
+            wl_proxy_marshal_constructor: wl_proxy_marshal_constructor_ptr,
+            wl_proxy_marshal: wl_proxy_marshal_ptr,
             wl_proxy_add_listener: load_symbol!(lib_client, _, "wl_proxy_add_listener"),
             wl_proxy_destroy: load_symbol!(lib_client, _, "wl_proxy_destroy"),
             wl_proxy_set_queue: load_symbol!(lib_client, _, "wl_proxy_set_queue"),
@@ -249,12 +265,12 @@ impl Wayland {
                 *load_symbol!(lib_client, *const wl_interface, "xdg_wm_base_interface")
             },
 
-            wl_registry_bind: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+            wl_registry_bind: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
             wl_compositor_create_surface: unsafe {
-                std::mem::transmute(wl_proxy_marshal_constructor)
+                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
             },
             wl_subcompositor_get_subsurface: unsafe {
-                std::mem::transmute(wl_proxy_marshal_constructor)
+                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
             },
             wl_subsurface_set_position: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_subsurface_set_desync: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
@@ -263,15 +279,15 @@ impl Wayland {
             wl_surface_commit: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_surface_attach: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_surface_damage: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            wl_surface_frame: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+            wl_surface_frame: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
 
             wl_callback_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
 
             xdg_wm_base_pong: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_wm_base_get_xdg_surface: unsafe {
-                std::mem::transmute(wl_proxy_marshal_constructor)
+                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
             },
-            xdg_surface_get_toplevel: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+            xdg_surface_get_toplevel: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
             xdg_surface_ack_configure: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_toplevel_set_title: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_toplevel_set_minimized: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
@@ -283,7 +299,7 @@ impl Wayland {
 
             // xdg_popup and xdg_positioner
             xdg_wm_base_create_positioner: unsafe {
-                std::mem::transmute(wl_proxy_marshal_constructor)
+                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
             },
             xdg_positioner_set_size: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_positioner_set_anchor_rect: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
@@ -293,24 +309,30 @@ impl Wayland {
                 std::mem::transmute(wl_proxy_marshal_ptr)
             },
             xdg_positioner_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
-            xdg_surface_get_popup: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+            xdg_surface_get_popup: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
             xdg_popup_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             xdg_popup_grab: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_popup_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
 
-            wl_seat_get_pointer: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
-            wl_seat_get_keyboard: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+            wl_seat_get_pointer: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
+            wl_seat_get_keyboard: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
             wl_seat_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             wl_pointer_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             wl_keyboard_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
 
-            wl_shm_create_pool: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
-            wl_shm_pool_create_buffer: unsafe { std::mem::transmute(wl_proxy_marshal_constructor) },
+            wl_shm_create_pool: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
+            wl_shm_pool_create_buffer: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
             wl_buffer_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_shm_pool_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
 
             wl_output_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             wl_surface_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
+
+            // wl_region functions for transparency
+            wl_compositor_create_region: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
+            wl_region_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            wl_region_add: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            wl_surface_set_opaque_region: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
 
             wl_egl_window_create: load_symbol!(lib_egl, _, "wl_egl_window_create"),
             wl_egl_window_destroy: load_symbol!(lib_egl, _, "wl_egl_window_destroy"),

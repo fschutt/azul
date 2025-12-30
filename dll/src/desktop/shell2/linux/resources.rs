@@ -10,7 +10,7 @@ use azul_css::system::SystemStyle;
 use rust_fontconfig::FcFontCache;
 
 use crate::{log_debug, log_error, log_info, log_warn, log_trace};
-use super::common::debug_server::LogCategory;
+use super::super::common::debug_server::LogCategory;
 
 /// Shared resources for all windows in a Linux application
 ///

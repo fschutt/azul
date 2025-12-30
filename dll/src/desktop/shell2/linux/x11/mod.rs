@@ -54,7 +54,7 @@ use crate::desktop::{
     wr_translate2::{self, AsyncHitTester, Notifier},
 };
 use crate::{log_debug, log_error, log_info, log_warn, log_trace};
-use super::super::super::common::debug_server::LogCategory;
+use crate::desktop::shell2::common::debug_server::LogCategory;
 
 /// X11 error handler to prevent application crashes
 ///
@@ -77,10 +77,111 @@ enum RenderMode {
     Cpu(Option<GC>), // Option to hold the Graphics Context
 }
 
+/// Try to create an X11 window with a 32-bit ARGB visual for true background transparency.
+///
+/// This enables background-only transparency where the window background is transparent
+/// (via glClearColor with alpha=0) but rendered content stays opaque.
+///
+/// See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
+///
+/// Returns: (window_handle, has_argb_visual, optional_colormap)
+fn try_create_argb_window(
+    xlib: &Rc<Xlib>,
+    xrender: Option<&Rc<dlopen::Xrender>>,
+    display: *mut Display,
+    screen: std::ffi::c_int,
+    root: Window,
+    size: &azul_core::window::WindowSize,
+    attributes: &mut XSetWindowAttributes,
+    event_mask: std::ffi::c_long,
+) -> Option<(Window, bool, Option<Colormap>)> {
+    use defines::{XVisualInfo, AllocNone, TrueColor, CWColormap, CWBorderPixel, CWBackPixmap, CWEventMask, InputOutput};
+    
+    let xrender = xrender?;
+    
+    // Try to find a 32-bit TrueColor visual with alpha channel
+    let mut visual_info: XVisualInfo = unsafe { std::mem::zeroed() };
+    let found = unsafe {
+        (xlib.XMatchVisualInfo)(display, screen, 32, TrueColor, &mut visual_info)
+    };
+    
+    if found == 0 {
+        log_debug!(LogCategory::Platform, "[X11] No 32-bit TrueColor visual found");
+        return None;
+    }
+    
+    // Check with XRender if this visual has an alpha mask
+    let pict_format = unsafe {
+        (xrender.XRenderFindVisualFormat)(display, visual_info.visual)
+    };
+    
+    if pict_format.is_null() {
+        log_debug!(LogCategory::Platform, "[X11] XRenderFindVisualFormat returned null");
+        return None;
+    }
+    
+    let alpha_mask = unsafe { (*pict_format).direct.alpha_mask };
+    if alpha_mask == 0 {
+        log_debug!(LogCategory::Platform, "[X11] Visual has no alpha mask (alphaMask=0)");
+        return None;
+    }
+    
+    log_info!(LogCategory::Platform, 
+        "[X11] Found ARGB visual: depth={}, alphaMask={}", 
+        visual_info.depth, alpha_mask);
+    
+    // Create a colormap for this visual
+    let colormap = unsafe {
+        (xlib.XCreateColormap)(display, root, visual_info.visual, AllocNone)
+    };
+    
+    if colormap == 0 {
+        log_debug!(LogCategory::Platform, "[X11] XCreateColormap failed");
+        return None;
+    }
+    
+    // Set up window attributes for ARGB window
+    attributes.colormap = colormap;
+    attributes.background_pixmap = 0; // None
+    attributes.border_pixel = 0;
+    attributes.event_mask = event_mask;
+    
+    let attr_mask = CWColormap | CWBackPixmap | CWBorderPixel | CWEventMask;
+    
+    // Create window with ARGB visual
+    let window = unsafe {
+        (xlib.XCreateWindow)(
+            display,
+            root,
+            0, 0,
+            size.dimensions.width as u32,
+            size.dimensions.height as u32,
+            0, // border_width
+            visual_info.depth,
+            InputOutput,
+            visual_info.visual,
+            attr_mask,
+            attributes,
+        )
+    };
+    
+    if window == 0 {
+        log_debug!(LogCategory::Platform, "[X11] XCreateWindow with ARGB visual failed");
+        // Clean up colormap
+        unsafe { (xlib.XFreeColormap)(display, colormap) };
+        return None;
+    }
+    
+    log_info!(LogCategory::Platform, "[X11] Created window with ARGB visual for background transparency");
+    
+    Some((window, true, Some(colormap)))
+}
+
 pub struct X11Window {
     pub xlib: Rc<Xlib>,
     pub egl: Rc<Egl>,
     pub xkb: Rc<Xkb>,
+    pub xrender: Option<Rc<dlopen::Xrender>>, // Optional XRender for ARGB visual detection
     pub gtk_im: Option<Rc<Gtk3Im>>, // Optional GTK IM context for IME
     pub gtk_im_context: Option<*mut dlopen::GtkIMContext>, // GTK IM context instance
     pub display: *mut Display,
@@ -92,6 +193,11 @@ pub struct X11Window {
     tooltip: Option<tooltip::TooltipWindow>,
     screensaver_inhibit_cookie: Option<u32>, // D-Bus cookie for ScreenSaver.Inhibit
     dbus_connection: Option<*mut super::dbus::DBusConnection>, // D-Bus session connection
+
+    // ARGB visual support for true background transparency
+    // See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
+    pub has_argb_visual: bool,       // True if window was created with 32-bit ARGB visual
+    pub argb_colormap: Option<Colormap>, // Custom colormap for ARGB visual (needs cleanup)
 
     // Shell2 state
     pub layout_window: Option<LayoutWindow>,
@@ -352,6 +458,10 @@ impl PlatformWindow for X11Window {
             self.is_open = false;
             unsafe {
                 (self.xlib.XDestroyWindow)(self.display, self.window);
+                // Free the ARGB colormap if we created one
+                if let Some(colormap) = self.argb_colormap.take() {
+                    (self.xlib.XFreeColormap)(self.display, colormap);
+                }
                 (self.xlib.XCloseDisplay)(self.display);
             }
         }
@@ -429,6 +539,10 @@ impl X11Window {
         let screen = unsafe { (xlib.XDefaultScreen)(display) };
         let root = unsafe { (xlib.XRootWindow)(display, screen) };
 
+        // Try to load XRender for ARGB visual detection (optional)
+        // See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
+        let xrender = dlopen::Xrender::new().ok();
+
         let mut attributes: XSetWindowAttributes = unsafe { std::mem::zeroed() };
         let event_mask = ExposureMask
             | KeyPressMask
@@ -453,19 +567,29 @@ impl X11Window {
         // For now, we default to monitor 0
         let monitor_id = 0; // TODO: Get from options or detect primary monitor
 
-        let window_handle = unsafe {
-            (xlib.XCreateSimpleWindow)(
-                display,
-                root,
-                0,
-                0,
-                size.dimensions.width as u32,
-                size.dimensions.height as u32,
-                1,
-                0,
-                0,
-            )
-        };
+        // Try to create window with ARGB visual for true background transparency
+        // This allows background-only transparency where the background is transparent
+        // but rendered content stays opaque (using glClearColor with alpha=0)
+        let (window_handle, has_argb_visual, argb_colormap) = 
+            try_create_argb_window(&xlib, xrender.as_ref(), display, screen, root, &size, &mut attributes, event_mask)
+                .unwrap_or_else(|| {
+                    // Fallback to simple window without ARGB visual
+                    let window = unsafe {
+                        (xlib.XCreateSimpleWindow)(
+                            display,
+                            root,
+                            0,
+                            0,
+                            size.dimensions.width as u32,
+                            size.dimensions.height as u32,
+                            1,
+                            0,
+                            0,
+                        )
+                    };
+                    (window, false, None)
+                });
+        
         unsafe { (xlib.XSelectInput)(display, window_handle, event_mask) };
 
         let wm_delete_window_atom =
@@ -552,6 +676,7 @@ impl X11Window {
             xlib,
             egl,
             xkb,
+            xrender,
             gtk_im,
             gtk_im_context,
             display,
@@ -563,6 +688,8 @@ impl X11Window {
             tooltip: None,
             screensaver_inhibit_cookie: None,
             dbus_connection: None,
+            has_argb_visual,
+            argb_colormap,
             layout_window: None,
             current_window_state: FullWindowState {
                 title: options.window_state.title.clone(),
@@ -1275,6 +1402,11 @@ impl X11Window {
             }
         }
 
+        // Background material changed? (transparency/blur effects)
+        if previous.flags.background_material != current.flags.background_material {
+            self.apply_background_material(current.flags.background_material);
+        }
+
         // Check window flags for is_top_level
         if previous.flags.is_top_level != current.flags.is_top_level {
             self.set_is_top_level(current.flags.is_top_level);
@@ -1288,6 +1420,98 @@ impl X11Window {
         // Flush X11 commands
         unsafe {
             (self.xlib.XFlush)(self.display);
+        }
+    }
+
+    /// Apply window background material for X11
+    ///
+    /// This function supports two different transparency modes:
+    ///
+    /// 1. **Background-only transparency** (if `has_argb_visual` is true):
+    ///    The window was created with a 32-bit ARGB visual. Background transparency
+    ///    is achieved by calling `glClearColor(r, g, b, 0)` - the background becomes
+    ///    transparent but rendered content stays fully opaque.
+    ///    See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
+    ///
+    /// 2. **Whole-window transparency** (if `has_argb_visual` is false):
+    ///    Uses `_NET_WM_WINDOW_OPACITY` which affects the entire window including
+    ///    rendered content. Useful for effects like fading tooltips in/out.
+    ///
+    /// For blur effects: X11 has no standard blur protocol - depends on compositor
+    /// (picom, compton, etc.). We use ~88% opacity as a fallback hint.
+    fn apply_background_material(&mut self, material: azul_core::window::WindowBackgroundMaterial) {
+        use azul_core::window::WindowBackgroundMaterial;
+
+        if self.has_argb_visual {
+            // ARGB visual mode: background transparency is handled by the OpenGL clear color
+            // The actual transparency is achieved when rendering clears with alpha=0
+            // Here we just log the state - the actual glClearColor call happens in the renderer
+            match material {
+                WindowBackgroundMaterial::Opaque => {
+                    log_debug!(LogCategory::Platform,
+                        "[X11/ARGB] Background material: Opaque (renderer should use alpha=1.0)");
+                }
+                WindowBackgroundMaterial::Transparent => {
+                    log_debug!(LogCategory::Platform,
+                        "[X11/ARGB] Background material: Transparent (renderer should use alpha=0.0)");
+                }
+                _ => {
+                    // For blur types, we could potentially set a hint opacity too
+                    log_debug!(LogCategory::Platform,
+                        "[X11/ARGB] Background material: {:?} (semi-transparent, renderer uses alpha<1.0)", material);
+                }
+            }
+            // Note: We don't set _NET_WM_WINDOW_OPACITY here because that would
+            // make the entire window (including content) transparent, which defeats
+            // the purpose of ARGB visual transparency.
+            return;
+        }
+
+        // Non-ARGB mode: Use _NET_WM_WINDOW_OPACITY for whole-window transparency
+        // Map material to opacity value (32-bit cardinal, 0xFFFFFFFF = fully opaque)
+        let opacity: u32 = match material {
+            WindowBackgroundMaterial::Opaque => 0xFFFFFFFF,
+            WindowBackgroundMaterial::Transparent => 0x00000000,
+            // ~88% opaque for blur/translucent types (compositor-dependent blur)
+            WindowBackgroundMaterial::Sidebar
+            | WindowBackgroundMaterial::Menu
+            | WindowBackgroundMaterial::HUD
+            | WindowBackgroundMaterial::Titlebar
+            | WindowBackgroundMaterial::MicaAlt => 0xE0000000,
+        };
+
+        unsafe {
+            // Get the _NET_WM_WINDOW_OPACITY atom
+            let opacity_atom = (self.xlib.XInternAtom)(
+                self.display,
+                b"_NET_WM_WINDOW_OPACITY\0".as_ptr() as *const i8,
+                0, // create if doesn't exist
+            );
+
+            let cardinal_atom = (self.xlib.XInternAtom)(
+                self.display,
+                b"CARDINAL\0".as_ptr() as *const i8,
+                0,
+            );
+
+            // Set the opacity property
+            (self.xlib.XChangeProperty)(
+                self.display,
+                self.window,
+                opacity_atom,
+                cardinal_atom,
+                32, // format (32-bit)
+                0,  // PropModeReplace
+                &opacity as *const u32 as *const u8,
+                1,  // nelements
+            );
+
+            log_debug!(
+                LogCategory::Platform,
+                "[X11/Opacity] Applied background material {:?} (whole-window opacity: 0x{:08X})",
+                material,
+                opacity
+            );
         }
     }
 

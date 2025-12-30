@@ -296,6 +296,34 @@ pub(super) extern "C" fn registry_global_handler(
             };
             unsafe { (window.wayland.wl_output_add_listener)(output, &listener, data) };
         }
+        "org_kde_kwin_blur_manager" => {
+            // KDE Plasma blur protocol - allows client-requested blur effects
+            // We use wl_registry_bind (which is wl_proxy_marshal_constructor transmuted)
+            // with a null interface since org_kde_kwin_blur_manager is not in the core protocol
+            let blur_manager = unsafe {
+                // wl_registry.bind signature: new_id<interface>(name: uint, interface: string, version: uint)
+                type WlRegistryBindFn = unsafe extern "C" fn(
+                    *mut wl_proxy, u32, *const wl_interface, u32, *const i8, u32, *const std::ffi::c_void
+                ) -> *mut wl_proxy;
+                let bind_fn: WlRegistryBindFn = std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
+                bind_fn(
+                    registry as *mut wl_proxy,
+                    0, // wl_registry.bind opcode
+                    std::ptr::null(), // No interface definition for KDE extension
+                    name,
+                    b"org_kde_kwin_blur_manager\0".as_ptr() as *const i8,
+                    1u32, // version
+                    std::ptr::null::<std::ffi::c_void>(),
+                ) as *mut org_kde_kwin_blur_manager
+            };
+            if !blur_manager.is_null() {
+                window.blur_manager = Some(blur_manager);
+                crate::log_debug!(
+                    LogCategory::Platform,
+                    "[Wayland] Bound org_kde_kwin_blur_manager - blur effects available"
+                );
+            }
+        }
         _ => {}
     }
 }

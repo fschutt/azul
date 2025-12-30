@@ -19,6 +19,20 @@ pub struct wl_compositor {
     _private: [u8; 0],
 }
 #[repr(C)]
+pub struct wl_region {
+    _private: [u8; 0],
+}
+
+// KDE Blur protocol (org_kde_kwin_blur)
+#[repr(C)]
+pub struct org_kde_kwin_blur_manager {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct org_kde_kwin_blur {
+    _private: [u8; 0],
+}
+#[repr(C)]
 pub struct wl_surface {
     _private: [u8; 0],
 }

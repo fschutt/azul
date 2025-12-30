@@ -656,3 +656,67 @@ pub type XDisplayWidth = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
 pub type XDisplayHeight = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
 pub type XDisplayWidthMM = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
 pub type XDisplayHeightMM = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
+
+// XVisualInfo structure for ARGB visual selection
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct XVisualInfo {
+    pub visual: *mut Visual,
+    pub visualid: c_ulong,
+    pub screen: c_int,
+    pub depth: c_int,
+    pub class: c_int,
+    pub red_mask: c_ulong,
+    pub green_mask: c_ulong,
+    pub blue_mask: c_ulong,
+    pub colormap_size: c_int,
+    pub bits_per_rgb: c_int,
+}
+
+// XRender types for ARGB visual detection
+// See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct XRenderDirectFormat {
+    pub red: i16,
+    pub red_mask: i16,
+    pub green: i16,
+    pub green_mask: i16,
+    pub blue: i16,
+    pub blue_mask: i16,
+    pub alpha: i16,
+    pub alpha_mask: i16,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct XRenderPictFormat {
+    pub id: c_ulong,
+    pub type_: c_int,
+    pub depth: c_int,
+    pub direct: XRenderDirectFormat,
+    pub colormap: Colormap,
+}
+
+// Xlib function types for ARGB visual / colormap
+pub type XCreateColormap = unsafe extern "C" fn(*mut Display, Window, *mut Visual, c_int) -> Colormap;
+pub type XDefaultVisual = unsafe extern "C" fn(*mut Display, c_int) -> *mut Visual;
+pub type XDefaultColormap = unsafe extern "C" fn(*mut Display, c_int) -> Colormap;
+pub type XDefaultDepth = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
+pub type XMatchVisualInfo = unsafe extern "C" fn(*mut Display, c_int, c_int, c_int, *mut XVisualInfo) -> c_int;
+pub type XFreeColormap = unsafe extern "C" fn(*mut Display, Colormap) -> c_int;
+
+// XRender function types
+pub type XRenderFindVisualFormat = unsafe extern "C" fn(*mut Display, *const Visual) -> *mut XRenderPictFormat;
+
+// Additional CW (change window) attribute flags for XCreateWindow
+pub const CWBackPixmap: c_ulong = 1 << 0;
+pub const CWColormap: c_ulong = 1 << 13;
+
+// Colormap allocation modes
+pub const AllocNone: c_int = 0;
+pub const AllocAll: c_int = 1;
+
+// Visual class for XMatchVisualInfo
+pub const TrueColor: c_int = 4;
+

@@ -396,12 +396,18 @@ pub struct User32Functions {
     pub KillTimer: unsafe extern "system" fn(HWND, usize) -> BOOL,
 }
 
-/// Win32 gdi32.dll function pointers for brushes
+/// Win32 gdi32.dll function pointers for brushes and regions
 #[derive(Copy, Clone)]
 pub struct Gdi32Functions {
     pub CreateSolidBrush: unsafe extern "system" fn(u32) -> HBRUSH,
     pub DeleteObject: unsafe extern "system" fn(*mut core::ffi::c_void) -> BOOL,
+    /// Create a rectangular region - used for DwmEnableBlurBehindWindow
+    /// CreateRectRgn(0, 0, -1, -1) creates a minimal region for transparent backgrounds
+    pub CreateRectRgn: unsafe extern "system" fn(i32, i32, i32, i32) -> HRGN,
 }
+
+/// HRGN type for region handles
+pub type HRGN = *mut core::ffi::c_void;
 
 /// Win32 imm32.dll function pointers for IME (Input Method Editor)
 #[derive(Copy, Clone)]
@@ -428,6 +434,104 @@ pub struct Kernel32Functions {
     pub SetThreadExecutionState: unsafe extern "system" fn(u32) -> u32,
 }
 
+// ============================================================================
+// DWM (Desktop Window Manager) API for Windows 11 transparency effects
+// ============================================================================
+
+/// DWM_SYSTEMBACKDROP_TYPE enum (Windows 11 22H2+)
+/// Used with DWMWA_SYSTEMBACKDROP_TYPE to set Mica/Acrylic effects
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum DWM_SYSTEMBACKDROP_TYPE {
+    /// Let DWM automatically decide the system backdrop
+    DWMSBT_AUTO = 0,
+    /// No system backdrop (use for transparent windows)
+    DWMSBT_NONE = 1,
+    /// Mica effect (main window material)
+    DWMSBT_MAINWINDOW = 2,
+    /// Acrylic effect (transient/popup material)
+    DWMSBT_TRANSIENTWINDOW = 3,
+    /// Mica Alt effect (tabbed window material)
+    DWMSBT_TABBEDWINDOW = 4,
+}
+
+/// DWMWINDOWATTRIBUTE constants for DwmSetWindowAttribute
+pub const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+pub const DWMWA_SYSTEMBACKDROP_TYPE: u32 = 38;
+
+/// MARGINS structure for DwmExtendFrameIntoClientArea
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default)]
+pub struct MARGINS {
+    pub cxLeftWidth: i32,
+    pub cxRightWidth: i32,
+    pub cyTopHeight: i32,
+    pub cyBottomHeight: i32,
+}
+
+impl MARGINS {
+    /// Create margins that extend the frame into the entire client area
+    /// This is required for Mica/Acrylic effects to work
+    pub const fn full_window() -> Self {
+        Self {
+            cxLeftWidth: -1,
+            cxRightWidth: -1,
+            cyTopHeight: -1,
+            cyBottomHeight: -1,
+        }
+    }
+}
+
+/// DWM_BLURBEHIND structure for DwmEnableBlurBehindWindow
+/// Used to achieve true transparent background with OpenGL
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct DWM_BLURBEHIND {
+    pub dwFlags: u32,
+    pub fEnable: i32,  // BOOL
+    pub hRgnBlur: *mut core::ffi::c_void, // HRGN
+    pub fTransitionOnMaximized: i32, // BOOL
+}
+
+impl Default for DWM_BLURBEHIND {
+    fn default() -> Self {
+        Self {
+            dwFlags: 0,
+            fEnable: 0,
+            hRgnBlur: std::ptr::null_mut(),
+            fTransitionOnMaximized: 0,
+        }
+    }
+}
+
+/// DWM_BB flags for DWM_BLURBEHIND.dwFlags
+pub const DWM_BB_ENABLE: u32 = 0x00000001;
+pub const DWM_BB_BLURREGION: u32 = 0x00000002;
+pub const DWM_BB_TRANSITIONONMAXIMIZED: u32 = 0x00000004;
+
+/// Dwmapi.dll function pointers for Desktop Window Manager effects
+#[derive(Copy, Clone)]
+pub struct DwmapiFunctions {
+    /// Set window attributes (backdrop type, dark mode, etc.)
+    pub DwmSetWindowAttribute: unsafe extern "system" fn(
+        hwnd: HWND,
+        dwAttribute: u32,
+        pvAttribute: *const core::ffi::c_void,
+        cbAttribute: u32,
+    ) -> HRESULT,
+    /// Extend the window frame into the client area (required for Mica/Acrylic)
+    pub DwmExtendFrameIntoClientArea: unsafe extern "system" fn(
+        hwnd: HWND,
+        pMarInset: *const MARGINS,
+    ) -> HRESULT,
+    /// Enable blur-behind effect for transparent backgrounds
+    /// This is the key function for making OpenGL windows transparent
+    pub DwmEnableBlurBehindWindow: unsafe extern "system" fn(
+        hwnd: HWND,
+        pBlurBehind: *const DWM_BLURBEHIND,
+    ) -> HRESULT,
+}
+
 /// Pre-load commonly used Win32 DLLs
 pub struct Win32Libraries {
     pub user32_dll: Option<DynamicLibrary>,
@@ -442,6 +546,8 @@ pub struct Win32Libraries {
     pub kernel32: Option<Kernel32Functions>,
     pub opengl32: Option<DynamicLibrary>,
     pub dwmapi: Option<DynamicLibrary>,
+    /// DWM functions for Windows 11 transparency effects (Mica, Acrylic)
+    pub dwmapi_funcs: Option<DwmapiFunctions>,
 }
 
 impl Win32Libraries {
@@ -601,6 +707,9 @@ impl Win32Libraries {
                 DeleteObject: gdi32_dll
                     .get_symbol("DeleteObject")
                     .ok_or_else(|| "DeleteObject not found".to_string())?,
+                CreateRectRgn: gdi32_dll
+                    .get_symbol("CreateRectRgn")
+                    .ok_or_else(|| "CreateRectRgn not found".to_string())?,
             }
         };
 
@@ -672,6 +781,30 @@ impl Win32Libraries {
             None
         };
 
+        // Try to load function pointers from dwmapi.dll (optional - for Windows 11 transparency)
+        let dwmapi = DynamicLibrary::load("dwmapi.dll").ok();
+        let dwmapi_funcs = if let Some(ref dll) = dwmapi {
+            unsafe {
+                let set_attr = dll.get_symbol("DwmSetWindowAttribute");
+                let extend_frame = dll.get_symbol("DwmExtendFrameIntoClientArea");
+                let blur_behind = dll.get_symbol("DwmEnableBlurBehindWindow");
+                
+                if let (Some(s), Some(e), Some(b)) = (set_attr, extend_frame, blur_behind) {
+                    log_debug!(LogCategory::Platform, "Loaded dwmapi.dll - DWM transparency effects available");
+                    Some(DwmapiFunctions {
+                        DwmSetWindowAttribute: s,
+                        DwmExtendFrameIntoClientArea: e,
+                        DwmEnableBlurBehindWindow: b,
+                    })
+                } else {
+                    log_debug!(LogCategory::Platform, "dwmapi.dll loaded but DWM functions not found");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             user32_dll: Some(user32_dll),
             user32,
@@ -684,7 +817,8 @@ impl Win32Libraries {
             kernel32_dll,
             kernel32,
             opengl32: DynamicLibrary::load("opengl32.dll").ok(),
-            dwmapi: DynamicLibrary::load("dwmapi.dll").ok(),
+            dwmapi,
+            dwmapi_funcs,
         })
     }
 }
@@ -704,6 +838,7 @@ impl Clone for Win32Libraries {
             kernel32: self.kernel32,
             opengl32: None,
             dwmapi: None,
+            dwmapi_funcs: self.dwmapi_funcs,
         }
     }
 }

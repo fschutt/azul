@@ -149,6 +149,13 @@ pub struct Xlib {
     pub XDisplayHeight: XDisplayHeight,
     pub XDisplayWidthMM: XDisplayWidthMM,
     pub XDisplayHeightMM: XDisplayHeightMM,
+    // ARGB visual / colormap functions
+    pub XCreateColormap: XCreateColormap,
+    pub XDefaultVisual: XDefaultVisual,
+    pub XDefaultColormap: XDefaultColormap,
+    pub XDefaultDepth: XDefaultDepth,
+    pub XMatchVisualInfo: XMatchVisualInfo,
+    pub XFreeColormap: XFreeColormap,
 }
 
 impl Xlib {
@@ -208,6 +215,13 @@ impl Xlib {
             XDisplayHeight: load_symbol!(lib, _, "XDisplayHeight"),
             XDisplayWidthMM: load_symbol!(lib, _, "XDisplayWidthMM"),
             XDisplayHeightMM: load_symbol!(lib, _, "XDisplayHeightMM"),
+            // ARGB visual / colormap functions
+            XCreateColormap: load_symbol!(lib, _, "XCreateColormap"),
+            XDefaultVisual: load_symbol!(lib, _, "XDefaultVisual"),
+            XDefaultColormap: load_symbol!(lib, _, "XDefaultColormap"),
+            XDefaultDepth: load_symbol!(lib, _, "XDefaultDepth"),
+            XMatchVisualInfo: load_symbol!(lib, _, "XMatchVisualInfo"),
+            XFreeColormap: load_symbol!(lib, _, "XFreeColormap"),
             _lib: lib,
         }))
     }
@@ -330,6 +344,23 @@ impl Gtk3Im {
             gtk_im_context_focus_in: load_symbol!(lib, _, "gtk_im_context_focus_in"),
             gtk_im_context_focus_out: load_symbol!(lib, _, "gtk_im_context_focus_out"),
             gtk_im_context_reset: load_symbol!(lib, _, "gtk_im_context_reset"),
+            _lib: lib,
+        }))
+    }
+}
+
+/// Dynamically loaded XRender functions for ARGB visual detection
+/// See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
+pub struct Xrender {
+    _lib: Library,
+    pub XRenderFindVisualFormat: XRenderFindVisualFormat,
+}
+
+impl Xrender {
+    pub fn new() -> Result<Rc<Self>, DlError> {
+        let lib = load_first_available::<Library>(&["libXrender.so.1", "libXrender.so"])?;
+        Ok(Rc::new(Self {
+            XRenderFindVisualFormat: load_symbol!(lib, _, "XRenderFindVisualFormat"),
             _lib: lib,
         }))
     }

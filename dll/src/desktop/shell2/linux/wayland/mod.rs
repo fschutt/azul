@@ -62,7 +62,7 @@ use crate::desktop::{
     wr_translate2::{self, AsyncHitTester, Notifier},
 };
 use crate::{log_debug, log_error, log_info, log_warn, log_trace};
-use super::super::super::common::debug_server::LogCategory;
+use crate::desktop::shell2::common::debug_server::LogCategory;
 
 /// Tracks the current rendering mode of the window.
 enum RenderMode {
@@ -144,6 +144,10 @@ pub struct WaylandWindow {
 
     // Wayland protocols
     subcompositor: Option<*mut defines::wl_subcompositor>, // For tooltips
+
+    // KDE blur protocol (org.kde.kwin.blur)
+    blur_manager: Option<*mut defines::org_kde_kwin_blur_manager>,
+    current_blur: Option<*mut defines::org_kde_kwin_blur>,
 
     // Tooltip
     tooltip: Option<tooltip::TooltipWindow>,
@@ -980,6 +984,8 @@ impl WaylandWindow {
             is_open: true,
             configured: false,
             subcompositor: None,
+            blur_manager: None,
+            current_blur: None,
             tooltip: None,
             screensaver_inhibit_cookie: None,
             dbus_connection: None,
@@ -2132,15 +2138,25 @@ impl WaylandWindow {
             }
         }
 
-        // Check window flags for is_top_level
-        if let Some(prev) = &self.previous_window_state {
+        // Check window flags for is_top_level and other changes
+        // We extract all values first to avoid borrow conflicts
+        let flag_changes = self.previous_window_state.as_ref().map(|prev| {
             let is_top_level_changed =
                 prev.flags.is_top_level != self.current_window_state.flags.is_top_level;
             let prevent_sleep_changed = prev.flags.prevent_system_sleep
                 != self.current_window_state.flags.prevent_system_sleep;
+            let background_material_changed = 
+                prev.flags.background_material != self.current_window_state.flags.background_material;
             let new_is_top_level = self.current_window_state.flags.is_top_level;
             let new_prevent_sleep = self.current_window_state.flags.prevent_system_sleep;
+            let new_background_material = self.current_window_state.flags.background_material;
 
+            (is_top_level_changed, new_is_top_level, prevent_sleep_changed, new_prevent_sleep, 
+             background_material_changed, new_background_material)
+        });
+
+        if let Some((is_top_level_changed, new_is_top_level, prevent_sleep_changed, new_prevent_sleep,
+                     background_material_changed, new_background_material)) = flag_changes {
             if is_top_level_changed {
                 self.set_is_top_level(new_is_top_level);
             }
@@ -2148,6 +2164,12 @@ impl WaylandWindow {
             // Check window flags for prevent_system_sleep
             if prevent_sleep_changed {
                 self.set_prevent_system_sleep(new_prevent_sleep);
+            }
+
+            // Background material changed? (transparency/blur effects)
+            if background_material_changed {
+                self.apply_background_material(new_background_material);
+                needs_commit = true;
             }
         }
 
@@ -2162,6 +2184,188 @@ impl WaylandWindow {
             unsafe {
                 (self.wayland.wl_surface_commit)(self.surface);
             }
+        }
+    }
+
+    /// Apply window background material for Wayland
+    ///
+    /// Wayland transparency handling:
+    /// - Wayland compositors assume surfaces are opaque by default
+    /// - To enable transparency: set opaque region to NULL
+    /// - To optimize opaque windows: set opaque region covering entire surface
+    /// - Blur effects (Mica, Acrylic) are compositor-specific:
+    ///   - KDE Plasma: Uses `org.kde.kwin.blur` protocol
+    ///   - GNOME: Does not support client-requested blur (window will be transparent only)
+    ///   - Other compositors: Falls back to transparency without blur
+    fn apply_background_material(&mut self, material: azul_core::window::WindowBackgroundMaterial) {
+        use azul_core::window::WindowBackgroundMaterial;
+
+        if self.surface.is_null() || self.compositor.is_null() {
+            log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Cannot apply background material - surface or compositor is null"
+            );
+            return;
+        }
+
+        // First, handle the opaque region based on material type
+        let needs_transparency = !matches!(material, WindowBackgroundMaterial::Opaque);
+        
+        if needs_transparency {
+            // Set opaque region to NULL to enable transparency
+            // This tells the compositor the surface may have transparent areas
+            unsafe {
+                (self.wayland.wl_surface_set_opaque_region)(self.surface, std::ptr::null_mut());
+            }
+            log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Set opaque region to NULL for transparency"
+            );
+        } else {
+            // For opaque windows, set opaque region covering the entire surface
+            // This optimizes compositing by telling the compositor it can skip blending
+            let (width, height) = (
+                self.current_window_state.size.dimensions.width as i32,
+                self.current_window_state.size.dimensions.height as i32,
+            );
+            
+            if width > 0 && height > 0 {
+                unsafe {
+                    let region = (self.wayland.wl_compositor_create_region)(self.compositor);
+                    if !region.is_null() {
+                        (self.wayland.wl_region_add)(region, 0, 0, width, height);
+                        (self.wayland.wl_surface_set_opaque_region)(self.surface, region);
+                        (self.wayland.wl_region_destroy)(region);
+                        log_debug!(
+                            LogCategory::Platform,
+                            "[Wayland] Set opaque region to {}x{} for opaque window",
+                            width, height
+                        );
+                    }
+                }
+            }
+        }
+
+        // Handle blur effects for supported materials on KDE Plasma
+        match material {
+            WindowBackgroundMaterial::Opaque => {
+                // Remove any existing blur effect
+                self.remove_kde_blur();
+            }
+            WindowBackgroundMaterial::Transparent => {
+                // Transparent but no blur - remove any existing blur
+                self.remove_kde_blur();
+            }
+            WindowBackgroundMaterial::Sidebar
+            | WindowBackgroundMaterial::Menu
+            | WindowBackgroundMaterial::HUD
+            | WindowBackgroundMaterial::Titlebar
+            | WindowBackgroundMaterial::MicaAlt => {
+                // These materials want blur effects
+                // Try to apply KDE blur if blur_manager is available
+                if self.blur_manager.is_some() {
+                    self.apply_kde_blur();
+                } else {
+                    log_debug!(
+                        LogCategory::Platform,
+                        "[Wayland] Blur effects requested ({:?}) but no blur manager available - \
+                         window will be transparent without blur (compositor may not support org.kde.kwin.blur)",
+                        material
+                    );
+                }
+            }
+        }
+
+        // Commit the surface to apply changes
+        unsafe {
+            (self.wayland.wl_surface_commit)(self.surface);
+        }
+    }
+
+    /// Remove any existing KDE blur effect from the surface
+    fn remove_kde_blur(&mut self) {
+        if let Some(blur) = self.current_blur.take() {
+            if let Some(ref blur_manager) = self.blur_manager {
+                unsafe {
+                    // org_kde_kwin_blur_release is opcode 0
+                    // We use wl_proxy_destroy since we don't have a dedicated release function
+                    (self.wayland.wl_proxy_destroy)(blur as *mut defines::wl_proxy);
+                }
+                log_debug!(
+                    LogCategory::Platform,
+                    "[Wayland] Removed KDE blur effect from surface"
+                );
+            }
+        }
+    }
+
+    /// Apply KDE blur effect to the surface
+    /// 
+    /// Uses the org.kde.kwin.blur protocol available on KDE Plasma.
+    /// The blur effect will cover the entire window.
+    fn apply_kde_blur(&mut self) {
+        let blur_manager = match self.blur_manager {
+            Some(bm) => bm,
+            None => return,
+        };
+
+        // Remove any existing blur first
+        self.remove_kde_blur();
+
+        // Create new blur object for this surface
+        // org_kde_kwin_blur_manager.create opcode is 0
+        // Signature: create(id: new_id<org_kde_kwin_blur>, surface: object<wl_surface>)
+        unsafe {
+            // Transmute to specific signature for this call
+            type CreateBlurFn = unsafe extern "C" fn(
+                *mut defines::wl_proxy, u32, *const defines::wl_interface, *const std::ffi::c_void, *mut defines::wl_surface
+            ) -> *mut defines::wl_proxy;
+            let create_fn: CreateBlurFn = std::mem::transmute(self.wayland.wl_proxy_marshal_constructor);
+            
+            let blur = create_fn(
+                blur_manager as *mut defines::wl_proxy,
+                0, // create opcode
+                std::ptr::null(), // org_kde_kwin_blur has no interface constant, use null
+                std::ptr::null::<std::ffi::c_void>(), // new_id placeholder
+                self.surface,
+            );
+
+            if blur.is_null() {
+                log_debug!(
+                    LogCategory::Platform,
+                    "[Wayland] Failed to create KDE blur object"
+                );
+                return;
+            }
+
+            let blur = blur as *mut defines::org_kde_kwin_blur;
+
+            // Set blur region to cover entire surface (NULL = entire surface)
+            // org_kde_kwin_blur.set_region opcode is 1
+            // Signature: set_region(region: object<wl_region>)
+            type SetRegionFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32, *const defines::wl_region);
+            let set_region_fn: SetRegionFn = std::mem::transmute(self.wayland.wl_proxy_marshal);
+            set_region_fn(
+                blur as *mut defines::wl_proxy,
+                1, // set_region opcode
+                std::ptr::null::<defines::wl_region>(), // NULL = entire surface
+            );
+
+            // Commit the blur
+            // org_kde_kwin_blur.commit opcode is 2
+            type CommitFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
+            let commit_fn: CommitFn = std::mem::transmute(self.wayland.wl_proxy_marshal);
+            commit_fn(
+                blur as *mut defines::wl_proxy,
+                2, // commit opcode
+            );
+
+            self.current_blur = Some(blur);
+
+            log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Applied KDE blur effect to surface"
+            );
         }
     }
 
@@ -2440,6 +2644,14 @@ impl Drop for WaylandWindow {
         }
         
         unsafe {
+            // Clean up KDE blur resources
+            if let Some(blur) = self.current_blur.take() {
+                (self.wayland.wl_proxy_destroy)(blur as _);
+            }
+            if let Some(blur_manager) = self.blur_manager.take() {
+                (self.wayland.wl_proxy_destroy)(blur_manager as _);
+            }
+
             // Clean up cursor resources
             if !self.pointer_state.cursor_surface.is_null() {
                 (self.wayland.wl_proxy_destroy)(self.pointer_state.cursor_surface as _);
