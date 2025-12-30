@@ -36,8 +36,8 @@ use crate::{
     solver3::{
         geometry::{BoxProps, BoxSizing, IntrinsicSizes},
         getters::{
-            get_css_height, get_css_width, get_display_property, get_style_properties,
-            get_writing_mode,
+            get_css_box_sizing, get_css_height, get_css_width, get_display_property, get_style_properties,
+            get_writing_mode, MultiValue,
         },
         layout_tree::{AnonymousBoxType, LayoutNode, LayoutTree},
         positioning::get_position_type,
@@ -688,9 +688,18 @@ pub fn calculate_used_size_for_node(
     _box_props: &BoxProps,
 ) -> Result<LogicalSize> {
     let Some(id) = dom_id else {
+        // Anonymous boxes: 
+        // - Width fills the containing block (like block-level elements)
+        // - Height is auto (content-based)
+        // CSS 2.2 § 9.2.1.1: Anonymous boxes inherit from their enclosing box
         return Ok(LogicalSize::new(
-            intrinsic.max_content_width,
-            intrinsic.max_content_height,
+            containing_block_size.width,
+            if intrinsic.max_content_height > 0.0 {
+                intrinsic.max_content_height
+            } else {
+                // Auto height - will be resolved from content
+                0.0
+            },
         ));
     };
 
@@ -839,21 +848,42 @@ pub fn calculate_used_size_for_node(
         _box_props,
     );
 
-    // Step 4: Convert content-box dimensions to border-box dimensions
-    // The constraints above give us CONTENT-BOX sizes (min-height/max-height apply to content).
-    // We need to return BORDER-BOX sizes (which include padding and border).
-    // CSS 2.2 § 8.4: "The properties that apply to and affect box dimensions are:
-    // margin, border, padding, width, and height."
-    let border_box_width = constrained_width
-        + _box_props.padding.left
-        + _box_props.padding.right
-        + _box_props.border.left
-        + _box_props.border.right;
-    let border_box_height = constrained_height
-        + _box_props.padding.top
-        + _box_props.padding.bottom
-        + _box_props.border.top
-        + _box_props.border.bottom;
+    // Step 4: Convert to border-box dimensions, respecting box-sizing property
+    // CSS box-sizing:
+    // - content-box (default): width/height set content size, border+padding are added
+    // - border-box: width/height set border-box size, border+padding are included
+    let box_sizing = match get_css_box_sizing(styled_dom, id, node_state) {
+        MultiValue::Exact(bs) => bs,
+        MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
+            azul_css::props::layout::LayoutBoxSizing::ContentBox
+        }
+    };
+
+    let (border_box_width, border_box_height) = match box_sizing {
+        azul_css::props::layout::LayoutBoxSizing::BorderBox => {
+            // border-box: The width/height values already include border and padding
+            // CSS Box Sizing Level 3: "the specified width and height (and respective min/max
+            // properties) on this element determine the border box of the element"
+            (constrained_width, constrained_height)
+        }
+        azul_css::props::layout::LayoutBoxSizing::ContentBox => {
+            // content-box: The width/height values set the content size, 
+            // border and padding are added outside
+            // CSS 2.2 § 8.4: "The properties that apply to and affect box dimensions are:
+            // margin, border, padding, width, and height."
+            let border_box_width = constrained_width
+                + _box_props.padding.left
+                + _box_props.padding.right
+                + _box_props.border.left
+                + _box_props.border.right;
+            let border_box_height = constrained_height
+                + _box_props.padding.top
+                + _box_props.padding.bottom
+                + _box_props.border.top
+                + _box_props.border.bottom;
+            (border_box_width, border_box_height)
+        }
+    };
 
     // Step 5: Map the resolved physical dimensions to logical dimensions.
     // The `width` property always corresponds to the cross (inline) axis size.

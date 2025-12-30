@@ -1,7 +1,7 @@
 use azul_core::geom::LogicalSize;
 
 /// Information about scrollbar requirements and dimensions
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 #[repr(C)]
 pub struct ScrollbarRequirements {
     pub needs_horizontal: bool,

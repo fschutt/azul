@@ -18,7 +18,7 @@ use azul_css::{
             ColorU, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,
         },
         layout::{
-            BoxDecorationBreak, BreakInside, LayoutClear, LayoutDisplay, LayoutFlexWrap,
+            BoxDecorationBreak, BreakInside, LayoutBoxSizing, LayoutClear, LayoutDisplay, LayoutFlexWrap,
             LayoutFloat, LayoutHeight, LayoutJustifyContent, LayoutOverflow, LayoutPosition,
             LayoutWidth, LayoutWritingMode, Orphans, PageBreak, Widows,
         },
@@ -516,6 +516,15 @@ impl ExtractPropertyValue<LayoutPosition> for azul_css::props::property::CssProp
     }
 }
 
+impl ExtractPropertyValue<LayoutBoxSizing> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<LayoutBoxSizing> {
+        match self {
+            Self::BoxSizing(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
 impl ExtractPropertyValue<PixelValue> for azul_css::props::property::CssProperty {
     fn extract(&self) -> Option<PixelValue> {
         self.get_pixel_inner()
@@ -599,6 +608,12 @@ get_css_property!(
     azul_css::props::property::CssPropertyType::Position
 );
 
+get_css_property!(
+    get_css_box_sizing,
+    get_box_sizing,
+    LayoutBoxSizing,
+    azul_css::props::property::CssPropertyType::BoxSizing
+);
 // Complex Property Getters
 
 /// Get border radius for all four corners (raw CSS property values)
@@ -1170,11 +1185,16 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         })
         .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
 
-    let color = cache
+    let color_from_cache = cache
         .get_text_color(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
-        .map(|v| v.inner)
-        .unwrap_or_default();
+        .map(|v| v.inner);
+    
+    let color = color_from_cache.unwrap_or_default();
+    
+    // Debug: log color retrieval
+    eprintln!("[get_style_properties] dom_id={:?}, font_size={}, color={:?} (from_cache={:?})", 
+        dom_id, font_size, color, color_from_cache.is_some());
 
     let line_height = cache
         .get_line_height(node_data, &dom_id, node_state)
