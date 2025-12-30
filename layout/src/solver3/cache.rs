@@ -45,7 +45,7 @@ use crate::{
             get_css_height, get_justify_content, get_overflow_x, get_overflow_y, get_text_align,
             get_wrap, get_writing_mode, MultiValue,
         },
-        layout_tree::{LayoutNode, LayoutTreeBuilder, SubtreeHash},
+        layout_tree::{is_block_level, AnonymousBoxType, LayoutNode, LayoutTreeBuilder, SubtreeHash},
         positioning::get_position_type,
         scrollbar::ScrollbarRequirements,
         sizing::calculate_used_size_for_node,
@@ -468,57 +468,171 @@ pub fn reconcile_recursive(
     let mut children_are_different = new_children_dom_ids.len() != old_children_indices.len();
     let mut new_child_hashes = Vec::new();
 
-    // NOTE: This is a simple list-diffing algorithm. For production, a key-based
-    // algorithm (like in React) is necessary to correctly handle reordered items.
+    // CSS 2.2 Section 9.2.1.1: Anonymous Block Boxes
+    // "When an inline box contains an in-flow block-level box, the inline box 
+    // (and its inline ancestors within the same line box) are broken around 
+    // the block-level box [...], splitting the inline box into two boxes"
+    //
+    // When a block container has mixed block/inline children, we must:
+    // 1. Wrap consecutive inline children in anonymous block boxes
+    // 2. Leave block-level children as direct children
+    
+    let has_block_child = new_children_dom_ids.iter().any(|&id| is_block_level(styled_dom, id));
 
-    for i in 0..new_children_dom_ids.len() {
-        let new_child_dom_id = new_children_dom_ids[i];
-
-        // CSS Spec: Text nodes don't generate layout boxes. They are inline content
-        // that is collected and laid out by their parent's inline formatting context.
-        // Skip creating layout nodes for text, but still hash them for dirty tracking.
-        let node_data = &styled_dom.node_data.as_container()[new_child_dom_id];
-        if matches!(node_data.get_node_type(), NodeType::Text(_)) {
-            // Hash the text node for subtree tracking purposes
-            let text_hash = hash_styled_node_data(styled_dom, new_child_dom_id);
-            new_child_hashes.push(text_hash);
-            // Mark as different if it's a new text node
+    if !has_block_child {
+        // All children are inline - no anonymous boxes needed
+        // Simple case: process each child directly
+        for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
             let old_child_idx = old_children_indices.get(i).copied();
-            if old_tree
-                .and_then(|t| old_child_idx.and_then(|idx| t.get(idx)))
-                .is_none()
+
+            let reconciled_child_idx = reconcile_recursive(
+                styled_dom,
+                new_child_dom_id,
+                old_child_idx,
+                Some(new_node_idx),
+                old_tree,
+                new_tree_builder,
+                recon,
+                debug_messages,
+            )?;
+            if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
+                new_child_hashes.push(child_node.subtree_hash.0);
+            }
+
+            if old_tree.and_then(|t| t.get(old_child_idx?).map(|n| n.subtree_hash))
+                != new_tree_builder.get(reconciled_child_idx).map(|n| n.subtree_hash)
             {
                 children_are_different = true;
             }
-            continue; // Skip creating layout node for text
         }
+    } else {
+        // Mixed content: block and inline children
+        // We must create anonymous block boxes around consecutive inline runs
+        
+        if let Some(msgs) = debug_messages.as_mut() {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[reconcile_recursive] Mixed content in node {}: creating anonymous IFC wrappers",
+                new_dom_id.index()
+            )));
+        }
+        
+        let mut inline_run: Vec<(usize, NodeId)> = Vec::new(); // (dom_child_index, dom_id)
 
-        let old_child_idx = old_children_indices.get(i).copied();
+        for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
+            if is_block_level(styled_dom, new_child_dom_id) {
+                // End current inline run if any
+                if !inline_run.is_empty() {
+                    // Create anonymous IFC wrapper for the inline run
+                    // This wrapper establishes an Inline Formatting Context
+                    let anon_idx = new_tree_builder.create_anonymous_node(
+                        new_node_idx,
+                        AnonymousBoxType::InlineWrapper,
+                        FormattingContext::Inline, // IFC for inline content
+                    );
+                    
+                    if let Some(msgs) = debug_messages.as_mut() {
+                        msgs.push(LayoutDebugMessage::info(format!(
+                            "[reconcile_recursive] Created anonymous IFC wrapper (layout_idx={}) for {} inline children: {:?}",
+                            anon_idx,
+                            inline_run.len(),
+                            inline_run.iter().map(|(_, id)| id.index()).collect::<Vec<_>>()
+                        )));
+                    }
+                    
+                    // Process each inline child under the anonymous wrapper
+                    for (pos, inline_dom_id) in inline_run.drain(..) {
+                        let old_child_idx = old_children_indices.get(pos).copied();
+                        let reconciled_child_idx = reconcile_recursive(
+                            styled_dom,
+                            inline_dom_id,
+                            old_child_idx,
+                            Some(anon_idx), // Parent is the anonymous wrapper
+                            old_tree,
+                            new_tree_builder,
+                            recon,
+                            debug_messages,
+                        )?;
+                        if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
+                            new_child_hashes.push(child_node.subtree_hash.0);
+                        }
+                    }
+                    
+                    // Mark anonymous wrapper as dirty for layout
+                    recon.intrinsic_dirty.insert(anon_idx);
+                    children_are_different = true;
+                }
+                
+                // Process block-level child directly under parent
+                let old_child_idx = old_children_indices.get(i).copied();
+                let reconciled_child_idx = reconcile_recursive(
+                    styled_dom,
+                    new_child_dom_id,
+                    old_child_idx,
+                    Some(new_node_idx),
+                    old_tree,
+                    new_tree_builder,
+                    recon,
+                    debug_messages,
+                )?;
+                if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
+                    new_child_hashes.push(child_node.subtree_hash.0);
+                }
 
-        let reconciled_child_idx = reconcile_recursive(
-            styled_dom,
-            new_child_dom_id,
-            old_child_idx,
-            Some(new_node_idx),
-            old_tree,
-            new_tree_builder,
-            recon,
-            debug_messages,
-        )?;
-        let child_node = new_tree_builder.get(reconciled_child_idx).unwrap();
-        new_child_hashes.push(child_node.subtree_hash.0);
-
-        if old_tree.and_then(|t| t.get(old_child_idx?).map(|n| n.subtree_hash))
-            != Some(child_node.subtree_hash)
-        {
+                if old_tree.and_then(|t| t.get(old_child_idx?).map(|n| n.subtree_hash))
+                    != new_tree_builder.get(reconciled_child_idx).map(|n| n.subtree_hash)
+                {
+                    children_are_different = true;
+                }
+            } else {
+                // Inline-level child - add to current run
+                inline_run.push((i, new_child_dom_id));
+            }
+        }
+        
+        // Process any remaining inline run at the end
+        if !inline_run.is_empty() {
+            let anon_idx = new_tree_builder.create_anonymous_node(
+                new_node_idx,
+                AnonymousBoxType::InlineWrapper,
+                FormattingContext::Inline, // IFC for inline content
+            );
+            
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[reconcile_recursive] Created trailing anonymous IFC wrapper (layout_idx={}) for {} inline children: {:?}",
+                    anon_idx,
+                    inline_run.len(),
+                    inline_run.iter().map(|(_, id)| id.index()).collect::<Vec<_>>()
+                )));
+            }
+            
+            for (pos, inline_dom_id) in inline_run.drain(..) {
+                let old_child_idx = old_children_indices.get(pos).copied();
+                let reconciled_child_idx = reconcile_recursive(
+                    styled_dom,
+                    inline_dom_id,
+                    old_child_idx,
+                    Some(anon_idx),
+                    old_tree,
+                    new_tree_builder,
+                    recon,
+                    debug_messages,
+                )?;
+                if let Some(child_node) = new_tree_builder.get(reconciled_child_idx) {
+                    new_child_hashes.push(child_node.subtree_hash.0);
+                }
+            }
+            
+            recon.intrinsic_dirty.insert(anon_idx);
             children_are_different = true;
         }
     }
 
     // After reconciling children, calculate this node's full subtree hash.
     let final_subtree_hash = calculate_subtree_hash(new_node_data_hash, &new_child_hashes);
-    let current_node = new_tree_builder.get_mut(new_node_idx).unwrap();
-    current_node.subtree_hash = final_subtree_hash;
+    if let Some(current_node) = new_tree_builder.get_mut(new_node_idx) {
+        current_node.subtree_hash = final_subtree_hash;
+    }
 
     // If the node itself was dirty, or its children's structure changed, it's a layout boundary.
     if is_dirty || children_are_different {
@@ -533,7 +647,8 @@ pub fn reconcile_recursive(
 /// intermediate values needed for `calculate_layout_for_subtree`.
 struct PreparedLayoutContext<'a> {
     constraints: LayoutConstraints<'a>,
-    dom_id: NodeId,
+    /// DOM ID for the node. None for anonymous boxes.
+    dom_id: Option<NodeId>,
     writing_mode: LayoutWritingMode,
     final_used_size: LogicalSize,
     box_props: crate::solver3::geometry::BoxProps,
@@ -541,12 +656,15 @@ struct PreparedLayoutContext<'a> {
 
 /// Prepares the layout context for a single node by calculating its used size
 /// and building the layout constraints for its children.
+/// 
+/// For anonymous boxes (no dom_node_id), we use default values and inherit
+/// from the containing block.
 fn prepare_layout_context<'a, T: ParsedFontTrait>(
     ctx: &LayoutContext<'a, T>,
     node: &LayoutNode,
     containing_block_size: LogicalSize,
 ) -> Result<PreparedLayoutContext<'a>> {
-    let dom_id = node.dom_node_id.ok_or(LayoutError::InvalidTree)?;
+    let dom_id = node.dom_node_id; // Can be None for anonymous boxes
 
     // Phase 1: Calculate this node's provisional used size
 
@@ -555,7 +673,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     let intrinsic = node.intrinsic_sizes.clone().unwrap_or_default();
     let final_used_size = calculate_used_size_for_node(
         ctx.styled_dom,
-        Some(dom_id),
+        dom_id, // Now Option<NodeId>
         containing_block_size,
         intrinsic,
         &node.box_props,
@@ -564,24 +682,31 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     // Phase 2: Layout children using a formatting context
 
     // Fetch the writing mode for the current context.
-    let styled_node_state = ctx
-        .styled_dom
-        .styled_nodes
-        .as_container()
-        .get(dom_id)
-        .map(|n| n.styled_node_state.clone())
+    // For anonymous boxes, use default values
+    let styled_node_state = dom_id
+        .and_then(|id| ctx.styled_dom.styled_nodes.as_container().get(id).cloned())
+        .map(|n| n.styled_node_state)
         .unwrap_or_default();
 
-    // This should come from the node's style.
-    let writing_mode =
-        get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-    let text_align = get_text_align(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+    // This should come from the node's style. For anonymous boxes, use defaults.
+    let writing_mode = match dom_id {
+        Some(id) => get_writing_mode(ctx.styled_dom, id, &styled_node_state).unwrap_or_default(),
+        None => LayoutWritingMode::default(),
+    };
+    let text_align = match dom_id {
+        Some(id) => get_text_align(ctx.styled_dom, id, &styled_node_state).unwrap_or_default(),
+        None => StyleTextAlign::default(),
+    };
 
     // IMPORTANT: For the available_size that we pass to children, we need to use
     // the containing_block_size if the current node's height is 'auto'.
     // Otherwise, we would pass 0 as available height to children, which breaks
     // table layout and other auto-height containers.
-    let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
+    // For anonymous boxes, assume 'auto' height behavior.
+    let css_height: MultiValue<LayoutHeight> = match dom_id {
+        Some(id) => get_css_height(ctx.styled_dom, id, &styled_node_state),
+        None => MultiValue::Auto, // Anonymous boxes have auto height
+    };
     let available_size_for_children = if should_use_content_height(&css_height) {
         // Height is auto - use containing block size as available size
         let inner_size = node.box_props.inner_size(final_used_size, writing_mode);
@@ -985,15 +1110,16 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     let content_size = layout_result.output.overflow_size;
 
     // Phase 2.5: Resolve 'auto' main-axis size based on content
-    let styled_node_state = ctx
-        .styled_dom
-        .styled_nodes
-        .as_container()
-        .get(dom_id)
-        .map(|n| n.styled_node_state.clone())
+    // For anonymous boxes, use default styled node state
+    let styled_node_state = dom_id
+        .and_then(|id| ctx.styled_dom.styled_nodes.as_container().get(id).cloned())
+        .map(|n| n.styled_node_state)
         .unwrap_or_default();
 
-    let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
+    let css_height: MultiValue<LayoutHeight> = match dom_id {
+        Some(id) => get_css_height(ctx.styled_dom, id, &styled_node_state),
+        None => MultiValue::Auto, // Anonymous boxes have auto height
+    };
     if should_use_content_height(&css_height) {
         final_used_size = apply_content_based_height(
             final_used_size,
@@ -1005,16 +1131,20 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     }
 
     // Phase 3: Scrollbar handling
+    // Anonymous boxes don't have scrollbars
     let skip_scrollbar_check = ctx.fragmentation_context.is_some();
-    let scrollbar_info = compute_scrollbar_info(
-        ctx,
-        dom_id,
-        &styled_node_state,
-        content_size,
-        &box_props,
-        final_used_size,
-        writing_mode,
-    );
+    let scrollbar_info = match dom_id {
+        Some(id) => compute_scrollbar_info(
+            ctx,
+            id,
+            &styled_node_state,
+            content_size,
+            &box_props,
+            final_used_size,
+            writing_mode,
+        ),
+        None => ScrollbarRequirements::default(),
+    };
 
     if check_scrollbar_change(tree, node_index, &scrollbar_info, skip_scrollbar_check) {
         *reflow_needed_for_scrollbars = true;

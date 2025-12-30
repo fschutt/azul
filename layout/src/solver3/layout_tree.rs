@@ -475,10 +475,38 @@ impl LayoutTreeBuilder {
             .az_children(&styled_dom.node_hierarchy.as_container())
             .collect();
 
+        // Debug: log which children we found
+        if let Some(msgs) = debug_messages.as_mut() {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[process_block_children] DOM node {} has {} children: {:?}",
+                parent_dom_id.index(),
+                children.len(),
+                children.iter().map(|c| c.index()).collect::<Vec<_>>()
+            )));
+        }
+
         let has_block_child = children.iter().any(|&id| is_block_level(styled_dom, id));
+
+        if let Some(msgs) = debug_messages.as_mut() {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[process_block_children] has_block_child={}, children display types: {:?}",
+                has_block_child,
+                children.iter().map(|c| {
+                    let dt = get_display_type(styled_dom, *c);
+                    let is_block = is_block_level(styled_dom, *c);
+                    format!("{}:{:?}(block={})", c.index(), dt, is_block)
+                }).collect::<Vec<_>>()
+            )));
+        }
 
         if !has_block_child {
             // All children are inline, no anonymous boxes needed.
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[process_block_children] All inline, processing {} children directly",
+                    children.len()
+                )));
+            }
             for child_id in children {
                 self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
             }
@@ -492,6 +520,12 @@ impl LayoutTreeBuilder {
             if is_block_level(styled_dom, child_id) {
                 // End the current inline run
                 if !inline_run.is_empty() {
+                    if let Some(msgs) = debug_messages.as_mut() {
+                        msgs.push(LayoutDebugMessage::info(format!(
+                            "[process_block_children] Creating anon wrapper for inline run: {:?}",
+                            inline_run.iter().map(|c: &NodeId| c.index()).collect::<Vec<_>>()
+                        )));
+                    }
                     let anon_idx = self.create_anonymous_node(
                         parent_idx,
                         AnonymousBoxType::InlineWrapper,
@@ -510,6 +544,12 @@ impl LayoutTreeBuilder {
                     }
                 }
                 // Process the block-level child directly
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[process_block_children] Processing block child DOM {}",
+                        child_id.index()
+                    )));
+                }
                 self.process_node(styled_dom, child_id, Some(parent_idx), debug_messages)?;
             } else {
                 inline_run.push(child_id);
@@ -517,6 +557,12 @@ impl LayoutTreeBuilder {
         }
         // Process any remaining inline children at the end
         if !inline_run.is_empty() {
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[process_block_children] Creating anon wrapper for remaining inline run: {:?}",
+                    inline_run.iter().map(|c| c.index()).collect::<Vec<_>>()
+                )));
+            }
             let anon_idx = self.create_anonymous_node(
                 parent_idx,
                 AnonymousBoxType::InlineWrapper,
@@ -680,7 +726,7 @@ impl LayoutTreeBuilder {
     /// Anonymous boxes don't have a corresponding DOM node and are used to enforce
     /// the CSS box model structure (e.g., wrapping inline content in blocks,
     /// or creating missing table structural elements).
-    fn create_anonymous_node(
+    pub fn create_anonymous_node(
         &mut self,
         parent: usize,
         anon_type: AnonymousBoxType,
@@ -852,7 +898,7 @@ impl LayoutTreeBuilder {
     }
 }
 
-fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     matches!(
         get_display_type(styled_dom, node_id),
         LayoutDisplay::Block

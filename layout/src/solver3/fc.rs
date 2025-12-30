@@ -1782,10 +1782,29 @@ fn layout_ifc<T: ParsedFontTrait>(
     );
     debug_ifc_layout!(ctx, "CALLED for node_index={}", node_index);
 
-    let ifc_root_dom_id = tree
-        .get(node_index)
-        .and_then(|n| n.dom_node_id)
-        .ok_or(LayoutError::InvalidTree)?;
+    // For anonymous boxes, we need to find the DOM ID from a parent or child
+    // CSS 2.2 § 9.2.1.1: Anonymous boxes inherit properties from their enclosing box
+    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+    let ifc_root_dom_id = match node.dom_node_id {
+        Some(id) => id,
+        None => {
+            // Anonymous box - get DOM ID from parent or first child with DOM ID
+            let parent_dom_id = node.parent
+                .and_then(|p| tree.get(p))
+                .and_then(|n| n.dom_node_id);
+            
+            if let Some(id) = parent_dom_id {
+                id
+            } else {
+                // Try to find DOM ID from first child
+                node.children.iter()
+                    .filter_map(|&child_idx| tree.get(child_idx))
+                    .filter_map(|n| n.dom_node_id)
+                    .next()
+                    .ok_or(LayoutError::InvalidTree)?
+            }
+        }
+    };
 
     debug_ifc_layout!(ctx, "ifc_root_dom_id={:?}", ifc_root_dom_id);
 
@@ -4593,10 +4612,36 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     let mut child_map = HashMap::new();
     let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;
 
-    // Get the DOM node ID of the IFC root
-    let Some(ifc_root_dom_id) = ifc_root_node.dom_node_id else {
-        debug_warning!(ctx, "IFC root has no DOM ID");
-        return Ok((content, child_map));
+    // Check if this is an anonymous IFC wrapper (has no DOM ID)
+    let is_anonymous = ifc_root_node.dom_node_id.is_none();
+
+    // Get the DOM node ID of the IFC root, or find it from parent/children for anonymous boxes
+    // CSS 2.2 § 9.2.1.1: Anonymous boxes inherit properties from their enclosing box
+    let ifc_root_dom_id = match ifc_root_node.dom_node_id {
+        Some(id) => id,
+        None => {
+            // Anonymous box - get DOM ID from parent or first child with DOM ID
+            let parent_dom_id = ifc_root_node.parent
+                .and_then(|p| tree.get(p))
+                .and_then(|n| n.dom_node_id);
+            
+            if let Some(id) = parent_dom_id {
+                id
+            } else {
+                // Try to find DOM ID from first child
+                match ifc_root_node.children.iter()
+                    .filter_map(|&child_idx| tree.get(child_idx))
+                    .filter_map(|n| n.dom_node_id)
+                    .next()
+                {
+                    Some(id) => id,
+                    None => {
+                        debug_warning!(ctx, "IFC root and all ancestors/children have no DOM ID");
+                        return Ok((content, child_map));
+                    }
+                }
+            }
+        }
     };
 
     // Collect children to avoid holding an immutable borrow during iteration
@@ -4605,10 +4650,88 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
 
     debug_ifc_layout!(
         ctx,
-        "Node {} has {} layout children",
+        "Node {} has {} layout children, is_anonymous={}",
         ifc_root_index,
-        children.len()
+        children.len(),
+        is_anonymous
     );
+
+    // For anonymous IFC wrappers, we collect content from layout tree children
+    // For regular IFC roots, we also check DOM children for text nodes
+    if is_anonymous {
+        // Anonymous IFC wrapper - iterate over layout tree children and collect their content
+        for (item_idx, &child_index) in children.iter().enumerate() {
+            let content_index = ContentIndex {
+                run_index: ifc_root_index as u32,
+                item_index: item_idx as u32,
+            };
+            
+            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let Some(dom_id) = child_node.dom_node_id else {
+                debug_warning!(ctx, "Anonymous IFC child at index {} has no DOM ID", child_index);
+                continue;
+            };
+            
+            let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
+            
+            // Check if this is a text node
+            if let NodeType::Text(ref text_content) = node_data.get_node_type() {
+                debug_info!(
+                    ctx,
+                    "[collect_and_measure_inline_content] OK: Found text node (DOM {:?}) in anonymous wrapper: '{}'",
+                    dom_id,
+                    text_content.as_str()
+                );
+                // Get style from the TEXT NODE itself (dom_id), not the IFC root
+                // This ensures inline styles like color: #666666 are applied to the text
+                content.push(InlineContent::Text(StyledRun {
+                    text: text_content.to_string(),
+                    style: Arc::new(get_style_properties(ctx.styled_dom, dom_id)),
+                    logical_start_byte: 0,
+                }));
+                child_map.insert(content_index, child_index);
+                continue;
+            }
+            
+            // Non-text inline child - add as shape for inline-block
+            let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
+            if display != LayoutDisplay::Inline {
+                // Inline-block or similar
+                let intrinsic_size = child_node.intrinsic_sizes.clone().unwrap_or_default();
+                let width = intrinsic_size.max_content_width.max(1.0);
+                let height = intrinsic_size.max_content_height.max(1.0);
+                
+                content.push(InlineContent::Shape(InlineShape {
+                    shape_def: ShapeDefinition::Rectangle {
+                        size: crate::text3::cache::Size { width, height },
+                        corner_radius: None,
+                    },
+                    fill: None,
+                    stroke: None,
+                    baseline_offset: height,
+                    source_node_id: Some(dom_id),
+                }));
+                child_map.insert(content_index, child_index);
+            } else {
+                // Regular inline element - collect its text children
+                let span_style = get_style_properties(ctx.styled_dom, dom_id);
+                collect_inline_span_recursive(
+                    ctx,
+                    tree,
+                    dom_id,
+                    span_style,
+                    &mut content,
+                    &mut child_map,
+                    &children,
+                    constraints,
+                )?;
+            }
+        }
+        
+        return Ok((content, child_map));
+    }
+
+    // Regular (non-anonymous) IFC root - check for list markers and use DOM traversal
 
     // Check if this IFC root OR its parent is a list-item and needs a marker
     // Case 1: IFC root itself is list-item (e.g., <li> with display: list-item)
@@ -4804,10 +4927,11 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 dom_child_id,
                 text_content.as_str()
             );
-            // For text nodes, inherit style from the IFC root (their parent in the layout tree)
+            // Get style from the TEXT NODE itself (dom_child_id), not the IFC root
+            // This ensures inline styles like color: #666666 are applied to the text
             content.push(InlineContent::Text(StyledRun {
                 text: text_content.to_string(),
-                style: Arc::new(get_style_properties(ctx.styled_dom, ifc_root_dom_id)),
+                style: Arc::new(get_style_properties(ctx.styled_dom, dom_child_id)),
                 logical_start_byte: 0,
             }));
             // Text nodes don't have layout tree nodes, so we don't add them to child_map
