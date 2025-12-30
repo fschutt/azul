@@ -181,6 +181,10 @@ pub enum DebugEvent {
     // Testing
     WaitFrame,
     Wait { ms: u64 },
+    
+    // Screenshots
+    TakeScreenshot,
+    TakeNativeScreenshot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -754,6 +758,32 @@ fn process_debug_event(
         DebugEvent::Wait { ms } => {
             std::thread::sleep(std::time::Duration::from_millis(*ms));
             send_response(request, true, None, None, None);
+        }
+
+        DebugEvent::TakeScreenshot => {
+            log(LogLevel::Info, LogCategory::Rendering, "Taking CPU screenshot via debug API", None);
+            // Use DomId(0) as default - first DOM in the window
+            let dom_id = azul_core::dom::DomId { inner: 0 };
+            match callback_info.take_screenshot_base64(dom_id) {
+                Ok(data_uri) => {
+                    send_response(request, true, None, Some(data_uri.as_str().to_string()), None);
+                }
+                Err(e) => {
+                    send_response(request, false, Some(e.as_str().to_string()), None, None);
+                }
+            }
+        }
+
+        DebugEvent::TakeNativeScreenshot => {
+            log(LogLevel::Info, LogCategory::Rendering, "Taking native screenshot via debug API", None);
+            match callback_info.take_native_screenshot_base64() {
+                Ok(data_uri) => {
+                    send_response(request, true, None, Some(data_uri.as_str().to_string()), None);
+                }
+                Err(e) => {
+                    send_response(request, false, Some(e.as_str().to_string()), None, None);
+                }
+            }
         }
 
         _ => {

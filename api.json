@@ -1901,7 +1901,9 @@
               {
                 "window_id": {
                   "type": "String",
-                  "doc": "Semantic window identifier for multi-window debugging. Can be set to identify specific windows (e.g., 'main', 'settings', 'popup-1')"
+                  "doc": [
+                    "Semantic window identifier for multi-window debugging. Can be set to identify specific windows (e.g., 'main', 'settings', 'popup-1')"
+                  ]
                 },
                 "theme": {
                   "type": "WindowTheme"
@@ -5538,6 +5540,296 @@
                   }
                 ],
                 "fn_body": "object.delete_forward(target)"
+              },
+              "get_all_children_nodes": {
+                "doc": [
+                  "Get all direct children of a node",
+                  "",
+                  "Returns a vector of NodeIds for all direct children of the specified node.",
+                  "Does not recurse into children of children (non-recursive)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "dom_id": "DomId"
+                  },
+                  {
+                    "node_id": "NodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "NodeIdVec"
+                },
+                "fn_body": "object.get_all_children_nodes(dom_id, node_id)"
+              },
+              "get_children_count": {
+                "doc": [
+                  "Get the number of direct children of a node",
+                  "",
+                  "Returns the count of direct children for the specified node.",
+                  "This is more efficient than get_all_children_nodes().len() when you only need the count."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "dom_id": "DomId"
+                  },
+                  {
+                    "node_id": "NodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "object.get_children_count(dom_id, node_id)"
+              },
+              "get_node_tag_name": {
+                "doc": [
+                  "Get the HTML tag name of a node",
+                  "",
+                  "Returns the tag name (e.g., 'div', 'body', 'p', 'input') of the specified node.",
+                  "Returns None if the node doesn't exist."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "node_id": "DomNodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionString"
+                },
+                "fn_body": "object.get_node_tag_name(node_id).into()"
+              },
+              "get_node_attribute": {
+                "doc": [
+                  "Get a specific attribute value of a node",
+                  "",
+                  "Returns the value of the specified attribute on the node.",
+                  "Supports standard HTML attributes like 'id', 'class', 'href', 'src', 'alt', etc.",
+                  "Also supports custom data-* attributes and aria-* attributes.",
+                  "",
+                  "# Arguments",
+                  "* `node_id` - The DOM node to query",
+                  "* `attr_name` - The attribute name to look up (e.g., 'id', 'class', 'href')",
+                  "",
+                  "# Returns",
+                  "* `Some(String)` if the attribute exists",
+                  "* `None` if the attribute doesn't exist or the node doesn't exist"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "node_id": "DomNodeId"
+                  },
+                  {
+                    "attr_name": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionString"
+                },
+                "fn_body": "object.get_node_attribute(node_id, attr_name.as_str()).into()"
+              },
+              "get_node_classes": {
+                "doc": [
+                  "Get all CSS classes of a node",
+                  "",
+                  "Returns a vector of all CSS class names applied to the node."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "node_id": "DomNodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "StringVec"
+                },
+                "fn_body": "object.get_node_classes(node_id)"
+              },
+              "get_node_id": {
+                "doc": [
+                  "Get the ID attribute of a node",
+                  "",
+                  "Convenience method for getting the 'id' attribute.",
+                  "Equivalent to get_node_attribute(node_id, 'id')."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "node_id": "DomNodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionString"
+                },
+                "fn_body": "object.get_node_id(node_id).into()"
+              },
+              "take_screenshot": {
+                "doc": [
+                  "Take a CPU-rendered screenshot of a DOM",
+                  "",
+                  "Renders the specified DOM to a PNG image using the CPU renderer.",
+                  "This captures only the DOM content without window decorations.",
+                  "Useful for visual regression testing (reftest) and documentation.",
+                  "",
+                  "# Arguments",
+                  "* `dom_id` - The DOM to screenshot",
+                  "",
+                  "# Returns",
+                  "* `Ok(Vec<u8>)` - PNG-encoded image data",
+                  "* `Err(String)` - Error message if rendering failed"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "dom_id": "DomId"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultU8VecString"
+                },
+                "fn_body": "match object.take_screenshot(dom_id) { Ok(v) => azul_layout::callbacks::ResultU8VecString::Ok(v.into()), Err(e) => azul_layout::callbacks::ResultU8VecString::Err(e) }"
+              },
+              "take_screenshot_to_file": {
+                "doc": [
+                  "Take a CPU-rendered screenshot and save it to a file",
+                  "",
+                  "Convenience method that combines take_screenshot with file writing.",
+                  "",
+                  "# Arguments",
+                  "* `dom_id` - The DOM to screenshot",
+                  "* `path` - The file path to save the PNG to"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "dom_id": "DomId"
+                  },
+                  {
+                    "path": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultVoidString"
+                },
+                "fn_body": "match object.take_screenshot_to_file(dom_id, path.as_str()) { Ok(()) => azul_layout::callbacks::ResultVoidString::Ok, Err(e) => azul_layout::callbacks::ResultVoidString::Err(e) }"
+              },
+              "take_native_screenshot": {
+                "doc": [
+                  "Take a native OS-level screenshot of the window including decorations",
+                  "",
+                  "Captures the actual window as it appears on screen, including",
+                  "the title bar, window borders, and any OS-provided window decorations.",
+                  "This is useful for documentation, tutorials, or visual testing.",
+                  "",
+                  "# Platform Support",
+                  "- macOS: Uses screencapture command with window ID",
+                  "- Windows: Uses PrintWindow API",
+                  "- Linux: Uses XGetImage (X11)",
+                  "",
+                  "# Arguments",
+                  "* `path` - The file path to save the PNG screenshot to",
+                  "",
+                  "# Returns",
+                  "* `Ok(())` - Screenshot saved successfully",
+                  "* `Err(String)` - Error message if screenshot failed"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "path": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultVoidString"
+                },
+                "fn_body": "match object.take_native_screenshot(path.as_str()) { Ok(()) => azul_layout::callbacks::ResultVoidString::Ok, Err(e) => azul_layout::callbacks::ResultVoidString::Err(e) }"
+              },
+              "take_native_screenshot_bytes": {
+                "doc": [
+                  "Take a native OS-level screenshot and return the PNG data as bytes",
+                  "",
+                  "Same as take_native_screenshot but returns the PNG data directly",
+                  "instead of saving to a file.",
+                  "",
+                  "# Returns",
+                  "* `Ok(Vec<u8>)` - PNG-encoded image data",
+                  "* `Err(String)` - Error message if screenshot failed"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultU8VecString"
+                },
+                "fn_body": "match object.take_native_screenshot_bytes() { Ok(v) => azul_layout::callbacks::ResultU8VecString::Ok(v.into()), Err(e) => azul_layout::callbacks::ResultU8VecString::Err(e) }"
+              },
+              "take_native_screenshot_base64": {
+                "doc": [
+                  "Take a native OS-level screenshot and return as a Base64 data URI",
+                  "",
+                  "Returns the screenshot as a 'data:image/png;base64,...' string that can",
+                  "be directly used in HTML img tags or JSON responses.",
+                  "",
+                  "# Returns",
+                  "* `Ok(String)` - Base64 data URI string",
+                  "* `Err(String)` - Error message if screenshot failed"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultStringString"
+                },
+                "fn_body": "match object.take_native_screenshot_base64() { Ok(s) => azul_layout::callbacks::ResultStringString::Ok(s), Err(e) => azul_layout::callbacks::ResultStringString::Err(e) }"
+              },
+              "take_screenshot_base64": {
+                "doc": [
+                  "Take a CPU-rendered screenshot and return as a Base64 data URI",
+                  "",
+                  "Returns the screenshot as a 'data:image/png;base64,...' string.",
+                  "This is the software-rendered version without window decorations.",
+                  "",
+                  "# Returns",
+                  "* `Ok(String)` - Base64 data URI string",
+                  "* `Err(String)` - Error message if rendering failed"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "dom_id": "DomId"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultStringString"
+                },
+                "fn_body": "match object.take_screenshot_base64(dom_id) { Ok(s) => azul_layout::callbacks::ResultStringString::Ok(s), Err(e) => azul_layout::callbacks::ResultStringString::Err(e) }"
               }
             },
             "repr": "C"
@@ -52089,6 +52381,69 @@
               }
             ],
             "repr": "C"
+          },
+          "ResultU8VecString": {
+            "external": "azul_layout::callbacks::ResultU8VecString",
+            "custom_impls": [
+              "From"
+            ],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "U8Vec"
+                },
+                "Err": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "ResultVoidString": {
+            "external": "azul_layout::callbacks::ResultVoidString",
+            "custom_impls": [
+              "From"
+            ],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {}
+              },
+              {
+                "Err": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "ResultStringString": {
+            "external": "azul_layout::callbacks::ResultStringString",
+            "custom_impls": [
+              "From"
+            ],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "String"
+                },
+                "Err": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C, u8"
           },
           "ResultParsedSvgSvgParseError": {
             "external": "azul_layout::xml::svg::ResultParsedSvgSvgParseError",

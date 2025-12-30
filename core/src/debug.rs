@@ -99,10 +99,10 @@ impl Default for DebugCategory {
     }
 }
 
-/// A structured debug message
+/// A structured log message for the debug logger
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
-pub struct DebugMessage {
+pub struct LogMessage {
     /// Severity level
     pub level: DebugLevel,
     /// Category for filtering
@@ -124,7 +124,7 @@ pub struct DebugMessage {
 /// - `Some(logger)` = logging enabled (debug mode)
 #[cfg(feature = "std")]
 pub struct DebugLogger {
-    messages: Vec<DebugMessage>,
+    messages: Vec<LogMessage>,
     start_time: std::time::Instant,
     /// Minimum level to record (messages below this are ignored)
     min_level: DebugLevel,
@@ -190,7 +190,7 @@ impl DebugLogger {
         }
 
         let location = core::panic::Location::caller();
-        self.messages.push(DebugMessage {
+        self.messages.push(LogMessage {
             level,
             category,
             message: message.into(),
@@ -231,12 +231,12 @@ impl DebugLogger {
     }
 
     /// Take all collected messages (empties the logger)
-    pub fn take_messages(&mut self) -> Vec<DebugMessage> {
+    pub fn take_messages(&mut self) -> Vec<LogMessage> {
         core::mem::take(&mut self.messages)
     }
 
     /// Get a reference to collected messages
-    pub fn messages(&self) -> &[DebugMessage] {
+    pub fn messages(&self) -> &[LogMessage] {
         &self.messages
     }
 

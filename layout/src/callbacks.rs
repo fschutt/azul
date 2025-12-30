@@ -27,7 +27,7 @@ use azul_core::{
     refany::{OptionRefAny, RefAny},
     resources::{ImageCache, ImageMask, ImageRef, RendererResources},
     selection::{Selection, SelectionRange, SelectionRangeVec, SelectionState, TextCursor},
-    styled_dom::{NodeHierarchyItemId, StyledDom},
+    styled_dom::{NodeHierarchyItemId, NodeIdVec, StyledDom},
     task::{self, GetSystemTimeCallback, Instant, ThreadId, ThreadIdVec, TimerId, TimerIdVec},
     window::{KeyboardState, MouseState, RawWindowHandle, WindowFlags, WindowSize},
     FastBTreeSet, FastHashMap,
@@ -39,7 +39,7 @@ use azul_css::{
         property::{CssProperty, CssPropertyType, CssPropertyVec},
     },
     system::SystemStyle,
-    AzString,
+    AzString, StringVec,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -762,6 +762,73 @@ impl CallbackInfo {
         node.last_child_id()
     }
 
+    /// Get all direct children of the given node
+    ///
+    /// Returns an empty vector if the node has no children.
+    /// Uses the contiguous node layout for efficient iteration.
+    pub fn get_all_children_nodes(&self, dom_id: DomId, node_id: NodeId) -> NodeIdVec {
+        let layout_window = self.get_layout_window();
+        let layout_result = match layout_window.layout_results.get(&dom_id) {
+            Some(lr) => lr,
+            None => return NodeIdVec::from_const_slice(&[]),
+        };
+        let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        let hier_item = match node_hierarchy.get(node_id) {
+            Some(h) => h,
+            None => return NodeIdVec::from_const_slice(&[]),
+        };
+        
+        // Get first child - if none, return empty
+        let first_child = match hier_item.first_child_id(node_id) {
+            Some(fc) => fc,
+            None => return NodeIdVec::from_const_slice(&[]),
+        };
+        
+        // Collect children by walking the sibling chain
+        let mut children: Vec<NodeHierarchyItemId> = Vec::new();
+        children.push(NodeHierarchyItemId::from_crate_internal(Some(first_child)));
+        
+        let mut current = first_child;
+        while let Some(next_sibling) = node_hierarchy.get(current).and_then(|h| h.next_sibling_id()) {
+            children.push(NodeHierarchyItemId::from_crate_internal(Some(next_sibling)));
+            current = next_sibling;
+        }
+        
+        NodeIdVec::from(children)
+    }
+
+    /// Get the number of direct children of the given node
+    /// 
+    /// Uses the contiguous node layout for efficient counting.
+    pub fn get_children_count(&self, dom_id: DomId, node_id: NodeId) -> usize {
+        let layout_window = self.get_layout_window();
+        let layout_result = match layout_window.layout_results.get(&dom_id) {
+            Some(lr) => lr,
+            None => return 0,
+        };
+        let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+        let hier_item = match node_hierarchy.get(node_id) {
+            Some(h) => h,
+            None => return 0,
+        };
+        
+        // Get first child - if none, return 0
+        let first_child = match hier_item.first_child_id(node_id) {
+            Some(fc) => fc,
+            None => return 0,
+        };
+        
+        // Count children by walking the sibling chain
+        let mut count = 1;
+        let mut current = first_child;
+        while let Some(next_sibling) = node_hierarchy.get(current).and_then(|h| h.next_sibling_id()) {
+            count += 1;
+            current = next_sibling;
+        }
+        
+        count
+    }
+
     /// Change the image mask of a node (applied after callback returns)
     pub fn change_node_image_mask(&mut self, dom_id: DomId, node_id: NodeId, mask: ImageMask) {
         self.push_change(CallbackChange::ChangeNodeImageMask {
@@ -1333,6 +1400,172 @@ impl CallbackInfo {
         }
     }
 
+    /// Get the tag name of a node (e.g., "div", "p", "span")
+    ///
+    /// Returns the HTML tag name as a string for the given node.
+    /// For text nodes, returns "text". For image nodes, returns "img".
+    pub fn get_node_tag_name(&self, node_id: DomNodeId) -> Option<AzString> {
+        let layout_window = self.get_layout_window();
+        let layout_result = layout_window.get_layout_result(&node_id.dom)?;
+        let node_id_internal = node_id.node.into_crate_internal()?;
+        let node_data_cont = layout_result.styled_dom.node_data.as_container();
+        let node_data = node_data_cont.get(node_id_internal)?;
+
+        let tag = node_data.get_node_type().get_path();
+        Some(tag.to_string().into())
+    }
+
+    /// Get an attribute value from a node by attribute name
+    ///
+    /// # Arguments
+    /// * `node_id` - The node to query
+    /// * `attr_name` - The attribute name (e.g., "id", "class", "href", "data-custom", "aria-label")
+    ///
+    /// Returns the attribute value if found, None otherwise.
+    /// This searches the strongly-typed AttributeVec on the node.
+    pub fn get_node_attribute(&self, node_id: DomNodeId, attr_name: &str) -> Option<AzString> {
+        use azul_core::dom::AttributeType;
+        
+        let layout_window = self.get_layout_window();
+        let layout_result = layout_window.get_layout_result(&node_id.dom)?;
+        let node_id_internal = node_id.node.into_crate_internal()?;
+        let node_data_cont = layout_result.styled_dom.node_data.as_container();
+        let node_data = node_data_cont.get(node_id_internal)?;
+
+        // Check the strongly-typed attributes vec
+        for attr in node_data.attributes.as_ref() {
+            match (attr_name, attr) {
+                ("id", AttributeType::Id(v)) => return Some(v.clone()),
+                ("class", AttributeType::Class(v)) => return Some(v.clone()),
+                ("aria-label", AttributeType::AriaLabel(v)) => return Some(v.clone()),
+                ("aria-labelledby", AttributeType::AriaLabelledBy(v)) => return Some(v.clone()),
+                ("aria-describedby", AttributeType::AriaDescribedBy(v)) => return Some(v.clone()),
+                ("role", AttributeType::AriaRole(v)) => return Some(v.clone()),
+                ("href", AttributeType::Href(v)) => return Some(v.clone()),
+                ("rel", AttributeType::Rel(v)) => return Some(v.clone()),
+                ("target", AttributeType::Target(v)) => return Some(v.clone()),
+                ("src", AttributeType::Src(v)) => return Some(v.clone()),
+                ("alt", AttributeType::Alt(v)) => return Some(v.clone()),
+                ("title", AttributeType::Title(v)) => return Some(v.clone()),
+                ("name", AttributeType::Name(v)) => return Some(v.clone()),
+                ("value", AttributeType::Value(v)) => return Some(v.clone()),
+                ("type", AttributeType::InputType(v)) => return Some(v.clone()),
+                ("placeholder", AttributeType::Placeholder(v)) => return Some(v.clone()),
+                ("max", AttributeType::Max(v)) => return Some(v.clone()),
+                ("min", AttributeType::Min(v)) => return Some(v.clone()),
+                ("step", AttributeType::Step(v)) => return Some(v.clone()),
+                ("pattern", AttributeType::Pattern(v)) => return Some(v.clone()),
+                ("autocomplete", AttributeType::Autocomplete(v)) => return Some(v.clone()),
+                ("scope", AttributeType::Scope(v)) => return Some(v.clone()),
+                ("lang", AttributeType::Lang(v)) => return Some(v.clone()),
+                ("dir", AttributeType::Dir(v)) => return Some(v.clone()),
+                ("required", AttributeType::Required) => return Some("true".into()),
+                ("disabled", AttributeType::Disabled) => return Some("true".into()),
+                ("readonly", AttributeType::Readonly) => return Some("true".into()),
+                ("checked", AttributeType::Checked) => return Some("true".into()),
+                ("selected", AttributeType::Selected) => return Some("true".into()),
+                ("hidden", AttributeType::Hidden) => return Some("true".into()),
+                ("focusable", AttributeType::Focusable) => return Some("true".into()),
+                ("minlength", AttributeType::MinLength(v)) => return Some(v.to_string().into()),
+                ("maxlength", AttributeType::MaxLength(v)) => return Some(v.to_string().into()),
+                ("colspan", AttributeType::ColSpan(v)) => return Some(v.to_string().into()),
+                ("rowspan", AttributeType::RowSpan(v)) => return Some(v.to_string().into()),
+                ("tabindex", AttributeType::TabIndex(v)) => return Some(v.to_string().into()),
+                ("contenteditable", AttributeType::ContentEditable(v)) => return Some(v.to_string().into()),
+                ("draggable", AttributeType::Draggable(v)) => return Some(v.to_string().into()),
+                // Handle data-* attributes
+                (name, AttributeType::Data(nv)) if name.starts_with("data-") && nv.attr_name.as_str() == &name[5..] => {
+                    return Some(nv.value.clone());
+                }
+                // Handle aria-* state/property attributes
+                (name, AttributeType::AriaState(nv)) if name == format!("aria-{}", nv.attr_name.as_str()) => {
+                    return Some(nv.value.clone());
+                }
+                (name, AttributeType::AriaProperty(nv)) if name == format!("aria-{}", nv.attr_name.as_str()) => {
+                    return Some(nv.value.clone());
+                }
+                // Handle custom attributes
+                (name, AttributeType::Custom(nv)) if nv.attr_name.as_str() == name => {
+                    return Some(nv.value.clone());
+                }
+                _ => continue,
+            }
+        }
+
+        // Fallback: check ids_and_classes for "id" and "class"
+        if attr_name == "id" {
+            for id_or_class in node_data.ids_and_classes.as_ref() {
+                if let IdOrClass::Id(id) = id_or_class {
+                    return Some(id.clone());
+                }
+            }
+        }
+
+        if attr_name == "class" {
+            let classes: Vec<&str> = node_data.ids_and_classes.as_ref()
+                .iter()
+                .filter_map(|ioc| {
+                    if let IdOrClass::Class(class) = ioc {
+                        Some(class.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if !classes.is_empty() {
+                return Some(classes.join(" ").into());
+            }
+        }
+
+        None
+    }
+
+    /// Get all classes of a node as a vector of strings
+    pub fn get_node_classes(&self, node_id: DomNodeId) -> StringVec {
+        let layout_window = match self.get_layout_window().get_layout_result(&node_id.dom) {
+            Some(lr) => lr,
+            None => return StringVec::from_const_slice(&[]),
+        };
+        let node_id_internal = match node_id.node.into_crate_internal() {
+            Some(n) => n,
+            None => return StringVec::from_const_slice(&[]),
+        };
+        let node_data_cont = layout_window.styled_dom.node_data.as_container();
+        let node_data = match node_data_cont.get(node_id_internal) {
+            Some(n) => n,
+            None => return StringVec::from_const_slice(&[]),
+        };
+
+        let classes: Vec<AzString> = node_data.ids_and_classes.as_ref()
+            .iter()
+            .filter_map(|ioc| {
+                if let IdOrClass::Class(class) = ioc {
+                    Some(class.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        StringVec::from(classes)
+    }
+
+    /// Get the ID attribute of a node (if it has one)
+    pub fn get_node_id(&self, node_id: DomNodeId) -> Option<AzString> {
+        let layout_window = self.get_layout_window();
+        let layout_result = layout_window.get_layout_result(&node_id.dom)?;
+        let node_id_internal = node_id.node.into_crate_internal()?;
+        let node_data_cont = layout_result.styled_dom.node_data.as_container();
+        let node_data = node_data_cont.get(node_id_internal)?;
+
+        for id_or_class in node_data.ids_and_classes.as_ref() {
+            if let IdOrClass::Id(id) = id_or_class {
+                return Some(id.clone());
+            }
+        }
+        None
+    }
+
     // Text Selection Management
 
     /// Get the current selection state for a DOM
@@ -1538,6 +1771,209 @@ impl CallbackInfo {
     pub fn get_current_time(&self) -> task::Instant {
         let cb = self.get_system_time_fn();
         (cb.cb)()
+    }
+
+    /// Get immutable reference to the renderer resources
+    ///
+    /// This provides access to fonts, images, and other rendering resources.
+    /// Useful for custom rendering or screenshot functionality.
+    pub fn get_renderer_resources(&self) -> &RendererResources {
+        unsafe { (*self.ref_data).renderer_resources }
+    }
+
+    // Screenshot API
+
+    /// Take a CPU-rendered screenshot of the current window content
+    ///
+    /// This renders the current display list to a PNG image using CPU rendering.
+    /// The screenshot captures the window content as it would appear on screen,
+    /// without window decorations.
+    ///
+    /// # Arguments
+    /// * `dom_id` - The DOM to screenshot (use the main DOM ID for the full window)
+    ///
+    /// # Returns
+    /// * `Ok(Vec<u8>)` - PNG-encoded image data
+    /// * `Err(String)` - Error message if rendering failed
+    ///
+    /// # Example
+    /// ```ignore
+    /// fn on_click(info: &mut CallbackInfo) -> Update {
+    ///     let dom_id = info.get_hit_node().dom;
+    ///     match info.take_screenshot(dom_id) {
+    ///         Ok(png_data) => {
+    ///             std::fs::write("screenshot.png", png_data).unwrap();
+    ///         }
+    ///         Err(e) => eprintln!("Screenshot failed: {}", e),
+    ///     }
+    ///     Update::DoNothing
+    /// }
+    /// ```
+    pub fn take_screenshot(&self, dom_id: DomId) -> Result<alloc::vec::Vec<u8>, AzString> {
+        use crate::cpurender::{render, RenderOptions};
+        
+        let layout_window = self.get_layout_window();
+        let renderer_resources = self.get_renderer_resources();
+        
+        // Get the layout result for this DOM
+        let layout_result = layout_window.layout_results.get(&dom_id)
+            .ok_or_else(|| AzString::from("DOM not found in layout results"))?;
+        
+        // Get viewport dimensions
+        let viewport = &layout_result.viewport;
+        let width = viewport.size.width;
+        let height = viewport.size.height;
+        
+        if width <= 0.0 || height <= 0.0 {
+            return Err(AzString::from("Invalid viewport dimensions"));
+        }
+        
+        // Get the display list
+        let display_list = &layout_result.display_list;
+        
+        // Get DPI factor from window state
+        let dpi_factor = self.get_current_window_state()
+            .size
+            .get_hidpi_factor()
+            .inner
+            .get();
+        
+        // Render to pixmap
+        let opts = RenderOptions {
+            width,
+            height,
+            dpi_factor,
+        };
+        
+        let pixmap = render(display_list, renderer_resources, opts)
+            .map_err(|e| AzString::from(e))?;
+        
+        // Encode to PNG
+        let png_data = pixmap.encode_png()
+            .map_err(|e| AzString::from(alloc::format!("PNG encoding failed: {}", e)))?;
+        
+        Ok(png_data)
+    }
+
+    /// Take a screenshot and save it directly to a file
+    ///
+    /// Convenience method that combines `take_screenshot` with file writing.
+    ///
+    /// # Arguments
+    /// * `dom_id` - The DOM to screenshot
+    /// * `path` - The file path to save the PNG to
+    ///
+    /// # Returns
+    /// * `Ok(())` - Screenshot saved successfully
+    /// * `Err(String)` - Error message if rendering or saving failed
+    #[cfg(feature = "std")]
+    pub fn take_screenshot_to_file(&self, dom_id: DomId, path: &str) -> Result<(), AzString> {
+        let png_data = self.take_screenshot(dom_id)?;
+        std::fs::write(path, png_data)
+            .map_err(|e| AzString::from(alloc::format!("Failed to write file: {}", e)))?;
+        Ok(())
+    }
+
+    /// Take a native OS-level screenshot of the window including window decorations
+    ///
+    /// This function captures the actual window as it appears on screen, including
+    /// the title bar, window borders, and any OS-provided window decorations.
+    /// This is useful for documentation, tutorials, or visual regression testing
+    /// where you want to show exactly what the user sees.
+    ///
+    /// # Platform Support
+    /// - **macOS**: Uses `screencapture` command with window ID
+    /// - **Windows**: Uses PrintWindow API (BitBlt from window DC)
+    /// - **Linux**: Uses XGetImage (X11) or wlr-screencopy (Wayland)
+    ///
+    /// # Arguments
+    /// * `path` - The file path to save the PNG screenshot to
+    ///
+    /// # Returns
+    /// * `Ok(())` - Screenshot saved successfully
+    /// * `Err(String)` - Error message if screenshot failed
+    ///
+    #[cfg(feature = "std")]
+    pub fn take_native_screenshot(&self, path: &str) -> Result<(), AzString> {
+        use azul_core::window::RawWindowHandle;
+        
+        let window_handle = self.get_current_window_handle();
+        
+        match window_handle {
+            #[cfg(target_os = "macos")]
+            RawWindowHandle::MacOS(handle) => {
+                take_native_screenshot_macos(handle.ns_window, path)
+            }
+            #[cfg(target_os = "windows")]
+            RawWindowHandle::Windows(handle) => {
+                take_native_screenshot_windows(handle.hwnd, path)
+            }
+            #[cfg(target_os = "linux")]
+            RawWindowHandle::Xlib(handle) => {
+                take_native_screenshot_xlib(handle.display, handle.window, path)
+            }
+            #[cfg(target_os = "linux")]
+            RawWindowHandle::Xcb(handle) => {
+                take_native_screenshot_xcb(handle.connection, handle.window, path)
+            }
+            _ => {
+                Err(AzString::from("Native screenshot not supported on this platform"))
+            }
+        }
+    }
+
+    /// Take a native OS-level screenshot and return the PNG data as bytes
+    ///
+    /// Same as `take_native_screenshot` but returns the PNG data directly
+    /// instead of saving to a file.
+    ///
+    /// # Returns
+    /// * `Ok(Vec<u8>)` - PNG-encoded image data
+    /// * `Err(String)` - Error message if screenshot failed
+    #[cfg(feature = "std")]
+    pub fn take_native_screenshot_bytes(&self) -> Result<alloc::vec::Vec<u8>, AzString> {
+        // Create a temporary file, take screenshot, read bytes, delete file
+        let temp_path = std::env::temp_dir().join("azul_screenshot_temp.png");
+        let temp_path_str = temp_path.to_string_lossy().to_string();
+        
+        self.take_native_screenshot(&temp_path_str)?;
+        
+        let bytes = std::fs::read(&temp_path)
+            .map_err(|e| AzString::from(alloc::format!("Failed to read screenshot: {}", e)))?;
+        
+        let _ = std::fs::remove_file(&temp_path);
+        
+        Ok(bytes)
+    }
+
+    /// Take a native OS-level screenshot and return as a Base64 data URI
+    ///
+    /// Returns the screenshot as a "data:image/png;base64,..." string that can
+    /// be directly used in HTML img tags or JSON responses.
+    ///
+    /// # Returns
+    /// * `Ok(String)` - Base64 data URI string
+    /// * `Err(String)` - Error message if screenshot failed
+    ///
+    #[cfg(feature = "std")]
+    pub fn take_native_screenshot_base64(&self) -> Result<AzString, AzString> {
+        let png_bytes = self.take_native_screenshot_bytes()?;
+        let base64_str = base64_encode(&png_bytes);
+        Ok(AzString::from(alloc::format!("data:image/png;base64,{}", base64_str)))
+    }
+
+    /// Take a CPU-rendered screenshot and return as a Base64 data URI
+    ///
+    /// Returns the screenshot as a "data:image/png;base64,..." string.
+    /// This is the software-rendered version without window decorations.
+    ///
+    /// # Returns
+    /// * `Ok(String)` - Base64 data URI string
+    /// * `Err(String)` - Error message if rendering failed
+    pub fn take_screenshot_base64(&self, dom_id: DomId) -> Result<AzString, AzString> {
+        let png_bytes = self.take_screenshot(dom_id)?;
+        let base64_str = base64_encode(&png_bytes);
+        Ok(AzString::from(alloc::format!("data:image/png;base64,{}", base64_str)))
     }
 
     // Manager Access (Read-Only)
@@ -2846,4 +3282,423 @@ impl RenderImageCallbackInfo {
     pub fn get_gl_context(&self) -> OptionGlContextPtr {
         self.internal_get_gl_context().clone()
     }
+}
+
+// ============================================================================
+// Platform-specific native screenshot implementations
+// ============================================================================
+
+/// Take a native screenshot on macOS using screencapture command
+#[cfg(all(feature = "std", target_os = "macos"))]
+fn take_native_screenshot_macos(ns_window: *mut core::ffi::c_void, path: &str) -> Result<(), AzString> {
+    use std::process::Command;
+    
+    if ns_window.is_null() {
+        return Err(AzString::from("Invalid window handle"));
+    }
+    
+    // Get the window ID from the NSWindow
+    // On macOS, we need to get the CGWindowID from the NSWindow
+    let window_id = unsafe {
+        // NSWindow has a method windowNumber that returns the CGWindowID
+        #[link(name = "AppKit", kind = "framework")]
+        extern "C" {
+            fn objc_msgSend(receiver: *mut core::ffi::c_void, sel: *const core::ffi::c_void, ...) -> i64;
+        }
+        
+        // Get the selector for "windowNumber"
+        #[link(name = "objc")]
+        extern "C" {
+            fn sel_registerName(name: *const i8) -> *const core::ffi::c_void;
+        }
+        
+        let sel = sel_registerName(b"windowNumber\0".as_ptr() as *const i8);
+        objc_msgSend(ns_window, sel)
+    };
+    
+    if window_id <= 0 {
+        return Err(AzString::from("Failed to get window ID"));
+    }
+    
+    // Use screencapture with -l flag to capture specific window by ID
+    let output = Command::new("screencapture")
+        .args(["-l", &window_id.to_string(), "-x", path])
+        .output()
+        .map_err(|e| AzString::from(alloc::format!("Failed to run screencapture: {}", e)))?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AzString::from(alloc::format!("screencapture failed: {}", stderr)));
+    }
+    
+    Ok(())
+}
+
+/// Take a native screenshot on Windows using PrintWindow API
+#[cfg(all(feature = "std", target_os = "windows"))]
+fn take_native_screenshot_windows(hwnd: *mut core::ffi::c_void, path: &str) -> Result<(), AzString> {
+    use std::ptr;
+    
+    if hwnd.is_null() {
+        return Err(AzString::from("Invalid window handle"));
+    }
+    
+    // Windows API types
+    type HWND = *mut core::ffi::c_void;
+    type HDC = *mut core::ffi::c_void;
+    type HBITMAP = *mut core::ffi::c_void;
+    type BOOL = i32;
+    
+    #[repr(C)]
+    struct RECT {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+    
+    #[repr(C)]
+    struct BITMAPINFOHEADER {
+        biSize: u32,
+        biWidth: i32,
+        biHeight: i32,
+        biPlanes: u16,
+        biBitCount: u16,
+        biCompression: u32,
+        biSizeImage: u32,
+        biXPelsPerMeter: i32,
+        biYPelsPerMeter: i32,
+        biClrUsed: u32,
+        biClrImportant: u32,
+    }
+    
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetWindowRect(hWnd: HWND, lpRect: *mut RECT) -> BOOL;
+        fn GetWindowDC(hWnd: HWND) -> HDC;
+        fn ReleaseDC(hWnd: HWND, hDC: HDC) -> i32;
+        fn PrintWindow(hWnd: HWND, hdcBlt: HDC, nFlags: u32) -> BOOL;
+    }
+    
+    #[link(name = "gdi32")]
+    extern "system" {
+        fn CreateCompatibleDC(hdc: HDC) -> HDC;
+        fn CreateCompatibleBitmap(hdc: HDC, cx: i32, cy: i32) -> HBITMAP;
+        fn SelectObject(hdc: HDC, h: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
+        fn DeleteDC(hdc: HDC) -> BOOL;
+        fn DeleteObject(ho: *mut core::ffi::c_void) -> BOOL;
+        fn GetDIBits(hdc: HDC, hbm: HBITMAP, start: u32, cLines: u32, lpvBits: *mut u8, lpbmi: *mut BITMAPINFOHEADER, usage: u32) -> i32;
+    }
+    
+    unsafe {
+        // Get window dimensions
+        let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        if GetWindowRect(hwnd, &mut rect) == 0 {
+            return Err(AzString::from("Failed to get window rect"));
+        }
+        
+        let width = rect.right - rect.left;
+        let height = rect.bottom - rect.top;
+        
+        if width <= 0 || height <= 0 {
+            return Err(AzString::from("Invalid window dimensions"));
+        }
+        
+        // Get window DC
+        let window_dc = GetWindowDC(hwnd);
+        if window_dc.is_null() {
+            return Err(AzString::from("Failed to get window DC"));
+        }
+        
+        // Create compatible DC and bitmap
+        let mem_dc = CreateCompatibleDC(window_dc);
+        if mem_dc.is_null() {
+            ReleaseDC(hwnd, window_dc);
+            return Err(AzString::from("Failed to create compatible DC"));
+        }
+        
+        let bitmap = CreateCompatibleBitmap(window_dc, width, height);
+        if bitmap.is_null() {
+            DeleteDC(mem_dc);
+            ReleaseDC(hwnd, window_dc);
+            return Err(AzString::from("Failed to create bitmap"));
+        }
+        
+        let old_bitmap = SelectObject(mem_dc, bitmap);
+        
+        // Print window to bitmap (PW_RENDERFULLCONTENT = 2)
+        const PW_RENDERFULLCONTENT: u32 = 2;
+        if PrintWindow(hwnd, mem_dc, PW_RENDERFULLCONTENT) == 0 {
+            SelectObject(mem_dc, old_bitmap);
+            DeleteObject(bitmap);
+            DeleteDC(mem_dc);
+            ReleaseDC(hwnd, window_dc);
+            return Err(AzString::from("PrintWindow failed"));
+        }
+        
+        // Get bitmap data
+        let mut bmi = BITMAPINFOHEADER {
+            biSize: core::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height, // Top-down DIB
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: 0, // BI_RGB
+            biSizeImage: 0,
+            biXPelsPerMeter: 0,
+            biYPelsPerMeter: 0,
+            biClrUsed: 0,
+            biClrImportant: 0,
+        };
+        
+        let row_bytes = (width * 4) as usize;
+        let mut pixels: Vec<u8> = vec![0u8; row_bytes * height as usize];
+        
+        if GetDIBits(mem_dc, bitmap, 0, height as u32, pixels.as_mut_ptr(), &mut bmi, 0) == 0 {
+            SelectObject(mem_dc, old_bitmap);
+            DeleteObject(bitmap);
+            DeleteDC(mem_dc);
+            ReleaseDC(hwnd, window_dc);
+            return Err(AzString::from("GetDIBits failed"));
+        }
+        
+        // Cleanup Windows resources
+        SelectObject(mem_dc, old_bitmap);
+        DeleteObject(bitmap);
+        DeleteDC(mem_dc);
+        ReleaseDC(hwnd, window_dc);
+        
+        // Convert BGRA to RGBA
+        for chunk in pixels.chunks_exact_mut(4) {
+            chunk.swap(0, 2); // Swap B and R
+        }
+        
+        // Create PNG using tiny-skia
+        let pixmap = tiny_skia::Pixmap::from_vec(
+            pixels,
+            tiny_skia::IntSize::from_wh(width as u32, height as u32)
+                .ok_or_else(|| AzString::from("Invalid image dimensions"))?,
+        ).ok_or_else(|| AzString::from("Failed to create pixmap"))?;
+        
+        let png_data = pixmap.encode_png()
+            .map_err(|e| AzString::from(alloc::format!("PNG encoding failed: {}", e)))?;
+        
+        std::fs::write(path, png_data)
+            .map_err(|e| AzString::from(alloc::format!("Failed to write file: {}", e)))?;
+        
+        Ok(())
+    }
+}
+
+/// Take a native screenshot on Linux/X11 using XGetImage (Xlib)
+#[cfg(all(feature = "std", target_os = "linux"))]
+fn take_native_screenshot_xlib(display: *mut core::ffi::c_void, window: u64, path: &str) -> Result<(), AzString> {
+    if display.is_null() {
+        return Err(AzString::from("Invalid display handle"));
+    }
+    
+    type Display = core::ffi::c_void;
+    type Window = u64;
+    type XImage = core::ffi::c_void;
+    
+    #[repr(C)]
+    struct XWindowAttributes {
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        border_width: i32,
+        depth: i32,
+        // ... more fields, but we only need the first few
+        _padding: [u8; 256],
+    }
+    
+    #[link(name = "X11")]
+    extern "C" {
+        fn XGetWindowAttributes(display: *mut Display, w: Window, attr: *mut XWindowAttributes) -> i32;
+        fn XGetImage(display: *mut Display, d: Window, x: i32, y: i32, width: u32, height: u32, plane_mask: u64, format: i32) -> *mut XImage;
+        fn XDestroyImage(ximage: *mut XImage) -> i32;
+    }
+    
+    // XImage struct for accessing data
+    #[repr(C)]
+    struct XImageData {
+        width: i32,
+        height: i32,
+        xoffset: i32,
+        format: i32,
+        data: *mut i8,
+        byte_order: i32,
+        bitmap_unit: i32,
+        bitmap_bit_order: i32,
+        bitmap_pad: i32,
+        depth: i32,
+        bytes_per_line: i32,
+        bits_per_pixel: i32,
+        // ... more fields
+    }
+    
+    unsafe {
+        let mut attr: XWindowAttributes = core::mem::zeroed();
+        if XGetWindowAttributes(display, window, &mut attr) == 0 {
+            return Err(AzString::from("Failed to get window attributes"));
+        }
+        
+        let width = attr.width as u32;
+        let height = attr.height as u32;
+        
+        if width == 0 || height == 0 {
+            return Err(AzString::from("Invalid window dimensions"));
+        }
+        
+        // ZPixmap = 2, AllPlanes = !0
+        let image = XGetImage(display, window, 0, 0, width, height, !0u64, 2);
+        if image.is_null() {
+            return Err(AzString::from("XGetImage failed"));
+        }
+        
+        let img = &*(image as *const XImageData);
+        
+        // Extract pixel data
+        let mut pixels: Vec<u8> = Vec::with_capacity((width * height * 4) as usize);
+        
+        for y in 0..height {
+            for x in 0..width {
+                let offset = (y as i32 * img.bytes_per_line + x as i32 * (img.bits_per_pixel / 8)) as isize;
+                let pixel_ptr = img.data.offset(offset) as *const u8;
+                
+                // Assuming BGRA format (common on X11 with 32-bit depth)
+                let b = *pixel_ptr;
+                let g = *pixel_ptr.offset(1);
+                let r = *pixel_ptr.offset(2);
+                let a = if img.bits_per_pixel == 32 { *pixel_ptr.offset(3) } else { 255 };
+                
+                pixels.push(r);
+                pixels.push(g);
+                pixels.push(b);
+                pixels.push(a);
+            }
+        }
+        
+        XDestroyImage(image);
+        
+        // Create PNG using tiny-skia
+        let pixmap = tiny_skia::Pixmap::from_vec(
+            pixels,
+            tiny_skia::IntSize::from_wh(width, height)
+                .ok_or_else(|| AzString::from("Invalid image dimensions"))?,
+        ).ok_or_else(|| AzString::from("Failed to create pixmap"))?;
+        
+        let png_data = pixmap.encode_png()
+            .map_err(|e| AzString::from(alloc::format!("PNG encoding failed: {}", e)))?;
+        
+        std::fs::write(path, png_data)
+            .map_err(|e| AzString::from(alloc::format!("Failed to write file: {}", e)))?;
+        
+        Ok(())
+    }
+}
+
+/// Take a native screenshot on Linux/X11 using xcb
+#[cfg(all(feature = "std", target_os = "linux"))]
+fn take_native_screenshot_xcb(connection: *mut core::ffi::c_void, window: u32, path: &str) -> Result<(), AzString> {
+    if connection.is_null() {
+        return Err(AzString::from("Invalid XCB connection"));
+    }
+    
+    // For XCB, we would need to use xcb_get_image
+    // This is more complex and requires the xcb crate or manual FFI
+    // For now, fall back to an error message suggesting Xlib
+    Err(AzString::from("XCB screenshot not yet implemented - please use X11/Xlib backend"))
+}
+
+// ============================================================================
+// Result types for FFI
+// ============================================================================
+
+/// Result type for functions returning U8Vec or a String error
+#[derive(Debug, Clone)]
+#[repr(C, u8)]
+pub enum ResultU8VecString {
+    Ok(azul_css::U8Vec),
+    Err(AzString),
+}
+
+impl From<Result<alloc::vec::Vec<u8>, AzString>> for ResultU8VecString {
+    fn from(result: Result<alloc::vec::Vec<u8>, AzString>) -> Self {
+        match result {
+            Ok(v) => ResultU8VecString::Ok(v.into()),
+            Err(e) => ResultU8VecString::Err(e),
+        }
+    }
+}
+
+/// Result type for functions returning () or a String error  
+#[derive(Debug, Clone)]
+#[repr(C, u8)]
+pub enum ResultVoidString {
+    Ok,
+    Err(AzString),
+}
+
+impl From<Result<(), AzString>> for ResultVoidString {
+    fn from(result: Result<(), AzString>) -> Self {
+        match result {
+            Ok(()) => ResultVoidString::Ok,
+            Err(e) => ResultVoidString::Err(e),
+        }
+    }
+}
+
+/// Result type for functions returning String or a String error  
+#[derive(Debug, Clone)]
+#[repr(C, u8)]
+pub enum ResultStringString {
+    Ok(AzString),
+    Err(AzString),
+}
+
+impl From<Result<AzString, AzString>> for ResultStringString {
+    fn from(result: Result<AzString, AzString>) -> Self {
+        match result {
+            Ok(s) => ResultStringString::Ok(s),
+            Err(e) => ResultStringString::Err(e),
+        }
+    }
+}
+
+// ============================================================================
+// Base64 encoding helper
+// ============================================================================
+
+const BASE64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// Encode bytes to Base64 string
+fn base64_encode(input: &[u8]) -> alloc::string::String {
+    let mut output = alloc::string::String::with_capacity((input.len() + 2) / 3 * 4);
+    
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0] as usize;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
+        
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        
+        output.push(BASE64_ALPHABET[(n >> 18) & 0x3F] as char);
+        output.push(BASE64_ALPHABET[(n >> 12) & 0x3F] as char);
+        
+        if chunk.len() > 1 {
+            output.push(BASE64_ALPHABET[(n >> 6) & 0x3F] as char);
+        } else {
+            output.push('=');
+        }
+        
+        if chunk.len() > 2 {
+            output.push(BASE64_ALPHABET[n & 0x3F] as char);
+        } else {
+            output.push('=');
+        }
+    }
+    
+    output
 }
