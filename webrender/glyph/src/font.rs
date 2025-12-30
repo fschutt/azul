@@ -164,9 +164,13 @@ impl FontContext {
         // WebRender will later convert this to R8 or BGRA8 as needed.
         let alpha_bytes: Vec<u8> = pixmap.pixels().iter().map(|p| p.alpha()).collect();
 
+        // WebRender convention for RasterizedGlyph.top:
+        // - Positive value = bitmap top is ABOVE baseline (typical for most glyphs)
+        // - The resource_cache stores -top to convert to Y-down offset
+        // So we pass: top = ascent above baseline (positive value)
         let rr = RasterizedGlyph {
             left: left - padding,
-            top: -top - padding, // WebRender expects Y-down for bitmap top coordinate
+            top: top + padding, // Positive: bitmap ascends this many pixels above baseline
             width: pixel_width as i32,
             height: pixel_height as i32,
             scale: 1.0, // The rasterized glyph is already at the correct scale.
