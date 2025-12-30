@@ -27,7 +27,7 @@ use azul_layout::{
 };
 use webrender::{
     api::{
-        units::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, WorldPoint as WrWorldPoint},
+        units::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale, WorldPoint as WrWorldPoint},
         ApiHitTester as WrApiHitTester, DebugFlags as WrDebugFlags, DirtyRect,
         DocumentId as WrDocumentId, FontInstanceKey as WrFontInstanceKey,
         FontInstanceOptions as WrFontInstanceOptions,
@@ -1054,18 +1054,18 @@ fn translate_add_font_instance(add_instance: AddFontInstance) -> Option<WrAddFon
     // Convert Au to f32 pixels: Au units are 1/60th of a pixel
     // glyph_size is (Au, DpiScaleFactor) 
     let font_size_au = add_instance.glyph_size.0;
-    let _dpi_factor = add_instance.glyph_size.1.inner.get();
+    let dpi_factor = add_instance.glyph_size.1.inner.get();
     
-    // Convert Au to logical pixels (1 Au = 1/60 px)
-    // NOTE: We do NOT multiply by DPI factor here!
-    // WebRender internally handles the device_pixel_scale when rasterizing glyphs.
-    // See webrender/core/src/prim_store/text_run.rs:update_font_instance()
-    // which calculates: device_font_size = font_size * dps * raster_scale
-    let glyph_size_px = (font_size_au.0 as f32) / 60.0;
+    // Convert Au to logical pixels (1 Au = 1/60 px), then multiply by DPI factor
+    // to get the physical pixel size for rasterization.
+    // NOTE: We multiply by DPI factor here because azul's layout outputs coordinates
+    // in physical pixels, so WebRender's global_device_pixel_scale is 1.0.
+    // Therefore we need to pre-scale fonts to the correct physical size.
+    let glyph_size_px = (font_size_au.0 as f32) / 60.0 * dpi_factor;
 
     eprintln!(
-        "[translate_add_font_instance] Converting Au({}) to {}px (logical), dpi={}",
-        font_size_au.0, glyph_size_px, _dpi_factor
+        "[translate_add_font_instance] Converting Au({}) to {}px (physical), dpi={}",
+        font_size_au.0, glyph_size_px, dpi_factor
     );
 
     Some(WrAddFontInstance {
@@ -1389,8 +1389,9 @@ pub fn generate_frame(
     // Update document view size (in case window was resized)
     let view_rect =
         DeviceIntRect::from_origin_and_size(DeviceIntPoint::new(0, 0), framebuffer_size);
-    eprintln!("[generate_frame] Setting document view: {:?}", view_rect);
-    txn.set_document_view(view_rect);
+    let hidpi_factor = layout_window.current_window_state.size.get_hidpi_factor();
+    eprintln!("[generate_frame] Setting document view: {:?}, hidpi: {}", view_rect, hidpi_factor.inner.get());
+    txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
     // Process image callback updates (if any callbacks requested re-rendering)
     process_image_callback_updates(layout_window, txn);
@@ -2078,11 +2079,12 @@ pub fn build_webrender_transaction(
     // Step 4: Set document view
     let view_rect =
         DeviceIntRect::from_origin_and_size(DeviceIntPoint::new(0, 0), framebuffer_size);
+    let hidpi_factor = layout_window.current_window_state.size.get_hidpi_factor();
     eprintln!(
-        "[build_atomic_txn] Step 4: Setting document view {:?}",
-        view_rect
+        "[build_atomic_txn] Step 4: Setting document view {:?}, hidpi: {}",
+        view_rect, hidpi_factor.inner.get()
     );
-    txn.set_document_view(view_rect);
+    txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
     // Step 5: Add scroll offsets
     eprintln!("[build_atomic_txn] Step 5: Adding scroll offsets");

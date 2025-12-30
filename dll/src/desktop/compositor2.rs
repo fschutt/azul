@@ -42,8 +42,28 @@ use webrender::{
 
 use crate::desktop::wr_translate2::{
     translate_image_key, wr_translate_border_radius, wr_translate_color_f,
-    wr_translate_layouted_glyphs, wr_translate_logical_size, wr_translate_pipeline_id,
+    wr_translate_logical_size, wr_translate_pipeline_id,
 };
+
+/// Convert logical pixel bounds to physical pixel LayoutRect for WebRender.
+/// All display list coordinates are in logical CSS pixels and need to be scaled
+/// by the HiDPI factor for correct rendering on HiDPI displays.
+#[inline]
+fn scale_bounds_to_layout_rect(
+    bounds: &azul_core::geom::LogicalRect,
+    dpi: f32,
+) -> LayoutRect {
+    LayoutRect::from_origin_and_size(
+        LayoutPoint::new(bounds.origin.x * dpi, bounds.origin.y * dpi),
+        LayoutSize::new(bounds.size.width * dpi, bounds.size.height * dpi),
+    )
+}
+
+/// Scale a single f32 value from logical to physical pixels
+#[inline]
+fn scale_px(val: f32, dpi: f32) -> f32 {
+    val * dpi
+}
 
 /// Translate an Azul DisplayList to WebRender DisplayList and resources
 /// Returns (resources, display_list, nested_pipelines) tuple that can be added to a transaction
@@ -82,6 +102,10 @@ pub fn translate_displaylist_to_wr(
     // NOTE: Caller (generate_frame) will set document_view
     // We just build the display list here
 
+    // Extract DPI scale factor for converting logical to physical pixels
+    // All display list coordinates are in logical CSS pixels
+    let dpi_scale = dpi.inner.get();
+
     // Collect nested iframe pipelines as we process them
     let mut nested_pipelines: Vec<(PipelineId, WrBuiltDisplayList)> = Vec::new();
 
@@ -119,13 +143,10 @@ pub fn translate_displaylist_to_wr(
                 border_radius,
             } => {
                 eprintln!(
-                    "[compositor2] Rect item: bounds={:?}, color={:?}",
-                    bounds, color
+                    "[compositor2] Rect item: bounds={:?}, color={:?}, dpi={}",
+                    bounds, color, dpi_scale
                 );
-                let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, bounds.size.height),
-                );
+                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
                 eprintln!("[compositor2] Translated to LayoutRect: {:?}", rect);
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
@@ -142,14 +163,25 @@ pub fn translate_displaylist_to_wr(
                 };
 
                 // Handle border_radius by creating clip region
+                // Note: LogicalRect here is used for clipping calculations, but we pass
+                // the scaled rect to WebRender
                 let logical_rect = LogicalRect::new(
-                    azul_core::geom::LogicalPosition::new(bounds.origin.x, bounds.origin.y),
-                    azul_core::geom::LogicalSize::new(bounds.size.width, bounds.size.height),
+                    azul_core::geom::LogicalPosition::new(
+                        scale_px(bounds.origin.x, dpi_scale),
+                        scale_px(bounds.origin.y, dpi_scale),
+                    ),
+                    azul_core::geom::LogicalSize::new(
+                        scale_px(bounds.size.width, dpi_scale),
+                        scale_px(bounds.size.height, dpi_scale),
+                    ),
                 );
                 let style_border_radius = convert_border_radius_to_style(border_radius);
                 let wr_border_radius = wr_translate_border_radius(
                     style_border_radius,
-                    azul_core::geom::LogicalSize::new(bounds.size.width, bounds.size.height),
+                    azul_core::geom::LogicalSize::new(
+                        scale_px(bounds.size.width, dpi_scale),
+                        scale_px(bounds.size.height, dpi_scale),
+                    ),
                 );
 
                 if !wr_border_radius.is_zero() {
@@ -185,10 +217,7 @@ pub fn translate_displaylist_to_wr(
                 border_radius,
                 color,
             } => {
-                let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, bounds.size.height),
-                );
+                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -207,10 +236,7 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::CursorRect { bounds, color } => {
-                let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, bounds.size.height),
-                );
+                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -235,10 +261,7 @@ pub fn translate_displaylist_to_wr(
                 styles,
                 border_radius,
             } => {
-                let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, bounds.size.height),
-                );
+                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
@@ -271,10 +294,7 @@ pub fn translate_displaylist_to_wr(
                 opacity_key,
                 hit_id,
             } => {
-                let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, bounds.size.height),
-                );
+                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -311,10 +331,7 @@ pub fn translate_displaylist_to_wr(
                 bounds,
                 border_radius,
             } => {
-                let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, bounds.size.height),
-                );
+                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
 
                 // Handle rounded corners if border_radius is non-zero
                 if !border_radius.is_zero() {
@@ -323,12 +340,27 @@ pub fn translate_displaylist_to_wr(
 
                     let wr_border_radius = wr_translate_border_radius(
                         style_border_radius,
-                        azul_core::geom::LogicalSize::new(bounds.size.width, bounds.size.height),
+                        azul_core::geom::LogicalSize::new(
+                            scale_px(bounds.size.width, dpi_scale),
+                            scale_px(bounds.size.height, dpi_scale),
+                        ),
+                    );
+
+                    // Create scaled bounds for clip
+                    let scaled_bounds = azul_core::geom::LogicalRect::new(
+                        azul_core::geom::LogicalPosition::new(
+                            scale_px(bounds.origin.x, dpi_scale),
+                            scale_px(bounds.origin.y, dpi_scale),
+                        ),
+                        azul_core::geom::LogicalSize::new(
+                            scale_px(bounds.size.width, dpi_scale),
+                            scale_px(bounds.size.height, dpi_scale),
+                        ),
                     );
 
                     let new_clip_id = define_border_radius_clip(
                         &mut builder,
-                        *bounds,
+                        scaled_bounds,
                         wr_border_radius,
                         *spatial_stack.last().unwrap(),
                         *clip_stack.last().unwrap(),
@@ -362,13 +394,25 @@ pub fn translate_displaylist_to_wr(
             } => {
                 // Create a scroll frame with proper clipping and content size
                 let frame_rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(clip_bounds.origin.x, clip_bounds.origin.y),
-                    LayoutSize::new(clip_bounds.size.width, clip_bounds.size.height),
+                    LayoutPoint::new(
+                        scale_px(clip_bounds.origin.x, dpi_scale),
+                        scale_px(clip_bounds.origin.y, dpi_scale),
+                    ),
+                    LayoutSize::new(
+                        scale_px(clip_bounds.size.width, dpi_scale),
+                        scale_px(clip_bounds.size.height, dpi_scale),
+                    ),
                 );
 
                 let content_rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(clip_bounds.origin.x, clip_bounds.origin.y),
-                    LayoutSize::new(content_size.width, content_size.height),
+                    LayoutPoint::new(
+                        scale_px(clip_bounds.origin.x, dpi_scale),
+                        scale_px(clip_bounds.origin.y, dpi_scale),
+                    ),
+                    LayoutSize::new(
+                        scale_px(content_size.width, dpi_scale),
+                        scale_px(content_size.height, dpi_scale),
+                    ),
                 );
 
                 // Define scroll frame using WebRender API
@@ -417,10 +461,7 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::HitTestArea { bounds, tag } => {
-                let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, bounds.size.height),
-                );
+                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
 
                 // Create a hit test item with the provided tag
                 // The tag is a tuple of (u64, u16) where:
@@ -455,8 +496,14 @@ pub fn translate_displaylist_to_wr(
                 thickness,
             } => {
                 let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, *thickness),
+                    LayoutPoint::new(
+                        scale_px(bounds.origin.x, dpi_scale),
+                        scale_px(bounds.origin.y, dpi_scale),
+                    ),
+                    LayoutSize::new(
+                        scale_px(bounds.size.width, dpi_scale),
+                        scale_px(*thickness, dpi_scale),
+                    ),
                 );
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
@@ -481,8 +528,14 @@ pub fn translate_displaylist_to_wr(
                 thickness,
             } => {
                 let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, *thickness),
+                    LayoutPoint::new(
+                        scale_px(bounds.origin.x, dpi_scale),
+                        scale_px(bounds.origin.y, dpi_scale),
+                    ),
+                    LayoutSize::new(
+                        scale_px(bounds.size.width, dpi_scale),
+                        scale_px(*thickness, dpi_scale),
+                    ),
                 );
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
@@ -507,8 +560,14 @@ pub fn translate_displaylist_to_wr(
                 thickness,
             } => {
                 let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, *thickness),
+                    LayoutPoint::new(
+                        scale_px(bounds.origin.x, dpi_scale),
+                        scale_px(bounds.origin.y, dpi_scale),
+                    ),
+                    LayoutSize::new(
+                        scale_px(bounds.size.width, dpi_scale),
+                        scale_px(*thickness, dpi_scale),
+                    ),
                 );
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
@@ -535,16 +594,17 @@ pub fn translate_displaylist_to_wr(
                 clip_rect,
             } => {
                 eprintln!(
-                    "[compositor2] Text item: {} glyphs, font_size={}, color={:?}, clip_rect={:?}",
+                    "[compositor2] Text item: {} glyphs, font_size={}, color={:?}, clip_rect={:?}, dpi={}",
                     glyphs.len(),
                     font_size_px,
                     color,
-                    clip_rect
+                    clip_rect,
+                    dpi_scale
                 );
 
                 // Log first few glyph positions for debugging
                 if !glyphs.is_empty() {
-                    eprintln!("[compositor2] First 3 glyphs:");
+                    eprintln!("[compositor2] First 3 glyphs (before scaling):");
                     for (i, g) in glyphs.iter().take(3).enumerate() {
                         eprintln!(
                             "  [{}] index={}, pos=({}, {})",
@@ -553,9 +613,16 @@ pub fn translate_displaylist_to_wr(
                     }
                 }
 
+                // Scale clip_rect from logical to physical pixels
                 let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(clip_rect.origin.x, clip_rect.origin.y),
-                    LayoutSize::new(clip_rect.size.width, clip_rect.size.height),
+                    LayoutPoint::new(
+                        scale_px(clip_rect.origin.x, dpi_scale),
+                        scale_px(clip_rect.origin.y, dpi_scale),
+                    ),
+                    LayoutSize::new(
+                        scale_px(clip_rect.size.width, dpi_scale),
+                        scale_px(clip_rect.size.height, dpi_scale),
+                    ),
                 );
 
                 let info = CommonItemProperties {
@@ -566,7 +633,16 @@ pub fn translate_displaylist_to_wr(
                 };
 
                 // Use push_text helper with font_hash lookup
+                // NOTE: font_size_px is logical, Au conversion and DPI scaling happens in
+                // translate_add_font_instance
                 let font_size_au = azul_core::resources::Au::from_px(*font_size_px);
+                
+                // Scale container origin for glyph positioning
+                let scaled_origin = azul_core::geom::LogicalPosition::new(
+                    scale_px(clip_rect.origin.x, dpi_scale),
+                    scale_px(clip_rect.origin.y, dpi_scale),
+                );
+                
                 push_text(
                     &mut builder,
                     &info,
@@ -576,6 +652,7 @@ pub fn translate_displaylist_to_wr(
                     renderer_resources,
                     dpi,
                     font_size_au,
+                    scaled_origin, // Pass scaled container origin to offset glyphs
                 );
             }
 
@@ -586,10 +663,7 @@ pub fn translate_displaylist_to_wr(
                 if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
                     let wr_image_key = translate_image_key(resolved_image.key);
 
-                    let rect = LayoutRect::from_origin_and_size(
-                        LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                        LayoutSize::new(bounds.size.width, bounds.size.height),
-                    );
+                    let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
 
                     let info = CommonItemProperties {
                         clip_rect: rect,
@@ -625,19 +699,23 @@ pub fn translate_displaylist_to_wr(
 
             DisplayListItem::PushStackingContext { z_index, bounds } => {
                 eprintln!(
-                    "[compositor2] PushStackingContext: z_index={}, bounds={:?}",
-                    z_index, bounds
+                    "[compositor2] PushStackingContext: z_index={}, bounds={:?}, dpi={}",
+                    z_index, bounds, dpi_scale
                 );
 
                 // Just push a simple stacking context at the bounds origin
                 // Use the current spatial_id from the stack (don't create a new reference frame)
                 let current_spatial_id = *spatial_stack.last().unwrap();
+                let scaled_origin = LayoutPoint::new(
+                    scale_px(bounds.origin.x, dpi_scale),
+                    scale_px(bounds.origin.y, dpi_scale),
+                );
                 eprintln!(
                     "[compositor2] >>>>> push_simple_stacking_context at ({}, {}) <<<<<",
-                    bounds.origin.x, bounds.origin.y
+                    scaled_origin.x, scaled_origin.y
                 );
                 builder.push_simple_stacking_context(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                    scaled_origin,
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                 );
@@ -711,14 +789,8 @@ pub fn translate_displaylist_to_wr(
                                 clip_chain_id: *clip_stack.last().unwrap(),
                             };
 
-                            let wr_bounds = LayoutRect::from_origin_and_size(
-                                LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                                LayoutSize::new(bounds.size.width, bounds.size.height),
-                            );
-                            let wr_clip_rect = LayoutRect::from_origin_and_size(
-                                LayoutPoint::new(clip_rect.origin.x, clip_rect.origin.y),
-                                LayoutSize::new(clip_rect.size.width, clip_rect.size.height),
-                            );
+                            let wr_bounds = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                            let wr_clip_rect = scale_bounds_to_layout_rect(clip_rect, dpi_scale);
 
                             builder.push_iframe(
                                 wr_bounds,
@@ -763,21 +835,20 @@ pub fn translate_displaylist_to_wr(
                 eprintln!("[compositor2] LinearGradient: bounds={:?}", bounds);
 
                 // Convert CSS gradient to WebRender gradient
-                let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, bounds.size.height),
-                );
+                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
 
-                // Create layout rect for computing gradient points
+                // Create layout rect for computing gradient points (use scaled size)
                 use azul_css::props::basic::{
                     LayoutPoint as CssLayoutPoint, LayoutRect as CssLayoutRect,
                     LayoutSize as CssLayoutSize,
                 };
+                let scaled_width = scale_px(bounds.size.width, dpi_scale);
+                let scaled_height = scale_px(bounds.size.height, dpi_scale);
                 let layout_rect = CssLayoutRect {
                     origin: CssLayoutPoint::new(0, 0),
                     size: CssLayoutSize {
-                        width: bounds.size.width as isize,
-                        height: bounds.size.height as isize,
+                        width: scaled_width as isize,
+                        height: scaled_height as isize,
                     },
                 };
 
@@ -825,7 +896,7 @@ pub fn translate_displaylist_to_wr(
                 };
 
                 // Push gradient (tile_size = bounds size, tile_spacing = 0 for no tiling)
-                let tile_size = LayoutSize::new(bounds.size.width, bounds.size.height);
+                let tile_size = LayoutSize::new(scaled_width, scaled_height);
                 let tile_spacing = LayoutSize::zero();
                 builder.push_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
             }
@@ -837,10 +908,9 @@ pub fn translate_displaylist_to_wr(
             } => {
                 eprintln!("[compositor2] RadialGradient: bounds={:?}", bounds);
 
-                let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, bounds.size.height),
-                );
+                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let scaled_width = scale_px(bounds.size.width, dpi_scale);
+                let scaled_height = scale_px(bounds.size.height, dpi_scale);
 
                 // Compute center based on background position
                 use azul_css::props::style::background::{
@@ -978,7 +1048,7 @@ pub fn translate_displaylist_to_wr(
                     flags: Default::default(),
                 };
 
-                let tile_size = LayoutSize::new(bounds.size.width, bounds.size.height);
+                let tile_size = LayoutSize::new(scaled_width, scaled_height);
                 let tile_spacing = LayoutSize::zero();
                 builder.push_radial_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
             }
@@ -990,10 +1060,9 @@ pub fn translate_displaylist_to_wr(
             } => {
                 eprintln!("[compositor2] ConicGradient: bounds={:?}", bounds);
 
-                let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-                    LayoutSize::new(bounds.size.width, bounds.size.height),
-                );
+                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let scaled_width = scale_px(bounds.size.width, dpi_scale);
+                let scaled_height = scale_px(bounds.size.height, dpi_scale);
 
                 // Compute center based on CSS position (default is center)
                 use azul_css::props::style::background::{
@@ -1061,7 +1130,7 @@ pub fn translate_displaylist_to_wr(
                     flags: Default::default(),
                 };
 
-                let tile_size = LayoutSize::new(bounds.size.width, bounds.size.height);
+                let tile_size = LayoutSize::new(scaled_width, scaled_height);
                 let tile_spacing = LayoutSize::zero();
                 builder.push_conic_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
             }
@@ -1078,11 +1147,17 @@ pub fn translate_displaylist_to_wr(
                 );
                 // TODO: Implement proper WebRender box shadow using builder.push_box_shadow()
                 // For now, render a simplified shadow as an offset rectangle
-                let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, 16.0);
-                let offset_y = shadow.offset_y.inner.to_pixels_internal(0.0, 16.0);
+                let offset_x = scale_px(shadow.offset_x.inner.to_pixels_internal(0.0, 16.0), dpi_scale);
+                let offset_y = scale_px(shadow.offset_y.inner.to_pixels_internal(0.0, 16.0), dpi_scale);
                 let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(bounds.origin.x + offset_x, bounds.origin.y + offset_y),
-                    LayoutSize::new(bounds.size.width, bounds.size.height),
+                    LayoutPoint::new(
+                        scale_px(bounds.origin.x, dpi_scale) + offset_x,
+                        scale_px(bounds.origin.y, dpi_scale) + offset_y,
+                    ),
+                    LayoutSize::new(
+                        scale_px(bounds.size.width, dpi_scale),
+                        scale_px(bounds.size.height, dpi_scale),
+                    ),
                 );
                 let color_f =
                     wr_translate_color_f(azul_css::props::basic::color::ColorF::from(shadow.color));
@@ -1106,7 +1181,10 @@ pub fn translate_displaylist_to_wr(
                 // For now, just push a simple stacking context
                 let current_spatial_id = *spatial_stack.last().unwrap();
                 builder.push_simple_stacking_context(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                    LayoutPoint::new(
+                        scale_px(bounds.origin.x, dpi_scale),
+                        scale_px(bounds.origin.y, dpi_scale),
+                    ),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                 );
@@ -1126,7 +1204,10 @@ pub fn translate_displaylist_to_wr(
                 // Backdrop filters require special handling in WebRender
                 let current_spatial_id = *spatial_stack.last().unwrap();
                 builder.push_simple_stacking_context(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                    LayoutPoint::new(
+                        scale_px(bounds.origin.x, dpi_scale),
+                        scale_px(bounds.origin.y, dpi_scale),
+                    ),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                 );
@@ -1144,7 +1225,10 @@ pub fn translate_displaylist_to_wr(
                 // TODO: Implement proper WebRender opacity stacking context
                 let current_spatial_id = *spatial_stack.last().unwrap();
                 builder.push_simple_stacking_context(
-                    LayoutPoint::new(bounds.origin.x, bounds.origin.y),
+                    LayoutPoint::new(
+                        scale_px(bounds.origin.x, dpi_scale),
+                        scale_px(bounds.origin.y, dpi_scale),
+                    ),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                 );
@@ -1244,7 +1328,10 @@ fn push_text(
     renderer_resources: &azul_core::resources::RendererResources,
     dpi: azul_core::resources::DpiScaleFactor,
     font_size: azul_core::resources::Au,
+    container_origin: azul_core::geom::LogicalPosition, // Container origin (already scaled)
 ) {
+    let dpi_scale = dpi.inner.get();
+    
     // Look up FontKey from the font_hash (which comes from the GlyphRun)
     // The font_hash is the hash of FontRef computed during layout
     let font_key = match renderer_resources.font_hash_map.get(&font_hash) {
@@ -1273,17 +1360,34 @@ fn push_text(
         }
     };
 
-    // Translate to WebRender types
-    let wr_glyphs = wr_translate_layouted_glyphs(glyphs);
+    // Translate glyph positions to absolute coordinates by adding container origin
+    // The glyphs have positions relative to (0,0) in LOGICAL pixels
+    // We need to:
+    // 1. Scale the glyph positions from logical to physical pixels
+    // 2. Add the container offset (which is already in physical pixels)
+    let wr_glyphs: Vec<_> = glyphs
+        .iter()
+        .map(|g| webrender::api::GlyphInstance {
+            index: g.index,
+            point: webrender::api::units::LayoutPoint::new(
+                container_origin.x + g.point.x * dpi_scale,
+                container_origin.y + g.point.y * dpi_scale,
+            ),
+        })
+        .collect();
+
     let wr_font_instance_key =
         crate::desktop::wr_translate2::wr_translate_font_instance_key(font_instance_key);
     let wr_color = azul_css::props::basic::color::ColorF::from(color);
 
     eprintln!(
-        "[push_text] ✓ Pushing {} glyphs with FontInstanceKey {:?}, color={:?}",
+        "[push_text] ✓ Pushing {} glyphs with FontInstanceKey {:?}, color={:?}, container_origin=({}, {}), dpi={}",
         wr_glyphs.len(),
         wr_font_instance_key,
-        wr_color
+        wr_color,
+        container_origin.x,
+        container_origin.y,
+        dpi_scale
     );
 
     // Push text to display list
