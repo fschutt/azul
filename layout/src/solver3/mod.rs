@@ -356,9 +356,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: azul_core::dom::DomId,
 ) -> Result<DisplayList> {
-    eprintln!("[DEBUG Layout] layout_document called - viewport: ({:.1}, {:.1}) size ({:.1}x{:.1})",
-        viewport.origin.x, viewport.origin.y, viewport.size.width, viewport.size.height);
-    eprintln!("[DEBUG Layout] DOM has {} nodes", new_dom.node_data.len());
+    if let Some(msgs) = debug_messages.as_mut() {
+        msgs.push(LayoutDebugMessage::info(format!("[Layout] layout_document called - viewport: ({:.1}, {:.1}) size ({:.1}x{:.1})",
+            viewport.origin.x, viewport.origin.y, viewport.size.width, viewport.size.height)));
+        msgs.push(LayoutDebugMessage::info(format!("[Layout] DOM has {} nodes", new_dom.node_data.len())));
+    }
     
     // Create temporary context without counters for tree generation
     let mut counter_values = BTreeMap::new();

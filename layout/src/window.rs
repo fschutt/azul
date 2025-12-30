@@ -551,25 +551,35 @@ impl LayoutWindow {
                 text3::default::PathLoader,
             };
 
-            eprintln!("[DEBUG FontLoading] Starting font resolution for DOM");
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::info("[FontLoading] Starting font resolution for DOM".to_string()));
+            }
 
             // Step 1: Resolve font chains (cached by FontChainKey)
             let chains = collect_and_resolve_font_chains(&styled_dom, &self.font_manager.fc_cache);
-            eprintln!("[DEBUG FontLoading] Resolved {} font chains", chains.len());
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::info(format!("[FontLoading] Resolved {} font chains", chains.len())));
+            }
 
             // Step 2: Get required font IDs from chains
             let required_fonts = collect_font_ids_from_chains(&chains);
-            eprintln!("[DEBUG FontLoading] Required fonts: {:?}", required_fonts);
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::info(format!("[FontLoading] Required fonts: {} unique fonts", required_fonts.len())));
+            }
 
             // Step 3: Compute which fonts need to be loaded (diff with already loaded)
             let already_loaded = self.font_manager.get_loaded_font_ids();
             let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
-            eprintln!("[DEBUG FontLoading] Already loaded: {:?}, need to load: {:?}", 
-                already_loaded.len(), fonts_to_load.len());
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::info(format!("[FontLoading] Already loaded: {}, need to load: {}", 
+                    already_loaded.len(), fonts_to_load.len())));
+            }
 
             // Step 4: Load missing fonts
             if !fonts_to_load.is_empty() {
-                eprintln!("[DEBUG FontLoading] Loading {} fonts from disk...", fonts_to_load.len());
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(format!("[FontLoading] Loading {} fonts from disk...", fonts_to_load.len())));
+                }
                 let loader = PathLoader::new();
                 let load_result = load_fonts_from_disk(
                     &fonts_to_load,
@@ -577,16 +587,17 @@ impl LayoutWindow {
                     |bytes, index| loader.load_font(bytes, index),
                 );
 
-                eprintln!("[DEBUG FontLoading] Loaded {} fonts, {} failed", 
-                    load_result.loaded.len(), load_result.failed.len());
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(format!("[FontLoading] Loaded {} fonts, {} failed", 
+                        load_result.loaded.len(), load_result.failed.len())));
+                }
 
                 // Insert loaded fonts into the font manager
                 self.font_manager.insert_fonts(load_result.loaded);
 
                 // Log any failures
                 for (font_id, error) in &load_result.failed {
-                    eprintln!("[DEBUG FontLoading] FAILED to load font {:?}: {}", font_id, error);
-                    if let Some(msgs) = debug_messages {
+                    if let Some(msgs) = debug_messages.as_mut() {
                         msgs.push(LayoutDebugMessage::warning(format!(
                             "[FontLoading] Failed to load font {:?}: {}",
                             font_id, error

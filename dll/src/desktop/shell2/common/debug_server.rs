@@ -174,6 +174,26 @@ pub enum DebugEvent {
     HitTest { x: f32, y: f32 },
     GetLogs { #[serde(default)] since_request_id: Option<u64> },
     
+    // DOM Inspection
+    /// Get the HTML representation of the DOM
+    GetHtmlString,
+    /// Get all computed CSS properties for a node
+    GetNodeCssProperties { 
+        #[serde(default)] 
+        node_id: u64 
+    },
+    /// Get node layout information (position, size)
+    GetNodeLayout { 
+        #[serde(default)] 
+        node_id: u64 
+    },
+    /// Get all nodes with their layout info
+    GetAllNodesLayout,
+    /// Get detailed DOM tree structure
+    GetDomTree,
+    /// Get the display list items (what's actually being rendered)
+    GetDisplayList,
+    
     // Control
     Relayout,
     Redraw,
@@ -783,6 +803,245 @@ fn process_debug_event(
                 Err(e) => {
                     send_response(request, false, Some(e.as_str().to_string()), None, None);
                 }
+            }
+        }
+
+        DebugEvent::GetHtmlString => {
+            log(LogLevel::Debug, LogCategory::DebugServer, "Getting HTML string", None);
+            let dom_id = azul_core::dom::DomId { inner: 0 };
+            let layout_window = callback_info.get_layout_window();
+            if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
+                let html = layout_result.styled_dom.get_html_string("", "", true);
+                send_response(request, true, None, Some(html), None);
+            } else {
+                send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
+            }
+        }
+
+        DebugEvent::GetNodeCssProperties { node_id } => {
+            log(LogLevel::Debug, LogCategory::DebugServer, format!("Getting CSS properties for node {}", node_id), None);
+            use azul_css::props::property::CssPropertyType;
+            use azul_core::dom::{DomId, DomNodeId, NodeId};
+            use strum::IntoEnumIterator;
+            
+            let dom_node_id = DomNodeId {
+                dom: DomId { inner: 0 },
+                node: NodeId::from_usize(*node_id as usize).into(),
+            };
+            
+            // Collect all CSS properties that are set on this node
+            let mut props = Vec::new();
+            
+            // Iterate over all CSS property types
+            for prop_type in CssPropertyType::iter() {
+                if let Some(prop) = callback_info.get_computed_css_property(dom_node_id, prop_type) {
+                    props.push(format!("{}: {:?}", prop_type.to_str(), prop));
+                }
+            }
+            
+            let data = format!("{{\"node_id\": {}, \"property_count\": {}, \"properties\": [{}]}}", 
+                node_id,
+                props.len(),
+                props.iter().map(|p| format!("\"{}\"", p.replace('"', "\\\""))).collect::<Vec<_>>().join(", ")
+            );
+            send_response(request, true, None, Some(data), None);
+        }
+
+        DebugEvent::GetNodeLayout { node_id } => {
+            log(LogLevel::Debug, LogCategory::DebugServer, format!("Getting layout for node {}", node_id), None);
+            use azul_core::dom::{DomId, DomNodeId, NodeId};
+            
+            let dom_node_id = DomNodeId {
+                dom: DomId { inner: 0 },
+                node: NodeId::from_usize(*node_id as usize).into(),
+            };
+            
+            let size = callback_info.get_node_size(dom_node_id);
+            let pos = callback_info.get_node_position(dom_node_id);
+            let rect = callback_info.get_node_rect(dom_node_id);
+            
+            let data = format!(
+                "{{\"node_id\": {}, \"size\": {:?}, \"position\": {:?}, \"rect\": {:?}}}",
+                node_id, size, pos, rect
+            );
+            send_response(request, true, None, Some(data), None);
+        }
+
+        DebugEvent::GetAllNodesLayout => {
+            log(LogLevel::Debug, LogCategory::DebugServer, "Getting all nodes layout", None);
+            use azul_core::dom::{DomId, DomNodeId, NodeId};
+            
+            let dom_id = DomId { inner: 0 };
+            let layout_window = callback_info.get_layout_window();
+            
+            let mut nodes = Vec::new();
+            if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
+                let node_count = layout_result.styled_dom.node_data.len();
+                for i in 0..node_count {
+                    let dom_node_id = DomNodeId {
+                        dom: dom_id.clone(),
+                        node: NodeId::from_usize(i).into(),
+                    };
+                    
+                    let rect = callback_info.get_node_rect(dom_node_id);
+                    let tag = callback_info.get_node_tag_name(dom_node_id);
+                    let id_attr = callback_info.get_node_id(dom_node_id);
+                    let classes = callback_info.get_node_classes(dom_node_id);
+                    
+                    // Proper JSON serialization
+                    let tag_json = match tag {
+                        Some(s) => format!("\"{}\"", s.as_str()),
+                        None => "null".to_string(),
+                    };
+                    let id_json = match id_attr {
+                        Some(s) => format!("\"{}\"", s.as_str()),
+                        None => "null".to_string(),
+                    };
+                    let classes_json: Vec<String> = classes.as_ref().iter()
+                        .map(|s| format!("\"{}\"", s.as_str()))
+                        .collect();
+                    let rect_json = match rect {
+                        Some(r) => format!(
+                            "{{\"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}}}",
+                            r.origin.x, r.origin.y, r.size.width, r.size.height
+                        ),
+                        None => "null".to_string(),
+                    };
+                    
+                    nodes.push(format!(
+                        "{{\"node_id\": {}, \"tag\": {}, \"id\": {}, \"classes\": [{}], \"rect\": {}}}",
+                        i, 
+                        tag_json,
+                        id_json,
+                        classes_json.join(", "),
+                        rect_json
+                    ));
+                }
+            }
+            
+            let data = format!("{{\"dom_id\": 0, \"node_count\": {}, \"nodes\": [{}]}}", 
+                nodes.len(),
+                nodes.join(", ")
+            );
+            send_response(request, true, None, Some(data), None);
+        }
+
+        DebugEvent::GetDomTree => {
+            log(LogLevel::Debug, LogCategory::DebugServer, "Getting DOM tree", None);
+            use azul_core::dom::DomId;
+            
+            let dom_id = DomId { inner: 0 };
+            let layout_window = callback_info.get_layout_window();
+            
+            if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
+                let styled_dom = &layout_result.styled_dom;
+                let window_state = callback_info.get_current_window_state();
+                
+                // Collect detailed info
+                let node_count = styled_dom.node_data.len();
+                let dpi = window_state.size.dpi;
+                let hidpi = window_state.size.get_hidpi_factor().inner.get();
+                let logical_size = &window_state.size.dimensions;
+                
+                let data = format!(
+                    "{{\"dom_id\": 0, \"node_count\": {}, \"dpi\": {}, \"hidpi_factor\": {}, \"logical_width\": {}, \"logical_height\": {}}}",
+                    node_count, dpi, hidpi, logical_size.width, logical_size.height
+                );
+                send_response(request, true, None, Some(data), None);
+            } else {
+                send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
+            }
+        }
+
+        DebugEvent::GetDisplayList => {
+            log(LogLevel::Debug, LogCategory::DebugServer, "Getting display list", None);
+            use azul_core::dom::DomId;
+            
+            let dom_id = DomId { inner: 0 };
+            let layout_window = callback_info.get_layout_window();
+            
+            if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
+                let display_list = &layout_result.display_list;
+                let items = &display_list.items;
+                
+                // Count item types
+                let mut rect_count = 0;
+                let mut text_count = 0;
+                let mut border_count = 0;
+                let mut image_count = 0;
+                let mut other_count = 0;
+                
+                let mut item_descriptions = Vec::new();
+                
+                for (idx, item) in items.iter().enumerate() {
+                    let desc = match item {
+                        azul_layout::solver3::display_list::DisplayListItem::Rect { bounds, color, .. } => {
+                            rect_count += 1;
+                            format!(
+                                "{{\"index\": {}, \"type\": \"rect\", \"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}, \"color\": \"#{:02x}{:02x}{:02x}{:02x}\"}}",
+                                idx, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height,
+                                color.r, color.g, color.b, color.a
+                            )
+                        }
+                        azul_layout::solver3::display_list::DisplayListItem::Text { glyphs, font_size_px, color, clip_rect, .. } => {
+                            text_count += 1;
+                            format!(
+                                "{{\"index\": {}, \"type\": \"text\", \"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}, \"font_size\": {}, \"color\": \"#{:02x}{:02x}{:02x}{:02x}\", \"glyph_count\": {}}}",
+                                idx, clip_rect.origin.x, clip_rect.origin.y, clip_rect.size.width, clip_rect.size.height,
+                                font_size_px, color.r, color.g, color.b, color.a,
+                                glyphs.len()
+                            )
+                        }
+                        azul_layout::solver3::display_list::DisplayListItem::TextLayout { bounds, font_size_px, color, .. } => {
+                            // TextLayout contains the original text - this is more useful for debugging
+                            text_count += 1;
+                            format!(
+                                "{{\"index\": {}, \"type\": \"text_layout\", \"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}, \"font_size\": {}, \"color\": \"#{:02x}{:02x}{:02x}{:02x}\"}}",
+                                idx, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height,
+                                font_size_px, color.r, color.g, color.b, color.a
+                            )
+                        }
+                        azul_layout::solver3::display_list::DisplayListItem::Border { bounds, .. } => {
+                            border_count += 1;
+                            format!(
+                                "{{\"index\": {}, \"type\": \"border\", \"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}}}",
+                                idx, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height
+                            )
+                        }
+                        azul_layout::solver3::display_list::DisplayListItem::Image { bounds, .. } => {
+                            image_count += 1;
+                            format!(
+                                "{{\"index\": {}, \"type\": \"image\", \"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}}}",
+                                idx, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height
+                            )
+                        }
+                        azul_layout::solver3::display_list::DisplayListItem::PushStackingContext { z_index, bounds } => {
+                            other_count += 1;
+                            format!("{{\"index\": {}, \"type\": \"push_stacking_context\", \"z_index\": {}, \"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}}}", 
+                                idx, z_index, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height)
+                        }
+                        azul_layout::solver3::display_list::DisplayListItem::PopStackingContext => {
+                            other_count += 1;
+                            format!("{{\"index\": {}, \"type\": \"pop_stacking_context\"}}", idx)
+                        }
+                        _ => {
+                            other_count += 1;
+                            // Print the debug representation to understand what type it is
+                            format!("{{\"index\": {}, \"type\": \"unknown\", \"debug\": \"{:?}\"}}", idx, 
+                                std::mem::discriminant(item))
+                        }
+                    };
+                    item_descriptions.push(desc);
+                }
+                
+                let data = format!(
+                    "{{\"total_items\": {}, \"rect_count\": {}, \"text_count\": {}, \"border_count\": {}, \"image_count\": {}, \"other_count\": {}, \"items\": [{}]}}",
+                    items.len(), rect_count, text_count, border_count, image_count, other_count,
+                    item_descriptions.join(", ")
+                );
+                send_response(request, true, None, Some(data), None);
+            } else {
+                send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
             }
         }
 

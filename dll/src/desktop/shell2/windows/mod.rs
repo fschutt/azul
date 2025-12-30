@@ -624,6 +624,10 @@ impl Win32Window {
     pub fn regenerate_layout(&mut self) -> Result<(), String> {
         let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
 
+        // Collect debug messages if debug server is enabled
+        let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
+
         // Call unified regenerate_layout from common module
         crate::desktop::shell2::common::layout_v2::regenerate_layout(
             layout_window,
@@ -636,7 +640,20 @@ impl Win32Window {
             &self.fc_cache,
             &self.system_style,
             self.document_id,
+            &mut debug_messages,
         )?;
+
+        // Forward layout debug messages to the debug server's log queue
+        if let Some(msgs) = debug_messages {
+            for msg in msgs {
+                crate::desktop::shell2::common::debug_server::log(
+                    crate::desktop::shell2::common::debug_server::LogLevel::Debug,
+                    crate::desktop::shell2::common::debug_server::LogCategory::Layout,
+                    msg.message.as_str().to_string(),
+                    None,
+                );
+            }
+        }
 
         // Update accessibility tree after layout
         #[cfg(feature = "a11y")]

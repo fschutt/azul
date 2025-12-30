@@ -417,11 +417,44 @@ struct DisplayListBuilder {
     node_mapping: Vec<Option<NodeId>>,
     /// Current node being processed (set by generator)
     current_node: Option<NodeId>,
+    /// Collected debug messages (transferred to ctx on finalize)
+    debug_messages: Vec<LayoutDebugMessage>,
+    /// Whether debug logging is enabled
+    debug_enabled: bool,
 }
 
 impl DisplayListBuilder {
     pub fn new() -> Self {
         Self::default()
+    }
+    
+    pub fn with_debug(debug_enabled: bool) -> Self {
+        Self {
+            items: Vec::new(),
+            node_mapping: Vec::new(),
+            current_node: None,
+            debug_messages: Vec::new(),
+            debug_enabled,
+        }
+    }
+    
+    /// Log a debug message if debug is enabled
+    fn debug_log(&mut self, message: String) {
+        if self.debug_enabled {
+            self.debug_messages.push(LayoutDebugMessage::info(message));
+        }
+    }
+    
+    /// Build the display list and transfer debug messages to the provided option
+    pub fn build_with_debug(mut self, debug_messages: &mut Option<Vec<LayoutDebugMessage>>) -> DisplayList {
+        // Transfer collected debug messages to the context
+        if let Some(msgs) = debug_messages.as_mut() {
+            msgs.append(&mut self.debug_messages);
+        }
+        DisplayList {
+            items: self.items,
+            node_mapping: self.node_mapping,
+        }
     }
 
     /// Set the current node context for subsequent push operations
@@ -609,8 +642,8 @@ impl DisplayListBuilder {
         color: ColorU,
         clip_rect: LogicalRect,
     ) {
-        eprintln!("[DEBUG push_text_run] {} glyphs, font_size={}px, color=({},{},{},{}), clip={:?}",
-            glyphs.len(), font_size_px, color.r, color.g, color.b, color.a, clip_rect);
+        self.debug_log(format!("[push_text_run] {} glyphs, font_size={}px, color=({},{},{},{}), clip={:?}",
+            glyphs.len(), font_size_px, color.r, color.g, color.b, color.a, clip_rect));
         
         if !glyphs.is_empty() && color.a > 0 {
             self.push_item(DisplayListItem::Text {
@@ -621,8 +654,8 @@ impl DisplayListBuilder {
                 clip_rect,
             });
         } else {
-            eprintln!("[DEBUG push_text_run] SKIPPED: glyphs.is_empty()={}, color.a={}",
-                glyphs.is_empty(), color.a);
+            self.debug_log(format!("[push_text_run] SKIPPED: glyphs.is_empty()={}, color.a={}",
+                glyphs.is_empty(), color.a));
         }
     }
 
@@ -692,7 +725,7 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     id_namespace: IdNamespace,
     dom_id: DomId,
 ) -> Result<DisplayList> {
-    eprintln!("[DEBUG DisplayList] generate_display_list: tree has {} nodes, {} positions calculated",
+    debug_info!(ctx, "[DisplayList] generate_display_list: tree has {} nodes, {} positions calculated",
         tree.nodes.len(), calculated_positions.len());
     
     debug_info!(ctx, "Starting display list generation");
@@ -716,7 +749,10 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
         id_namespace,
         dom_id,
     );
-    let mut builder = DisplayListBuilder::new();
+    
+    // Create builder with debug enabled if ctx has debug messages
+    let debug_enabled = generator.ctx.debug_messages.is_some();
+    let mut builder = DisplayListBuilder::with_debug(debug_enabled);
 
     // 1. Build a tree of stacking contexts, which defines the global paint order.
     let stacking_context_tree = generator.collect_stacking_contexts(tree.root)?;
@@ -728,11 +764,11 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     );
     generator.generate_for_stacking_context(&mut builder, &stacking_context_tree)?;
 
-    let display_list = builder.build();
-    eprintln!("[DEBUG DisplayList] Generated {} display items", display_list.items.len());
+    // Build display list and transfer debug messages to context
+    let display_list = builder.build_with_debug(generator.ctx.debug_messages);
     debug_info!(
         generator.ctx,
-        "Generated display list with {} items",
+        "[DisplayList] Generated {} display items",
         display_list.items.len()
     );
     Ok(display_list)
@@ -1606,14 +1642,14 @@ where
         builder.set_current_node(node.dom_node_id);
 
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
-            eprintln!("[DEBUG paint_node] node {} has no paint_rect, skipping", node_index);
+            debug_info!(self.ctx, "[paint_node] node {} has no paint_rect, skipping", node_index);
             return Ok(());
         };
         
         // Debug: Log node painting
         if let Some(dom_id) = node.dom_node_id {
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            eprintln!("[DEBUG paint_node] node {} ({:?}) paint_rect={:?}, has_inline_layout={}",
+            debug_info!(self.ctx, "[paint_node] node {} ({:?}) paint_rect={:?}, has_inline_layout={}",
                 node_index, 
                 node_data.get_node_type(),
                 paint_rect,
@@ -1628,7 +1664,7 @@ where
         // Paint the node's visible content.
         if let Some(cached_layout) = &node.inline_layout_result {
             let inline_layout = &cached_layout.layout;
-            eprintln!("[DEBUG paint_node] node {} has inline_layout with {} items",
+            debug_info!(self.ctx, "[paint_node] node {} has inline_layout with {} items",
                 node_index, inline_layout.items.len());
             
             if let Some(dom_id) = node.dom_node_id {

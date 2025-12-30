@@ -24,6 +24,7 @@ use webrender::{RenderApi as WrRenderApi, Transaction as WrTransaction};
 
 use crate::{desktop::{csd, wr_translate2}, log_debug};
 use super::debug_server::{self, LogCategory};
+use azul_css::LayoutDebugMessage;
 
 /// Regenerate layout after DOM changes.
 ///
@@ -56,6 +57,7 @@ pub fn regenerate_layout(
     fc_cache: &Arc<FcFontCache>,
     system_style: &Arc<SystemStyle>,
     document_id: DocumentId,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<(), String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");
 
@@ -114,7 +116,7 @@ pub fn regenerate_layout(
             current_window_state,
             renderer_resources,
             &ExternalSystemCallbacks::rust_internal(),
-            &mut None, // No debug messages for now
+            debug_messages,
         )
         .map_err(|e| format!("Layout error: {:?}", e))?;
 
