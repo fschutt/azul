@@ -17,6 +17,30 @@ use super::{
 };
 use crate::api::ApiData;
 
+/// Derives that should be ignored in diff generation.
+/// These are internal implementation details and should not be exposed in the C API.
+const BLACKLISTED_DERIVES: &[&str] = &[
+    "strum_macros :: EnumIter",
+    "strum_macros::EnumIter",
+    "EnumIter",
+    "strum_macros :: EnumString",
+    "strum_macros::EnumString",
+    "EnumString",
+    "strum_macros :: Display",
+    "strum_macros::Display",
+    "strum_macros :: AsRefStr",
+    "strum_macros::AsRefStr",
+    "AsRefStr",
+    "strum_macros :: IntoStaticStr",
+    "strum_macros::IntoStaticStr",
+    "IntoStaticStr",
+];
+
+/// Check if a derive should be ignored in diff generation
+fn is_derive_blacklisted(derive_name: &str) -> bool {
+    BLACKLISTED_DERIVES.iter().any(|&b| b == derive_name || derive_name.contains(b))
+}
+
 // data structures
 /// Diff between expected and current API
 #[derive(Debug, Default)]
@@ -1229,28 +1253,40 @@ fn compare_derives_and_impls(
         _ => return modifications, // Skip non-struct/enum types
     };
 
-    // Compare derives
-    let workspace_derive_set: BTreeSet<_> = workspace_derives.iter().collect();
-    let api_derive_set: BTreeSet<_> = api_info.derives.iter().collect();
+    // Compare derives (filter out blacklisted derives like strum macros)
+    let workspace_derive_set: BTreeSet<_> = workspace_derives
+        .iter()
+        .filter(|d| !is_derive_blacklisted(d))
+        .collect();
+    let api_derive_set: BTreeSet<_> = api_info.derives
+        .iter()
+        .filter(|d| !is_derive_blacklisted(d))
+        .collect();
 
     // Derives added in workspace (not in api.json)
     for derive in workspace_derive_set.difference(&api_derive_set) {
-        modifications.push(TypeModification {
-            type_name: type_name.to_string(),
-            kind: ModificationKind::DeriveAdded {
-                derive_name: (*derive).clone(),
-            },
-        });
+        // Double-check blacklist for safety
+        if !is_derive_blacklisted(derive) {
+            modifications.push(TypeModification {
+                type_name: type_name.to_string(),
+                kind: ModificationKind::DeriveAdded {
+                    derive_name: (*derive).clone(),
+                },
+            });
+        }
     }
 
     // Derives removed from workspace (in api.json but not workspace)
     for derive in api_derive_set.difference(&workspace_derive_set) {
-        modifications.push(TypeModification {
-            type_name: type_name.to_string(),
-            kind: ModificationKind::DeriveRemoved {
-                derive_name: (*derive).clone(),
-            },
-        });
+        // Double-check blacklist for safety
+        if !is_derive_blacklisted(derive) {
+            modifications.push(TypeModification {
+                type_name: type_name.to_string(),
+                kind: ModificationKind::DeriveRemoved {
+                    derive_name: (*derive).clone(),
+                },
+            });
+        }
     }
 
     // Compare custom_impls
