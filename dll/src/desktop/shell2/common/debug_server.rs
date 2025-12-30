@@ -141,6 +141,224 @@ impl serde::Serialize for WindowStateSnapshot {
     }
 }
 
+// ==================== Response Data Structures ====================
+
+/// Response for GetNodeCssProperties
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeCssPropertiesResponse {
+    pub node_id: u64,
+    pub property_count: usize,
+    pub properties: Vec<String>,
+}
+
+/// Response for GetNodeLayout
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct NodeLayoutResponse {
+    pub node_id: u64,
+    pub size: Option<LogicalSizeJson>,
+    pub position: Option<LogicalPositionJson>,
+    pub rect: Option<LogicalRectJson>,
+}
+
+/// Response for GetAllNodesLayout
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AllNodesLayoutResponse {
+    pub dom_id: u32,
+    pub node_count: usize,
+    pub nodes: Vec<NodeLayoutInfo>,
+}
+
+/// Layout info for a single node
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeLayoutInfo {
+    pub node_id: usize,
+    pub tag: Option<String>,
+    pub id: Option<String>,
+    pub classes: Vec<String>,
+    pub rect: Option<LogicalRectJson>,
+}
+
+/// Response for GetDomTree
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct DomTreeResponse {
+    pub dom_id: u32,
+    pub node_count: usize,
+    pub dpi: u32,
+    pub hidpi_factor: f32,
+    pub logical_width: f32,
+    pub logical_height: f32,
+}
+
+/// Response for GetNodeHierarchy
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeHierarchyResponse {
+    pub root: i64,
+    pub node_count: usize,
+    pub nodes: Vec<HierarchyNodeInfo>,
+}
+
+/// Hierarchy info for a single node
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HierarchyNodeInfo {
+    pub index: usize,
+    #[serde(rename = "type")]
+    pub node_type: String,
+    pub text: Option<String>,
+    pub parent: i64,
+    pub prev_sibling: i64,
+    pub next_sibling: i64,
+    pub last_child: i64,
+    pub children: Vec<usize>,
+}
+
+/// Response for GetLayoutTree
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LayoutTreeResponse {
+    pub root: usize,
+    pub node_count: usize,
+    pub nodes: Vec<LayoutNodeInfo>,
+}
+
+/// Layout tree info for a single node
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LayoutNodeInfo {
+    pub layout_idx: usize,
+    pub dom_idx: i64,
+    #[serde(rename = "type")]
+    pub node_type: String,
+    pub is_anonymous: bool,
+    pub anonymous_type: Option<String>,
+    pub formatting_context: String,
+    pub parent: i64,
+    pub children: Vec<usize>,
+}
+
+/// Response for GetDisplayList
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DisplayListResponse {
+    pub total_items: usize,
+    pub rect_count: usize,
+    pub text_count: usize,
+    pub border_count: usize,
+    pub image_count: usize,
+    pub other_count: usize,
+    pub items: Vec<DisplayListItemInfo>,
+}
+
+/// Display list item info
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DisplayListItemInfo {
+    pub index: usize,
+    #[serde(rename = "type")]
+    pub item_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub font_size: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub glyph_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub z_index: Option<i32>,
+}
+
+/// Response for GetScrollStates
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ScrollStatesResponse {
+    pub scroll_node_count: usize,
+    pub scroll_states: Vec<ScrollStateInfo>,
+}
+
+/// Scroll state info for a single node
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct ScrollStateInfo {
+    pub node_id: usize,
+    pub scroll_x: f32,
+    pub scroll_y: f32,
+    pub content_width: f32,
+    pub content_height: f32,
+    pub container_width: f32,
+    pub container_height: f32,
+    pub max_scroll_x: f32,
+    pub max_scroll_y: f32,
+}
+
+/// Response for GetScrollableNodes
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ScrollableNodesResponse {
+    pub scrollable_node_count: usize,
+    pub scrollable_nodes: Vec<ScrollableNodeInfo>,
+}
+
+/// Scrollable node info
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct ScrollableNodeInfo {
+    pub node_id: usize,
+    pub dom_node_id: Option<usize>,
+    pub container_width: f32,
+    pub container_height: f32,
+    pub can_scroll_x: bool,
+    pub can_scroll_y: bool,
+}
+
+/// Response for ScrollToNode
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct ScrollToNodeResponse {
+    pub scrolled: bool,
+    pub node_id: u64,
+    pub x: f32,
+    pub y: f32,
+}
+
+/// JSON-serializable LogicalSize
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct LogicalSizeJson {
+    pub width: f32,
+    pub height: f32,
+}
+
+/// JSON-serializable LogicalPosition
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct LogicalPositionJson {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// JSON-serializable LogicalRect
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct LogicalRectJson {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
 // ==================== Debug Events ====================
 
 #[derive(Debug, Clone)]
@@ -197,6 +415,12 @@ pub enum DebugEvent {
     GetLayoutTree,
     /// Get the display list items (what's actually being rendered)
     GetDisplayList,
+    /// Get all scroll states (scroll positions for scrollable nodes)
+    GetScrollStates,
+    /// Get all scrollable nodes (nodes with overflow that can be scrolled)
+    GetScrollableNodes,
+    /// Scroll a specific node to a position
+    ScrollToNode { node_id: u64, x: f32, y: f32 },
     
     // Control
     Relayout,
@@ -843,11 +1067,12 @@ fn process_debug_event(
                 }
             }
             
-            let data = format!("{{\"node_id\": {}, \"property_count\": {}, \"properties\": [{}]}}", 
-                node_id,
-                props.len(),
-                props.iter().map(|p| format!("\"{}\"", p.replace('"', "\\\""))).collect::<Vec<_>>().join(", ")
-            );
+            let response = NodeCssPropertiesResponse {
+                node_id: *node_id,
+                property_count: props.len(),
+                properties: props,
+            };
+            let data = serde_json::to_string(&response).unwrap_or_default();
             send_response(request, true, None, Some(data), None);
         }
 
@@ -864,10 +1089,13 @@ fn process_debug_event(
             let pos = callback_info.get_node_position(dom_node_id);
             let rect = callback_info.get_node_rect(dom_node_id);
             
-            let data = format!(
-                "{{\"node_id\": {}, \"size\": {:?}, \"position\": {:?}, \"rect\": {:?}}}",
-                node_id, size, pos, rect
-            );
+            let response = NodeLayoutResponse {
+                node_id: *node_id,
+                size: size.map(|s| LogicalSizeJson { width: s.width, height: s.height }),
+                position: pos.map(|p| LogicalPositionJson { x: p.x, y: p.y }),
+                rect: rect.map(|r| LogicalRectJson { x: r.origin.x, y: r.origin.y, width: r.size.width, height: r.size.height }),
+            };
+            let data = serde_json::to_string(&response).unwrap_or_default();
             send_response(request, true, None, Some(data), None);
         }
 
@@ -892,41 +1120,27 @@ fn process_debug_event(
                     let id_attr = callback_info.get_node_id(dom_node_id);
                     let classes = callback_info.get_node_classes(dom_node_id);
                     
-                    // Proper JSON serialization
-                    let tag_json = match tag {
-                        Some(s) => format!("\"{}\"", s.as_str()),
-                        None => "null".to_string(),
-                    };
-                    let id_json = match id_attr {
-                        Some(s) => format!("\"{}\"", s.as_str()),
-                        None => "null".to_string(),
-                    };
-                    let classes_json: Vec<String> = classes.as_ref().iter()
-                        .map(|s| format!("\"{}\"", s.as_str()))
-                        .collect();
-                    let rect_json = match rect {
-                        Some(r) => format!(
-                            "{{\"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}}}",
-                            r.origin.x, r.origin.y, r.size.width, r.size.height
-                        ),
-                        None => "null".to_string(),
-                    };
-                    
-                    nodes.push(format!(
-                        "{{\"node_id\": {}, \"tag\": {}, \"id\": {}, \"classes\": [{}], \"rect\": {}}}",
-                        i, 
-                        tag_json,
-                        id_json,
-                        classes_json.join(", "),
-                        rect_json
-                    ));
+                    nodes.push(NodeLayoutInfo {
+                        node_id: i,
+                        tag: tag.map(|s| s.as_str().to_string()),
+                        id: id_attr.map(|s| s.as_str().to_string()),
+                        classes: classes.as_ref().iter().map(|s| s.as_str().to_string()).collect(),
+                        rect: rect.map(|r| LogicalRectJson { 
+                            x: r.origin.x, 
+                            y: r.origin.y, 
+                            width: r.size.width, 
+                            height: r.size.height 
+                        }),
+                    });
                 }
             }
             
-            let data = format!("{{\"dom_id\": 0, \"node_count\": {}, \"nodes\": [{}]}}", 
-                nodes.len(),
-                nodes.join(", ")
-            );
+            let response = AllNodesLayoutResponse {
+                dom_id: 0,
+                node_count: nodes.len(),
+                nodes,
+            };
+            let data = serde_json::to_string(&response).unwrap_or_default();
             send_response(request, true, None, Some(data), None);
         }
 
@@ -941,16 +1155,20 @@ fn process_debug_event(
                 let styled_dom = &layout_result.styled_dom;
                 let window_state = callback_info.get_current_window_state();
                 
-                // Collect detailed info
                 let node_count = styled_dom.node_data.len();
                 let dpi = window_state.size.dpi;
                 let hidpi = window_state.size.get_hidpi_factor().inner.get();
                 let logical_size = &window_state.size.dimensions;
                 
-                let data = format!(
-                    "{{\"dom_id\": 0, \"node_count\": {}, \"dpi\": {}, \"hidpi_factor\": {}, \"logical_width\": {}, \"logical_height\": {}}}",
-                    node_count, dpi, hidpi, logical_size.width, logical_size.height
-                );
+                let response = DomTreeResponse {
+                    dom_id: 0,
+                    node_count,
+                    dpi,
+                    hidpi_factor: hidpi,
+                    logical_width: logical_size.width,
+                    logical_height: logical_size.height,
+                };
+                let data = serde_json::to_string(&response).unwrap_or_default();
                 send_response(request, true, None, Some(data), None);
             } else {
                 send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
@@ -970,7 +1188,6 @@ fn process_debug_event(
                 let hierarchy = styled_dom.node_hierarchy.as_container();
                 let node_data = styled_dom.node_data.as_container();
                 
-                // Get the root node ID - use into_crate_internal which is public
                 let root_decoded = styled_dom.root.into_crate_internal()
                     .map(|n| n.index() as i64)
                     .unwrap_or(-1);
@@ -981,7 +1198,6 @@ fn process_debug_event(
                     let hier = &hierarchy[node_id];
                     let data = &node_data[node_id];
                     
-                    // Get node type - match on common types, use debug format for others
                     let node_type = match data.get_node_type() {
                         azul_core::dom::NodeType::Html => "Html",
                         azul_core::dom::NodeType::Head => "Head",
@@ -995,46 +1211,38 @@ fn process_debug_event(
                         _ => "Other",
                     };
                     
-                    // Get text content if it's a text node
                     let text_content = match data.get_node_type() {
                         azul_core::dom::NodeType::Text(t) => {
                             let s = t.as_str();
-                            // Escape for JSON and truncate if too long
-                            let escaped = s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
-                            if escaped.len() > 50 {
-                                format!("\"{}...\"", &escaped[..47])
-                            } else {
-                                format!("\"{}\"", escaped)
-                            }
+                            if s.len() > 50 { Some(format!("{}...", &s[..47])) } else { Some(s.to_string()) }
                         }
-                        _ => "null".to_string(),
+                        _ => None,
                     };
                     
-                    // Decode the hierarchy values (1-based encoded, 0 = None)
                     let parent_decoded = if hier.parent == 0 { -1i64 } else { (hier.parent - 1) as i64 };
                     let prev_sib_decoded = if hier.previous_sibling == 0 { -1i64 } else { (hier.previous_sibling - 1) as i64 };
                     let next_sib_decoded = if hier.next_sibling == 0 { -1i64 } else { (hier.next_sibling - 1) as i64 };
                     let last_child_decoded = if hier.last_child == 0 { -1i64 } else { (hier.last_child - 1) as i64 };
-                    
-                    // Get computed children using the iterator
                     let children: Vec<usize> = node_id.az_children(&hierarchy).map(|c| c.index()).collect();
-                    let children_json = format!("[{}]", children.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", "));
                     
-                    nodes.push(format!(
-                        "{{\"index\": {}, \"type\": \"{}\", \"text\": {}, \"parent_raw\": {}, \"parent\": {}, \"prev_sibling_raw\": {}, \"prev_sibling\": {}, \"next_sibling_raw\": {}, \"next_sibling\": {}, \"last_child_raw\": {}, \"last_child\": {}, \"children\": {}}}",
-                        i, node_type, text_content,
-                        hier.parent, parent_decoded,
-                        hier.previous_sibling, prev_sib_decoded,
-                        hier.next_sibling, next_sib_decoded,
-                        hier.last_child, last_child_decoded,
-                        children_json
-                    ));
+                    nodes.push(HierarchyNodeInfo {
+                        index: i,
+                        node_type: node_type.to_string(),
+                        text: text_content,
+                        parent: parent_decoded,
+                        prev_sibling: prev_sib_decoded,
+                        next_sibling: next_sib_decoded,
+                        last_child: last_child_decoded,
+                        children,
+                    });
                 }
                 
-                let data = format!(
-                    "{{\"root\": {}, \"node_count\": {}, \"nodes\": [{}]}}",
-                    root_decoded, nodes.len(), nodes.join(", ")
-                );
+                let response = NodeHierarchyResponse {
+                    root: root_decoded,
+                    node_count: nodes.len(),
+                    nodes,
+                };
+                let data = serde_json::to_string(&response).unwrap_or_default();
                 send_response(request, true, None, Some(data), None);
             } else {
                 send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
@@ -1053,7 +1261,6 @@ fn process_debug_event(
                 
                 let mut nodes = Vec::new();
                 for (idx, node) in layout_tree.nodes.iter().enumerate() {
-                    // Get node type from DOM if available
                     let (node_type, dom_idx) = if let Some(dom_id) = node.dom_node_id {
                         let node_data = &layout_result.styled_dom.node_data.as_container()[dom_id];
                         let nt = match node_data.get_node_type() {
@@ -1071,22 +1278,24 @@ fn process_debug_event(
                         ("Anonymous", -1i64)
                     };
                     
-                    let is_anonymous = node.is_anonymous;
-                    let anon_type = node.anonymous_type.as_ref().map(|t| format!("{:?}", t)).unwrap_or_else(|| "null".to_string());
-                    let fc = format!("{:?}", node.formatting_context);
-                    let parent = node.parent.map(|p| p as i64).unwrap_or(-1);
-                    let children_json = format!("[{}]", node.children.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", "));
-                    
-                    nodes.push(format!(
-                        "{{\"layout_idx\": {}, \"dom_idx\": {}, \"type\": \"{}\", \"is_anonymous\": {}, \"anonymous_type\": \"{}\", \"formatting_context\": \"{}\", \"parent\": {}, \"children\": {}}}",
-                        idx, dom_idx, node_type, is_anonymous, anon_type, fc, parent, children_json
-                    ));
+                    nodes.push(LayoutNodeInfo {
+                        layout_idx: idx,
+                        dom_idx,
+                        node_type: node_type.to_string(),
+                        is_anonymous: node.is_anonymous,
+                        anonymous_type: node.anonymous_type.as_ref().map(|t| format!("{:?}", t)),
+                        formatting_context: format!("{:?}", node.formatting_context),
+                        parent: node.parent.map(|p| p as i64).unwrap_or(-1),
+                        children: node.children.clone(),
+                    });
                 }
                 
-                let data = format!(
-                    "{{\"root\": {}, \"node_count\": {}, \"nodes\": [{}]}}",
-                    layout_tree.root, nodes.len(), nodes.join(", ")
-                );
+                let response = LayoutTreeResponse {
+                    root: layout_tree.root,
+                    node_count: nodes.len(),
+                    nodes,
+                };
+                let data = serde_json::to_string(&response).unwrap_or_default();
                 send_response(request, true, None, Some(data), None);
             } else {
                 send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
@@ -1102,7 +1311,7 @@ fn process_debug_event(
             
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 let display_list = &layout_result.display_list;
-                let items = &display_list.items;
+                let items_list = &display_list.items;
                 
                 // Count item types
                 let mut rect_count = 0;
@@ -1111,78 +1320,249 @@ fn process_debug_event(
                 let mut image_count = 0;
                 let mut other_count = 0;
                 
-                let mut item_descriptions = Vec::new();
+                let mut items = Vec::new();
                 
-                for (idx, item) in items.iter().enumerate() {
-                    let desc = match item {
+                for (idx, item) in items_list.iter().enumerate() {
+                    let info = match item {
                         azul_layout::solver3::display_list::DisplayListItem::Rect { bounds, color, .. } => {
                             rect_count += 1;
-                            format!(
-                                "{{\"index\": {}, \"type\": \"rect\", \"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}, \"color\": \"#{:02x}{:02x}{:02x}{:02x}\"}}",
-                                idx, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height,
-                                color.r, color.g, color.b, color.a
-                            )
+                            DisplayListItemInfo {
+                                index: idx,
+                                item_type: "rect".to_string(),
+                                x: Some(bounds.origin.x),
+                                y: Some(bounds.origin.y),
+                                width: Some(bounds.size.width),
+                                height: Some(bounds.size.height),
+                                color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
+                            }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::Text { glyphs, font_size_px, color, clip_rect, .. } => {
                             text_count += 1;
-                            format!(
-                                "{{\"index\": {}, \"type\": \"text\", \"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}, \"font_size\": {}, \"color\": \"#{:02x}{:02x}{:02x}{:02x}\", \"glyph_count\": {}}}",
-                                idx, clip_rect.origin.x, clip_rect.origin.y, clip_rect.size.width, clip_rect.size.height,
-                                font_size_px, color.r, color.g, color.b, color.a,
-                                glyphs.len()
-                            )
+                            DisplayListItemInfo {
+                                index: idx,
+                                item_type: "text".to_string(),
+                                x: Some(clip_rect.origin.x),
+                                y: Some(clip_rect.origin.y),
+                                width: Some(clip_rect.size.width),
+                                height: Some(clip_rect.size.height),
+                                color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
+                                font_size: Some(*font_size_px),
+                                glyph_count: Some(glyphs.len()),
+                                z_index: None,
+                            }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::TextLayout { bounds, font_size_px, color, .. } => {
-                            // TextLayout contains the original text - this is more useful for debugging
                             text_count += 1;
-                            format!(
-                                "{{\"index\": {}, \"type\": \"text_layout\", \"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}, \"font_size\": {}, \"color\": \"#{:02x}{:02x}{:02x}{:02x}\"}}",
-                                idx, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height,
-                                font_size_px, color.r, color.g, color.b, color.a
-                            )
+                            DisplayListItemInfo {
+                                index: idx,
+                                item_type: "text_layout".to_string(),
+                                x: Some(bounds.origin.x),
+                                y: Some(bounds.origin.y),
+                                width: Some(bounds.size.width),
+                                height: Some(bounds.size.height),
+                                color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
+                                font_size: Some(*font_size_px),
+                                glyph_count: None,
+                                z_index: None,
+                            }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::Border { bounds, .. } => {
                             border_count += 1;
-                            format!(
-                                "{{\"index\": {}, \"type\": \"border\", \"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}}}",
-                                idx, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height
-                            )
+                            DisplayListItemInfo {
+                                index: idx,
+                                item_type: "border".to_string(),
+                                x: Some(bounds.origin.x),
+                                y: Some(bounds.origin.y),
+                                width: Some(bounds.size.width),
+                                height: Some(bounds.size.height),
+                                color: None,
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
+                            }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::Image { bounds, .. } => {
                             image_count += 1;
-                            format!(
-                                "{{\"index\": {}, \"type\": \"image\", \"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}}}",
-                                idx, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height
-                            )
+                            DisplayListItemInfo {
+                                index: idx,
+                                item_type: "image".to_string(),
+                                x: Some(bounds.origin.x),
+                                y: Some(bounds.origin.y),
+                                width: Some(bounds.size.width),
+                                height: Some(bounds.size.height),
+                                color: None,
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
+                            }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::PushStackingContext { z_index, bounds } => {
                             other_count += 1;
-                            format!("{{\"index\": {}, \"type\": \"push_stacking_context\", \"z_index\": {}, \"x\": {}, \"y\": {}, \"width\": {}, \"height\": {}}}", 
-                                idx, z_index, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height)
+                            DisplayListItemInfo {
+                                index: idx,
+                                item_type: "push_stacking_context".to_string(),
+                                x: Some(bounds.origin.x),
+                                y: Some(bounds.origin.y),
+                                width: Some(bounds.size.width),
+                                height: Some(bounds.size.height),
+                                color: None,
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: Some(*z_index),
+                            }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::PopStackingContext => {
                             other_count += 1;
-                            format!("{{\"index\": {}, \"type\": \"pop_stacking_context\"}}", idx)
+                            DisplayListItemInfo {
+                                index: idx,
+                                item_type: "pop_stacking_context".to_string(),
+                                x: None,
+                                y: None,
+                                width: None,
+                                height: None,
+                                color: None,
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
+                            }
                         }
                         _ => {
                             other_count += 1;
-                            // Print the debug representation to understand what type it is
-                            format!("{{\"index\": {}, \"type\": \"unknown\", \"debug\": \"{:?}\"}}", idx, 
-                                std::mem::discriminant(item))
+                            DisplayListItemInfo {
+                                index: idx,
+                                item_type: "unknown".to_string(),
+                                x: None,
+                                y: None,
+                                width: None,
+                                height: None,
+                                color: None,
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
+                            }
                         }
                     };
-                    item_descriptions.push(desc);
+                    items.push(info);
                 }
                 
-                let data = format!(
-                    "{{\"total_items\": {}, \"rect_count\": {}, \"text_count\": {}, \"border_count\": {}, \"image_count\": {}, \"other_count\": {}, \"items\": [{}]}}",
-                    items.len(), rect_count, text_count, border_count, image_count, other_count,
-                    item_descriptions.join(", ")
-                );
+                let response = DisplayListResponse {
+                    total_items: items_list.len(),
+                    rect_count,
+                    text_count,
+                    border_count,
+                    image_count,
+                    other_count,
+                    items,
+                };
+                let data = serde_json::to_string(&response).unwrap_or_default();
                 send_response(request, true, None, Some(data), None);
             } else {
                 send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
             }
+        }
+
+        DebugEvent::GetScrollStates => {
+            log(LogLevel::Debug, LogCategory::DebugServer, "Getting scroll states", None);
+            use azul_core::dom::DomId;
+            
+            let dom_id = DomId { inner: 0 };
+            let layout_window = callback_info.get_layout_window();
+            
+            // Get scroll states from the scroll manager
+            let scroll_states = layout_window.scroll_manager.get_scroll_states_for_dom(dom_id);
+            let mut states = Vec::new();
+            
+            for (node_id, scroll_position) in scroll_states.iter() {
+                let scroll_x = scroll_position.children_rect.origin.x;
+                let scroll_y = scroll_position.children_rect.origin.y;
+                let content_width = scroll_position.children_rect.size.width;
+                let content_height = scroll_position.children_rect.size.height;
+                let container_width = scroll_position.parent_rect.size.width;
+                let container_height = scroll_position.parent_rect.size.height;
+                
+                states.push(ScrollStateInfo {
+                    node_id: node_id.index(),
+                    scroll_x,
+                    scroll_y,
+                    content_width,
+                    content_height,
+                    container_width,
+                    container_height,
+                    max_scroll_x: (content_width - container_width).max(0.0),
+                    max_scroll_y: (content_height - container_height).max(0.0),
+                });
+            }
+            
+            let response = ScrollStatesResponse {
+                scroll_node_count: states.len(),
+                scroll_states: states,
+            };
+            let data = serde_json::to_string(&response).unwrap_or_default();
+            send_response(request, true, None, Some(data), None);
+        }
+
+        DebugEvent::GetScrollableNodes => {
+            log(LogLevel::Debug, LogCategory::DebugServer, "Getting scrollable nodes", None);
+            use azul_core::dom::DomId;
+            
+            let dom_id = DomId { inner: 0 };
+            let layout_window = callback_info.get_layout_window();
+            
+            // Get scrollable nodes from layout tree
+            let mut scrollable_nodes = Vec::new();
+            
+            if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
+                // Check each node in the layout tree to see if it has scrollbar_info
+                for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
+                    if let Some(ref scrollbar_info) = node.scrollbar_info {
+                        if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
+                            let container = node.used_size.unwrap_or_default();
+                            scrollable_nodes.push(ScrollableNodeInfo {
+                                node_id: node_idx,
+                                dom_node_id: node.dom_node_id.map(|n| n.index()),
+                                container_width: container.width,
+                                container_height: container.height,
+                                can_scroll_x: scrollbar_info.needs_horizontal,
+                                can_scroll_y: scrollbar_info.needs_vertical,
+                            });
+                        }
+                    }
+                }
+            }
+            
+            let response = ScrollableNodesResponse {
+                scrollable_node_count: scrollable_nodes.len(),
+                scrollable_nodes,
+            };
+            let data = serde_json::to_string(&response).unwrap_or_default();
+            send_response(request, true, None, Some(data), None);
+        }
+
+        DebugEvent::ScrollToNode { node_id, x, y } => {
+            log(LogLevel::Debug, LogCategory::DebugServer, format!("Scrolling node {} to ({}, {})", node_id, x, y), None);
+            use azul_core::dom::DomId;
+            use azul_core::id::NodeId;
+            use azul_core::styled_dom::NodeHierarchyItemId;
+            use azul_core::geom::LogicalPosition;
+            
+            let dom_id = DomId { inner: 0 };
+            let node = NodeId::from_usize(*node_id as usize);
+            let hierarchy_id = NodeHierarchyItemId::from(node);
+            
+            callback_info.scroll_to(dom_id, hierarchy_id, LogicalPosition { x: *x, y: *y });
+            needs_update = true;
+            
+            let response = ScrollToNodeResponse {
+                scrolled: true,
+                node_id: *node_id,
+                x: *x,
+                y: *y,
+            };
+            let data = serde_json::to_string(&response).unwrap_or_default();
+            send_response(request, true, None, Some(data), None);
         }
 
         _ => {
