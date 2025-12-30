@@ -3342,6 +3342,9 @@ impl<'a> SceneBuilder<'a> {
         glyph_options: Option<GlyphOptions>,
         ref_frame_offset: LayoutVector2D,
     ) {
+        eprintln!("[add_text] Called with prim_rect={:?}, color={:?}, glyph_count={}", 
+            prim_info.rect, text_color, glyph_range.len());
+        
         let offset = self.current_external_scroll_offset(spatial_node_index) + ref_frame_offset;
 
         let text_run = {
@@ -3350,7 +3353,7 @@ impl<'a> SceneBuilder<'a> {
                 Some(instance) => instance,
                 None => {
                     warn!("Unknown font instance key");
-                    debug!("key={:?} shared={:?}", font_instance_key, shared_key);
+                    eprintln!("[add_text] ERROR: Unknown font instance key={:?} shared={:?}", font_instance_key, shared_key);
                     return;
                 }
             };

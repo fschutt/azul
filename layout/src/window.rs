@@ -492,6 +492,13 @@ impl LayoutWindow {
         // Clear previous results for a full relayout
         self.layout_results.clear();
 
+        if let Some(msgs) = debug_messages.as_mut() {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[layout_and_generate_display_list] Starting layout for DOM with {} nodes",
+                root_dom.node_data.len()
+            )));
+        }
+
         // Start recursive layout from the root DOM
         let result = self.layout_dom_recursive(
             root_dom,
@@ -500,6 +507,23 @@ impl LayoutWindow {
             system_callbacks,
             debug_messages,
         );
+
+        if let Err(ref e) = result {
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::error(format!(
+                    "[layout_and_generate_display_list] Layout FAILED: {:?}",
+                    e
+                )));
+            }
+            eprintln!("[layout_and_generate_display_list] Layout FAILED: {:?}", e);
+        } else {
+            if let Some(msgs) = debug_messages.as_mut() {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[layout_and_generate_display_list] Layout SUCCESS, layout_results count: {}",
+                    self.layout_results.len()
+                )));
+            }
+        }
 
         // After successful layout, update the accessibility tree
         #[cfg(feature = "a11y")]

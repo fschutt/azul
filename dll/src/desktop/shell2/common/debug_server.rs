@@ -191,6 +191,10 @@ pub enum DebugEvent {
     GetAllNodesLayout,
     /// Get detailed DOM tree structure
     GetDomTree,
+    /// Get the raw node hierarchy (for debugging DOM structure issues)
+    GetNodeHierarchy,
+    /// Get the layout tree structure (for debugging layout tree building)
+    GetLayoutTree,
     /// Get the display list items (what's actually being rendered)
     GetDisplayList,
     
@@ -946,6 +950,142 @@ fn process_debug_event(
                 let data = format!(
                     "{{\"dom_id\": 0, \"node_count\": {}, \"dpi\": {}, \"hidpi_factor\": {}, \"logical_width\": {}, \"logical_height\": {}}}",
                     node_count, dpi, hidpi, logical_size.width, logical_size.height
+                );
+                send_response(request, true, None, Some(data), None);
+            } else {
+                send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
+            }
+        }
+
+        DebugEvent::GetNodeHierarchy => {
+            log(LogLevel::Debug, LogCategory::DebugServer, "Getting node hierarchy", None);
+            use azul_core::dom::DomId;
+            use azul_core::id::NodeId;
+            
+            let dom_id = DomId { inner: 0 };
+            let layout_window = callback_info.get_layout_window();
+            
+            if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
+                let styled_dom = &layout_result.styled_dom;
+                let hierarchy = styled_dom.node_hierarchy.as_container();
+                let node_data = styled_dom.node_data.as_container();
+                
+                // Get the root node ID - use into_crate_internal which is public
+                let root_decoded = styled_dom.root.into_crate_internal()
+                    .map(|n| n.index() as i64)
+                    .unwrap_or(-1);
+                
+                let mut nodes = Vec::new();
+                for i in 0..hierarchy.len() {
+                    let node_id = NodeId::new(i);
+                    let hier = &hierarchy[node_id];
+                    let data = &node_data[node_id];
+                    
+                    // Get node type - match on common types, use debug format for others
+                    let node_type = match data.get_node_type() {
+                        azul_core::dom::NodeType::Html => "Html",
+                        azul_core::dom::NodeType::Head => "Head",
+                        azul_core::dom::NodeType::Body => "Body",
+                        azul_core::dom::NodeType::Div => "Div",
+                        azul_core::dom::NodeType::Span => "Span",
+                        azul_core::dom::NodeType::P => "P",
+                        azul_core::dom::NodeType::Text(_) => "Text",
+                        azul_core::dom::NodeType::Image(_) => "Image",
+                        azul_core::dom::NodeType::IFrame(_) => "IFrame",
+                        _ => "Other",
+                    };
+                    
+                    // Get text content if it's a text node
+                    let text_content = match data.get_node_type() {
+                        azul_core::dom::NodeType::Text(t) => {
+                            let s = t.as_str();
+                            // Escape for JSON and truncate if too long
+                            let escaped = s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+                            if escaped.len() > 50 {
+                                format!("\"{}...\"", &escaped[..47])
+                            } else {
+                                format!("\"{}\"", escaped)
+                            }
+                        }
+                        _ => "null".to_string(),
+                    };
+                    
+                    // Decode the hierarchy values (1-based encoded, 0 = None)
+                    let parent_decoded = if hier.parent == 0 { -1i64 } else { (hier.parent - 1) as i64 };
+                    let prev_sib_decoded = if hier.previous_sibling == 0 { -1i64 } else { (hier.previous_sibling - 1) as i64 };
+                    let next_sib_decoded = if hier.next_sibling == 0 { -1i64 } else { (hier.next_sibling - 1) as i64 };
+                    let last_child_decoded = if hier.last_child == 0 { -1i64 } else { (hier.last_child - 1) as i64 };
+                    
+                    // Get computed children using the iterator
+                    let children: Vec<usize> = node_id.az_children(&hierarchy).map(|c| c.index()).collect();
+                    let children_json = format!("[{}]", children.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", "));
+                    
+                    nodes.push(format!(
+                        "{{\"index\": {}, \"type\": \"{}\", \"text\": {}, \"parent_raw\": {}, \"parent\": {}, \"prev_sibling_raw\": {}, \"prev_sibling\": {}, \"next_sibling_raw\": {}, \"next_sibling\": {}, \"last_child_raw\": {}, \"last_child\": {}, \"children\": {}}}",
+                        i, node_type, text_content,
+                        hier.parent, parent_decoded,
+                        hier.previous_sibling, prev_sib_decoded,
+                        hier.next_sibling, next_sib_decoded,
+                        hier.last_child, last_child_decoded,
+                        children_json
+                    ));
+                }
+                
+                let data = format!(
+                    "{{\"root\": {}, \"node_count\": {}, \"nodes\": [{}]}}",
+                    root_decoded, nodes.len(), nodes.join(", ")
+                );
+                send_response(request, true, None, Some(data), None);
+            } else {
+                send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
+            }
+        }
+
+        DebugEvent::GetLayoutTree => {
+            log(LogLevel::Debug, LogCategory::DebugServer, "Getting layout tree", None);
+            use azul_core::dom::DomId;
+            
+            let dom_id = DomId { inner: 0 };
+            let layout_window = callback_info.get_layout_window();
+            
+            if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
+                let layout_tree = &layout_result.layout_tree;
+                
+                let mut nodes = Vec::new();
+                for (idx, node) in layout_tree.nodes.iter().enumerate() {
+                    // Get node type from DOM if available
+                    let (node_type, dom_idx) = if let Some(dom_id) = node.dom_node_id {
+                        let node_data = &layout_result.styled_dom.node_data.as_container()[dom_id];
+                        let nt = match node_data.get_node_type() {
+                            azul_core::dom::NodeType::Html => "Html",
+                            azul_core::dom::NodeType::Body => "Body",
+                            azul_core::dom::NodeType::Div => "Div",
+                            azul_core::dom::NodeType::Span => "Span",
+                            azul_core::dom::NodeType::P => "P",
+                            azul_core::dom::NodeType::Text(_) => "Text",
+                            azul_core::dom::NodeType::Image(_) => "Image",
+                            _ => "Other",
+                        };
+                        (nt, dom_id.index() as i64)
+                    } else {
+                        ("Anonymous", -1i64)
+                    };
+                    
+                    let is_anonymous = node.is_anonymous;
+                    let anon_type = node.anonymous_type.as_ref().map(|t| format!("{:?}", t)).unwrap_or_else(|| "null".to_string());
+                    let fc = format!("{:?}", node.formatting_context);
+                    let parent = node.parent.map(|p| p as i64).unwrap_or(-1);
+                    let children_json = format!("[{}]", node.children.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", "));
+                    
+                    nodes.push(format!(
+                        "{{\"layout_idx\": {}, \"dom_idx\": {}, \"type\": \"{}\", \"is_anonymous\": {}, \"anonymous_type\": \"{}\", \"formatting_context\": \"{}\", \"parent\": {}, \"children\": {}}}",
+                        idx, dom_idx, node_type, is_anonymous, anon_type, fc, parent, children_json
+                    ));
+                }
+                
+                let data = format!(
+                    "{{\"root\": {}, \"node_count\": {}, \"nodes\": [{}]}}",
+                    layout_tree.root, nodes.len(), nodes.join(", ")
                 );
                 send_response(request, true, None, Some(data), None);
             } else {
