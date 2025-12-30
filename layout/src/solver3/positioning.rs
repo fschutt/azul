@@ -403,6 +403,8 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
 }
 
 /// Helper to find the containing block for an absolutely positioned element.
+/// CSS 2.1 Section 10.1: The containing block for absolutely positioned elements
+/// is the padding box of the nearest positioned ancestor.
 fn find_absolute_containing_block_rect(
     tree: &LayoutTree,
     node_index: usize,
@@ -416,12 +418,28 @@ fn find_absolute_containing_block_rect(
         let parent_node = tree.get(parent_index).ok_or(LayoutError::InvalidTree)?;
 
         if get_position_type(styled_dom, parent_node.dom_node_id) != LayoutPosition::Static {
-            let pos = calculated_positions
+            // calculated_positions stores margin-box positions
+            let margin_box_pos = calculated_positions
                 .get(&parent_index)
                 .copied()
                 .unwrap_or_default();
-            let size = parent_node.used_size.unwrap_or_default();
-            return Ok(LogicalRect::new(pos, size));
+            // used_size is the border-box size
+            let border_box_size = parent_node.used_size.unwrap_or_default();
+
+            // Calculate padding-box origin (margin-box + border)
+            // CSS 2.1 § 10.1: containing block is the padding box
+            let padding_box_pos = LogicalPosition::new(
+                margin_box_pos.x + parent_node.box_props.border.left,
+                margin_box_pos.y + parent_node.box_props.border.top,
+            );
+
+            // Calculate padding-box size (border-box - borders)
+            let padding_box_size = LogicalSize::new(
+                border_box_size.width - parent_node.box_props.border.left - parent_node.box_props.border.right,
+                border_box_size.height - parent_node.box_props.border.top - parent_node.box_props.border.bottom,
+            );
+
+            return Ok(LogicalRect::new(padding_box_pos, padding_box_size));
         }
         current_parent_idx = parent_node.parent;
     }
