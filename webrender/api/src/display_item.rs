@@ -433,6 +433,9 @@ pub struct TextDisplayItem {
     pub color: ColorF,
     pub glyph_options: Option<font::GlyphOptions>,
     pub ref_frame_offset: LayoutVector2D,
+    /// Number of glyphs that belong to this text item.
+    /// This is needed so the iterator knows how many glyphs to read.
+    pub glyph_count: usize,
 } // IMPLICIT: glyphs: Vec<font::GlyphInstance>
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]

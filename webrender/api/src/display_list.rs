@@ -894,9 +894,12 @@ impl<'a> BuiltDisplayListIter<'a> {
                     &self.payload.clip_chain_items[self.clip_chain_item_index..];
                 self.clip_chain_item_index = self.payload.clip_chain_items.len();
             }
-            Text(_) => {
-                self.cur_glyphs = &self.payload.glyphs[self.glyph_index..];
-                self.glyph_index = self.payload.glyphs.len();
+            Text(ref text_item) => {
+                // Use glyph_count from the TextDisplayItem to know how many glyphs belong to this text
+                let count = text_item.glyph_count;
+                let end = (self.glyph_index + count).min(self.payload.glyphs.len());
+                self.cur_glyphs = &self.payload.glyphs[self.glyph_index..end];
+                self.glyph_index = end;
             }
             ReuseItems(key) => match self.cache {
                 Some(cache) => {
@@ -1436,22 +1439,29 @@ impl DisplayListBuilder {
         color: ColorF,
         glyph_options: Option<GlyphOptions>,
     ) {
+        eprintln!("[WR push_text] bounds={:?}, glyph_count={}, color={:?}", bounds, glyphs.len(), color);
+        
         let (common, bounds) = self.remap_common_coordinates_and_bounds(common, bounds);
         let ref_frame_offset = self.rf_mapper.current_offset();
 
-        let item = di::DisplayItem::Text(di::TextDisplayItem {
-            common,
-            bounds,
-            color,
-            font_key,
-            glyph_options,
-            ref_frame_offset,
-        });
-
         for split_glyphs in glyphs.chunks(MAX_TEXT_RUN_LENGTH) {
+            let item = di::DisplayItem::Text(di::TextDisplayItem {
+                common,
+                bounds,
+                color,
+                font_key,
+                glyph_options,
+                ref_frame_offset,
+                glyph_count: split_glyphs.len(),
+            });
+
+            eprintln!("[WR push_text] Pushing chunk with {} glyphs, payload.glyphs.len()={}", split_glyphs.len(), self.payload.glyphs.len());
             self.push_item(&item);
-            self.push_iter(split_glyphs);
+            // Push glyphs directly to payload.glyphs
+            // The display list iterator expects glyphs to be stored here
+            self.payload.glyphs.extend_from_slice(split_glyphs);
         }
+        eprintln!("[WR push_text] After push: payload.glyphs.len()={}", self.payload.glyphs.len());
     }
 
     /// NOTE: gradients must be pushed in the order they're created
