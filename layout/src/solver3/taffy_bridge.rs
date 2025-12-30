@@ -298,11 +298,14 @@ fn multi_value_to_lpa(mv: MultiValue<PixelValue>) -> taffy::LengthPercentageAuto
 }
 
 // Helper function to convert MultiValue<PixelValue> to LengthPercentageAuto for margins
-// CSS spec: margin default is 0, not auto (auto has special centering meaning in flexbox)
+// CSS spec: margin initial value is 0, but `auto` has special centering meaning in flexbox
 fn multi_value_to_lpa_margin(mv: MultiValue<PixelValue>) -> taffy::LengthPercentageAuto {
     match mv {
-        MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => {
-            taffy::LengthPercentageAuto::length(0.0) // Margins default to 0, not auto
+        MultiValue::Auto => {
+            taffy::LengthPercentageAuto::auto() // Preserve auto for flexbox centering
+        }
+        MultiValue::Initial | MultiValue::Inherit => {
+            taffy::LengthPercentageAuto::length(0.0) // Margins' initial value is 0
         }
         MultiValue::Exact(pv) => {
             pixel_value_to_pixels_fallback(&pv)
