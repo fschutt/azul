@@ -48,7 +48,7 @@ mod static_impl {
             width: 100%;
             height: 100%;
             background-color: #f0f0f0;
-            border: 4px solid #333333;
+            border: 40px solid #333333;
             box-sizing: border-box;
             flex-direction: column;
             padding: 20px;
@@ -70,10 +70,10 @@ mod static_impl {
             margin-bottom: 10px;
         ";
         
-        // Small info text
+        // Small info text - use BRIGHT BLUE and SAME FONT SIZE to test if font instance is the issue
         let info_style = "
-            font-size: 16px;
-            color: #666666;
+            font-size: 32px;
+            color: #0000ff;
         ";
 
         let mut container = Dom::create_div().with_inline_style(container_style);
