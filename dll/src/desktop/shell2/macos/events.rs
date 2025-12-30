@@ -863,16 +863,17 @@ impl MacOSWindow {
 
     /// Handle compositor resize notification.
     fn handle_compositor_resize(&mut self) -> Result<(), String> {
-        use webrender::api::units::{DeviceIntRect, DeviceIntSize};
+        use webrender::api::units::{DeviceIntRect, DeviceIntSize, DevicePixelScale};
 
         // Get new physical size
         let physical_size = self.current_window_state.size.get_physical_size();
         let new_size = DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+        let hidpi_factor = self.current_window_state.size.get_hidpi_factor();
 
         // Update WebRender document size
         let mut txn = webrender::Transaction::new();
         let device_rect = DeviceIntRect::from_size(new_size);
-        txn.set_document_view(device_rect);
+        txn.set_document_view(device_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
         // Send transaction
         if let Some(ref layout_window) = self.layout_window {

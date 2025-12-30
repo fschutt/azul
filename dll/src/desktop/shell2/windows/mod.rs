@@ -1483,17 +1483,18 @@ unsafe extern "system" fn window_proc(
 
                 // Update WebRender document view
                 use webrender::{
-                    api::units::{DeviceIntRect, DeviceIntSize},
+                    api::units::{DeviceIntRect, DeviceIntSize, DevicePixelScale},
                     Transaction as WrTransaction,
                 };
 
                 use crate::desktop::wr_translate2::wr_translate_document_id;
 
+                let hidpi_factor = window.current_window_state.size.get_hidpi_factor();
                 let mut txn = WrTransaction::new();
-                txn.set_document_view(DeviceIntRect::from_size(DeviceIntSize::new(
-                    width as i32,
-                    height as i32,
-                )));
+                txn.set_document_view(
+                    DeviceIntRect::from_size(DeviceIntSize::new(width as i32, height as i32)),
+                    DevicePixelScale::new(hidpi_factor.inner.get()),
+                );
 
                 window
                     .render_api

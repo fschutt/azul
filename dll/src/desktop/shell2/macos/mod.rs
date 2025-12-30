@@ -1132,14 +1132,19 @@ define_class!(
                                     height: new_logical_height,
                                 };
                             
-                            // Trigger re-layout on next frame
-                            macos_window.frame_needs_regeneration = true;
-                            
                             log_debug!(LogCategory::Window,
                                 "[WindowDelegate] Window resized: {}x{} -> {}x{}",
                                 old_dims.width, old_dims.height,
                                 new_logical_width, new_logical_height
                             );
+                            
+                            // Mark frame for regeneration with new size
+                            // Window state sync happens in build_atomic_txn before WebRender transaction
+                            macos_window.frame_needs_regeneration = true;
+                            
+                            // Trigger re-layout and request redraw
+                            // Must call request_redraw() to trigger drawRect: with new size
+                            macos_window.request_redraw();
                         }
                     }
                     
@@ -3769,6 +3774,10 @@ impl MacOSWindow {
             .layout_window
             .as_mut()
             .ok_or_else(|| WindowError::PlatformError("No layout window".into()))?;
+
+        // CRITICAL: Synchronize window state to layout_window before building transaction
+        // This ensures WebRender gets the current window size after resize
+        layout_window.current_window_state = self.current_window_state.clone();
 
         log_trace!(LogCategory::Rendering, "[build_atomic_txn] Building transaction");
         // Build everything into this transaction using helper functions
