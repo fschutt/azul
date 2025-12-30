@@ -316,10 +316,10 @@ impl Transaction {
     }
 
     /// Setup the output region in the framebuffer for a given document.
-    pub fn set_document_view(&mut self, device_rect: DeviceIntRect) {
+    pub fn set_document_view(&mut self, device_rect: DeviceIntRect, device_pixel_scale: DevicePixelScale) {
         window_size_sanity_check(device_rect.size());
         self.scene_ops
-            .push(SceneMsg::SetDocumentView { device_rect });
+            .push(SceneMsg::SetDocumentView { device_rect, device_pixel_scale });
     }
 
     /// Set multiple scroll offsets with generations to the node identified by
@@ -789,6 +789,8 @@ pub enum SceneMsg {
     SetDocumentView {
         ///
         device_rect: DeviceIntRect,
+        /// The device pixel scale (HiDPI factor) for this document
+        device_pixel_scale: DevicePixelScale,
     },
     /// Set the current quality / performance configuration for this document.
     SetQualitySettings {

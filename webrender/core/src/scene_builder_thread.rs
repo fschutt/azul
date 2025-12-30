@@ -231,6 +231,7 @@ impl Document {
             view: SceneView {
                 device_rect,
                 quality_settings: QualitySettings::default(),
+                device_pixel_scale: DevicePixelScale::new(1.0),
             },
         }
     }
@@ -566,8 +567,9 @@ impl SceneBuilderThread {
                 SceneMsg::SetQualitySettings { settings } => {
                     doc.view.quality_settings = settings;
                 }
-                SceneMsg::SetDocumentView { device_rect } => {
+                SceneMsg::SetDocumentView { device_rect, device_pixel_scale } => {
                     doc.view.device_rect = device_rect;
+                    doc.view.device_pixel_scale = device_pixel_scale;
                 }
                 SceneMsg::SetDisplayList {
                     epoch,

@@ -494,6 +494,7 @@ impl FrameBuilder {
         rg_builder: &mut RenderTaskGraphBuilder,
         stamp: FrameStamp,
         device_origin: DeviceIntPoint,
+        device_pixel_scale: DevicePixelScale,
         scene_properties: &SceneProperties,
         data_stores: &mut DataStores,
         scratch: &mut ScratchBuffer,
@@ -528,7 +529,9 @@ impl FrameBuilder {
 
         rg_builder.begin_frame(stamp.frame_id());
 
-        // TODO(dp): Remove me completely!!
+        // NOTE: We use 1.0 here because the azul layout system outputs coordinates
+        // in physical pixels already. Font sizes are pre-scaled with HiDPI factor
+        // before being passed to WebRender (see translate_add_font_instance).
         let global_device_pixel_scale = DevicePixelScale::new(1.0);
 
         let output_size = scene.output_rect.size();

@@ -98,6 +98,7 @@ pub struct DocumentView {
 pub struct SceneView {
     pub device_rect: DeviceIntRect,
     pub quality_settings: QualitySettings,
+    pub device_pixel_scale: DevicePixelScale,
 }
 
 enum RenderBackendStatus {
@@ -406,6 +407,7 @@ impl Document {
                 scene: SceneView {
                     device_rect: size.into(),
                     quality_settings: QualitySettings::default(),
+                    device_pixel_scale: DevicePixelScale::new(1.0),
                 },
             },
             stamp: FrameStamp::first(id),
@@ -527,6 +529,7 @@ impl Document {
                 &mut self.rg_builder,
                 self.stamp,
                 self.view.scene.device_rect.min,
+                self.view.scene.device_pixel_scale,
                 &self.dynamic_properties,
                 &mut self.data_stores,
                 &mut self.scratch,
