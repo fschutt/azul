@@ -196,6 +196,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Miri doesn't support dlopen used by dbus
     fn test_bus_name_sanitization() {
         // This will fail with NotImplemented, but we can test the logic
         let result = DbusConnection::new("My.Test-App 123");

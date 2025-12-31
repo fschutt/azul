@@ -138,15 +138,15 @@ if cargo build --release --features build-dll 2>&1; then
     log_success "DLL build succeeded"
     
     # Check if library exists
-    if [ -f "$PROJECT_ROOT/target/release/libazul_dll.dylib" ]; then
-        SIZE=$(ls -lh "$PROJECT_ROOT/target/release/libazul_dll.dylib" | awk '{print $5}')
-        log_success "libazul_dll.dylib exists (${SIZE})"
-    elif [ -f "$PROJECT_ROOT/target/release/libazul_dll.so" ]; then
-        SIZE=$(ls -lh "$PROJECT_ROOT/target/release/libazul_dll.so" | awk '{print $5}')
-        log_success "libazul_dll.so exists (${SIZE})"
-    elif [ -f "$PROJECT_ROOT/target/release/azul_dll.dll" ]; then
-        SIZE=$(ls -lh "$PROJECT_ROOT/target/release/azul_dll.dll" | awk '{print $5}')
-        log_success "azul_dll.dll exists (${SIZE})"
+    if [ -f "$PROJECT_ROOT/target/release/libazul.dylib" ]; then
+        SIZE=$(ls -lh "$PROJECT_ROOT/target/release/libazul.dylib" | awk '{print $5}')
+        log_success "libazul.dylib exists (${SIZE})"
+    elif [ -f "$PROJECT_ROOT/target/release/libazul.so" ]; then
+        SIZE=$(ls -lh "$PROJECT_ROOT/target/release/libazul.so" | awk '{print $5}')
+        log_success "libazul.so exists (${SIZE})"
+    elif [ -f "$PROJECT_ROOT/target/release/azul.dll" ]; then
+        SIZE=$(ls -lh "$PROJECT_ROOT/target/release/azul.dll" | awk '{print $5}')
+        log_success "azul.dll exists (${SIZE})"
     else
         log_error "No DLL/dylib/so file found in target/release/"
     fi
@@ -172,7 +172,7 @@ if [ -f "$C_EXAMPLE" ]; then
         FRAMEWORKS=""
     fi
     
-    COMPILE_CMD="clang -I$CODEGEN_V2 -L$PROJECT_ROOT/target/release -lazul_dll $FRAMEWORKS hello-world.c -o hello-world"
+    COMPILE_CMD="clang -I$CODEGEN_V2 -L$PROJECT_ROOT/target/release -lazul $FRAMEWORKS hello-world.c -o hello-world"
     log_info "Running: $COMPILE_CMD"
     
     if $COMPILE_CMD 2>&1; then

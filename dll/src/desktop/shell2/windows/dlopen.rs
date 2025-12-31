@@ -849,6 +849,7 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "windows")]
+    #[cfg_attr(miri, ignore)] // Miri doesn't support LoadLibraryW
     fn test_load_user32() {
         let lib = DynamicLibrary::load("user32.dll").unwrap();
         assert!(lib.handle().is_some());

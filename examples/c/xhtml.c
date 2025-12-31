@@ -8,7 +8,11 @@
 
 char* read_file(const char* path) {
     FILE* f = fopen(path, "r");
-    if (!f) return NULL;
+    if (!f) {
+        fprintf(stderr, "ERROR: Could not open file '%s'\n", path);
+        fprintf(stderr, "Make sure the file exists in the current directory.\n");
+        exit(1);
+    }
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
@@ -20,7 +24,7 @@ char* read_file(const char* path) {
 }
 
 AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
-    char* xhtml = read_file("assets/spreadsheet.xhtml");
+    char* xhtml = read_file("spreadsheet.xhtml");
     AzStyledDom dom = AzStyledDom_fromXml(AzString_copyFromBytes((uint8_t*)xhtml, 0, strlen(xhtml)));
     free(xhtml);
     return dom;

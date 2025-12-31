@@ -70,6 +70,7 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "linux")]
+    #[cfg_attr(miri, ignore)] // Miri doesn't support dlopen
     fn test_dbus_library_loading() {
         // This test requires libdbus-1.so to be installed
         match get_shared_dbus_lib() {
@@ -85,6 +86,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Miri doesn't support dlopen
     fn test_shared_instance() {
         // Getting the library multiple times should return the same instance
         let lib1 = get_shared_dbus_lib();

@@ -78,17 +78,17 @@ run_build "azul-dll with python-extension feature" "cargo build -p azul-dll --fe
 # Step 4: Build DLL as shared library (for dynamic linking)
 # ============================================
 echo -e "\n${BLUE}--- Step 4: Build Shared Library (.dylib/.so/.dll) ---${NC}"
-run_build "azul-dll release dylib" "cargo build -p azul-dll --release" || true
+run_build "azul-dll release dylib" "cargo build -p azul-dll --release --features build-dll" || true
 
 # Get the shared library path
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    DYLIB_PATH="${PROJECT_ROOT}/target/release/libazul_dll.dylib"
+    DYLIB_PATH="${PROJECT_ROOT}/target/release/libazul.dylib"
     DYLIB_EXT="dylib"
 elif [[ "$OSTYPE" == "linux"* ]]; then
-    DYLIB_PATH="${PROJECT_ROOT}/target/release/libazul_dll.so"
+    DYLIB_PATH="${PROJECT_ROOT}/target/release/libazul.so"
     DYLIB_EXT="so"
 else
-    DYLIB_PATH="${PROJECT_ROOT}/target/release/azul_dll.dll"
+    DYLIB_PATH="${PROJECT_ROOT}/target/release/azul.dll"
     DYLIB_EXT="dll"
 fi
 
@@ -147,13 +147,13 @@ else
     # Compiler flags
     if [[ "$OSTYPE" == "darwin"* ]]; then
         CC_FLAGS="-framework Cocoa -framework OpenGL -framework IOKit -framework CoreFoundation -framework CoreGraphics"
-        LINK_FLAGS="-L${PROJECT_ROOT}/target/release -lazul_dll -Wl,-rpath,${PROJECT_ROOT}/target/release"
+        LINK_FLAGS="-L${PROJECT_ROOT}/target/release -lazul -Wl,-rpath,${PROJECT_ROOT}/target/release"
     elif [[ "$OSTYPE" == "linux"* ]]; then
         CC_FLAGS=""
-        LINK_FLAGS="-L${PROJECT_ROOT}/target/release -lazul_dll -Wl,-rpath,${PROJECT_ROOT}/target/release -lm -lpthread -ldl"
+        LINK_FLAGS="-L${PROJECT_ROOT}/target/release -lazul -Wl,-rpath,${PROJECT_ROOT}/target/release -lm -lpthread -ldl"
     else
         CC_FLAGS=""
-        LINK_FLAGS="-L${PROJECT_ROOT}/target/release -lazul_dll"
+        LINK_FLAGS="-L${PROJECT_ROOT}/target/release -lazul"
     fi
 
     C_EXAMPLES=(

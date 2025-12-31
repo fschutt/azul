@@ -19,8 +19,6 @@ on:
         type: choice
         options:
           - ci
-          - fast-deploy
-          - fast-deploy-with-reftests
           - deploy
           - prod-deploy
         required: true
@@ -338,6 +336,18 @@ jobs:
       - name: Run reftest
         run: cargo run -r -p azul-doc reftest
 
+      - name: Upload reftest results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reftest-results
+          path: |
+            doc/target/reftest/index.html
+            doc/target/reftest/results.json
+            doc/target/reftest/reftest_img/
+          retention-days: 7
+          if-no-files-found: warn
+
   ffi_safety_tests:
     name: FFI Safety Tests (ASan + Miri)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
@@ -386,8 +396,7 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0,abort_on_error=1
           AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: |
-          # Run with timeout to catch hangs, exit 0 if window closes normally
-          timeout 10s ./hello-world-asan || [ $? -eq 124 ]
+          ./hello-world-asan
 
       - name: Run Miri on Rust examples (kitchen_sink)
         run: |
@@ -444,7 +453,7 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0,abort_on_error=1
           AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: |
-          timeout 10s ./hello-world-asan || [ $? -eq 124 ]
+          ./hello-world-asan
 
       - name: Run LLDB crash detection on C example
         working-directory: examples/c
@@ -481,19 +490,40 @@ jobs:
               target/release/libazul.dylib
               target/release/libazul.a
               target/release/azul.so
+              target/codegen/v2/azul.h
+              target/codegen/v2/azul03.hpp
+              target/codegen/v2/azul11.hpp
+              target/codegen/v2/azul14.hpp
+              target/codegen/v2/azul17.hpp
+              target/codegen/v2/azul20.hpp
+              target/codegen/v2/azul23.hpp
           - os: windows-2022
             artifact_name: azul-windows-amd64
             artifact_path: |
               target/release/azul.dll
-              target/release/libazul.a
+              target/release/azul.lib
               target/release/azul.dll.lib
               target/release/azul.pyd
+              target/codegen/v2/azul.h
+              target/codegen/v2/azul03.hpp
+              target/codegen/v2/azul11.hpp
+              target/codegen/v2/azul14.hpp
+              target/codegen/v2/azul17.hpp
+              target/codegen/v2/azul20.hpp
+              target/codegen/v2/azul23.hpp
           - os: ubuntu-22.04
             artifact_name: azul-linux-amd64
             artifact_path: |
               target/release/libazul.so
               target/release/libazul.a
-              target/release/azul.cpython.so
+              target/release/azul.so
+              target/codegen/v2/azul.h
+              target/codegen/v2/azul03.hpp
+              target/codegen/v2/azul11.hpp
+              target/codegen/v2/azul14.hpp
+              target/codegen/v2/azul17.hpp
+              target/codegen/v2/azul20.hpp
+              target/codegen/v2/azul23.hpp
 
     steps:
       - name: Checkout repository
@@ -534,7 +564,7 @@ jobs:
 
       - name: Rename Python extension (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: cp target/release/libazul.so target/release/azul.cpython.so
+        run: cp target/release/libazul.so target/release/azul.so
 
       - name: Rename Python extension (macOS)
         if: matrix.os == 'macos-14'
@@ -553,7 +583,7 @@ jobs:
       - name: Test Python extension import (Linux)
         if: matrix.os == 'ubuntu-22.04'
         run: |
-          cp target/release/azul.cpython.so examples/python/azul.so
+          cp target/release/azul.so examples/python/azul.so
           cd examples/python && python3 -c "import azul; print('Python extension loaded successfully!')"
 
       - name: Test Python extension import (macOS)
@@ -567,14 +597,62 @@ jobs:
         env:
           AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: |
-          cd examples/python && timeout 10s python3 hello-world.py || [ $? -eq 124 ]
+          cd examples/python && python3 hello-world.py
 
       - name: Run Python hello-world example (macOS)
         if: matrix.os == 'macos-14'
         env:
           AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: |
-          cd examples/python && timeout 10s python3 hello-world.py || [ $? -eq 124 ]
+          cd examples/python && python3 hello-world.py
+
+      - name: Take screenshots of C examples (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        continue-on-error: true  # Screenshots may fail in headless CI
+        run: |
+          chmod +x scripts/screenshot.sh
+          ./scripts/screenshot.sh || echo "Screenshots failed (expected in headless CI)"
+
+      - name: Take screenshots of C examples (macOS)
+        if: matrix.os == 'macos-14'
+        continue-on-error: true  # Screenshots may fail in CI
+        run: |
+          chmod +x scripts/screenshot.sh
+          ./scripts/screenshot.sh || echo "Screenshots failed"
+
+      - name: Copy screenshots to assets (for website deploy)
+        if: matrix.os != 'windows-2022'
+        continue-on-error: true
+        run: |
+          mkdir -p examples/assets/screenshots
+          # Map generated screenshots to api.json naming convention
+          # hello-world-<os>.png -> helloworld.png, calc-<os>.png -> calculator.png, etc.
+          for f in target/screenshots/*.png; do
+            [ -f "$f" ] || continue
+            name=$(basename "$f")
+            case "$name" in
+              hello-world-*) cp "$f" examples/assets/screenshots/helloworld.png ;;
+              calc-*)        cp "$f" examples/assets/screenshots/calculator.png ;;
+              widgets-*)     cp "$f" examples/assets/screenshots/widgets.png ;;
+              xhtml-*)       cp "$f" examples/assets/screenshots/xhtml.png ;;
+              async-*)       cp "$f" examples/assets/screenshots/async.png ;;
+              *)             cp "$f" examples/assets/screenshots/ ;;
+            esac
+          done
+          echo "Screenshots copied to examples/assets/screenshots:"
+          ls -la examples/assets/screenshots/ || true
+
+      - name: Upload Screenshots
+        if: matrix.os != 'windows-2022'
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: screenshots-${{ matrix.os }}
+          path: |
+            target/screenshots/*.png
+            examples/assets/screenshots/*.png
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -650,117 +728,6 @@ jobs:
           path: target/packages/*.rpm
           retention-days: 30
           if-no-files-found: error
-
-  build_pages_fast:
-    name: Fast Build Pages
-    if: github.event.inputs.run_mode == 'fast-deploy'
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build website (docs only, no platform builds)
-        run: cargo run --manifest-path doc/Cargo.toml --release -- deploy
-
-      - name: Upload page artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: fast-pages-artifact
-          path: 'doc/target/deploy'
-          if-no-files-found: error
-
-  prepare_pages_fast:
-    name: Prepare Pages Artifacts (Fast)
-    if: github.event.inputs.run_mode == 'fast-deploy'
-    runs-on: ubuntu-22.04
-    needs: build_pages_fast
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: fast-pages-artifact
-          path: merged-artifacts/
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-
-      - name: Upload artifacts for Pages deployment
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: 'merged-artifacts'
-
-  deploy_pages_fast:
-    name: Deploy to GitHub Pages (Fast)
-    if: github.event.inputs.run_mode == 'fast-deploy'
-    runs-on: ubuntu-22.04
-    needs: prepare_pages_fast
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-
-  build_pages_fast_with_reftests:
-    name: Fast Build Pages with Reftests
-    if: github.event.inputs.run_mode == 'fast-deploy-with-reftests'
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Chrome
-        uses: browser-actions/setup-chrome@v1
-
-      - name: Build website with reftests
-        run: cargo run --manifest-path doc/Cargo.toml --release -- fast-deploy-with-reftests
-
-      - name: Upload page artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: fast-reftests-pages-artifact
-          path: 'doc/target/deploy'
-          if-no-files-found: error
-
-  prepare_pages_fast_with_reftests:
-    name: Prepare Pages Artifacts (Fast with Reftests)
-    if: github.event.inputs.run_mode == 'fast-deploy-with-reftests'
-    runs-on: ubuntu-22.04
-    needs: build_pages_fast_with_reftests
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: fast-reftests-pages-artifact
-          path: merged-artifacts/
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-
-      - name: Upload artifacts for Pages deployment
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: 'merged-artifacts'
-
-  deploy_pages_fast_with_reftests:
-    name: Deploy to GitHub Pages (Fast with Reftests)
-    if: github.event.inputs.run_mode == 'fast-deploy-with-reftests'
-    runs-on: ubuntu-22.04
-    needs: prepare_pages_fast_with_reftests
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
 
   build_pages:
     name: Build Pages on ${{ matrix.os }}
@@ -868,13 +835,52 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Setup Chrome (Linux only)
+      - name: Download reftest results (Linux only)
         if: matrix.os == 'ubuntu-22.04'
-        uses: browser-actions/setup-chrome@v1
+        uses: actions/download-artifact@v4
+        with:
+          name: reftest-results
+          path: doc/target/reftest
 
-      - name: Run Reftests (Linux only)
+      - name: Download screenshots (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: cargo run --manifest-path doc/Cargo.toml --release -- reftest
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: screenshots-ubuntu-22.04
+          path: downloaded-screenshots
+
+      - name: Download screenshots (macOS)
+        if: matrix.os == 'macos-14'
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: screenshots-macos-14
+          path: downloaded-screenshots
+
+      - name: Copy screenshots to assets
+        continue-on-error: true
+        run: |
+          mkdir -p examples/assets/screenshots
+          if [ -d "downloaded-screenshots/examples/assets/screenshots" ]; then
+            cp -r downloaded-screenshots/examples/assets/screenshots/* examples/assets/screenshots/
+          fi
+          if [ -d "downloaded-screenshots/target/screenshots" ]; then
+            for f in downloaded-screenshots/target/screenshots/*.png; do
+              [ -f "$f" ] || continue
+              name=$(basename "$f")
+              case "$name" in
+                hello-world-*) cp "$f" examples/assets/screenshots/helloworld.png ;;
+                calc-*)        cp "$f" examples/assets/screenshots/calculator.png ;;
+                widgets-*)     cp "$f" examples/assets/screenshots/widgets.png ;;
+                xhtml-*)       cp "$f" examples/assets/screenshots/xhtml.png ;;
+                async-*)       cp "$f" examples/assets/screenshots/async.png ;;
+                *)             cp "$f" examples/assets/screenshots/ ;;
+              esac
+            done
+          fi
+          echo "Screenshots available for website build:"
+          ls -la examples/assets/screenshots/ || true
 
       - name: Build website for ${{ matrix.platform }}
         run: cargo run --manifest-path doc/Cargo.toml --release -- deploy --build=${{ matrix.platform }}

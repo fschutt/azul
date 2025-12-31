@@ -287,6 +287,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Miri has issues with env var manipulation
     fn test_should_use_gnome_menus_respects_disable_flag() {
         env::set_var("AZUL_DISABLE_GNOME_MENUS", "1");
         assert!(!should_use_gnome_menus());
@@ -294,6 +295,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Miri doesn't support dlopen used by GnomeMenuManager
     fn test_gnome_menu_manager_returns_none_when_disabled() {
         env::set_var("AZUL_DISABLE_GNOME_MENUS", "1");
         let manager = GnomeMenuManager::new("test.app");
@@ -302,6 +304,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Miri has issues with env var manipulation
     fn test_debug_log_only_prints_when_enabled() {
         env::remove_var("AZUL_GNOME_MENU_DEBUG");
         debug_log("Should not print");
