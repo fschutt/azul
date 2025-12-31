@@ -715,12 +715,16 @@ pub fn calculate_used_size_for_node(
         LayoutWidth::Auto => {
             // 'auto' width resolution depends on the display type.
             match display.unwrap_or_default() {
-                LayoutDisplay::Block | LayoutDisplay::FlowRoot | LayoutDisplay::ListItem => {
-                    // For block-level, non-replaced elements, 'auto' width fills the
-                    // containing block (minus margins, borders, padding)
+                LayoutDisplay::Block | LayoutDisplay::FlowRoot | LayoutDisplay::ListItem
+                | LayoutDisplay::Flex | LayoutDisplay::Grid => {
+                    // For block-level elements (including flex and grid containers),
+                    // 'auto' width fills the containing block (minus margins, borders, padding).
                     // CSS 2.1 Section 10.3.3: width = containing_block_width - margin_left -
                     // margin_right - border_left - border_right - padding_left - padding_right
-                    // CSS 2.1 Section 12.5.1: List-items have the same sizing as block boxes
+                    // 
+                    // Note: Flex/Grid CONTAINERS behave like blocks for sizing purposes.
+                    // Flex/Grid ITEMS have different sizing, but that's handled by Taffy
+                    // during the formatting context layout, not here.
                     let available_width = containing_block_size.width
                         - _box_props.margin.left
                         - _box_props.margin.right
@@ -736,7 +740,7 @@ pub fn calculate_used_size_for_node(
                     // which is the max-content width
                     intrinsic.max_content_width
                 }
-                // Flex and Grid item sizing is handled by Taffy, not this function.
+                // Table and other display types use intrinsic sizing
                 _ => intrinsic.max_content_width,
             }
         }

@@ -22,6 +22,7 @@ use azul_css::{
         },
     },
 };
+use crate::solver3::getters::{get_overflow_x, get_overflow_y};
 use taffy::style::{MaxTrackSizingFunction, MinTrackSizingFunction, TrackSizingFunction};
 
 /// Convert PixelValue to pixels, only for absolute units (no %, and em/rem use fallback)
@@ -1264,12 +1265,46 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     }
                 }
 
-                // Store the border-box size on the node for display list generation
+                // Compute scrollbar_info for this node (it's a child of a Flex/Grid container,
+                // so calculate_layout_for_subtree won't be called for it)
+                let scrollbar_info = {
+                    let node = self.tree.get(node_idx);
+                    node.and_then(|n| n.dom_node_id)
+                        .map(|dom_id| {
+                            let styled_node_state = self
+                                .ctx
+                                .styled_dom
+                                .styled_nodes
+                                .as_container()
+                                .get(dom_id)
+                                .map(|s| s.styled_node_state.clone())
+                                .unwrap_or_default();
+                            let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
+                            let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
+                            
+                            let content_size = LogicalSize::new(content_width, content_height);
+                            let container_size = LogicalSize::new(
+                                final_width - padding_width - border_width,
+                                final_height - padding_height - border_height,
+                            );
+                            
+                            crate::solver3::fc::check_scrollbar_necessity(
+                                content_size,
+                                container_size,
+                                crate::solver3::cache::to_overflow_behavior(overflow_x),
+                                crate::solver3::cache::to_overflow_behavior(overflow_y),
+                            )
+                        })
+                        .unwrap_or_default()
+                };
+
+                // Store the border-box size and scrollbar_info on the node for display list generation
                 if let Some(node) = self.tree.get_mut(node_idx) {
                     node.used_size = Some(LogicalSize {
                         width: final_width,
                         height: final_height,
                     });
+                    node.scrollbar_info = Some(scrollbar_info);
                 }
 
                 // Return the same size to Taffy for correct positioning
