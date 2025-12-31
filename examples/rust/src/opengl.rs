@@ -117,14 +117,14 @@ fn render_my_texture_inner(
                 y: PixelValue::percent(50.0),
             }),
             StyleTransform::Rotate(AngleValue::deg(rotation_deg)),
-        ].into(),
+        ],
     );
 
     texture.draw_tesselated_svg_gpu_node(
         stroke_vertex_buffer.clone(),
         texture_size,
         ColorU::from_str("#158DE3"),
-        vec![StyleTransform::Rotate(AngleValue::deg(rotation_deg))].into(),
+        vec![StyleTransform::Rotate(AngleValue::deg(rotation_deg))],
     );
 
     // TODO: segfault when inserting the following line:

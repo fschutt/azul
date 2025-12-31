@@ -338,198 +338,195 @@ impl RustGenerator {
         }
         
         // String conversions - implement From<&str> and From<String> for AzString
-        // Only generate for bindings (static-link or dynamic-link), NOT for DLL build
-        // DLL build has no_mangle=true and doesn't need these user-facing conversions
-        let is_dll_build = matches!(
-            &config.cabi_functions,
-            CAbiFunctionMode::InternalBindings { no_mangle: true }
-        );
+        // Generate for ALL builds - always use AzString_copyFromBytes to avoid leaking struct details
         
-        if !is_dll_build {
-            // For bindings, use the C-ABI function AzString_copyFromBytes
-            builder.line(&format!("impl From<&str> for {}String {{", prefix));
-            builder.indent();
-            builder.line("fn from(s: &str) -> Self {");
-            builder.indent();
-            builder.line(&format!("unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}", prefix));
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            builder.line(&format!("impl From<alloc::string::String> for {}String {{", prefix));
-            builder.indent();
-            builder.line("fn from(s: alloc::string::String) -> Self {");
-            builder.indent();
-            builder.line(&format!("unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}", prefix));
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            // AzString convenience methods for ergonomic API
-            builder.line(&format!("impl {}String {{", prefix));
-            builder.indent();
-            
-            // as_str() - returns &str by reinterpreting the bytes
-            builder.line("/// Returns the string as a `&str` slice.");
-            builder.line("#[inline]");
-            builder.line("pub fn as_str(&self) -> &str {");
-            builder.indent();
-            builder.line("unsafe {");
-            builder.indent();
-            builder.line("core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.vec.ptr, self.vec.len))");
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            // into_string() - converts to owned String
-            builder.line("/// Converts the AzString into an owned `String`.");
-            builder.line("/// ");
-            builder.line("/// If the memory was library-allocated, takes ownership without copying.");
-            builder.line("/// Otherwise clones the memory.");
-            builder.line("#[inline]");
-            builder.line("pub fn into_string(self) -> alloc::string::String {");
-            builder.indent();
-            builder.line("self.as_str().to_string()");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            // as_bytes() - returns byte slice
-            builder.line("/// Returns the raw bytes of the string.");
-            builder.line("#[inline]");
-            builder.line("pub fn as_bytes(&self) -> &[u8] {");
-            builder.indent();
-            builder.line("unsafe { core::slice::from_raw_parts(self.vec.ptr, self.vec.len) }");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            // len() - returns length
-            builder.line("/// Returns the length of the string in bytes.");
-            builder.line("#[inline]");
-            builder.line("pub fn len(&self) -> usize {");
-            builder.indent();
-            builder.line("self.vec.len");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            // is_empty() - checks if empty
-            builder.line("/// Returns true if the string is empty.");
-            builder.line("#[inline]");
-            builder.line("pub fn is_empty(&self) -> bool {");
-            builder.indent();
-            builder.line("self.vec.len == 0");
-            builder.dedent();
-            builder.line("}");
-            
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            // AsRef<str> implementation
-            builder.line(&format!("impl AsRef<str> for {}String {{", prefix));
-            builder.indent();
-            builder.line("fn as_ref(&self) -> &str {");
-            builder.indent();
-            builder.line("self.as_str()");
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            // Display implementation
-            builder.line(&format!("impl core::fmt::Display for {}String {{", prefix));
-            builder.indent();
-            builder.line("fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {");
-            builder.indent();
-            builder.line("self.as_str().fmt(f)");
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            // Into<String> implementation
-            builder.line(&format!("impl Into<alloc::string::String> for {}String {{", prefix));
-            builder.indent();
-            builder.line("fn into(self) -> alloc::string::String {");
-            builder.indent();
-            builder.line("self.into_string()");
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            // AsRef<[u8]> implementation
-            builder.line(&format!("impl AsRef<[u8]> for {}String {{", prefix));
-            builder.indent();
-            builder.line("fn as_ref(&self) -> &[u8] {");
-            builder.indent();
-            builder.line("self.as_bytes()");
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            // PartialEq<str> implementation
-            builder.line(&format!("impl PartialEq<str> for {}String {{", prefix));
-            builder.indent();
-            builder.line("fn eq(&self, other: &str) -> bool {");
-            builder.indent();
-            builder.line("self.as_str() == other");
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            // PartialEq<&str> implementation
-            builder.line(&format!("impl PartialEq<&str> for {}String {{", prefix));
-            builder.indent();
-            builder.line("fn eq(&self, other: &&str) -> bool {");
-            builder.indent();
-            builder.line("self.as_str() == *other");
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            // PartialEq<String> implementation
-            builder.line(&format!("impl PartialEq<alloc::string::String> for {}String {{", prefix));
-            builder.indent();
-            builder.line("fn eq(&self, other: &alloc::string::String) -> bool {");
-            builder.indent();
-            builder.line("self.as_str() == other.as_str()");
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-            
-            // Deref to str implementation
-            builder.line(&format!("impl core::ops::Deref for {}String {{", prefix));
-            builder.indent();
-            builder.line("type Target = str;");
-            builder.line("fn deref(&self) -> &Self::Target {");
-            builder.indent();
-            builder.line("self.as_str()");
-            builder.dedent();
-            builder.line("}");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-        }
+        // From<&str> for AzString
+        builder.line(&format!("impl From<&str> for {}String {{", prefix));
+        builder.indent();
+        builder.line("fn from(s: &str) -> Self {");
+        builder.indent();
+        builder.line(&format!("unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}", prefix));
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // From<String> for AzString
+        builder.line(&format!("impl From<alloc::string::String> for {}String {{", prefix));
+        builder.indent();
+        builder.line("fn from(s: alloc::string::String) -> Self {");
+        builder.indent();
+        builder.line(&format!("unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}", prefix));
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // AzString convenience methods for ergonomic API - generate for ALL builds
+        builder.line(&format!("impl {}String {{", prefix));
+        builder.indent();
+        
+        // as_str() - returns &str by reinterpreting the bytes
+        builder.line("/// Returns the string as a `&str` slice.");
+        builder.line("#[inline]");
+        builder.line("pub fn as_str(&self) -> &str {");
+        builder.indent();
+        builder.line("unsafe {");
+        builder.indent();
+        builder.line("core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.vec.ptr, self.vec.len))");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // into_string() - converts to owned String
+        builder.line("/// Converts the AzString into an owned `String`.");
+        builder.line("/// ");
+        builder.line("/// If the memory was library-allocated, takes ownership without copying.");
+        builder.line("/// Otherwise clones the memory.");
+        builder.line("#[inline]");
+        builder.line("pub fn into_string(self) -> alloc::string::String {");
+        builder.indent();
+        builder.line("self.as_str().to_string()");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // as_bytes() - returns byte slice
+        builder.line("/// Returns the raw bytes of the string.");
+        builder.line("#[inline]");
+        builder.line("pub fn as_bytes(&self) -> &[u8] {");
+        builder.indent();
+        builder.line("unsafe { core::slice::from_raw_parts(self.vec.ptr, self.vec.len) }");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // len() - returns length
+        builder.line("/// Returns the length of the string in bytes.");
+        builder.line("#[inline]");
+        builder.line("pub fn len(&self) -> usize {");
+        builder.indent();
+        builder.line("self.vec.len");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // is_empty() - checks if empty
+        builder.line("/// Returns true if the string is empty.");
+        builder.line("#[inline]");
+        builder.line("pub fn is_empty(&self) -> bool {");
+        builder.indent();
+        builder.line("self.vec.len == 0");
+        builder.dedent();
+        builder.line("}");
+        
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // AsRef<str> implementation
+        builder.line(&format!("impl AsRef<str> for {}String {{", prefix));
+        builder.indent();
+        builder.line("fn as_ref(&self) -> &str {");
+        builder.indent();
+        builder.line("self.as_str()");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // Display implementation
+        builder.line(&format!("impl core::fmt::Display for {}String {{", prefix));
+        builder.indent();
+        builder.line("fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {");
+        builder.indent();
+        builder.line("self.as_str().fmt(f)");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // Into<String> implementation
+        builder.line(&format!("impl Into<alloc::string::String> for {}String {{", prefix));
+        builder.indent();
+        builder.line("fn into(self) -> alloc::string::String {");
+        builder.indent();
+        builder.line("self.into_string()");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // AsRef<[u8]> implementation
+        builder.line(&format!("impl AsRef<[u8]> for {}String {{", prefix));
+        builder.indent();
+        builder.line("fn as_ref(&self) -> &[u8] {");
+        builder.indent();
+        builder.line("self.as_bytes()");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // PartialEq<str> implementation
+        builder.line(&format!("impl PartialEq<str> for {}String {{", prefix));
+        builder.indent();
+        builder.line("fn eq(&self, other: &str) -> bool {");
+        builder.indent();
+        builder.line("self.as_str() == other");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // PartialEq<&str> implementation
+        builder.line(&format!("impl PartialEq<&str> for {}String {{", prefix));
+        builder.indent();
+        builder.line("fn eq(&self, other: &&str) -> bool {");
+        builder.indent();
+        builder.line("self.as_str() == *other");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // PartialEq<String> implementation
+        builder.line(&format!("impl PartialEq<alloc::string::String> for {}String {{", prefix));
+        builder.indent();
+        builder.line("fn eq(&self, other: &alloc::string::String) -> bool {");
+        builder.indent();
+        builder.line("self.as_str() == other.as_str()");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // Deref to str implementation
+        builder.line(&format!("impl core::ops::Deref for {}String {{", prefix));
+        builder.indent();
+        builder.line("type Target = str;");
+        builder.line("fn deref(&self) -> &Self::Target {");
+        builder.indent();
+        builder.line("self.as_str()");
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+        
+        // Generate automatic From<A> for B when A::method(self) -> B exists
+        self.generate_auto_from_impls(&mut builder, ir, config);
         
         // Generate Option<T> convenience methods (into_option)
         self.generate_option_convenience_methods(&mut builder, ir, config);
@@ -541,6 +538,112 @@ impl RustGenerator {
         self.generate_vec_ref_convenience_methods(&mut builder, ir, config);
         
         Ok(builder.finish())
+    }
+    
+    /// Generate automatic From<A> for B implementations when A::method(self) -> B exists
+    ///
+    /// This finds all methods that:
+    /// 1. Take owned self (consume the value)
+    /// 2. Return a different type than the class they belong to
+    ///
+    /// For each such method, we generate:
+    /// ```ignore
+    /// impl From<A> for B {
+    ///     fn from(v: A) -> B {
+    ///         v.method_name()
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// This allows ergonomic conversions like: `let dom: Dom = button.into();`
+    fn generate_auto_from_impls(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+        use std::collections::{HashSet, HashMap};
+        
+        let prefix = &config.type_prefix;
+        
+        // Track which From impls we've already generated to avoid duplicates
+        // Key: (from_type, to_type)
+        let mut generated_from_impls: HashSet<(String, String)> = HashSet::new();
+        
+        // For each conversion pair, track which method to use
+        // If multiple methods exist for the same conversion, we use the first one found
+        let mut conversion_methods: HashMap<(String, String), &str> = HashMap::new();
+        
+        // Find all methods that take owned self and return a different type
+        for func in &ir.functions {
+            // Skip constructors, static methods, and trait functions
+            if matches!(func.kind, 
+                FunctionKind::Constructor | 
+                FunctionKind::StaticMethod |
+                FunctionKind::EnumVariantConstructor
+            ) || func.kind.is_trait_function() {
+                continue;
+            }
+            
+            // Check if this function takes owned self
+            let takes_owned_self = func.args.iter().any(|arg| {
+                let is_self = arg.name == "self" || 
+                    (arg.name == func.class_name.to_lowercase() && arg.type_name == func.class_name) ||
+                    (arg.name == "object" && arg.type_name == func.class_name);
+                is_self && matches!(arg.ref_kind, ArgRefKind::Owned)
+            });
+            
+            if !takes_owned_self {
+                continue;
+            }
+            
+            // Check if there are any other arguments besides self
+            let other_args_count = func.args.iter().filter(|arg| {
+                let is_self = arg.name == "self" || 
+                    (arg.name == func.class_name.to_lowercase() && arg.type_name == func.class_name) ||
+                    (arg.name == "object" && arg.type_name == func.class_name);
+                !is_self
+            }).count();
+            
+            // Only generate From if there are no other arguments
+            // (methods like `fn dom(self, extra_arg: X) -> Dom` shouldn't become From impls)
+            if other_args_count != 0 {
+                continue;
+            }
+            
+            // Check if return type exists and is different from class_name
+            let return_type = match &func.return_type {
+                Some(rt) if rt != &func.class_name => rt.clone(),
+                _ => continue,
+            };
+            
+            let from_type = func.class_name.clone();
+            let key = (from_type.clone(), return_type.clone());
+            
+            // Only use the first method for each conversion pair
+            if !conversion_methods.contains_key(&key) {
+                conversion_methods.insert(key, &func.method_name);
+            }
+        }
+        
+        // Generate the From impls
+        for ((from_type, to_type), method_name) in &conversion_methods {
+            let key = (from_type.clone(), to_type.clone());
+            if generated_from_impls.contains(&key) {
+                continue;
+            }
+            generated_from_impls.insert(key);
+            
+            let prefixed_from = config.apply_prefix(from_type);
+            let prefixed_to = config.apply_prefix(to_type);
+            let method = to_snake_case(method_name);
+            
+            builder.line(&format!("impl From<{}> for {} {{", prefixed_from, prefixed_to));
+            builder.indent();
+            builder.line(&format!("fn from(v: {}) -> {} {{", prefixed_from, prefixed_to));
+            builder.indent();
+            builder.line(&format!("v.{}()", method));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
     }
     
     /// Generate convenience methods for Option types (into_option, is_some, is_none, etc.)
@@ -875,12 +978,43 @@ impl RustGenerator {
             
             // From<Vec<T>> for AzVec<T> - allows easy conversion from std Vec
             // This requires the Vec type to have a destructor field
+            //
+            // IMPORTANT: We use External destructor with a custom drop function because:
+            // - The Vec was allocated by the BINARY's allocator (user code)
+            // - The library might use a DIFFERENT allocator
+            // - DefaultRust would tell the library to free with its allocator = CRASH
+            // - External(fn_ptr) calls back into the binary to free with the correct allocator
             let has_destructor = struct_def.fields.iter().any(|f| f.name == "destructor");
             if has_destructor {
                 // Get the destructor type name (should end with "Destructor")
                 let destructor_field = struct_def.fields.iter().find(|f| f.name == "destructor");
                 if let Some(destructor_field) = destructor_field {
                     let prefixed_destructor = config.apply_prefix(&destructor_field.type_name);
+                    // The destructor type should be VecDestructorType (function pointer type)
+                    // e.g., DomVecDestructor -> DomVecDestructorType
+                    let destructor_fn_type = format!("{}Type", prefixed_destructor);
+                    
+                    // Generate the drop function that will be called to free the Vec
+                    // This function runs in the BINARY context, using the BINARY allocator
+                    // Note: We use *mut T (raw pointer) to match the C-ABI destructor signature
+                    let drop_fn_name = format!("{}_external_drop", prefixed_name.to_lowercase());
+                    builder.line(&format!("extern \"C\" fn {}(v: *mut {}) {{", drop_fn_name, prefixed_name));
+                    builder.indent();
+                    builder.line("let v = unsafe { &mut *v };");
+                    builder.line("if !v.run_destructor { return; }");
+                    builder.line("v.run_destructor = false;");
+                    builder.line("if v.ptr.is_null() || v.cap == 0 { return; }");
+                    builder.line("unsafe {");
+                    builder.indent();
+                    builder.line(&format!("let _ = alloc::vec::Vec::from_raw_parts(v.ptr as *mut {}, v.len, v.cap);", prefixed_inner));
+                    builder.dedent();
+                    builder.line("}");
+                    builder.line("v.ptr = core::ptr::null();");
+                    builder.line("v.len = 0;");
+                    builder.line("v.cap = 0;");
+                    builder.dedent();
+                    builder.line("}");
+                    builder.blank();
                     
                     builder.line(&format!("impl From<alloc::vec::Vec<{}>> for {} {{", prefixed_inner, prefixed_name));
                     builder.indent();
@@ -895,7 +1029,7 @@ impl RustGenerator {
                     builder.line("ptr,");
                     builder.line("len,");
                     builder.line("cap,");
-                    builder.line(&format!("destructor: {}::DefaultRust,", prefixed_destructor));
+                    builder.line(&format!("destructor: {}::External({} as {}),", prefixed_destructor, drop_fn_name, destructor_fn_type));
                     builder.line("run_destructor: true,");
                     builder.dedent();
                     builder.line("}");
@@ -1122,10 +1256,6 @@ impl RustGenerator {
     ) {
         let method_name = escape_rust_keyword(&to_snake_case(&func.method_name));
         
-        // Types that should use Into<T> for ergonomic API
-        // Currently only AzString, but designed to be extended
-        let into_types: &[&str] = &["String"];
-        
         // Build a map of callback wrapper types for quick lookup
         // Maps: "IFrameCallback" -> ("IFrameCallbackType", "cb", "ctx")
         let callback_wrappers: std::collections::HashMap<&str, (&str, &str, &str)> = ir.structs.iter()
@@ -1138,6 +1268,11 @@ impl RustGenerator {
                     ))
                 })
             })
+            .collect();
+        
+        // Build a set of callback typedef names (function pointer types) to exclude from Into generics
+        let callback_typedefs: std::collections::HashSet<&str> = ir.callback_typedefs.iter()
+            .map(|cb| cb.name.as_str())
             .collect();
         
         // Build argument list
@@ -1192,7 +1327,25 @@ impl RustGenerator {
                 }
                 
                 // Check if this type should use Into<T>
-                let use_into = into_types.iter().any(|t| config.apply_prefix(t) == arg_type);
+                // Use Into for all non-primitive types that are passed by value
+                // EXCEPT:
+                // - callback typedefs (function pointers) and callback wrappers
+                // - Ref types (e.g. U8VecRef) - slice references shouldn't use Into
+                // 
+                // Vec types (e.g. StyleTransformVec) DO support Into:
+                //   fn append_children(children: impl Into<DomVec>) allows vec![...] directly
+                //
+                // This allows ergonomic API like:
+                //   Dom::create_text("hello")  where &str: Into<AzString>
+                //   Dom::append(button)  where button: Button (if Button: Into<Dom>)
+                //   Dom::append_children(vec![child1, child2])  where Vec<Dom>: Into<DomVec>
+                let is_callback_type = callback_typedefs.contains(arg.type_name.as_str()) 
+                    || callback_wrappers.contains_key(arg.type_name.as_str());
+                let is_ref_type = arg.type_name.ends_with("Ref")
+                    || arg.type_name.ends_with("RefMut");
+                let use_into = !is_primitive_type(&arg.type_name) 
+                    && !is_callback_type 
+                    && !is_ref_type;
                 
                 if use_into && matches!(arg.ref_kind, ArgRefKind::Owned) {
                     // Use a generic parameter like I0, I1, I2...
