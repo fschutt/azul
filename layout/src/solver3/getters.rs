@@ -1088,20 +1088,36 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
 
 /// Get scrollbar information from a layout node
 pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirements {
-    // Check if there's inline content that might overflow
-    let has_inline_content = node.inline_layout_result.is_some();
+    // Use cached scrollbar_info if available (calculated during layout)
+    if let Some(ref info) = node.scrollbar_info {
+        return info.clone();
+    }
 
-    // TODO: Calculate actual overflow by comparing:
-    //   - Content size (from inline_layout_result or child positions)
-    //   - Container size (from used_size)
-    //   - Then check if content exceeds container bounds
-    // This requires adding overflow detection in the layout pass itself
+    // Fallback: Calculate based on content vs container size
+    let container_size = node.used_size.unwrap_or_default();
+    
+    // Get content size from inline layout bounds
+    let content_size = if let Some(ref inline_layout) = node.inline_layout_result {
+        let bounds = inline_layout.layout.bounds();
+        LogicalSize::new(bounds.width, bounds.height)
+    } else {
+        // No inline layout - for now assume no scrollbar needed
+        // TODO: Calculate from children positions
+        container_size
+    };
+
+    // Standard scrollbar width (Chrome-like)
+    const SCROLLBAR_SIZE: f32 = 12.0;
+
+    // Check if content overflows container
+    let needs_vertical = content_size.height > container_size.height + 1.0;
+    let needs_horizontal = content_size.width > container_size.width + 1.0;
 
     ScrollbarRequirements {
-        needs_vertical: false,
-        needs_horizontal: false,
-        scrollbar_width: if has_inline_content { 16.0 } else { 0.0 },
-        scrollbar_height: if has_inline_content { 16.0 } else { 0.0 },
+        needs_vertical,
+        needs_horizontal,
+        scrollbar_width: if needs_vertical { SCROLLBAR_SIZE } else { 0.0 },
+        scrollbar_height: if needs_horizontal { SCROLLBAR_SIZE } else { 0.0 },
     }
 }
 
@@ -1191,10 +1207,6 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .map(|v| v.inner);
     
     let color = color_from_cache.unwrap_or_default();
-    
-    // Debug: log color retrieval
-    eprintln!("[get_style_properties] dom_id={:?}, font_size={}, color={:?} (from_cache={:?})", 
-        dom_id, font_size, color, color_from_cache.is_some());
 
     let line_height = cache
         .get_line_height(node_data, &dom_id, node_state)

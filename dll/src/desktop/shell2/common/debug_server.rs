@@ -1399,6 +1399,25 @@ fn process_debug_event(
                                 z_index: None,
                             }
                         }
+                        azul_layout::solver3::display_list::DisplayListItem::ScrollBar { bounds, color, orientation, .. } => {
+                            other_count += 1;
+                            let orient_str = match orientation {
+                                azul_core::dom::ScrollbarOrientation::Vertical => "vertical",
+                                azul_core::dom::ScrollbarOrientation::Horizontal => "horizontal",
+                            };
+                            DisplayListItemInfo {
+                                index: idx,
+                                item_type: format!("scrollbar_{}", orient_str),
+                                x: Some(bounds.origin.x),
+                                y: Some(bounds.origin.y),
+                                width: Some(bounds.size.width),
+                                height: Some(bounds.size.height),
+                                color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
+                            }
+                        }
                         azul_layout::solver3::display_list::DisplayListItem::PushStackingContext { z_index, bounds } => {
                             other_count += 1;
                             DisplayListItemInfo {
