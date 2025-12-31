@@ -1642,24 +1642,8 @@ where
         builder.set_current_node(node.dom_node_id);
 
         let Some(paint_rect) = self.get_paint_rect(node_index) else {
-            eprintln!("[paint_node] node {} has no paint_rect, skipping", node_index);
             return Ok(());
         };
-        
-        // Debug: Log node painting
-        let node_type_str = if let Some(dom_id) = node.dom_node_id {
-            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            format!("{:?}", node_data.get_node_type())
-        } else {
-            "ANONYMOUS".to_string()
-        };
-        
-        eprintln!("[paint_node] node {} (dom={:?}, type={}) paint_rect={:?}, has_inline_layout={}",
-            node_index, 
-            node.dom_node_id,
-            node_type_str,
-            paint_rect,
-            node.inline_layout_result.is_some());
 
         // Add a hit-test area for this node if it's interactive.
         if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
@@ -1712,7 +1696,7 @@ where
 
         // Get node_id for GPU cache lookup
         let node_id = node.dom_node_id;
-
+        
         if scrollbar_info.needs_vertical {
             // Look up opacity key from GPU cache
             let opacity_key = node_id.and_then(|nid| {
@@ -1787,9 +1771,6 @@ where
         container_rect: LogicalRect,
         layout: &UnifiedLayout,
     ) -> Result<()> {
-        eprintln!("[paint_inline_content] container_rect={:?}, layout has {} items", 
-            container_rect, layout.items.len());
-        
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
         // TODO: Handle text decorations (underline, strikethrough, etc.)
@@ -1812,12 +1793,6 @@ where
         );
 
         let glyph_runs = crate::text3::glyphs::get_glyph_runs_simple(layout);
-        
-        eprintln!("[paint_inline_content] got {} glyph_runs", glyph_runs.len());
-        for (i, run) in glyph_runs.iter().enumerate() {
-            eprintln!("[paint_inline_content] run {}: {} glyphs, color=({},{},{},{}), font_size={}", 
-                i, run.glyphs.len(), run.color.r, run.color.g, run.color.b, run.color.a, run.font_size_px);
-        }
 
         for (idx, glyph_run) in glyph_runs.iter().enumerate() {
             let clip_rect = container_rect; // Clip to the container rect
