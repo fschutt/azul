@@ -473,7 +473,9 @@ fn layout_flex_grid<T: ParsedFontTrait>(
 
     // Collect child positions from the tree (Taffy stores results directly on nodes).
     let mut output = LayoutOutput::default();
-    output.overflow_size = translate_taffy_size_back(taffy_output.size);
+    // Use content_size for overflow detection, not container size.
+    // content_size represents the actual size of all children, which may exceed the container.
+    output.overflow_size = translate_taffy_size_back(taffy_output.content_size);
 
     let children: Vec<usize> = tree.get(node_index).unwrap().children.clone();
     for &child_idx in &children {
