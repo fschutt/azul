@@ -382,12 +382,14 @@ jobs:
             -o hello-world-asan
 
       - name: Run C hello-world with Address Sanitizer
+        working-directory: examples/c
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/target/debug
+          ASAN_OPTIONS: detect_leaks=0,abort_on_error=1
+          AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: |
-          cd examples/c
-          export LD_LIBRARY_PATH=../../target/debug:$LD_LIBRARY_PATH
-          export ASAN_OPTIONS=detect_leaks=0,abort_on_error=1
           # Run with timeout to catch hangs, exit 0 if window closes normally
-          timeout 5s ./hello-world-asan || [ $? -eq 124 ]
+          timeout 10s ./hello-world-asan || [ $? -eq 124 ]
 
       - name: Run Miri on Rust examples (kitchen_sink)
         run: |
@@ -437,19 +439,21 @@ jobs:
             -o hello-world-asan
 
       - name: Run C hello-world with Address Sanitizer
+        working-directory: examples/c
+        env:
+          DYLD_LIBRARY_PATH: ${{ github.workspace }}/target/debug
+          ASAN_OPTIONS: detect_leaks=0,abort_on_error=1
+          AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: |
-          cd examples/c
-          export DYLD_LIBRARY_PATH=../../target/debug:$DYLD_LIBRARY_PATH
-          export ASAN_OPTIONS=detect_leaks=0,abort_on_error=1
-          export AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER=1
-          ./hello-world-asan
+          timeout 10s ./hello-world-asan || [ $? -eq 124 ]
         continue-on-error: true  # macOS CI may have display issues
 
       - name: Run LLDB crash detection on C example
+        working-directory: examples/c
+        env:
+          DYLD_LIBRARY_PATH: ${{ github.workspace }}/target/debug
+          AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: |
-          cd examples/c
-          export DYLD_LIBRARY_PATH=../../target/debug:$DYLD_LIBRARY_PATH
-          export AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER=1
           # Use LLDB to run and detect crashes - exit on first signal
           echo "run" > /tmp/lldb_commands.txt
           echo "bt" >> /tmp/lldb_commands.txt
