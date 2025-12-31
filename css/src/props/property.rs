@@ -2723,9 +2723,14 @@ pub fn parse_combined_css_property<'a>(
         }
     };
 
+    // For Overflow, "auto" is a typed value (LayoutOverflow::Auto), not the generic CSS keyword,
+    // so we must not intercept it here and let the specific parser handle it below.
+    let has_typed_auto = matches!(key, Overflow);
+    let has_typed_none = false; // Currently no combined properties have typed "none"
+    
     match value {
-        "auto" => return Ok(keys.into_iter().map(|ty| CssProperty::auto(ty)).collect()),
-        "none" => return Ok(keys.into_iter().map(|ty| CssProperty::none(ty)).collect()),
+        "auto" if !has_typed_auto => return Ok(keys.into_iter().map(|ty| CssProperty::auto(ty)).collect()),
+        "none" if !has_typed_none => return Ok(keys.into_iter().map(|ty| CssProperty::none(ty)).collect()),
         "initial" => {
             return Ok(keys
                 .into_iter()
