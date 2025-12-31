@@ -12,12 +12,12 @@ use crate::props::formatter::PrintAsCssValue;
 pub enum LayoutOverflow {
     /// Always shows a scroll bar, overflows on scroll.
     Scroll,
-    /// Shows a scroll bar only when content overflows. This is the default.
-    #[default]
+    /// Shows a scroll bar only when content overflows.
     Auto,
     /// Clips overflowing content. The rest of the content will be invisible.
     Hidden,
-    /// Content is not clipped and renders outside the element's box.
+    /// Content is not clipped and renders outside the element's box. This is the CSS default.
+    #[default]
     Visible,
     /// Similar to `hidden`, clips the content at the box's edge.
     Clip,
