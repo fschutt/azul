@@ -55,9 +55,7 @@ def on_scroll(data, info):
 
 state = InfinityState()
 
-window = WindowCreateOptions(layout)
-window.set_title("Infinite Scrolling Gallery")
-window.set_dimensions(800, 600)
+window = WindowCreateOptions.create(layout)
 
-app = App(state, AppConfig.default())
+app = App.create(state, AppConfig.create())
 app.run(window)

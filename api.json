@@ -1879,7 +1879,7 @@
                 ],
                 "fn_args": [
                   {
-                    "layout_callback": "LayoutCallback"
+                    "layout_callback": "LayoutCallbackType"
                   }
                 ],
                 "fn_body": "azul_layout::window_state::WindowCreateOptions::create(layout_callback)"

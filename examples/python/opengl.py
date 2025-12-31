@@ -68,10 +68,7 @@ def animate(data, info):
 
 state = OpenGlState()
 
-window = WindowCreateOptions(layout)
-window.set_title("OpenGL Integration")
-window.set_dimensions(800, 600)
-window.set_on_create(state, on_startup)
+window = WindowCreateOptions.create(layout)
 
-app = App(state, AppConfig.default())
+app = App.create(state, AppConfig.create())
 app.run(window)

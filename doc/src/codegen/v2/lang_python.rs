@@ -1440,6 +1440,16 @@ extern "C" fn invoke_py_layout_callback(
         builder.line("}");
         builder.blank();
 
+        // Generate the #[pymodule] function that PyO3 needs for PyInit_azul
+        builder.line("/// PyO3 module definition - generates PyInit_azul");
+        builder.line("#[pymodule]");
+        builder.line("pub fn azul(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {");
+        builder.indent();
+        builder.line("register_types(py, m)");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+
         Ok(())
     }
 

@@ -70,9 +70,7 @@ def on_button_click(data, info):
     return Update.RefreshDom
 
 model = WidgetShowcase()
-window = WindowCreateOptions(layout)
-window.set_title("Widget Showcase")
-window.set_dimensions(600, 500)
+window = WindowCreateOptions.create(layout)
 
-app = App(model, AppConfig.default())
+app = App.create(model, AppConfig.create())
 app.run(window)

@@ -449,6 +449,7 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "linux")]
+    #[cfg_attr(miri, ignore)] // Miri doesn't support dlopen
     fn test_load_dbus_library() {
         // This test requires libdbus-1.so.3 to be installed
         match DBusLib::new() {

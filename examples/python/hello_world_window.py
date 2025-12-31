@@ -52,12 +52,11 @@ def main():
     # Create app data
     data = AppData()
     
-    # Create the application with our data and layout callback
-    app = azul.App(data, layout)
+    # Create the application with our data and config
+    app = azul.App.create(data, azul.AppConfig.create())
     
-    # Configure the window with a title
-    window_options = azul.WindowCreateOptions()
-    window_options = window_options.with_title("Hello Azul from Python!")
+    # Configure the window with a layout callback
+    window_options = azul.WindowCreateOptions.create(layout)
     
     # Run the app with the initial window (this blocks until the window is closed)
     app.run(window_options)

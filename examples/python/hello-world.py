@@ -24,9 +24,7 @@ def on_click(data, info):
     return Update.RefreshDom
 
 model = DataModel(5)
-window = WindowCreateOptions(layout)
-window.set_title("Hello World")
-window.set_dimensions(400, 300)
+window = WindowCreateOptions.create(layout)
 
-app = App(model, AppConfig.default())
+app = App.create(model, AppConfig.create())
 app.run(window)

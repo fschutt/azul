@@ -290,7 +290,6 @@ jobs:
               cl.exe /Zs /I..\\..\\target\\codegen\\v2 "$example" 2>&1 || echo "  Note: cl.exe may not be available"
             fi
           done
-        continue-on-error: true
 
       - name: Compile C++17 examples (MSVC default)
         shell: bash
@@ -302,7 +301,6 @@ jobs:
               cl.exe /Zs /std:c++17 /I..\\..\\..\\target\\codegen\\v2 "$example" 2>&1 || echo "  Note: cl.exe may not be available"
             fi
           done
-        continue-on-error: true
 
   test_heavy:
     name: Run Heavy Tests
@@ -394,7 +392,8 @@ jobs:
       - name: Run Miri on Rust examples (kitchen_sink)
         run: |
           # Note: Miri cannot run the full GUI app, but can test the setup/teardown logic
-          cargo +nightly miri test --lib -p azul-dll -- --nocapture || true
+          # Tests that use dlopen are marked with #[cfg_attr(miri, ignore)]
+          cargo +nightly miri test --lib -p azul-dll -- --nocapture
 
       - name: Check for FFI safety issues in api.json types
         run: |
@@ -446,16 +445,15 @@ jobs:
           AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: |
           timeout 10s ./hello-world-asan || [ $? -eq 124 ]
-        continue-on-error: true  # macOS CI may have display issues
 
       - name: Run LLDB crash detection on C example
         working-directory: examples/c
-        env:
-          DYLD_LIBRARY_PATH: ${{ github.workspace }}/target/debug
-          AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: |
           # Use LLDB to run and detect crashes - exit on first signal
-          echo "run" > /tmp/lldb_commands.txt
+          # Note: LLDB needs env vars set via 'env' command, not shell env
+          echo "env DYLD_LIBRARY_PATH=${{ github.workspace }}/target/debug" > /tmp/lldb_commands.txt
+          echo "env AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER=1" >> /tmp/lldb_commands.txt
+          echo "run" >> /tmp/lldb_commands.txt
           echo "bt" >> /tmp/lldb_commands.txt
           echo "quit" >> /tmp/lldb_commands.txt
           # Run LLDB batch mode - app will exit after first frame
@@ -467,7 +465,6 @@ jobs:
             exit 1
           fi
           echo "No crash detected - test passed (window rendered successfully)"
-        continue-on-error: true  # Don't fail CI if LLDB has issues
 
   build_binaries:
     name: Build Binaries on ${{ matrix.os }}
@@ -564,6 +561,20 @@ jobs:
         run: |
           cp target/release/azul.so examples/python/azul.so
           cd examples/python && python3 -c "import azul; print('Python extension loaded successfully!')"
+
+      - name: Run Python hello-world example (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        env:
+          AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
+        run: |
+          cd examples/python && timeout 10s python3 hello-world.py || [ $? -eq 124 ]
+
+      - name: Run Python hello-world example (macOS)
+        if: matrix.os == 'macos-14'
+        env:
+          AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
+        run: |
+          cd examples/python && timeout 10s python3 hello-world.py || [ $? -eq 124 ]
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -778,19 +789,11 @@ jobs:
 
       - name: Run Reftests (Linux only)
         if: matrix.os == 'ubuntu-22.04'
-        continue-on-error: true
+        continue-on-error: true  # Reftests may fail due to rendering differences
         run: cargo run --manifest-path doc/Cargo.toml --release -- reftest
 
       - name: Build website for ${{ matrix.platform }}
-        id: build_website
-        continue-on-error: true
         run: cargo run --manifest-path doc/Cargo.toml --release -- deploy --build=${{ matrix.platform }}
-
-      - name: Create empty deploy directory on failure
-        if: steps.build_website.outcome == 'failure'
-        run: |
-          mkdir -p doc/target/deploy
-          echo "Website build failed - placeholder" > doc/target/deploy/BUILD_FAILED.txt
 
       - name: Upload ${{ matrix.platform }} page artifacts
         uses: actions/upload-artifact@v4

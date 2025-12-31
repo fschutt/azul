@@ -128,12 +128,16 @@ include!(concat!(
 // =============================================================================
 
 #[cfg(feature = "python-extension")]
-pub mod python {
+mod python {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../target/codegen/v2/python_api.rs"
     ));
 }
+
+// Re-export the pymodule function at crate root for PyInit_azul to work
+#[cfg(feature = "python-extension")]
+pub use python::azul;
 
 // =============================================================================
 // Memory Tests: Size and alignment verification

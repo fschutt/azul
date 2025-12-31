@@ -80,9 +80,7 @@ def reset_connection(data, info):
 
 state = AsyncState()
 
-window = WindowCreateOptions(layout)
-window.set_title("Async Operations")
-window.set_dimensions(600, 400)
+window = WindowCreateOptions.create(layout)
 
-app = App(state, AppConfig.default())
+app = App.create(state, AppConfig.create())
 app.run(window)

@@ -219,12 +219,9 @@ def main():
     calc = Calculator()
     data = RefAny.new(calc)
     
-    app = App.new(data, AppConfig.default())
+    app = App.create(data, AppConfig.create())
     
-    window = WindowCreateOptions.new(layout)
-    window.state.title = "Calculator - CSS Grid Demo"
-    window.state.size.dimensions.width = 320.0
-    window.state.size.dimensions.height = 480.0
+    window = WindowCreateOptions.create(layout)
     
     app.run(window)
 
