@@ -155,6 +155,13 @@ run_c_example() {
     local source_file="${C_EXAMPLES_DIR}/${example_name}.c"
     local binary_dir="${PROJECT_ROOT}/target/c-examples"
     local binary_file="${binary_dir}/${example_name}"
+    local binary_name="${example_name}"
+    
+    # Windows needs .exe extension
+    if [[ "$OSTYPE" != "darwin"* ]] && [[ "$OSTYPE" != "linux"* ]]; then
+        binary_file="${binary_file}.exe"
+        binary_name="${example_name}.exe"
+    fi
     
     if [[ ! -f "$source_file" ]]; then
         echo -e "${YELLOW}Skipping ${example_name}: source not found${NC}"
@@ -180,7 +187,10 @@ run_c_example() {
     elif [[ "$OSTYPE" == "linux"* ]]; then
         link_flags="-L${PROJECT_ROOT}/target/release -lazul -Wl,-rpath,${PROJECT_ROOT}/target/release -lm -lpthread -ldl"
     else
-        link_flags="-L${PROJECT_ROOT}/target/release -lazul"
+        # Windows: Link directly against the DLL (MinGW can do this)
+        # Copy DLL to binary dir so it can be found at runtime
+        cp "${PROJECT_ROOT}/target/release/azul.dll" "$binary_dir/" 2>/dev/null || true
+        link_flags="${PROJECT_ROOT}/target/release/azul.dll -lws2_32 -luserenv -lbcrypt -lntdll -lole32 -lshell32 -lopengl32 -lgdi32 -luser32 -lkernel32 -ladvapi32"
     fi
     
     if ! cc -o "$binary_file" "$source_file" -I"${HEADER_DIR}" $cc_flags $link_flags 2>&1; then
@@ -202,7 +212,7 @@ run_c_example() {
     fi
     
     # Change to binary dir so relative paths work, then run
-    (cd "$binary_dir" && "./${example_name}") &
+    (cd "$binary_dir" && "./${binary_name}") &
     local pid=$!
     
     # Wait for server to be ready
@@ -221,9 +231,10 @@ run_c_example() {
     # Shutdown
     shutdown_app
     
-    # Make sure process is dead
+    # Make sure process is dead - give more time for port to be released
     kill $pid 2>/dev/null || true
     wait $pid 2>/dev/null || true
+    sleep 1  # Wait for port to be released
     
     return $screenshot_result
 }
@@ -266,9 +277,10 @@ run_rust_example() {
     # Shutdown
     shutdown_app
     
-    # Make sure process is dead
+    # Make sure process is dead - give more time for port to be released
     kill $pid 2>/dev/null || true
     wait $pid 2>/dev/null || true
+    sleep 1  # Wait for port to be released
     
     return $screenshot_result
 }

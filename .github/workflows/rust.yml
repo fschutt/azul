@@ -572,7 +572,8 @@ jobs:
         continue-on-error: true  # Screenshots may fail in headless CI
         run: |
           chmod +x scripts/screenshot.sh
-          ./scripts/screenshot.sh || echo "Screenshots failed (expected in headless CI)"
+          # Use xvfb-run for headless display on Linux
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" ./scripts/screenshot.sh || echo "Screenshots failed (expected in headless CI)"
 
       - name: Take screenshots of C examples (macOS)
         if: matrix.os == 'macos-14'
@@ -584,10 +585,11 @@ jobs:
       - name: Take screenshots of C examples (Windows)
         if: matrix.os == 'windows-2022'
         shell: bash
-        continue-on-error: true  # Screenshots may fail in CI
+        continue-on-error: true  # Screenshots may fail in CI - needs proper display
         run: |
           chmod +x scripts/screenshot.sh
-          ./scripts/screenshot.sh || echo "Screenshots failed"
+          # Windows CI may not have a display available
+          ./scripts/screenshot.sh || echo "Screenshots failed (expected in headless CI)"
 
       - name: Build Python extension
         run: |
