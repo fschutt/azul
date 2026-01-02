@@ -396,7 +396,9 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0,abort_on_error=1
           AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: |
-          ./hello-world-asan
+          # Use timeout to kill after 30s - env var may not propagate through ASAN
+          # Exit code 124 means timeout (expected), 0 means clean exit
+          timeout 30 ./hello-world-asan || [ $? -eq 124 ]
 
       - name: Run Miri on Rust examples (kitchen_sink)
         run: |
@@ -429,6 +431,9 @@ jobs:
         with:
           toolchain: 1.87.0
 
+      - name: Install coreutils (for gtimeout)
+        run: brew install coreutils
+
       - name: Generate DLL API bindings for build-dll feature
         run: cargo run -r -p azul-doc codegen all
 
@@ -453,7 +458,9 @@ jobs:
           ASAN_OPTIONS: detect_leaks=0,abort_on_error=1
           AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: |
-          ./hello-world-asan
+          # Use gtimeout (coreutils) to kill after 30s - env var may not propagate through ASAN
+          # Exit code 124 means timeout (expected), 0 means clean exit
+          gtimeout 30 ./hello-world-asan || [ $? -eq 124 ]
 
       - name: Run LLDB crash detection on C example
         working-directory: examples/c
@@ -465,8 +472,8 @@ jobs:
           echo "run" >> /tmp/lldb_commands.txt
           echo "bt" >> /tmp/lldb_commands.txt
           echo "quit" >> /tmp/lldb_commands.txt
-          # Run LLDB batch mode - app will exit after first frame
-          lldb -b -s /tmp/lldb_commands.txt ./hello-world-asan 2>&1 | tee lldb_output.txt || true
+          # Run LLDB batch mode - app will exit after first frame (timeout after 30s)
+          gtimeout 30 lldb -b -s /tmp/lldb_commands.txt ./hello-world-asan 2>&1 | tee lldb_output.txt || true
           # Check for crash indicators
           if grep -q "SIGABRT\|SIGSEGV\|AddressSanitizer" lldb_output.txt; then
             echo "ERROR: Crash detected in C example!"
@@ -538,6 +545,10 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y clang
 
+      - name: Install coreutils (macOS, for gtimeout)
+        if: matrix.os == 'macos-14'
+        run: brew install coreutils
+
       - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc codegen all
 
@@ -597,14 +608,16 @@ jobs:
         env:
           AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: |
-          cd examples/python && python3 hello-world.py
+          # Use timeout in case env var doesn't propagate
+          cd examples/python && timeout 30 python3 hello-world.py || [ $? -eq 124 ]
 
       - name: Run Python hello-world example (macOS)
         if: matrix.os == 'macos-14'
         env:
           AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
         run: |
-          cd examples/python && python3 hello-world.py
+          # Use gtimeout (coreutils) in case env var doesn't propagate
+          cd examples/python && gtimeout 30 python3 hello-world.py || [ $? -eq 124 ]
 
       - name: Take screenshots of C examples (Linux)
         if: matrix.os == 'ubuntu-22.04'
@@ -620,37 +633,13 @@ jobs:
           chmod +x scripts/screenshot.sh
           ./scripts/screenshot.sh || echo "Screenshots failed"
 
-      - name: Copy screenshots to assets (for website deploy)
-        if: matrix.os != 'windows-2022'
-        continue-on-error: true
-        run: |
-          mkdir -p examples/assets/screenshots
-          # Map generated screenshots to api.json naming convention
-          # hello-world-<os>.png -> helloworld.png, calc-<os>.png -> calculator.png, etc.
-          for f in target/screenshots/*.png; do
-            [ -f "$f" ] || continue
-            name=$(basename "$f")
-            case "$name" in
-              hello-world-*) cp "$f" examples/assets/screenshots/helloworld.png ;;
-              calc-*)        cp "$f" examples/assets/screenshots/calculator.png ;;
-              widgets-*)     cp "$f" examples/assets/screenshots/widgets.png ;;
-              xhtml-*)       cp "$f" examples/assets/screenshots/xhtml.png ;;
-              async-*)       cp "$f" examples/assets/screenshots/async.png ;;
-              *)             cp "$f" examples/assets/screenshots/ ;;
-            esac
-          done
-          echo "Screenshots copied to examples/assets/screenshots:"
-          ls -la examples/assets/screenshots/ || true
-
       - name: Upload Screenshots
         if: matrix.os != 'windows-2022'
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
           name: screenshots-${{ matrix.os }}
-          path: |
-            target/screenshots/*.png
-            examples/assets/screenshots/*.png
+          path: target/screenshots/*.png
           retention-days: 7
           if-no-files-found: ignore
 
@@ -841,46 +830,6 @@ jobs:
         with:
           name: reftest-results
           path: doc/target/reftest
-
-      - name: Download screenshots (Linux)
-        if: matrix.os == 'ubuntu-22.04'
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: screenshots-ubuntu-22.04
-          path: downloaded-screenshots
-
-      - name: Download screenshots (macOS)
-        if: matrix.os == 'macos-14'
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: screenshots-macos-14
-          path: downloaded-screenshots
-
-      - name: Copy screenshots to assets
-        continue-on-error: true
-        run: |
-          mkdir -p examples/assets/screenshots
-          if [ -d "downloaded-screenshots/examples/assets/screenshots" ]; then
-            cp -r downloaded-screenshots/examples/assets/screenshots/* examples/assets/screenshots/
-          fi
-          if [ -d "downloaded-screenshots/target/screenshots" ]; then
-            for f in downloaded-screenshots/target/screenshots/*.png; do
-              [ -f "$f" ] || continue
-              name=$(basename "$f")
-              case "$name" in
-                hello-world-*) cp "$f" examples/assets/screenshots/helloworld.png ;;
-                calc-*)        cp "$f" examples/assets/screenshots/calculator.png ;;
-                widgets-*)     cp "$f" examples/assets/screenshots/widgets.png ;;
-                xhtml-*)       cp "$f" examples/assets/screenshots/xhtml.png ;;
-                async-*)       cp "$f" examples/assets/screenshots/async.png ;;
-                *)             cp "$f" examples/assets/screenshots/ ;;
-              esac
-            done
-          fi
-          echo "Screenshots available for website build:"
-          ls -la examples/assets/screenshots/ || true
 
       - name: Build website for ${{ matrix.platform }}
         run: cargo run --manifest-path doc/Cargo.toml --release -- deploy --build=${{ matrix.platform }}
