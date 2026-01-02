@@ -200,10 +200,17 @@ impl<T> MultiValue<T> {
 
 // Implement helper methods for LayoutOverflow specifically
 impl MultiValue<LayoutOverflow> {
+    /// Returns true if this overflow value causes content to be clipped.
+    /// This includes Hidden, Clip, Auto, and Scroll (all values except Visible).
     pub fn is_clipped(&self) -> bool {
         matches!(
             self,
-            MultiValue::Exact(LayoutOverflow::Hidden | LayoutOverflow::Clip)
+            MultiValue::Exact(
+                LayoutOverflow::Hidden
+                    | LayoutOverflow::Clip
+                    | LayoutOverflow::Auto
+                    | LayoutOverflow::Scroll
+            )
         )
     }
 
@@ -1192,6 +1199,9 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         viewport_size: PhysicalSize::new(0.0, 0.0), // TODO: Pass viewport from LayoutContext
     };
 
+    // Get font-size: either from this node's CSS, or inherit from parent
+    // font-size is an inheritable property, so if the node doesn't have
+    // an explicit font-size, it should inherit from the parent (not default to 16px)
     let font_size = cache
         .get_font_size(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
@@ -1199,7 +1209,7 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
             v.inner
                 .resolve_with_context(&font_size_context, PropertyContext::FontSize)
         })
-        .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
+        .unwrap_or(parent_font_size);
 
     let color_from_cache = cache
         .get_text_color(node_data, &dom_id, node_state)
