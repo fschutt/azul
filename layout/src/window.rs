@@ -1312,8 +1312,8 @@ impl LayoutWindow {
                     result.windows_created.push(options);
                 }
                 CallbackChange::CloseWindow => {
-                    // TODO: Implement window close mechanism
-                    // This needs to set a flag that the window should close
+                    // Set the close_requested flag to trigger window close
+                    result.modified_window_state.flags.close_requested = true;
                 }
                 CallbackChange::SetFocusTarget { target } => {
                     result.focus_target = Some(target);
