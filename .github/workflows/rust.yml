@@ -41,7 +41,7 @@ jobs:
 
   lint_and_check:
     name: Lint & Static Checks
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -89,7 +89,7 @@ jobs:
 
   test_heavy:
     name: Run Heavy Tests (Miri + Reftests)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
     runs-on: ubuntu-22.04
     needs: lint_and_check
     steps:
@@ -139,7 +139,7 @@ jobs:
 
   ffi_safety_tests:
     name: FFI Safety Tests (${{ matrix.os }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
     needs: lint_and_check
     strategy:
       fail-fast: false
@@ -198,7 +198,7 @@ jobs:
 
   build_binaries:
     name: Build Binaries (${{ matrix.os }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
     needs: lint_and_check
     runs-on: ${{ matrix.os }}
     strategy:
@@ -382,7 +382,7 @@ jobs:
 
   build_linux_packages:
     name: Build Linux Packages (.deb/.rpm)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
     needs: build_binaries
     runs-on: ubuntu-22.04
     steps:
@@ -450,6 +450,7 @@ jobs:
   build_and_deploy_pages:
     name: Build & Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy'
+    needs: [test_heavy, build_binaries, build_linux_packages]
     runs-on: ubuntu-22.04
     environment:
       name: github-pages
