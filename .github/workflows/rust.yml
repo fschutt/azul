@@ -384,7 +384,7 @@ jobs:
   build_linux_packages:
     name: Build Linux Packages (.deb/.rpm)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
-    needs: build_binaries
+    needs: [build_binaries, build_website_skeleton]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -396,33 +396,24 @@ jobs:
           name: azul-linux-amd64
           path: artifacts
 
+      - name: Download NFPM config
+        uses: actions/download-artifact@v4
+        with:
+          name: nfpm-config
+          path: nfpm-config
+
       - name: Debug - Tree after download
         run: |
-          sudo apt-get update && sudo apt-get install -y tree
+          sudo apt-get update && sudo apt-get install -y tree nfpm
           echo "=== Downloaded artifacts ==="
-          tree artifacts/ 2>/dev/null || ls -laR artifacts/
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.87.0
-
-      - name: Install NFPM
-        run: |
-          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
-          sudo apt-get update
-          sudo apt-get install -y nfpm
-
-      - name: Generate NFPM config and headers
-        run: |
-          cargo run -r -p azul-doc codegen all
-          cargo run -r -p azul-doc nfpm
+          tree artifacts/ nfpm-config/ 2>/dev/null || ls -laR artifacts/ nfpm-config/
 
       - name: Prepare package files
         run: |
           mkdir -p target/packages
           find artifacts -name "libazul.so" -exec cp {} target/packages/ \;
-          cp target/codegen/v2/azul.h target/packages/
+          find nfpm-config -name "azul.h" -exec cp {} target/packages/ \;
+          find nfpm-config -name "nfpm.yaml" -exec cp {} target/packages/ \;
           cp LICENSE target/packages/
           ls -la target/packages/
 
@@ -466,8 +457,10 @@ jobs:
         with:
           toolchain: 1.87.0
 
-      - name: Generate codegen
-        run: cargo run -r -p azul-doc codegen all
+      - name: Generate codegen and NFPM config
+        run: |
+          cargo run -r -p azul-doc codegen all
+          cargo run -r -p azul-doc nfpm
 
       - name: Create placeholder binaries
         run: |
@@ -500,6 +493,16 @@ jobs:
         with:
           name: website-skeleton
           path: doc/target/deploy/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload NFPM config and headers
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfpm-config
+          path: |
+            target/packages/nfpm.yaml
+            target/codegen/v2/azul.h
           retention-days: 30
           if-no-files-found: error
 
