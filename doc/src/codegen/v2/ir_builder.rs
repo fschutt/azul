@@ -700,9 +700,13 @@ impl<'a> IRBuilder<'a> {
         
         // Vec types should have Clone (they have a deep_copy function that clones the data)
         // Vec types end with "Vec" but NOT "VecRef"
+        // IMPORTANT: Vec Clone CANNOT be derived! The derive(Clone) would do a bitwise copy,
+        // copying the pointer without allocating new memory, leading to double-free on drop.
+        // Vec types have a custom clone_self() that properly allocates and copies the data.
+        // The Clone trait must be implemented via transmute to the real type's .clone() method.
         if name.ends_with("Vec") && !name.ends_with("VecRef") {
             traits.is_clone = true;
-            traits.clone_is_derived = true; // Vec Clone can be derived
+            traits.clone_is_derived = false; // Vec Clone MUST NOT be derived - needs custom impl
         }
 
         Ok(StructDef {
