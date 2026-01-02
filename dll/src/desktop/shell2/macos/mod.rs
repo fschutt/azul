@@ -173,7 +173,7 @@ define_class!(
                 // 2. Call renderer.update()
                 // 3. Call renderer.render() to composite WebRender's scene
                 // 4. Call flushBuffer() to swap
-                println!("render_and_present_in_draw_rect: THIS IS WHERE macos_window.render_and_present_in_draw_rect() will be called");
+                log_debug!(LogCategory::Rendering, "[GLView] drawRect: render_and_present_in_draw_rect will be called");
                 if let Err(e) = macos_window.render_and_present_in_draw_rect() {
                     log_error!(LogCategory::Rendering, "[GLView] drawRect: Error during rendering: {:?}", e);
                 }

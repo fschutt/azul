@@ -26,6 +26,8 @@ use azul_css::{
 use azul_layout::callbacks::CallbackInfo;
 
 use crate::desktop::menu::MenuWindowData;
+use crate::desktop::shell2::common::debug_server::LogCategory;
+use crate::log_debug;
 
 /// Data structure for menu item click callbacks
 #[derive(Debug, Clone)]
@@ -52,7 +54,7 @@ extern "C" fn menu_item_click_callback(mut data: RefAny, mut info: CallbackInfo)
     let callback_data = match data.downcast_ref::<MenuItemCallbackData>() {
         Some(d) => d,
         None => {
-            eprintln!("[menu_item_click_callback] Failed to downcast MenuItemCallbackData");
+            log_debug!(LogCategory::General, "[menu_item_click_callback] Failed to downcast MenuItemCallbackData");
             return Update::DoNothing;
         }
     };
@@ -66,7 +68,7 @@ extern "C" fn menu_item_click_callback(mut data: RefAny, mut info: CallbackInfo)
         let callback_data_refany = menu_callback.refany.clone();
         let result = callback.invoke(callback_data_refany, info.clone());
 
-        eprintln!(
+        log_debug!(LogCategory::General, 
             "[menu_item_click_callback] Invoked callback for menu item '{}' (index {})",
             callback_data.menu_item.label.as_str(),
             callback_data.item_index
@@ -99,7 +101,7 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
     let submenu_data = match data.downcast_ref::<SubmenuCallbackData>() {
         Some(d) => d,
         None => {
-            eprintln!("[submenu_hover_callback] Failed to downcast SubmenuCallbackData");
+            log_debug!(LogCategory::General, "[submenu_hover_callback] Failed to downcast SubmenuCallbackData");
             return Update::DoNothing;
         }
     };
@@ -108,7 +110,7 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
     let item_rect = match info.get_hit_node_rect() {
         Some(rect) => rect,
         None => {
-            eprintln!("[submenu_hover_callback] Could not get hit node rect");
+            log_debug!(LogCategory::General, "[submenu_hover_callback] Could not get hit node rect");
             return Update::DoNothing;
         }
     };
@@ -120,7 +122,7 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
     let parent_menu_data = match menu_window_data_clone.downcast_ref::<MenuWindowData>() {
         Some(d) => d,
         None => {
-            eprintln!("[submenu_hover_callback] Failed to downcast parent MenuWindowData");
+            log_debug!(LogCategory::General, "[submenu_hover_callback] Failed to downcast parent MenuWindowData");
             return Update::DoNothing;
         }
     };
@@ -156,7 +158,7 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
     // TODO: Track the returned window ID and add to parent_menu_data.child_menu_ids
     info.create_window(submenu_options);
 
-    eprintln!(
+    log_debug!(LogCategory::General, 
         "[submenu_hover_callback] Spawned submenu for item '{}' (index {})",
         submenu_data.menu_item.label.as_str(),
         submenu_data.item_index

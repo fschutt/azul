@@ -618,14 +618,12 @@ pub fn create_webrender_instance(
     thread::Builder::new()
         .name(rb_thread_name.clone())
         .spawn(move || {
-            eprintln!("[RENDER_BACKEND_THREAD] >>>>> Thread started <<<<<");
             if let Some(hooks) = render_backend_hooks {
                 hooks.init_thread();
             }
             register_thread_with_profiler(rb_thread_name.clone());
             profiler::register_thread(&rb_thread_name);
 
-            eprintln!("[RENDER_BACKEND_THREAD] Creating TextureCache...");
             let texture_cache = TextureCache::new(
                 max_internal_texture_size,
                 image_tiling_threshold,
@@ -660,9 +658,7 @@ pub fn create_webrender_instance(
                 debug_flags,
                 namespace_alloc_by_client,
             );
-            eprintln!("[RENDER_BACKEND_THREAD] RenderBackend created, calling run()...");
             backend.run();
-            eprintln!("[RENDER_BACKEND_THREAD] run() returned, thread exiting");
             profiler::unregister_thread();
         })?;
 

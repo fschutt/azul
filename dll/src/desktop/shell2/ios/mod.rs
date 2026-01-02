@@ -10,10 +10,12 @@ use core_graphics_sys::base::CGRect;
 use crate::desktop::{
     shell2::common::{
         event_v2::{self, PlatformWindowV2}, 
+        debug_server::LogCategory,
         PlatformWindow, WindowError, WindowProperties, RenderContext
     },
     wr_translate2::{AsyncHitTester, WrRenderApi, WrTransaction},
 };
+use crate::log_debug;
 use azul_core::{
     resources::{AppConfig, ImageCache, RendererResources, DpiScaleFactor},
     window::{RawWindowHandle, IOSHandle},
@@ -75,7 +77,7 @@ extern "C" fn touches_began(self: &Object, _cmd: Sel, touches: *mut Object, even
     if let Some(window) = unsafe { AZUL_IOS_WINDOW.as_mut() } {
         // Here you would translate the UITouch event into an Azul event,
         // update the FullWindowState, and call `window.process_window_events_recursive_v2(0)`.
-        println!("[AzulView] Touches Began!");
+        log_debug!(LogCategory::Input, "[AzulView] Touches Began!");
     }
 }
 
@@ -214,14 +216,14 @@ impl IOSWindow {
         let mut gl_context_ptr: OptionGlContextPtr = None.into();
         let backend = match Self::create_gl_context() {
             Ok(_gl_context) => {
-                println!("[Azul iOS] GPU rendering context created (stubbed).");
+                log_debug!(LogCategory::Rendering, "[Azul iOS] GPU rendering context created (stubbed).");
                 // In a real app, you'd load GL functions here.
                 // let gl_functions = crate::desktop::shell2::macos::gl::GlFunctions::initialize().unwrap();
                 // gl_context_ptr = Some(GlContextPtr::new(..., gl_functions.functions.clone())).into();
                 RenderBackend::Gpu
             },
             Err(_) => {
-                println!("[Azul iOS] GPU context creation failed. Falling back to CPU renderer.");
+                log_debug!(LogCategory::Rendering, "[Azul iOS] GPU context creation failed. Falling back to CPU renderer.");
                 RenderBackend::Cpu
             }
         };

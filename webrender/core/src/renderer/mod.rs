@@ -2074,11 +2074,6 @@ impl Renderer {
         textures: &BatchTextures,
         stats: &mut RendererStats,
     ) {
-        eprintln!(
-            "[WR draw_instanced_batch] Called with {} instances, vao_kind={:?}",
-            data.len(),
-            vertex_array_kind
-        );
         self.bind_textures(textures);
 
         // If we end up with an empty draw call here, that means we have
@@ -2086,7 +2081,6 @@ impl Renderer {
         // building - so we should be catching this earlier and removing
         // the batch.
         if data.is_empty() {
-            eprintln!("[WR draw_instanced_batch] ⚠️  WARNING: Empty batch!");
             return;
         }
         debug_assert!(!data.is_empty());
@@ -2119,10 +2113,6 @@ impl Renderer {
             }
             self.profile.inc(profiler::DRAW_CALLS);
             stats.total_draw_calls += 1;
-            eprintln!(
-                "[WR draw_instanced_batch] ✓ Draw call executed! total_draw_calls={}",
-                stats.total_draw_calls
-            );
         }
 
         self.profile.add(profiler::VERTICES, 6 * data.len());
@@ -3216,7 +3206,6 @@ impl Renderer {
         projection: &default::Transform3D<f32>,
         stats: &mut RendererStats,
     ) {
-        eprintln!("[WR draw_tile_list] START");
         let mut current_shader_params = (
             CompositeSurfaceFormat::Rgba,
             ImageBufferKind::Texture2D,
@@ -3245,20 +3234,11 @@ impl Renderer {
         for item in tiles_iter {
             tile_count += 1;
             let tile = &composite_state.tiles[item.key];
-            eprintln!(
-                "[WR draw_tile_list] Processing tile #{}, key={}, kind={:?}",
-                tile_count, item.key, tile.kind
-            );
 
             let clip_rect = item.rectangle;
             let tile_rect = composite_state.get_device_rect(&tile.local_rect, tile.transform_index);
             let transform = composite_state.get_device_transform(tile.transform_index);
             let flip = (transform.scale.x < 0.0, transform.scale.y < 0.0);
-
-            eprintln!(
-                "[WR draw_tile_list] tile_rect={:?}, clip_rect={:?}",
-                tile_rect, clip_rect
-            );
 
             // Work out the draw params based on the tile surface
             let (instance, textures, shader_params) = match tile.surface {
@@ -3472,11 +3452,6 @@ impl Renderer {
         results: &mut RenderResults,
         partial_present_mode: Option<PartialPresentMode>,
     ) {
-        eprintln!(
-            "[WR composite_simple] START - tiles={}, draw_target={:?}",
-            composite_state.tiles.len(),
-            draw_target
-        );
         let _gm = self.gpu_profiler.start_marker("framebuffer");
         let _timer = self.gpu_profiler.start_timer(GPU_TAG_COMPOSITE);
 
@@ -3632,11 +3607,6 @@ impl Renderer {
             .iter()
             .map(|c| c.opaque_batches.len() + c.alpha_batches.len())
             .sum();
-        eprintln!(
-            "[WR draw_color_target] CALLED - {} containers, {} total batches",
-            target.alpha_batch_containers.len(),
-            total_batches
-        );
         self.profile.inc(profiler::COLOR_PASSES);
         let _gm = self.gpu_profiler.start_marker("color target");
 
@@ -4596,22 +4566,14 @@ impl Renderer {
         buffer_age: usize,
         results: &mut RenderResults,
     ) {
-        eprintln!(
-            "[WR draw_frame] START - device_size={:?}, passes={}",
-            device_size,
-            frame.passes.len()
-        );
         // These markers seem to crash a lot on Android, see bug 1559834
         #[cfg(not(target_os = "android"))]
         let _gm = self.gpu_profiler.start_marker("draw frame");
 
         if frame.passes.is_empty() {
-            eprintln!("[WR draw_frame] ⚠️  No passes, returning early");
             frame.has_been_rendered = true;
             return;
         }
-
-        eprintln!("[WR draw_frame] Processing {} passes", frame.passes.len());
 
         self.device.disable_depth_write();
         self.set_blend(false, FramebufferKind::Other);
@@ -4719,14 +4681,6 @@ impl Renderer {
         }
 
         for (_pass_index, pass) in frame.passes.iter_mut().enumerate() {
-            eprintln!(
-                "[WR draw_frame] Processing pass #{} - picture_cache={}, alpha_targets={}, \
-                 color_targets={}",
-                _pass_index,
-                pass.picture_cache.len(),
-                pass.alpha.targets.len(),
-                pass.color.targets.len()
-            );
             #[cfg(not(target_os = "android"))]
             let _gm = self
                 .gpu_profiler

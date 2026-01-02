@@ -44,6 +44,8 @@ use crate::desktop::wr_translate2::{
     translate_image_key, wr_translate_border_radius, wr_translate_color_f,
     wr_translate_logical_size, wr_translate_pipeline_id,
 };
+use crate::desktop::shell2::common::debug_server::LogCategory;
+use crate::log_debug;
 
 /// Convert logical pixel bounds to physical pixel LayoutRect for WebRender.
 /// All display list coordinates are in logical CSS pixels and need to be scaled
@@ -85,7 +87,8 @@ pub fn translate_displaylist_to_wr(
     ),
     String,
 > {
-    eprintln!(
+    log_debug!(
+        LogCategory::DisplayList,
         "[compositor2::translate_displaylist_to_wr] START - {} items, viewport={:?}, \
          dpi_factor={}, {} resources",
         display_list.items.len(),
@@ -113,10 +116,10 @@ pub fn translate_displaylist_to_wr(
     let mut builder = WrDisplayListBuilder::new(pipeline_id);
 
     // CRITICAL: Begin building the display list before pushing items
-    eprintln!("[compositor2] >>>>> CALLING builder.begin() <<<<<");
+    log_debug!(LogCategory::DisplayList, "[compositor2] Calling builder.begin()");
     builder.begin();
-    eprintln!("[compositor2] >>>>> builder.begin() RETURNED <<<<<");
-    eprintln!(
+    log_debug!(
+        LogCategory::DisplayList,
         "[compositor2] Builder started, translating {} items",
         display_list.items.len()
     );
@@ -142,12 +145,13 @@ pub fn translate_displaylist_to_wr(
                 color,
                 border_radius,
             } => {
-                eprintln!(
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] Rect item: bounds={:?}, color={:?}, dpi={}",
                     bounds, color, dpi_scale
                 );
                 let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
-                eprintln!("[compositor2] Translated to LayoutRect: {:?}", rect);
+                log_debug!(LogCategory::DisplayList, "[compositor2] Translated to LayoutRect: {:?}", rect);
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -200,15 +204,16 @@ pub fn translate_displaylist_to_wr(
                         flags: Default::default(),
                     };
 
-                    eprintln!(
-                        "[compositor2] >>>>> push_rect (with clip): {:?} <<<<<",
+                    log_debug!(
+                        LogCategory::DisplayList,
+                        "[compositor2] push_rect (with clip): {:?}",
                         rect
                     );
                     builder.push_rect(&info_clipped, rect, color_f);
                     continue;
                 }
 
-                eprintln!("[compositor2] >>>>> push_rect: {:?} <<<<<", rect);
+                log_debug!(LogCategory::DisplayList, "[compositor2] push_rect: {:?}", rect);
                 builder.push_rect(&info, rect, color_f);
             }
 
@@ -440,7 +445,7 @@ pub fn translate_displaylist_to_wr(
                 let scroll_clip_chain = builder.define_clip_chain(None, [scroll_clip_id]);
                 clip_stack.push(scroll_clip_chain);
 
-                eprintln!(
+                log_debug!(LogCategory::DisplayList, 
                     "[compositor2] PushScrollFrame: frame_rect={:?}, content_rect={:?}, \
                      scroll_id={}, spatial_id={:?}",
                     frame_rect, content_rect, scroll_id, scroll_spatial_id
@@ -453,11 +458,11 @@ pub fn translate_displaylist_to_wr(
                 spatial_stack.pop();
 
                 if spatial_stack.is_empty() || clip_stack.is_empty() {
-                    eprintln!("[compositor2] ERROR: PopScrollFrame caused stack underflow");
+                    log_debug!(LogCategory::DisplayList, "[compositor2] ERROR: PopScrollFrame caused stack underflow");
                     return Err("Scroll frame stack underflow".to_string());
                 }
 
-                eprintln!("[compositor2] PopScrollFrame: spatial and clip stacks popped");
+                log_debug!(LogCategory::DisplayList, "[compositor2] PopScrollFrame: spatial and clip stacks popped");
             }
 
             DisplayListItem::HitTestArea { bounds, tag } => {
@@ -484,7 +489,7 @@ pub fn translate_displaylist_to_wr(
                 // For version 0.62.2, we use transparent rects with ItemTags in
                 // CommonItemProperties The tag will be returned in hit test results
 
-                eprintln!(
+                log_debug!(LogCategory::DisplayList, 
                     "[compositor2] HitTestArea: bounds={:?}, tag={:?}",
                     bounds, tag
                 );
@@ -593,7 +598,7 @@ pub fn translate_displaylist_to_wr(
                 color,
                 clip_rect,
             } => {
-                eprintln!(
+                log_debug!(LogCategory::DisplayList, 
                     "[compositor2] Text item: {} glyphs, font_size={}, color={:?}, clip_rect={:?}, dpi={}",
                     glyphs.len(),
                     font_size_px,
@@ -604,9 +609,9 @@ pub fn translate_displaylist_to_wr(
 
                 // Log first few glyph positions for debugging
                 if !glyphs.is_empty() {
-                    eprintln!("[compositor2] First 3 glyphs (before scaling):");
+                    log_debug!(LogCategory::DisplayList, "[compositor2] First 3 glyphs (before scaling):");
                     for (i, g) in glyphs.iter().take(3).enumerate() {
-                        eprintln!(
+                        log_debug!(LogCategory::DisplayList, 
                             "  [{}] index={}, pos=({}, {})",
                             i, g.index, g.point.x, g.point.y
                         );
@@ -672,7 +677,7 @@ pub fn translate_displaylist_to_wr(
                         flags: Default::default(),
                     };
 
-                    eprintln!(
+                    log_debug!(LogCategory::DisplayList, 
                         "[compositor2] >>>>> push_image: bounds={:?}, key={:?} <<<<<",
                         bounds, wr_image_key
                     );
@@ -690,7 +695,7 @@ pub fn translate_displaylist_to_wr(
                         ColorF::WHITE, // No tint by default
                     );
                 } else {
-                    eprintln!(
+                    log_debug!(LogCategory::DisplayList, 
                         "[compositor2] WARNING: Image key {:?} not found in renderer_resources",
                         key
                     );
@@ -698,7 +703,7 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::PushStackingContext { z_index, bounds } => {
-                eprintln!(
+                log_debug!(LogCategory::DisplayList, 
                     "[compositor2] PushStackingContext: z_index={}, bounds={:?}, dpi={}",
                     z_index, bounds, dpi_scale
                 );
@@ -710,7 +715,7 @@ pub fn translate_displaylist_to_wr(
                     scale_px(bounds.origin.x, dpi_scale),
                     scale_px(bounds.origin.y, dpi_scale),
                 );
-                eprintln!(
+                log_debug!(LogCategory::DisplayList, 
                     "[compositor2] >>>>> push_simple_stacking_context at ({}, {}) <<<<<",
                     scaled_origin.x, scaled_origin.y
                 );
@@ -719,14 +724,14 @@ pub fn translate_displaylist_to_wr(
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                 );
-                eprintln!("[compositor2] >>>>> push_simple_stacking_context RETURNED <<<<<");
+                log_debug!(LogCategory::DisplayList, "[compositor2] >>>>> push_simple_stacking_context RETURNED <<<<<");
             }
 
             DisplayListItem::PopStackingContext => {
-                eprintln!("[compositor2] PopStackingContext");
-                eprintln!("[compositor2] >>>>> pop_stacking_context <<<<<");
+                log_debug!(LogCategory::DisplayList, "[compositor2] PopStackingContext");
+                log_debug!(LogCategory::DisplayList, "[compositor2] >>>>> pop_stacking_context <<<<<");
                 builder.pop_stacking_context();
-                eprintln!("[compositor2] >>>>> pop_stacking_context RETURNED <<<<<");
+                log_debug!(LogCategory::DisplayList, "[compositor2] >>>>> pop_stacking_context RETURNED <<<<<");
             }
 
             DisplayListItem::IFrame {
@@ -746,7 +751,7 @@ pub fn translate_displaylist_to_wr(
                     document_id,
                 ));
 
-                eprintln!(
+                log_debug!(LogCategory::DisplayList, 
                     "[compositor2] IFrame: child_dom_id={:?}, child_pipeline_id={:?}, \
                      bounds={:?}, clip_rect={:?}",
                     child_dom_id, child_pipeline_id, bounds, clip_rect
@@ -754,7 +759,7 @@ pub fn translate_displaylist_to_wr(
 
                 // Look up child layout result
                 if let Some(child_layout_result) = layout_results.get(child_dom_id) {
-                    eprintln!(
+                    log_debug!(LogCategory::DisplayList, 
                         "[compositor2] Found child layout result with {} display list items",
                         child_layout_result.display_list.items.len()
                     );
@@ -771,7 +776,7 @@ pub fn translate_displaylist_to_wr(
                         document_id,
                     ) {
                         Ok((_, child_dl, mut child_nested)) => {
-                            eprintln!(
+                            log_debug!(LogCategory::DisplayList, 
                                 "[compositor2] Successfully translated child display list with {} \
                                  nested pipelines",
                                 child_nested.len()
@@ -800,13 +805,13 @@ pub fn translate_displaylist_to_wr(
                                 false, // ignore_missing_pipeline
                             );
 
-                            eprintln!(
+                            log_debug!(LogCategory::DisplayList, 
                                 "[compositor2] Pushed iframe for pipeline {:?}",
                                 child_pipeline_id
                             );
                         }
                         Err(e) => {
-                            eprintln!(
+                            log_debug!(LogCategory::DisplayList, 
                                 "[compositor2] Error translating child display list for \
                                  dom_id={:?}: {}",
                                 child_dom_id, e
@@ -814,7 +819,7 @@ pub fn translate_displaylist_to_wr(
                         }
                     }
                 } else {
-                    eprintln!(
+                    log_debug!(LogCategory::DisplayList, 
                         "[compositor2] WARNING: Child DOM {:?} not found in layout_results",
                         child_dom_id
                     );
@@ -823,7 +828,7 @@ pub fn translate_displaylist_to_wr(
 
             DisplayListItem::TextLayout { .. } => {
                 // TextLayout items are handled elsewhere (via PushCachedTextRuns)
-                eprintln!("[compositor2] TextLayout item (handled via cached text runs)");
+                log_debug!(LogCategory::DisplayList, "[compositor2] TextLayout item (handled via cached text runs)");
             }
 
             // gradient rendering
@@ -832,7 +837,7 @@ pub fn translate_displaylist_to_wr(
                 gradient,
                 border_radius,
             } => {
-                eprintln!("[compositor2] LinearGradient: bounds={:?}", bounds);
+                log_debug!(LogCategory::DisplayList, "[compositor2] LinearGradient: bounds={:?}", bounds);
 
                 // Convert CSS gradient to WebRender gradient
                 let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
@@ -906,7 +911,7 @@ pub fn translate_displaylist_to_wr(
                 gradient,
                 border_radius,
             } => {
-                eprintln!("[compositor2] RadialGradient: bounds={:?}", bounds);
+                log_debug!(LogCategory::DisplayList, "[compositor2] RadialGradient: bounds={:?}", bounds);
 
                 let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
                 let scaled_width = scale_px(bounds.size.width, dpi_scale);
@@ -1058,7 +1063,7 @@ pub fn translate_displaylist_to_wr(
                 gradient,
                 border_radius,
             } => {
-                eprintln!("[compositor2] ConicGradient: bounds={:?}", bounds);
+                log_debug!(LogCategory::DisplayList, "[compositor2] ConicGradient: bounds={:?}", bounds);
 
                 let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
                 let scaled_width = scale_px(bounds.size.width, dpi_scale);
@@ -1141,7 +1146,7 @@ pub fn translate_displaylist_to_wr(
                 shadow,
                 border_radius,
             } => {
-                eprintln!(
+                log_debug!(LogCategory::DisplayList, 
                     "[compositor2] BoxShadow: bounds={:?}, shadow={:?}",
                     bounds, shadow
                 );
@@ -1172,7 +1177,7 @@ pub fn translate_displaylist_to_wr(
 
             // filter effects
             DisplayListItem::PushFilter { bounds, filters } => {
-                eprintln!(
+                log_debug!(LogCategory::DisplayList, 
                     "[compositor2] PushFilter: bounds={:?}, {} filters",
                     bounds,
                     filters.len()
@@ -1190,12 +1195,12 @@ pub fn translate_displaylist_to_wr(
                 );
             }
             DisplayListItem::PopFilter => {
-                eprintln!("[compositor2] PopFilter");
+                log_debug!(LogCategory::DisplayList, "[compositor2] PopFilter");
                 builder.pop_stacking_context();
             }
 
             DisplayListItem::PushBackdropFilter { bounds, filters } => {
-                eprintln!(
+                log_debug!(LogCategory::DisplayList, 
                     "[compositor2] PushBackdropFilter: bounds={:?}, {} filters",
                     bounds,
                     filters.len()
@@ -1213,12 +1218,12 @@ pub fn translate_displaylist_to_wr(
                 );
             }
             DisplayListItem::PopBackdropFilter => {
-                eprintln!("[compositor2] PopBackdropFilter");
+                log_debug!(LogCategory::DisplayList, "[compositor2] PopBackdropFilter");
                 builder.pop_stacking_context();
             }
 
             DisplayListItem::PushOpacity { bounds, opacity } => {
-                eprintln!(
+                log_debug!(LogCategory::DisplayList, 
                     "[compositor2] PushOpacity: bounds={:?}, opacity={}",
                     bounds, opacity
                 );
@@ -1234,7 +1239,7 @@ pub fn translate_displaylist_to_wr(
                 );
             }
             DisplayListItem::PopOpacity => {
-                eprintln!("[compositor2] PopOpacity");
+                log_debug!(LogCategory::DisplayList, "[compositor2] PopOpacity");
                 builder.pop_stacking_context();
             }
         }
@@ -1244,14 +1249,14 @@ pub fn translate_displaylist_to_wr(
     // The display list now includes PopStackingContext items that match the Push items.
 
     // Finalize and return display list
-    eprintln!("[compositor2] >>>>> CALLING builder.end() <<<<<");
+    log_debug!(LogCategory::DisplayList, "[compositor2] >>>>> CALLING builder.end() <<<<<");
     let (_, dl) = builder.end();
-    eprintln!(
+    log_debug!(LogCategory::DisplayList, 
         "[compositor2] >>>>> builder.end() RETURNED, dl.size_in_bytes()={} <<<<<",
         dl.size_in_bytes()
     );
 
-    eprintln!(
+    log_debug!(LogCategory::DisplayList, 
         "[compositor2] Builder finished, returning ({} resources, display_list, {} nested \
          pipelines)",
         wr_resources.len(),
@@ -1259,14 +1264,14 @@ pub fn translate_displaylist_to_wr(
     );
 
     // Print detailed display list summary before returning
-    eprintln!("Display List Summary:");
-    eprintln!("  Pipeline: {:?}", pipeline_id);
-    eprintln!("  Viewport: {:?}", viewport_size);
-    eprintln!("  Total items in source: {}", display_list.items.len());
+    log_debug!(LogCategory::DisplayList, "Display List Summary:");
+    log_debug!(LogCategory::DisplayList, "  Pipeline: {:?}", pipeline_id);
+    log_debug!(LogCategory::DisplayList, "  Viewport: {:?}", viewport_size);
+    log_debug!(LogCategory::DisplayList, "  Total items in source: {}", display_list.items.len());
     for (idx, item) in display_list.items.iter().enumerate() {
-        eprintln!("    Item {}: {:?}", idx + 1, item);
+        log_debug!(LogCategory::DisplayList, "    Item {}: {:?}", idx + 1, item);
     }
-    eprintln!("");
+    log_debug!(LogCategory::DisplayList, "");
 
     Ok((wr_resources, dl, nested_pipelines))
 }
@@ -1337,7 +1342,7 @@ fn push_text(
     let font_key = match renderer_resources.font_hash_map.get(&font_hash) {
         Some(k) => k,
         None => {
-            eprintln!("[push_text] FontKey not found for font_hash: {}", font_hash);
+            log_debug!(LogCategory::DisplayList, "[push_text] FontKey not found for font_hash: {}", font_hash);
             return;
         }
     };
@@ -1347,7 +1352,7 @@ fn push_text(
         Some((_, instances)) => match instances.get(&(font_size, dpi)) {
             Some(k) => *k,
             None => {
-                eprintln!(
+                log_debug!(LogCategory::DisplayList, 
                     "[push_text] FontInstanceKey not found for size {:?} @ dpi {:?}",
                     font_size, dpi
                 );
@@ -1355,7 +1360,7 @@ fn push_text(
             }
         },
         None => {
-            eprintln!("[push_text] Font instances not found for FontKey");
+            log_debug!(LogCategory::DisplayList, "[push_text] Font instances not found for FontKey");
             return;
         }
     };
@@ -1380,7 +1385,7 @@ fn push_text(
         crate::desktop::wr_translate2::wr_translate_font_instance_key(font_instance_key);
     let wr_color = azul_css::props::basic::color::ColorF::from(color);
 
-    eprintln!(
+    log_debug!(LogCategory::DisplayList, 
         "[push_text] ✓ Pushing {} glyphs with FontInstanceKey {:?}, color={:?}, container_origin=({}, {}), dpi={}",
         wr_glyphs.len(),
         wr_font_instance_key,

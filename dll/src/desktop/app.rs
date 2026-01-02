@@ -15,7 +15,8 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-use crate::desktop::shell2::common::debug_server::{self, DebugServerHandle};
+use crate::desktop::shell2::common::debug_server::{self, DebugServerHandle, LogCategory};
+use crate::log_error;
 
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -105,13 +106,10 @@ impl AppInternal {
     pub fn create(initial_data: RefAny, app_config: AppConfig) -> Self {
         // Start debug server first if AZUL_DEBUG is set (blocks until ready)
         let debug_server = if let Some(port) = debug_server::get_debug_port() {
-            eprintln!("[AppInternal::create] AZUL_DEBUG={}, starting debug server...", port);
-            // This will exit the process if port is already taken
+            // Debug server will be started - logging will be available after this
             let handle = debug_server::start_debug_server(port);
-            eprintln!("[AppInternal::create] Debug server started on port {}", port);
             Some(Arc::new(handle))
         } else {
-            eprintln!("[AppInternal::create] AZUL_DEBUG not set, skipping debug server");
             None
         };
 
@@ -222,7 +220,7 @@ impl AppInternal {
 
         if let Err(e) = err {
             crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
-            eprintln!("Application error: {:?}", e);
+            crate::log_error!(LogCategory::General, "Application error: {:?}", e);
         }
     }
 }

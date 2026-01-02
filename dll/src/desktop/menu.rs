@@ -26,6 +26,8 @@ use azul_layout::{
 };
 
 use crate::desktop::display::{get_display_at_point, get_primary_display};
+use crate::desktop::shell2::common::debug_server::LogCategory;
+use crate::log_debug;
 
 /// Menu window data stored in RefAny
 #[derive(Debug, Clone)]
@@ -414,7 +416,10 @@ extern "C" fn menu_layout_callback(mut data: RefAny, info: LayoutCallbackInfo) -
     let menu_data = match data.downcast_ref::<MenuWindowData>() {
         Some(d) => d,
         None => {
-            eprintln!("[menu_layout_callback] Failed to downcast MenuWindowData");
+            crate::log_debug!(
+                LogCategory::Callbacks, 
+                "[menu_layout_callback] Failed to downcast MenuWindowData"
+            );
             return StyledDom::default();
         }
     };
