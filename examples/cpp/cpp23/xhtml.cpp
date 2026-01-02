@@ -1,24 +1,16 @@
-// g++ -std=c++11 -o xhtml xhtml.cpp -lazul
+// g++ -std=c++23 -o xhtml xhtml.cpp -lazul
 
 #include "azul23.hpp"
-#include <fstream>
-#include <sstream>
-#include <string>
 using namespace azul;
 
 struct AppData { int x; };
 AZ_REFLECT(AppData);
 
-std::string read_file(const std::string& path) {
-    std::ifstream file(path);
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    return buffer.str();
-}
+// Embedded XHTML content
+static const char* XHTML_CONTENT = "<html><body><h1>Test XHTML</h1><p>This is a test spreadsheet.</p></body></html>";
 
 AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
-    std::string xhtml = read_file("assets/spreadsheet.xhtml");
-    return StyledDom::from_xml(String(xhtml.c_str())).release();
+    return StyledDom::from_xml(String(XHTML_CONTENT)).release();
 }
 
 int main() {

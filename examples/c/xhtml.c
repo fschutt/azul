@@ -6,27 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-char* read_file(const char* path) {
-    FILE* f = fopen(path, "r");
-    if (!f) {
-        fprintf(stderr, "ERROR: Could not open file '%s'\n", path);
-        fprintf(stderr, "Make sure the file exists in the current directory.\n");
-        exit(1);
-    }
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    char* buf = malloc(len + 1);
-    fread(buf, 1, len, f);
-    buf[len] = '\0';
-    fclose(f);
-    return buf;
-}
+// Embedded XHTML content
+static const char* XHTML_CONTENT = "<html><body><h1>Test XHTML</h1><p>This is a test spreadsheet.</p></body></html>";
 
 AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
-    char* xhtml = read_file("spreadsheet.xhtml");
-    AzStyledDom dom = AzStyledDom_fromXml(AzString_copyFromBytes((uint8_t*)xhtml, 0, strlen(xhtml)));
-    free(xhtml);
+    AzStyledDom dom = AzStyledDom_fromXml(AzString_copyFromBytes((uint8_t*)XHTML_CONTENT, 0, strlen(XHTML_CONTENT)));
     return dom;
 }
 
