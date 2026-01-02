@@ -252,6 +252,41 @@ pub struct LayoutNode {
     pub scrollbar_info: Option<ScrollbarRequirements>,
 }
 
+impl LayoutNode {
+    /// Calculates the actual content size of this node, including all children and text.
+    /// This is used to determine if scrollbars should appear for overflow: auto.
+    pub fn get_content_size(&self) -> LogicalSize {
+        // Start with the node's own size
+        let mut content_size = self.used_size.unwrap_or_default();
+
+        // If this node has text layout, calculate the bounds of all text items
+        if let Some(ref cached_layout) = self.inline_layout_result {
+            let text_layout = &cached_layout.layout;
+            // Find the maximum extent of all positioned items
+            let mut max_x: f32 = 0.0;
+            let mut max_y: f32 = 0.0;
+
+            for positioned_item in &text_layout.items {
+                let item_bounds = positioned_item.item.bounds();
+                let item_right = positioned_item.position.x + item_bounds.width;
+                let item_bottom = positioned_item.position.y + item_bounds.height;
+
+                max_x = max_x.max(item_right);
+                max_y = max_y.max(item_bottom);
+            }
+
+            // Use the maximum extent as content size if it's larger
+            content_size.width = content_size.width.max(max_x);
+            content_size.height = content_size.height.max(max_y);
+        }
+
+        // TODO: Also check children positions to get max content bounds
+        // For now, this handles the most common case (text overflowing)
+
+        content_size
+    }
+}
+
 /// CSS pseudo-elements that can be generated
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PseudoElement {

@@ -122,11 +122,47 @@ pub fn regenerate_layout(
 
     log_debug!(LogCategory::Layout, "[regenerate_layout] Layout completed, {} DOMs", layout_window.layout_results.len());
 
-    // 4. Calculate scrollbar states based on new layout
+    // 4. Register scrollable nodes with scroll_manager
+    // This must happen AFTER layout but BEFORE calculate_scrollbar_states
+    let now: azul_core::task::Instant = std::time::Instant::now().into();
+    for (dom_id, layout_result) in &layout_window.layout_results {
+        for (_node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
+            // Check if this node needs scrollbars (has scrollbar_info with needs_v or needs_h)
+            if let Some(ref scrollbar_info) = node.scrollbar_info {
+                if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
+                    if let Some(dom_node_id) = node.dom_node_id {
+                        // Get container size from used_size
+                        let container_size = node.used_size.unwrap_or_default();
+                        let container_rect = azul_core::geom::LogicalRect {
+                            origin: azul_core::geom::LogicalPosition::zero(),
+                            size: container_size,
+                        };
+                        
+                        // Get content size using the node's method
+                        let content_size = node.get_content_size();
+                        
+                        layout_window.scroll_manager.register_or_update_scroll_node(
+                            *dom_id,
+                            dom_node_id,
+                            container_rect,
+                            content_size,
+                            now.clone(),
+                        );
+                        
+                        log_debug!(LogCategory::Layout, 
+                            "[regenerate_layout] Registered scroll node: dom={:?} node={:?} container={:?} content={:?}",
+                            dom_id, dom_node_id, container_size, content_size);
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Calculate scrollbar states based on new layout
     // This updates scrollbar geometry (thumb position/size ratios, visibility)
     layout_window.scroll_manager.calculate_scrollbar_states();
 
-    // 5. Synchronize scrollbar opacity with GPU cache
+    // 6. Synchronize scrollbar opacity with GPU cache
     // Note: Display list translation happens in generate_frame(), not here
     // This enables smooth fade-in/fade-out without display list rebuild
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
