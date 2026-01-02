@@ -181,6 +181,11 @@ impl BinaryAsset {
             platform: Platform::Windows,
         },
         BinaryAsset {
+            filename: "azul.dll.lib",
+            description: "Windows MSVC import library",
+            platform: Platform::Windows,
+        },
+        BinaryAsset {
             filename: "azul.pyd",
             description: "Python Extension (Windows)",
             platform: Platform::Windows,

@@ -1499,6 +1499,13 @@ fn generate_release_pages(
             println!("  [OK] Generated: release/{}/api.json", version);
         }
 
+        // Generate LICENSE files using cargo-license
+        if let Err(e) = dllgen::deploy::generate_license_files(version, &version_dir) {
+            eprintln!("  [WARN] Failed to generate license files: {}", e);
+        } else {
+            println!("  [OK] Generated: release/{}/LICENSE-*.txt", version);
+        }
+
         // Generate examples.zip for this version (reads paths from api.json)
         if let Err(e) = dllgen::deploy::create_examples(
             version,

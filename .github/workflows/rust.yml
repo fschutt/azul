@@ -474,6 +474,7 @@ jobs:
           touch doc/target/deploy/release/1.0.0-alpha1/azul.macos.so
           touch doc/target/deploy/release/1.0.0-alpha1/azul.dll
           touch doc/target/deploy/release/1.0.0-alpha1/azul.lib
+          touch doc/target/deploy/release/1.0.0-alpha1/azul.dll.lib
           touch doc/target/deploy/release/1.0.0-alpha1/azul.pyd
           # Placeholder reftest
           mkdir -p doc/target/reftest/reftest_img
@@ -602,7 +603,8 @@ jobs:
           
           # Windows
           find artifacts-windows -name "azul.dll" ! -name "*.lib" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
-          find artifacts-windows -name "azul.dll.lib" -exec cp {} "$RELEASE_DIR/azul.lib" \; 2>/dev/null || true
+          find artifacts-windows -name "azul.lib" ! -name "azul.dll.lib" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
+          find artifacts-windows -name "azul.dll.lib" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           find artifacts-windows -name "azul.pyd" -exec cp {} "$RELEASE_DIR/" \; 2>/dev/null || true
           
           # Headers
@@ -616,7 +618,33 @@ jobs:
           # Replace placeholder reftest with real results
           if [ -d artifacts-reftest ]; then
             rm -rf website/reftest 2>/dev/null || true
-            cp -r artifacts-reftest website/reftest
+            mkdir -p website/reftest
+            cp -r artifacts-reftest/* website/reftest/
+            # Also copy index.html to reftest.html in website root
+            if [ -f website/reftest/index.html ]; then
+              cp website/reftest/index.html website/reftest.html
+              echo "  [OK] Created reftest.html from reftest results"
+            fi
+          fi
+          
+          # Update file sizes in release HTML
+          # The HTML contains "N/A" or placeholder sizes that need to be replaced with real sizes
+          if [ -d "$RELEASE_DIR" ]; then
+            echo "Updating file sizes in release HTML..."
+            for file in "$RELEASE_DIR"/*; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                size=$(du -h "$file" | cut -f1)
+                # Find and update the size in release HTML files
+                for html in website/release/*.html; do
+                  if [ -f "$html" ]; then
+                    # Replace "filename - N/A" or "filename - not available" with actual size
+                    sed -i "s|${filename} - N/A|${filename} - ${size}|g" "$html" 2>/dev/null || true
+                    sed -i "s|${filename} - not available|${filename} - ${size}|g" "$html" 2>/dev/null || true
+                  fi
+                done
+              fi
+            done
           fi
           
           echo "=== Final release artifacts ==="
