@@ -92,30 +92,17 @@ impl DisplayItemCache {
     }
 
     pub fn update(&mut self, display_list: &BuiltDisplayList) {
-        eprintln!(
-            "[DisplayItemCache::update] START cache_size={}",
-            display_list.cache_size()
-        );
         self.grow_if_needed(display_list.cache_size());
 
         let mut iter = display_list.cache_data_iter();
         let mut current_key: Option<ItemKey> = None;
-        let mut item_count = 0;
         loop {
-            eprintln!("[DisplayItemCache::update] Iterating item #{}", item_count);
             let item = match iter.next() {
                 Some(item) => item,
                 None => {
-                    eprintln!("[DisplayItemCache::update] No more items, breaking");
                     break;
                 }
             };
-            item_count += 1;
-            eprintln!(
-                "[DisplayItemCache::update] Got item #{}: {:?}",
-                item_count,
-                item.item()
-            );
 
             if let DisplayItem::RetainedItems(key) = item.item() {
                 current_key = Some(*key);
@@ -132,9 +119,5 @@ impl DisplayItemCache {
             let cached_item = CachedDisplayItem::from(item);
             self.add_item(key, cached_item);
         }
-        eprintln!(
-            "[DisplayItemCache::update] END, processed {} items",
-            item_count
-        );
     }
 }

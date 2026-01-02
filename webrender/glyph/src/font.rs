@@ -62,12 +62,10 @@ impl FontContext {
         font: &FontInstance,
         key: &GlyphKey,
     ) -> Option<GlyphDimensions> {
-        eprintln!("webrender azul glyph: get glyph dimensions: {key:?}");
         let parsed_font = self.fonts.get(&font.font_key)?;
         let parsed_font = azul_layout::font_ref_to_parsed_font(parsed_font);
         let glyph_id = key.index() as u16;
         let glyph = parsed_font.glyph_records_decoded.get(&glyph_id)?;
-        eprintln!("webrender azul glyph: got glyph!");
 
         let units_per_em = parsed_font.font_metrics.units_per_em as f32;
         if units_per_em == 0.0 {
@@ -90,8 +88,6 @@ impl FontContext {
             advance,
         };
 
-        eprintln!("webrender azul glyph: got glyph dimensions: {dim:?}");
-
         Some(dim)
     }
 
@@ -105,7 +101,6 @@ impl FontContext {
 
     /// Rasterizes a single glyph into an alpha mask.
     pub fn rasterize_glyph(&self, font: &FontInstance, key: &GlyphKey) -> GlyphRasterResult {
-        eprintln!("webrender az_glyph: rasterizing glyph {key:?}");
         let parsed_font = self
             .fonts
             .get(&font.font_key)
@@ -178,15 +173,12 @@ impl FontContext {
             bytes: alpha_bytes,
         };
 
-        eprintln!("webrender az_glyph: rasterized glyph {rr:?} successfully");
-
         Ok(rr)
     }
 }
 
 /// Converts an `azul-layout` `OwnedGlyph` outline into a `tiny-skia::Path`.
 fn build_path_from_outline(glyph: &OwnedGlyph) -> Option<tiny_skia::Path> {
-    eprintln!("building tiny_skia path");
     let mut pb = PathBuilder::new();
     let mut has_ops = false;
     for outline in &glyph.outline {

@@ -1439,8 +1439,6 @@ impl DisplayListBuilder {
         color: ColorF,
         glyph_options: Option<GlyphOptions>,
     ) {
-        eprintln!("[WR push_text] bounds={:?}, glyph_count={}, color={:?}", bounds, glyphs.len(), color);
-        
         let (common, bounds) = self.remap_common_coordinates_and_bounds(common, bounds);
         let ref_frame_offset = self.rf_mapper.current_offset();
 
@@ -1455,13 +1453,11 @@ impl DisplayListBuilder {
                 glyph_count: split_glyphs.len(),
             });
 
-            eprintln!("[WR push_text] Pushing chunk with {} glyphs, payload.glyphs.len()={}", split_glyphs.len(), self.payload.glyphs.len());
             self.push_item(&item);
             // Push glyphs directly to payload.glyphs
             // The display list iterator expects glyphs to be stored here
             self.payload.glyphs.extend_from_slice(split_glyphs);
         }
-        eprintln!("[WR push_text] After push: payload.glyphs.len()={}", self.payload.glyphs.len());
     }
 
     /// NOTE: gradients must be pushed in the order they're created
@@ -2143,12 +2139,8 @@ impl DisplayListBuilder {
             "Finalized DisplayListBuilder with a pending save"
         );
 
-        if let Some(content) = self.serialized_content_buffer.take() {
-            println!(
-                "-- WebRender display list for {:?} --\n{}",
-                self.pipeline_id, content
-            );
-        }
+        // Debug serialization - disabled to avoid console output
+        self.serialized_content_buffer = None;
 
         // While the first display list after tab-switch can be large, the
         // following ones are always smaller thanks to interning. We attempt

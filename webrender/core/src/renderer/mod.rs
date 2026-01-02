@@ -522,52 +522,26 @@ impl TextureResolver {
         sampler: TextureSampler,
         device: &mut Device,
     ) -> Swizzle {
-        println!(
-            "[TextureResolver::bind] Called with texture_id={:?}, sampler={:?}",
-            texture_id, sampler
-        );
         match *texture_id {
             TextureSource::Invalid => {
-                println!(
-                    "[TextureResolver::bind] TextureSource::Invalid - returning default swizzle"
-                );
                 Swizzle::default()
             }
             TextureSource::Dummy => {
-                println!(
-                    "[TextureResolver::bind] TextureSource::Dummy - binding dummy_cache_texture"
-                );
                 let swizzle = Swizzle::default();
                 device.bind_texture(sampler, &self.dummy_cache_texture, swizzle);
-                println!("[TextureResolver::bind] Successfully bound dummy texture");
                 swizzle
             }
             TextureSource::External(TextureSourceExternal { ref index, .. }) => {
-                println!(
-                    "[TextureResolver::bind] TextureSource::External with index={:?}",
-                    index
-                );
                 let texture = self
                     .external_images
                     .get(index)
                     .expect("BUG: External image should be resolved by now");
                 device.bind_external_texture(sampler, texture);
-                println!("[TextureResolver::bind] Successfully bound external texture");
                 Swizzle::default()
             }
             TextureSource::TextureCache(index, swizzle) => {
-                println!(
-                    "[TextureResolver::bind] TextureSource::TextureCache with index={:?}, \
-                     swizzle={:?}",
-                    index, swizzle
-                );
                 let texture = &self.texture_cache_map[&index].texture;
-                println!(
-                    "[TextureResolver::bind] About to bind texture from cache, texture_id={:?}",
-                    texture
-                );
                 device.bind_texture(sampler, texture, swizzle);
-                println!("[TextureResolver::bind] Successfully bound texture cache texture");
                 swizzle
             }
         }

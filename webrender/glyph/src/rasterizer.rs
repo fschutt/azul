@@ -539,9 +539,7 @@ impl GlyphRasterizer {
     where
         F: FnMut(&GlyphKey) -> bool,
     {
-        println!("wr_api: requesting {} glyphs", glyph_keys.len());
         assert!(self.has_font(font.font_key));
-        println!("font found!");
         let mut batch_size = 0;
         for key in glyph_keys {
             if !handle(key) {
