@@ -1166,7 +1166,8 @@ fn generate_nfpm_yaml_content(version: &str, package: &crate::api::PackageConfig
         yaml.push_str(&format!("priority: {}\n", package.priority));
     }
 
-    // Dependencies (for .deb packages)
+    // Global dependencies (shared by deb/rpm, but rpm uses different syntax in overrides)
+    // These top-level fields apply to all packagers
     if !package.linux.depends.is_empty() {
         yaml.push_str("\ndepends:\n");
         for dep in &package.linux.depends {
@@ -1188,28 +1189,21 @@ fn generate_nfpm_yaml_content(version: &str, package: &crate::api::PackageConfig
         }
     }
 
-    // RPM-specific configuration
-    if !package.rpm.group.is_empty() || !package.rpm.depends.is_empty() {
+    // RPM-specific configuration (only group is a valid field here)
+    if !package.rpm.group.is_empty() {
         yaml.push_str("\nrpm:\n");
-        if !package.rpm.group.is_empty() {
-            yaml.push_str(&format!("  group: {}\n", package.rpm.group));
-        }
+        yaml.push_str(&format!("  group: {}\n", package.rpm.group));
+    }
+
+    // Use overrides for packager-specific dependency versions
+    let has_rpm_overrides = !package.rpm.depends.is_empty();
+    if has_rpm_overrides {
+        yaml.push_str("\noverrides:\n");
+        yaml.push_str("  rpm:\n");
         if !package.rpm.depends.is_empty() {
-            yaml.push_str("  depends:\n");
+            yaml.push_str("    depends:\n");
             for dep in &package.rpm.depends {
-                yaml.push_str(&format!("    - {}\n", dep));
-            }
-        }
-        if !package.rpm.recommends.is_empty() {
-            yaml.push_str("  recommends:\n");
-            for rec in &package.rpm.recommends {
-                yaml.push_str(&format!("    - {}\n", rec));
-            }
-        }
-        if !package.rpm.suggests.is_empty() {
-            yaml.push_str("  suggests:\n");
-            for sug in &package.rpm.suggests {
-                yaml.push_str(&format!("    - {}\n", sug));
+                yaml.push_str(&format!("      - {}\n", dep));
             }
         }
     }
