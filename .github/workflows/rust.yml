@@ -402,9 +402,14 @@ jobs:
           name: nfpm-config
           path: nfpm-config
 
+      - name: Install NFPM
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update
+          sudo apt-get install -y nfpm tree
+
       - name: Debug - Tree after download
         run: |
-          sudo apt-get update && sudo apt-get install -y tree nfpm
           echo "=== Downloaded artifacts ==="
           tree artifacts/ nfpm-config/ 2>/dev/null || ls -laR artifacts/ nfpm-config/
 
