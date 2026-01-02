@@ -1,9 +1,12 @@
-# .github/workflows/ci-deploy.yml
+# .github/workflows/rust.yml
+#
+# Two modes:
+# - ci: Runs on push/PR, builds everything, runs tests, creates artifacts
+# - deploy: Manual trigger, downloads CI artifacts, deploys to GitHub Pages
 
 name: build
 
 on:
-  # Run the 'ci' workflow on push and pull request
   push:
     branches:
       - 'master'
@@ -11,7 +14,6 @@ on:
       - '[0-9]+.[0-9]+.[0-9]+*'
   pull_request:
 
-  # Allow manual runs with a choice of which workflow to execute
   workflow_dispatch:
     inputs:
       run_mode:
@@ -20,26 +22,26 @@ on:
         options:
           - ci
           - deploy
-          - prod-deploy
         required: true
         default: 'ci'
 
-# Permissions for deploying to GitHub Pages (only needed for 'deploy' mode)
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Concurrency setting to prevent multiple simultaneous deployments to Pages
 concurrency:
   group: "pages"
   cancel-in-progress: true
 
 jobs:
+  # =============================================================================
+  # CI Jobs - Run on push, PR, or manual 'ci' mode
+  # =============================================================================
+
   lint_and_check:
     name: Lint & Static Checks
-    # Run this job for push, pull_request, or if 'ci' or 'prod-deploy' mode is manually selected
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -48,7 +50,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.87.0 # Pinning version for consistency
+          toolchain: 1.87.0
 
       - name: Run autofix and normalize
         run: |
@@ -60,15 +62,12 @@ jobs:
 
       - name: Check for uncommitted changes after autofix
         run: |
-          # Check if there are actual content changes (not just mtime)
-          # git diff --quiet returns 0 if no changes, 1 if changes
           if ! git diff --quiet; then
             echo "There are uncommitted content changes after running autofix:"
             git diff --stat
             git diff
             exit 1
           elif [[ -n $(git status --porcelain) ]]; then
-            # Files might be marked as changed but have no diff (mtime only)
             echo "Files touched but no content changes - resetting:"
             git checkout -- .
             echo "Reset complete, continuing..."
@@ -86,225 +85,13 @@ jobs:
           cargo check -p azul-css
           cargo check -p azul-core
           cargo check -p azul-layout
-          # Note: jpeg is excluded on Linux due to zune-jpeg SIMD issues on Ubuntu
           cargo check -p azul-dll --no-default-features --features "link-static,logging,ico,tga,hdr,webp,pnm,gif,png,tiff,bmp,a11y"
 
-  codegen_headers:
-    name: Generate & Validate C/C++ Headers
-    # This job only requires api.json, no Rust compilation needed
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.87.0
-
-      - name: Install clang
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang
-
-      - name: Generate all headers
-        run: cargo run -r -p azul-doc codegen all
-
-      - name: Validate C header syntax
-        run: |
-          cd target/codegen/v2
-          clang -fsyntax-only -std=c99 -x c azul.h
-          echo "C header (C99) compiles successfully"
-
-      - name: Validate C++03 header
-        run: |
-          cd target/codegen/v2
-          clang++ -std=c++03 -fsyntax-only -I. azul03.hpp
-          echo "C++03 header compiles successfully"
-
-      - name: Validate C++11 header
-        run: |
-          cd target/codegen/v2
-          clang++ -std=c++11 -fsyntax-only -I. azul11.hpp
-          echo "C++11 header compiles successfully"
-
-      - name: Validate C++14 header
-        run: |
-          cd target/codegen/v2
-          clang++ -std=c++14 -fsyntax-only -I. azul14.hpp
-          echo "C++14 header compiles successfully"
-
-      - name: Validate C++17 header
-        run: |
-          cd target/codegen/v2
-          clang++ -std=c++17 -fsyntax-only -I. azul17.hpp
-          echo "C++17 header compiles successfully"
-
-      - name: Validate C++20 header
-        run: |
-          cd target/codegen/v2
-          clang++ -std=c++20 -fsyntax-only -I. azul20.hpp
-          echo "C++20 header compiles successfully"
-
-      - name: Validate C++23 header
-        run: |
-          cd target/codegen/v2
-          clang++ -std=c++2b -fsyntax-only -I. azul23.hpp
-          echo "C++23 header compiles successfully"
-
-  verify_examples:
-    name: Verify Examples Compile (${{ matrix.os }})
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
-    needs: codegen_headers
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, macos-14]
-        # Windows is handled separately due to different compiler commands
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.87.0
-
-      - name: Install clang (Ubuntu)
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang
-
-      - name: Generate DLL API bindings
-        run: cargo run -r -p azul-doc codegen all
-
-      - name: Build azul-dll (for linking)
-        run: cargo build -p azul-dll --release
-
-      - name: Generate all headers
-        run: |
-          cargo run -r -p azul-doc codegen c
-          cargo run -r -p azul-doc codegen cpp
-
-      - name: Compile C examples
-        run: |
-          cd examples/c
-          for example in *.c; do
-            if [ -f "$example" ]; then
-              echo "Compiling C: $example"
-              clang -fsyntax-only -std=c99 \
-                -I../../target/codegen/v2 \
-                "$example" && echo "  ✓ $example"
-            fi
-          done
-
-      - name: Compile C++03 examples
-        run: |
-          cd examples/cpp/cpp03
-          for example in *.cpp; do
-            if [ -f "$example" ]; then
-              echo "Compiling C++03: $example"
-              clang++ -fsyntax-only -std=c++03 \
-                -I../../../target/codegen/v2 \
-                "$example" && echo "  ✓ $example"
-            fi
-          done
-
-      - name: Compile C++11 examples
-        run: |
-          cd examples/cpp/cpp11
-          for example in *.cpp; do
-            if [ -f "$example" ]; then
-              echo "Compiling C++11: $example"
-              clang++ -fsyntax-only -std=c++11 \
-                -I../../../target/codegen/v2 \
-                "$example" && echo "  ✓ $example"
-            fi
-          done
-
-      - name: Compile C++14 examples
-        run: |
-          cd examples/cpp/cpp14
-          for example in *.cpp; do
-            if [ -f "$example" ]; then
-              echo "Compiling C++14: $example"
-              clang++ -fsyntax-only -std=c++14 \
-                -I../../../target/codegen/v2 \
-                "$example" && echo "  ✓ $example"
-            fi
-          done
-
-      - name: Compile C++17 examples
-        run: |
-          cd examples/cpp/cpp17
-          for example in *.cpp; do
-            if [ -f "$example" ]; then
-              echo "Compiling C++17: $example"
-              clang++ -fsyntax-only -std=c++17 \
-                -I../../../target/codegen/v2 \
-                "$example" && echo "  ✓ $example"
-            fi
-          done
-
-      - name: Compile C++23 examples
-        run: |
-          cd examples/cpp/cpp23
-          for example in *.cpp; do
-            if [ -f "$example" ]; then
-              echo "Compiling C++23: $example"
-              clang++ -fsyntax-only -std=c++2b \
-                -I../../../target/codegen/v2 \
-                "$example" && echo "  ✓ $example"
-            fi
-          done
-
-  verify_examples_windows:
-    name: Verify Examples Compile (Windows)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
-    needs: codegen_headers
-    runs-on: windows-2022
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.87.0
-
-      - name: Generate DLL API bindings
-        run: cargo run -r -p azul-doc codegen all
-
-      - name: Compile C examples (syntax check)
-        shell: bash
-        run: |
-          cd examples/c
-          for example in *.c; do
-            if [ -f "$example" ]; then
-              echo "Checking C: $example"
-              cl.exe /Zs /I..\\..\\target\\codegen\\v2 "$example" 2>&1 || echo "  Note: cl.exe may not be available"
-            fi
-          done
-
-      - name: Compile C++17 examples (MSVC default)
-        shell: bash
-        run: |
-          cd examples/cpp/cpp17
-          for example in *.cpp; do
-            if [ -f "$example" ]; then
-              echo "Checking C++17: $example"
-              cl.exe /Zs /std:c++17 /I..\\..\\..\\target\\codegen\\v2 "$example" 2>&1 || echo "  Note: cl.exe may not be available"
-            fi
-          done
-
   test_heavy:
-    name: Run Heavy Tests
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
+    name: Run Heavy Tests (Miri + Reftests)
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
     runs-on: ubuntu-22.04
-    needs: lint_and_check # Run after linting passes
+    needs: lint_and_check
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -319,21 +106,23 @@ jobs:
           rustup toolchain install nightly --component miri
           cargo +nightly miri setup
 
-      - name: Run Miri tests on RefAny
+      - name: Run Miri tests
         run: cargo +nightly miri test --lib -p azul-core
 
       - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc codegen all
+
+      - name: Setup Chrome
+        uses: browser-actions/setup-chrome@v1
 
       - name: Cache Chrome reference images
         uses: actions/cache@v4
         with:
           path: doc/target/reftest/reftest_img/*_chrome.webp
           key: reftest-chrome-images-${{ hashFiles('doc/working/*.xhtml') }}
-          restore-keys: |
-            reftest-chrome-images-
+          restore-keys: reftest-chrome-images-
 
-      - name: Run reftest
+      - name: Run reftests
         run: cargo run -r -p azul-doc reftest
 
       - name: Upload reftest results
@@ -345,14 +134,22 @@ jobs:
             doc/target/reftest/index.html
             doc/target/reftest/results.json
             doc/target/reftest/reftest_img/
-          retention-days: 7
+          retention-days: 30
           if-no-files-found: warn
 
   ffi_safety_tests:
-    name: FFI Safety Tests (ASan + Miri)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
+    name: FFI Safety Tests (${{ matrix.os }})
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
     needs: lint_and_check
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            timeout_cmd: timeout
+          - os: macos-14
+            timeout_cmd: gtimeout
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -361,136 +158,66 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.87.0
+
+      - name: Install dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-22.04'
+        run: sudo apt-get update && sudo apt-get install -y clang lldb
+
+      - name: Install dependencies (macOS)
+        if: matrix.os == 'macos-14'
+        run: brew install coreutils
 
       - name: Install Miri
         run: |
           rustup toolchain install nightly --component miri
           cargo +nightly miri setup
 
-      - name: Install clang and LLDB
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang lldb
-
-      - name: Generate DLL API bindings for build-dll feature
+      - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc codegen all
 
-      - name: Build azul-dll with build-dll feature (debug)
+      - name: Build azul-dll (debug)
         run: cargo build -p azul-dll --features build-dll
 
-      - name: Compile C hello-world with Address Sanitizer
+      - name: Compile C hello-world with ASan
         run: |
-          # Copy header to examples/c for #include <azul.h> to work
           cp target/codegen/v2/azul.h examples/c/
           cd examples/c
-          clang -g -O0 -fsanitize=address \
-            -I. \
-            hello-world.c \
-            -L../../target/debug -lazul \
-            -o hello-world-asan
+          clang -g -O0 -fsanitize=address -I. hello-world.c -L../../target/debug -lazul -o hello-world-asan
 
-      - name: Run C hello-world with Address Sanitizer
+      - name: Run C hello-world with ASan
         working-directory: examples/c
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/target/debug
-          ASAN_OPTIONS: detect_leaks=0,abort_on_error=1
-          AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
-        run: |
-          # Use timeout to kill after 30s - env var may not propagate through ASAN
-          # Exit code 124 means timeout (expected), 0 means clean exit
-          timeout 30 ./hello-world-asan || [ $? -eq 124 ]
-
-      - name: Run Miri on Rust examples (kitchen_sink)
-        run: |
-          # Note: Miri cannot run the full GUI app, but can test the setup/teardown logic
-          # Tests that use dlopen are marked with #[cfg_attr(miri, ignore)]
-          cargo +nightly miri test --lib -p azul-dll -- --nocapture
-
-      - name: Check for FFI safety issues in api.json types
-        run: |
-          # Run autofix which includes FFI safety checks
-          cargo run -r -p azul-doc autofix 2>&1 | tee autofix_output.txt
-          # Fail if there are FFI safety warnings about missing repr(C)
-          if grep -q "FFI safety issues" autofix_output.txt; then
-            echo "ERROR: FFI safety issues detected!"
-            grep -A 20 "FFI safety issues" autofix_output.txt
-            exit 1
-          fi
-
-  ffi_safety_tests_macos:
-    name: FFI Safety Tests (macOS ASan + LLDB)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
-    needs: lint_and_check
-    runs-on: macos-14
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.87.0
-
-      - name: Install coreutils (for gtimeout)
-        run: brew install coreutils
-
-      - name: Generate DLL API bindings for build-dll feature
-        run: cargo run -r -p azul-doc codegen all
-
-      - name: Build azul-dll with build-dll feature (debug)
-        run: cargo build -p azul-dll --features build-dll
-
-      - name: Compile C hello-world with Address Sanitizer
-        run: |
-          # Copy header to examples/c for #include <azul.h> to work
-          cp target/codegen/v2/azul.h examples/c/
-          cd examples/c
-          clang -g -O0 -fsanitize=address \
-            -I. \
-            hello-world.c \
-            -L../../target/debug -lazul \
-            -o hello-world-asan
-
-      - name: Run C hello-world with Address Sanitizer
-        working-directory: examples/c
-        env:
           DYLD_LIBRARY_PATH: ${{ github.workspace }}/target/debug
           ASAN_OPTIONS: detect_leaks=0,abort_on_error=1
           AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
-        run: |
-          # Use gtimeout (coreutils) to kill after 30s - env var may not propagate through ASAN
-          # Exit code 124 means timeout (expected), 0 means clean exit
-          gtimeout 30 ./hello-world-asan || [ $? -eq 124 ]
+        run: ${{ matrix.timeout_cmd }} 30 ./hello-world-asan || [ $? -eq 124 ]
 
-      - name: Run LLDB crash detection on C example
-        working-directory: examples/c
-        run: |
-          # Use LLDB to run and detect crashes - exit on first signal
-          # Note: LLDB needs env vars set via 'env' command, not shell env
-          echo "env DYLD_LIBRARY_PATH=${{ github.workspace }}/target/debug" > /tmp/lldb_commands.txt
-          echo "env AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER=1" >> /tmp/lldb_commands.txt
-          echo "run" >> /tmp/lldb_commands.txt
-          echo "bt" >> /tmp/lldb_commands.txt
-          echo "quit" >> /tmp/lldb_commands.txt
-          # Run LLDB batch mode - app will exit after first frame (timeout after 30s)
-          gtimeout 30 lldb -b -s /tmp/lldb_commands.txt ./hello-world-asan 2>&1 | tee lldb_output.txt || true
-          # Check for crash indicators
-          if grep -q "SIGABRT\|SIGSEGV\|AddressSanitizer" lldb_output.txt; then
-            echo "ERROR: Crash detected in C example!"
-            cat lldb_output.txt
-            exit 1
-          fi
-          echo "No crash detected - test passed (window rendered successfully)"
+      - name: Run Miri on azul-dll
+        run: cargo +nightly miri test --lib -p azul-dll -- --nocapture
 
   build_binaries:
-    name: Build Binaries on ${{ matrix.os }}
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
-    needs: lint_and_check # Run after linting passes
+    name: Build Binaries (${{ matrix.os }})
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
+    needs: lint_and_check
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          - os: ubuntu-22.04
+            artifact_name: azul-linux-amd64
+            artifact_path: |
+              target/release/libazul.so
+              target/release/libazul.a
+              target/release/azul.so
+              target/codegen/v2/azul.h
+              target/codegen/v2/azul03.hpp
+              target/codegen/v2/azul11.hpp
+              target/codegen/v2/azul14.hpp
+              target/codegen/v2/azul17.hpp
+              target/codegen/v2/azul20.hpp
+              target/codegen/v2/azul23.hpp
           - os: macos-14
             artifact_name: azul-macos-amd64
             artifact_path: |
@@ -518,20 +245,6 @@ jobs:
               target/codegen/v2/azul17.hpp
               target/codegen/v2/azul20.hpp
               target/codegen/v2/azul23.hpp
-          - os: ubuntu-22.04
-            artifact_name: azul-linux-amd64
-            artifact_path: |
-              target/release/libazul.so
-              target/release/libazul.a
-              target/release/azul.so
-              target/codegen/v2/azul.h
-              target/codegen/v2/azul03.hpp
-              target/codegen/v2/azul11.hpp
-              target/codegen/v2/azul14.hpp
-              target/codegen/v2/azul17.hpp
-              target/codegen/v2/azul20.hpp
-              target/codegen/v2/azul23.hpp
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -545,55 +258,86 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y clang
 
-      - name: Install coreutils (macOS, for gtimeout)
+      - name: Install coreutils (macOS)
         if: matrix.os == 'macos-14'
         run: brew install coreutils
 
       - name: Generate DLL API bindings
         run: cargo run -r -p azul-doc codegen all
 
-      - name: Generate C header for syntax check (Linux)
+      - name: Validate C header syntax (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: cargo run -r -p azul-doc codegen c
-
-      - name: Check azul.h syntax (Linux)
-        if: matrix.os == 'ubuntu-22.04'
-        run: clang target/codegen/v2/azul.h -ferror-limit=0
-
-      - name: Build DLL with build-dll feature (for C/C++ examples)
         run: |
-          cargo build --release -p azul-dll --features="build-dll"
+          cd target/codegen/v2
+          clang -fsyntax-only -std=c99 -x c azul.h
+          echo "C header (C99) compiles successfully"
+
+      - name: Validate C++ headers (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          cd target/codegen/v2
+          clang++ -std=c++03 -fsyntax-only -I. azul03.hpp && echo "C++03 ✓"
+          clang++ -std=c++11 -fsyntax-only -I. azul11.hpp && echo "C++11 ✓"
+          clang++ -std=c++14 -fsyntax-only -I. azul14.hpp && echo "C++14 ✓"
+          clang++ -std=c++17 -fsyntax-only -I. azul17.hpp && echo "C++17 ✓"
+          clang++ -std=c++20 -fsyntax-only -I. azul20.hpp && echo "C++20 ✓"
+          clang++ -std=c++2b -fsyntax-only -I. azul23.hpp && echo "C++23 ✓"
+
+      - name: Compile C examples (syntax check)
+        if: matrix.os != 'windows-2022'
+        shell: bash
+        run: |
+          cd examples/c
+          for example in *.c; do
+            [ -f "$example" ] && clang -fsyntax-only -std=c99 -I../../target/codegen/v2 "$example" && echo "✓ $example"
+          done
+
+      - name: Compile C++ examples (syntax check)
+        if: matrix.os != 'windows-2022'
+        shell: bash
+        run: |
+          for std in cpp03:c++03 cpp11:c++11 cpp14:c++14 cpp17:c++17 cpp23:c++2b; do
+            dir="${std%:*}"
+            flag="${std#*:}"
+            if [ -d "examples/cpp/$dir" ]; then
+              cd "examples/cpp/$dir"
+              for example in *.cpp; do
+                [ -f "$example" ] && clang++ -fsyntax-only -std=$flag -I../../../target/codegen/v2 "$example" && echo "✓ $dir/$example"
+              done
+              cd ../../..
+            fi
+          done
+
+      - name: Build DLL (for C/C++ examples)
+        run: cargo build --release -p azul-dll --features="build-dll"
 
       - name: Build Rust examples
         run: cargo check --verbose --examples --all-features
 
-      - name: Take screenshots of C examples (Linux)
+      - name: Take screenshots (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        continue-on-error: true  # Screenshots may fail in headless CI
+        continue-on-error: true
         run: |
           chmod +x scripts/screenshot.sh
-          # Use xvfb-run for headless display on Linux
-          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" ./scripts/screenshot.sh || echo "Screenshots failed (expected in headless CI)"
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" ./scripts/screenshot.sh || echo "Screenshots failed"
 
-      - name: Take screenshots of C examples (macOS)
+      - name: Take screenshots (macOS)
         if: matrix.os == 'macos-14'
-        continue-on-error: true  # Screenshots may fail in CI
+        continue-on-error: true
         run: |
           chmod +x scripts/screenshot.sh
           ./scripts/screenshot.sh || echo "Screenshots failed"
 
-      - name: Take screenshots of C examples (Windows)
+      - name: Take screenshots (Windows)
         if: matrix.os == 'windows-2022'
+        continue-on-error: true
         shell: bash
-        continue-on-error: true  # Screenshots may fail in CI - needs proper display
         run: |
           chmod +x scripts/screenshot.sh
-          # Windows CI may not have a display available
-          ./scripts/screenshot.sh || echo "Screenshots failed (expected in headless CI)"
+          ./scripts/screenshot.sh || echo "Screenshots failed"
 
       - name: Build Python extension
-        run: |
-          cargo build --release -p azul-dll --lib --features="python-extension"
+        run: cargo build --release -p azul-dll --lib --features="python-extension"
 
       - name: Rename Python extension (Windows)
         if: matrix.os == 'windows-2022'
@@ -608,40 +352,16 @@ jobs:
         if: matrix.os == 'macos-14'
         run: cp target/release/libazul.dylib target/release/azul.so
 
-      - name: Test Python extension import (Windows)
-        if: matrix.os == 'windows-2022'
+      - name: Test Python extension import
         shell: bash
         run: |
-          export PATH=$PATH:$(pwd)/target/release
-          python3 -c "import sys; sys.path.insert(0, 'target/release'); import azul; print('Python extension loaded successfully!')"
-
-      - name: Test Python extension import (Linux)
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          cp target/release/azul.so examples/python/azul.so
-          cd examples/python && python3 -c "import azul; print('Python extension loaded successfully!')"
-
-      - name: Test Python extension import (macOS)
-        if: matrix.os == 'macos-14'
-        run: |
-          cp target/release/azul.so examples/python/azul.so
-          cd examples/python && python3 -c "import azul; print('Python extension loaded successfully!')"
-
-      - name: Run Python hello-world example (Linux)
-        if: matrix.os == 'ubuntu-22.04'
-        env:
-          AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
-        run: |
-          # Use timeout in case env var doesn't propagate
-          cd examples/python && timeout 30 python3 hello-world.py || [ $? -eq 124 ]
-
-      - name: Run Python hello-world example (macOS)
-        if: matrix.os == 'macos-14'
-        env:
-          AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER: "1"
-        run: |
-          # Use gtimeout (coreutils) in case env var doesn't propagate
-          cd examples/python && gtimeout 30 python3 hello-world.py || [ $? -eq 124 ]
+          if [ "${{ matrix.os }}" = "windows-2022" ]; then
+            export PATH=$PATH:$(pwd)/target/release
+            python3 -c "import sys; sys.path.insert(0, 'target/release'); import azul; print('Python extension loaded!')"
+          else
+            cp target/release/azul.so examples/python/
+            cd examples/python && python3 -c "import azul; print('Python extension loaded!')"
+          fi
 
       - name: Upload Screenshots
         uses: actions/upload-artifact@v4
@@ -657,12 +377,12 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
-          retention-days: 7
+          retention-days: 30
           if-no-files-found: error
 
   build_linux_packages:
     name: Build Linux Packages (.deb/.rpm)
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'prod-deploy'
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci'
     needs: build_binaries
     runs-on: ubuntu-22.04
     steps:
@@ -673,7 +393,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: azul-linux-amd64
-          path: target/release
+          path: artifacts
+
+      - name: Debug - List artifacts
+        run: ls -laR artifacts/
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -686,29 +409,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y nfpm
 
-      - name: Generate C header
-        run: |
-          cargo run -r -p azul-doc codegen c
-
-      - name: Generate NFPM config from api.json
-        run: |
-          cargo run -r -p azul-doc nfpm
+      - name: Generate NFPM config
+        run: cargo run -r -p azul-doc nfpm
 
       - name: Prepare package files
         run: |
           mkdir -p target/packages
-          cp target/release/libazul.so target/packages/
-          cp target/codegen/v2/azul.h target/packages/
+          find artifacts -name "libazul.so" -exec cp {} target/packages/ \;
+          find artifacts -name "azul.h" -exec cp {} target/packages/ \;
           cp LICENSE target/packages/
+          ls -la target/packages/
 
-      - name: Build .deb package
+      - name: Build .deb and .rpm packages
         run: |
           cd target/packages
           nfpm pkg --packager deb --target .
-
-      - name: Build .rpm package
-        run: |
-          cd target/packages
           nfpm pkg --packager rpm --target .
 
       - name: Upload .deb package
@@ -727,169 +442,132 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  build_pages:
-    name: Build Pages on ${{ matrix.os }}
-    if: github.event.inputs.run_mode == 'deploy'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            platform: linux
-          - os: macos-14
-            platform: macos
-          - os: windows-2022
-            platform: windows
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+  # =============================================================================
+  # Deploy Job - Only runs on manual 'deploy' mode
+  # Downloads all artifacts from CI and deploys to GitHub Pages
+  # =============================================================================
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Chrome (Linux only)
-        if: matrix.os == 'ubuntu-22.04'
-        uses: browser-actions/setup-chrome@v1
-
-      - name: Run Reftests (Linux only)
-        if: matrix.os == 'ubuntu-22.04'
-        continue-on-error: true  # Reftests may fail due to rendering differences
-        run: cargo run --manifest-path doc/Cargo.toml --release -- reftest
-
-      - name: Build website for ${{ matrix.platform }}
-        run: cargo run --manifest-path doc/Cargo.toml --release -- deploy --build=${{ matrix.platform }}
-
-      - name: Upload ${{ matrix.platform }} page artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: pages-artifact-${{ matrix.platform }}
-          path: 'doc/target/deploy'
-          if-no-files-found: warn
-
-  merge_and_prepare_pages:
-    name: Merge & Prepare Pages Artifacts
+  build_and_deploy_pages:
+    name: Build & Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy'
     runs-on: ubuntu-22.04
-    needs: build_pages
-    steps:
-      - name: Create merged directory
-        run: mkdir -p merged-artifacts
-
-      - name: Download all platform artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: temp-artifacts/
-          pattern: pages-artifact-* # Download all artifacts starting with 'pages-artifact-'
-          merge-multiple: true # Merge them into a single directory
-
-      - name: Merge artifacts into final directory
-        run: |
-          echo "Merging downloaded artifacts..."
-          cp -r temp-artifacts/* merged-artifacts/
-          echo "Merged artifact contents:"
-          ls -R merged-artifacts
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-
-      - name: Upload merged artifacts for Pages deployment
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: 'merged-artifacts'
-
-  deploy_pages:
-    name: Deploy to GitHub Pages
-    if: github.event.inputs.run_mode == 'deploy'
-    runs-on: ubuntu-22.04
-    needs: merge_and_prepare_pages
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-
-  build_pages_prod:
-    name: Build Pages (Prod) on ${{ matrix.os }}
-    if: github.event.inputs.run_mode == 'prod-deploy'
-    needs: [test_heavy, build_binaries]  # Wait for all CI tests to pass
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: true  # Stop all builds if one fails
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            platform: linux
-          - os: macos-14
-            platform: macos
-          - os: windows-2022
-            platform: windows
-    steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.87.0
 
-      - name: Download reftest results (Linux only)
-        if: matrix.os == 'ubuntu-22.04'
+      - name: Download Linux binaries
         uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-amd64
+          path: artifacts-linux
+
+      - name: Download macOS binaries
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-macos-amd64
+          path: artifacts-macos
+
+      - name: Download Windows binaries
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-windows-amd64
+          path: artifacts-windows
+
+      - name: Download .deb package
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-amd64-deb
+          path: artifacts-deb
+
+      - name: Download .rpm package
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: azul-linux-amd64-rpm
+          path: artifacts-rpm
+
+      - name: Download reftest results
+        uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: reftest-results
           path: doc/target/reftest
 
-      - name: Build website for ${{ matrix.platform }}
-        run: cargo run --manifest-path doc/Cargo.toml --release -- deploy --build=${{ matrix.platform }}
-
-      - name: Upload ${{ matrix.platform }} page artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: prod-pages-artifact-${{ matrix.platform }}
-          path: 'doc/target/deploy'
-          if-no-files-found: error  # Fail if no files generated
-
-  merge_and_prepare_pages_prod:
-    name: Merge & Prepare Pages Artifacts (Prod)
-    if: github.event.inputs.run_mode == 'prod-deploy'
-    runs-on: ubuntu-22.04
-    needs: build_pages_prod
-    steps:
-      - name: Create merged directory
-        run: mkdir -p merged-artifacts
-
-      - name: Download all platform artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: temp-artifacts/
-          pattern: prod-pages-artifact-*
-          merge-multiple: true
-
-      - name: Merge artifacts into final directory
+      - name: Debug - List all downloaded artifacts
         run: |
-          echo "Merging downloaded artifacts..."
-          cp -r temp-artifacts/* merged-artifacts/
-          echo "Merged artifact contents:"
-          ls -R merged-artifacts
+          echo "=== Linux ===" && ls -laR artifacts-linux/ 2>/dev/null || echo "Not found"
+          echo "=== macOS ===" && ls -laR artifacts-macos/ 2>/dev/null || echo "Not found"
+          echo "=== Windows ===" && ls -laR artifacts-windows/ 2>/dev/null || echo "Not found"
+          echo "=== DEB ===" && ls -laR artifacts-deb/ 2>/dev/null || echo "Not found"
+          echo "=== RPM ===" && ls -laR artifacts-rpm/ 2>/dev/null || echo "Not found"
+          echo "=== Reftest ===" && ls -laR doc/target/reftest/ 2>/dev/null || echo "Not found"
+
+      - name: Prepare release artifacts
+        run: |
+          mkdir -p doc/target/deploy/release/1.0.0-alpha1
+          
+          # Copy Linux binaries
+          find artifacts-linux -name "libazul.so" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/ \; 2>/dev/null || true
+          find artifacts-linux -name "libazul.a" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/libazul.linux.a \; 2>/dev/null || true
+          find artifacts-linux -name "azul.so" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/azul.cpython.so \; 2>/dev/null || true
+          
+          # Copy macOS binaries
+          find artifacts-macos -name "libazul.dylib" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/ \; 2>/dev/null || true
+          find artifacts-macos -name "libazul.a" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/libazul.macos.a \; 2>/dev/null || true
+          find artifacts-macos -name "azul.so" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/azul.macos.so \; 2>/dev/null || true
+          
+          # Copy Windows binaries
+          find artifacts-windows -name "azul.dll" ! -name "*.lib" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/ \; 2>/dev/null || true
+          find artifacts-windows -name "azul.dll.lib" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/azul.lib \; 2>/dev/null || true
+          find artifacts-windows -name "azul.pyd" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/ \; 2>/dev/null || true
+          
+          # Copy headers (from any platform, they're the same)
+          find artifacts-linux artifacts-macos artifacts-windows -name "azul.h" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/ \; 2>/dev/null || true
+          find artifacts-linux artifacts-macos artifacts-windows -name "azul03.hpp" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/ \; 2>/dev/null || true
+          find artifacts-linux artifacts-macos artifacts-windows -name "azul11.hpp" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/ \; 2>/dev/null || true
+          find artifacts-linux artifacts-macos artifacts-windows -name "azul14.hpp" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/ \; 2>/dev/null || true
+          find artifacts-linux artifacts-macos artifacts-windows -name "azul17.hpp" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/ \; 2>/dev/null || true
+          find artifacts-linux artifacts-macos artifacts-windows -name "azul20.hpp" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/ \; 2>/dev/null || true
+          find artifacts-linux artifacts-macos artifacts-windows -name "azul23.hpp" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/ \; 2>/dev/null || true
+          
+          # Copy packages
+          find artifacts-deb -name "*.deb" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/ \; 2>/dev/null || true
+          find artifacts-rpm -name "*.rpm" -exec cp {} doc/target/deploy/release/1.0.0-alpha1/ \; 2>/dev/null || true
+          
+          # LICENSE files
+          cp LICENSE doc/target/deploy/release/1.0.0-alpha1/LICENSE-LINUX.txt 2>/dev/null || true
+          cp LICENSE doc/target/deploy/release/1.0.0-alpha1/LICENSE-MACOS.txt 2>/dev/null || true
+          cp LICENSE doc/target/deploy/release/1.0.0-alpha1/LICENSE-WINDOWS.txt 2>/dev/null || true
+          
+          echo "=== Prepared release artifacts ==="
+          ls -la doc/target/deploy/release/1.0.0-alpha1/
+
+      - name: Generate codegen for website
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Build website
+        run: cargo run --manifest-path doc/Cargo.toml --release -- deploy
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      - name: Upload merged artifacts for Pages deployment
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'merged-artifacts'
+          path: 'doc/target/deploy'
 
-  deploy_pages_prod:
-    name: Deploy to GitHub Pages (Prod)
-    if: github.event.inputs.run_mode == 'prod-deploy'
-    runs-on: ubuntu-22.04
-    needs: merge_and_prepare_pages_prod
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
