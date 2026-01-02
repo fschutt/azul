@@ -560,9 +560,34 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: clang target/codegen/v2/azul.h -ferror-limit=0
 
-      - name: Build DLL with build-dll feature
+      - name: Build DLL with build-dll feature (for C/C++ examples)
         run: |
           cargo build --release -p azul-dll --features="build-dll"
+
+      - name: Build Rust examples
+        run: cargo check --verbose --examples --all-features
+
+      - name: Take screenshots of C examples (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        continue-on-error: true  # Screenshots may fail in headless CI
+        run: |
+          chmod +x scripts/screenshot.sh
+          ./scripts/screenshot.sh || echo "Screenshots failed (expected in headless CI)"
+
+      - name: Take screenshots of C examples (macOS)
+        if: matrix.os == 'macos-14'
+        continue-on-error: true  # Screenshots may fail in CI
+        run: |
+          chmod +x scripts/screenshot.sh
+          ./scripts/screenshot.sh || echo "Screenshots failed"
+
+      - name: Take screenshots of C examples (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        continue-on-error: true  # Screenshots may fail in CI
+        run: |
+          chmod +x scripts/screenshot.sh
+          ./scripts/screenshot.sh || echo "Screenshots failed"
 
       - name: Build Python extension
         run: |
@@ -580,9 +605,6 @@ jobs:
       - name: Rename Python extension (macOS)
         if: matrix.os == 'macos-14'
         run: cp target/release/libazul.dylib target/release/azul.so
-
-      - name: Build Rust examples
-        run: cargo check --verbose --examples --all-features
 
       - name: Test Python extension import (Windows)
         if: matrix.os == 'windows-2022'
@@ -619,22 +641,7 @@ jobs:
           # Use gtimeout (coreutils) in case env var doesn't propagate
           cd examples/python && gtimeout 30 python3 hello-world.py || [ $? -eq 124 ]
 
-      - name: Take screenshots of C examples (Linux)
-        if: matrix.os == 'ubuntu-22.04'
-        continue-on-error: true  # Screenshots may fail in headless CI
-        run: |
-          chmod +x scripts/screenshot.sh
-          ./scripts/screenshot.sh || echo "Screenshots failed (expected in headless CI)"
-
-      - name: Take screenshots of C examples (macOS)
-        if: matrix.os == 'macos-14'
-        continue-on-error: true  # Screenshots may fail in CI
-        run: |
-          chmod +x scripts/screenshot.sh
-          ./scripts/screenshot.sh || echo "Screenshots failed"
-
       - name: Upload Screenshots
-        if: matrix.os != 'windows-2022'
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
