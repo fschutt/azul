@@ -1,0 +1,47 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Inline: Background rendering test</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body {
+                width: 800px;
+                height: 600px;
+                padding: 20px;
+                background: #f5f5f5;
+                font-family: sans-serif;
+                font-size: 16px;
+            }
+            .container {
+                background: white;
+                padding: 20px;
+                border: 2px solid #333;
+            }
+            .inline-bg {
+                display: inline;
+                background: #e74c3c;
+                color: white;
+                padding: 5px 10px;
+            }
+            .inline-bg-2 {
+                display: inline;
+                background: #3498db;
+                color: white;
+                padding: 5px 10px;
+            }
+            .inline-bg-3 {
+                display: inline;
+                background: #2ecc71;
+                color: white;
+                padding: 5px 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <p>This is normal text with <span class="inline-bg">inline red background</span> and more text.</p>
+            <p>Another line with <span class="inline-bg-2">inline blue background</span> in the middle.</p>
+            <p>Mixed: <span class="inline-bg">red</span> then <span class="inline-bg-2">blue</span> then <span class="inline-bg-3">green</span> inline elements.</p>
+        </div>
+    </body>
+</html>

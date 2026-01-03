@@ -1,0 +1,71 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+    <head>
+        <title>Inline-Block: Text rendering test</title>
+        <style type="text/css">
+            * { margin: 0; padding: 0; }
+            body {
+                width: 800px;
+                height: 600px;
+                padding: 20px;
+                background: #f5f5f5;
+                font-family: sans-serif;
+                font-size: 16px;
+            }
+            .container {
+                background: white;
+                padding: 20px;
+                border: 2px solid #333;
+            }
+            .inline-block-box {
+                display: inline-block;
+                width: 150px;
+                height: 80px;
+                background: #e74c3c;
+                color: white;
+                padding: 10px;
+                margin: 5px;
+                vertical-align: top;
+            }
+            .inline-block-box-2 {
+                display: inline-block;
+                width: 150px;
+                height: 80px;
+                background: #3498db;
+                color: white;
+                padding: 10px;
+                margin: 5px;
+                vertical-align: top;
+            }
+            .inline-block-box-3 {
+                display: inline-block;
+                width: 150px;
+                height: 80px;
+                background: #2ecc71;
+                color: white;
+                padding: 10px;
+                margin: 5px;
+                vertical-align: top;
+            }
+            .inline-block-auto {
+                display: inline-block;
+                background: #9b59b6;
+                color: white;
+                padding: 10px;
+                margin: 5px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <p>Row of inline-block boxes with text:</p>
+            <div class="inline-block-box">Box 1 with text inside</div>
+            <div class="inline-block-box-2">Box 2 with text inside</div>
+            <div class="inline-block-box-3">Box 3 with text inside</div>
+            <p style="margin-top: 20px;">Auto-sized inline-block elements:</p>
+            <span class="inline-block-auto">Auto A</span>
+            <span class="inline-block-auto">Auto B</span>
+            <span class="inline-block-auto">Auto C</span>
+        </div>
+    </body>
+</html>
