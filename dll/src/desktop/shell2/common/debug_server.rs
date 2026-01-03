@@ -735,7 +735,8 @@ pub fn start_debug_server(port: u16) -> DebugServerHandle {
                     Ok((mut stream, _addr)) => {
                         // Set read timeout
                         stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
-                        stream.set_write_timeout(Some(Duration::from_secs(5))).ok();
+                        // Increase write timeout to 30s for large screenshot transfers
+                        stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
                         handle_http_connection(&mut stream);
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -952,15 +953,20 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
     // Set NoDelay to push packets immediately
     stream.set_nodelay(true).ok();
 
-    // Write header and body
+    // 1. Write Header (Small, safe to write all at once)
     if stream.write_all(header.as_bytes()).is_err() {
         return;
     }
-    if stream.write_all(body_bytes).is_err() {
-        return;
+
+    // 2. Write Body in Chunks (Safer for large data like screenshots)
+    for chunk in body_bytes.chunks(8192) {
+        if stream.write_all(chunk).is_err() {
+            eprintln!("[DebugServer] Error writing chunk to stream");
+            return;
+        }
     }
     
-    // Flush ensures data is in the kernel buffer
+    // 3. Flush ensures data is in the kernel buffer
     if stream.flush().is_err() {
         return;
     }

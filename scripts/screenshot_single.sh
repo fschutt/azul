@@ -237,36 +237,36 @@ log_success "HTTP connectivity OK"
 log_step 8 "Taking screenshot..."
 
 SCREENSHOT_FILE="$TEMP_DIR/${EXAMPLE_NAME}_screenshot.png"
+JSON_RESPONSE_FILE="$TEMP_DIR/screenshot_response.json"
 
 log_info "Request: POST http://localhost:$PORT/ - {\"type\":\"take_native_screenshot\"}"
 
-screenshot_response=$(curl -s -X POST "http://localhost:$PORT/" \
+# Save raw response to file immediately, avoiding memory/ARG_MAX limits
+curl -s -X POST "http://localhost:$PORT/" \
     -H "Content-Type: application/json" \
-    -d '{"type":"take_native_screenshot"}')
+    -d '{"type":"take_native_screenshot"}' \
+    -o "$JSON_RESPONSE_FILE"
 
-log_info "Screenshot response length: ${#screenshot_response} bytes"
+log_info "Response saved to $JSON_RESPONSE_FILE ($(ls -lh "$JSON_RESPONSE_FILE" | awk '{print $5}'))"
 
-# Parse JSON response with jq
-status=$(echo "$screenshot_response" | jq -r '.status // "error"')
+# Check status from the file (jq reads from file, not from variable)
+status=$(jq -r '.status // "error"' "$JSON_RESPONSE_FILE")
 
 if [ "$status" = "ok" ]; then
-    # Extract base64 data: .data.value.data contains "data:image/png;base64,..."
-    base64_data=$(echo "$screenshot_response" | jq -r '.data.value.data // empty' | sed 's/^data:image\/png;base64,//')
+    # Extract base64 directly from file using jq
+    # jq streams from file, avoiding shell variable size limits
+    jq -r '.data.value.data // empty' "$JSON_RESPONSE_FILE" | \
+        sed 's/^data:image\/png;base64,//' | \
+        base64 -d > "$SCREENSHOT_FILE"
     
-    if [ -n "$base64_data" ]; then
-        echo "$base64_data" | base64 -d > "$SCREENSHOT_FILE"
-        if [ -f "$SCREENSHOT_FILE" ] && [ -s "$SCREENSHOT_FILE" ]; then
-            log_success "Screenshot saved: $SCREENSHOT_FILE"
-            log_info "Size: $(ls -lh "$SCREENSHOT_FILE" | awk '{print $5}')"
-        else
-            log_error "Screenshot file is empty or not created"
-        fi
+    if [ -f "$SCREENSHOT_FILE" ] && [ -s "$SCREENSHOT_FILE" ]; then
+        log_success "Screenshot saved: $SCREENSHOT_FILE"
+        log_info "Size: $(ls -lh "$SCREENSHOT_FILE" | awk '{print $5}')"
     else
-        log_error "Failed to extract base64 data from response"
-        log_error "Response preview: ${screenshot_response:0:500}..."
+        log_error "Screenshot file is empty or not created"
     fi
 else
-    error_msg=$(echo "$screenshot_response" | jq -r '.message // "Unknown error"')
+    error_msg=$(jq -r '.message // "Unknown error"' "$JSON_RESPONSE_FILE")
     log_error "Screenshot request failed: $error_msg"
 fi
 
