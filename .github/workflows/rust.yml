@@ -233,7 +233,12 @@ jobs:
 
       - name: Install clang (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y clang
+        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev xvfb
+
+      - name: Install MinGW (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: choco install mingw -y
 
       - name: Install coreutils (macOS)
         if: matrix.os == 'macos-14'
@@ -687,6 +692,11 @@ jobs:
             if [ -f website/reftest/index.html ]; then
               cp website/reftest/index.html website/reftest.html
               echo "  [OK] Created reftest.html from reftest results"
+            fi
+            # Copy reftest_img to website root so ./reftest_img/ paths work from reftest.html
+            if [ -d website/reftest/reftest_img ]; then
+              cp -r website/reftest/reftest_img website/reftest_img
+              echo "  [OK] Copied reftest_img to website root"
             fi
           fi
           

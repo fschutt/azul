@@ -43,13 +43,62 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step() { echo -e "${BLUE}[STEP $1]${NC} $2"; }
 
+# Platform detection
+is_windows() {
+    [[ "$(uname)" == MINGW* ]] || [[ "$(uname)" == MSYS* ]] || [[ "$(uname)" == CYGWIN* ]]
+}
+
+is_linux() {
+    [ "$(uname)" == "Linux" ]
+}
+
+is_macos() {
+    [ "$(uname)" == "Darwin" ]
+}
+
+# Platform-specific process management
+get_pid_on_port() {
+    local port=$1
+    if is_windows; then
+        netstat -ano 2>/dev/null | grep ":$port " | grep LISTEN | awk '{print $5}' | head -1
+    else
+        lsof -ti :$port 2>/dev/null || true
+    fi
+}
+
+kill_pid() {
+    local pid=$1
+    if is_windows; then
+        taskkill //PID $pid //F 2>/dev/null || true
+    else
+        kill -9 $pid 2>/dev/null || true
+    fi
+}
+
+kill_by_name() {
+    local name=$1
+    if is_windows; then
+        taskkill //IM "$name.exe" //F 2>/dev/null || true
+    else
+        killall "$name" 2>/dev/null || true
+    fi
+}
+
+check_process_alive() {
+    local pid=$1
+    if is_windows; then
+        tasklist //FI "PID eq $pid" 2>/dev/null | grep -q "$pid"
+    else
+        kill -0 $pid 2>/dev/null
+    fi
+}
+
 # Cleanup function
 cleanup() {
     log_info "Cleaning up..."
-    # Kill any process on our port
-    local pid=$(lsof -ti :$PORT 2>/dev/null || true)
+    local pid=$(get_pid_on_port $PORT)
     if [ -n "$pid" ]; then
-        kill -9 $pid 2>/dev/null || true
+        kill_pid $pid
     fi
 }
 
@@ -58,7 +107,7 @@ trap cleanup EXIT
 
 # Kill any existing process with the same name
 log_info "Killing any existing $EXAMPLE_NAME processes..."
-killall "$EXAMPLE_NAME" 2>/dev/null || true
+kill_by_name "$EXAMPLE_NAME"
 sleep 1
 
 # Check if example source exists
@@ -155,6 +204,18 @@ elif [ "$(uname)" == "Linux" ]; then
         -lGL -lX11 -lpthread -lm \
         -Wl,-rpath,"$TEMP_DIR" \
         "$EXAMPLE_NAME.c"
+elif [[ "$(uname)" == MINGW* ]] || [[ "$(uname)" == MSYS* ]] || [[ "$(uname)" == CYGWIN* ]]; then
+    # Windows/MINGW compilation
+    EXAMPLE_BIN="$TEMP_DIR/$EXAMPLE_NAME.exe"
+    # On Windows, link directly against the DLL
+    # gcc expects libazul.dll or libazul.a, so we rename or link directly
+    cp "$TEMP_DIR/azul.dll" "$TEMP_DIR/libazul.dll" 2>/dev/null || true
+    gcc -o "$EXAMPLE_BIN" \
+        -I"$TEMP_DIR" \
+        -L"$TEMP_DIR" \
+        -lazul \
+        -lopengl32 -lgdi32 -luser32 -lkernel32 \
+        "$EXAMPLE_NAME.c"
 else
     log_error "Unsupported platform: $(uname)"
     exit 1
@@ -170,10 +231,10 @@ log_success "Example compiled: $EXAMPLE_BIN"
 # Step 5: Ensure port is free before starting
 log_step 5 "Ensuring port $PORT is free..."
 
-existing_pid=$(lsof -ti :$PORT 2>/dev/null || true)
+existing_pid=$(get_pid_on_port $PORT)
 if [ -n "$existing_pid" ]; then
     log_warn "Port $PORT is in use by PID $existing_pid, killing..."
-    kill -9 $existing_pid 2>/dev/null || true
+    kill_pid $existing_pid
     sleep 1
 fi
 log_success "Port $PORT is free"
@@ -182,7 +243,21 @@ log_success "Port $PORT is free"
 log_step 6 "Starting example with AZUL_DEBUG=$PORT..."
 
 cd "$TEMP_DIR"
-AZUL_DEBUG=$PORT "./$EXAMPLE_NAME" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
+
+# Platform-specific execution
+if is_windows; then
+    AZUL_DEBUG=$PORT "./$EXAMPLE_NAME.exe" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
+elif is_linux; then
+    # Use xvfb-run on Linux if DISPLAY is not set (CI environment)
+    if [ -z "$DISPLAY" ]; then
+        log_info "No DISPLAY set, using xvfb-run..."
+        xvfb-run -a env AZUL_DEBUG=$PORT "./$EXAMPLE_NAME" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
+    else
+        AZUL_DEBUG=$PORT "./$EXAMPLE_NAME" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
+    fi
+else
+    AZUL_DEBUG=$PORT "./$EXAMPLE_NAME" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
+fi
 APP_PID=$!
 
 log_info "Started with PID: $APP_PID"
@@ -193,7 +268,7 @@ sleep $STARTUP_WAIT
 log_step 7 "Verifying app is running..."
 
 # Check if process is still alive
-if ! kill -0 $APP_PID 2>/dev/null; then
+if ! check_process_alive $APP_PID; then
     log_error "Process died during startup!"
     log_error "=== STDOUT ==="
     cat "$TEMP_DIR/stdout.log" || true
@@ -204,12 +279,12 @@ fi
 log_info "Process $APP_PID is alive"
 
 # Check if port is listening
-port_check=$(lsof -ti :$PORT 2>/dev/null || true)
+port_check=$(get_pid_on_port $PORT)
 if [ -z "$port_check" ]; then
     log_error "Port $PORT is not listening!"
     log_error "=== STDERR ==="
     cat "$TEMP_DIR/stderr.log" || true
-    kill -9 $APP_PID 2>/dev/null || true
+    kill_pid $APP_PID
     exit 1
 fi
 log_success "Port $PORT is listening (PID: $port_check)"
@@ -246,7 +321,7 @@ log_info "Response size: $response_size bytes"
 if [ $curl_exit -ne 0 ]; then
     log_error "curl failed with exit code $curl_exit"
     log_error "Response saved to: $CONNECTIVITY_RESPONSE_FILE"
-    kill -9 $APP_PID 2>/dev/null || true
+    kill_pid $APP_PID
     exit 1
 fi
 
@@ -254,7 +329,7 @@ fi
 if ! grep -q '"status"' "$CONNECTIVITY_RESPONSE_FILE" || ! grep -q '"ok"' "$CONNECTIVITY_RESPONSE_FILE"; then
     log_error "HTTP connectivity test failed"
     log_error "Response saved to: $CONNECTIVITY_RESPONSE_FILE"
-    kill -9 $APP_PID 2>/dev/null || true
+    kill_pid $APP_PID
     exit 1
 fi
 log_success "HTTP connectivity OK"
@@ -342,22 +417,22 @@ sleep $SHUTDOWN_WAIT
 log_step 10 "Verifying shutdown..."
 
 # Check if process is gone
-if kill -0 $APP_PID 2>/dev/null; then
+if check_process_alive $APP_PID; then
     log_warn "Process still alive, force killing..."
-    kill -9 $APP_PID 2>/dev/null || true
+    kill_pid $APP_PID
     sleep 1
 fi
 
 # Check if port is free
-port_check=$(lsof -ti :$PORT 2>/dev/null || true)
+port_check=$(get_pid_on_port $PORT)
 if [ -n "$port_check" ]; then
     log_warn "Port still in use, killing PID $port_check..."
-    kill -9 $port_check 2>/dev/null || true
+    kill_pid $port_check
     sleep 1
 fi
 
 # Final verification
-port_check=$(lsof -ti :$PORT 2>/dev/null || true)
+port_check=$(get_pid_on_port $PORT)
 if [ -z "$port_check" ]; then
     log_success "Application shut down cleanly, port $PORT is free"
 else
