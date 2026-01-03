@@ -201,9 +201,7 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             margin-left: 30px;
         }
         #guide li {
-            font-size: 1.1em;
-            margin-bottom: 1em;
-            margin-top: 1em;
+            font-size: 16px;
         }
         #guide code {
             font-family: monospace;

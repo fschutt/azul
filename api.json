@@ -573,7 +573,7 @@
           "mac": "hello-world.mac.png"
         },
         "description": [
-          "No Chromium. No V8. No 200MB runtime. Just a 5MB DLL and GPU-accelerated rendering via WebRender.",
+          "No Chromium. No V8. No 200MB runtime. Just a 15MB DLL and GPU-accelerated rendering via WebRender.",
           "Your app state lives in YOUR code - Azul just renders it. Unlike React, you control exactly when the UI refreshes.",
           "Write once in Rust, C, C++ or Python. Style with real CSS. Ship a single binary that starts instantly."
         ]
@@ -635,7 +635,7 @@
         "description": [
           "Embed raw OpenGL directly in your UI - no WebGL abstraction, no canvas hacks.",
           "Render 3D scenes, CAD models, or data visualizations right next to native widgets.",
-          "Perfect for scientific apps, games, or anything Electron could never handle."
+          "Perfect for scientific apps, GIS or CAD."
         ]
       },
       {
@@ -665,7 +665,7 @@
         "description": [
           "Display 10 million rows at 60 FPS. IFrameCallbacks render only what's visible on screen.",
           "Lazy-load images, SVGs, and complex content as users scroll - zero upfront memory cost.",
-          "The same technique powers IDE file trees, database viewers, and infinite feeds."
+          "Perfect for IDE file trees, database viewers, and infinite feeds, ..."
         ]
       },
       {
@@ -695,7 +695,7 @@
         "description": [
           "Real OS threads, not JavaScript promises. Background tasks with automatic UI updates.",
           "Spawn database queries, file operations, or network requests without freezing your app.",
-          "Timers, thread pools, and progress callbacks built-in. No async/await ceremony required."
+          "Timers, thread pools, and progress callbacks built-in."
         ]
       },
       {
@@ -723,7 +723,7 @@
           "mac": "xhtml.mac.png"
         },
         "description": [
-          "Block, inline, flexbox, grid - the same layout power as modern browsers.",
+          "Block, inline, flexbox, grid - the same layout power as modern browsers, but without any bloat.",
           "Load XHTML from files or strings. Hot-reload your UI without recompiling.",
           "Perfect for designers: tweak styles in CSS, see changes instantly."
         ]
@@ -754,8 +754,8 @@
         },
         "description": [
           "Modern CSS Grid and Flexbox layouts, powered by the Taffy engine.",
-          "Build responsive, complex interfaces without fighting your layout system.",
-          "The same CSS you know from the web - without the browser baggage."
+          "Build responsive, complex interfaces without learning yet another layout system.",
+          "Just the same CSS you know from the web - without the browser baggage."
         ]
       }
     ],
