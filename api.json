@@ -568,15 +568,14 @@
           "cpp23": "cpp/cpp23/hello-world.cpp"
         },
         "screenshot": {
-          "windows": "helloworld.png",
-          "linux": "helloworld.png",
-          "mac": "helloworld.png"
+          "windows": "hello-world.mac.png",
+          "linux": "hello-world.mac.png",
+          "mac": "hello-world.mac.png"
         },
         "description": [
-          "This example demonstrates the fundamental structure of an Azul application.",
-          "Azul composes objects in a DOM hierarchy with function pointer callbacks attached to nodes.",
-          "The DOM tree only gets re-rendered when any callback returns `RefreshDom`: unlike IMGUI, this",
-          "does not happen on every frame. The DOM tree represents valid XHTML and can be styled with CSS."
+          "No Chromium. No V8. No 200MB runtime. Just a 5MB DLL and GPU-accelerated rendering via WebRender.",
+          "Your app state lives in YOUR code - Azul just renders it. Unlike React, you control exactly when the UI refreshes.",
+          "Write once in Rust, C, C++ or Python. Style with real CSS. Ship a single binary that starts instantly."
         ]
       },
       {
@@ -599,15 +598,14 @@
           "cpp23": "cpp/cpp23/widgets.cpp"
         },
         "screenshot": {
-          "windows": "widgets.png",
-          "linux": "widgets.png",
-          "mac": "widgets.png"
+          "windows": "widgets.mac.png",
+          "linux": "widgets.mac.png",
+          "mac": "widgets.mac.png"
         },
         "description": [
-          "This example showcases all the built-in widgets available in Azul.",
-          "Included are Button, CheckBox, TextInput, NumberInput, ColorInput, DropDown, ProgressBar,",
-          "TabHeader, Frame, ListView and more. Each widget is fully customizable via CSS.",
-          "Widgets follow the same DOM hierarchy as regular elements and support all standard callbacks."
+          "Buttons, inputs, dropdowns, tabs, color pickers, progress bars - all GPU-rendered and fully styleable via CSS.",
+          "No DOM/JS bridge overhead. Callbacks are direct function pointers to your native code.",
+          "Compose widgets freely - no prop drilling, no state lifting. Your architecture, your rules."
         ]
       },
       {
@@ -630,15 +628,14 @@
           "cpp23": "cpp/cpp23/opengl.cpp"
         },
         "screenshot": {
-          "windows": "opengl.png",
-          "linux": "opengl.png",
-          "mac": "opengl.png"
+          "windows": "opengl.mac.png",
+          "linux": "opengl.mac.png",
+          "mac": "opengl.mac.png"
         },
         "description": [
-          "Azul integrates seamlessly with OpenGL for hardware-accelerated custom rendering.",
-          "This example demonstrates how to render custom OpenGL content into a texture,",
-          "then composite it with regular UI elements. The OpenGL context is managed by Azul,",
-          "allowing you to mix custom 2D/3D graphics with standard widgets."
+          "Embed raw OpenGL directly in your UI - no WebGL abstraction, no canvas hacks.",
+          "Render 3D scenes, CAD models, or data visualizations right next to native widgets.",
+          "Perfect for scientific apps, games, or anything Electron could never handle."
         ]
       },
       {
@@ -661,22 +658,21 @@
           "cpp23": "cpp/cpp23/infinity.cpp"
         },
         "screenshot": {
-          "windows": "infinity.png",
-          "linux": "infinity.png",
-          "mac": "infinity.png"
+          "windows": "infinity.mac.png",
+          "linux": "infinity.mac.png",
+          "mac": "infinity.mac.png"
         },
         "description": [
-          "This example demonstrates IFrameCallbacks for virtualized infinite scrolling.",
-          "Images and SVG files from your file system are loaded on-demand as you scroll.",
-          "Only visible items are rendered, making it possible to display millions of items",
-          "without loading them all into memory at once."
+          "Display 10 million rows at 60 FPS. IFrameCallbacks render only what's visible on screen.",
+          "Lazy-load images, SVGs, and complex content as users scroll - zero upfront memory cost.",
+          "The same technique powers IDE file trees, database viewers, and infinite feeds."
         ]
       },
       {
         "name": "async",
         "title": [
-          "Built-in",
-          "threading support"
+          "True Native",
+          "Multithreading"
         ],
         "alt": "Background threads and timers for non-blocking operations",
         "show_on_index": true,
@@ -692,22 +688,21 @@
           "cpp23": "cpp/cpp23/async.cpp"
         },
         "screenshot": {
-          "windows": "async.png",
-          "linux": "async.png",
-          "mac": "async.png"
+          "windows": "async.mac.png",
+          "linux": "async.mac.png",
+          "mac": "async.mac.png"
         },
         "description": [
-          "Azul provides built-in support for background threads and timers.",
-          "This example simulates connecting to a database in a background thread,",
-          "with progress updates sent back to the UI. The main thread remains responsive",
-          "while the background task runs, and the UI updates automatically when data arrives."
+          "Real OS threads, not JavaScript promises. Background tasks with automatic UI updates.",
+          "Spawn database queries, file operations, or network requests without freezing your app.",
+          "Timers, thread pools, and progress callbacks built-in. No async/await ceremony required."
         ]
       },
       {
         "name": "xhtml",
         "title": [
-          "XHTML",
-          "Rendering"
+          "Built-in CSS",
+          "Styling Engine"
         ],
         "alt": "XHTML site rendered with Azul",
         "show_on_index": true,
@@ -723,20 +718,21 @@
           "cpp23": "cpp/cpp23/xhtml.cpp"
         },
         "screenshot": {
-          "windows": "xhtml.png",
-          "linux": "xhtml.png",
-          "mac": "xhtml.png"
+          "windows": "xhtml.mac.png",
+          "linux": "xhtml.mac.png",
+          "mac": "xhtml.mac.png"
         },
         "description": [
-          "Demonstrates loading and rendering XHTML from external files.",
-          "The layout solver (azul-layout) is a CSS2.1 / XHTML4 compliant solver."
+          "Block, inline, flexbox, grid - the same layout power as modern browsers.",
+          "Load XHTML from files or strings. Hot-reload your UI without recompiling.",
+          "Perfect for designers: tweak styles in CSS, see changes instantly."
         ]
       },
       {
         "name": "calc",
         "title": [
-          "CSS Grid",
-          "Support"
+          "Flexbox and",
+          "Grid Layouts"
         ],
         "alt": "Calculator built with CSS Grid layout",
         "show_on_index": true,
@@ -752,13 +748,14 @@
           "cpp23": "cpp/cpp23/calc.cpp"
         },
         "screenshot": {
-          "windows": "calc.png",
-          "linux": "calc.png",
-          "mac": "calc.png"
+          "windows": "calc.mac.png",
+          "linux": "calc.mac.png",
+          "mac": "calc.mac.png"
         },
         "description": [
-          "A calculator demonstrating CSS Grid for complex layouts.",
-          "Shows component composition and callback-based interactivity."
+          "Modern CSS Grid and Flexbox layouts, powered by the Taffy engine.",
+          "Build responsive, complex interfaces without fighting your layout system.",
+          "The same CSS you know from the web - without the browser baggage."
         ]
       }
     ],
