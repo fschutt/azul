@@ -261,55 +261,6 @@ use_pyo3_logger = ["pyo3-log", "logging"]
 python-extension = ["build-dll", "pyo3", "use_pyo3_logger", "link-static"]
 
 # -----------------------------------------------------------------------------
-# Binary Examples
-# -----------------------------------------------------------------------------
-
-[[bin]]
-name = "test_scrolling"
-path = "examples/test_scrolling.rs"
-required-features = ["build-dll"]
-
-[[bin]]
-name = "test_display_list"
-path = "examples/test_display_list.rs"
-required-features = ["build-dll"]
-
-[[bin]]
-name = "test_cpurender"
-path = "examples/test_cpurender.rs"
-required-features = ["build-dll"]
-
-[[bin]]
-name = "test_rectangles"
-path = "examples/test_rectangles.rs"
-required-features = ["build-dll"]
-
-[[bin]]
-name = "menu_rendering_demo"
-path = "examples/menu_rendering_demo.rs"
-required-features = ["build-dll"]
-
-[[bin]]
-name = "kitchen_sink"
-path = "examples/kitchen_sink.rs"
-required-features = ["build-dll"]
-
-[[bin]]
-name = "hello_world_test"
-path = "examples/hello_world_test.rs"
-required-features = ["build-dll"]
-
-[[bin]]
-name = "hello_world_window"
-path = "examples/hello_world_window.rs"
-required-features = ["build-dll"]
-
-[[bin]]
-name = "graphics_stress_test"
-path = "examples/graphics_stress_test.rs"
-required-features = ["build-dll"]
-
-# -----------------------------------------------------------------------------
 # Package Metadata
 # -----------------------------------------------------------------------------
 
