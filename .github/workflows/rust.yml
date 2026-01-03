@@ -295,23 +295,60 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         continue-on-error: true
         run: |
-          chmod +x scripts/screenshot.sh
-          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" ./scripts/screenshot.sh || echo "Screenshots failed"
+          chmod +x scripts/screenshot_single.sh
+          mkdir -p target/screenshots
+          PORT=8780
+          for example in hello-world widgets opengl infinity async xhtml calc; do
+            echo "=== Taking screenshot for $example on port $PORT ==="
+            xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
+              ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
+            # Copy screenshot to target/screenshots with OS suffix
+            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
+              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-linux.png"
+              echo "  -> Saved target/screenshots/${example}-linux.png"
+            fi
+            PORT=$((PORT + 1))
+          done
+          ls -la target/screenshots/ || echo "No screenshots directory"
 
       - name: Take screenshots (macOS)
         if: matrix.os == 'macos-14'
         continue-on-error: true
         run: |
-          chmod +x scripts/screenshot.sh
-          ./scripts/screenshot.sh || echo "Screenshots failed"
+          chmod +x scripts/screenshot_single.sh
+          mkdir -p target/screenshots
+          PORT=8780
+          for example in hello-world widgets opengl infinity async xhtml calc; do
+            echo "=== Taking screenshot for $example on port $PORT ==="
+            ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
+            # Copy screenshot to target/screenshots with OS suffix
+            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
+              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-macos.png"
+              echo "  -> Saved target/screenshots/${example}-macos.png"
+            fi
+            PORT=$((PORT + 1))
+          done
+          ls -la target/screenshots/ || echo "No screenshots directory"
 
       - name: Take screenshots (Windows)
         if: matrix.os == 'windows-2022'
         continue-on-error: true
         shell: bash
         run: |
-          chmod +x scripts/screenshot.sh
-          ./scripts/screenshot.sh || echo "Screenshots failed"
+          chmod +x scripts/screenshot_single.sh
+          mkdir -p target/screenshots
+          PORT=8780
+          for example in hello-world widgets opengl infinity async xhtml calc; do
+            echo "=== Taking screenshot for $example on port $PORT ==="
+            ./scripts/screenshot_single.sh "$example" "$PORT" || echo "Screenshot for $example failed"
+            # Copy screenshot to target/screenshots with OS suffix
+            if [ -f "target/examples-temp/$example/${example}_screenshot.png" ]; then
+              cp "target/examples-temp/$example/${example}_screenshot.png" "target/screenshots/${example}-windows.png"
+              echo "  -> Saved target/screenshots/${example}-windows.png"
+            fi
+            PORT=$((PORT + 1))
+          done
+          ls -la target/screenshots/ || echo "No screenshots directory"
 
       - name: Build Python extension
         run: cargo build --release -p azul-dll --lib --features="python-extension"

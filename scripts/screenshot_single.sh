@@ -218,19 +218,16 @@ log_success "Port $PORT is listening (PID: $port_check)"
 log_info "Testing HTTP connectivity..."
 log_info "Request: POST http://localhost:$PORT/ - {\"type\":\"get_logs\"}"
 
-response=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://localhost:$PORT/" \
+response=$(curl -s -X POST "http://localhost:$PORT/" \
     -H "Content-Type: application/json" \
-    -d '{"type":"get_logs"}' 2>&1)
+    -d '{"type":"get_logs"}')
 
-http_code=$(echo "$response" | grep "HTTP_CODE:" | cut -d: -f2)
-response_body=$(echo "$response" | grep -v "HTTP_CODE:")
+status=$(echo "$response" | jq -r '.status // "error"')
+log_info "Response length: ${#response} bytes"
 
-log_info "HTTP Status: $http_code"
-log_info "Response length: ${#response_body} bytes"
-
-if [ "$http_code" != "200" ]; then
-    log_error "HTTP connectivity test failed (status: $http_code)"
-    log_error "Response preview: ${response_body:0:500}"
+if [ "$status" != "ok" ]; then
+    log_error "HTTP connectivity test failed"
+    log_error "Response: $response"
     kill -9 $APP_PID 2>/dev/null || true
     exit 1
 fi
@@ -241,38 +238,22 @@ log_step 8 "Taking screenshot..."
 
 SCREENSHOT_FILE="$TEMP_DIR/${EXAMPLE_NAME}_screenshot.png"
 
-log_info "Request: POST http://localhost:$PORT/ - {\"type\":\"take_screenshot\"}"
+log_info "Request: POST http://localhost:$PORT/ - {\"type\":\"take_native_screenshot\"}"
 
-screenshot_response=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://localhost:$PORT/" \
+screenshot_response=$(curl -s -X POST "http://localhost:$PORT/" \
     -H "Content-Type: application/json" \
-    -d '{"type":"take_screenshot"}' 2>&1)
+    -d '{"type":"take_native_screenshot"}')
 
-screenshot_http_code=$(echo "$screenshot_response" | grep "HTTP_CODE:" | cut -d: -f2)
-screenshot_body=$(echo "$screenshot_response" | grep -v "HTTP_CODE:")
+log_info "Screenshot response length: ${#screenshot_response} bytes"
 
-log_info "Screenshot HTTP Status: $screenshot_http_code"
-log_info "Screenshot response length: ${#screenshot_body} bytes"
+# Parse JSON response with jq
+status=$(echo "$screenshot_response" | jq -r '.status // "error"')
 
-# Check if response contains error
-if echo "$screenshot_body" | grep -q '"status":"ok"'; then
-    # Extract base64 data and save
-    # The response format is: {"data":"data:image/png;base64,XXXX...","status":"ok",...}
-    base64_data=$(echo "$screenshot_body" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    if data.get('data'):
-        # Remove data:image/png;base64, prefix
-        b64 = data['data']
-        if b64.startswith('data:'):
-            b64 = b64.split(',', 1)[1]
-        print(b64)
-except Exception as e:
-    print('ERROR: ' + str(e), file=sys.stderr)
-    sys.exit(1)
-" 2>/dev/null)
+if [ "$status" = "ok" ]; then
+    # Extract base64 data: .data.value.data contains "data:image/png;base64,..."
+    base64_data=$(echo "$screenshot_response" | jq -r '.data.value.data // empty' | sed 's/^data:image\/png;base64,//')
     
-    if [ -n "$base64_data" ] && [ "$base64_data" != "" ]; then
+    if [ -n "$base64_data" ]; then
         echo "$base64_data" | base64 -d > "$SCREENSHOT_FILE"
         if [ -f "$SCREENSHOT_FILE" ] && [ -s "$SCREENSHOT_FILE" ]; then
             log_success "Screenshot saved: $SCREENSHOT_FILE"
@@ -282,11 +263,11 @@ except Exception as e:
         fi
     else
         log_error "Failed to extract base64 data from response"
-        log_error "Response preview: ${screenshot_body:0:500}..."
+        log_error "Response preview: ${screenshot_response:0:500}..."
     fi
 else
-    log_error "Screenshot request failed"
-    log_error "Response: ${screenshot_body:0:500}"
+    error_msg=$(echo "$screenshot_response" | jq -r '.message // "Unknown error"')
+    log_error "Screenshot request failed: $error_msg"
 fi
 
 # Step 9: Shut down application
@@ -296,18 +277,15 @@ log_info "Request: POST http://localhost:$PORT/ - {\"type\":\"close\"}"
 
 close_response=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://localhost:$PORT/" \
     -H "Content-Type: application/json" \
-    -d '{"type":"close"}' 2>&1 || echo 'HTTP_CODE:000')
+    -d '{"type":"close"}')
 
-close_http_code=$(echo "$close_response" | grep "HTTP_CODE:" | cut -d: -f2)
-close_body=$(echo "$close_response" | grep -v "HTTP_CODE:")
+close_status=$(echo "$close_response" | jq -r '.status // "error"')
 
-log_info "Close HTTP Status: $close_http_code"
-
-if echo "$close_body" | grep -q '"status":"ok"'; then
+if [ "$close_status" = "ok" ]; then
     log_info "Close command sent successfully"
 else
     log_warn "Close command may have failed"
-    log_warn "Response preview: ${close_body:0:200}"
+    log_warn "Response: $close_response"
 fi
 
 log_info "Waiting ${SHUTDOWN_WAIT}s for graceful shutdown..."
