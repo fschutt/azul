@@ -334,6 +334,10 @@ define_class!(
             use azul_core::callbacks::Update;
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
             
+            // Only log every ~60 frames to avoid spam, but always log if there's work
+            static TICK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let tick = TICK_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -343,9 +347,14 @@ define_class!(
                     
                     // Process each callback result to handle window state modifications
                     let mut needs_redraw = false;
+                    let mut should_close = false;
                     for result in &timer_results {
                         // Apply window state changes from callback result
-                        if result.modified_window_state.is_some() {
+                        if let Some(ref modified_state) = result.modified_window_state {
+                            // Check if close was requested
+                            if modified_state.flags.close_requested {
+                                should_close = true;
+                            }
                             // Save previous state BEFORE applying changes (for sync_window_state diff)
                             macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
                             let _ = macos_window.process_callback_result_v2(result);
@@ -356,6 +365,12 @@ define_class!(
                         if matches!(result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
                             needs_redraw = true;
                         }
+                    }
+                    
+                    // Handle close request from timer callback
+                    if should_close {
+                        macos_window.close_window();
+                        return;
                     }
                     
                     if needs_redraw {
