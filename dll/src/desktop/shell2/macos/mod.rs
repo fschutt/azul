@@ -347,30 +347,20 @@ define_class!(
                     
                     // Process each callback result to handle window state modifications
                     let mut needs_redraw = false;
-                    let mut should_close = false;
                     for result in &timer_results {
                         // Apply window state changes from callback result
-                        if let Some(ref modified_state) = result.modified_window_state {
-                            // Check if close was requested
-                            if modified_state.flags.close_requested {
-                                should_close = true;
-                            }
+                        if result.modified_window_state.is_some() {
                             // Save previous state BEFORE applying changes (for sync_window_state diff)
                             macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
                             let _ = macos_window.process_callback_result_v2(result);
                             // Synchronize window state with OS immediately after change
+                            // This handles close_requested, title, size, position, etc.
                             macos_window.sync_window_state();
                         }
                         // Check if redraw needed
                         if matches!(result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
                             needs_redraw = true;
                         }
-                    }
-                    
-                    // Handle close request from timer callback
-                    if should_close {
-                        macos_window.close_window();
-                        return;
                     }
                     
                     if needs_redraw {
@@ -746,6 +736,47 @@ define_class!(
             }
         }
 
+        /// Timer tick method - called by NSTimer with repeats:true
+        /// This method invokes expired timers via the stored MacOSWindow pointer.
+        #[unsafe(method(tickTimers:))]
+        fn tick_timers(&self, _sender: Option<&NSObject>) {
+            use azul_core::callbacks::Update;
+            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    
+                    // Invoke all expired timer callbacks
+                    let timer_results = macos_window.invoke_expired_timers();
+                    
+                    // Process each callback result to handle window state modifications
+                    let mut needs_redraw = false;
+                    for result in &timer_results {
+                        // Apply window state changes from callback result
+                        if result.modified_window_state.is_some() {
+                            // Save previous state BEFORE applying changes (for sync_window_state diff)
+                            macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
+                            let _ = macos_window.process_callback_result_v2(result);
+                            // Synchronize window state with OS immediately after change
+                            // This handles close_requested, title, size, position, etc.
+                            macos_window.sync_window_state();
+                        }
+                        // Check if redraw needed
+                        if matches!(result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                            needs_redraw = true;
+                        }
+                    }
+                    
+                    if needs_redraw {
+                        macos_window.frame_needs_regeneration = true;
+                        let _: () = msg_send![self, setNeedsDisplay: true];
+                    }
+                }
+            }
+            // Note: NSTimer with repeats:true automatically reschedules itself
+        }
+
         #[unsafe(method(validateUserInterfaceItem:))]
         fn validate_user_interface_item(&self, item: &ProtocolObject<dyn NSObjectProtocol>) -> Bool {
             // Check if we can undo/redo and enable/disable menu items accordingly
@@ -994,6 +1025,12 @@ impl CPUView {
     /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the view
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
         *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+        
+        // Start the timer tick loop - this will invoke timer callbacks every 16ms
+        // and reschedule itself via performSelector:withObject:afterDelay:
+        use objc2::sel;
+        let delay: f64 = 0.016;
+        let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
     }
 
     /// Get the back-pointer to the owning MacOSWindow
@@ -2380,7 +2417,10 @@ impl MacOSWindow {
             // Process callback result (timers, threads, etc.)
             drop(app_data_ref); // Release borrow before process_callback_result_v2
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            window.previous_window_state = Some(window.current_window_state.clone());
             let _ = window.process_callback_result_v2(&callback_result);
+            // Sync window state to OS (handles close_requested, title, size, etc.)
+            window.sync_window_state();
             
             log_debug!(LogCategory::Callbacks, "[Window Init] create_callback completed");
         }
@@ -2694,6 +2734,12 @@ impl MacOSWindow {
             Some(prev) => (prev.clone(), self.current_window_state.clone()),
             None => return, // First frame, nothing to sync
         };
+
+        // Close requested?
+        if !previous.flags.close_requested && current.flags.close_requested {
+            self.close_window();
+            return; // Don't sync other state if closing
+        }
 
         // Title changed?
         if previous.title != current.title {
@@ -3219,7 +3265,10 @@ impl MacOSWindow {
         // Process callback result using the V2 unified system
         // This handles timers, threads, window state changes, and Update
         use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+        self.previous_window_state = Some(self.current_window_state.clone());
         let event_result = self.process_callback_result_v2(&callback_result);
+        // Sync window state to OS (handles close_requested, title, size, etc.)
+        self.sync_window_state();
 
         // Handle the event result
         use azul_core::events::ProcessEventResult;

@@ -637,6 +637,57 @@ pub trait PlatformWindowV2 {
     /// - **Wayland**: Destroy the tooltip surface
     fn hide_tooltip_from_callback(&mut self);
 
+    // PROVIDED: Hit Testing (Cross-Platform Implementation)
+
+    /// Update hit test at given position and store in hover manager.
+    ///
+    /// This method performs WebRender hit testing at the given logical position
+    /// and updates the HoverManager with the results. This is needed for:
+    /// - Normal mouse movement events (platform calls this)
+    /// - Synthetic mouse events from debug API (process_callback_result_v2 calls this)
+    ///
+    /// ## Parameters
+    /// * `position` - The logical position to hit test at
+    fn update_hit_test_at(&mut self, position: azul_core::geom::LogicalPosition) {
+        use azul_core::window::CursorPosition;
+        use azul_layout::managers::hover::InputPointId;
+        
+        let document_id = self.get_document_id();
+        let hidpi_factor = self.get_current_window_state().size.get_hidpi_factor();
+        
+        // Get focused node before borrowing layout_window
+        let focused_node = self.get_layout_window()
+            .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+        
+        // Check if layout window exists
+        let has_layout_window = self.get_layout_window().is_some();
+        if !has_layout_window {
+            return;
+        }
+        
+        // Resolve hit tester first (this mutates self.hit_tester from Requested to Resolved)
+        let resolved_hit_tester = self.get_hit_tester_mut().resolve();
+        
+        // Now get layout window immutably for hit testing
+        let hit_test = {
+            let layout_window = self.get_layout_window().unwrap();
+            
+            crate::desktop::wr_translate2::fullhittest_new_webrender(
+                &*resolved_hit_tester,
+                document_id,
+                focused_node,
+                &layout_window.layout_results,
+                &CursorPosition::InWindow(position),
+                hidpi_factor,
+            )
+        };
+        
+        // Store hit test in hover manager
+        if let Some(layout_window) = self.get_layout_window_mut() {
+            layout_window.hover_manager.push_hit_test(InputPointId::Mouse, hit_test);
+        }
+    }
+
     // PROVIDED: Callback Invocation (Cross-Platform Implementation)
 
     /// Invoke callbacks for a given target and event filter.
@@ -1788,15 +1839,25 @@ pub trait PlatformWindowV2 {
         use azul_core::callbacks::Update;
 
         let mut event_result = ProcessEventResult::DoNothing;
+        let mut mouse_state_changed = false;
 
         // Handle window state modifications
         if let Some(ref modified_state) = result.modified_window_state {
             let current_state = self.get_current_window_state_mut();
+            
+            // Check if mouse_state changed (for synthetic event injection)
+            let old_mouse_state = current_state.mouse_state.clone();
+            if old_mouse_state != modified_state.mouse_state {
+                mouse_state_changed = true;
+            }
+            
             current_state.title = modified_state.title.clone();
             current_state.size = modified_state.size;
             current_state.position = modified_state.position;
             current_state.flags = modified_state.flags;
             current_state.background_color = modified_state.background_color;
+            // Also copy mouse_state for synthetic event injection
+            current_state.mouse_state = modified_state.mouse_state.clone();
 
             // Check if window should close
             if modified_state.flags.close_requested {
@@ -1805,6 +1866,23 @@ pub trait PlatformWindowV2 {
             }
 
             event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+        
+        // If mouse_state changed, trigger event processing to invoke callbacks
+        // This enables synthetic mouse events from debug API and automation
+        if mouse_state_changed {
+            // First, update hit testing at the new mouse position
+            // This is critical for synthetic events - without hit testing,
+            // dispatch_synthetic_events won't know which nodes are under the mouse
+            let mouse_pos = self.get_current_window_state().mouse_state.cursor_position.get_position();
+            if let Some(pos) = mouse_pos {
+                self.update_hit_test_at(pos);
+            }
+            
+            // Re-process events with the new mouse state
+            // This will detect the mouse state change and invoke appropriate callbacks
+            let nested_result = self.process_window_events_recursive_v2(0);
+            event_result = event_result.max(nested_result);
         }
 
         // Handle focus changes
