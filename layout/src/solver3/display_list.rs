@@ -508,6 +508,137 @@ impl DisplayListBuilder {
         }
     }
 
+    /// Unified method to paint all background layers and border for an element.
+    /// 
+    /// This consolidates the background/border painting logic that was previously
+    /// duplicated across:
+    /// - paint_node_background_and_border() for block elements
+    /// - paint_inline_shape() for inline-block elements
+    ///
+    /// The backgrounds are painted in order (back to front per CSS spec), followed
+    /// by the border.
+    pub fn push_backgrounds_and_border(
+        &mut self,
+        bounds: LogicalRect,
+        background_contents: &[azul_css::props::style::StyleBackgroundContent],
+        border_info: &BorderInfo,
+        simple_border_radius: BorderRadius,
+        style_border_radius: StyleBorderRadius,
+    ) {
+        use azul_css::props::style::StyleBackgroundContent;
+        
+        // Paint all background layers in order (CSS paints backgrounds back to front)
+        for bg in background_contents {
+            match bg {
+                StyleBackgroundContent::Color(color) => {
+                    self.push_rect(bounds, *color, simple_border_radius);
+                }
+                StyleBackgroundContent::LinearGradient(gradient) => {
+                    self.push_linear_gradient(bounds, gradient.clone(), simple_border_radius);
+                }
+                StyleBackgroundContent::RadialGradient(gradient) => {
+                    self.push_radial_gradient(bounds, gradient.clone(), simple_border_radius);
+                }
+                StyleBackgroundContent::ConicGradient(gradient) => {
+                    self.push_conic_gradient(bounds, gradient.clone(), simple_border_radius);
+                }
+                StyleBackgroundContent::Image(_image_id) => {
+                    // TODO: Implement image backgrounds
+                }
+            }
+        }
+
+        // Paint border
+        self.push_border(
+            bounds,
+            border_info.widths,
+            border_info.colors,
+            border_info.styles,
+            style_border_radius,
+        );
+    }
+
+    /// Paint backgrounds and border for inline text elements.
+    /// 
+    /// Similar to push_backgrounds_and_border but uses InlineBorderInfo which stores
+    /// pre-resolved pixel values instead of CSS property values. This is used for
+    /// inline (display: inline) elements where the border info is computed during
+    /// text layout and stored in the glyph runs.
+    pub fn push_inline_backgrounds_and_border(
+        &mut self,
+        bounds: LogicalRect,
+        background_color: Option<ColorU>,
+        background_contents: &[azul_css::props::style::StyleBackgroundContent],
+        border: Option<&crate::text3::cache::InlineBorderInfo>,
+    ) {
+        use azul_css::props::style::StyleBackgroundContent;
+        
+        // Paint solid background color if present
+        if let Some(bg_color) = background_color {
+            self.push_rect(bounds, bg_color, BorderRadius::default());
+        }
+        
+        // Paint all background layers in order (CSS paints backgrounds back to front)
+        for bg in background_contents {
+            match bg {
+                StyleBackgroundContent::Color(color) => {
+                    self.push_rect(bounds, *color, BorderRadius::default());
+                }
+                StyleBackgroundContent::LinearGradient(gradient) => {
+                    self.push_linear_gradient(bounds, gradient.clone(), BorderRadius::default());
+                }
+                StyleBackgroundContent::RadialGradient(gradient) => {
+                    self.push_radial_gradient(bounds, gradient.clone(), BorderRadius::default());
+                }
+                StyleBackgroundContent::ConicGradient(gradient) => {
+                    self.push_conic_gradient(bounds, gradient.clone(), BorderRadius::default());
+                }
+                StyleBackgroundContent::Image(_image_id) => {
+                    // TODO: Implement image backgrounds for inline text
+                }
+            }
+        }
+
+        // Paint border if present
+        if let Some(border) = border {
+            if border.top > 0.0 || border.right > 0.0 || border.bottom > 0.0 || border.left > 0.0 {
+                let border_widths = StyleBorderWidths {
+                    top: Some(CssPropertyValue::Exact(LayoutBorderTopWidth { inner: PixelValue::px(border.top) })),
+                    right: Some(CssPropertyValue::Exact(LayoutBorderRightWidth { inner: PixelValue::px(border.right) })),
+                    bottom: Some(CssPropertyValue::Exact(LayoutBorderBottomWidth { inner: PixelValue::px(border.bottom) })),
+                    left: Some(CssPropertyValue::Exact(LayoutBorderLeftWidth { inner: PixelValue::px(border.left) })),
+                };
+                let border_colors = StyleBorderColors {
+                    top: Some(CssPropertyValue::Exact(StyleBorderTopColor { inner: border.top_color })),
+                    right: Some(CssPropertyValue::Exact(StyleBorderRightColor { inner: border.right_color })),
+                    bottom: Some(CssPropertyValue::Exact(StyleBorderBottomColor { inner: border.bottom_color })),
+                    left: Some(CssPropertyValue::Exact(StyleBorderLeftColor { inner: border.left_color })),
+                };
+                let border_styles = StyleBorderStyles {
+                    top: Some(CssPropertyValue::Exact(StyleBorderTopStyle { inner: BorderStyle::Solid })),
+                    right: Some(CssPropertyValue::Exact(StyleBorderRightStyle { inner: BorderStyle::Solid })),
+                    bottom: Some(CssPropertyValue::Exact(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
+                    left: Some(CssPropertyValue::Exact(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
+                };
+                let radius_px = PixelValue::px(border.radius.unwrap_or(0.0));
+                let border_radius = StyleBorderRadius {
+                    top_left: radius_px,
+                    top_right: radius_px,
+                    bottom_left: radius_px,
+                    bottom_right: radius_px,
+                };
+                
+                self.push_border(
+                    bounds,
+                    border_widths,
+                    border_colors,
+                    border_styles,
+                    border_radius,
+                );
+            }
+        }
+    }
+
     /// Push a linear gradient background
     pub fn push_linear_gradient(
         &mut self,
@@ -1389,8 +1520,6 @@ where
         }
 
         let border_radius = if let Some(dom_id) = node.dom_node_id {
-            use azul_css::props::style::StyleBackgroundContent;
-
             let styled_node_state = self.get_styled_node_state(dom_id);
             let background_contents =
                 get_background_contents(self.ctx.styled_dom, dom_id, &styled_node_state);
@@ -1422,33 +1551,12 @@ where
             let style_border_radius =
                 get_style_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
-            // Paint all background layers in order (CSS paints backgrounds back to front)
-            for bg in background_contents {
-                match bg {
-                    StyleBackgroundContent::Color(color) => {
-                        builder.push_rect(paint_rect, color, simple_border_radius);
-                    }
-                    StyleBackgroundContent::LinearGradient(gradient) => {
-                        builder.push_linear_gradient(paint_rect, gradient, simple_border_radius);
-                    }
-                    StyleBackgroundContent::RadialGradient(gradient) => {
-                        builder.push_radial_gradient(paint_rect, gradient, simple_border_radius);
-                    }
-                    StyleBackgroundContent::ConicGradient(gradient) => {
-                        builder.push_conic_gradient(paint_rect, gradient, simple_border_radius);
-                    }
-                    StyleBackgroundContent::Image(_image_id) => {
-                        // TODO: Implement image backgrounds
-                        // Would need to look up image_id and push_image
-                    }
-                }
-            }
-
-            builder.push_border(
+            // Use unified background/border painting
+            builder.push_backgrounds_and_border(
                 paint_rect,
-                border_info.widths,
-                border_info.colors,
-                border_info.styles,
+                &background_contents,
+                &border_info,
+                simple_border_radius,
                 style_border_radius,
             );
 
@@ -1807,100 +1915,28 @@ where
                 let run_end_x = container_rect.origin.x + last_glyph.point.x;
                 let run_width = (run_end_x - run_start_x).max(0.0);
                 
+                // Skip if run has no width
+                if run_width <= 0.0 {
+                    continue;
+                }
+                
                 // Approximate height based on font size (baseline is at glyph.point.y)
                 let baseline_y = container_rect.origin.y + first_glyph.point.y;
                 let font_size = glyph_run.font_size_px;
                 let ascent = font_size * 0.8; // Approximate ascent
-                let descent = font_size * 0.2; // Approximate descent
                 
                 let run_bounds = LogicalRect::new(
                     LogicalPosition::new(run_start_x, baseline_y - ascent),
                     LogicalSize::new(run_width, font_size),
                 );
-                
-                // Skip if run has no width
-                if run_width <= 0.0 {
-                    continue;
-                }
 
-                // Render solid background color if present
-                if let Some(bg_color) = glyph_run.background_color {
-                    builder.push_rect(run_bounds, ColorU::from(bg_color), BorderRadius::default());
-                }
-
-                // Render gradient backgrounds
-                use azul_css::props::style::StyleBackgroundContent;
-                for bg_content in &glyph_run.background_content {
-                    match bg_content {
-                        StyleBackgroundContent::Color(color) => {
-                            builder.push_rect(run_bounds, ColorU::from(*color), BorderRadius::default());
-                        }
-                        StyleBackgroundContent::LinearGradient(linear_gradient) => {
-                            builder.push_linear_gradient(
-                                run_bounds,
-                                linear_gradient.clone(),
-                                BorderRadius::default(),
-                            );
-                        }
-                        StyleBackgroundContent::RadialGradient(radial_gradient) => {
-                            builder.push_radial_gradient(
-                                run_bounds,
-                                radial_gradient.clone(),
-                                BorderRadius::default(),
-                            );
-                        }
-                        StyleBackgroundContent::ConicGradient(conic_gradient) => {
-                            builder.push_conic_gradient(
-                                run_bounds,
-                                conic_gradient.clone(),
-                                BorderRadius::default(),
-                            );
-                        }
-                        StyleBackgroundContent::Image(_) => {
-                            // TODO: Handle background images for inline text
-                        }
-                    }
-                }
-
-                // Render border if present
-                if let Some(ref border) = glyph_run.border {
-                    // Only render if there's actual border width
-                    if border.top > 0.0 || border.right > 0.0 || border.bottom > 0.0 || border.left > 0.0 {
-                        let border_widths = StyleBorderWidths {
-                            top: Some(CssPropertyValue::Exact(LayoutBorderTopWidth { inner: PixelValue::px(border.top) })),
-                            right: Some(CssPropertyValue::Exact(LayoutBorderRightWidth { inner: PixelValue::px(border.right) })),
-                            bottom: Some(CssPropertyValue::Exact(LayoutBorderBottomWidth { inner: PixelValue::px(border.bottom) })),
-                            left: Some(CssPropertyValue::Exact(LayoutBorderLeftWidth { inner: PixelValue::px(border.left) })),
-                        };
-                        let border_colors = StyleBorderColors {
-                            top: Some(CssPropertyValue::Exact(StyleBorderTopColor { inner: border.top_color })),
-                            right: Some(CssPropertyValue::Exact(StyleBorderRightColor { inner: border.right_color })),
-                            bottom: Some(CssPropertyValue::Exact(StyleBorderBottomColor { inner: border.bottom_color })),
-                            left: Some(CssPropertyValue::Exact(StyleBorderLeftColor { inner: border.left_color })),
-                        };
-                        let border_styles = StyleBorderStyles {
-                            top: Some(CssPropertyValue::Exact(StyleBorderTopStyle { inner: BorderStyle::Solid })),
-                            right: Some(CssPropertyValue::Exact(StyleBorderRightStyle { inner: BorderStyle::Solid })),
-                            bottom: Some(CssPropertyValue::Exact(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-                            left: Some(CssPropertyValue::Exact(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
-                        };
-                        let radius_px = PixelValue::px(border.radius.unwrap_or(0.0));
-                        let border_radius = StyleBorderRadius {
-                            top_left: radius_px,
-                            top_right: radius_px,
-                            bottom_left: radius_px,
-                            bottom_right: radius_px,
-                        };
-                        
-                        builder.push_border(
-                            run_bounds,
-                            border_widths,
-                            border_colors,
-                            border_styles,
-                            border_radius,
-                        );
-                    }
-                }
+                // Use unified inline background/border painting
+                builder.push_inline_backgrounds_and_border(
+                    run_bounds,
+                    glyph_run.background_color,
+                    &glyph_run.background_content,
+                    glyph_run.border.as_ref(),
+                );
             }
         }
 
@@ -2035,8 +2071,6 @@ where
         shape: &InlineShape,
         bounds: &crate::text3::cache::Rect,
     ) -> Result<()> {
-        use azul_css::props::style::StyleBackgroundContent;
-
         // Render inline-block backgrounds and borders using their CSS styling
         // The text3 engine positions these correctly in the inline flow
         let Some(node_id) = shape.source_node_id else {
@@ -2068,33 +2102,12 @@ where
         // Get style border radius for border rendering
         let style_border_radius = get_style_border_radius(self.ctx.styled_dom, node_id, styled_node_state);
 
-        // Paint all background layers in order (CSS paints backgrounds back to front)
-        for bg in background_contents {
-            match bg {
-                StyleBackgroundContent::Color(color) => {
-                    builder.push_rect(object_bounds, color, simple_border_radius);
-                }
-                StyleBackgroundContent::LinearGradient(gradient) => {
-                    builder.push_linear_gradient(object_bounds, gradient, simple_border_radius);
-                }
-                StyleBackgroundContent::RadialGradient(gradient) => {
-                    builder.push_radial_gradient(object_bounds, gradient, simple_border_radius);
-                }
-                StyleBackgroundContent::ConicGradient(gradient) => {
-                    builder.push_conic_gradient(object_bounds, gradient, simple_border_radius);
-                }
-                StyleBackgroundContent::Image(_image_id) => {
-                    // TODO: Implement image backgrounds
-                }
-            }
-        }
-
-        // Paint border
-        builder.push_border(
+        // Use unified background/border painting
+        builder.push_backgrounds_and_border(
             object_bounds,
-            border_info.widths,
-            border_info.colors,
-            border_info.styles,
+            &background_contents,
+            &border_info,
+            simple_border_radius,
             style_border_radius,
         );
 

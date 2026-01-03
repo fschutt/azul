@@ -1081,6 +1081,55 @@ pub fn get_inline_border_info(
             .unwrap_or(ColorU::BLACK)
     }
     
+    // Extract border-radius (simplified - uses the average of all corners if uniform)
+    fn get_border_radius_px(
+        styled_dom: &StyledDom,
+        node_id: NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<f32> {
+        let node_data = &styled_dom.node_data.as_container()[node_id];
+        
+        let top_left = styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_top_left_radius(node_data, &node_id, node_state)
+            .and_then(|br| br.get_property().cloned())
+            .map(|v| v.inner.number.get());
+        
+        let top_right = styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_top_right_radius(node_data, &node_id, node_state)
+            .and_then(|br| br.get_property().cloned())
+            .map(|v| v.inner.number.get());
+        
+        let bottom_left = styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_bottom_left_radius(node_data, &node_id, node_state)
+            .and_then(|br| br.get_property().cloned())
+            .map(|v| v.inner.number.get());
+        
+        let bottom_right = styled_dom
+            .css_property_cache
+            .ptr
+            .get_border_bottom_right_radius(node_data, &node_id, node_state)
+            .and_then(|br| br.get_property().cloned())
+            .map(|v| v.inner.number.get());
+        
+        // If any radius is defined, use the maximum (for inline, uniform radius is most common)
+        let radii: Vec<f32> = [top_left, top_right, bottom_left, bottom_right]
+            .into_iter()
+            .filter_map(|r| r)
+            .collect();
+        
+        if radii.is_empty() {
+            None
+        } else {
+            Some(radii.into_iter().fold(0.0f32, |a, b| a.max(b)))
+        }
+    }
+    
     let top = get_border_width_px(&border_info.widths.top);
     let right = get_border_width_px_right(&border_info.widths.right);
     let bottom = get_border_width_px_bottom(&border_info.widths.bottom);
@@ -1100,7 +1149,7 @@ pub fn get_inline_border_info(
         right_color: get_border_color_right(&border_info.colors.right),
         bottom_color: get_border_color_bottom(&border_info.colors.bottom),
         left_color: get_border_color_left(&border_info.colors.left),
-        radius: None, // TODO: Extract border-radius if needed
+        radius: get_border_radius_px(styled_dom, node_id, node_state),
     })
 }
 
@@ -1345,6 +1394,7 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
             (bg_color, bg_contents, inline_border)
         } else {
             // Block-level elements: background/border is painted by display_list.rs
+            // via push_backgrounds_and_border() in DisplayListBuilder
             (None, Vec::new(), None)
         };
 
