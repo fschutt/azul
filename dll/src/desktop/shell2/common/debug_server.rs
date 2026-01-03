@@ -36,18 +36,139 @@ pub struct DebugRequest {
     pub event: DebugEvent,
     pub window_id: Option<String>,
     pub wait_for_render: bool,
-    pub response_tx: mpsc::Sender<DebugResponse>,
+    pub response_tx: mpsc::Sender<DebugResponseData>,
 }
 
-/// Response from timer callback to HTTP thread
+/// Response data from timer callback to HTTP thread (internal)
 #[cfg(feature = "std")]
 #[derive(Debug, Clone)]
-pub struct DebugResponse {
+pub enum DebugResponseData {
+    /// Successful response with optional data
+    Ok {
+        window_state: Option<WindowStateSnapshot>,
+        data: Option<ResponseData>,
+    },
+    /// Error response
+    Err(String),
+}
+
+/// Typed response data variants
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum ResponseData {
+    /// Screenshot data (base64 encoded PNG)
+    Screenshot(ScreenshotData),
+    /// Node CSS properties
+    NodeCssProperties(NodeCssPropertiesResponse),
+    /// Node layout
+    NodeLayout(NodeLayoutResponse),
+    /// All nodes layout
+    AllNodesLayout(AllNodesLayoutResponse),
+    /// DOM tree
+    DomTree(DomTreeResponse),
+    /// Node hierarchy
+    NodeHierarchy(NodeHierarchyResponse),
+    /// Layout tree
+    LayoutTree(LayoutTreeResponse),
+    /// Display list
+    DisplayList(DisplayListResponse),
+    /// Scroll states
+    ScrollStates(ScrollStatesResponse),
+    /// Scrollable nodes
+    ScrollableNodes(ScrollableNodesResponse),
+    /// Scroll to node result
+    ScrollToNode(ScrollToNodeResponse),
+    /// Hit test result
+    HitTest(HitTestResponse),
+    /// HTML string
+    HtmlString(HtmlStringResponse),
+    /// Log messages
+    Logs(LogsResponse),
+    /// Health check
+    Health(HealthResponse),
+}
+
+/// Screenshot response data
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ScreenshotData {
+    /// Base64 encoded PNG with data URI prefix
+    pub data: String,
+}
+
+/// Hit test response
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HitTestResponse {
+    pub x: f32,
+    pub y: f32,
+    pub node_id: Option<u64>,
+    pub node_tag: Option<String>,
+}
+
+/// HTML string response
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HtmlStringResponse {
+    pub html: String,
+}
+
+/// Logs response
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LogsResponse {
+    pub logs: Vec<LogMessage>,
+}
+
+/// Health check response
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HealthResponse {
+    pub port: u16,
+    pub pending_logs: usize,
+    pub logs: Vec<LogMessageJson>,
+}
+
+/// JSON-friendly log message
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LogMessageJson {
+    pub timestamp_us: u64,
+    pub level: String,
+    pub category: String,
+    pub message: String,
+}
+
+/// HTTP response wrapper for serialization
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "status")]
+pub enum HttpResponse {
+    #[serde(rename = "ok")]
+    Ok(HttpResponseOk),
+    #[serde(rename = "error")]
+    Error(HttpResponseError),
+}
+
+/// Successful HTTP response body
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HttpResponseOk {
     pub request_id: u64,
-    pub success: bool,
-    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub window_state: Option<WindowStateSnapshot>,
-    pub data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<ResponseData>,
+}
+
+/// Error HTTP response body
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HttpResponseError {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<u64>,
+    pub message: String,
 }
 
 /// A log message
@@ -712,30 +833,36 @@ pub fn take_logs() -> Vec<LogMessage> {
     Vec::new()
 }
 
-/// Send a response to a debug request
-/// NOTE: Logs are NOT included in responses by default to keep response size small.
-/// Use GetLogs event type to retrieve logs explicitly.
+/// Send a successful response to a debug request
 #[cfg(feature = "std")]
-pub fn send_response(
+pub fn send_ok(
     request: &DebugRequest,
-    success: bool,
-    error: Option<String>,
-    data: Option<String>,
     window_state: Option<WindowStateSnapshot>,
+    data: Option<ResponseData>,
 ) {
     // Clear logs to prevent memory buildup
     let _ = take_logs();
-    let response = DebugResponse {
-        request_id: request.request_id,
-        success,
-        error,
-        window_state,
-        data,
-    };
-    match request.response_tx.send(response) {
-        Ok(()) => eprintln!("[DEBUG TIMER] Response {} sent successfully via channel", request.request_id),
-        Err(e) => eprintln!("[DEBUG TIMER] ERROR sending response {}: {:?}", request.request_id, e),
+    let response = DebugResponseData::Ok { window_state, data };
+    if let Err(e) = request.response_tx.send(response) {
+        eprintln!("[DEBUG] ERROR sending response {}: {:?}", request.request_id, e);
     }
+}
+
+/// Send an error response to a debug request
+#[cfg(feature = "std")]
+pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
+    // Clear logs to prevent memory buildup
+    let _ = take_logs();
+    let response = DebugResponseData::Err(message.into());
+    if let Err(e) = request.response_tx.send(response) {
+        eprintln!("[DEBUG] ERROR sending response {}: {:?}", request.request_id, e);
+    }
+}
+
+/// Helper function for serializing HttpResponse
+#[cfg(feature = "std")]
+fn serialize_http_response(response: &HttpResponse) -> String {
+    serde_json::to_string(response).unwrap_or_else(|_| r#"{"status":"error","message":"Serialization failed"}"#.to_string())
 }
 
 // ==================== HTTP Server ====================
@@ -771,18 +898,21 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
         // Health check - GET /
         ("GET", "/") | ("GET", "/health") => {
             let logs = take_logs();
-            serde_json::to_string(&serde_json::json!({
-                "status": "ok",
-                "port": DEBUG_PORT.get().copied().unwrap_or(0),
-                "pending_logs": logs.len(),
-                "logs": logs.iter().map(|l| serde_json::json!({
-                    "timestamp_us": l.timestamp_us,
-                    "level": format!("{:?}", l.level),
-                    "category": format!("{:?}", l.category),
-                    "message": l.message,
-                })).collect::<Vec<_>>()
+            let health = HealthResponse {
+                port: DEBUG_PORT.get().copied().unwrap_or(0),
+                pending_logs: logs.len(),
+                logs: logs.iter().map(|l| LogMessageJson {
+                    timestamp_us: l.timestamp_us,
+                    level: format!("{:?}", l.level),
+                    category: format!("{:?}", l.category),
+                    message: l.message.clone(),
+                }).collect(),
+            };
+            serialize_http_response(&HttpResponse::Ok(HttpResponseOk {
+                request_id: 0,
+                window_state: None,
+                data: Some(ResponseData::Health(health)),
             }))
-            .unwrap_or_else(|_| r#"{"status":"ok"}"#.to_string())
         }
 
         // Event handling - POST /
@@ -797,31 +927,62 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
                 let body = &request[start..];
                 handle_event_request(body)
             } else {
-                r#"{"status":"error","message":"No request body"}"#.to_string()
+                serialize_http_response(&HttpResponse::Error(HttpResponseError {
+                    request_id: None,
+                    message: "No request body".to_string(),
+                }))
             }
         }
 
         _ => {
-            r#"{"status":"error","message":"Use GET / for status or POST / with JSON body"}"#
-                .to_string()
+            serialize_http_response(&HttpResponse::Error(HttpResponseError {
+                request_id: None,
+                message: "Use GET / for status or POST / with JSON body".to_string(),
+            }))
         }
     };
 
-    let http_response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        response_json.len(),
-        response_json
+    // Calculate length for Content-Length header
+    let body_bytes = response_json.as_bytes();
+    let header = format!(
+        "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body_bytes.len()
     );
 
-    let _ = stream.write_all(http_response.as_bytes());
-    let _ = stream.flush();
+    // Set NoDelay to push packets immediately
+    stream.set_nodelay(true).ok();
+
+    // Write header and body
+    if stream.write_all(header.as_bytes()).is_err() {
+        return;
+    }
+    if stream.write_all(body_bytes).is_err() {
+        return;
+    }
+    
+    // Flush ensures data is in the kernel buffer
+    if stream.flush().is_err() {
+        return;
+    }
+
+    // Graceful Shutdown Pattern
+    // 1. Shutdown WRITE side only. This sends TCP FIN to the client.
+    if stream.shutdown(std::net::Shutdown::Write).is_err() {
+        return;
+    }
+
+    // 2. Read until EOF. This keeps the socket alive until the client
+    //    confirms receipt and closes their end. This prevents the OS
+    //    from destroying the socket while data is still in flight (RST).
+    let mut buffer = [0u8; 512];
+    while let Ok(n) = stream.read(&mut buffer) {
+        if n == 0 { break; } // EOF received, client closed connection
+    }
 }
 
 #[cfg(feature = "std")]
 fn handle_event_request(body: &str) -> String {
     use std::time::Duration;
-
-    eprintln!("[DEBUG HTTP] handle_event_request called with body: {}", &body[..body.len().min(100)]);
 
     // Parse the event request
     #[derive(serde::Deserialize)]
@@ -841,7 +1002,6 @@ fn handle_event_request(body: &str) -> String {
             // Create request and channel
             let (tx, rx) = mpsc::channel();
             let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst);
-            let event_debug = format!("{:?}", req.event);
 
             let request = DebugRequest {
                 request_id,
@@ -854,50 +1014,49 @@ fn handle_event_request(body: &str) -> String {
             // Push to queue
             if let Some(queue) = REQUEST_QUEUE.get() {
                 if let Ok(mut q) = queue.lock() {
-                    eprintln!("[DEBUG HTTP] Pushing request {} ({}) to queue (queue len before: {})", request_id, event_debug, q.len());
                     q.push_back(request);
                 }
             }
 
-            eprintln!("[DEBUG HTTP] Request {} - waiting on rx.recv_timeout(30s)...", request_id);
             // Wait for response (with timeout)
             match rx.recv_timeout(Duration::from_secs(30)) {
-                Ok(response) => {
-                    eprintln!("[DEBUG HTTP] Request {} - received response (success: {})", response.request_id, response.success);
-                    serde_json::to_string(&serde_json::json!({
-                        "status": if response.success { "ok" } else { "error" },
-                        "request_id": response.request_id,
-                        "error": response.error,
-                        "window_state": response.window_state,
-                        "data": response.data,
-                    }))
-                    .unwrap_or_else(|_| r#"{"status":"error"}"#.to_string())
+                Ok(response_data) => {
+                    let http_response = match response_data {
+                        DebugResponseData::Ok { window_state, data } => {
+                            HttpResponse::Ok(HttpResponseOk {
+                                request_id,
+                                window_state,
+                                data,
+                            })
+                        }
+                        DebugResponseData::Err(message) => {
+                            HttpResponse::Error(HttpResponseError {
+                                request_id: Some(request_id),
+                                message,
+                            })
+                        }
+                    };
+                    serialize_http_response(&http_response)
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
-                    eprintln!("[DEBUG HTTP] Request {} - TIMEOUT after 30s!", request_id);
-                    r#"{"status":"error","message":"Timeout waiting for response (is the timer running?)"}"#.to_string()
+                    serialize_http_response(&HttpResponse::Error(HttpResponseError {
+                        request_id: Some(request_id),
+                        message: "Timeout waiting for response (is the timer running?)".to_string(),
+                    }))
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    eprintln!("[DEBUG HTTP] Request {} - channel DISCONNECTED!", request_id);
-                    r#"{"status":"error","message":"Event loop disconnected"}"#.to_string()
+                    serialize_http_response(&HttpResponse::Error(HttpResponseError {
+                        request_id: Some(request_id),
+                        message: "Event loop disconnected".to_string(),
+                    }))
                 }
             }
         }
         Err(e) => {
-            let valid_types = [
-                "mouse_move", "mouse_down", "mouse_up", "click", "double_click", "scroll",
-                "key_down", "key_up", "text_input",
-                "resize", "move", "focus", "blur", "close", "dpi_changed",
-                "get_state", "get_dom", "hit_test", "get_logs",
-                "get_html_string", "get_node_css_properties", "get_node_layout",
-                "get_all_nodes_layout", "get_dom_tree", "get_node_hierarchy",
-                "get_layout_tree", "get_display_list", "get_scroll_states",
-                "get_scrollable_nodes", "scroll_to_node",
-                "relayout", "redraw", "wait_frame", "wait",
-                "take_screenshot", "take_native_screenshot",
-            ];
-            eprintln!("[DEBUG HTTP] Invalid JSON request: {}. Valid types: {:?}", e, valid_types);
-            format!(r#"{{"status":"error","message":"Invalid JSON: {}. Valid types: {:?}"}}"#, e, valid_types)
+            serialize_http_response(&HttpResponse::Error(HttpResponseError {
+                request_id: None,
+                message: format!("Invalid JSON: {}", e),
+            }))
         }
     }
 }
@@ -920,16 +1079,13 @@ pub extern "C" fn debug_timer_callback(
         .map(|q| q.len())
         .unwrap_or(0);
     
-    if queue_len > 0 {
-        eprintln!("[DEBUG TIMER] debug_timer_callback invoked, queue_len={}", queue_len);
-    }
+
 
     // Process all pending requests (no debug output unless there's work to do)
     let mut needs_update = false;
     let mut processed_count = 0;
 
     while let Some(request) = pop_request() {
-        eprintln!("[DEBUG TIMER] Processing request {} ({:?})", request.request_id, request.event);
         log(
             LogLevel::Debug,
             LogCategory::DebugServer,
@@ -942,9 +1098,7 @@ pub extern "C" fn debug_timer_callback(
         processed_count += 1;
     }
     
-    if processed_count > 0 {
-        eprintln!("[DEBUG TIMER] Processed {} requests, needs_update={}", processed_count, needs_update);
-    }
+
 
     TimerCallbackReturn {
         should_update: if needs_update {
@@ -986,7 +1140,7 @@ fn process_debug_event(
                 dom_node_count: 0,
             };
 
-            send_response(request, true, None, None, Some(snapshot));
+            send_ok(request, Some(snapshot), None);
         }
 
         DebugEvent::Resize { width, height } => {
@@ -1002,46 +1156,205 @@ fn process_debug_event(
             callback_info.modify_window_state(new_state);
             needs_update = true;
 
-            send_response(request, true, None, None, None);
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::MouseMove { x, y } => {
+            log(
+                LogLevel::Debug,
+                LogCategory::EventLoop,
+                format!("Debug mouse move to ({}, {})", x, y),
+                None,
+            );
+
+            let mut new_state = callback_info.get_current_window_state().clone();
+            new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
+                LogicalPosition { x: *x, y: *y }
+            );
+            callback_info.modify_window_state(new_state);
+            needs_update = true;
+
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::MouseDown { x, y, button } => {
+            log(
+                LogLevel::Debug,
+                LogCategory::EventLoop,
+                format!("Debug mouse down at ({}, {}) button {:?}", x, y, button),
+                None,
+            );
+
+            let mut new_state = callback_info.get_current_window_state().clone();
+            new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
+                LogicalPosition { x: *x, y: *y }
+            );
+            match button {
+                MouseButton::Left => new_state.mouse_state.left_down = true,
+                MouseButton::Right => new_state.mouse_state.right_down = true,
+                MouseButton::Middle => new_state.mouse_state.middle_down = true,
+            }
+            callback_info.modify_window_state(new_state);
+            needs_update = true;
+
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::MouseUp { x, y, button } => {
+            log(
+                LogLevel::Debug,
+                LogCategory::EventLoop,
+                format!("Debug mouse up at ({}, {}) button {:?}", x, y, button),
+                None,
+            );
+
+            let mut new_state = callback_info.get_current_window_state().clone();
+            new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
+                LogicalPosition { x: *x, y: *y }
+            );
+            match button {
+                MouseButton::Left => new_state.mouse_state.left_down = false,
+                MouseButton::Right => new_state.mouse_state.right_down = false,
+                MouseButton::Middle => new_state.mouse_state.middle_down = false,
+            }
+            callback_info.modify_window_state(new_state);
+            needs_update = true;
+
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::Click { x, y, button } => {
+            log(
+                LogLevel::Debug,
+                LogCategory::EventLoop,
+                format!("Debug click at ({}, {}) button {:?}", x, y, button),
+                None,
+            );
+
+            // Click = mouse down + mouse up at same position
+            let mut new_state = callback_info.get_current_window_state().clone();
+            new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
+                LogicalPosition { x: *x, y: *y }
+            );
+            // First set button down
+            match button {
+                MouseButton::Left => new_state.mouse_state.left_down = true,
+                MouseButton::Right => new_state.mouse_state.right_down = true,
+                MouseButton::Middle => new_state.mouse_state.middle_down = true,
+            }
+            callback_info.modify_window_state(new_state.clone());
+            
+            // Then set button up (this should trigger the mouseUp event)
+            match button {
+                MouseButton::Left => new_state.mouse_state.left_down = false,
+                MouseButton::Right => new_state.mouse_state.right_down = false,
+                MouseButton::Middle => new_state.mouse_state.middle_down = false,
+            }
+            callback_info.modify_window_state(new_state);
+            needs_update = true;
+
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::DoubleClick { x, y, button } => {
+            log(
+                LogLevel::Debug,
+                LogCategory::EventLoop,
+                format!("Debug double click at ({}, {}) button {:?}", x, y, button),
+                None,
+            );
+
+            // For double click, we set the position and rely on timing
+            // In practice, we just do a click for now
+            let mut new_state = callback_info.get_current_window_state().clone();
+            new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
+                LogicalPosition { x: *x, y: *y }
+            );
+            match button {
+                MouseButton::Left => {
+                    new_state.mouse_state.left_down = true;
+                    callback_info.modify_window_state(new_state.clone());
+                    new_state.mouse_state.left_down = false;
+                }
+                MouseButton::Right => {
+                    new_state.mouse_state.right_down = true;
+                    callback_info.modify_window_state(new_state.clone());
+                    new_state.mouse_state.right_down = false;
+                }
+                MouseButton::Middle => {
+                    new_state.mouse_state.middle_down = true;
+                    callback_info.modify_window_state(new_state.clone());
+                    new_state.mouse_state.middle_down = false;
+                }
+            }
+            callback_info.modify_window_state(new_state);
+            needs_update = true;
+
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::Scroll { x, y, delta_x, delta_y } => {
+            log(
+                LogLevel::Debug,
+                LogCategory::EventLoop,
+                format!("Debug scroll at ({}, {}) delta ({}, {})", x, y, delta_x, delta_y),
+                None,
+            );
+
+            // Scroll events are handled differently - just move cursor and log for now
+            // TODO: Implement scroll state modification when available
+            let mut new_state = callback_info.get_current_window_state().clone();
+            new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
+                LogicalPosition { x: *x, y: *y }
+            );
+            callback_info.modify_window_state(new_state);
+            needs_update = true;
+
+            send_ok(request, None, None);
         }
 
         DebugEvent::Relayout => {
             log(LogLevel::Info, LogCategory::Layout, "Forcing relayout", None);
             needs_update = true;
-            send_response(request, true, None, None, None);
+            send_ok(request, None, None);
         }
 
         DebugEvent::Redraw => {
             log(LogLevel::Info, LogCategory::Rendering, "Requesting redraw", None);
             needs_update = true;
-            send_response(request, true, None, None, None);
+            send_ok(request, None, None);
         }
 
         DebugEvent::Close => {
             log(LogLevel::Info, LogCategory::EventLoop, "Close via close_window()", None);
             callback_info.close_window();
             needs_update = true;
-            send_response(request, true, None, None, None);
+            send_ok(request, None, None);
         }
 
         DebugEvent::HitTest { x, y } => {
             let hit_test = callback_info.get_hit_test_frame(0);
-            let data = format!("{:?}", hit_test);
-            send_response(request, true, None, Some(data), None);
+            let response = HitTestResponse {
+                x: *x,
+                y: *y,
+                node_id: None, // TODO: extract from hit_test
+                node_tag: None,
+            };
+            send_ok(request, None, Some(ResponseData::HitTest(response)));
         }
 
         DebugEvent::GetLogs { .. } => {
-            // GetLogs clears logs but doesn't return them in response anymore
-            send_response(request, true, None, None, None);
+            let logs = take_logs();
+            send_ok(request, None, Some(ResponseData::Logs(LogsResponse { logs })));
         }
 
         DebugEvent::WaitFrame => {
-            send_response(request, true, None, None, None);
+            send_ok(request, None, None);
         }
 
         DebugEvent::Wait { ms } => {
             std::thread::sleep(std::time::Duration::from_millis(*ms));
-            send_response(request, true, None, None, None);
+            send_ok(request, None, None);
         }
 
         DebugEvent::TakeScreenshot => {
@@ -1050,10 +1363,11 @@ fn process_debug_event(
             let dom_id = azul_core::dom::DomId { inner: 0 };
             match callback_info.take_screenshot_base64(dom_id) {
                 Ok(data_uri) => {
-                    send_response(request, true, None, Some(data_uri.as_str().to_string()), None);
+                    let data = ScreenshotData { data: data_uri.as_str().to_string() };
+                    send_ok(request, None, Some(ResponseData::Screenshot(data)));
                 }
                 Err(e) => {
-                    send_response(request, false, Some(e.as_str().to_string()), None, None);
+                    send_err(request, e.as_str().to_string());
                 }
             }
         }
@@ -1062,10 +1376,11 @@ fn process_debug_event(
             log(LogLevel::Info, LogCategory::Rendering, "Taking native screenshot via debug API", None);
             match callback_info.take_native_screenshot_base64() {
                 Ok(data_uri) => {
-                    send_response(request, true, None, Some(data_uri.as_str().to_string()), None);
+                    let data = ScreenshotData { data: data_uri.as_str().to_string() };
+                    send_ok(request, None, Some(ResponseData::Screenshot(data)));
                 }
                 Err(e) => {
-                    send_response(request, false, Some(e.as_str().to_string()), None, None);
+                    send_err(request, e.as_str().to_string());
                 }
             }
         }
@@ -1076,9 +1391,9 @@ fn process_debug_event(
             let layout_window = callback_info.get_layout_window();
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 let html = layout_result.styled_dom.get_html_string("", "", true);
-                send_response(request, true, None, Some(html), None);
+                send_ok(request, None, Some(ResponseData::HtmlString(HtmlStringResponse { html })));
             } else {
-                send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
+                send_err(request, "No layout result for DOM 0");
             }
         }
 
@@ -1108,8 +1423,7 @@ fn process_debug_event(
                 property_count: props.len(),
                 properties: props,
             };
-            let data = serde_json::to_string(&response).unwrap_or_default();
-            send_response(request, true, None, Some(data), None);
+            send_ok(request, None, Some(ResponseData::NodeCssProperties(response)));
         }
 
         DebugEvent::GetNodeLayout { node_id } => {
@@ -1131,8 +1445,7 @@ fn process_debug_event(
                 position: pos.map(|p| LogicalPositionJson { x: p.x, y: p.y }),
                 rect: rect.map(|r| LogicalRectJson { x: r.origin.x, y: r.origin.y, width: r.size.width, height: r.size.height }),
             };
-            let data = serde_json::to_string(&response).unwrap_or_default();
-            send_response(request, true, None, Some(data), None);
+            send_ok(request, None, Some(ResponseData::NodeLayout(response)));
         }
 
         DebugEvent::GetAllNodesLayout => {
@@ -1176,8 +1489,7 @@ fn process_debug_event(
                 node_count: nodes.len(),
                 nodes,
             };
-            let data = serde_json::to_string(&response).unwrap_or_default();
-            send_response(request, true, None, Some(data), None);
+            send_ok(request, None, Some(ResponseData::AllNodesLayout(response)));
         }
 
         DebugEvent::GetDomTree => {
@@ -1204,10 +1516,9 @@ fn process_debug_event(
                     logical_width: logical_size.width,
                     logical_height: logical_size.height,
                 };
-                let data = serde_json::to_string(&response).unwrap_or_default();
-                send_response(request, true, None, Some(data), None);
+                send_ok(request, None, Some(ResponseData::DomTree(response)));
             } else {
-                send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
+                send_err(request, "No layout result for DOM 0");
             }
         }
 
@@ -1278,10 +1589,9 @@ fn process_debug_event(
                     node_count: nodes.len(),
                     nodes,
                 };
-                let data = serde_json::to_string(&response).unwrap_or_default();
-                send_response(request, true, None, Some(data), None);
+                send_ok(request, None, Some(ResponseData::NodeHierarchy(response)));
             } else {
-                send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
+                send_err(request, "No layout result for DOM 0");
             }
         }
 
@@ -1331,10 +1641,9 @@ fn process_debug_event(
                     node_count: nodes.len(),
                     nodes,
                 };
-                let data = serde_json::to_string(&response).unwrap_or_default();
-                send_response(request, true, None, Some(data), None);
+                send_ok(request, None, Some(ResponseData::LayoutTree(response)));
             } else {
-                send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
+                send_err(request, "No layout result for DOM 0");
             }
         }
 
@@ -1512,10 +1821,9 @@ fn process_debug_event(
                     other_count,
                     items,
                 };
-                let data = serde_json::to_string(&response).unwrap_or_default();
-                send_response(request, true, None, Some(data), None);
+                send_ok(request, None, Some(ResponseData::DisplayList(response)));
             } else {
-                send_response(request, false, Some("No layout result for DOM 0".to_string()), None, None);
+                send_err(request, "No layout result for DOM 0");
             }
         }
 
@@ -1555,8 +1863,7 @@ fn process_debug_event(
                 scroll_node_count: states.len(),
                 scroll_states: states,
             };
-            let data = serde_json::to_string(&response).unwrap_or_default();
-            send_response(request, true, None, Some(data), None);
+            send_ok(request, None, Some(ResponseData::ScrollStates(response)));
         }
 
         DebugEvent::GetScrollableNodes => {
@@ -1592,8 +1899,7 @@ fn process_debug_event(
                 scrollable_node_count: scrollable_nodes.len(),
                 scrollable_nodes,
             };
-            let data = serde_json::to_string(&response).unwrap_or_default();
-            send_response(request, true, None, Some(data), None);
+            send_ok(request, None, Some(ResponseData::ScrollableNodes(response)));
         }
 
         DebugEvent::ScrollToNode { node_id, x, y } => {
@@ -1616,8 +1922,7 @@ fn process_debug_event(
                 x: *x,
                 y: *y,
             };
-            let data = serde_json::to_string(&response).unwrap_or_default();
-            send_response(request, true, None, Some(data), None);
+            send_ok(request, None, Some(ResponseData::ScrollToNode(response)));
         }
 
         _ => {
@@ -1627,7 +1932,7 @@ fn process_debug_event(
                 format!("Unhandled: {:?}", request.event),
                 None,
             );
-            send_response(request, true, None, None, None);
+            send_ok(request, None, None);
         }
     }
 
