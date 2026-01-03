@@ -125,7 +125,7 @@ shutdown_app() {
     # Request app to close
     curl -s -X POST "http://localhost:${DEBUG_PORT}/" \
         -H "Content-Type: application/json" \
-        -d '{"type":"close_window"}' > /dev/null 2>&1 || true
+        -d '{"type":"close"}' > /dev/null 2>&1 || true
     
     # Give it a moment to close gracefully
     sleep 0.5
