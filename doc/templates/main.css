@@ -51,6 +51,10 @@ html {
     overflow-x: hidden;
     min-height: 100%;
     width: 100%;
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+    text-size-adjust: 100%;
 }
 
 #guide a, #guide a:visited, #guide a:focus, #guide a:hover,
@@ -299,7 +303,7 @@ code {
     text-shadow: 0 1px white;
     font-family: monospace;
     font-weight: bolder;
-    font-size: 10pt;
+    font-size: 14px;
     text-align: left;
     vertical-align: middle;
     white-space: pre;
