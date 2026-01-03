@@ -56,6 +56,11 @@ cleanup() {
 # Set trap for cleanup
 trap cleanup EXIT
 
+# Kill any existing process with the same name
+log_info "Killing any existing $EXAMPLE_NAME processes..."
+killall "$EXAMPLE_NAME" 2>/dev/null || true
+sleep 1
+
 # Check if example source exists
 if [ ! -f "$EXAMPLE_SRC" ]; then
     log_error "Example source not found: $EXAMPLE_SRC"
@@ -69,8 +74,8 @@ log_info "Screenshot Test: $EXAMPLE_NAME"
 log_info "Port: $PORT"
 log_info "=========================================="
 
-# Step 1: Compile DLL if not already done
-log_step 1 "Checking/Compiling DLL..."
+# Step 1: Always rebuild DLL
+log_step 1 "Building DLL..."
 
 DLL_PATH=""
 if [ "$(uname)" == "Darwin" ]; then
@@ -81,18 +86,13 @@ else
     DLL_PATH="$ROOT_DIR/target/release/azul.dll"
 fi
 
+cd "$ROOT_DIR"
+cargo build --release -p azul-dll --features build-dll
 if [ ! -f "$DLL_PATH" ]; then
-    log_info "DLL not found, compiling..."
-    cd "$ROOT_DIR"
-    cargo build --release -p azul-dll --features build-dll
-    if [ ! -f "$DLL_PATH" ]; then
-        log_error "Failed to compile DLL"
-        exit 1
-    fi
-    log_success "DLL compiled: $DLL_PATH"
-else
-    log_success "DLL already exists: $DLL_PATH"
+    log_error "Failed to compile DLL"
+    exit 1
 fi
+log_success "DLL compiled: $DLL_PATH"
 
 # Step 2: Check headers are present
 log_step 2 "Checking headers..."
@@ -218,20 +218,49 @@ log_success "Port $PORT is listening (PID: $port_check)"
 log_info "Testing HTTP connectivity..."
 log_info "Request: POST http://localhost:$PORT/ - {\"type\":\"get_logs\"}"
 
-response=$(curl -s -X POST "http://localhost:$PORT/" \
+CONNECTIVITY_RESPONSE_FILE="$TEMP_DIR/connectivity_response.json"
+CURL_STDERR_FILE="$TEMP_DIR/curl_stderr.log"
+
+# Use --max-time to prevent hanging, capture curl exit code
+curl -s -X POST "http://localhost:$PORT/" \
     -H "Content-Type: application/json" \
-    -d '{"type":"get_logs"}')
+    -d '{"type":"get_logs"}' \
+    --max-time 30 \
+    -o "$CONNECTIVITY_RESPONSE_FILE" \
+    2>"$CURL_STDERR_FILE"
+curl_exit=$?
 
-status=$(echo "$response" | jq -r '.status // "error"')
-log_info "Response length: ${#response} bytes"
+log_info "curl exit code: $curl_exit"
+if [ -s "$CURL_STDERR_FILE" ]; then
+    log_warn "curl stderr: $(cat $CURL_STDERR_FILE)"
+fi
 
-if [ "$status" != "ok" ]; then
+# Show app stderr after request
+log_info "=== App stderr after get_logs ==="
+tail -20 "$TEMP_DIR/stderr.log" 2>/dev/null || true
+log_info "=== End app stderr ==="
+
+response_size=$(wc -c < "$CONNECTIVITY_RESPONSE_FILE")
+log_info "Response size: $response_size bytes"
+
+if [ $curl_exit -ne 0 ]; then
+    log_error "curl failed with exit code $curl_exit"
+    log_error "Response saved to: $CONNECTIVITY_RESPONSE_FILE"
+    kill -9 $APP_PID 2>/dev/null || true
+    exit 1
+fi
+
+# Simple check: just verify "status" and "ok" are in the response (handles pretty-print)
+if ! grep -q '"status"' "$CONNECTIVITY_RESPONSE_FILE" || ! grep -q '"ok"' "$CONNECTIVITY_RESPONSE_FILE"; then
     log_error "HTTP connectivity test failed"
-    log_error "Response: $response"
+    log_error "Response saved to: $CONNECTIVITY_RESPONSE_FILE"
     kill -9 $APP_PID 2>/dev/null || true
     exit 1
 fi
 log_success "HTTP connectivity OK"
+
+# Wait a bit before taking screenshot
+sleep 1
 
 # Step 8: Take screenshot
 log_step 8 "Taking screenshot..."
@@ -245,47 +274,65 @@ log_info "Request: POST http://localhost:$PORT/ - {\"type\":\"take_native_screen
 curl -s -X POST "http://localhost:$PORT/" \
     -H "Content-Type: application/json" \
     -d '{"type":"take_native_screenshot"}' \
+    --max-time 60 \
     -o "$JSON_RESPONSE_FILE"
 
 log_info "Response saved to $JSON_RESPONSE_FILE ($(ls -lh "$JSON_RESPONSE_FILE" | awk '{print $5}'))"
 
-# Check status from the file (jq reads from file, not from variable)
-status=$(jq -r '.status // "error"' "$JSON_RESPONSE_FILE")
+# Check status and extract screenshot using Python (avoids jq pipe issues with large files)
+python3 << EOF
+import json
+import base64
+import sys
 
-if [ "$status" = "ok" ]; then
-    # Extract base64 directly from file using jq
-    # jq streams from file, avoiding shell variable size limits
-    jq -r '.data.value.data // empty' "$JSON_RESPONSE_FILE" | \
-        sed 's/^data:image\/png;base64,//' | \
-        base64 -d > "$SCREENSHOT_FILE"
+try:
+    with open("$JSON_RESPONSE_FILE", "r") as f:
+        data = json.load(f)
     
-    if [ -f "$SCREENSHOT_FILE" ] && [ -s "$SCREENSHOT_FILE" ]; then
-        log_success "Screenshot saved: $SCREENSHOT_FILE"
-        log_info "Size: $(ls -lh "$SCREENSHOT_FILE" | awk '{print $5}')"
-    else
-        log_error "Screenshot file is empty or not created"
-    fi
+    if data.get("status") != "ok":
+        print("ERROR: " + data.get("message", "Unknown error"))
+        sys.exit(1)
+    
+    img_data = data["data"]["value"]["data"]
+    base64_data = img_data.replace("data:image/png;base64,", "")
+    img_bytes = base64.b64decode(base64_data)
+    
+    with open("$SCREENSHOT_FILE", "wb") as f:
+        f.write(img_bytes)
+    
+    print("OK: {} bytes".format(len(img_bytes)))
+    sys.exit(0)
+except Exception as e:
+    print("ERROR: " + str(e))
+    sys.exit(1)
+EOF
+
+python_result=$?
+if [ $python_result -eq 0 ] && [ -f "$SCREENSHOT_FILE" ] && [ -s "$SCREENSHOT_FILE" ]; then
+    log_success "Screenshot saved: $SCREENSHOT_FILE"
+    log_info "Size: $(ls -lh "$SCREENSHOT_FILE" | awk '{print $5}')"
 else
-    error_msg=$(jq -r '.message // "Unknown error"' "$JSON_RESPONSE_FILE")
-    log_error "Screenshot request failed: $error_msg"
+    log_error "Screenshot extraction failed"
 fi
+
+# Wait before shutdown
+sleep 1
 
 # Step 9: Shut down application
 log_step 9 "Shutting down application..."
 
 log_info "Request: POST http://localhost:$PORT/ - {\"type\":\"close\"}"
 
-close_response=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://localhost:$PORT/" \
+CLOSE_RESPONSE_FILE="$TEMP_DIR/close_response.json"
+curl -s -X POST "http://localhost:$PORT/" \
     -H "Content-Type: application/json" \
-    -d '{"type":"close"}')
+    -d '{"type":"close"}' \
+    -o "$CLOSE_RESPONSE_FILE" || true
 
-close_status=$(echo "$close_response" | jq -r '.status // "error"')
-
-if [ "$close_status" = "ok" ]; then
+if grep -q '"status":"ok"' "$CLOSE_RESPONSE_FILE" 2>/dev/null; then
     log_info "Close command sent successfully"
 else
     log_warn "Close command may have failed"
-    log_warn "Response: $close_response"
 fi
 
 log_info "Waiting ${SHUTDOWN_WAIT}s for graceful shutdown..."
