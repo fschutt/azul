@@ -161,7 +161,6 @@ else
         "calc"
         "hello-world"
         "infinity"
-        "minimal_test"
         "opengl"
         "widgets"
         "xhtml"

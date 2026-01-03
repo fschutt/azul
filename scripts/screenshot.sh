@@ -332,8 +332,7 @@ else
             
             # Skip examples that are not suitable for screenshots
             case "$example_name" in
-                minimal_test|infinity|opengl)
-                    # minimal_test: not a real example
+                infinity|opengl)
                     # infinity: runs indefinitely
                     # opengl: requires specific OpenGL setup
                     echo -e "${YELLOW}Skipping ${example_name} (not suitable for automated screenshots)${NC}"

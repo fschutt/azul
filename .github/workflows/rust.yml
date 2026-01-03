@@ -618,6 +618,27 @@ jobs:
           name: reftest-results
           path: artifacts-reftest
 
+      - name: Download Linux screenshots
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: screenshots-ubuntu-22.04
+          path: artifacts-screenshots-linux
+
+      - name: Download macOS screenshots
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: screenshots-macos-14
+          path: artifacts-screenshots-macos
+
+      - name: Download Windows screenshots
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: screenshots-windows-2022
+          path: artifacts-screenshots-windows
+
       - name: Debug - Tree after download
         run: |
           sudo apt-get update && sudo apt-get install -y tree
@@ -668,6 +689,31 @@ jobs:
               echo "  [OK] Created reftest.html from reftest results"
             fi
           fi
+          
+          # Copy screenshots to website images directory
+          # Screenshots are named like "hello-world-linux.png" and need to be renamed to "hello-world.linux.png"
+          mkdir -p website/images
+          for screenshot_dir in artifacts-screenshots-linux artifacts-screenshots-macos artifacts-screenshots-windows; do
+            if [ -d "$screenshot_dir" ]; then
+              for png in "$screenshot_dir"/*.png; do
+                if [ -f "$png" ]; then
+                  filename=$(basename "$png")
+                  # Extract OS from directory name
+                  case "$screenshot_dir" in
+                    *linux*) os="linux" ;;
+                    *macos*) os="mac" ;;
+                    *windows*) os="windows" ;;
+                  esac
+                  # Convert "hello-world-linux.png" to "hello-world.linux.png"
+                  # The filename already has the OS in it, so we just rename
+                  newname=$(echo "$filename" | sed "s/-${os}/.${os}/")
+                  cp "$png" "website/images/$newname"
+                  echo "  [OK] Copied screenshot: $newname"
+                fi
+              done
+            fi
+          done
+          ls -la website/images/ || echo "No images directory"
           
           # Update file sizes in release HTML
           # The HTML contains "N/A" or placeholder sizes that need to be replaced with real sizes

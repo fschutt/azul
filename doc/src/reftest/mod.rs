@@ -240,9 +240,62 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
 /// Generate a reftest HTML page without running any tests.
 /// If test_dir exists and contains tests, it will show "X tests found (not run)".
 /// If test_dir doesn't exist or is empty, it will show "0 tests found".
+/// 
+/// This function also copies existing reftest results and images from the standard
+/// reftest output directory (doc/target/reftest) if they exist.
 pub fn generate_reftest_page(output_dir: &Path, test_dir: Option<&Path>) -> anyhow::Result<()> {
     fs::create_dir_all(output_dir)?;
 
+    // Check if we have existing reftest results to copy
+    // The reftest command outputs to doc/target/reftest, so look for results there
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let existing_reftest_dir = manifest_dir.join("target").join("reftest");
+    let existing_results_json = existing_reftest_dir.join("results.json");
+    let existing_index_html = existing_reftest_dir.join("index.html");
+    let existing_reftest_img = existing_reftest_dir.join("reftest_img");
+
+    // If we have existing results, copy them instead of generating empty page
+    if existing_results_json.exists() && existing_index_html.exists() {
+        println!("  Found existing reftest results, copying...");
+        
+        // Copy index.html
+        fs::copy(&existing_index_html, output_dir.join("index.html"))?;
+        println!("    Copied index.html");
+        
+        // Copy results.json
+        fs::copy(&existing_results_json, output_dir.join("results.json"))?;
+        println!("    Copied results.json");
+        
+        // Copy reftest_img directory if it exists
+        if existing_reftest_img.exists() && existing_reftest_img.is_dir() {
+            let dest_img_dir = output_dir.join("reftest_img");
+            fs::create_dir_all(&dest_img_dir)?;
+            
+            let mut img_count = 0;
+            for entry in fs::read_dir(&existing_reftest_img)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_file() {
+                    let filename = path.file_name().unwrap();
+                    fs::copy(&path, dest_img_dir.join(filename))?;
+                    img_count += 1;
+                }
+            }
+            println!("    Copied {} reftest images", img_count);
+        }
+        
+        // Also copy to reftest.html in parent directory
+        if output_dir.file_name().map(|n| n == "reftest").unwrap_or(false) {
+            if let Some(parent) = output_dir.parent() {
+                fs::copy(output_dir.join("index.html"), parent.join("reftest.html"))?;
+            }
+        }
+        
+        println!("  [OK] Reftest results copied from existing run");
+        return Ok(());
+    }
+
+    // No existing results, generate placeholder page
     // Count tests if directory provided
     let test_count = test_dir
         .and_then(|dir| find_test_files(dir).ok())
