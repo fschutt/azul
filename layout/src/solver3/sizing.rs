@@ -545,6 +545,9 @@ fn process_layout_children<T: ParsedFontTrait>(
     node: &LayoutNode,
     content: &mut Vec<InlineContent>,
 ) -> Result<()> {
+    use azul_css::props::layout::{LayoutWidth, LayoutHeight};
+    use azul_css::props::basic::SizeMetric;
+    
     // Process layout tree children (these are elements with layout properties)
     for &child_index in &node.children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
@@ -568,24 +571,71 @@ fn process_layout_children<T: ParsedFontTrait>(
             // (e.g., inline-block, images, floats)
             // Their intrinsic size must have been calculated in the bottom-up pass
             let intrinsic_sizes = child_node.intrinsic_sizes.unwrap_or_default();
+            
+            // CSS 2.2 § 10.3.9: For inline-block elements with explicit CSS width/height,
+            // use the CSS-defined values instead of intrinsic sizes.
+            let node_state = &ctx.styled_dom.styled_nodes.as_container()[child_dom_id].styled_node_state;
+            let css_width = get_css_width(ctx.styled_dom, child_dom_id, node_state);
+            let css_height = get_css_height(ctx.styled_dom, child_dom_id, node_state);
+            
+            // Resolve CSS width - use explicit value if set, otherwise fall back to intrinsic
+            let used_width = match css_width {
+                MultiValue::Exact(LayoutWidth::Px(px)) => {
+                    // Convert PixelValue to f32
+                    use azul_css::props::basic::pixel::{DEFAULT_FONT_SIZE, PT_TO_PX};
+                    match px.metric {
+                        SizeMetric::Px => px.number.get(),
+                        SizeMetric::Pt => px.number.get() * PT_TO_PX,
+                        SizeMetric::In => px.number.get() * 96.0,
+                        SizeMetric::Cm => px.number.get() * 96.0 / 2.54,
+                        SizeMetric::Mm => px.number.get() * 96.0 / 25.4,
+                        SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
+                        // For percentages and viewport units, fall back to intrinsic
+                        _ => intrinsic_sizes.max_content_width,
+                    }
+                }
+                MultiValue::Exact(LayoutWidth::MinContent) => intrinsic_sizes.min_content_width,
+                MultiValue::Exact(LayoutWidth::MaxContent) => intrinsic_sizes.max_content_width,
+                // For Auto or other values, use intrinsic size
+                _ => intrinsic_sizes.max_content_width,
+            };
+            
+            // Resolve CSS height - use explicit value if set, otherwise fall back to intrinsic
+            let used_height = match css_height {
+                MultiValue::Exact(LayoutHeight::Px(px)) => {
+                    use azul_css::props::basic::pixel::{DEFAULT_FONT_SIZE, PT_TO_PX};
+                    match px.metric {
+                        SizeMetric::Px => px.number.get(),
+                        SizeMetric::Pt => px.number.get() * PT_TO_PX,
+                        SizeMetric::In => px.number.get() * 96.0,
+                        SizeMetric::Cm => px.number.get() * 96.0 / 2.54,
+                        SizeMetric::Mm => px.number.get() * 96.0 / 25.4,
+                        SizeMetric::Em | SizeMetric::Rem => px.number.get() * DEFAULT_FONT_SIZE,
+                        _ => intrinsic_sizes.max_content_height,
+                    }
+                }
+                MultiValue::Exact(LayoutHeight::MinContent) => intrinsic_sizes.min_content_height,
+                MultiValue::Exact(LayoutHeight::MaxContent) => intrinsic_sizes.max_content_height,
+                _ => intrinsic_sizes.max_content_height,
+            };
 
             ctx.debug_log(&format!(
-                "Found atomic inline child at node {}: display={:?}, intrinsic_width={}",
-                child_index, display, intrinsic_sizes.max_content_width
+                "Found atomic inline child at node {}: display={:?}, intrinsic_width={}, used_width={}, css_width={:?}",
+                child_index, display, intrinsic_sizes.max_content_width, used_width, css_width
             ));
 
-            // Represent as a rectangular shape with the child's intrinsic dimensions
+            // Represent as a rectangular shape with the resolved dimensions
             content.push(InlineContent::Shape(InlineShape {
                 shape_def: ShapeDefinition::Rectangle {
                     size: crate::text3::cache::Size {
-                        width: intrinsic_sizes.max_content_width,
-                        height: intrinsic_sizes.max_content_height,
+                        width: used_width,
+                        height: used_height,
                     },
                     corner_radius: None,
                 },
                 fill: None,
                 stroke: None,
-                baseline_offset: intrinsic_sizes.max_content_height,
+                baseline_offset: used_height,
                 source_node_id: Some(child_dom_id),
             }));
         }
