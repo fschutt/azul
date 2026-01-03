@@ -59,6 +59,16 @@ const SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_S
 const SANS_SERIF_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SANS_SERIF_FAMILIES);
 
+// macOS: Helvetica with sans-serif fallback
+const HELVETICA_STR: &str = "Helvetica Neue";
+const HELVETICA: AzString = AzString::from_const_str(HELVETICA_STR);
+const MAC_FONT_FAMILIES: &[StyleFontFamily] = &[
+    StyleFontFamily::System(HELVETICA),
+    StyleFontFamily::System(SANS_SERIF),
+];
+const MAC_FONT_FAMILY: StyleFontFamilyVec =
+    StyleFontFamilyVec::from_const_slice(MAC_FONT_FAMILIES);
+
 const RGB_172: ColorU = ColorU {
     r: 172,
     g: 172,
@@ -133,15 +143,9 @@ const BUTTON_NOMRAL_BACKGROUND_COLOR_STOPS: &[NormalizedLinearColorStop] = &[
         color: RGB_229,
     },
 ];
+// Temporarily use simple color for testing inline rendering
 const BUTTON_NORMAL_BACKGROUND: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::LinearGradient(LinearGradient {
-        direction: Direction::FromTo(DirectionCorners {
-            dir_from: DirectionCorner::Top,
-            dir_to: DirectionCorner::Bottom,
-        }),
-        extend_mode: ExtendMode::Clamp,
-        stops: NormalizedLinearColorStopVec::from_const_slice(BUTTON_NOMRAL_BACKGROUND_COLOR_STOPS),
-    })];
+    &[StyleBackgroundContent::Color(RGB_229)];
 
 const BUTTON_HOVER_BACKGROUND_WINDOWS_COLOR_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
@@ -187,7 +191,7 @@ const BUTTON_ACTIVE_BACKGROUND_WINDOWS: &[StyleBackgroundContent] =
     })];
 
 static BUTTON_CONTAINER_WINDOWS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_display(LayoutDisplay::Block)),
+    Normal(CssProperty::const_display(LayoutDisplay::Inline)),
     Normal(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(BUTTON_NORMAL_BACKGROUND),
     )),
@@ -309,50 +313,200 @@ static BUTTON_CONTAINER_WINDOWS: &[NodeDataInlineCssProperty] = &[
     )),
 ];
 
+// Linux button background gradients
+const LINUX_NORMAL_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: ColorU { r: 252, g: 252, b: 252, a: 255 },
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: ColorU { r: 239, g: 239, b: 239, a: 255 },
+    },
+];
+const LINUX_NORMAL_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::LinearGradient(LinearGradient {
+    direction: Direction::FromTo(DirectionCorners {
+        dir_from: DirectionCorner::Top,
+        dir_to: DirectionCorner::Bottom,
+    }),
+    extend_mode: ExtendMode::Clamp,
+    stops: NormalizedLinearColorStopVec::from_const_slice(LINUX_NORMAL_GRADIENT_STOPS),
+})];
+
+const LINUX_HOVER_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: ColorU { r: 255, g: 255, b: 255, a: 255 },
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: ColorU { r: 245, g: 245, b: 245, a: 255 },
+    },
+];
+const LINUX_HOVER_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::LinearGradient(LinearGradient {
+    direction: Direction::FromTo(DirectionCorners {
+        dir_from: DirectionCorner::Top,
+        dir_to: DirectionCorner::Bottom,
+    }),
+    extend_mode: ExtendMode::Clamp,
+    stops: NormalizedLinearColorStopVec::from_const_slice(LINUX_HOVER_GRADIENT_STOPS),
+})];
+
+const LINUX_ACTIVE_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: ColorU { r: 220, g: 220, b: 220, a: 255 },
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: ColorU { r: 200, g: 200, b: 200, a: 255 },
+    },
+];
+const LINUX_ACTIVE_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::LinearGradient(LinearGradient {
+    direction: Direction::FromTo(DirectionCorners {
+        dir_from: DirectionCorner::Top,
+        dir_to: DirectionCorner::Bottom,
+    }),
+    extend_mode: ExtendMode::Clamp,
+    stops: NormalizedLinearColorStopVec::from_const_slice(LINUX_ACTIVE_GRADIENT_STOPS),
+})];
+
+const LINUX_BORDER_COLOR: ColorU = ColorU { r: 183, g: 183, b: 183, a: 255 };
+
 static BUTTON_CONTAINER_LINUX: &[NodeDataInlineCssProperty] = &[
-    /*
-    .__azul-native-button {
-        font-size: 13px;
-        font-family: sans-serif;
-        color: #4c4c4c;
-        display: flex;
-        flex-grow: 1;
-        border: 1px solid #b7b7b7;
-        border-radius: 4px;
-        box-shadow: 0px 0px 3px #c5c5c5ad;
-        background: linear-gradient(#fcfcfc, #efefef);
-        text-align: center;
-        flex-direction: column;
-        justify-content: center;
-        flex-grow: 1;
-    }
-
-    .__azul-native-button:hover {
-        background: linear-gradient(red, black);
-    }
-
-    .__azul-native-button:active {
-        background: linear-gradient(blue, green);
-    }
-    */
+    // Linux/GTK-style button styling
+    Normal(CssProperty::const_display(LayoutDisplay::Inline)),
+    Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+    Normal(CssProperty::const_cursor(StyleCursor::Pointer)),
+    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    // background: linear-gradient(#fcfcfc, #efefef)
+    Normal(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(LINUX_NORMAL_BACKGROUND))),
+    // border: 1px solid #b7b7b7
+    Normal(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
+    Normal(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+    Normal(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
+    Normal(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
+    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::const_border_top_color(StyleBorderTopColor { inner: LINUX_BORDER_COLOR })),
+    Normal(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: LINUX_BORDER_COLOR })),
+    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: LINUX_BORDER_COLOR })),
+    Normal(CssProperty::const_border_right_color(StyleBorderRightColor { inner: LINUX_BORDER_COLOR })),
+    // border-radius: 4px
+    Normal(CssProperty::const_border_top_left_radius(StyleBorderTopLeftRadius::const_px(4))),
+    Normal(CssProperty::const_border_top_right_radius(StyleBorderTopRightRadius::const_px(4))),
+    Normal(CssProperty::const_border_bottom_left_radius(StyleBorderBottomLeftRadius::const_px(4))),
+    Normal(CssProperty::const_border_bottom_right_radius(StyleBorderBottomRightRadius::const_px(4))),
+    // padding: 5px 10px
+    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(5))),
+    Normal(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(5))),
+    Normal(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(10))),
+    Normal(CssProperty::const_padding_right(LayoutPaddingRight::const_px(10))),
+    // Hover state
+    Hover(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(LINUX_HOVER_BACKGROUND))),
+    // Active state
+    Active(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(LINUX_ACTIVE_BACKGROUND))),
 ];
 
+// macOS button background gradients
+const MAC_NORMAL_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: ColorU { r: 252, g: 252, b: 252, a: 255 },
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: ColorU { r: 239, g: 239, b: 239, a: 255 },
+    },
+];
+const MAC_NORMAL_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::LinearGradient(LinearGradient {
+    direction: Direction::FromTo(DirectionCorners {
+        dir_from: DirectionCorner::Top,
+        dir_to: DirectionCorner::Bottom,
+    }),
+    extend_mode: ExtendMode::Clamp,
+    stops: NormalizedLinearColorStopVec::from_const_slice(MAC_NORMAL_GRADIENT_STOPS),
+})];
+
+const MAC_HOVER_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: ColorU { r: 255, g: 255, b: 255, a: 255 },
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: ColorU { r: 245, g: 245, b: 245, a: 255 },
+    },
+];
+const MAC_HOVER_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::LinearGradient(LinearGradient {
+    direction: Direction::FromTo(DirectionCorners {
+        dir_from: DirectionCorner::Top,
+        dir_to: DirectionCorner::Bottom,
+    }),
+    extend_mode: ExtendMode::Clamp,
+    stops: NormalizedLinearColorStopVec::from_const_slice(MAC_HOVER_GRADIENT_STOPS),
+})];
+
+const MAC_ACTIVE_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(0),
+        color: ColorU { r: 220, g: 220, b: 220, a: 255 },
+    },
+    NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(100),
+        color: ColorU { r: 200, g: 200, b: 200, a: 255 },
+    },
+];
+const MAC_ACTIVE_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::LinearGradient(LinearGradient {
+    direction: Direction::FromTo(DirectionCorners {
+        dir_from: DirectionCorner::Top,
+        dir_to: DirectionCorner::Bottom,
+    }),
+    extend_mode: ExtendMode::Clamp,
+    stops: NormalizedLinearColorStopVec::from_const_slice(MAC_ACTIVE_GRADIENT_STOPS),
+})];
+
+const MAC_BORDER_COLOR: ColorU = ColorU { r: 183, g: 183, b: 183, a: 255 };
+
 static BUTTON_CONTAINER_MAC: &[NodeDataInlineCssProperty] = &[
-    /*
-    .__azul-native-button {
-        font-size: 12px;
-        font-family: \"Helvetica\";
-        color: #4c4c4c;
-        background-color: #e7e7e7;
-        border: 1px solid #b7b7b7;
-        border-radius: 4px;
-        box-shadow: 0px 0px 3px #c5c5c5ad;
-        background: linear-gradient(#fcfcfc, #efefef);
-        text-align: center;
-        flex-direction: column;
-        justify-content: center;
-    }
-    */
+    // macOS native button styling
+    Normal(CssProperty::const_display(LayoutDisplay::Inline)),
+    Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+    Normal(CssProperty::const_cursor(StyleCursor::Pointer)),
+    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    // background: linear-gradient(#fcfcfc, #efefef)
+    Normal(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(MAC_NORMAL_BACKGROUND))),
+    // border: 1px solid #b7b7b7
+    Normal(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
+    Normal(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+    Normal(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
+    Normal(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
+    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::const_border_top_color(StyleBorderTopColor { inner: MAC_BORDER_COLOR })),
+    Normal(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: MAC_BORDER_COLOR })),
+    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: MAC_BORDER_COLOR })),
+    Normal(CssProperty::const_border_right_color(StyleBorderRightColor { inner: MAC_BORDER_COLOR })),
+    // border-radius: 4px
+    Normal(CssProperty::const_border_top_left_radius(StyleBorderTopLeftRadius::const_px(4))),
+    Normal(CssProperty::const_border_top_right_radius(StyleBorderTopRightRadius::const_px(4))),
+    Normal(CssProperty::const_border_bottom_left_radius(StyleBorderBottomLeftRadius::const_px(4))),
+    Normal(CssProperty::const_border_bottom_right_radius(StyleBorderBottomRightRadius::const_px(4))),
+    // padding: 5px 10px
+    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(5))),
+    Normal(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(5))),
+    Normal(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(10))),
+    Normal(CssProperty::const_padding_right(LayoutPaddingRight::const_px(10))),
+    // Hover state
+    Hover(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(MAC_HOVER_BACKGROUND))),
+    // Active state
+    Active(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(MAC_ACTIVE_BACKGROUND))),
 ];
 
 static BUTTON_CONTAINER_OTHER: &[NodeDataInlineCssProperty] = &[];
@@ -366,9 +520,23 @@ static BUTTON_LABEL_WINDOWS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
-static BUTTON_LABEL_LINUX: &[NodeDataInlineCssProperty] = &[];
+static BUTTON_LABEL_LINUX: &[NodeDataInlineCssProperty] = &[
+    Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+    Normal(CssProperty::const_text_align(StyleTextAlign::Center)),
+    Normal(CssProperty::const_text_color(StyleTextColor {
+        inner: ColorU { r: 76, g: 76, b: 76, a: 255 },
+    })),
+    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
+];
 
-static BUTTON_LABEL_MAC: &[NodeDataInlineCssProperty] = &[];
+static BUTTON_LABEL_MAC: &[NodeDataInlineCssProperty] = &[
+    Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+    Normal(CssProperty::const_text_align(StyleTextAlign::Center)),
+    Normal(CssProperty::const_text_color(StyleTextColor {
+        inner: ColorU { r: 76, g: 76, b: 76, a: 255 },
+    })),
+    Normal(CssProperty::const_font_family(MAC_FONT_FAMILY)),
+];
 
 static BUTTON_LABEL_OTHER: &[NodeDataInlineCssProperty] = &[];
 
