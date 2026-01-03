@@ -46,7 +46,6 @@ pub struct DebugResponse {
     pub request_id: u64,
     pub success: bool,
     pub error: Option<String>,
-    pub debug_messages: Vec<LogMessage>,
     pub window_state: Option<WindowStateSnapshot>,
     pub data: Option<String>,
 }
@@ -714,6 +713,8 @@ pub fn take_logs() -> Vec<LogMessage> {
 }
 
 /// Send a response to a debug request
+/// NOTE: Logs are NOT included in responses by default to keep response size small.
+/// Use GetLogs event type to retrieve logs explicitly.
 #[cfg(feature = "std")]
 pub fn send_response(
     request: &DebugRequest,
@@ -722,16 +723,19 @@ pub fn send_response(
     data: Option<String>,
     window_state: Option<WindowStateSnapshot>,
 ) {
-    let logs = take_logs();
+    // Clear logs to prevent memory buildup
+    let _ = take_logs();
     let response = DebugResponse {
         request_id: request.request_id,
         success,
         error,
-        debug_messages: logs,
         window_state,
         data,
     };
-    let _ = request.response_tx.send(response);
+    match request.response_tx.send(response) {
+        Ok(()) => eprintln!("[DEBUG TIMER] Response {} sent successfully via channel", request.request_id),
+        Err(e) => eprintln!("[DEBUG TIMER] ERROR sending response {}: {:?}", request.request_id, e),
+    }
 }
 
 // ==================== HTTP Server ====================
@@ -817,6 +821,8 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
 fn handle_event_request(body: &str) -> String {
     use std::time::Duration;
 
+    eprintln!("[DEBUG HTTP] handle_event_request called with body: {}", &body[..body.len().min(100)]);
+
     // Parse the event request
     #[derive(serde::Deserialize)]
     struct EventRequest {
@@ -835,6 +841,7 @@ fn handle_event_request(body: &str) -> String {
             // Create request and channel
             let (tx, rx) = mpsc::channel();
             let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst);
+            let event_debug = format!("{:?}", req.event);
 
             let request = DebugRequest {
                 request_id,
@@ -847,38 +854,50 @@ fn handle_event_request(body: &str) -> String {
             // Push to queue
             if let Some(queue) = REQUEST_QUEUE.get() {
                 if let Ok(mut q) = queue.lock() {
+                    eprintln!("[DEBUG HTTP] Pushing request {} ({}) to queue (queue len before: {})", request_id, event_debug, q.len());
                     q.push_back(request);
                 }
             }
 
+            eprintln!("[DEBUG HTTP] Request {} - waiting on rx.recv_timeout(30s)...", request_id);
             // Wait for response (with timeout)
             match rx.recv_timeout(Duration::from_secs(30)) {
-                Ok(response) => serde_json::to_string(&serde_json::json!({
-                    "status": if response.success { "ok" } else { "error" },
-                    "request_id": response.request_id,
-                    "error": response.error,
-                    "debug_messages": response.debug_messages.iter().map(|l| serde_json::json!({
-                        "timestamp_us": l.timestamp_us,
-                        "level": format!("{:?}", l.level),
-                        "category": format!("{:?}", l.category),
-                        "message": l.message,
-                        "location": l.location,
-                        "window_id": l.window_id,
-                    })).collect::<Vec<_>>(),
-                    "window_state": response.window_state,
-                    "data": response.data,
-                }))
-                .unwrap_or_else(|_| r#"{"status":"error"}"#.to_string()),
+                Ok(response) => {
+                    eprintln!("[DEBUG HTTP] Request {} - received response (success: {})", response.request_id, response.success);
+                    serde_json::to_string(&serde_json::json!({
+                        "status": if response.success { "ok" } else { "error" },
+                        "request_id": response.request_id,
+                        "error": response.error,
+                        "window_state": response.window_state,
+                        "data": response.data,
+                    }))
+                    .unwrap_or_else(|_| r#"{"status":"error"}"#.to_string())
+                }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
+                    eprintln!("[DEBUG HTTP] Request {} - TIMEOUT after 30s!", request_id);
                     r#"{"status":"error","message":"Timeout waiting for response (is the timer running?)"}"#.to_string()
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    eprintln!("[DEBUG HTTP] Request {} - channel DISCONNECTED!", request_id);
                     r#"{"status":"error","message":"Event loop disconnected"}"#.to_string()
                 }
             }
         }
         Err(e) => {
-            format!(r#"{{"status":"error","message":"Invalid JSON: {}"}}"#, e)
+            let valid_types = [
+                "mouse_move", "mouse_down", "mouse_up", "click", "double_click", "scroll",
+                "key_down", "key_up", "text_input",
+                "resize", "move", "focus", "blur", "close", "dpi_changed",
+                "get_state", "get_dom", "hit_test", "get_logs",
+                "get_html_string", "get_node_css_properties", "get_node_layout",
+                "get_all_nodes_layout", "get_dom_tree", "get_node_hierarchy",
+                "get_layout_tree", "get_display_list", "get_scroll_states",
+                "get_scrollable_nodes", "scroll_to_node",
+                "relayout", "redraw", "wait_frame", "wait",
+                "take_screenshot", "take_native_screenshot",
+            ];
+            eprintln!("[DEBUG HTTP] Invalid JSON request: {}. Valid types: {:?}", e, valid_types);
+            format!(r#"{{"status":"error","message":"Invalid JSON: {}. Valid types: {:?}"}}"#, e, valid_types)
         }
     }
 }
@@ -895,10 +914,22 @@ pub extern "C" fn debug_timer_callback(
     use azul_core::callbacks::{TimerCallbackReturn, Update};
     use azul_core::task::TerminateTimer;
 
+    // Check queue length first (without popping)
+    let queue_len = REQUEST_QUEUE.get()
+        .and_then(|q| q.lock().ok())
+        .map(|q| q.len())
+        .unwrap_or(0);
+    
+    if queue_len > 0 {
+        eprintln!("[DEBUG TIMER] debug_timer_callback invoked, queue_len={}", queue_len);
+    }
+
     // Process all pending requests (no debug output unless there's work to do)
     let mut needs_update = false;
+    let mut processed_count = 0;
 
     while let Some(request) = pop_request() {
+        eprintln!("[DEBUG TIMER] Processing request {} ({:?})", request.request_id, request.event);
         log(
             LogLevel::Debug,
             LogCategory::DebugServer,
@@ -908,6 +939,11 @@ pub extern "C" fn debug_timer_callback(
 
         let result = process_debug_event(&request, &mut timer_info.callback_info);
         needs_update = needs_update || result;
+        processed_count += 1;
+    }
+    
+    if processed_count > 0 {
+        eprintln!("[DEBUG TIMER] Processed {} requests, needs_update={}", processed_count, needs_update);
     }
 
     TimerCallbackReturn {
@@ -995,7 +1031,7 @@ fn process_debug_event(
         }
 
         DebugEvent::GetLogs { .. } => {
-            // Logs are collected in send_response
+            // GetLogs clears logs but doesn't return them in response anymore
             send_response(request, true, None, None, None);
         }
 
