@@ -91,6 +91,9 @@ pub struct DebugConfig {
     pub question: Option<String>,
     pub azul_root: PathBuf,
     pub output_dir: PathBuf,
+    pub add_working_diff: bool,
+    pub dry_run: bool,
+    pub no_screenshots: bool,
 }
 
 /// Collected debug data for a test
@@ -107,6 +110,8 @@ pub struct TestDebugData {
     pub chrome_image_base64: Option<String>,
     /// Azul screenshot as base64 WebP  
     pub azul_image_base64: Option<String>,
+    /// Git diff of current working changes
+    pub working_diff: Option<String>,
 }
 
 /// Priority levels for source files
@@ -241,6 +246,15 @@ pub fn run_debug_analysis(config: DebugConfig) -> anyhow::Result<()> {
     println!("  - Prompt file: {:?}", prompt_path);
     println!("  - Total tokens: {} / {}", total_tokens, MAX_TOKENS);
     println!("  - Source files included: {}", source_files.len());
+    
+    // If dry_run, skip the API call
+    if config.dry_run {
+        println!("\n[DRY-RUN] Skipping Gemini API call.");
+        println!("  - Prompt saved to: {:?}", prompt_path);
+        println!("  - Debug data saved to: {:?}", json_path);
+        return Ok(());
+    }
+
     println!(
         "\n🤖 Sending to Gemini API... This will take a while ({} tokens sent)",
         total_tokens
@@ -444,17 +458,25 @@ fn run_test_and_collect_data(
         None
     };
 
-    // Read images as base64 for Gemini API
-    let chrome_image_base64 = if chrome_screenshot_path.exists() {
+    // Read images as base64 for Gemini API (skip if no_screenshots is set)
+    let chrome_image_base64 = if !config.no_screenshots && chrome_screenshot_path.exists() {
         let bytes = fs::read(&chrome_screenshot_path)?;
         Some(base64::engine::general_purpose::STANDARD.encode(&bytes))
     } else {
         None
     };
 
-    let azul_image_base64 = if azul_screenshot_path.exists() {
+    let azul_image_base64 = if !config.no_screenshots && azul_screenshot_path.exists() {
         let bytes = fs::read(&azul_screenshot_path)?;
         Some(base64::engine::general_purpose::STANDARD.encode(&bytes))
+    } else {
+        None
+    };
+
+    // Collect git diff if requested
+    let working_diff = if config.add_working_diff {
+        println!("[DEBUG] Collecting git diff of working changes...");
+        collect_git_diff(&config.azul_root)
     } else {
         None
     };
@@ -469,6 +491,7 @@ fn run_test_and_collect_data(
         diff_count,
         chrome_image_base64,
         azul_image_base64,
+        working_diff,
     })
 }
 
@@ -502,6 +525,33 @@ fn generate_azul_with_debug(
     };
 
     Ok((css_warnings, layout_debug_messages, display_list))
+}
+
+/// Collect git diff of current working changes
+fn collect_git_diff(azul_root: &Path) -> Option<String> {
+    use std::process::Command;
+    
+    // Run git diff to get all unstaged changes
+    let output = Command::new("git")
+        .args(["diff", "HEAD"])
+        .current_dir(azul_root)
+        .output()
+        .ok()?;
+    
+    if !output.status.success() {
+        eprintln!("[DEBUG] git diff failed");
+        return None;
+    }
+    
+    let diff = String::from_utf8_lossy(&output.stdout).to_string();
+    
+    if diff.is_empty() {
+        println!("[DEBUG] No working changes found");
+        return None;
+    }
+    
+    println!("[DEBUG] Collected {} bytes of git diff", diff.len());
+    Some(diff)
 }
 
 /// Collect source code files within token budget
@@ -564,9 +614,14 @@ fn collect_source_code_with_budget(config: &DebugConfig) -> anyhow::Result<Vec<(
     );
 
     // Load files within token budget (after reserving for images)
+    // In dry_run mode, ignore the token budget entirely - include all files
     let mut result: Vec<(String, String)> = Vec::new();
     let mut total_tokens = 0;
-    let token_budget = MAX_TOKENS - 100_000 - image_tokens; // Reserve 100k for test data + prompt structure + images
+    let token_budget = if config.dry_run {
+        usize::MAX // No limit for dry run
+    } else {
+        MAX_TOKENS - 100_000 - image_tokens // Reserve 100k for test data + prompt structure + images
+    };
 
     for (priority, path) in source_files {
         let content = match fs::read_to_string(&path) {
@@ -699,6 +754,22 @@ fn build_prompt(
             prompt.push_str("\n... (truncated)\n");
         } else {
             prompt.push_str(display_list);
+        }
+        prompt.push_str("\n```\n\n");
+    }
+
+    // Working Git Diff (if provided)
+    if let Some(ref diff) = debug_data.working_diff {
+        prompt.push_str("## Current Working Changes (Git Diff)\n\n");
+        prompt.push_str("These are the changes I've been making to fix this issue. ");
+        prompt.push_str("Please analyze if they are on the right track and what's still missing.\n\n");
+        prompt.push_str("```diff\n");
+        // Truncate if too long
+        if diff.len() > 100000 {
+            prompt.push_str(&diff[..100000]);
+            prompt.push_str("\n... (truncated)\n");
+        } else {
+            prompt.push_str(diff);
         }
         prompt.push_str("\n```\n\n");
     }

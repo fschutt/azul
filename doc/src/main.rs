@@ -1063,25 +1063,36 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         // Debug a single test with LLM assistance
-        ["debug", test_name] => {
-            let config = reftest::debug::DebugConfig {
-                test_name: test_name.to_string(),
-                question: None,
-                azul_root: project_root.clone(),
-                output_dir: PathBuf::from("target").join("debug"),
+        ["debug", test_name, rest @ ..] => {
+            // Parse optional flags and question from remaining args
+            let mut add_working_diff = false;
+            let mut dry_run = false;
+            let mut no_screenshots = false;
+            let mut question_parts: Vec<&str> = Vec::new();
+            
+            for arg in rest.iter() {
+                match *arg {
+                    "--add-working-diff" => add_working_diff = true,
+                    "--dry-run" => dry_run = true,
+                    "--no-screenshots" => no_screenshots = true,
+                    other => question_parts.push(other),
+                }
+            }
+            
+            let question = if question_parts.is_empty() {
+                None
+            } else {
+                Some(question_parts.join(" "))
             };
-
-            reftest::debug::run_debug_analysis(config)?;
-
-            return Ok(());
-        }
-        ["debug", test_name, question @ ..] => {
-            let question_str = question.join(" ");
+            
             let config = reftest::debug::DebugConfig {
                 test_name: test_name.to_string(),
-                question: Some(question_str),
+                question,
                 azul_root: project_root.clone(),
                 output_dir: PathBuf::from("target").join("debug"),
+                add_working_diff,
+                dry_run,
+                no_screenshots,
             };
 
             reftest::debug::run_debug_analysis(config)?;
@@ -1679,8 +1690,10 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    reftest open                  - Run all reftests and open report in browser");
     println!("    reftest <test_name>           - Run a single reftest by name");
     println!("    reftest headless <test_name>  - Run single test without Chrome reference");
-    println!("    debug <test_name>             - Debug test with Gemini LLM analysis");
-    println!("    debug <test_name> <question>  - Debug test with specific question for LLM");
+    println!("    debug <test_name> [options] [question]  - Debug test with Gemini LLM analysis");
+    println!("      Options: --dry-run          - Generate prompt without calling API");
+    println!("               --add-working-diff - Include current git diff");
+    println!("               --no-screenshots   - Exclude screenshots (saves tokens)");
     println!();
     println!("  PACKAGING:");
     println!("    nfpm                          - Generate NFPM config (latest version)");
