@@ -42,7 +42,7 @@ use crate::{
         fc::{self, layout_formatting_context, LayoutConstraints, OverflowBehavior},
         geometry::PositionedRectangle,
         getters::{
-            get_css_height, get_justify_content, get_overflow_x, get_overflow_y, get_text_align,
+            get_css_height, get_display_property, get_justify_content, get_overflow_x, get_overflow_y, get_text_align,
             get_wrap, get_writing_mode, MultiValue,
         },
         layout_tree::{is_block_level, AnonymousBoxType, LayoutNode, LayoutTreeBuilder, SubtreeHash},
@@ -707,12 +707,35 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         Some(id) => get_css_height(ctx.styled_dom, id, &styled_node_state),
         None => MultiValue::Auto, // Anonymous boxes have auto height
     };
+    
+    // Get display type to determine sizing behavior
+    let display = match dom_id {
+        Some(id) => get_display_property(ctx.styled_dom, Some(id)),
+        None => MultiValue::Auto, // Anonymous boxes behave like blocks
+    };
+    
     let available_size_for_children = if should_use_content_height(&css_height) {
         // Height is auto - use containing block size as available size
         let inner_size = node.box_props.inner_size(final_used_size, writing_mode);
 
+        // For inline elements (display: inline), the available width comes from
+        // the containing block, not from the element's own intrinsic size.
+        // CSS 2.2 § 10.3.1: Inline, non-replaced elements use containing block width.
+        // The containing_block_size already has parent's padding subtracted when
+        // passed from the parent's layout (via inner_size calculation).
+        let available_width = match display {
+            MultiValue::Exact(LayoutDisplay::Inline) | MultiValue::Auto => {
+                // Inline elements flow within the containing block
+                containing_block_size.width
+            }
+            _ => {
+                // Block-level elements use their own content-box
+                inner_size.width
+            }
+        };
+
         LogicalSize {
-            width: inner_size.width,
+            width: available_width,
             // Use containing block height!
             height: containing_block_size.height,
         }
