@@ -915,8 +915,8 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         </aside>
 
         <main>
-          <h1>Azul GUI v{version}</h1>
-          <a href='https://github.com/fschutt/azul/commit/{git}'>(git {git})</a>
+          <h1>Azul v{version}</h1>
+          <a href='https://github.com/fschutt/azul/commit/{git}' style='font-size:18px;'>(git {git})</a>
           <style>
             main h1 {{ margin-bottom: none; }}
             ul {{ margin-left: 20px; margin-top: 20px; list-style-type: none; }} 
@@ -926,7 +926,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
             #releasenotes ul li {{ margin-bottom: 2px; }} 
             #releasenotes p {{ margin-bottom: 10px; margin-top: 10px; }}
           </style>
-          <div>
+          <div style='font-size:18px;'>
               
               <div id='releasenotes'>
               {releasenotes}
@@ -983,7 +983,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
               <strong>Use Azul as Rust dependency:</strong>
               <br/>
 
-              <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;'>
+              <div style='padding:20px;background:rgb(236, 236, 236);margin-top: 20px;font-size:14px;'>
                   <p style='color:grey;font-family:monospace;'># Cargo.toml</p>
                   <p style='color:black;font-family:monospace;'>[dependencies.azul]</p>
                   <p style='color:black;font-family:monospace;'>git = \"https://azul.rs/{version}.git\"</p>
@@ -1035,7 +1035,7 @@ pub fn generate_releases_index(versions: &[String]) -> String {
     {sidebar}
   </aside>
   <main>
-    <h1>Choose release version</h1>
+    <h1>Releases</h1>
     <div>
       <ul>{}</ul>
     </div>

@@ -161,14 +161,12 @@ pub fn generate_blog_post_html(post: &BlogPost) -> String {
         h2, h3, h4 { cursor: pointer; }
         h2 { 
             font-family: 'Instrument Serif', Georgia, serif;
-            font-size: 1.6em;
+            font-size: 28px;
             font-weight: normal;
-            margin-top: 40px; 
-            margin-bottom: 15px;
             text-shadow: 0.3px 0 0 currentColor, -0.3px 0 0 currentColor;
         }
-        h3 { margin-top: 35px; margin-bottom: 10px; font-size: 1.3em; }
-        h4 { margin-top: 25px; margin-bottom: 8px; font-size: 1.1em; }
+        h3 { font-weight: bold; margin-top: 35px; font-size: 24px; }
+        h4 { font-weight: bold; margin-top: 25px; font-size: 20px; }
         #blog { max-width: 700px; line-height: 1.7; font-size: 1.1em; }
         #blog img { max-width: 700px; margin-top: 15px; margin-bottom: 15px;}
         #blog ul, #blog ol {

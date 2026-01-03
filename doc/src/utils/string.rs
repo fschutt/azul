@@ -71,9 +71,16 @@ pub fn strip_fn_arg_types(arg_list: &str) -> String {
 /// Format a docstring for HTML
 pub fn format_doc(docstring: &str) -> String {
     let mut newdoc = docstring.replace('<', "&lt;").replace('>', "&gt;");
+    
+    // Remove code block markers entirely (```rust, ```python, ```, etc.)
+    // These are handled at the line level in format_doc_lines
     newdoc = newdoc
-        .replace("```rust", "<code>")
-        .replace("```", "</code>");
+        .replace("```rust", "")
+        .replace("```python", "")
+        .replace("```c", "")
+        .replace("```cpp", "")
+        .replace("```json", "")
+        .replace("```", "");
 
     // Replace inline code marks
     let mut processed = String::new();
@@ -104,16 +111,39 @@ pub fn format_doc(docstring: &str) -> String {
 
 /// Format multi-line documentation for HTML output
 /// Each line becomes a separate paragraph with proper HTML escaping
+/// - Removes ``` code block markers
+/// - Converts empty lines to <br/> for proper spacing
 pub fn format_doc_lines(doc_lines: &[String]) -> String {
     if doc_lines.is_empty() {
         return String::new();
     }
 
-    doc_lines
-        .iter()
-        .map(|line| format_doc(line))
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut in_code_block = false;
+    let mut result = Vec::new();
+
+    for line in doc_lines {
+        let trimmed = line.trim();
+        
+        // Skip code block markers (``` or ```rust, ```python, etc.)
+        if trimmed.starts_with("```") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+        
+        // Skip lines inside code blocks
+        if in_code_block {
+            continue;
+        }
+        
+        // Convert empty lines to <br/> for proper spacing
+        if trimmed.is_empty() {
+            result.push("<br/>".to_string());
+        } else {
+            result.push(format_doc(line));
+        }
+    }
+
+    result.join("\n")
 }
 
 /// Join documentation lines into a single string for display

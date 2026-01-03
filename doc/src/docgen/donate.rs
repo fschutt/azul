@@ -109,7 +109,7 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
         .donation-option h2 {
             color: #004e92;
             margin-bottom: 1rem;
-            font-size: 1.5rem;
+            font-size: 2.5rem;
         }
         
         .donation-option p {
@@ -203,6 +203,7 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
         <p>Azul is an open-source GUI framework that relies on community support to continue development. 
         Your contributions help maintain the project, implement new features, and keep resources available to everyone.</p>
         <p></p>
+        <br/>
         <p>Choose one of the options below to support the project:</p>
       </div>
       
@@ -212,6 +213,7 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
       
       <div class="donation-intro" style="margin-top: 2rem;">
         <p>Thank you for considering supporting Azul! Every contribution helps the project grow.</p>
+        <br/>
         <p>If you have any questions about donations, please reach out via 
         <a href="https://github.com/fschutt/azul/issues">GitHub</a> or 
         <a href="https://discord.gg/V96ZGKqQvn">Discord</a>.</p>

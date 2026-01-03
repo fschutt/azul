@@ -99,7 +99,7 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
     ]
     .join("\r\n");
 
-    let title = format!("Azul API docs for version {version}");
+    let title = format!("API v{version}");
     let content = generate_api_content(&version_data);
     let header_tags = crate::docgen::get_common_head_tags(false);
     let sidebar = crate::docgen::get_sidebar();

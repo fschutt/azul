@@ -205,10 +205,6 @@ pub fn generate_guide_html(guide: &Guide, version: &str) -> String {
             margin-bottom: 1em;
             margin-top: 1em;
         }
-        #guide p {
-            margin-bottom: 1.5em;
-            margin-top: 1.5em;
-        }
         #guide code {
             font-family: monospace;
             font-weight: bold;
@@ -320,7 +316,7 @@ pub fn generate_guide_mainpage(version: &str) -> String {
         <main>
             <h1>User Guide</h1>
             <div>
-            <ul>{version_items}</ul>
+            <ul style='font-size: 18px;'>{version_items}</ul>
             </div>
         </main>
         </div>

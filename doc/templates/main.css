@@ -202,7 +202,7 @@ main {
   }
 }
 
-main h1, main h2, h1, h2 {
+main h1, main h2, h1, h2, h3, h4, h5, h6 {
     font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
 }
 
@@ -233,7 +233,7 @@ main h1 {
     margin: 0;
     padding: 8px 15px;
     /* Base size for large screens */
-    font-size: 2.5em;
+    font-size: 2.8em;
     font-weight: normal;
     line-height: 1.0;
     color: #000;
@@ -245,16 +245,16 @@ main h1 {
 }
 
 main h3, h3 {
-    font-family: "Source Serif Pro", Georgia, "Times New Roman", serif;
-    font-size: 1.15em;
-    font-weight: normal;
+    font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+    font-size: 24px;
+    font-weight: bold;
     line-height: 1.6;
     color: #333;
 }
 
 main p, p {
     font-family: "Source Serif Pro", Georgia, "Times New Roman", serif;
-    font-size: 1.2em;
+    font-size: 16px;
     line-height: 1.6;
     color: #444;
 }
@@ -744,7 +744,7 @@ main > header h3 {
   
   /* Frontpage h1/h2/tagline sizing for tablet - remove h1 override to keep desktop size */
   .feature-image h2.feature-title {
-    font-size: 2.2em;
+    font-size: 2.5em;
   }
   
   .tagline {
@@ -759,7 +759,7 @@ main > header h3 {
   }
   
   .feature-image h2.feature-title {
-    font-size: 2.3em;
+    font-size: 2.5em;
   }
   
   .tagline {
@@ -774,7 +774,7 @@ main > header h3 {
   }
   
   .feature-image h2.feature-title {
-    font-size: 1.8em;
+    font-size: 2.2em;
   }
   
   .tagline {
@@ -789,7 +789,7 @@ main > header h3 {
   }
   
   .feature-image h2.feature-title {
-    font-size: 1.5em;
+    font-size: 1.8em;
   }
   
   .tagline {
