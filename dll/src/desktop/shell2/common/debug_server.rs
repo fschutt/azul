@@ -733,6 +733,11 @@ pub fn start_debug_server(port: u16) -> DebugServerHandle {
                 // Try to accept a connection (non-blocking)
                 match listener.accept() {
                     Ok((mut stream, _addr)) => {
+                        // NOTE: Stream explicitly set to blocking mode
+                        // The listener is non-blocking, but accepted streams may inherit this.
+                        // This causes the final read loop to fail immediately with WouldBlock,
+                        // closing the socket before the client has read all data.
+                        stream.set_nonblocking(false).ok();
                         // Set read timeout
                         stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
                         // Increase write timeout to 30s for large screenshot transfers
@@ -863,7 +868,7 @@ pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
 /// Helper function for serializing HttpResponse
 #[cfg(feature = "std")]
 fn serialize_http_response(response: &HttpResponse) -> String {
-    serde_json::to_string(response).unwrap_or_else(|_| r#"{"status":"error","message":"Serialization failed"}"#.to_string())
+    serde_json::to_string_pretty(response).unwrap_or_else(|_| r#"{"status":"error","message":"Serialization failed"}"#.to_string())
 }
 
 // ==================== HTTP Server ====================
@@ -959,10 +964,17 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
     }
 
     // 2. Write Body in Chunks (Safer for large data like screenshots)
+    let mut bytes_written = 0usize;
     for chunk in body_bytes.chunks(8192) {
-        if stream.write_all(chunk).is_err() {
-            eprintln!("[DebugServer] Error writing chunk to stream");
-            return;
+        match stream.write_all(chunk) {
+            Ok(_) => {
+                bytes_written += chunk.len();
+            }
+            Err(e) => {
+                eprintln!("[DebugServer] Error writing chunk to stream after {} of {} bytes: {:?}", 
+                    bytes_written, body_bytes.len(), e);
+                return;
+            }
         }
     }
     
