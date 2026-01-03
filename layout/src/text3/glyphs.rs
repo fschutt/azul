@@ -8,9 +8,10 @@ use azul_core::{
     ui_solver::GlyphInstance,
 };
 use azul_css::props::basic::ColorU;
+use azul_css::props::style::StyleBackgroundContent;
 
 use crate::text3::cache::{
-    get_item_vertical_metrics, LoadedFonts, ParsedFontTrait, Point, PositionedItem, ShapedGlyph,
+    get_item_vertical_metrics, InlineBorderInfo, LoadedFonts, ParsedFontTrait, Point, PositionedItem, ShapedGlyph,
     ShapedItem, UnifiedLayout,
 };
 
@@ -34,6 +35,10 @@ pub struct SimpleGlyphRun {
     pub color: ColorU,
     /// Background color for this run (rendered behind text)
     pub background_color: Option<ColorU>,
+    /// Full background content layers (for gradients, images, etc.)
+    pub background_content: Vec<StyleBackgroundContent>,
+    /// Border information for inline elements
+    pub border: Option<InlineBorderInfo>,
     /// A hash of the font, useful for caching purposes.
     pub font_hash: u64,
     /// The font size in pixels.
@@ -81,6 +86,8 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                 for glyph in positioned_glyphs {
                     let glyph_color = glyph.style.color;
                     let glyph_background = glyph.style.background_color;
+                    let glyph_background_content = glyph.style.background_content.clone();
+                    let glyph_border = glyph.style.border.clone();
                     let font_hash = glyph.font_hash;
                     let font_size_px = glyph.style.font_size_px;
                     let text_decoration = glyph.style.text_decoration.clone();
@@ -94,10 +101,12 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                         glyph.into_glyph_instance_at_simple(writing_mode, absolute_position);
 
                     if let Some(run) = current_run.as_mut() {
-                        // Break run if any style property changes (including background)
+                        // Break run if any style property changes (including background, gradient, border)
                         if run.font_hash == font_hash
                             && run.color == glyph_color
                             && run.background_color == glyph_background
+                            && run.background_content == glyph_background_content
+                            && run.border == glyph_border
                             && run.font_size_px == font_size_px
                             && run.text_decoration == text_decoration
                         {
@@ -108,6 +117,8 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                                 glyphs: vec![instance],
                                 color: glyph_color,
                                 background_color: glyph_background,
+                                background_content: glyph_background_content.clone(),
+                                border: glyph_border.clone(),
                                 font_hash,
                                 font_size_px,
                                 text_decoration: text_decoration.clone(),
@@ -119,6 +130,8 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             glyphs: vec![instance],
                             color: glyph_color,
                             background_color: glyph_background,
+                            background_content: glyph_background_content.clone(),
+                            border: glyph_border.clone(),
                             font_hash,
                             font_size_px,
                             text_decoration: text_decoration.clone(),

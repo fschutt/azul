@@ -1011,6 +1011,99 @@ pub fn get_border_info(
     }
 }
 
+/// Convert BorderInfo to InlineBorderInfo for inline elements
+/// 
+/// This resolves the CSS property values to concrete pixel values and colors
+/// that can be used during text rendering.
+pub fn get_inline_border_info(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+    border_info: &BorderInfo,
+) -> Option<crate::text3::cache::InlineBorderInfo> {
+    use crate::text3::cache::InlineBorderInfo;
+    
+    // Helper to extract pixel value from border width
+    fn get_border_width_px(width: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderTopWidth>>) -> f32 {
+        width.as_ref()
+            .and_then(|v| v.get_property())
+            .map(|w| w.inner.number.get())
+            .unwrap_or(0.0)
+    }
+    
+    fn get_border_width_px_right(width: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderRightWidth>>) -> f32 {
+        width.as_ref()
+            .and_then(|v| v.get_property())
+            .map(|w| w.inner.number.get())
+            .unwrap_or(0.0)
+    }
+    
+    fn get_border_width_px_bottom(width: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderBottomWidth>>) -> f32 {
+        width.as_ref()
+            .and_then(|v| v.get_property())
+            .map(|w| w.inner.number.get())
+            .unwrap_or(0.0)
+    }
+    
+    fn get_border_width_px_left(width: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderLeftWidth>>) -> f32 {
+        width.as_ref()
+            .and_then(|v| v.get_property())
+            .map(|w| w.inner.number.get())
+            .unwrap_or(0.0)
+    }
+    
+    // Helper to extract color from border color
+    fn get_border_color_top(color: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderTopColor>>) -> ColorU {
+        color.as_ref()
+            .and_then(|v| v.get_property())
+            .map(|c| c.inner)
+            .unwrap_or(ColorU::BLACK)
+    }
+    
+    fn get_border_color_right(color: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderRightColor>>) -> ColorU {
+        color.as_ref()
+            .and_then(|v| v.get_property())
+            .map(|c| c.inner)
+            .unwrap_or(ColorU::BLACK)
+    }
+    
+    fn get_border_color_bottom(color: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderBottomColor>>) -> ColorU {
+        color.as_ref()
+            .and_then(|v| v.get_property())
+            .map(|c| c.inner)
+            .unwrap_or(ColorU::BLACK)
+    }
+    
+    fn get_border_color_left(color: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderLeftColor>>) -> ColorU {
+        color.as_ref()
+            .and_then(|v| v.get_property())
+            .map(|c| c.inner)
+            .unwrap_or(ColorU::BLACK)
+    }
+    
+    let top = get_border_width_px(&border_info.widths.top);
+    let right = get_border_width_px_right(&border_info.widths.right);
+    let bottom = get_border_width_px_bottom(&border_info.widths.bottom);
+    let left = get_border_width_px_left(&border_info.widths.left);
+    
+    // Only return Some if there's actually a border
+    if top == 0.0 && right == 0.0 && bottom == 0.0 && left == 0.0 {
+        return None;
+    }
+    
+    Some(InlineBorderInfo {
+        top,
+        right,
+        bottom,
+        left,
+        top_color: get_border_color_top(&border_info.colors.top),
+        right_color: get_border_color_right(&border_info.colors.right),
+        bottom_color: get_border_color_bottom(&border_info.colors.bottom),
+        left_color: get_border_color_left(&border_info.colors.left),
+        radius: None, // TODO: Extract border-radius if needed
+    })
+}
+
 // Selection and Caret Styling
 
 /// Style information for text selection rendering
@@ -1235,19 +1328,25 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .and_then(|v| v.get_property().cloned())
         .unwrap_or(LayoutDisplay::Inline);
 
-    let background_color = if matches!(display, LayoutDisplay::Inline | LayoutDisplay::InlineBlock)
-    {
-        let bg = get_background_color(styled_dom, dom_id, node_state);
-        // Only set if not fully transparent
-        if bg.a > 0 {
-            Some(bg)
+    // For inline and inline-block elements, get background content and border info
+    // Block elements have their backgrounds/borders painted by display_list.rs
+    let (background_color, background_content, border) = 
+        if matches!(display, LayoutDisplay::Inline | LayoutDisplay::InlineBlock) {
+            let bg = get_background_color(styled_dom, dom_id, node_state);
+            let bg_color = if bg.a > 0 { Some(bg) } else { None };
+            
+            // Get full background contents (including gradients)
+            let bg_contents = get_background_contents(styled_dom, dom_id, node_state);
+            
+            // Get border info for inline elements
+            let border_info = get_border_info(styled_dom, dom_id, node_state);
+            let inline_border = get_inline_border_info(styled_dom, dom_id, node_state, &border_info);
+            
+            (bg_color, bg_contents, inline_border)
         } else {
-            None
-        }
-    } else {
-        // Block-level elements: background is painted by display_list.rs, not text renderer
-        None
-    };
+            // Block-level elements: background/border is painted by display_list.rs
+            (None, Vec::new(), None)
+        };
 
     // Query font-weight from CSS cache
     let font_weight = cache
@@ -1298,6 +1397,8 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         font_size_px: font_size,
         color,
         background_color,
+        background_content,
+        border,
         line_height,
         ..Default::default()
     };

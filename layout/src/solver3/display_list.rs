@@ -20,7 +20,7 @@ use azul_css::{
     css::CssPropertyValue,
     format_rust_code::GetHash,
     props::{
-        basic::{ColorU, FontRef},
+        basic::{ColorU, FontRef, PixelValue},
         layout::{LayoutDisplay, LayoutOverflow, LayoutPosition},
         property::{CssProperty, CssPropertyType},
         style::{
@@ -28,7 +28,7 @@ use azul_css::{
             border_radius::StyleBorderRadius,
             box_shadow::{BoxShadowClipMode, StyleBoxShadow},
             filter::{StyleFilter, StyleFilterVec},
-            LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
             LayoutBorderTopWidth, StyleBorderBottomColor, StyleBorderBottomStyle,
             StyleBorderLeftColor, StyleBorderLeftStyle, StyleBorderRightColor,
             StyleBorderRightStyle, StyleBorderTopColor, StyleBorderTopStyle,
@@ -1350,8 +1350,8 @@ where
         // Set current node for node mapping (for pagination break properties)
         builder.set_current_node(node.dom_node_id);
 
-        // Skip inline-blocks - they are rendered by text3 in paint_inline_content
-        // Inline-blocks participate in inline formatting context and their backgrounds
+        // Skip inline and inline-block elements - they are rendered by text3 in paint_inline_content
+        // Inline elements participate in inline formatting context and their backgrounds
         // must be positioned by the text layout engine, not the block layout engine
         if let Some(dom_id) = node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
@@ -1368,8 +1368,9 @@ where
                 .and_then(|v| v.get_property().cloned())
                 .unwrap_or(LayoutDisplay::Inline);
 
-            if display == LayoutDisplay::InlineBlock {
-                // text3 will handle this via InlineShape
+            if display == LayoutDisplay::InlineBlock || display == LayoutDisplay::Inline {
+                // text3 will handle this via InlineShape (for inline-block) 
+                // or glyph runs with background_color (for inline)
                 return Ok(());
             }
         }
@@ -1794,24 +1795,118 @@ where
 
         let glyph_runs = crate::text3::glyphs::get_glyph_runs_simple(layout);
 
+        // FIRST PASS: Render backgrounds (solid colors, gradients) and borders for each glyph run
+        // This must happen BEFORE rendering text so that backgrounds appear behind text.
+        for glyph_run in glyph_runs.iter() {
+            // Calculate the bounding box for this glyph run
+            if let (Some(first_glyph), Some(last_glyph)) =
+                (glyph_run.glyphs.first(), glyph_run.glyphs.last())
+            {
+                // Calculate run bounds from glyph positions
+                let run_start_x = container_rect.origin.x + first_glyph.point.x;
+                let run_end_x = container_rect.origin.x + last_glyph.point.x;
+                let run_width = (run_end_x - run_start_x).max(0.0);
+                
+                // Approximate height based on font size (baseline is at glyph.point.y)
+                let baseline_y = container_rect.origin.y + first_glyph.point.y;
+                let font_size = glyph_run.font_size_px;
+                let ascent = font_size * 0.8; // Approximate ascent
+                let descent = font_size * 0.2; // Approximate descent
+                
+                let run_bounds = LogicalRect::new(
+                    LogicalPosition::new(run_start_x, baseline_y - ascent),
+                    LogicalSize::new(run_width, font_size),
+                );
+                
+                // Skip if run has no width
+                if run_width <= 0.0 {
+                    continue;
+                }
+
+                // Render solid background color if present
+                if let Some(bg_color) = glyph_run.background_color {
+                    builder.push_rect(run_bounds, ColorU::from(bg_color), BorderRadius::default());
+                }
+
+                // Render gradient backgrounds
+                use azul_css::props::style::StyleBackgroundContent;
+                for bg_content in &glyph_run.background_content {
+                    match bg_content {
+                        StyleBackgroundContent::Color(color) => {
+                            builder.push_rect(run_bounds, ColorU::from(*color), BorderRadius::default());
+                        }
+                        StyleBackgroundContent::LinearGradient(linear_gradient) => {
+                            builder.push_linear_gradient(
+                                run_bounds,
+                                linear_gradient.clone(),
+                                BorderRadius::default(),
+                            );
+                        }
+                        StyleBackgroundContent::RadialGradient(radial_gradient) => {
+                            builder.push_radial_gradient(
+                                run_bounds,
+                                radial_gradient.clone(),
+                                BorderRadius::default(),
+                            );
+                        }
+                        StyleBackgroundContent::ConicGradient(conic_gradient) => {
+                            builder.push_conic_gradient(
+                                run_bounds,
+                                conic_gradient.clone(),
+                                BorderRadius::default(),
+                            );
+                        }
+                        StyleBackgroundContent::Image(_) => {
+                            // TODO: Handle background images for inline text
+                        }
+                    }
+                }
+
+                // Render border if present
+                if let Some(ref border) = glyph_run.border {
+                    // Only render if there's actual border width
+                    if border.top > 0.0 || border.right > 0.0 || border.bottom > 0.0 || border.left > 0.0 {
+                        let border_widths = StyleBorderWidths {
+                            top: Some(CssPropertyValue::Exact(LayoutBorderTopWidth { inner: PixelValue::px(border.top) })),
+                            right: Some(CssPropertyValue::Exact(LayoutBorderRightWidth { inner: PixelValue::px(border.right) })),
+                            bottom: Some(CssPropertyValue::Exact(LayoutBorderBottomWidth { inner: PixelValue::px(border.bottom) })),
+                            left: Some(CssPropertyValue::Exact(LayoutBorderLeftWidth { inner: PixelValue::px(border.left) })),
+                        };
+                        let border_colors = StyleBorderColors {
+                            top: Some(CssPropertyValue::Exact(StyleBorderTopColor { inner: border.top_color })),
+                            right: Some(CssPropertyValue::Exact(StyleBorderRightColor { inner: border.right_color })),
+                            bottom: Some(CssPropertyValue::Exact(StyleBorderBottomColor { inner: border.bottom_color })),
+                            left: Some(CssPropertyValue::Exact(StyleBorderLeftColor { inner: border.left_color })),
+                        };
+                        let border_styles = StyleBorderStyles {
+                            top: Some(CssPropertyValue::Exact(StyleBorderTopStyle { inner: BorderStyle::Solid })),
+                            right: Some(CssPropertyValue::Exact(StyleBorderRightStyle { inner: BorderStyle::Solid })),
+                            bottom: Some(CssPropertyValue::Exact(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
+                            left: Some(CssPropertyValue::Exact(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
+                        };
+                        let radius_px = PixelValue::px(border.radius.unwrap_or(0.0));
+                        let border_radius = StyleBorderRadius {
+                            top_left: radius_px,
+                            top_right: radius_px,
+                            bottom_left: radius_px,
+                            bottom_right: radius_px,
+                        };
+                        
+                        builder.push_border(
+                            run_bounds,
+                            border_widths,
+                            border_colors,
+                            border_styles,
+                            border_radius,
+                        );
+                    }
+                }
+            }
+        }
+
+        // SECOND PASS: Render text runs
         for (idx, glyph_run) in glyph_runs.iter().enumerate() {
             let clip_rect = container_rect; // Clip to the container rect
-
-            // IMPORTANT: Inline background colors (e.g., <span style="background: yellow">)
-            // are NOT rendered here via push_rect().
-            //
-            // Reason: The PDF renderer processes DisplayListItem::TextLayout, which contains
-            // the full UnifiedLayout. The renderer extracts glyph runs with their background_color
-            // and renders backgrounds in a FIRST PASS, then text in a SECOND PASS.
-            //
-            // If we called push_rect() here, it would:
-            // 1. Add Rect items AFTER the TextLayout item in the display list
-            // 2. The PDF renderer would render TextLayout (backgrounds + text)
-            // 3. Then render the Rect items ON TOP of the text
-            // 4. Result: Text hidden behind backgrounds (wrong z-order)
-            //
-            // The background_color is stored in StyleProperties -> ShapedGlyph -> PdfGlyphRun
-            // and the PDF renderer handles it correctly via get_glyph_runs_pdf().
 
             // Store only the font hash in the display list to keep it lean
             builder.push_text_run(
@@ -1932,7 +2027,7 @@ where
         Ok(())
     }
 
-    /// Paints an inline shape (inline-block background)
+    /// Paints an inline shape (inline-block background and border)
     fn paint_inline_shape(
         &self,
         builder: &mut DisplayListBuilder,
@@ -1940,33 +2035,69 @@ where
         shape: &InlineShape,
         bounds: &crate::text3::cache::Rect,
     ) -> Result<()> {
-        // Render inline-block backgrounds using their CSS styling
+        use azul_css::props::style::StyleBackgroundContent;
+
+        // Render inline-block backgrounds and borders using their CSS styling
         // The text3 engine positions these correctly in the inline flow
         let Some(node_id) = shape.source_node_id else {
             return Ok(());
         };
 
         let styled_node_state = &self.ctx.styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
-        let bg_color = get_background_color(self.ctx.styled_dom, node_id, styled_node_state);
-
-        // Only render if there's a visible background
-        if bg_color.a == 0 {
-            return Ok(());
-        }
+        
+        // Get all background layers (colors, gradients, images)
+        let background_contents = get_background_contents(self.ctx.styled_dom, node_id, styled_node_state);
+        
+        // Get border information
+        let border_info = get_border_info(self.ctx.styled_dom, node_id, styled_node_state);
 
         let element_size = PhysicalSizeImport {
             width: bounds.width,
             height: bounds.height,
         };
-        let border_radius = get_border_radius(
+        
+        // Get border radius for background clipping
+        let simple_border_radius = get_border_radius(
             self.ctx.styled_dom,
             node_id,
             styled_node_state,
             element_size,
             self.ctx.viewport_size,
         );
+        
+        // Get style border radius for border rendering
+        let style_border_radius = get_style_border_radius(self.ctx.styled_dom, node_id, styled_node_state);
 
-        builder.push_rect(object_bounds, bg_color, border_radius);
+        // Paint all background layers in order (CSS paints backgrounds back to front)
+        for bg in background_contents {
+            match bg {
+                StyleBackgroundContent::Color(color) => {
+                    builder.push_rect(object_bounds, color, simple_border_radius);
+                }
+                StyleBackgroundContent::LinearGradient(gradient) => {
+                    builder.push_linear_gradient(object_bounds, gradient, simple_border_radius);
+                }
+                StyleBackgroundContent::RadialGradient(gradient) => {
+                    builder.push_radial_gradient(object_bounds, gradient, simple_border_radius);
+                }
+                StyleBackgroundContent::ConicGradient(gradient) => {
+                    builder.push_conic_gradient(object_bounds, gradient, simple_border_radius);
+                }
+                StyleBackgroundContent::Image(_image_id) => {
+                    // TODO: Implement image backgrounds
+                }
+            }
+        }
+
+        // Paint border
+        builder.push_border(
+            object_bounds,
+            border_info.widths,
+            border_info.colors,
+            border_info.styles,
+            style_border_radius,
+        );
+
         Ok(())
     }
 

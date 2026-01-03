@@ -17,7 +17,7 @@ use azul_core::{
     selection::{CursorAffinity, SelectionRange, TextCursor},
     ui_solver::GlyphInstance,
 };
-use azul_css::{corety::LayoutDebugMessage, props::basic::ColorU};
+use azul_css::{corety::LayoutDebugMessage, props::basic::ColorU, props::style::StyleBackgroundContent};
 #[cfg(feature = "text_layout_hyphenation")]
 use hyphenation::{Hyphenator, Language, Load, Standard};
 use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, FontId, PatternMatch, UnicodeRange};
@@ -1127,6 +1127,50 @@ pub enum ObjectFit {
     ScaleDown,
 }
 
+/// Border information for inline elements (display: inline, inline-block)
+/// 
+/// This stores the resolved border properties needed for rendering inline element borders.
+/// Unlike block elements which render borders via paint_node_background_and_border(),
+/// inline element borders must be rendered per glyph-run to handle line breaks correctly.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InlineBorderInfo {
+    /// Border widths in pixels for each side
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+    /// Border colors for each side
+    pub top_color: ColorU,
+    pub right_color: ColorU,
+    pub bottom_color: ColorU,
+    pub left_color: ColorU,
+    /// Border radius (if any)
+    pub radius: Option<f32>,
+}
+
+impl Default for InlineBorderInfo {
+    fn default() -> Self {
+        Self {
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+            left: 0.0,
+            top_color: ColorU::TRANSPARENT,
+            right_color: ColorU::TRANSPARENT,
+            bottom_color: ColorU::TRANSPARENT,
+            left_color: ColorU::TRANSPARENT,
+            radius: None,
+        }
+    }
+}
+
+impl InlineBorderInfo {
+    /// Returns true if any border has a non-zero width
+    pub fn has_border(&self) -> bool {
+        self.top > 0.0 || self.right > 0.0 || self.bottom > 0.0 || self.left > 0.0
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct InlineShape {
     pub shape_def: ShapeDefinition,
@@ -2005,6 +2049,11 @@ pub struct StyleProperties {
     ///
     /// See `PdfGlyphRun::background_color` for how this is used in PDF rendering.
     pub background_color: Option<ColorU>,
+    /// Full background content layers (for gradients, images, etc.)
+    /// This extends background_color to support CSS gradients on inline elements.
+    pub background_content: Vec<StyleBackgroundContent>,
+    /// Border information for inline elements
+    pub border: Option<InlineBorderInfo>,
     pub letter_spacing: Spacing,
     pub word_spacing: Spacing,
 
@@ -2042,6 +2091,8 @@ impl Default for StyleProperties {
             font_size_px: FONT_SIZE,
             color: ColorU::default(),
             background_color: None,
+            background_content: Vec::new(),
+            border: None,
             letter_spacing: Spacing::default(), // Px(0)
             word_spacing: Spacing::default(),   // Px(0)
             line_height: FONT_SIZE * 1.2,
