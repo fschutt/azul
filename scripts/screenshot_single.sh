@@ -182,10 +182,11 @@ cd "$TEMP_DIR"
 EXAMPLE_BIN="$TEMP_DIR/$EXAMPLE_NAME"
 DLL_NAME=$(basename "$DLL_PATH")
 
-if [ "$(uname)" == "Darwin" ]; then
-    # macOS compilation
+if is_macos; then
+    # macOS compilation - source file BEFORE libraries
     clang -o "$EXAMPLE_BIN" \
         -I"$TEMP_DIR" \
+        "$EXAMPLE_NAME.c" \
         -L"$TEMP_DIR" \
         -lazul \
         -framework AppKit \
@@ -193,29 +194,30 @@ if [ "$(uname)" == "Darwin" ]; then
         -framework CoreGraphics \
         -framework CoreText \
         -framework CoreFoundation \
-        -Wl,-rpath,"$TEMP_DIR" \
-        "$EXAMPLE_NAME.c"
-elif [ "$(uname)" == "Linux" ]; then
-    # Linux compilation
+        -Wl,-rpath,"$TEMP_DIR"
+elif is_linux; then
+    # Linux compilation - source file BEFORE libraries (critical for ld)
     gcc -o "$EXAMPLE_BIN" \
         -I"$TEMP_DIR" \
+        "$EXAMPLE_NAME.c" \
         -L"$TEMP_DIR" \
         -lazul \
         -lGL -lX11 -lpthread -lm \
-        -Wl,-rpath,"$TEMP_DIR" \
-        "$EXAMPLE_NAME.c"
-elif [[ "$(uname)" == MINGW* ]] || [[ "$(uname)" == MSYS* ]] || [[ "$(uname)" == CYGWIN* ]]; then
+        -Wl,-rpath,"$TEMP_DIR"
+elif is_windows; then
     # Windows/MINGW compilation
     EXAMPLE_BIN="$TEMP_DIR/$EXAMPLE_NAME.exe"
-    # On Windows, link directly against the DLL
-    # gcc expects libazul.dll or libazul.a, so we rename or link directly
-    cp "$TEMP_DIR/azul.dll" "$TEMP_DIR/libazul.dll" 2>/dev/null || true
+    # On Windows, gcc expects libazul.dll or libazul.a, so we create a symlink/copy
+    if [ -f "$TEMP_DIR/azul.dll" ] && [ ! -f "$TEMP_DIR/libazul.dll" ]; then
+        cp "$TEMP_DIR/azul.dll" "$TEMP_DIR/libazul.dll"
+    fi
+    # Source file BEFORE libraries
     gcc -o "$EXAMPLE_BIN" \
         -I"$TEMP_DIR" \
+        "$EXAMPLE_NAME.c" \
         -L"$TEMP_DIR" \
         -lazul \
-        -lopengl32 -lgdi32 -luser32 -lkernel32 \
-        "$EXAMPLE_NAME.c"
+        -lopengl32 -lgdi32 -luser32 -lkernel32 -lm
 else
     log_error "Unsupported platform: $(uname)"
     exit 1
@@ -244,8 +246,22 @@ log_step 6 "Starting example with AZUL_DEBUG=$PORT..."
 
 cd "$TEMP_DIR"
 
+# Debug: Show what's in the temp directory
+log_info "Files in temp directory:"
+ls -la "$TEMP_DIR" | head -20
+
 # Platform-specific execution
 if is_windows; then
+    # On Windows, ensure DLL is findable - add temp dir to PATH
+    export PATH="$TEMP_DIR:$PATH"
+    log_info "Running: AZUL_DEBUG=$PORT ./$EXAMPLE_NAME.exe"
+    log_info "PATH includes: $TEMP_DIR"
+    # Check if DLL exists
+    if [ -f "$TEMP_DIR/azul.dll" ]; then
+        log_info "azul.dll found in temp dir"
+    else
+        log_error "azul.dll NOT found in temp dir!"
+    fi
     AZUL_DEBUG=$PORT "./$EXAMPLE_NAME.exe" > "$TEMP_DIR/stdout.log" 2> "$TEMP_DIR/stderr.log" &
 elif is_linux; then
     # Use xvfb-run on Linux if DISPLAY is not set (CI environment)
@@ -274,6 +290,16 @@ if ! check_process_alive $APP_PID; then
     cat "$TEMP_DIR/stdout.log" || true
     log_error "=== STDERR ==="
     cat "$TEMP_DIR/stderr.log" || true
+    
+    # On Windows, try to get more info about the crash
+    if is_windows; then
+        log_error "=== Windows Debug Info ==="
+        log_error "Checking if DLL dependencies are met..."
+        # List DLLs the exe depends on (if objdump available)
+        objdump -p "$EXAMPLE_BIN" 2>/dev/null | grep "DLL Name" || true
+        log_error "DLL files in directory:"
+        ls -la "$TEMP_DIR"/*.dll 2>/dev/null || echo "No DLLs found"
+    fi
     exit 1
 fi
 log_info "Process $APP_PID is alive"
@@ -296,16 +322,18 @@ log_info "Request: POST http://localhost:$PORT/ - {\"type\":\"get_logs\"}"
 CONNECTIVITY_RESPONSE_FILE="$TEMP_DIR/connectivity_response.json"
 CURL_STDERR_FILE="$TEMP_DIR/curl_stderr.log"
 
-# Use --max-time to prevent hanging, capture curl exit code
+# Use --max-time and --connect-timeout to prevent hanging
+log_info "Running curl with 10s timeout..."
 curl -s -X POST "http://localhost:$PORT/" \
     -H "Content-Type: application/json" \
     -d '{"type":"get_logs"}' \
-    --max-time 30 \
+    --connect-timeout 5 \
+    --max-time 10 \
     -o "$CONNECTIVITY_RESPONSE_FILE" \
-    2>"$CURL_STDERR_FILE"
+    2>"$CURL_STDERR_FILE" || true
 curl_exit=$?
 
-log_info "curl exit code: $curl_exit"
+log_info "curl completed with exit code: $curl_exit"
 if [ -s "$CURL_STDERR_FILE" ]; then
     log_warn "curl stderr: $(cat $CURL_STDERR_FILE)"
 fi

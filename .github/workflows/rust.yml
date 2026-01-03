@@ -568,6 +568,13 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Checkout repository (for fallback assets)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            examples/assets/screenshots
+          sparse-checkout-cone-mode: false
+
       - name: Download website skeleton
         uses: actions/download-artifact@v4
         with:
@@ -703,6 +710,8 @@ jobs:
           # Copy screenshots to website images directory
           # Screenshots are named like "hello-world-linux.png" and need to be renamed to "hello-world.linux.png"
           mkdir -p website/images
+          
+          # First, copy CI-generated screenshots
           for screenshot_dir in artifacts-screenshots-linux artifacts-screenshots-macos artifacts-screenshots-windows; do
             if [ -d "$screenshot_dir" ]; then
               for png in "$screenshot_dir"/*.png; do
@@ -723,22 +732,62 @@ jobs:
               done
             fi
           done
+          
+          # Then, copy fallback screenshots from examples/assets/screenshots for any missing images
+          echo "Checking for missing screenshots, using fallbacks from examples/assets/screenshots..."
+          for example in hello-world widgets opengl infinity async xhtml calc; do
+            for os in linux mac windows; do
+              target="website/images/${example}.${os}.png"
+              if [ ! -f "$target" ]; then
+                # Try to find a fallback
+                fallback="examples/assets/screenshots/${example}.${os}.png"
+                if [ -f "$fallback" ]; then
+                  cp "$fallback" "$target"
+                  echo "  [FALLBACK] Copied $fallback -> $target"
+                else
+                  # Try mac screenshot as fallback for all platforms
+                  mac_fallback="examples/assets/screenshots/${example}.mac.png"
+                  if [ -f "$mac_fallback" ]; then
+                    cp "$mac_fallback" "$target"
+                    echo "  [FALLBACK] Copied $mac_fallback -> $target (mac as fallback)"
+                  else
+                    echo "  [MISSING] No screenshot for ${example}.${os}.png"
+                  fi
+                fi
+              fi
+            done
+          done
+          
           ls -la website/images/ || echo "No images directory"
           
           # Update file sizes in release HTML
-          # The HTML contains "N/A" or placeholder sizes that need to be replaced with real sizes
+          # The HTML contains placeholder sizes like "86B" that need to be replaced with real sizes
+          # Format in HTML: "filename - 86B)" needs to become "filename - 80.5MB)"
           if [ -d "$RELEASE_DIR" ]; then
             echo "Updating file sizes in release HTML..."
             for file in "$RELEASE_DIR"/*; do
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
-                size=$(du -h "$file" | cut -f1)
+                # Get size in bytes and format it
+                size_bytes=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo "0")
+                if [ "$size_bytes" -lt 1024 ]; then
+                  size="${size_bytes}B"
+                elif [ "$size_bytes" -lt 1048576 ]; then
+                  size="$(echo "scale=1; $size_bytes / 1024" | bc)KB"
+                else
+                  size="$(echo "scale=1; $size_bytes / 1048576" | bc)MB"
+                fi
+                echo "  $filename: $size"
                 # Find and update the size in release HTML files
+                # Match pattern: "filename - XXXB)" or "filename - X.XKB)" etc.
                 for html in website/release/*.html; do
                   if [ -f "$html" ]; then
-                    # Replace "filename - N/A" or "filename - not available" with actual size
-                    sed -i "s|${filename} - N/A|${filename} - ${size}|g" "$html" 2>/dev/null || true
-                    sed -i "s|${filename} - not available|${filename} - ${size}|g" "$html" 2>/dev/null || true
+                    # Use sed to replace any size pattern for this filename
+                    sed -i "s|${filename} - [0-9.]*[BKMG]B*)|${filename} - ${size})|g" "$html" 2>/dev/null || \
+                    sed -i '' "s|${filename} - [0-9.]*[BKMG]B*)|${filename} - ${size})|g" "$html" 2>/dev/null || true
+                    # Also replace "not available"
+                    sed -i "s|${filename} - not available|${filename} - ${size}|g" "$html" 2>/dev/null || \
+                    sed -i '' "s|${filename} - not available|${filename} - ${size}|g" "$html" 2>/dev/null || true
                   fi
                 done
               fi
