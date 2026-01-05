@@ -12,7 +12,12 @@ use super::{
     defines::*,
     dlopen::{Egl, Library, Xlib},
 };
-use crate::desktop::shell2::common::{dlopen::DynamicLibrary, WindowError};
+use crate::desktop::shell2::common::{
+    debug_server::LogCategory,
+    dlopen::DynamicLibrary, 
+    WindowError,
+};
+use crate::{log_debug, log_warn};
 
 /// Holds the EGL display, context, and surface for an X11 window.
 pub struct GlContext {
@@ -40,6 +45,7 @@ impl GlContext {
         if unsafe { (egl.eglInitialize)(egl_display, &mut major, &mut minor) } == 0 {
             return Err(WindowError::PlatformError("eglInitialize failed".into()));
         }
+        log_debug!(LogCategory::Platform, "[EGL] Initialized EGL {}.{}", major, minor);
 
         if unsafe { (egl.eglBindAPI)(EGL_OPENGL_API) } == 0 {
             return Err(WindowError::ContextCreationFailed);
@@ -67,7 +73,7 @@ impl GlContext {
 
         let mut config = std::ptr::null_mut();
         let mut num_config = 0;
-        if unsafe {
+        let choose_result = unsafe {
             (egl.eglChooseConfig)(
                 egl_display,
                 config_attribs.as_ptr(),
@@ -75,9 +81,8 @@ impl GlContext {
                 1,
                 &mut num_config,
             )
-        } == 0
-            || num_config == 0
-        {
+        };
+        if choose_result == 0 || num_config == 0 {
             return Err(WindowError::ContextCreationFailed);
         }
 
@@ -95,7 +100,8 @@ impl GlContext {
             ));
         }
 
-        let context_attribs = [
+        // Try OpenGL 3.2 Core first, then fall back to simpler contexts
+        let context_attribs_32_core = [
             EGL_CONTEXT_MAJOR_VERSION as i32,
             3,
             EGL_CONTEXT_MINOR_VERSION as i32,
@@ -104,17 +110,62 @@ impl GlContext {
             EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT as i32,
             EGL_NONE as i32,
         ];
-        let egl_context = unsafe {
+        
+        let mut egl_context = unsafe {
             (egl.eglCreateContext)(
                 egl_display,
                 config,
                 std::ptr::null_mut(),
-                context_attribs.as_ptr(),
+                context_attribs_32_core.as_ptr(),
             )
         };
+        
         if egl_context.is_null() {
+            log_debug!(LogCategory::Platform, "[EGL] OpenGL 3.2 Core failed, trying 3.0...");
+            
+            // Try OpenGL 3.0 without profile (compatibility)
+            let context_attribs_30 = [
+                EGL_CONTEXT_MAJOR_VERSION as i32,
+                3,
+                EGL_CONTEXT_MINOR_VERSION as i32,
+                0,
+                EGL_NONE as i32,
+            ];
+            
+            egl_context = unsafe {
+                (egl.eglCreateContext)(
+                    egl_display,
+                    config,
+                    std::ptr::null_mut(),
+                    context_attribs_30.as_ptr(),
+                )
+            };
+        }
+        
+        if egl_context.is_null() {
+            log_debug!(LogCategory::Platform, "[EGL] OpenGL 3.0 failed, trying default...");
+            
+            // Try default context (no version specified)
+            let context_attribs_default = [
+                EGL_NONE as i32,
+            ];
+            
+            egl_context = unsafe {
+                (egl.eglCreateContext)(
+                    egl_display,
+                    config,
+                    std::ptr::null_mut(),
+                    context_attribs_default.as_ptr(),
+                )
+            };
+        }
+        
+        if egl_context.is_null() {
+            let egl_error = unsafe { (egl.eglGetError)() };
+            log_warn!(LogCategory::Platform, "[EGL] All context creation attempts failed, last error=0x{:x}", egl_error);
             return Err(WindowError::ContextCreationFailed);
         }
+        log_debug!(LogCategory::Platform, "[EGL] OpenGL context created successfully");
 
         Ok(Self {
             egl: egl.clone(),
