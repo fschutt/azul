@@ -87,6 +87,8 @@ pub mod svg {
 pub mod xml {
     pub use azul_layout::xml::*;
 }
+/// Native screenshot extension trait using dlopen
+pub mod native_screenshot;
 /// Re-exports of errors
 pub mod errors {
     // TODO: re-export the sub-types of ClipboardError!
@@ -97,6 +99,7 @@ pub mod errors {
 }
 
 pub use azul_core::{callbacks, dom, gl, style, styled_dom, task};
+pub use native_screenshot::NativeScreenshotExt;
 
 #[cfg(target_os = "macos")]
 #[link(name = "CoreText", kind = "framework")]

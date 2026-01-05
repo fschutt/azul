@@ -24,6 +24,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+// Import the NativeScreenshotExt trait for native screenshots
+use crate::desktop::native_screenshot::NativeScreenshotExt;
+
 #[cfg(feature = "std")]
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 
@@ -1392,7 +1395,8 @@ fn process_debug_event(
 
         DebugEvent::TakeNativeScreenshot => {
             log(LogLevel::Info, LogCategory::Rendering, "Taking native screenshot via debug API", None);
-            match callback_info.take_native_screenshot_base64() {
+            // Use the NativeScreenshotExt trait method explicitly (not the stubbed inherent method)
+            match NativeScreenshotExt::take_native_screenshot_base64(callback_info) {
                 Ok(data_uri) => {
                     let data = ScreenshotData { data: data_uri.as_str().to_string() };
                     send_ok(request, None, Some(ResponseData::Screenshot(data)));

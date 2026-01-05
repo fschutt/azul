@@ -45,6 +45,9 @@ serde_json = { version = "1.0", optional = true }
 # Accessibility
 accesskit = { version = "0.21.1", default-features = false, optional = true }
 
+# PNG encoding for screenshots
+tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "png-format"], optional = true }
+
 # Windows-only: libm for math functions
 libm = { version = "0.2.2", default-features = false, optional = true }
 
@@ -151,6 +154,7 @@ build-dll = [
     "svg",
     "xml",
     "strum",
+    "tiny-skia",
     # Platform-specific clipboard
     "x11-clipboard",
     "clipboard-win",
@@ -185,6 +189,7 @@ link-static = [
     "svg",
     "xml",
     "strum",
+    "tiny-skia",
     # Platform-specific clipboard
     "x11-clipboard",
     "clipboard-win",

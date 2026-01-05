@@ -197,12 +197,13 @@ if is_macos; then
         -Wl,-rpath,"$TEMP_DIR"
 elif is_linux; then
     # Linux compilation - source file BEFORE libraries (critical for ld)
+    # Note: X11/GL are loaded via dlopen at runtime, only need pthread/m/dl
     gcc -o "$EXAMPLE_BIN" \
         -I"$TEMP_DIR" \
         "$EXAMPLE_NAME.c" \
         -L"$TEMP_DIR" \
         -lazul \
-        -lGL -lX11 -lpthread -lm \
+        -lpthread -lm -ldl \
         -Wl,-rpath,"$TEMP_DIR"
 elif is_windows; then
     # Windows/MINGW compilation
