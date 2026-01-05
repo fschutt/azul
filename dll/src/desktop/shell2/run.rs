@@ -558,6 +558,23 @@ pub fn run(
             }
         }
 
+        // PHASE 2: Check for closed windows and unregister them
+        for wid in &window_ids {
+            if let Some(win_ptr) = unsafe { registry::get_x11_window(*wid) } {
+                let window = unsafe { &mut *(win_ptr as *mut LinuxWindow) };
+
+                if !window.is_open() {
+                    log_info!(debug_server::LogCategory::Window, "[Linux] Window {} closed, unregistering", wid);
+                    // Unregister and drop the window
+                    if let Some(win_ptr) = registry::unregister_x11_window(*wid) {
+                        unsafe {
+                            drop(Box::from_raw(win_ptr as *mut LinuxWindow));
+                        }
+                    }
+                }
+            }
+        }
+
         // PHASE 3: Process pending window creates for all windows
         // This processes the queue populated by callbacks (context menus, dialogs, etc.)
         for wid in &window_ids {
