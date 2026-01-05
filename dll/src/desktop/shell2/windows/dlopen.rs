@@ -351,6 +351,7 @@ pub struct User32Functions {
     ) -> HWND,
     pub DestroyWindow: unsafe extern "system" fn(HWND) -> BOOL,
     pub ShowWindow: unsafe extern "system" fn(HWND, i32) -> BOOL,
+    pub UpdateWindow: unsafe extern "system" fn(HWND) -> BOOL,
     pub SetWindowPos: unsafe extern "system" fn(HWND, HWND, i32, i32, i32, i32, u32) -> BOOL,
     pub GetClientRect: unsafe extern "system" fn(HWND, *mut RECT) -> BOOL,
     pub GetWindowRect: unsafe extern "system" fn(HWND, *mut RECT) -> BOOL,
@@ -387,9 +388,6 @@ pub struct User32Functions {
     pub TranslateMessage: unsafe extern "system" fn(*const MSG) -> BOOL,
     pub DispatchMessageW: unsafe extern "system" fn(*const MSG) -> LRESULT,
     pub WaitMessage: unsafe extern "system" fn() -> BOOL,
-
-    // Module handle
-    pub GetModuleHandleW: unsafe extern "system" fn(*const u16) -> HINSTANCE,
 
     // Timers
     pub SetTimer: unsafe extern "system" fn(HWND, usize, u32, *const core::ffi::c_void) -> usize,
@@ -428,10 +426,11 @@ pub struct Shell32Functions {
     pub DragFinish: unsafe extern "system" fn(HDROP),
 }
 
-/// Win32 kernel32.dll function pointers for power management
+/// Win32 kernel32.dll function pointers for power management and module handles
 #[derive(Copy, Clone)]
 pub struct Kernel32Functions {
     pub SetThreadExecutionState: unsafe extern "system" fn(u32) -> u32,
+    pub GetModuleHandleW: unsafe extern "system" fn(*const u16) -> HINSTANCE,
 }
 
 // ============================================================================
@@ -530,6 +529,9 @@ pub struct DwmapiFunctions {
         hwnd: HWND,
         pBlurBehind: *const DWM_BLURBEHIND,
     ) -> HRESULT,
+    /// Flush the DWM compositor - blocks until the current frame is presented
+    /// Critical for avoiding black flash when showing window after first render
+    pub DwmFlush: unsafe extern "system" fn() -> HRESULT,
 }
 
 /// Pre-load commonly used Win32 DLLs
@@ -594,6 +596,9 @@ impl Win32Libraries {
                 ShowWindow: user32_dll
                     .get_symbol("ShowWindow")
                     .ok_or_else(|| "ShowWindow not found".to_string())?,
+                UpdateWindow: user32_dll
+                    .get_symbol("UpdateWindow")
+                    .ok_or_else(|| "UpdateWindow not found".to_string())?,
                 SetWindowPos: user32_dll
                     .get_symbol("SetWindowPos")
                     .ok_or_else(|| "SetWindowPos not found".to_string())?,
@@ -683,11 +688,6 @@ impl Win32Libraries {
                     .get_symbol("WaitMessage")
                     .ok_or_else(|| "WaitMessage not found".to_string())?,
 
-                // Module
-                GetModuleHandleW: user32_dll
-                    .get_symbol("GetModuleHandleW")
-                    .ok_or_else(|| "GetModuleHandleW not found".to_string())?,
-
                 // Timers
                 SetTimer: user32_dll
                     .get_symbol("SetTimer")
@@ -772,10 +772,17 @@ impl Win32Libraries {
         let kernel32_dll = DynamicLibrary::load("kernel32.dll").ok();
         let kernel32 = if let Some(ref dll) = kernel32_dll {
             unsafe {
-                dll.get_symbol("SetThreadExecutionState")
-                    .map(|f| Kernel32Functions {
-                        SetThreadExecutionState: f,
+                let set_thread_exec = dll.get_symbol("SetThreadExecutionState");
+                let get_module_handle = dll.get_symbol("GetModuleHandleW");
+                
+                if let (Some(ste), Some(gmh)) = (set_thread_exec, get_module_handle) {
+                    Some(Kernel32Functions {
+                        SetThreadExecutionState: ste,
+                        GetModuleHandleW: gmh,
                     })
+                } else {
+                    None
+                }
             }
         } else {
             None
@@ -788,13 +795,15 @@ impl Win32Libraries {
                 let set_attr = dll.get_symbol("DwmSetWindowAttribute");
                 let extend_frame = dll.get_symbol("DwmExtendFrameIntoClientArea");
                 let blur_behind = dll.get_symbol("DwmEnableBlurBehindWindow");
+                let flush = dll.get_symbol("DwmFlush");
                 
-                if let (Some(s), Some(e), Some(b)) = (set_attr, extend_frame, blur_behind) {
+                if let (Some(s), Some(e), Some(b), Some(f)) = (set_attr, extend_frame, blur_behind, flush) {
                     log_debug!(LogCategory::Platform, "Loaded dwmapi.dll - DWM transparency effects available");
                     Some(DwmapiFunctions {
                         DwmSetWindowAttribute: s,
                         DwmExtendFrameIntoClientArea: e,
                         DwmEnableBlurBehindWindow: b,
+                        DwmFlush: f,
                     })
                 } else {
                     log_debug!(LogCategory::Platform, "dwmapi.dll loaded but DWM functions not found");

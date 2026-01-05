@@ -274,33 +274,52 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
+    println!("[TRACE] shell2::run (Windows) called");
     use std::cell::RefCell;
 
     use azul_core::resources::AppTerminationBehavior;
 
     use super::windows::{dlopen::MSG, registry, Win32Window};
 
+    println!("[TRACE] shell2::run - imports done");
     // Wrap app_data in Arc<RefCell<>> for shared access
+    println!("[TRACE] shell2::run - wrapping app_data in Arc<RefCell<>>");
     let app_data_arc = Arc::new(RefCell::new(app_data));
+    println!("[TRACE] shell2::run - app_data wrapped");
 
     // Create the root window
+    println!("[TRACE] shell2::run - calling Win32Window::new");
     let window = Win32Window::new(root_window, fc_cache.clone(), app_data_arc.clone())?;
+    println!("[TRACE] shell2::run - Win32Window::new returned successfully");
 
     // Store the window pointer in the user data field for the window procedure
     // and register in global registry for multi-window support
     // SAFETY: We are boxing the window and then leaking it. This is necessary
     // so that the pointer remains valid for the lifetime of the window.
+    println!("[TRACE] shell2::run - boxing window");
     let window_ptr = Box::into_raw(Box::new(window));
+    println!("[TRACE] shell2::run - getting hwnd");
     let hwnd = unsafe { (*window_ptr).hwnd };
+    println!("[TRACE] shell2::run - got hwnd: {:?}", hwnd);
 
     unsafe {
         use super::windows::dlopen::constants::GWLP_USERDATA;
+        println!("[TRACE] shell2::run - calling SetWindowLongPtrW");
         ((*window_ptr).win32.user32.SetWindowLongPtrW)(hwnd, GWLP_USERDATA, window_ptr as isize);
+        println!("[TRACE] shell2::run - SetWindowLongPtrW done");
 
         // Register in global window registry
+        println!("[TRACE] shell2::run - registering window in global registry");
         registry::register_window(hwnd, window_ptr);
+        println!("[TRACE] shell2::run - window registered");
+        
+        // NOTE: Window is NOT shown here! It will be shown automatically by
+        // render_and_present() after the first SwapBuffers completes.
+        // This ensures the window appears with content, not a black/white flash.
+        println!("[TRACE] shell2::run - window will be shown after first frame renders");
     }
 
+    println!("[TRACE] shell2::run - entering main event loop");
     // Main event loop with multi-window support and V2 state diffing
     // Uses WaitMessage() to block efficiently when idle (no busy-waiting)
     // Architecture:

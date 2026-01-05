@@ -1,0 +1,6 @@
+1. Install MSYS2
+2. Open a "MSYS2 UCRT" shell
+3. pacman -ysSu (update pacman)
+4. pacman -S mingw-w64-ucrt-x86_64-toolchain bash
+5. Add C:\msys64\ucrt64\bin and C:\msys64\usr\bin to the PATH
+6. Restart VSCode

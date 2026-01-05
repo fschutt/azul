@@ -82,6 +82,8 @@ pub struct Win32Window {
     pub hwnd: HWND,
     /// Application instance handle
     pub hinstance: HINSTANCE,
+    /// Device context for OpenGL (must stay valid for the lifetime of the GL context)
+    pub hdc: *mut std::ffi::c_void,
 
     // LayoutWindow integration
     /// LayoutWindow for UI state management and callbacks
@@ -114,6 +116,8 @@ pub struct Win32Window {
     // Window state
     /// Window is open flag
     pub is_open: bool,
+    /// Whether the first frame has been shown (for deferred window visibility)
+    pub first_frame_shown: bool,
     /// Flag indicating frame needs regeneration in next WM_PAINT
     pub frame_needs_regeneration: bool,
     /// Previous window state (for diffing)
@@ -183,28 +187,52 @@ impl Win32Window {
         fc_cache: Arc<FcFontCache>,
         app_data: Arc<std::cell::RefCell<RefAny>>,
     ) -> Result<Self, WindowError> {
+        let total_start = std::time::Instant::now();
+        let mut step_start = std::time::Instant::now();
+        
+        macro_rules! timing_log {
+            ($step:expr) => {{
+                let elapsed = step_start.elapsed();
+                println!("[TIMING] {} took {:?}", $step, elapsed);
+                step_start = std::time::Instant::now();
+            }};
+        }
+        
+        println!("[TRACE] Win32Window::new() called");
         // Load Win32 libraries
         let win32 = dlopen::Win32Libraries::load().map_err(|e| {
+            eprintln!("[ERROR] Failed to load Win32 libraries: {}", e);
             WindowError::PlatformError(format!("Failed to load Win32 libraries: {}", e))
         })?;
+        timing_log!("Load Win32 libraries");
 
         // Get HINSTANCE from GetModuleHandleW(NULL)
-        let hinstance = unsafe {
-            (win32.user32.GetModuleHandleW)(ptr::null())
+        println!("[TRACE] Win32Window::new() - getting HINSTANCE");
+        let hinstance = if let Some(ref k32) = win32.kernel32 {
+            unsafe { (k32.GetModuleHandleW)(ptr::null()) }
+        } else {
+            eprintln!("[ERROR] kernel32.dll not available");
+            return Err(WindowError::PlatformError(
+                "kernel32.dll not available".into(),
+            ));
         };
+        timing_log!("Get HINSTANCE");
 
         if hinstance.is_null() {
+            eprintln!("[ERROR] Failed to get HINSTANCE");
             return Err(WindowError::PlatformError("Failed to get HINSTANCE".into()));
         }
 
         // Initialize DPI awareness
         let dpi_functions = DpiFunctions::init();
         dpi_functions.become_dpi_aware();
+        timing_log!("DPI awareness init");
 
         // Register window class with our window procedure
         wcreate::register_window_class(hinstance, Some(window_proc), &win32)?;
+        timing_log!("Register window class");
 
-        // Create HWND
+        // Create HWND (invisible initially to avoid black flash)
         let hwnd = wcreate::create_hwnd(
             hinstance,
             &options,
@@ -212,10 +240,12 @@ impl Win32Window {
             ptr::null_mut(), // User data will be set later
             &win32,
         )?;
+        timing_log!("Create HWND");
 
         // Get DPI for window
         let dpi = unsafe { dpi_functions.hwnd_dpi(hwnd as _) };
         let dpi_factor = dpi::dpi_to_scale_factor(dpi);
+        timing_log!("Get window DPI");
 
         // Update options with actual DPI
         let mut options = options;
@@ -236,6 +266,9 @@ impl Win32Window {
             None => true, // Default to hardware
         };
 
+        // We need to keep the HDC alive for the GL context - store it for later
+        let mut active_hdc: *mut std::ffi::c_void = ptr::null_mut();
+        
         if should_use_hardware {
             let vsync = options.window_state.renderer_options.vsync;
             match wcreate::create_gl_context(hwnd, hinstance, &win32, vsync) {
@@ -243,6 +276,7 @@ impl Win32Window {
                     gl_context = Some(hglrc);
                     let hdc = unsafe { (win32.user32.GetDC)(hwnd) };
                     if !hdc.is_null() {
+                        println!("[TRACE] Win32Window::new() - activating GL context for WebRender init");
                         #[cfg(target_os = "windows")]
                         unsafe {
                             use winapi::um::wingdi::wglMakeCurrent;
@@ -257,22 +291,22 @@ impl Win32Window {
                                 RendererType::Hardware,
                                 gl_functions.functions.clone(),
                             ));
-                        #[cfg(target_os = "windows")]
-                        unsafe {
-                            use winapi::um::wingdi::wglMakeCurrent;
-                            wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
-                        }
-                        unsafe { (win32.user32.ReleaseDC)(hwnd, hdc) };
+                        // IMPORTANT: Keep the GL context ACTIVE and HDC valid for WebRender initialization!
+                        // We do NOT call wglMakeCurrent(null, null) or ReleaseDC here.
+                        // The context must be current when webrender::create_webrender_instance is called.
+                        active_hdc = hdc;
                     }
                 }
-                Err(_) => {
+                Err(e) => {
                     // Fall back to software rendering
+                    eprintln!("[WARN] GL context creation failed: {:?}, falling back to software", e);
                     gl_context_ptr = OptionGlContextPtr::None;
                 }
             }
         }
+        timing_log!("Create GL context");
 
-        // Initialize WebRender
+        // Initialize WebRender (GL context must be active!)
         let new_frame_ready =
             std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
         let (mut renderer, sender) = webrender::create_webrender_instance(
@@ -284,6 +318,7 @@ impl Win32Window {
             None, // shader cache
         )
         .map_err(|e| WindowError::PlatformError(format!("WebRender error: {:?}", e)))?;
+        timing_log!("Create WebRender instance");
 
         // Set up external image handler (Compositor)
         renderer.set_external_image_handler(Box::new(
@@ -356,6 +391,7 @@ impl Win32Window {
         layout_window.id_namespace = id_namespace;
         layout_window.current_window_state = current_window_state.clone();
         layout_window.renderer_type = Some(renderer_type);
+        timing_log!("Create LayoutWindow");
 
         // Set up menu bar if present
         // TODO: Menu bar needs to be extracted from window state
@@ -375,15 +411,15 @@ impl Win32Window {
         }
         */
 
-        // Show window with appropriate frame state
-        wcreate::show_window_with_frame(
-            hwnd,
-            layout_window.current_window_state.flags.frame,
-            layout_window.current_window_state.flags.is_visible,
-            &win32,
-        );
+        // IMPORTANT: Do NOT show window yet! 
+        // AccessKit's SubclassingAdapter requires the window to be invisible when initialized.
+        // We'll show the window AFTER a11y is set up.
+        let should_show_window = layout_window.current_window_state.flags.is_visible;
+        let window_frame = layout_window.current_window_state.flags.frame;
+        println!("[TRACE] Win32Window::new() - deferring show_window until after a11y init (is_visible: {})", should_show_window);
 
         // Position window on requested monitor (or center on primary)
+        // This can be done before showing
         // TODO: Use monitor_id to look up actual Monitor from global state
         position_window_on_monitor(
             hwnd,
@@ -392,6 +428,7 @@ impl Win32Window {
             current_window_state.size,
             &win32,
         );
+        timing_log!("Position window");
 
         // Enable drag-and-drop if shell32.dll is available
         if let Some(ref shell32) = win32.shell32 {
@@ -407,6 +444,7 @@ impl Win32Window {
         let mut result = Win32Window {
             hwnd,
             hinstance,
+            hdc: active_hdc, // Keep HDC alive for OpenGL rendering
             layout_window: Some(layout_window),
             gl_context,
             gl_functions,
@@ -419,6 +457,7 @@ impl Win32Window {
             new_frame_ready,
             win32, // Store Win32 libraries for later use
             is_open: true,
+            first_frame_shown: false, // Window will be shown after first SwapBuffers
             frame_needs_regeneration: true, // Initial render deferred to WM_PAINT
             previous_window_state: None,
             current_window_state,
@@ -441,14 +480,33 @@ impl Win32Window {
             #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::WindowsAccessibilityAdapter::new(),
         };
+        timing_log!("Build Win32Window struct");
 
-        // Initialize accessibility adapter
+        // Initialize accessibility adapter BEFORE showing the window
+        // AccessKit's SubclassingAdapter requires the window to be invisible when initialized
         #[cfg(feature = "a11y")]
         {
-            result.accessibility_adapter.initialize(hwnd).map_err(|e| {
-                WindowError::PlatformError(format!("Accessibility init failed: {}", e))
-            })?;
+            if let Err(e) = result.accessibility_adapter.initialize(hwnd) {
+                // Don't fail window creation if a11y fails, just log and continue
+                eprintln!("[WARN] a11y adapter init failed: {}, continuing without a11y", e);
+            }
         }
+        timing_log!("Initialize accessibility adapter");
+
+        // Render FIRST FRAME before showing window to avoid black flash
+        // This ensures the window has content when it becomes visible
+        // NOTE: We do NOT show the window here! The window will be shown by run.rs
+        // after this function returns and after waiting for new_frame_ready signal.
+        {
+            result.frame_needs_regeneration = true;
+            let _ = result.render_and_present();
+        }
+        timing_log!("Render first frame (async - not waiting for completion)");
+
+        // Store visibility flags for run.rs to use when showing the window
+        // The window will be shown by run.rs after waiting for new_frame_ready
+        // DO NOT call show_window_with_frame here!
+        timing_log!("Skip show window (will be shown by run.rs after first frame ready)");
 
         // Invoke create_callback if provided (for GL resource upload, config loading, etc.)
         // This runs AFTER GL context is ready but BEFORE any layout is done
@@ -512,7 +570,9 @@ impl Win32Window {
             result.timers.insert(timer_id, native_timer_id);
             log_debug!(LogCategory::Timer, "Debug timer registered with ID 0x{:X}, interval {}ms", timer_id, interval_ms);
         }
+        timing_log!("Final setup (callback + debug timer)");
 
+        println!("[TIMING] ===== TOTAL Win32Window::new() took {:?} =====", total_start.elapsed());
         Ok(result)
     }
 
@@ -567,12 +627,20 @@ impl Win32Window {
             .as_mut()
             .ok_or_else(|| WindowError::PlatformError("No renderer available".into()))?;
 
-        // Get device context
+        // Use the stored HDC that was used to create the GL context
+        // IMPORTANT: The GL context is bound to a specific HDC, so we must use the same one!
         unsafe {
-            let hdc = (self.win32.user32.GetDC)(self.hwnd);
-            if hdc.is_null() {
-                return Err(WindowError::PlatformError("Failed to get HDC".into()));
-            }
+            // If we have a stored HDC (from GL context creation), use it
+            // Otherwise get a new one (software rendering path)
+            let hdc = if !self.hdc.is_null() {
+                self.hdc
+            } else {
+                let new_hdc = (self.win32.user32.GetDC)(self.hwnd);
+                if new_hdc.is_null() {
+                    return Err(WindowError::PlatformError("Failed to get HDC".into()));
+                }
+                new_hdc
+            };
 
             // Make OpenGL context current if we have one
             if let Some(hglrc) = self.gl_context {
@@ -602,13 +670,45 @@ impl Win32Window {
             if self.gl_context.is_some() {
                 #[cfg(target_os = "windows")]
                 unsafe {
+                    // glFinish() ensures all GPU commands complete before SwapBuffers
+                    // This is crucial for the first frame to avoid black flash
+                    if let Some(gl) = self.gl_context_ptr.as_ref() {
+                        gl.finish();
+                    }
+                    
                     use winapi::um::wingdi::SwapBuffers;
                     SwapBuffers(hdc as winapi::shared::windef::HDC);
                 }
             }
 
-            // Release device context
-            (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
+            // Show window after FIRST successful render + SwapBuffers
+            // renderer.render() is synchronous, so if we get here, the frame was rendered.
+            // We trust that after SwapBuffers, pixels are on screen.
+            if !self.first_frame_shown {
+                // Check if user wants the window visible
+                if self.current_window_state.flags.is_visible {
+                    println!("[TRACE] First frame rendered + SwapBuffers done - showing window NOW");
+                    
+                    // Force DWM to latch the new frame buffer before making the window visible.
+                    // This prevents the "Black Frame" flash by blocking until DWM composition is done.
+                    if let Some(ref dwmapi) = self.win32.dwmapi_funcs {
+                        (dwmapi.DwmFlush)();
+                        println!("[TRACE] DwmFlush completed");
+                    }
+                    
+                    use dlopen::constants::SW_SHOW;
+                    (self.win32.user32.ShowWindow)(self.hwnd, SW_SHOW);
+                    (self.win32.user32.UpdateWindow)(self.hwnd);
+                    println!("[TRACE] Window shown after first real frame");
+                }
+                self.first_frame_shown = true;
+            }
+
+            // Only release DC if we obtained a new one (not using stored HDC)
+            // The stored HDC must stay valid for the lifetime of the GL context!
+            if self.hdc.is_null() {
+                (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
+            }
 
             // CI testing: Exit successfully after first frame render if env var is set
             if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
@@ -1396,14 +1496,49 @@ unsafe extern "system" fn window_proc(
     let window = &mut *window_ptr;
     // Now we can use window.win32 instead of temp_win32 for the rest of the function
 
+    // Debug: Log all WM messages
+    let msg_name = match msg {
+        0x0001 => "WM_CREATE",
+        0x0002 => "WM_DESTROY",
+        0x0005 => "WM_SIZE",
+        0x0007 => "WM_SETFOCUS",
+        0x0008 => "WM_KILLFOCUS",
+        0x000F => "WM_PAINT",
+        0x0010 => "WM_CLOSE",
+        0x0014 => "WM_ERASEBKGND",
+        0x0100 => "WM_KEYDOWN",
+        0x0101 => "WM_KEYUP",
+        0x0102 => "WM_CHAR",
+        0x0104 => "WM_SYSKEYDOWN",
+        0x0105 => "WM_SYSKEYUP",
+        0x0106 => "WM_SYSCHAR",
+        0x0111 => "WM_COMMAND",
+        0x0113 => "WM_TIMER",
+        0x0200 => "WM_MOUSEMOVE",
+        0x0201 => "WM_LBUTTONDOWN",
+        0x0202 => "WM_LBUTTONUP",
+        0x0204 => "WM_RBUTTONDOWN",
+        0x0205 => "WM_RBUTTONUP",
+        0x0207 => "WM_MBUTTONDOWN",
+        0x0208 => "WM_MBUTTONUP",
+        0x020A => "WM_MOUSEWHEEL",
+        0x0233 => "WM_DROPFILES",
+        0x02A3 => "WM_MOUSELEAVE",
+        0x02E0 => "WM_DPICHANGED",
+        _ => "OTHER",
+    };
+    println!("[WM] msg=0x{:04X} ({}) wparam={} lparam={}", msg, msg_name, wparam, lparam);
+
     // Handle messages
     match msg {
         WM_CREATE => {
+            println!("[WM_CREATE] Window created");
             // Window created
             0
         }
 
         WM_DESTROY => {
+            println!("[WM_DESTROY] Window destroyed");
             // Window destroyed - unregister from global registry
             window.is_open = false;
             registry::unregister_window(hwnd);
@@ -1411,6 +1546,7 @@ unsafe extern "system" fn window_proc(
         }
 
         WM_CLOSE => {
+            println!("[WM_CLOSE] Close requested");
             // User clicked close button - set close_requested flag
             // and process callbacks to allow cancellation
             window.current_window_state.flags.close_requested = true;

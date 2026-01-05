@@ -54,18 +54,26 @@ impl App {
     }
 
     pub fn run(&self, root_window: WindowCreateOptions) {
+        println!("[TRACE] App::run() called");
         debug_server::log(
             debug_server::LogLevel::Info,
             debug_server::LogCategory::EventLoop,
             "Starting App::run",
             None,
         );
+        println!("[TRACE] App::run() - after debug_server::log");
         let data = self.ptr.data.clone();
+        println!("[TRACE] App::run() - cloned data");
+        println!("[TRACE] App::run() - cloned data");
         let config = self.ptr.config.clone();
+        println!("[TRACE] App::run() - cloned config");
         let fc_cache = (*self.ptr.fc_cache).clone();
+        println!("[TRACE] App::run() - cloned fc_cache");
 
         // Use shell2 for the actual run loop
+        println!("[TRACE] App::run() - calling shell2::run");
         let err = crate::desktop::shell2::run(data, config, fc_cache, root_window);
+        println!("[TRACE] App::run() - returned from shell2::run");
 
         if let Err(e) = err {
             crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
