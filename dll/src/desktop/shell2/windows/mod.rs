@@ -193,25 +193,25 @@ impl Win32Window {
         macro_rules! timing_log {
             ($step:expr) => {{
                 let elapsed = step_start.elapsed();
-                println!("[TIMING] {} took {:?}", $step, elapsed);
+                log_debug!(LogCategory::Window, "[Win32] {} took {:?}", $step, elapsed);
                 step_start = std::time::Instant::now();
             }};
         }
         
-        println!("[TRACE] Win32Window::new() called");
+        log_trace!(LogCategory::Window, "[Win32] Win32Window::new() called");
         // Load Win32 libraries
         let win32 = dlopen::Win32Libraries::load().map_err(|e| {
-            eprintln!("[ERROR] Failed to load Win32 libraries: {}", e);
+            log_error!(LogCategory::Platform, "[Win32] Failed to load Win32 libraries: {}", e);
             WindowError::PlatformError(format!("Failed to load Win32 libraries: {}", e))
         })?;
         timing_log!("Load Win32 libraries");
 
         // Get HINSTANCE from GetModuleHandleW(NULL)
-        println!("[TRACE] Win32Window::new() - getting HINSTANCE");
+        log_trace!(LogCategory::Window, "[Win32] getting HINSTANCE");
         let hinstance = if let Some(ref k32) = win32.kernel32 {
             unsafe { (k32.GetModuleHandleW)(ptr::null()) }
         } else {
-            eprintln!("[ERROR] kernel32.dll not available");
+            log_error!(LogCategory::Platform, "[Win32] kernel32.dll not available");
             return Err(WindowError::PlatformError(
                 "kernel32.dll not available".into(),
             ));
@@ -219,7 +219,7 @@ impl Win32Window {
         timing_log!("Get HINSTANCE");
 
         if hinstance.is_null() {
-            eprintln!("[ERROR] Failed to get HINSTANCE");
+            log_error!(LogCategory::Platform, "[Win32] Failed to get HINSTANCE");
             return Err(WindowError::PlatformError("Failed to get HINSTANCE".into()));
         }
 
@@ -276,7 +276,7 @@ impl Win32Window {
                     gl_context = Some(hglrc);
                     let hdc = unsafe { (win32.user32.GetDC)(hwnd) };
                     if !hdc.is_null() {
-                        println!("[TRACE] Win32Window::new() - activating GL context for WebRender init");
+                        log_trace!(LogCategory::Rendering, "[Win32] activating GL context for WebRender init");
                         #[cfg(target_os = "windows")]
                         unsafe {
                             use winapi::um::wingdi::wglMakeCurrent;
@@ -299,7 +299,7 @@ impl Win32Window {
                 }
                 Err(e) => {
                     // Fall back to software rendering
-                    eprintln!("[WARN] GL context creation failed: {:?}, falling back to software", e);
+                    log_warn!(LogCategory::Rendering, "[Win32] GL context creation failed: {:?}, falling back to software", e);
                     gl_context_ptr = OptionGlContextPtr::None;
                 }
             }
@@ -416,7 +416,7 @@ impl Win32Window {
         // We'll show the window AFTER a11y is set up.
         let should_show_window = layout_window.current_window_state.flags.is_visible;
         let window_frame = layout_window.current_window_state.flags.frame;
-        println!("[TRACE] Win32Window::new() - deferring show_window until after a11y init (is_visible: {})", should_show_window);
+        log_trace!(LogCategory::Window, "[Win32] deferring show_window until after a11y init (is_visible: {})", should_show_window);
 
         // Position window on requested monitor (or center on primary)
         // This can be done before showing
@@ -488,7 +488,7 @@ impl Win32Window {
         {
             if let Err(e) = result.accessibility_adapter.initialize(hwnd) {
                 // Don't fail window creation if a11y fails, just log and continue
-                eprintln!("[WARN] a11y adapter init failed: {}, continuing without a11y", e);
+                log_warn!(LogCategory::Platform, "[Win32] a11y adapter init failed: {}, continuing without a11y", e);
             }
         }
         timing_log!("Initialize accessibility adapter");
@@ -572,7 +572,7 @@ impl Win32Window {
         }
         timing_log!("Final setup (callback + debug timer)");
 
-        println!("[TIMING] ===== TOTAL Win32Window::new() took {:?} =====", total_start.elapsed());
+        log_debug!(LogCategory::Window, "[Win32] ===== TOTAL Win32Window::new() took {:?} =====", total_start.elapsed());
         Ok(result)
     }
 
@@ -687,19 +687,19 @@ impl Win32Window {
             if !self.first_frame_shown {
                 // Check if user wants the window visible
                 if self.current_window_state.flags.is_visible {
-                    println!("[TRACE] First frame rendered + SwapBuffers done - showing window NOW");
+                    log_trace!(LogCategory::Rendering, "[Win32] First frame rendered + SwapBuffers done - showing window NOW");
                     
                     // Force DWM to latch the new frame buffer before making the window visible.
                     // This prevents the "Black Frame" flash by blocking until DWM composition is done.
                     if let Some(ref dwmapi) = self.win32.dwmapi_funcs {
                         (dwmapi.DwmFlush)();
-                        println!("[TRACE] DwmFlush completed");
+                        log_trace!(LogCategory::Rendering, "[Win32] DwmFlush completed");
                     }
                     
                     use dlopen::constants::SW_SHOW;
                     (self.win32.user32.ShowWindow)(self.hwnd, SW_SHOW);
                     (self.win32.user32.UpdateWindow)(self.hwnd);
-                    println!("[TRACE] Window shown after first real frame");
+                    log_trace!(LogCategory::Rendering, "[Win32] Window shown after first real frame");
                 }
                 self.first_frame_shown = true;
             }
@@ -1496,49 +1496,15 @@ unsafe extern "system" fn window_proc(
     let window = &mut *window_ptr;
     // Now we can use window.win32 instead of temp_win32 for the rest of the function
 
-    // Debug: Log all WM messages
-    let msg_name = match msg {
-        0x0001 => "WM_CREATE",
-        0x0002 => "WM_DESTROY",
-        0x0005 => "WM_SIZE",
-        0x0007 => "WM_SETFOCUS",
-        0x0008 => "WM_KILLFOCUS",
-        0x000F => "WM_PAINT",
-        0x0010 => "WM_CLOSE",
-        0x0014 => "WM_ERASEBKGND",
-        0x0100 => "WM_KEYDOWN",
-        0x0101 => "WM_KEYUP",
-        0x0102 => "WM_CHAR",
-        0x0104 => "WM_SYSKEYDOWN",
-        0x0105 => "WM_SYSKEYUP",
-        0x0106 => "WM_SYSCHAR",
-        0x0111 => "WM_COMMAND",
-        0x0113 => "WM_TIMER",
-        0x0200 => "WM_MOUSEMOVE",
-        0x0201 => "WM_LBUTTONDOWN",
-        0x0202 => "WM_LBUTTONUP",
-        0x0204 => "WM_RBUTTONDOWN",
-        0x0205 => "WM_RBUTTONUP",
-        0x0207 => "WM_MBUTTONDOWN",
-        0x0208 => "WM_MBUTTONUP",
-        0x020A => "WM_MOUSEWHEEL",
-        0x0233 => "WM_DROPFILES",
-        0x02A3 => "WM_MOUSELEAVE",
-        0x02E0 => "WM_DPICHANGED",
-        _ => "OTHER",
-    };
-    println!("[WM] msg=0x{:04X} ({}) wparam={} lparam={}", msg, msg_name, wparam, lparam);
-
     // Handle messages
     match msg {
         WM_CREATE => {
-            println!("[WM_CREATE] Window created");
-            // Window created
+            log_debug!(LogCategory::Window, "[Win32] WM_CREATE - Window created");
             0
         }
 
         WM_DESTROY => {
-            println!("[WM_DESTROY] Window destroyed");
+            log_debug!(LogCategory::Window, "[Win32] WM_DESTROY - Window destroyed");
             // Window destroyed - unregister from global registry
             window.is_open = false;
             registry::unregister_window(hwnd);
@@ -1546,7 +1512,7 @@ unsafe extern "system" fn window_proc(
         }
 
         WM_CLOSE => {
-            println!("[WM_CLOSE] Close requested");
+            log_debug!(LogCategory::Window, "[Win32] WM_CLOSE - Close requested");
             // User clicked close button - set close_requested flag
             // and process callbacks to allow cancellation
             window.current_window_state.flags.close_requested = true;
