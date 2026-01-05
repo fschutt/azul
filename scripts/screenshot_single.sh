@@ -26,9 +26,9 @@ NC='\033[0m' # No Color
 # Configuration
 EXAMPLE_NAME="${1:-hello-world}"
 PORT="${2:-8765}"
-STARTUP_WAIT=3
-SHUTDOWN_WAIT=2
-MAX_RETRIES=5
+STARTUP_WAIT=8  # Windows needs more time for OpenGL context creation
+SHUTDOWN_WAIT=3
+MAX_RETRIES=10
 
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
