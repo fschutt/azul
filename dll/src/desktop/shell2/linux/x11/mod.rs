@@ -294,7 +294,10 @@ impl PlatformWindow for X11Window {
             // Process event with V2 handlers
             let result = match unsafe { event.type_ } {
                 defines::Expose => {
-                    self.request_redraw();
+                    // Actually render and present the frame instead of just requesting another redraw
+                    if let Err(e) = self.render_and_present() {
+                        log_warn!(LogCategory::Rendering, "[X11] render_and_present failed: {:?}", e);
+                    }
                     ProcessEventResult::DoNothing
                 }
                 defines::FocusIn => {
@@ -371,9 +374,11 @@ impl PlatformWindow for X11Window {
                     ProcessEventResult::DoNothing
                 }
                 defines::ClientMessage => {
-                    if unsafe { event.client_message.data.l[0] } as Atom
-                        == self.wm_delete_window_atom
-                    {
+                    let msg_atom = unsafe { event.client_message.data.l[0] } as Atom;
+                    log_debug!(LogCategory::Window, "[X11] ClientMessage received: msg_atom={}, wm_delete_atom={}", 
+                        msg_atom, self.wm_delete_window_atom);
+                    if msg_atom == self.wm_delete_window_atom {
+                        log_info!(LogCategory::Window, "[X11] WM_DELETE_WINDOW matched - closing window");
                         self.is_open = false;
                         return Some(X11Event::Close);
                     }
@@ -392,7 +397,7 @@ impl PlatformWindow for X11Window {
                 _ => ProcessEventResult::DoNothing,
             };
 
-            // Request redraw if needed
+            // Request redraw if needed (but not for Expose which already called render_and_present)
             if result != ProcessEventResult::DoNothing {
                 self.request_redraw();
             }
@@ -646,6 +651,8 @@ impl X11Window {
                     RendererType::Hardware,
                     gl_functions.functions.clone(),
                 ));
+                log_debug!(LogCategory::Platform, "[X11] GPU rendering initialized ({}x{})", 
+                    framebuffer_size.width, framebuffer_size.height);
 
                 (
                     RenderMode::Gpu(gl_context, gl_functions),
@@ -657,7 +664,8 @@ impl X11Window {
                     gl_context_ptr,
                 )
             }
-            Err(_) => {
+            Err(e) => {
+                log_warn!(LogCategory::Platform, "[X11] GL context creation failed: {:?}, falling back to CPU rendering", e);
                 let gc =
                     unsafe { (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut()) };
                 (
@@ -723,7 +731,7 @@ impl X11Window {
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
             scrollbar_drag_state: None,
             last_hovered_node: None,
-            frame_needs_regeneration: false,
+            frame_needs_regeneration: true, // Initial render deferred to first Expose event
             timer_fds: std::collections::BTreeMap::new(),
             pending_window_creates: Vec::new(),
             gnome_menu_v2: None, // New dlopen-based implementation
@@ -860,26 +868,29 @@ impl X11Window {
             let _ = window.process_callback_result_v2(&callback_result);
         }
 
+        // CRITICAL: Always initialize LayoutWindow if not already done
+        // This is needed for rendering even without callbacks or debug mode
+        if window.layout_window.is_none() {
+            let mut layout_window = azul_layout::window::LayoutWindow::new(
+                (*window.resources.fc_cache).clone()
+            ).map_err(|e| {
+                WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
+            })?;
+            
+            if let Some(doc_id) = window.document_id {
+                layout_window.document_id = doc_id;
+            }
+            if let Some(ns_id) = window.id_namespace {
+                layout_window.id_namespace = ns_id;
+            }
+            layout_window.current_window_state = window.current_window_state.clone();
+            layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
+            window.layout_window = Some(layout_window);
+        }
+
         // Register debug timer if AZUL_DEBUG is enabled
         #[cfg(feature = "std")]
         if crate::desktop::shell2::common::debug_server::is_debug_enabled() {
-            // Initialize LayoutWindow if not already done
-            if window.layout_window.is_none() {
-                if let Ok(mut layout_window) = azul_layout::window::LayoutWindow::new(
-                    (*window.resources.fc_cache).clone()
-                ) {
-                    if let Some(doc_id) = window.document_id {
-                        layout_window.document_id = doc_id;
-                    }
-                    if let Some(ns_id) = window.id_namespace {
-                        layout_window.id_namespace = ns_id;
-                    }
-                    layout_window.current_window_state = window.current_window_state.clone();
-                    layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
-                    window.layout_window = Some(layout_window);
-                }
-            }
-            
             if let Some(layout_window) = window.layout_window.as_mut() {
                 use azul_core::task::TimerId;
                 use azul_layout::callbacks::ExternalSystemCallbacks;
@@ -1172,6 +1183,16 @@ impl X11Window {
                 self.request_redraw();
                 ProcessEventResult::DoNothing
             }
+            defines::ClientMessage => {
+                let msg_atom = unsafe { event.client_message.data.l[0] } as Atom;
+                log_debug!(LogCategory::Window, "[X11] handle_event: ClientMessage msg_atom={}, wm_delete_atom={}", 
+                    msg_atom, self.wm_delete_window_atom);
+                if msg_atom == self.wm_delete_window_atom {
+                    log_info!(LogCategory::Window, "[X11] handle_event: WM_DELETE_WINDOW - closing window");
+                    self.is_open = false;
+                }
+                ProcessEventResult::DoNothing
+            }
             defines::ButtonPress | defines::ButtonRelease => {
                 self.handle_mouse_button(unsafe { &event.button })
             }
@@ -1283,6 +1304,89 @@ impl X11Window {
         }
 
         self.frame_needs_regeneration = false;
+    }
+
+    /// Render and present a frame using WebRender
+    /// 
+    /// This is called on Expose events to actually draw content to the window.
+    /// The flow is:
+    /// 1. Regenerate layout if needed
+    /// 2. Build and send WebRender transaction
+    /// 3. Call renderer.update() and renderer.render()
+    /// 4. Swap buffers to show the rendered frame
+    pub fn render_and_present(&mut self) -> Result<(), WindowError> {
+        // Step 1: Regenerate layout if needed
+        if self.frame_needs_regeneration {
+            if let Err(e) = self.regenerate_layout() {
+                return Err(WindowError::PlatformError(format!("Layout failed: {}", e)));
+            }
+            self.frame_needs_regeneration = false;
+        }
+
+        // Step 2: Make sure we have required components
+        let renderer = match self.renderer.as_mut() {
+            Some(r) => r,
+            None => {
+                return Err(WindowError::PlatformError("No renderer available".into()));
+            }
+        };
+
+        // Step 3: Make GL context current (for GPU rendering)
+        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
+            gl_context.make_current();
+        }
+
+        // Step 4: Update WebRender
+        renderer.update();
+
+        // Step 5: Render frame
+        let physical_size = self.current_window_state.size.get_physical_size();
+        let framebuffer_size = webrender::api::units::DeviceIntSize::new(
+            physical_size.width as i32,
+            physical_size.height as i32,
+        );
+        
+        match renderer.render(framebuffer_size, 0) {
+            Ok(_results) => {}
+            Err(errors) => {
+                log_warn!(LogCategory::Rendering, "[X11] Render errors: {:?}", errors);
+                return Err(WindowError::PlatformError(format!("Render failed: {:?}", errors)));
+            }
+        }
+
+        // Step 6: Swap buffers
+        match &self.render_mode {
+            RenderMode::Gpu(gl_context, _) => {
+                if let Err(e) = gl_context.swap_buffers() {
+                    return Err(e);
+                }
+            }
+            RenderMode::Cpu(gc) => {
+                if let Some(gc) = gc {
+                    unsafe {
+                        (self.xlib.XSetForeground)(self.display, *gc, 0x0000FF);
+                        (self.xlib.XFillRectangle)(
+                            self.display,
+                            self.window,
+                            *gc,
+                            0,
+                            0,
+                            physical_size.width,
+                            physical_size.height,
+                        );
+                    }
+                }
+                unsafe { (self.xlib.XFlush)(self.display) };
+            }
+        }
+
+        // CI testing: Exit successfully after first frame render if env var is set
+        if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+            log_debug!(LogCategory::General, "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting");
+            std::process::exit(0);
+        }
+
+        Ok(())
     }
 
     /// Synchronize X11 window properties with current_window_state
