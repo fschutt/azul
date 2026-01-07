@@ -1855,13 +1855,14 @@ pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<Synt
 /// Dispatch synthetic events to determine which callbacks should be invoked.
 ///
 /// Converts SyntheticEvents to EventFilters and routes them to the correct nodes.
+/// For mouse events, dispatches both generic (MouseUp) and specific (LeftMouseUp) filters.
 pub fn dispatch_synthetic_events(
     events: &[SyntheticEvent],
     hit_test: Option<&FullHitTest>,
 ) -> EventDispatchResult {
     let callbacks = events
         .iter()
-        .filter_map(|event| dispatch_single_event(event, hit_test))
+        .flat_map(|event| dispatch_single_event(event, hit_test))
         .collect();
 
     EventDispatchResult {
@@ -1870,8 +1871,11 @@ pub fn dispatch_synthetic_events(
     }
 }
 
-/// Convert EventType to EventFilter
-fn event_type_to_filter(event_type: EventType) -> Option<EventFilter> {
+/// Convert EventType to EventFilters (returns multiple filters for generic + specific events)
+/// 
+/// For mouse button events, returns both generic (MouseUp) AND specific (LeftMouseUp).
+/// This allows callbacks registered for either filter to be triggered.
+fn event_type_to_filters(event_type: EventType) -> Vec<EventFilter> {
     use EventType as E;
     use EventFilter as EF;
     use HoverEventFilter as H;
@@ -1879,61 +1883,64 @@ fn event_type_to_filter(event_type: EventType) -> Option<EventFilter> {
     use WindowEventFilter as W;
 
     match event_type {
-        // Mouse events
-        E::MouseOver => Some(EF::Hover(H::MouseOver)),
-        E::MouseEnter => Some(EF::Hover(H::MouseEnter)),
-        E::MouseLeave => Some(EF::Hover(H::MouseLeave)),
-        E::MouseDown => Some(EF::Hover(H::LeftMouseDown)),
-        E::MouseUp => Some(EF::Hover(H::LeftMouseUp)),
-        E::Click => Some(EF::Hover(H::LeftMouseDown)),
-        E::DoubleClick => Some(EF::Window(W::DoubleClick)),
-        E::ContextMenu => Some(EF::Hover(H::RightMouseDown)),
+        // Mouse button events - return BOTH generic and specific
+        // Generic first, then specific (bubbling order)
+        E::MouseDown => vec![EF::Hover(H::MouseDown), EF::Hover(H::LeftMouseDown)],
+        E::MouseUp => vec![EF::Hover(H::MouseUp), EF::Hover(H::LeftMouseUp)],
+        
+        // Other mouse events
+        E::MouseOver => vec![EF::Hover(H::MouseOver)],
+        E::MouseEnter => vec![EF::Hover(H::MouseEnter)],
+        E::MouseLeave => vec![EF::Hover(H::MouseLeave)],
+        E::Click => vec![EF::Hover(H::MouseDown), EF::Hover(H::LeftMouseDown)],
+        E::DoubleClick => vec![EF::Window(W::DoubleClick)],
+        E::ContextMenu => vec![EF::Hover(H::RightMouseDown)],
 
         // Keyboard events
-        E::KeyDown => Some(EF::Focus(F::VirtualKeyDown)),
-        E::KeyUp => Some(EF::Focus(F::VirtualKeyUp)),
-        E::KeyPress => Some(EF::Focus(F::TextInput)),
+        E::KeyDown => vec![EF::Focus(F::VirtualKeyDown)],
+        E::KeyUp => vec![EF::Focus(F::VirtualKeyUp)],
+        E::KeyPress => vec![EF::Focus(F::TextInput)],
 
         // Focus events
-        E::Focus | E::FocusIn => Some(EF::Focus(F::FocusReceived)),
-        E::Blur | E::FocusOut => Some(EF::Focus(F::FocusLost)),
+        E::Focus | E::FocusIn => vec![EF::Focus(F::FocusReceived)],
+        E::Blur | E::FocusOut => vec![EF::Focus(F::FocusLost)],
 
         // Input events
-        E::Input | E::Change => Some(EF::Focus(F::TextInput)),
+        E::Input | E::Change => vec![EF::Focus(F::TextInput)],
 
         // Scroll events
-        E::Scroll | E::ScrollStart | E::ScrollEnd => Some(EF::Hover(H::Scroll)),
+        E::Scroll | E::ScrollStart | E::ScrollEnd => vec![EF::Hover(H::Scroll)],
 
         // Drag events
-        E::DragStart => Some(EF::Hover(H::DragStart)),
-        E::Drag => Some(EF::Hover(H::Drag)),
-        E::DragEnd => Some(EF::Hover(H::DragEnd)),
-        E::DragEnter => Some(EF::Hover(H::MouseEnter)),
-        E::DragOver => Some(EF::Hover(H::MouseOver)),
-        E::DragLeave => Some(EF::Hover(H::MouseLeave)),
-        E::Drop => Some(EF::Hover(H::DroppedFile)),
+        E::DragStart => vec![EF::Hover(H::DragStart)],
+        E::Drag => vec![EF::Hover(H::Drag)],
+        E::DragEnd => vec![EF::Hover(H::DragEnd)],
+        E::DragEnter => vec![EF::Hover(H::MouseEnter)],
+        E::DragOver => vec![EF::Hover(H::MouseOver)],
+        E::DragLeave => vec![EF::Hover(H::MouseLeave)],
+        E::Drop => vec![EF::Hover(H::DroppedFile)],
 
         // Touch events
-        E::TouchStart => Some(EF::Hover(H::TouchStart)),
-        E::TouchMove => Some(EF::Hover(H::TouchMove)),
-        E::TouchEnd => Some(EF::Hover(H::TouchEnd)),
-        E::TouchCancel => Some(EF::Hover(H::TouchCancel)),
+        E::TouchStart => vec![EF::Hover(H::TouchStart)],
+        E::TouchMove => vec![EF::Hover(H::TouchMove)],
+        E::TouchEnd => vec![EF::Hover(H::TouchEnd)],
+        E::TouchCancel => vec![EF::Hover(H::TouchCancel)],
 
         // Window events
-        E::WindowResize => Some(EF::Window(W::Resized)),
-        E::WindowMove => Some(EF::Window(W::Moved)),
-        E::WindowClose => Some(EF::Window(W::CloseRequested)),
-        E::WindowFocusIn => Some(EF::Window(W::WindowFocusReceived)),
-        E::WindowFocusOut => Some(EF::Window(W::WindowFocusLost)),
-        E::ThemeChange => Some(EF::Window(W::ThemeChanged)),
+        E::WindowResize => vec![EF::Window(W::Resized)],
+        E::WindowMove => vec![EF::Window(W::Moved)],
+        E::WindowClose => vec![EF::Window(W::CloseRequested)],
+        E::WindowFocusIn => vec![EF::Window(W::WindowFocusReceived)],
+        E::WindowFocusOut => vec![EF::Window(W::WindowFocusLost)],
+        E::ThemeChange => vec![EF::Window(W::ThemeChanged)],
 
         // File events
-        E::FileHover => Some(EF::Hover(H::HoveredFile)),
-        E::FileDrop => Some(EF::Hover(H::DroppedFile)),
-        E::FileHoverCancel => Some(EF::Hover(H::HoveredFileCancelled)),
+        E::FileHover => vec![EF::Hover(H::HoveredFile)],
+        E::FileDrop => vec![EF::Hover(H::DroppedFile)],
+        E::FileHoverCancel => vec![EF::Hover(H::HoveredFileCancelled)],
 
         // Unsupported events
-        _ => None,
+        _ => vec![],
     }
 }
 
@@ -1970,20 +1977,26 @@ fn get_hit_test_item(
         .cloned()
 }
 
-/// Dispatch a single event to a callback
+/// Dispatch a single event to callbacks (may return multiple for generic + specific filters)
 fn dispatch_single_event(
     event: &SyntheticEvent,
     hit_test: Option<&FullHitTest>,
-) -> Option<CallbackToInvoke> {
-    let event_filter = event_type_to_filter(event.event_type)?;
-    let target = get_callback_target(event)?;
+) -> Vec<CallbackToInvoke> {
+    let event_filters = event_type_to_filters(event.event_type);
+    let target = match get_callback_target(event) {
+        Some(t) => t,
+        None => return Vec::new(),
+    };
     let hit_test_item = get_hit_test_item(&target, hit_test);
 
-    Some(CallbackToInvoke {
-        target,
-        event_filter,
-        hit_test_item,
-    })
+    event_filters
+        .into_iter()
+        .map(|event_filter| CallbackToInvoke {
+            target: target.clone(),
+            event_filter,
+            hit_test_item: hit_test_item.clone(),
+        })
+        .collect()
 }
 
 // Internal System Event Processing
