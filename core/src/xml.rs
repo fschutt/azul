@@ -2427,15 +2427,15 @@ pub fn set_attributes(
         let props = attributes
             .into_iter()
             .filter_map(|s| {
-                use crate::dom::NodeDataInlineCssProperty::*;
+                use azul_css::dynamic_selector::CssPropertyWithConditions;
                 match s {
-                    CssDeclaration::Static(s) => Some(Normal(s)),
+                    CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
                     _ => return None,
                 }
             })
             .collect::<Vec<_>>();
 
-        node_data.set_inline_css_props(props.into());
+        node_data.set_css_props(props.into());
     }
 }
 

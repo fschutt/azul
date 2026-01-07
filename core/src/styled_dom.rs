@@ -55,7 +55,7 @@ use azul_css::{
 use crate::{
     callbacks::Update,
     dom::{
-        Dom, DomId, NodeData, NodeDataInlineCssProperty, NodeDataVec, OptionTabIndex, OptionTagId,
+        Dom, DomId, NodeData, NodeDataVec, OptionTabIndex, OptionTagId,
         TabIndex, TagId,
     },
     id::{
@@ -104,25 +104,32 @@ pub enum CssPropertySource {
     Inline,
 }
 
-/// NOTE: multiple states can be active at
+/// NOTE: multiple states can be active at the same time
 ///
-/// TODO: use bitflags here!
+/// Tracks all CSS pseudo-class states for a node.
+/// Each flag is independent - a node can be both :hover and :focus simultaneously.
 #[repr(C)]
-#[derive(Clone, PartialEq, Hash, PartialOrd, Eq, Ord)]
-#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Hash, PartialOrd, Eq, Ord, Default)]
 pub struct StyledNodeState {
-    pub normal: bool,
+    /// Element is being hovered (:hover)
     pub hover: bool,
+    /// Element is active/being clicked (:active)
     pub active: bool,
+    /// Element has focus (:focus)
     pub focused: bool,
+    /// Element is disabled (:disabled)
+    pub disabled: bool,
+    /// Element is checked/selected (:checked)
+    pub checked: bool,
+    /// Element or descendant has focus (:focus-within)
+    pub focus_within: bool,
+    /// Link has been visited (:visited)
+    pub visited: bool,
 }
 
 impl core::fmt::Debug for StyledNodeState {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         let mut v = Vec::new();
-        if self.normal {
-            v.push("normal");
-        }
         if self.hover {
             v.push("hover");
         }
@@ -132,24 +139,83 @@ impl core::fmt::Debug for StyledNodeState {
         if self.focused {
             v.push("focused");
         }
+        if self.disabled {
+            v.push("disabled");
+        }
+        if self.checked {
+            v.push("checked");
+        }
+        if self.focus_within {
+            v.push("focus_within");
+        }
+        if self.visited {
+            v.push("visited");
+        }
+        if v.is_empty() {
+            v.push("normal");
+        }
         write!(f, "{:?}", v)
     }
 }
 
-impl Default for StyledNodeState {
-    fn default() -> StyledNodeState {
-        Self::new()
-    }
-}
-
 impl StyledNodeState {
-    /// Creates a new state with normal=true and all others false.
+    /// Creates a new state with all states set to false (normal state).
     pub const fn new() -> Self {
         StyledNodeState {
-            normal: true,
             hover: false,
             active: false,
             focused: false,
+            disabled: false,
+            checked: false,
+            focus_within: false,
+            visited: false,
+        }
+    }
+
+    /// Check if a specific pseudo-state is active
+    pub fn has_state(&self, state_type: u8) -> bool {
+        match state_type {
+            0 => true, // Normal is always active
+            1 => self.hover,
+            2 => self.active,
+            3 => self.focused,
+            4 => self.disabled,
+            5 => self.checked,
+            6 => self.focus_within,
+            7 => self.visited,
+            _ => false,
+        }
+    }
+
+    /// Returns true if no special state is active (just normal)
+    pub fn is_normal(&self) -> bool {
+        !self.hover && !self.active && !self.focused && !self.disabled 
+            && !self.checked && !self.focus_within && !self.visited
+    }
+
+    /// Convert to PseudoStateFlags for use with dynamic selectors
+    pub fn to_pseudo_state_flags(&self) -> azul_css::dynamic_selector::PseudoStateFlags {
+        azul_css::dynamic_selector::PseudoStateFlags {
+            hover: self.hover,
+            active: self.active,
+            focused: self.focused,
+            disabled: self.disabled,
+            checked: self.checked,
+            focus_within: self.focus_within,
+            visited: self.visited,
+        }
+    }
+
+    /// Create from PseudoStateFlags (reverse of to_pseudo_state_flags)
+    pub fn from_pseudo_state_flags(flags: &azul_css::dynamic_selector::PseudoStateFlags) -> Self {
+        StyledNodeState {
+            hover: flags.hover,
+            active: flags.active,
+            focused: flags.focused,
+            disabled: flags.disabled,
+            checked: flags.checked,
+            focus_within: flags.focus_within,
+            visited: flags.visited,
         }
     }
 }
@@ -1141,14 +1207,19 @@ impl StyledDom {
                     .unwrap_or(&default_map)
                     .keys()
                     .collect();
-                let keys_inline: Vec<CssPropertyType> = node_data[*node_id]
-                    .inline_css_props
-                    .iter()
-                    .filter_map(|prop| match prop {
-                        NodeDataInlineCssProperty::Hover(h) => Some(h.get_type()),
-                        _ => None,
-                    })
-                    .collect();
+                let keys_inline: Vec<CssPropertyType> = {
+                    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+                    node_data[*node_id]
+                        .css_props
+                        .iter()
+                        .filter_map(|prop| {
+                            let is_hover = prop.apply_if.as_slice().iter().any(|c| {
+                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover))
+                            });
+                            if is_hover { Some(prop.property.get_type()) } else { None }
+                        })
+                        .collect()
+                };
                 let mut keys_inline_ref = keys_inline.iter().map(|r| r).collect();
 
                 keys_normal.append(&mut keys_inherited);
@@ -1251,14 +1322,19 @@ impl StyledDom {
                     .keys()
                     .collect();
 
-                let keys_inline: Vec<CssPropertyType> = node_data[*node_id]
-                    .inline_css_props
-                    .iter()
-                    .filter_map(|prop| match prop {
-                        NodeDataInlineCssProperty::Active(h) => Some(h.get_type()),
-                        _ => None,
-                    })
-                    .collect();
+                let keys_inline: Vec<CssPropertyType> = {
+                    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+                    node_data[*node_id]
+                        .css_props
+                        .iter()
+                        .filter_map(|prop| {
+                            let is_active = prop.apply_if.as_slice().iter().any(|c| {
+                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Active))
+                            });
+                            if is_active { Some(prop.property.get_type()) } else { None }
+                        })
+                        .collect()
+                };
                 let mut keys_inline_ref = keys_inline.iter().map(|r| r).collect();
 
                 keys_normal.append(&mut keys_inherited);
@@ -1361,14 +1437,19 @@ impl StyledDom {
                     .keys()
                     .collect();
 
-                let keys_inline: Vec<CssPropertyType> = node_data[*node_id]
-                    .inline_css_props
-                    .iter()
-                    .filter_map(|prop| match prop {
-                        NodeDataInlineCssProperty::Focus(h) => Some(h.get_type()),
-                        _ => None,
-                    })
-                    .collect();
+                let keys_inline: Vec<CssPropertyType> = {
+                    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+                    node_data[*node_id]
+                        .css_props
+                        .iter()
+                        .filter_map(|prop| {
+                            let is_focus = prop.apply_if.as_slice().iter().any(|c| {
+                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Focus))
+                            });
+                            if is_focus { Some(prop.property.get_type()) } else { None }
+                        })
+                        .collect()
+                };
                 let mut keys_inline_ref = keys_inline.iter().map(|r| r).collect();
 
                 keys_normal.append(&mut keys_inherited);

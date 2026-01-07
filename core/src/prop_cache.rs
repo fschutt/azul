@@ -238,13 +238,17 @@ use azul_css::{
 };
 
 use crate::{
-    dom::{NodeData, NodeDataInlineCssProperty, NodeId, TabIndex, TagId},
+    dom::{NodeData, NodeId, TabIndex, TagId},
     id::{NodeDataContainer, NodeDataContainerRef},
     style::CascadeInfo,
     styled_dom::{
         NodeHierarchyItem, NodeHierarchyItemId, NodeHierarchyItemVec, ParentWithNodeDepth,
         ParentWithNodeDepthVec, StyledNodeState, TagIdToNodeIdMapping,
     },
+};
+
+use azul_css::dynamic_selector::{
+    CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelectorContext,
 };
 
 /// Macro to match on any CssProperty variant and access the inner CssPropertyValue<T>.
@@ -663,12 +667,27 @@ impl CssPropertyCache {
             }
 
             // Same as inherit_props, but filters along the inline node data instead
-            macro_rules! inherit_inline_css_props {($filter_type:ident, $to_inherit_map:expr) => {
+            // Uses the new CssPropertyWithConditions system
+            macro_rules! inherit_inline_css_props {($filter_pseudo_state:expr, $to_inherit_map:expr) => {{
                 let parent_inheritable_css_props = &node_data[parent_id]
-                .inline_css_props
+                .css_props
                 .iter()
-                 // test whether the property is a [normal, hover, focus, active] property
-                .filter_map(|css_prop| if let NodeDataInlineCssProperty::$filter_type(p) = css_prop { Some(p) } else { None })
+                // Filter by pseudo state condition
+                .filter(|css_prop| {
+                    // Check if property matches the desired pseudo state
+                    let conditions = css_prop.apply_if.as_slice();
+                    if conditions.is_empty() {
+                        // No conditions = Normal state
+                        $filter_pseudo_state == PseudoStateType::Normal
+                    } else {
+                        // Check if all conditions are the matching pseudo state
+                        conditions.iter().all(|c| {
+                            matches!(c, DynamicSelector::PseudoState(state) if *state == $filter_pseudo_state)
+                        })
+                    }
+                })
+                // Get the inner property
+                .map(|css_prop| &css_prop.property)
                 // test whether the property is inheritable
                 .filter(|css_prop| css_prop.get_type().is_inheritable())
                 .cloned()
@@ -686,15 +705,16 @@ impl CssPropertyCache {
                     }
                 }
 
-            };}
+            }};}
 
+            use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
             // strongest inheritance first
 
             // Inherit inline CSS properties
-            inherit_inline_css_props!(Normal, self.cascaded_normal_props);
-            inherit_inline_css_props!(Hover, self.cascaded_hover_props);
-            inherit_inline_css_props!(Active, self.cascaded_active_props);
-            inherit_inline_css_props!(Focus, self.cascaded_focus_props);
+            inherit_inline_css_props!(PseudoStateType::Normal, self.cascaded_normal_props);
+            inherit_inline_css_props!(PseudoStateType::Hover, self.cascaded_hover_props);
+            inherit_inline_css_props!(PseudoStateType::Active, self.cascaded_active_props);
+            inherit_inline_css_props!(PseudoStateType::Focus, self.cascaded_focus_props);
 
             // Inherit the CSS properties from the CSS file
             if !css_is_empty {
@@ -779,11 +799,14 @@ impl CssPropertyCache {
                     }
 
                     // check for :hover
-                    let node_has_hover_props =
-                        node_data.inline_css_props.as_ref().iter().any(|p| match p {
-                            NodeDataInlineCssProperty::Hover(_) => true,
-                            _ => false,
-                        }) || self.css_hover_props.get(&node_id).is_some()
+                    let node_has_hover_props = {
+                        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+                        node_data.css_props.as_ref().iter().any(|p| {
+                            p.apply_if.as_slice().iter().any(|c| {
+                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover))
+                            })
+                        })
+                    } || self.css_hover_props.get(&node_id).is_some()
                             || self.cascaded_hover_props.get(&node_id).is_some();
 
                     if node_has_hover_props {
@@ -792,11 +815,14 @@ impl CssPropertyCache {
                     }
 
                     // check for :active
-                    let node_has_active_props =
-                        node_data.inline_css_props.as_ref().iter().any(|p| match p {
-                            NodeDataInlineCssProperty::Active(_) => true,
-                            _ => false,
-                        }) || self.css_active_props.get(&node_id).is_some()
+                    let node_has_active_props = {
+                        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+                        node_data.css_props.as_ref().iter().any(|p| {
+                            p.apply_if.as_slice().iter().any(|c| {
+                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Active))
+                            })
+                        })
+                    } || self.css_active_props.get(&node_id).is_some()
                             || self.cascaded_active_props.get(&node_id).is_some();
 
                     if node_has_active_props {
@@ -805,11 +831,14 @@ impl CssPropertyCache {
                     }
 
                     // check for :focus
-                    let node_has_focus_props =
-                        node_data.inline_css_props.as_ref().iter().any(|p| match p {
-                            NodeDataInlineCssProperty::Focus(_) => true,
-                            _ => false,
-                        }) || self.css_focus_props.get(&node_id).is_some()
+                    let node_has_focus_props = {
+                        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+                        node_data.css_props.as_ref().iter().any(|p| {
+                            p.apply_if.as_slice().iter().any(|c| {
+                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Focus))
+                            })
+                        })
+                    } || self.css_focus_props.get(&node_id).is_some()
                             || self.cascaded_focus_props.get(&node_id).is_some();
 
                     if node_has_focus_props {
@@ -1348,6 +1377,8 @@ impl CssPropertyCache {
     ) -> Option<&CssProperty> {
         // NOTE: This function is slow, but it is going to be called on every
         // node in parallel, so it should be rather fast in the end
+        
+        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
         // First test if there is some user-defined override for the property
         if let Some(p) = self
@@ -1358,25 +1389,30 @@ impl CssPropertyCache {
             return Some(p);
         }
 
-        if !(node_state.normal || node_state.active || node_state.hover || node_state.focused) {
-            return None;
+        // Helper to check if property matches a specific pseudo state
+        fn matches_pseudo_state(prop: &azul_css::dynamic_selector::CssPropertyWithConditions, state: PseudoStateType) -> bool {
+            let conditions = prop.apply_if.as_slice();
+            if conditions.is_empty() {
+                state == PseudoStateType::Normal
+            } else {
+                conditions.iter().all(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state))
+            }
         }
 
         // If that fails, see if there is an inline CSS property that matches
-        // :focus > :active > :hover > :normal
+        // :focus > :active > :hover > normal (fallback)
         if node_state.focused {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
             if let Some(p) = node_data
-                .inline_css_props
+                .css_props
                 .as_ref()
                 .iter()
                 .find_map(|css_prop| {
-                    if let NodeDataInlineCssProperty::Focus(p) = css_prop {
-                        if p.get_type() == *css_property_type {
-                            return Some(p);
-                        }
+                    if matches_pseudo_state(css_prop, PseudoStateType::Focus) && css_prop.property.get_type() == *css_property_type {
+                        Some(&css_prop.property)
+                    } else {
+                        None
                     }
-                    None
                 })
             {
                 return Some(p);
@@ -1404,16 +1440,15 @@ impl CssPropertyCache {
         if node_state.active {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
             if let Some(p) = node_data
-                .inline_css_props
+                .css_props
                 .as_ref()
                 .iter()
                 .find_map(|css_prop| {
-                    if let NodeDataInlineCssProperty::Active(p) = css_prop {
-                        if p.get_type() == *css_property_type {
-                            return Some(p);
-                        }
+                    if matches_pseudo_state(css_prop, PseudoStateType::Active) && css_prop.property.get_type() == *css_property_type {
+                        Some(&css_prop.property)
+                    } else {
+                        None
                     }
-                    None
                 })
             {
                 return Some(p);
@@ -1441,16 +1476,15 @@ impl CssPropertyCache {
         if node_state.hover {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
             if let Some(p) = node_data
-                .inline_css_props
+                .css_props
                 .as_ref()
                 .iter()
                 .find_map(|css_prop| {
-                    if let NodeDataInlineCssProperty::Hover(p) = css_prop {
-                        if p.get_type() == *css_property_type {
-                            return Some(p);
-                        }
+                    if matches_pseudo_state(css_prop, PseudoStateType::Hover) && css_prop.property.get_type() == *css_property_type {
+                        Some(&css_prop.property)
+                    } else {
+                        None
                     }
-                    None
                 })
             {
                 return Some(p);
@@ -1475,59 +1509,143 @@ impl CssPropertyCache {
             }
         }
 
-        if node_state.normal {
-            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = node_data
-                .inline_css_props
-                .as_ref()
-                .iter()
-                .find_map(|css_prop| {
-                    if let NodeDataInlineCssProperty::Normal(p) = css_prop {
-                        if p.get_type() == *css_property_type {
-                            return Some(p);
-                        }
-                    }
+        // Normal/fallback properties - always apply as base layer
+        // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
+        if let Some(p) = node_data
+            .css_props
+            .as_ref()
+            .iter()
+            .find_map(|css_prop| {
+                if matches_pseudo_state(css_prop, PseudoStateType::Normal) && css_prop.property.get_type() == *css_property_type {
+                    Some(&css_prop.property)
+                } else {
                     None
-                })
-            {
-                return Some(p);
-            }
-
-            // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = self
-                .css_normal_props
-                .get(node_id)
-                .and_then(|map| map.get(css_property_type))
-            {
-                return Some(p);
-            }
-
-            // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = self
-                .cascaded_normal_props
-                .get(node_id)
-                .and_then(|map| map.get(css_property_type))
-            {
-                return Some(p);
-            }
-
-            // NEW: Check computed values cache for inherited properties
-            // This provides efficient access to pre-resolved inherited values
-            // without needing to walk up the tree
-            if css_property_type.is_inheritable() {
-                if let Some(prop_with_origin) = self
-                    .computed_values
-                    .get(node_id)
-                    .and_then(|map| map.get(css_property_type))
-                {
-                    return Some(&prop_with_origin.property);
                 }
+            })
+        {
+            return Some(p);
+        }
+
+        // PRIORITY 2: CSS stylesheet properties
+        if let Some(p) = self
+            .css_normal_props
+            .get(node_id)
+            .and_then(|map| map.get(css_property_type))
+        {
+            return Some(p);
+        }
+
+        // PRIORITY 3: Cascaded/inherited properties
+        if let Some(p) = self
+            .cascaded_normal_props
+            .get(node_id)
+            .and_then(|map| map.get(css_property_type))
+        {
+            return Some(p);
+        }
+
+        // NEW: Check computed values cache for inherited properties
+        // This provides efficient access to pre-resolved inherited values
+        // without needing to walk up the tree
+        if css_property_type.is_inheritable() {
+            if let Some(prop_with_origin) = self
+                .computed_values
+                .get(node_id)
+                .and_then(|map| map.get(css_property_type))
+            {
+                return Some(&prop_with_origin.property);
             }
         }
 
         // User-agent stylesheet fallback (lowest precedence)
         // Check if the node type has a default value for this property
         crate::ua_css::get_ua_property(&node_data.node_type, *css_property_type)
+    }
+
+    /// Get a CSS property using DynamicSelectorContext for evaluation.
+    ///
+    /// This is the new API that supports @media queries, @container queries,
+    /// OS-specific styles, and all pseudo-states via `CssPropertyWithConditions`.
+    ///
+    /// The evaluation follows "last wins" semantics - properties are evaluated
+    /// in reverse order and the first matching property wins.
+    pub fn get_property_with_context<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        context: &DynamicSelectorContext,
+        css_property_type: &CssPropertyType,
+    ) -> Option<&CssProperty> {
+        // First test if there is some user-defined override for the property
+        if let Some(p) = self
+            .user_overridden_properties
+            .get(node_id)
+            .and_then(|n| n.get(css_property_type))
+        {
+            return Some(p);
+        }
+
+        // Check inline CSS properties with DynamicSelectorContext evaluation.
+        // Iterate in REVERSE order - "last found wins" semantics.
+        // This replaces the old Focus > Active > Hover > Normal priority chain.
+        if let Some(prop_with_conditions) = node_data
+            .css_props
+            .as_ref()
+            .iter()
+            .rev()
+            .find(|prop| {
+                prop.property.get_type() == *css_property_type && prop.matches(context)
+            })
+        {
+            return Some(&prop_with_conditions.property);
+        }
+
+        // Fall back to CSS file and cascaded properties
+        let legacy_state = StyledNodeState::from_pseudo_state_flags(&context.pseudo_state);
+        if let Some(p) = self.get_property(node_data, node_id, &legacy_state, css_property_type) {
+            return Some(p);
+        }
+
+        None
+    }
+
+    /// Check if any properties with conditions would change between two contexts.
+    /// This is used for re-layout detection on viewport/container resize.
+    pub fn check_properties_changed(
+        node_data: &NodeData,
+        old_context: &DynamicSelectorContext,
+        new_context: &DynamicSelectorContext,
+    ) -> bool {
+        for prop in node_data.css_props.as_ref().iter() {
+            let was_active = prop.matches(old_context);
+            let is_active = prop.matches(new_context);
+            if was_active != is_active {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check if any layout-affecting properties would change between two contexts.
+    /// This is a more targeted check for re-layout detection.
+    pub fn check_layout_properties_changed(
+        node_data: &NodeData,
+        old_context: &DynamicSelectorContext,
+        new_context: &DynamicSelectorContext,
+    ) -> bool {
+        for prop in node_data.css_props.as_ref().iter() {
+            // Skip non-layout-affecting properties
+            if !prop.is_layout_affecting() {
+                continue;
+            }
+
+            let was_active = prop.matches(old_context);
+            let is_active = prop.matches(new_context);
+            if was_active != is_active {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn get_background_content<'a>(
@@ -4093,12 +4211,10 @@ impl CssPropertyCache {
                 if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type, *prop_type) {
                     // Only insert if the property is NOT already set by inline CSS or author CSS
                     // UA CSS has LOWEST priority
-                    let has_inline = node.inline_css_props.iter().any(|p| {
-                        if let NodeDataInlineCssProperty::Normal(prop) = p {
-                            prop.get_type() == *prop_type
-                        } else {
-                            false
-                        }
+                    let has_inline = node.css_props.iter().any(|p| {
+                        // Check if this is a normal (unconditional) property
+                        let is_normal = p.apply_if.as_slice().is_empty();
+                        is_normal && p.property.get_type() == *prop_type
                     });
 
                     let has_css = self
@@ -4221,9 +4337,10 @@ impl CssPropertyCache {
         }
 
         // Step 4: Inline CSS properties
-        for inline_prop in node_data[node_index].inline_css_props.iter() {
-            if let NodeDataInlineCssProperty::Normal(prop) = inline_prop {
-                self.process_property(ctx, prop, parent_computed);
+        for inline_prop in node_data[node_index].css_props.iter() {
+            // Only apply unconditional (normal) properties
+            if inline_prop.apply_if.as_slice().is_empty() {
+                self.process_property(ctx, &inline_prop.property, parent_computed);
             }
         }
 

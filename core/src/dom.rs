@@ -32,6 +32,7 @@ pub use crate::events::{
     NotEventFilter, WindowEventFilter,
 };
 pub use crate::id::{Node, NodeHierarchy, NodeId};
+pub use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use crate::{
     callbacks::{
         CoreCallback, CoreCallbackData, CoreCallbackDataVec, CoreCallbackType, IFrameCallback,
@@ -1279,166 +1280,6 @@ impl SmallAriaInfo {
     }
 }
 
-// memory optimization: store all inline-normal / inline-hover / inline-* attributes
-// as one Vec instad of 4 separate Vecs
-
-/// Represents an inline CSS property attached to a node for a specific interaction state.
-/// This allows defining styles for `:hover`, `:focus`, etc., directly on a DOM node.
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[repr(C, u8)]
-pub enum NodeDataInlineCssProperty {
-    /// A standard, non-interactive style property.
-    /// - **CSS Equivalent**: ` ` (no pseudo-class)
-    Normal(CssProperty),
-
-    /// A style property that applies when the element is active (e.g., being clicked).
-    /// - **CSS Equivalent**: `:active`
-    Active(CssProperty),
-
-    /// A style property that applies when the element has focus.
-    /// - **CSS Equivalent**: `:focus`
-    Focus(CssProperty),
-
-    /// A style property that applies when the element is being hovered by the mouse.
-    /// - **CSS Equivalent**: `:hover`
-    Hover(CssProperty),
-
-    /// A style property that applies when the element is disabled and cannot be interacted with.
-    /// - **CSS Equivalent**: `:disabled`
-    Disabled(CssProperty),
-
-    /// A style property that applies when the element is checked (e.g., a checkbox or radio
-    /// button).
-    /// - **CSS Equivalent**: `:checked`
-    Checked(CssProperty),
-
-    /// A style property that applies when the element or one of its descendants has focus.
-    /// - **CSS Equivalent**: `:focus-within`
-    FocusWithin(CssProperty),
-
-    /// A style property that applies to a link that has been visited.
-    /// - **CSS Equivalent**: `:visited`
-    Visited(CssProperty),
-}
-
-macro_rules! parse_from_str {
-    ($s:expr, $prop_type:ident) => {{
-        use azul_css::{css::CssDeclaration, parser2::ErrorLocation, props::property::CssKeyMap};
-
-        let s = $s.trim();
-        let css_key_map = CssKeyMap::get();
-
-        let v = s
-            .split(";")
-            .filter_map(|kv| {
-                let mut kv_iter = kv.split(":");
-                let key = kv_iter.next()?;
-                let value = kv_iter.next()?;
-                let mut declarations = Vec::new();
-                let mut warnings = Vec::new();
-
-                azul_css::parser2::parse_css_declaration(
-                    key,
-                    value,
-                    (ErrorLocation::default(), ErrorLocation::default()),
-                    &css_key_map,
-                    &mut warnings,
-                    &mut declarations,
-                )
-                .ok()?;
-
-                let declarations = declarations
-                    .iter()
-                    .filter_map(|c| match c {
-                        CssDeclaration::Static(d) => {
-                            Some(NodeDataInlineCssProperty::$prop_type(d.clone()))
-                        }
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>();
-
-                if declarations.is_empty() {
-                    None
-                } else {
-                    Some(declarations)
-                }
-            })
-            .collect::<Vec<Vec<NodeDataInlineCssProperty>>>();
-
-        v.into_iter()
-            .flat_map(|k| k.into_iter())
-            .collect::<Vec<_>>()
-            .into()
-    }};
-}
-
-impl NodeDataInlineCssPropertyVec {
-    // given "flex-direction: row", returns
-    // vec![NodeDataInlineCssProperty::Normal(FlexDirection::Row)]
-    pub fn parse_normal(s: &str) -> Self {
-        return parse_from_str!(s, Normal);
-    }
-
-    // given "flex-direction: row", returns
-    // vec![NodeDataInlineCssProperty::Hover(FlexDirection::Row)]
-    pub fn parse_hover(s: &str) -> Self {
-        return parse_from_str!(s, Hover);
-    }
-
-    // given "flex-direction: row", returns
-    // vec![NodeDataInlineCssProperty::Active(FlexDirection::Row)]
-    pub fn parse_active(s: &str) -> Self {
-        return parse_from_str!(s, Active);
-    }
-
-    // given "flex-direction: row", returns
-    // vec![NodeDataInlineCssProperty::Focus(FlexDirection::Row)]
-    pub fn parse_focus(s: &str) -> Self {
-        return parse_from_str!(s, Focus);
-    }
-
-    // appends two NodeDataInlineCssPropertyVec, even if both are &'static arrays
-    pub fn with_append(&self, mut other: Self) -> Self {
-        let mut m = self.clone().into_library_owned_vec();
-        m.append(&mut other.into_library_owned_vec());
-        m.into()
-    }
-}
-
-impl fmt::Debug for NodeDataInlineCssProperty {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::NodeDataInlineCssProperty::*;
-        match self {
-            Normal(p) => write!(f, "Normal({}: {})", p.key(), p.value()),
-            Active(p) => write!(f, "Active({}: {})", p.key(), p.value()),
-            Focus(p) => write!(f, "Focus({}: {})", p.key(), p.value()),
-            Hover(p) => write!(f, "Hover({}: {})", p.key(), p.value()),
-            Disabled(p) => write!(f, "Disabled({}: {})", p.key(), p.value()),
-            Checked(p) => write!(f, "Checked({}: {})", p.key(), p.value()),
-            FocusWithin(p) => write!(f, "FocusWithin({}: {})", p.key(), p.value()),
-            Visited(p) => write!(f, "Visited({}: {})", p.key(), p.value()),
-        }
-    }
-}
-
-impl_vec!(
-    NodeDataInlineCssProperty,
-    NodeDataInlineCssPropertyVec,
-    NodeDataInlineCssPropertyVecDestructor,
-    NodeDataInlineCssPropertyVecDestructorType
-);
-impl_vec_debug!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
-impl_vec_partialord!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
-impl_vec_ord!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
-impl_vec_clone!(
-    NodeDataInlineCssProperty,
-    NodeDataInlineCssPropertyVec,
-    NodeDataInlineCssPropertyVecDestructor
-);
-impl_vec_partialeq!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
-impl_vec_eq!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
-impl_vec_hash!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
-
 /// Represents all data associated with a single DOM node, such as its type,
 /// classes, IDs, callbacks, and inline styles.
 #[repr(C)]
@@ -1457,8 +1298,10 @@ pub struct NodeData {
     ///
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
     pub callbacks: CoreCallbackDataVec,
-    /// Stores the inline CSS properties, same as in HTML.
-    pub inline_css_props: NodeDataInlineCssPropertyVec,
+    /// Conditional CSS properties with dynamic selectors.
+    /// These are evaluated at runtime based on OS, viewport, container, theme, and pseudo-state.
+    /// Uses "last wins" semantics - properties are evaluated in order, last match wins.
+    pub css_props: CssPropertyWithConditionsVec,
     /// Tab index (commonly used property).
     pub tab_index: OptionTabIndex,
     /// Stores "extra", not commonly used data of the node: accessibility, clip-mask, tab-index,
@@ -1484,7 +1327,11 @@ impl Hash for NodeData {
             callback.refany.get_type_id().hash(state);
         }
 
-        self.inline_css_props.as_ref().hash(state);
+        // Hash CSS props (conditional CSS with dynamic selectors)
+        for prop in self.css_props.as_ref().iter() {
+            // Hash property type as a simple discriminant
+            core::mem::discriminant(&prop.property).hash(state);
+        }
         if let Some(ext) = self.extra.as_ref() {
             if let Some(c) = ext.clip_mask.as_ref() {
                 c.hash(state);
@@ -2270,8 +2117,7 @@ impl Clone for NodeData {
             ids_and_classes: self.ids_and_classes.clone(), /* do not clone the IDs and classes if
                                                             * they are &'static */
             attributes: self.attributes.clone(),
-            inline_css_props: self.inline_css_props.clone(), /* do not clone the inline CSS props
-                                                              * if they are &'static */
+            css_props: self.css_props.clone(),
             callbacks: self.callbacks.clone(),
             tab_index: self.tab_index,
             extra: self.extra.clone(),
@@ -2420,7 +2266,7 @@ impl NodeData {
             ids_and_classes: IdOrClassVec::from_const_slice(&[]),
             attributes: AttributeVec::from_const_slice(&[]),
             callbacks: CoreCallbackDataVec::from_const_slice(&[]),
-            inline_css_props: NodeDataInlineCssPropertyVec::from_const_slice(&[]),
+            css_props: CssPropertyWithConditionsVec::from_const_slice(&[]),
             tab_index: OptionTabIndex::None,
             extra: None,
         }
@@ -2529,8 +2375,8 @@ impl NodeData {
         &self.callbacks
     }
     #[inline(always)]
-    pub const fn get_inline_css_props(&self) -> &NodeDataInlineCssPropertyVec {
-        &self.inline_css_props
+    pub const fn get_css_props(&self) -> &CssPropertyWithConditionsVec {
+        &self.css_props
     }
 
     #[inline]
@@ -2577,8 +2423,8 @@ impl NodeData {
         self.callbacks = callbacks;
     }
     #[inline(always)]
-    pub fn set_inline_css_props(&mut self, inline_css_props: NodeDataInlineCssPropertyVec) {
-        self.inline_css_props = inline_css_props;
+    pub fn set_css_props(&mut self, css_props: CssPropertyWithConditionsVec) {
+        self.css_props = css_props;
     }
     #[inline]
     pub fn set_clip_mask(&mut self, clip_mask: ImageMask) {
@@ -2659,37 +2505,49 @@ impl NodeData {
         v.push(IdOrClass::Class(s));
         self.ids_and_classes = v.into();
     }
+    
+    /// Add an unconditional CSS property (always applies)
     #[inline]
-    pub fn add_normal_css_property(&mut self, p: CssProperty) {
-        let mut v: NodeDataInlineCssPropertyVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.inline_css_props);
+    pub fn add_css_property(&mut self, p: CssProperty) {
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        let mut v: CssPropertyWithConditionsVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.css_props);
         let mut v = v.into_library_owned_vec();
-        v.push(NodeDataInlineCssProperty::Normal(p));
-        self.inline_css_props = v.into();
+        v.push(CssPropertyWithConditions::simple(p));
+        self.css_props = v.into();
     }
+    
+    /// Add a CSS property that applies only on hover
     #[inline]
     pub fn add_hover_css_property(&mut self, p: CssProperty) {
-        let mut v: NodeDataInlineCssPropertyVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.inline_css_props);
+        use azul_css::dynamic_selector::{CssPropertyWithConditions, DynamicSelector, PseudoStateType};
+        let mut v: CssPropertyWithConditionsVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.css_props);
         let mut v = v.into_library_owned_vec();
-        v.push(NodeDataInlineCssProperty::Hover(p));
-        self.inline_css_props = v.into();
+        v.push(CssPropertyWithConditions::with_condition(p, DynamicSelector::PseudoState(PseudoStateType::Hover)));
+        self.css_props = v.into();
     }
+    
+    /// Add a CSS property that applies only when active (clicked)
     #[inline]
     pub fn add_active_css_property(&mut self, p: CssProperty) {
-        let mut v: NodeDataInlineCssPropertyVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.inline_css_props);
+        use azul_css::dynamic_selector::{CssPropertyWithConditions, DynamicSelector, PseudoStateType};
+        let mut v: CssPropertyWithConditionsVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.css_props);
         let mut v = v.into_library_owned_vec();
-        v.push(NodeDataInlineCssProperty::Active(p));
-        self.inline_css_props = v.into();
+        v.push(CssPropertyWithConditions::with_condition(p, DynamicSelector::PseudoState(PseudoStateType::Active)));
+        self.css_props = v.into();
     }
+    
+    /// Add a CSS property that applies only when focused
     #[inline]
     pub fn add_focus_css_property(&mut self, p: CssProperty) {
-        let mut v: NodeDataInlineCssPropertyVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.inline_css_props);
+        use azul_css::dynamic_selector::{CssPropertyWithConditions, DynamicSelector, PseudoStateType};
+        let mut v: CssPropertyWithConditionsVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.css_props);
         let mut v = v.into_library_owned_vec();
-        v.push(NodeDataInlineCssProperty::Focus(p));
-        self.inline_css_props = v.into();
+        v.push(CssPropertyWithConditions::with_condition(p, DynamicSelector::PseudoState(PseudoStateType::Focus)));
+        self.css_props = v.into();
     }
 
     /// Calculates a deterministic node hash for this node.
@@ -2737,17 +2595,20 @@ impl NodeData {
         self
     }
     #[inline(always)]
-    pub fn with_inline_css_props(mut self, inline_css_props: NodeDataInlineCssPropertyVec) -> Self {
-        self.inline_css_props = inline_css_props;
+    pub fn with_css_props(mut self, css_props: CssPropertyWithConditionsVec) -> Self {
+        self.css_props = css_props;
         self
     }
 
-    /// Sets inline CSS styles for the normal state, parsing from a CSS string
+    /// Parse CSS from a string and add as unconditional properties
     pub fn set_inline_style(&mut self, style: &str) {
-        self.set_inline_css_props(
-            self.get_inline_css_props()
-                .with_append(NodeDataInlineCssPropertyVec::parse_normal(style)),
-        )
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        let parsed = CssPropertyWithConditionsVec::parse_normal(style);
+        let mut current = Vec::new().into();
+        mem::swap(&mut current, &mut self.css_props);
+        let mut v = current.into_library_owned_vec();
+        v.extend(parsed.into_library_owned_vec());
+        self.css_props = v.into();
     }
 
     /// Builder method for setting inline CSS styles for the normal state
@@ -2758,10 +2619,12 @@ impl NodeData {
 
     /// Sets inline CSS styles for the hover state, parsing from a CSS string
     pub fn set_inline_hover_style(&mut self, style: &str) {
-        self.set_inline_css_props(
-            self.get_inline_css_props()
-                .with_append(NodeDataInlineCssPropertyVec::parse_hover(style)),
-        )
+        let parsed = CssPropertyWithConditionsVec::parse_hover(style);
+        let mut current = Vec::new().into();
+        mem::swap(&mut current, &mut self.css_props);
+        let mut v = current.into_library_owned_vec();
+        v.extend(parsed.into_library_owned_vec());
+        self.css_props = v.into();
     }
 
     /// Builder method for setting inline CSS styles for the hover state
@@ -2772,10 +2635,12 @@ impl NodeData {
 
     /// Sets inline CSS styles for the active state, parsing from a CSS string
     pub fn set_inline_active_style(&mut self, style: &str) {
-        self.set_inline_css_props(
-            self.get_inline_css_props()
-                .with_append(NodeDataInlineCssPropertyVec::parse_active(style)),
-        )
+        let parsed = CssPropertyWithConditionsVec::parse_active(style);
+        let mut current = Vec::new().into();
+        mem::swap(&mut current, &mut self.css_props);
+        let mut v = current.into_library_owned_vec();
+        v.extend(parsed.into_library_owned_vec());
+        self.css_props = v.into();
     }
 
     /// Builder method for setting inline CSS styles for the active state
@@ -2786,10 +2651,12 @@ impl NodeData {
 
     /// Sets inline CSS styles for the focus state, parsing from a CSS string
     pub fn set_inline_focus_style(&mut self, style: &str) {
-        self.set_inline_css_props(
-            self.get_inline_css_props()
-                .with_append(NodeDataInlineCssPropertyVec::parse_focus(style)),
-        )
+        let parsed = CssPropertyWithConditionsVec::parse_focus(style);
+        let mut current = Vec::new().into();
+        mem::swap(&mut current, &mut self.css_props);
+        let mut v = current.into_library_owned_vec();
+        v.extend(parsed.into_library_owned_vec());
+        self.css_props = v.into();
     }
 
     /// Builder method for setting inline CSS styles for the focus state
@@ -2816,8 +2683,7 @@ impl NodeData {
             ids_and_classes: self.ids_and_classes.clone(), /* do not clone the IDs and classes if
                                                             * they are &'static */
             attributes: self.attributes.clone(),
-            inline_css_props: self.inline_css_props.clone(), /* do not clone the inline CSS props
-                                                              * if they are &'static */
+            css_props: self.css_props.clone(),
             callbacks: self.callbacks.clone(),
             tab_index: self.tab_index,
             extra: self.extra.clone(),
@@ -4505,7 +4371,7 @@ impl Dom {
     }
     #[inline(always)]
     pub fn with_css_property(mut self, prop: CssProperty) -> Self {
-        self.root.add_normal_css_property(prop);
+        self.root.add_css_property(prop);
         self
     }
     #[inline(always)]
@@ -4562,17 +4428,13 @@ impl Dom {
         self
     }
     #[inline(always)]
-    pub fn with_inline_css_props(mut self, inline_css_props: NodeDataInlineCssPropertyVec) -> Self {
-        self.root.inline_css_props = inline_css_props;
+    pub fn with_css_props(mut self, css_props: CssPropertyWithConditionsVec) -> Self {
+        self.root.css_props = css_props;
         self
     }
 
     pub fn set_inline_style(&mut self, style: &str) {
-        self.root.set_inline_css_props(
-            self.root
-                .get_inline_css_props()
-                .with_append(NodeDataInlineCssPropertyVec::parse_normal(style)),
-        )
+        self.root.set_inline_style(style);
     }
 
     pub fn with_inline_style(mut self, style: &str) -> Self {
@@ -4582,11 +4444,7 @@ impl Dom {
 
     /// Sets inline CSS styles for the hover state on the root node
     pub fn set_inline_hover_style(&mut self, style: &str) {
-        self.root.set_inline_css_props(
-            self.root
-                .get_inline_css_props()
-                .with_append(NodeDataInlineCssPropertyVec::parse_hover(style)),
-        )
+        self.root.set_inline_hover_style(style);
     }
 
     /// Builder method for setting inline CSS styles for the hover state
@@ -4597,11 +4455,7 @@ impl Dom {
 
     /// Sets inline CSS styles for the active state on the root node
     pub fn set_inline_active_style(&mut self, style: &str) {
-        self.root.set_inline_css_props(
-            self.root
-                .get_inline_css_props()
-                .with_append(NodeDataInlineCssPropertyVec::parse_active(style)),
-        )
+        self.root.set_inline_active_style(style);
     }
 
     /// Builder method for setting inline CSS styles for the active state
@@ -4612,11 +4466,7 @@ impl Dom {
 
     /// Sets inline CSS styles for the focus state on the root node
     pub fn set_inline_focus_style(&mut self, style: &str) {
-        self.root.set_inline_css_props(
-            self.root
-                .get_inline_css_props()
-                .with_append(NodeDataInlineCssPropertyVec::parse_focus(style)),
-        )
+        self.root.set_inline_focus_style(style);
     }
 
     /// Builder method for setting inline CSS styles for the focus state
