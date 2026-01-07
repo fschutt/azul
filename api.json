@@ -2291,6 +2291,36 @@
               }
             ],
             "repr": "C"
+          },
+          "ThemeCondition": {
+            "doc": [
+              "Theme condition for light/dark mode styling"
+            ],
+            "external": "azul_css::dynamic_selector::ThemeCondition",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Light": {}
+              },
+              {
+                "Dark": {}
+              },
+              {
+                "Custom": {
+                  "type": "String"
+                }
+              },
+              {
+                "SystemPreferred": {}
+              }
+            ],
+            "repr": "C, u8"
           }
         }
       },
@@ -8918,7 +8948,7 @@
                     "prop": "CssProperty"
                   }
                 ],
-                "fn_body": "dom.root.add_normal_css_property(prop)"
+                "fn_body": "dom.root.add_css_property(prop)"
               },
               "with_css_property": {
                 "fn_args": [
@@ -9421,8 +9451,8 @@
                 "callbacks": {
                   "type": "CoreCallbackDataVec"
                 },
-                "inline_css_props": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                "css_props": {
+                  "type": "CssPropertyWithConditionsVec"
                 },
                 "tab_index": {
                   "type": "OptionTabIndex"
@@ -9700,7 +9730,7 @@
                 ],
                 "fn_body": "object.add_class(s)"
               },
-              "add_normal_css_property": {
+              "add_css_property": {
                 "fn_args": [
                   {
                     "self": "refmut"
@@ -9709,7 +9739,7 @@
                     "p": "CssProperty"
                   }
                 ],
-                "fn_body": "object.add_normal_css_property(p)"
+                "fn_body": "object.add_css_property(p)"
               },
               "add_hover_css_property": {
                 "fn_args": [
@@ -11289,90 +11319,6 @@
                 "NoKeyboardFocus": {
                   "doc": [
                     "Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (-1)."
-                  ]
-                }
-              }
-            ],
-            "repr": "C, u8"
-          },
-          "NodeDataInlineCssProperty": {
-            "doc": [
-              "Represents an inline CSS property attached to a node for a specific interaction state. This allows defining styles for `:hover`, `:focus`, etc., directly on a DOM node."
-            ],
-            "external": "azul_core::dom::NodeDataInlineCssProperty",
-            "custom_impls": [
-              "Debug"
-            ],
-            "derive": [
-              "Eq",
-              "PartialOrd",
-              "Ord",
-              "PartialEq",
-              "Clone",
-              "Hash"
-            ],
-            "enum_fields": [
-              {
-                "Normal": {
-                  "type": "CssProperty",
-                  "doc": [
-                    "A standard, non-interactive style property. - **CSS Equivalent**: ` ` (no pseudo-class)"
-                  ]
-                }
-              },
-              {
-                "Active": {
-                  "type": "CssProperty",
-                  "doc": [
-                    "A style property that applies when the element is active (e.g., being clicked). - **CSS Equivalent**: `:active`"
-                  ]
-                }
-              },
-              {
-                "Focus": {
-                  "type": "CssProperty",
-                  "doc": [
-                    "A style property that applies when the element has focus. - **CSS Equivalent**: `:focus`"
-                  ]
-                }
-              },
-              {
-                "Hover": {
-                  "type": "CssProperty",
-                  "doc": [
-                    "A style property that applies when the element is being hovered by the mouse. - **CSS Equivalent**: `:hover`"
-                  ]
-                }
-              },
-              {
-                "Disabled": {
-                  "type": "CssProperty",
-                  "doc": [
-                    "A style property that applies when the element is disabled and cannot be interacted with. - **CSS Equivalent**: `:disabled`"
-                  ]
-                }
-              },
-              {
-                "Checked": {
-                  "type": "CssProperty",
-                  "doc": [
-                    "A style property that applies when the element is checked (e.g., a checkbox or radio button). - **CSS Equivalent**: `:checked`"
-                  ]
-                }
-              },
-              {
-                "FocusWithin": {
-                  "type": "CssProperty",
-                  "doc": [
-                    "A style property that applies when the element or one of its descendants has focus. - **CSS Equivalent**: `:focus-within`"
-                  ]
-                }
-              },
-              {
-                "Visited": {
-                  "type": "CssProperty",
-                  "doc": [
-                    "A style property that applies to a link that has been visited. - **CSS Equivalent**: `:visited`"
                   ]
                 }
               }
@@ -14023,7 +13969,6 @@
             "derive": [
               "Debug",
               "Clone",
-              "PartialOrd",
               "PartialEq"
             ],
             "struct_fields": [
@@ -14040,6 +13985,14 @@
                   "type": "CssDeclarationVec",
                   "doc": [
                     "`\"justify-content: center\"` => `CssDeclaration::Static(CssProperty::JustifyContent(LayoutJustifyContent::Center))`"
+                  ]
+                }
+              },
+              {
+                "conditions": {
+                  "type": "DynamicSelectorVec",
+                  "doc": [
+                    "Conditions from enclosing @-rules (@media, @lang, etc.) that must ALL be satisfied for this rule block to apply. Empty = unconditional."
                   ]
                 }
               }
@@ -24437,23 +24390,19 @@
           "StyledNodeState": {
             "external": "azul_core::styled_dom::StyledNodeState",
             "custom_impls": [
-              "Debug",
-              "Default"
+              "Debug"
             ],
             "derive": [
+              "Default",
               "Hash",
               "Clone",
+              "Copy",
               "PartialOrd",
               "Ord",
               "PartialEq",
               "Eq"
             ],
             "struct_fields": [
-              {
-                "normal": {
-                  "type": "bool"
-                }
-              },
               {
                 "hover": {
                   "type": "bool"
@@ -24466,6 +24415,26 @@
               },
               {
                 "focused": {
+                  "type": "bool"
+                }
+              },
+              {
+                "disabled": {
+                  "type": "bool"
+                }
+              },
+              {
+                "checked": {
+                  "type": "bool"
+                }
+              },
+              {
+                "focus_within": {
+                  "type": "bool"
+                }
+              },
+              {
+                "visited": {
                   "type": "bool"
                 }
               }
@@ -26252,6 +26221,71 @@
               }
             ],
             "repr": "C"
+          },
+          "CssPropertyWithConditions": {
+            "doc": [
+              "A CSS property with optional conditions for when it should be applied. Supports OS-specific, media query, container query, theme, and pseudo-state conditions."
+            ],
+            "external": "azul_css::dynamic_selector::CssPropertyWithConditions",
+            "custom_impls": [
+              "Eq",
+              "Ord",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "property": {
+                  "type": "CssProperty"
+                },
+                "apply_if": {
+                  "type": "DynamicSelectorVec"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "LinuxDesktopEnv": {
+            "doc": [
+              "Linux desktop environment for DE-specific styling"
+            ],
+            "external": "azul_css::dynamic_selector::LinuxDesktopEnv",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Gnome": {}
+              },
+              {
+                "KDE": {}
+              },
+              {
+                "XFCE": {}
+              },
+              {
+                "Unity": {}
+              },
+              {
+                "Cinnamon": {}
+              },
+              {
+                "MATE": {}
+              },
+              {
+                "Other": {}
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -26277,13 +26311,13 @@
                   "type": "OptionImageRef"
                 },
                 "container_style": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                  "type": "CssPropertyWithConditionsVec"
                 },
                 "label_style": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                  "type": "CssPropertyWithConditionsVec"
                 },
                 "image_style": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                  "type": "CssPropertyWithConditionsVec"
                 },
                 "on_click": {
                   "type": "OptionButtonOnClick"
@@ -26403,13 +26437,13 @@
                   "type": "OptionImageRef"
                 },
                 "container_style": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                  "type": "CssPropertyWithConditionsVec"
                 },
                 "label_style": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                  "type": "CssPropertyWithConditionsVec"
                 },
                 "image_style": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                  "type": "CssPropertyWithConditionsVec"
                 }
               }
             ],
@@ -26621,10 +26655,10 @@
                   "type": "CheckBoxStateWrapper"
                 },
                 "container_style": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                  "type": "CssPropertyWithConditionsVec"
                 },
                 "content_style": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                  "type": "CssPropertyWithConditionsVec"
                 }
               }
             ],
@@ -26778,7 +26812,7 @@
                   "type": "ColorInputStateWrapper"
                 },
                 "style": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                  "type": "CssPropertyWithConditionsVec"
                 }
               }
             ],
@@ -26971,13 +27005,13 @@
                   "type": "TextInputStateWrapper"
                 },
                 "placeholder_style": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                  "type": "CssPropertyWithConditionsVec"
                 },
                 "container_style": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                  "type": "CssPropertyWithConditionsVec"
                 },
                 "label_style": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                  "type": "CssPropertyWithConditionsVec"
                 }
               }
             ],
@@ -27411,7 +27445,7 @@
                   "type": "TextInput"
                 },
                 "style": {
-                  "type": "NodeDataInlineCssPropertyVec"
+                  "type": "CssPropertyWithConditionsVec"
                 }
               }
             ],
@@ -45705,16 +45739,51 @@
             ],
             "repr": "C"
           },
-          "NodeDataInlineCssPropertyVec": {
+          "DynamicSelectorVec": {
             "doc": [
-              "Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>"
+              "Wrapper over a Rust-allocated `Vec<DynamicSelector>`"
             ],
-            "external": "azul_core::dom::NodeDataInlineCssPropertyVec",
+            "external": "azul_css::dynamic_selector::DynamicSelectorVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq"
+            ],
+            "custom_destructor": true,
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "DynamicSelector",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "DynamicSelectorVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "CssPropertyWithConditionsVec": {
+            "doc": [
+              "Wrapper over a Rust-allocated `Vec<CssPropertyWithConditions>`"
+            ],
+            "external": "azul_css::dynamic_selector::CssPropertyWithConditionsVec",
             "custom_impls": [
               "Clone",
               "Debug",
               "Eq",
-              "Hash",
               "Ord",
               "PartialEq",
               "PartialOrd"
@@ -45726,7 +45795,7 @@
             "struct_fields": [
               {
                 "ptr": {
-                  "type": "NodeDataInlineCssProperty",
+                  "type": "CssPropertyWithConditions",
                   "ref_kind": "constptr"
                 },
                 "len": {
@@ -45736,7 +45805,7 @@
                   "type": "usize"
                 },
                 "destructor": {
-                  "type": "NodeDataInlineCssPropertyVecDestructor"
+                  "type": "CssPropertyWithConditionsVecDestructor"
                 },
                 "run_destructor": {
                   "type": "bool"
@@ -47581,12 +47650,12 @@
               "returns": null
             }
           },
-          "NodeDataInlineCssPropertyVecDestructorType": {
-            "external": "azul_core::dom::NodeDataInlineCssPropertyVecDestructorType",
+          "CssPropertyWithConditionsVecDestructorType": {
+            "external": "azul_css::dynamic_selector::CssPropertyWithConditionsVecDestructorType",
             "callback_typedef": {
               "fn_args": [
                 {
-                  "type": "NodeDataInlineCssPropertyVec",
+                  "type": "CssPropertyWithConditionsVec",
                   "ref_kind": "mutptr"
                 }
               ],
@@ -48389,8 +48458,8 @@
             ],
             "repr": "C"
           },
-          "NodeDataInlineCssPropertyVecDestructor": {
-            "external": "azul_core::dom::NodeDataInlineCssPropertyVecDestructor",
+          "CssPropertyWithConditionsVecDestructor": {
+            "external": "azul_css::dynamic_selector::CssPropertyWithConditionsVecDestructor",
             "derive": [
               "Debug"
             ],
@@ -48399,7 +48468,35 @@
                 "DefaultRust": {},
                 "NoDestructor": {},
                 "External": {
-                  "type": "NodeDataInlineCssPropertyVecDestructorType"
+                  "type": "CssPropertyWithConditionsVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "DynamicSelectorVecDestructorType": {
+            "external": "azul_css::dynamic_selector::DynamicSelectorVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "DynamicSelectorVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            }
+          },
+          "DynamicSelectorVecDestructor": {
+            "external": "azul_css::dynamic_selector::DynamicSelectorVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "DynamicSelectorVecDestructorType"
                 }
               }
             ],
@@ -53226,6 +53323,311 @@
               }
             ],
             "repr": "C, u8"
+          }
+        }
+      },
+      "misc": {
+        "classes": {
+          "OsVersionCondition": {
+            "doc": [
+              "OS version condition for version-specific styling"
+            ],
+            "external": "azul_css::dynamic_selector::OsVersionCondition",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Exact": {
+                  "type": "String"
+                }
+              },
+              {
+                "Min": {
+                  "type": "String"
+                }
+              },
+              {
+                "Max": {
+                  "type": "String"
+                }
+              },
+              {
+                "DesktopEnvironment": {
+                  "type": "LinuxDesktopEnv"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "OrientationType": {
+            "doc": [
+              "Orientation type for responsive styling"
+            ],
+            "external": "azul_css::dynamic_selector::OrientationType",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Portrait": {}
+              },
+              {
+                "Landscape": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "DynamicSelector": {
+            "doc": [
+              "Dynamic selector for runtime CSS evaluation based on OS, media, container, theme, and pseudo-state"
+            ],
+            "external": "azul_css::dynamic_selector::DynamicSelector",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "Os": {
+                  "type": "OsCondition"
+                }
+              },
+              {
+                "OsVersion": {
+                  "type": "OsVersionCondition"
+                }
+              },
+              {
+                "Media": {
+                  "type": "MediaType"
+                }
+              },
+              {
+                "ViewportWidth": {
+                  "type": "MinMaxRange"
+                }
+              },
+              {
+                "ViewportHeight": {
+                  "type": "MinMaxRange"
+                }
+              },
+              {
+                "ContainerWidth": {
+                  "type": "MinMaxRange"
+                }
+              },
+              {
+                "ContainerHeight": {
+                  "type": "MinMaxRange"
+                }
+              },
+              {
+                "ContainerName": {
+                  "type": "String"
+                }
+              },
+              {
+                "Theme": {
+                  "type": "ThemeCondition"
+                }
+              },
+              {
+                "AspectRatio": {
+                  "type": "MinMaxRange"
+                }
+              },
+              {
+                "Orientation": {
+                  "type": "OrientationType"
+                }
+              },
+              {
+                "PrefersReducedMotion": {
+                  "type": "BoolCondition"
+                }
+              },
+              {
+                "PrefersHighContrast": {
+                  "type": "BoolCondition"
+                }
+              },
+              {
+                "PseudoState": {
+                  "type": "PseudoStateType"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "BoolCondition": {
+            "doc": [
+              "Boolean condition for accessibility preferences"
+            ],
+            "external": "azul_css::dynamic_selector::BoolCondition",
+            "custom_impls": [
+              "From"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "False": {}
+              },
+              {
+                "True": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "MediaType": {
+            "doc": [
+              "Media type for @media queries"
+            ],
+            "external": "azul_css::dynamic_selector::MediaType",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Screen": {}
+              },
+              {
+                "Print": {}
+              },
+              {
+                "All": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "OsCondition": {
+            "doc": [
+              "Operating system condition for OS-specific styling"
+            ],
+            "external": "azul_css::dynamic_selector::OsCondition",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Any": {}
+              },
+              {
+                "Apple": {}
+              },
+              {
+                "MacOS": {}
+              },
+              {
+                "IOS": {}
+              },
+              {
+                "Linux": {}
+              },
+              {
+                "Windows": {}
+              },
+              {
+                "Android": {}
+              },
+              {
+                "Web": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "MinMaxRange": {
+            "doc": [
+              "Min/Max range for numeric conditions (NaN = no limit)"
+            ],
+            "external": "azul_css::dynamic_selector::MinMaxRange",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "min": {
+                  "type": "f32"
+                },
+                "max": {
+                  "type": "f32"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "PseudoStateType": {
+            "doc": [
+              "Pseudo-state type for element state conditions"
+            ],
+            "external": "azul_css::dynamic_selector::PseudoStateType",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Normal": {}
+              },
+              {
+                "Hover": {}
+              },
+              {
+                "Active": {}
+              },
+              {
+                "Focus": {}
+              },
+              {
+                "Disabled": {}
+              },
+              {
+                "Checked": {}
+              },
+              {
+                "FocusWithin": {}
+              },
+              {
+                "Visited": {}
+              }
+            ],
+            "repr": "C"
           }
         }
       }
