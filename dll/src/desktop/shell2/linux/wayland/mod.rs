@@ -202,6 +202,9 @@ pub struct WaylandWindow {
     pub resources: Arc<super::AppResources>,
     fc_cache: Arc<FcFontCache>,
     app_data: Arc<RefCell<RefAny>>,
+    /// Dynamic selector context for evaluating conditional CSS properties
+    /// (viewport size, OS, theme, etc.) - updated on resize and theme change
+    pub dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1038,6 +1041,18 @@ impl WaylandWindow {
             resources: resources.clone(),
             fc_cache: resources.fc_cache.clone(),
             app_data: resources.app_data.clone(),
+            dynamic_selector_context: {
+                let sys = azul_css::system::SystemStyle::new();
+                let mut ctx = azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
+                ctx.viewport_width = options.window_state.size.dimensions.width;
+                ctx.viewport_height = options.window_state.size.dimensions.height;
+                ctx.orientation = if ctx.viewport_width > ctx.viewport_height {
+                    azul_css::dynamic_selector::OrientationType::Landscape
+                } else {
+                    azul_css::dynamic_selector::OrientationType::Portrait
+                };
+                ctx
+            },
         };
 
         let listener = defines::wl_registry_listener {

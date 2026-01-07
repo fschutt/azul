@@ -613,8 +613,20 @@ impl MacOSWindow {
             height: new_height as f32,
         };
 
+        // Store old context for comparison
+        let old_context = self.dynamic_selector_context.clone();
+
         // Update window state
         self.current_window_state.size.dimensions = new_size;
+
+        // Update dynamic selector context with new viewport dimensions
+        self.dynamic_selector_context.viewport_width = new_width as f32;
+        self.dynamic_selector_context.viewport_height = new_height as f32;
+        self.dynamic_selector_context.orientation = if new_width > new_height {
+            azul_css::dynamic_selector::OrientationType::Landscape
+        } else {
+            azul_css::dynamic_selector::OrientationType::Portrait
+        };
 
         // Check if DPI changed (window may have moved to different display)
         let current_hidpi = self.get_hidpi_factor();
@@ -632,6 +644,33 @@ impl MacOSWindow {
         // Notify compositor of resize (this is private in mod.rs, so we inline it here)
         if let Err(e) = self.handle_compositor_resize() {
             log_error!(LogCategory::Rendering, "Compositor resize failed: {}", e);
+        }
+
+        // Check if viewport dimensions actually changed (debounce rapid resize events)
+        let viewport_changed = (old_context.viewport_width - self.dynamic_selector_context.viewport_width).abs() > 0.5
+            || (old_context.viewport_height - self.dynamic_selector_context.viewport_height).abs() > 0.5;
+
+        if !viewport_changed {
+            // No significant change, just update compositor
+            return EventProcessResult::RequestRedraw;
+        }
+
+        // Check if any CSS breakpoints were crossed
+        // Common breakpoints: 320, 480, 640, 768, 1024, 1280, 1440, 1920
+        let breakpoints = [320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
+        let breakpoint_crossed = old_context.viewport_breakpoint_changed(
+            &self.dynamic_selector_context,
+            &breakpoints
+        );
+
+        if breakpoint_crossed {
+            log_debug!(LogCategory::Layout,
+                "[Resize] Breakpoint crossed: {}x{} -> {}x{}",
+                old_context.viewport_width,
+                old_context.viewport_height,
+                self.dynamic_selector_context.viewport_width,
+                self.dynamic_selector_context.viewport_height
+            );
         }
 
         // Resize requires full display list rebuild

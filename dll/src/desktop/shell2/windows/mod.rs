@@ -164,6 +164,9 @@ pub struct Win32Window {
     pub fc_cache: Arc<FcFontCache>,
     /// System style (shared across all windows)
     pub system_style: Arc<azul_css::system::SystemStyle>,
+    /// Dynamic selector context for evaluating conditional CSS properties
+    /// (viewport size, OS, theme, etc.) - updated on resize and theme change
+    pub dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
 
     // Multi-window support
     /// Pending window creation requests (for popup menus, dialogs, etc.)
@@ -440,6 +443,22 @@ impl Win32Window {
         // Get current window state
         let current_window_state = layout_window.current_window_state.clone();
 
+        // Create dynamic selector context before building window
+        let initial_viewport_width = current_window_state.size.dimensions.width;
+        let initial_viewport_height = current_window_state.size.dimensions.height;
+        let dynamic_selector_context = {
+            let sys = azul_css::system::SystemStyle::new();
+            let mut ctx = azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
+            ctx.viewport_width = initial_viewport_width;
+            ctx.viewport_height = initial_viewport_height;
+            ctx.orientation = if initial_viewport_width > initial_viewport_height {
+                azul_css::dynamic_selector::OrientationType::Landscape
+            } else {
+                azul_css::dynamic_selector::OrientationType::Portrait
+            };
+            ctx
+        };
+
         // Build window structure
         let mut result = Win32Window {
             hwnd,
@@ -475,6 +494,7 @@ impl Win32Window {
             app_data,
             fc_cache,
             system_style: Arc::new(azul_css::system::SystemStyle::new()),
+            dynamic_selector_context,
             pending_window_creates: Vec::new(),
             tooltip: None, // Created lazily when first needed
             #[cfg(feature = "a11y")]
@@ -1569,6 +1589,30 @@ unsafe extern "system" fn window_proc(
                 let dpi = window.current_window_state.size.dpi;
                 let hidpi_factor = dpi as f32 / 96.0;
                 let logical_size = physical_size.to_logical(hidpi_factor);
+
+                // Store old context for comparison
+                let old_context = window.dynamic_selector_context.clone();
+
+                // Update dynamic selector context with new viewport dimensions
+                window.dynamic_selector_context.viewport_width = logical_size.width;
+                window.dynamic_selector_context.viewport_height = logical_size.height;
+                window.dynamic_selector_context.orientation = if logical_size.width > logical_size.height {
+                    azul_css::dynamic_selector::OrientationType::Landscape
+                } else {
+                    azul_css::dynamic_selector::OrientationType::Portrait
+                };
+
+                // Check if any CSS breakpoints were crossed
+                let breakpoints = [320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
+                if old_context.viewport_breakpoint_changed(&window.dynamic_selector_context, &breakpoints) {
+                    log_debug!(LogCategory::Layout,
+                        "[WM_SIZE] Breakpoint crossed: {}x{} -> {}x{}",
+                        old_context.viewport_width,
+                        old_context.viewport_height,
+                        window.dynamic_selector_context.viewport_width,
+                        window.dynamic_selector_context.viewport_height
+                    );
+                }
 
                 // Update window state
                 let mut new_window_state = window.current_window_state.clone();

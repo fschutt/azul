@@ -511,9 +511,33 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
         let current_height = window.current_window_state.size.dimensions.height as i32;
 
         if width != current_width || height != current_height {
+            // Store old context for breakpoint detection
+            let old_context = window.dynamic_selector_context.clone();
+
             window.current_window_state.size.dimensions.width = width as f32;
             window.current_window_state.size.dimensions.height = height as f32;
             window.frame_needs_regeneration = true;
+
+            // Update dynamic selector context with new viewport dimensions
+            window.dynamic_selector_context.viewport_width = width as f32;
+            window.dynamic_selector_context.viewport_height = height as f32;
+            window.dynamic_selector_context.orientation = if width > height {
+                azul_css::dynamic_selector::OrientationType::Landscape
+            } else {
+                azul_css::dynamic_selector::OrientationType::Portrait
+            };
+
+            // Check if any CSS breakpoints were crossed
+            let breakpoints = [320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
+            if old_context.viewport_breakpoint_changed(&window.dynamic_selector_context, &breakpoints) {
+                log_debug!(LogCategory::Layout,
+                    "[Wayland Resize] Breakpoint crossed: {}x{} -> {}x{}",
+                    old_context.viewport_width,
+                    old_context.viewport_height,
+                    window.dynamic_selector_context.viewport_width,
+                    window.dynamic_selector_context.viewport_height
+                );
+            }
 
             // Resize the rendering surface
             window.resize_surface(width, height);

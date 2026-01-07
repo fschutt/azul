@@ -234,6 +234,10 @@ pub struct X11Window {
     // Shared resources
     pub resources: Arc<super::AppResources>,
 
+    /// Dynamic selector context for evaluating conditional CSS properties
+    /// (viewport size, OS, theme, etc.) - updated on resize and theme change
+    pub dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
+
     // Accessibility
     /// Linux accessibility adapter
     #[cfg(feature = "a11y")]
@@ -318,6 +322,9 @@ impl PlatformWindow for X11Window {
                     let ev = unsafe { &event.configure };
                     let (new_width, new_height) = (ev.width as u32, ev.height as u32);
 
+                    // Store old context for breakpoint detection
+                    let old_context = self.dynamic_selector_context.clone();
+
                     // Check if size changed
                     let size_changed = self.current_window_state.size.get_physical_size()
                         != PhysicalSize::new(new_width, new_height);
@@ -334,6 +341,28 @@ impl PlatformWindow for X11Window {
                     if size_changed {
                         self.current_window_state.size.dimensions =
                             LogicalSize::new(new_width as f32, new_height as f32);
+
+                        // Update dynamic selector context with new viewport dimensions
+                        self.dynamic_selector_context.viewport_width = new_width as f32;
+                        self.dynamic_selector_context.viewport_height = new_height as f32;
+                        self.dynamic_selector_context.orientation = if new_width > new_height {
+                            azul_css::dynamic_selector::OrientationType::Landscape
+                        } else {
+                            azul_css::dynamic_selector::OrientationType::Portrait
+                        };
+
+                        // Check if any CSS breakpoints were crossed
+                        let breakpoints = [320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
+                        if old_context.viewport_breakpoint_changed(&self.dynamic_selector_context, &breakpoints) {
+                            log_debug!(LogCategory::Layout,
+                                "[X11 Resize] Breakpoint crossed: {}x{} -> {}x{}",
+                                old_context.viewport_width,
+                                old_context.viewport_height,
+                                self.dynamic_selector_context.viewport_width,
+                                self.dynamic_selector_context.viewport_height
+                            );
+                        }
+
                         self.regenerate_layout().ok();
                     }
 
@@ -735,7 +764,19 @@ impl X11Window {
             timer_fds: std::collections::BTreeMap::new(),
             pending_window_creates: Vec::new(),
             gnome_menu_v2: None, // New dlopen-based implementation
-            resources,
+            resources: resources.clone(),
+            dynamic_selector_context: {
+                let sys = azul_css::system::SystemStyle::new();
+                let mut ctx = azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
+                ctx.viewport_width = options.window_state.size.dimensions.width;
+                ctx.viewport_height = options.window_state.size.dimensions.height;
+                ctx.orientation = if ctx.viewport_width > ctx.viewport_height {
+                    azul_css::dynamic_selector::OrientationType::Landscape
+                } else {
+                    azul_css::dynamic_selector::OrientationType::Portrait
+                };
+                ctx
+            },
             #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::LinuxAccessibilityAdapter::new(),
         };

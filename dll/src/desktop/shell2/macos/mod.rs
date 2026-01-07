@@ -1370,6 +1370,9 @@ pub struct MacOSWindow {
     fc_cache: Arc<rust_fontconfig::FcFontCache>,
     /// System style (shared across windows)
     system_style: Arc<azul_css::system::SystemStyle>,
+    /// Dynamic selector context for evaluating conditional CSS properties
+    /// (viewport size, OS, theme, etc.) - updated on resize and theme change
+    dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
     /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
     frame_needs_regeneration: bool,
     /// Current scrollbar drag state (if dragging a scrollbar thumb)
@@ -2325,6 +2328,22 @@ impl MacOSWindow {
             }
         };
 
+        // Create dynamic selector context before moving current_window_state
+        let initial_viewport_width = current_window_state.size.dimensions.width;
+        let initial_viewport_height = current_window_state.size.dimensions.height;
+        let dynamic_selector_context = {
+            let sys = azul_css::system::SystemStyle::new();
+            let mut ctx = azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
+            ctx.viewport_width = initial_viewport_width;
+            ctx.viewport_height = initial_viewport_height;
+            ctx.orientation = if initial_viewport_width > initial_viewport_height {
+                azul_css::dynamic_selector::OrientationType::Landscape
+            } else {
+                azul_css::dynamic_selector::OrientationType::Portrait
+            };
+            ctx
+        };
+
         let mut window = Self {
             window,
             window_delegate,
@@ -2351,6 +2370,7 @@ impl MacOSWindow {
             app_data: app_data_arc,
             fc_cache,
             system_style: Arc::new(azul_css::system::SystemStyle::new()),
+            dynamic_selector_context,
             frame_needs_regeneration: false,
             scrollbar_drag_state: None,
             new_frame_ready,
