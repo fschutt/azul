@@ -5,14 +5,13 @@ use azul_core::{
     dom::{
         Dom, IdOrClass,
         IdOrClass::Class,
-        IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
-        NodeDataInlineCssPropertyVec, TabIndex,
+        IdOrClassVec, TabIndex,
     },
     refany::RefAny,
     resources::{ImageRef, OptionImageRef},
 };
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::{
             color::ColorU,
@@ -36,11 +35,11 @@ pub struct Button {
     /// Optional image that is displayed next to the label
     pub image: OptionImageRef,
     /// Style for this button container
-    pub container_style: NodeDataInlineCssPropertyVec,
+    pub container_style: CssPropertyWithConditionsVec,
     /// Style of the label
-    pub label_style: NodeDataInlineCssPropertyVec,
+    pub label_style: CssPropertyWithConditionsVec,
     /// Style of the image
-    pub image_style: NodeDataInlineCssPropertyVec,
+    pub image_style: CssPropertyWithConditionsVec,
     /// Optional: Function to call when the button is clicked
     pub on_click: OptionButtonOnClick,
 }
@@ -190,123 +189,123 @@ const BUTTON_ACTIVE_BACKGROUND_WINDOWS: &[StyleBackgroundContent] =
         ),
     })];
 
-static BUTTON_CONTAINER_WINDOWS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_display(LayoutDisplay::InlineBlock)),
-    Normal(CssProperty::const_background_content(
+static BUTTON_CONTAINER_WINDOWS: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(BUTTON_NORMAL_BACKGROUND),
     )),
-    Normal(CssProperty::const_flex_direction(
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
     )),
-    Normal(CssProperty::const_justify_content(
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
-    Normal(CssProperty::const_cursor(StyleCursor::Pointer)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     //     border: 1px solid rgb(172, 172, 172);
-    Normal(CssProperty::const_border_top_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_bottom_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
         LayoutBorderBottomWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_left_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
         LayoutBorderLeftWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_right_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
         LayoutBorderRightWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle {
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
         inner: BorderStyle::Solid,
     })),
-    Normal(CssProperty::const_border_bottom_style(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
         StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
         },
     )),
-    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
         inner: BorderStyle::Solid,
     })),
-    Normal(CssProperty::const_border_right_style(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
         StyleBorderRightStyle {
             inner: BorderStyle::Solid,
         },
     )),
-    Normal(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: RGB_172,
     })),
-    Normal(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor { inner: RGB_172 },
     )),
-    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: RGB_172,
     })),
-    Normal(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
         StyleBorderRightColor { inner: RGB_172 },
     )),
     // padding: 5px
-    Normal(CssProperty::const_padding_left(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(5),
     )),
-    Normal(CssProperty::const_padding_right(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(5),
     )),
-    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         3,
     ))),
-    Normal(CssProperty::const_padding_bottom(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(3),
     )),
-    Hover(CssProperty::const_background_content(
+    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(BUTTON_HOVER_BACKGROUND_WINDOWS),
     )),
-    Hover(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: WINDOWS_HOVER_BORDER,
     })),
-    Hover(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: WINDOWS_HOVER_BORDER,
         },
     )),
-    Hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: WINDOWS_HOVER_BORDER,
     })),
-    Hover(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: WINDOWS_HOVER_BORDER,
         },
     )),
-    Active(CssProperty::const_background_content(
+    CssPropertyWithConditions::on_active(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(BUTTON_ACTIVE_BACKGROUND_WINDOWS),
     )),
-    Active(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::on_active(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: WINDOWS_ACTIVE_BORDER,
     })),
-    Active(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::on_active(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: WINDOWS_ACTIVE_BORDER,
         },
     )),
-    Active(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::on_active(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: WINDOWS_ACTIVE_BORDER,
     })),
-    Active(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::on_active(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: WINDOWS_ACTIVE_BORDER,
         },
     )),
-    Focus(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: WINDOWS_FOCUS_BORDER,
     })),
-    Focus(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: WINDOWS_FOCUS_BORDER,
         },
     )),
-    Focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: WINDOWS_FOCUS_BORDER,
     })),
-    Focus(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: WINDOWS_FOCUS_BORDER,
         },
@@ -373,42 +372,42 @@ const LINUX_ACTIVE_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundCont
 
 const LINUX_BORDER_COLOR: ColorU = ColorU { r: 183, g: 183, b: 183, a: 255 };
 
-static BUTTON_CONTAINER_LINUX: &[NodeDataInlineCssProperty] = &[
+static BUTTON_CONTAINER_LINUX: &[CssPropertyWithConditions] = &[
     // Linux/GTK-style button styling
-    Normal(CssProperty::const_display(LayoutDisplay::InlineBlock)),
-    Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
-    Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
-    Normal(CssProperty::const_cursor(StyleCursor::Pointer)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     // background: linear-gradient(#fcfcfc, #efefef)
-    Normal(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(LINUX_NORMAL_BACKGROUND))),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(LINUX_NORMAL_BACKGROUND))),
     // border: 1px solid #b7b7b7
-    Normal(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
-    Normal(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-    Normal(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
-    Normal(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
-    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
-    Normal(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
-    Normal(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
-    Normal(CssProperty::const_border_top_color(StyleBorderTopColor { inner: LINUX_BORDER_COLOR })),
-    Normal(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: LINUX_BORDER_COLOR })),
-    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: LINUX_BORDER_COLOR })),
-    Normal(CssProperty::const_border_right_color(StyleBorderRightColor { inner: LINUX_BORDER_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor { inner: LINUX_BORDER_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: LINUX_BORDER_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: LINUX_BORDER_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(StyleBorderRightColor { inner: LINUX_BORDER_COLOR })),
     // border-radius: 4px
-    Normal(CssProperty::const_border_top_left_radius(StyleBorderTopLeftRadius::const_px(4))),
-    Normal(CssProperty::const_border_top_right_radius(StyleBorderTopRightRadius::const_px(4))),
-    Normal(CssProperty::const_border_bottom_left_radius(StyleBorderBottomLeftRadius::const_px(4))),
-    Normal(CssProperty::const_border_bottom_right_radius(StyleBorderBottomRightRadius::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(StyleBorderTopLeftRadius::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_right_radius(StyleBorderTopRightRadius::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(StyleBorderBottomLeftRadius::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(StyleBorderBottomRightRadius::const_px(4))),
     // padding: 5px 10px
-    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(5))),
-    Normal(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(5))),
-    Normal(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(10))),
-    Normal(CssProperty::const_padding_right(LayoutPaddingRight::const_px(10))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(5))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(5))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(10))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(10))),
     // Hover state
-    Hover(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(LINUX_HOVER_BACKGROUND))),
+    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(LINUX_HOVER_BACKGROUND))),
     // Active state
-    Active(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(LINUX_ACTIVE_BACKGROUND))),
+    CssPropertyWithConditions::on_active(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(LINUX_ACTIVE_BACKGROUND))),
 ];
 
 // macOS button background gradients
@@ -467,74 +466,74 @@ const MAC_ACTIVE_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundConten
 
 const MAC_BORDER_COLOR: ColorU = ColorU { r: 183, g: 183, b: 183, a: 255 };
 
-static BUTTON_CONTAINER_MAC: &[NodeDataInlineCssProperty] = &[
+static BUTTON_CONTAINER_MAC: &[CssPropertyWithConditions] = &[
     // macOS native button styling
-    Normal(CssProperty::const_display(LayoutDisplay::InlineBlock)),
-    Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
-    Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
-    Normal(CssProperty::const_cursor(StyleCursor::Pointer)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     // background: linear-gradient(#fcfcfc, #efefef)
-    Normal(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(MAC_NORMAL_BACKGROUND))),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(MAC_NORMAL_BACKGROUND))),
     // border: 1px solid #b7b7b7
-    Normal(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
-    Normal(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-    Normal(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
-    Normal(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
-    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
-    Normal(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
-    Normal(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
-    Normal(CssProperty::const_border_top_color(StyleBorderTopColor { inner: MAC_BORDER_COLOR })),
-    Normal(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: MAC_BORDER_COLOR })),
-    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: MAC_BORDER_COLOR })),
-    Normal(CssProperty::const_border_right_color(StyleBorderRightColor { inner: MAC_BORDER_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor { inner: MAC_BORDER_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: MAC_BORDER_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: MAC_BORDER_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(StyleBorderRightColor { inner: MAC_BORDER_COLOR })),
     // border-radius: 4px
-    Normal(CssProperty::const_border_top_left_radius(StyleBorderTopLeftRadius::const_px(4))),
-    Normal(CssProperty::const_border_top_right_radius(StyleBorderTopRightRadius::const_px(4))),
-    Normal(CssProperty::const_border_bottom_left_radius(StyleBorderBottomLeftRadius::const_px(4))),
-    Normal(CssProperty::const_border_bottom_right_radius(StyleBorderBottomRightRadius::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(StyleBorderTopLeftRadius::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_right_radius(StyleBorderTopRightRadius::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(StyleBorderBottomLeftRadius::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(StyleBorderBottomRightRadius::const_px(4))),
     // padding: 5px 10px
-    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(5))),
-    Normal(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(5))),
-    Normal(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(10))),
-    Normal(CssProperty::const_padding_right(LayoutPaddingRight::const_px(10))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(5))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(5))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(10))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(10))),
     // Hover state
-    Hover(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(MAC_HOVER_BACKGROUND))),
+    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(MAC_HOVER_BACKGROUND))),
     // Active state
-    Active(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(MAC_ACTIVE_BACKGROUND))),
+    CssPropertyWithConditions::on_active(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(MAC_ACTIVE_BACKGROUND))),
 ];
 
-static BUTTON_CONTAINER_OTHER: &[NodeDataInlineCssProperty] = &[];
+static BUTTON_CONTAINER_OTHER: &[CssPropertyWithConditions] = &[];
 
-static BUTTON_LABEL_WINDOWS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_text_align(StyleTextAlign::Center)),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+static BUTTON_LABEL_WINDOWS: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: ColorU::BLACK,
     })),
-    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
-static BUTTON_LABEL_LINUX: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
-    Normal(CssProperty::const_text_align(StyleTextAlign::Center)),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+static BUTTON_LABEL_LINUX: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: ColorU { r: 76, g: 76, b: 76, a: 255 },
     })),
-    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
-static BUTTON_LABEL_MAC: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
-    Normal(CssProperty::const_text_align(StyleTextAlign::Center)),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+static BUTTON_LABEL_MAC: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: ColorU { r: 76, g: 76, b: 76, a: 255 },
     })),
-    Normal(CssProperty::const_font_family(MAC_FONT_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(MAC_FONT_FAMILY)),
 ];
 
-static BUTTON_LABEL_OTHER: &[NodeDataInlineCssProperty] = &[];
+static BUTTON_LABEL_OTHER: &[CssPropertyWithConditions] = &[];
 
 impl Button {
     #[inline]
@@ -545,33 +544,33 @@ impl Button {
             on_click: None.into(),
 
             #[cfg(target_os = "windows")]
-            container_style: NodeDataInlineCssPropertyVec::from_const_slice(
+            container_style: CssPropertyWithConditionsVec::from_const_slice(
                 BUTTON_CONTAINER_WINDOWS,
             ),
             #[cfg(target_os = "linux")]
-            container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_LINUX),
+            container_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_CONTAINER_LINUX),
             #[cfg(target_os = "macos")]
-            container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_MAC),
+            container_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_CONTAINER_MAC),
             #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-            container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_OTHER),
+            container_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_CONTAINER_OTHER),
 
             #[cfg(target_os = "windows")]
-            label_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_WINDOWS),
+            label_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_WINDOWS),
             #[cfg(target_os = "linux")]
-            label_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_LINUX),
+            label_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_LINUX),
             #[cfg(target_os = "macos")]
-            label_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_MAC),
+            label_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_MAC),
             #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-            label_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_OTHER),
+            label_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_OTHER),
 
             #[cfg(target_os = "windows")]
-            image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_WINDOWS),
+            image_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_WINDOWS),
             #[cfg(target_os = "linux")]
-            image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_LINUX),
+            image_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_LINUX),
             #[cfg(target_os = "macos")]
-            image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_MAC),
+            image_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_MAC),
             #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-            image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_OTHER),
+            image_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_OTHER),
         }
     }
 
@@ -621,23 +620,14 @@ impl Button {
             None => Vec::new(),
         };
 
-        static CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
-            "__azul-native-button-container",
-        ))];
-        static LABEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
-            "__azul-native-button-content",
+        static BUTTON_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+            "__azul-native-button",
         ))];
 
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CONTAINER_CLASS))
-            .with_inline_css_props(self.container_style)
+        Dom::create_button(self.label)
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(BUTTON_CLASS))
+            .with_css_props(self.container_style)
             .with_callbacks(callbacks.into())
             .with_tab_index(TabIndex::Auto)
-            .with_children(
-                vec![Dom::create_text(self.label)
-                    .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
-                    .with_inline_css_props(self.label_style)]
-                .into(),
-            )
     }
 }

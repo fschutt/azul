@@ -1,11 +1,11 @@
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
     dom::{
-        Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::Normal, NodeDataInlineCssPropertyVec,
+        Dom, IdOrClass, IdOrClass::Class, IdOrClassVec,
     },
     refany::RefAny,
 };
+use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
         basic::*,
@@ -22,7 +22,7 @@ use crate::callbacks::Callback;
 #[repr(C)]
 pub struct Label {
     pub string: AzString,
-    pub label_style: NodeDataInlineCssPropertyVec,
+    pub label_style: CssPropertyWithConditionsVec,
 }
 
 const SANS_SERIF_STR: &str = "sans-serif";
@@ -38,61 +38,61 @@ const COLOR_4C4C4C: ColorU = ColorU {
     a: 255,
 }; // #4C4C4C
 
-static LABEL_STYLE_WINDOWS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_display(LayoutDisplay::Flex)),
-    Normal(CssProperty::const_flex_direction(
+static LABEL_STYLE_WINDOWS: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
     )),
-    Normal(CssProperty::const_justify_content(
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
-    Normal(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
-    Normal(CssProperty::const_text_align(StyleTextAlign::Center)),
-    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
-static LABEL_STYLE_LINUX: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_display(LayoutDisplay::Flex)),
-    Normal(CssProperty::const_flex_direction(
+static LABEL_STYLE_LINUX: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
     )),
-    Normal(CssProperty::const_justify_content(
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
-    Normal(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
-    Normal(CssProperty::const_text_align(StyleTextAlign::Center)),
-    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
-static LABEL_STYLE_MAC: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_display(LayoutDisplay::Flex)),
-    Normal(CssProperty::const_flex_direction(
+static LABEL_STYLE_MAC: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
     )),
-    Normal(CssProperty::const_justify_content(
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
-    Normal(CssProperty::const_align_items(LayoutAlignItems::Center)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(12))),
-    Normal(CssProperty::const_text_align(StyleTextAlign::Center)),
-    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(12))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
-static LABEL_STYLE_OTHER: &[NodeDataInlineCssProperty] = &[];
+static LABEL_STYLE_OTHER: &[CssPropertyWithConditions] = &[];
 
 impl Label {
     #[inline]
@@ -100,13 +100,13 @@ impl Label {
         Self {
             string,
             #[cfg(target_os = "windows")]
-            label_style: NodeDataInlineCssPropertyVec::from_const_slice(LABEL_STYLE_WINDOWS),
+            label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_WINDOWS),
             #[cfg(target_os = "linux")]
-            label_style: NodeDataInlineCssPropertyVec::from_const_slice(LABEL_STYLE_LINUX),
+            label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_LINUX),
             #[cfg(target_os = "macos")]
-            label_style: NodeDataInlineCssPropertyVec::from_const_slice(LABEL_STYLE_MAC),
+            label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_MAC),
             #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-            label_style: NodeDataInlineCssPropertyVec::from_const_slice(LABEL_STYLE_OTHER),
+            label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_OTHER),
         }
     }
 
@@ -124,7 +124,7 @@ impl Label {
 
         Dom::create_text(self.string)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
-            .with_inline_css_props(self.label_style)
+            .with_css_props(self.label_style)
     }
 }
 

@@ -4,10 +4,11 @@ use std::string::String;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{Dom, NodeDataInlineCssPropertyVec},
+    dom::Dom,
     refany::RefAny,
 };
 use azul_css::{
+    dynamic_selector::CssPropertyWithConditionsVec,
     props::{
         basic::*,
         layout::*,
@@ -51,7 +52,7 @@ impl_widget_callback!(
 pub struct NumberInput {
     pub number_input_state: NumberInputStateWrapper,
     pub text_input: TextInput,
-    pub style: NodeDataInlineCssPropertyVec,
+    pub style: CssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -126,29 +127,29 @@ impl NumberInput {
         self
     }
 
-    pub fn set_placeholder_style(&mut self, style: NodeDataInlineCssPropertyVec) {
+    pub fn set_placeholder_style(&mut self, style: CssPropertyWithConditionsVec) {
         self.text_input.placeholder_style = style;
     }
 
-    pub fn with_placeholder_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+    pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_placeholder_style(style);
         self
     }
 
-    pub fn set_container_style(&mut self, style: NodeDataInlineCssPropertyVec) {
+    pub fn set_container_style(&mut self, style: CssPropertyWithConditionsVec) {
         self.text_input.container_style = style;
     }
 
-    pub fn with_container_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+    pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_container_style(style);
         self
     }
 
-    pub fn set_label_style(&mut self, style: NodeDataInlineCssPropertyVec) {
+    pub fn set_label_style(&mut self, style: CssPropertyWithConditionsVec) {
         self.text_input.label_style = style;
     }
 
-    pub fn with_label_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+    pub fn with_label_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_label_style(style);
         self
     }

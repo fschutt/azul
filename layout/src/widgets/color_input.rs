@@ -2,12 +2,10 @@
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{
-        Dom, NodeDataInlineCssProperty, NodeDataInlineCssProperty::Normal,
-        NodeDataInlineCssPropertyVec,
-    },
+    dom::Dom,
     refany::RefAny,
 };
+use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
         basic::*,
@@ -24,7 +22,7 @@ use crate::callbacks::{Callback, CallbackInfo};
 #[repr(C)]
 pub struct ColorInput {
     pub color_input_state: ColorInputStateWrapper,
-    pub style: NodeDataInlineCssPropertyVec,
+    pub style: CssPropertyWithConditionsVec,
 }
 
 pub type ColorInputOnValueChangeCallbackType =
@@ -73,12 +71,12 @@ impl Default for ColorInputState {
     }
 }
 
-static DEFAULT_COLOR_INPUT_STYLE: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_display(LayoutDisplay::Block)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    Normal(CssProperty::const_width(LayoutWidth::const_px(14))),
-    Normal(CssProperty::const_height(LayoutHeight::const_px(14))),
-    Normal(CssProperty::const_cursor(StyleCursor::Pointer)),
+static DEFAULT_COLOR_INPUT_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(14))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(14))),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
 ];
 
 impl ColorInput {
@@ -92,7 +90,7 @@ impl ColorInput {
                 },
                 ..Default::default()
             },
-            style: NodeDataInlineCssPropertyVec::from_const_slice(DEFAULT_COLOR_INPUT_STYLE),
+            style: CssPropertyWithConditionsVec::from_const_slice(DEFAULT_COLOR_INPUT_STYLE),
         }
     }
 
@@ -134,13 +132,13 @@ impl ColorInput {
         };
 
         let mut style = self.style.into_library_owned_vec();
-        style.push(Normal(CssProperty::const_background_content(
+        style.push(CssPropertyWithConditions::simple(CssProperty::const_background_content(
             vec![StyleBackgroundContent::Color(self.color_input_state.inner.color)].into(),
         )));
 
         Dom::create_div()
             .with_ids_and_classes(vec![Class("__azul_native_color_input".into())].into())
-            .with_inline_css_props(style.into())
+            .with_css_props(style.into())
             .with_callbacks(
                 vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),

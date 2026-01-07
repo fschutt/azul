@@ -2,11 +2,11 @@ use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
     dom::{
         Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
-        NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
     },
     refany::RefAny,
 };
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::*,
         layout::*,
@@ -92,49 +92,49 @@ const LINEAR_COLOR_STOP_16259001466875079747_ITEMS: &[NormalizedLinearColorStop]
     },
 ];
 
-const CSS_MATCH_13824480602841492081_PROPERTIES: &[NodeDataInlineCssProperty] = &[
+const CSS_MATCH_13824480602841492081_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active:hover
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderBottomWidth(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderLeftWidth(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderRightWidth(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderTopWidth(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopWidth(
         LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderBottomStyle(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
         StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderLeftStyle(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftStyle(
         StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderRightStyle(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightStyle(
         StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderTopStyle(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopStyle(
         StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderBottomColor(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
         StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
             inner: ColorU {
                 r: 126,
@@ -144,7 +144,7 @@ const CSS_MATCH_13824480602841492081_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderLeftColor(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftColor(
         StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
             inner: ColorU {
                 r: 126,
@@ -154,7 +154,7 @@ const CSS_MATCH_13824480602841492081_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderRightColor(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightColor(
         StyleBorderRightColorValue::Exact(StyleBorderRightColor {
             inner: ColorU {
                 r: 126,
@@ -164,7 +164,7 @@ const CSS_MATCH_13824480602841492081_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderTopColor(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopColor(
         StyleBorderTopColorValue::Exact(StyleBorderTopColor {
             inner: ColorU {
                 r: 126,
@@ -174,95 +174,95 @@ const CSS_MATCH_13824480602841492081_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_15534185073326444643_ITEMS,
         )),
     )),
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-noleftborder
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::None,
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
         StyleBorderLeftStyleValue::None,
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
         StyleBorderLeftColorValue::None,
     )),
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
         LayoutPaddingLeft {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
         LayoutPaddingBottom {
             inner: PixelValue::const_px(1),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
         LayoutPaddingTop {
             inner: PixelValue::const_px(1),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::MarginTop(LayoutMarginTopValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::MarginTop(LayoutMarginTopValue::Exact(
         LayoutMarginTop {
             inner: PixelValue::const_px(2),
         },
     ))),
     // .__azul-native-tabs-header p
-    NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::TextAlign(StyleTextAlignValue::Exact(
         StyleTextAlign::Center,
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
         LayoutHeight::Px(PixelValue::const_px(21)),
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
         LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
         StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
         StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
         StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
         StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
         StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
             inner: ColorU {
                 r: 172,
@@ -272,7 +272,7 @@ const CSS_MATCH_13824480602841492081_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
         StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
             inner: ColorU {
                 r: 172,
@@ -282,7 +282,7 @@ const CSS_MATCH_13824480602841492081_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
         StyleBorderRightColorValue::Exact(StyleBorderRightColor {
             inner: ColorU {
                 r: 172,
@@ -292,7 +292,7 @@ const CSS_MATCH_13824480602841492081_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
         StyleBorderTopColorValue::Exact(StyleBorderTopColor {
             inner: ColorU {
                 r: 172,
@@ -302,57 +302,57 @@ const CSS_MATCH_13824480602841492081_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS,
         )),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
         LayoutAlignItems::Center,
     ))),
 ];
-const CSS_MATCH_13824480602841492081: NodeDataInlineCssPropertyVec =
-    NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_13824480602841492081_PROPERTIES);
+const CSS_MATCH_13824480602841492081: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_13824480602841492081_PROPERTIES);
 
-const CSS_MATCH_14575853790110873394_PROPERTIES: &[NodeDataInlineCssProperty] = &[
+const CSS_MATCH_14575853790110873394_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-active
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
             inner: PixelValue::const_px(7),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
         LayoutPaddingLeft {
             inner: PixelValue::const_px(7),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
         LayoutPaddingBottom {
             inner: PixelValue::const_px(3),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
         LayoutPaddingTop {
             inner: PixelValue::const_px(3),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
         LayoutHeight::Px(PixelValue::const_px(23)),
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::BoxSizing(LayoutBoxSizingValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::BoxSizing(LayoutBoxSizingValue::Exact(
         LayoutBoxSizing::ContentBox,
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
         StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
         StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
             inner: ColorU {
                 r: 255,
@@ -362,59 +362,59 @@ const CSS_MATCH_14575853790110873394_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_16746671892555275291_ITEMS,
         )),
     )),
     // .__azul-native-tabs-header p
-    NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::TextAlign(StyleTextAlignValue::Exact(
         StyleTextAlign::Center,
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
         LayoutHeight::Px(PixelValue::const_px(21)),
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
         LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
         StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
         StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
         StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
         StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
         StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
             inner: ColorU {
                 r: 172,
@@ -424,7 +424,7 @@ const CSS_MATCH_14575853790110873394_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
         StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
             inner: ColorU {
                 r: 172,
@@ -434,7 +434,7 @@ const CSS_MATCH_14575853790110873394_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
         StyleBorderRightColorValue::Exact(StyleBorderRightColor {
             inner: ColorU {
                 r: 172,
@@ -444,7 +444,7 @@ const CSS_MATCH_14575853790110873394_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
         StyleBorderTopColorValue::Exact(StyleBorderTopColor {
             inner: ColorU {
                 r: 172,
@@ -454,39 +454,39 @@ const CSS_MATCH_14575853790110873394_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS,
         )),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
         LayoutAlignItems::Center,
     ))),
 ];
-const CSS_MATCH_14575853790110873394: NodeDataInlineCssPropertyVec =
-    NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_14575853790110873394_PROPERTIES);
+const CSS_MATCH_14575853790110873394: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_14575853790110873394_PROPERTIES);
 
-const CSS_MATCH_17290739305197504468_PROPERTIES: &[NodeDataInlineCssProperty] = &[
+const CSS_MATCH_17290739305197504468_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header .__azul-native-tabs-before-tabs
-    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
         LayoutWidth::Px(PixelValue::const_px(2)),
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
         LayoutFlexGrow {
             inner: FloatValue::const_new(1),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
         StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
         StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
             inner: ColorU {
                 r: 172,
@@ -497,80 +497,80 @@ const CSS_MATCH_17290739305197504468_PROPERTIES: &[NodeDataInlineCssProperty] = 
         }),
     )),
 ];
-const CSS_MATCH_17290739305197504468: NodeDataInlineCssPropertyVec =
-    NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_17290739305197504468_PROPERTIES);
+const CSS_MATCH_17290739305197504468: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_17290739305197504468_PROPERTIES);
 
-const CSS_MATCH_18014909903571752977_PROPERTIES: &[NodeDataInlineCssProperty] = &[
+const CSS_MATCH_18014909903571752977_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-content
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
         LayoutPaddingLeft {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
         LayoutPaddingBottom {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
         LayoutPaddingTop {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
         LayoutFlexGrow {
             inner: FloatValue::const_new(1),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopWidth(LayoutBorderTopWidthValue::None)),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopStyle(StyleBorderTopStyleValue::None)),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopColor(StyleBorderTopColorValue::None)),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(LayoutBorderTopWidthValue::None)),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(StyleBorderTopStyleValue::None)),
+    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(StyleBorderTopColorValue::None)),
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
         LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
         StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
         StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
         StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
         StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
         StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
             inner: ColorU {
                 r: 172,
@@ -580,7 +580,7 @@ const CSS_MATCH_18014909903571752977_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
         StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
             inner: ColorU {
                 r: 172,
@@ -590,7 +590,7 @@ const CSS_MATCH_18014909903571752977_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
         StyleBorderRightColorValue::Exact(StyleBorderRightColor {
             inner: ColorU {
                 r: 172,
@@ -600,7 +600,7 @@ const CSS_MATCH_18014909903571752977_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
         StyleBorderTopColorValue::Exact(StyleBorderTopColor {
             inner: ColorU {
                 r: 172,
@@ -610,33 +610,33 @@ const CSS_MATCH_18014909903571752977_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_16746671892555275291_ITEMS,
         )),
     )),
 ];
-const CSS_MATCH_18014909903571752977: NodeDataInlineCssPropertyVec =
-    NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_18014909903571752977_PROPERTIES);
+const CSS_MATCH_18014909903571752977: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_18014909903571752977_PROPERTIES);
 
-const CSS_MATCH_3088386549906605418_PROPERTIES: &[NodeDataInlineCssProperty] = &[
+const CSS_MATCH_3088386549906605418_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header .__azul-native-tabs-after-tabs
-    NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
         LayoutFlexGrow {
             inner: FloatValue::const_new(1),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
         StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
         StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
             inner: ColorU {
                 r: 172,
@@ -647,52 +647,52 @@ const CSS_MATCH_3088386549906605418_PROPERTIES: &[NodeDataInlineCssProperty] = &
         }),
     )),
 ];
-const CSS_MATCH_3088386549906605418: NodeDataInlineCssPropertyVec =
-    NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_3088386549906605418_PROPERTIES);
+const CSS_MATCH_3088386549906605418: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_3088386549906605418_PROPERTIES);
 
-const CSS_MATCH_4415083954137121609_PROPERTIES: &[NodeDataInlineCssProperty] = &[
+const CSS_MATCH_4415083954137121609_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active:hover
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderBottomWidth(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderLeftWidth(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderRightWidth(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderTopWidth(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopWidth(
         LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderBottomStyle(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
         StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderLeftStyle(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftStyle(
         StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderRightStyle(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightStyle(
         StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderTopStyle(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopStyle(
         StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderBottomColor(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
         StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
             inner: ColorU {
                 r: 126,
@@ -702,7 +702,7 @@ const CSS_MATCH_4415083954137121609_PROPERTIES: &[NodeDataInlineCssProperty] = &
             },
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderLeftColor(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftColor(
         StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
             inner: ColorU {
                 r: 126,
@@ -712,7 +712,7 @@ const CSS_MATCH_4415083954137121609_PROPERTIES: &[NodeDataInlineCssProperty] = &
             },
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderRightColor(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightColor(
         StyleBorderRightColorValue::Exact(StyleBorderRightColor {
             inner: ColorU {
                 r: 126,
@@ -722,7 +722,7 @@ const CSS_MATCH_4415083954137121609_PROPERTIES: &[NodeDataInlineCssProperty] = &
             },
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderTopColor(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopColor(
         StyleBorderTopColorValue::Exact(StyleBorderTopColor {
             inner: ColorU {
                 r: 126,
@@ -732,95 +732,95 @@ const CSS_MATCH_4415083954137121609_PROPERTIES: &[NodeDataInlineCssProperty] = &
             },
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_15534185073326444643_ITEMS,
         )),
     )),
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-norightborder
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::None,
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
         StyleBorderRightStyleValue::None,
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
         StyleBorderRightColorValue::None,
     )),
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
         LayoutPaddingLeft {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
         LayoutPaddingBottom {
             inner: PixelValue::const_px(1),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
         LayoutPaddingTop {
             inner: PixelValue::const_px(1),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::MarginTop(LayoutMarginTopValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::MarginTop(LayoutMarginTopValue::Exact(
         LayoutMarginTop {
             inner: PixelValue::const_px(2),
         },
     ))),
     // .__azul-native-tabs-header p
-    NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::TextAlign(StyleTextAlignValue::Exact(
         StyleTextAlign::Center,
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
         LayoutHeight::Px(PixelValue::const_px(21)),
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
         LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
         StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
         StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
         StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
         StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
         StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
             inner: ColorU {
                 r: 172,
@@ -830,7 +830,7 @@ const CSS_MATCH_4415083954137121609_PROPERTIES: &[NodeDataInlineCssProperty] = &
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
         StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
             inner: ColorU {
                 r: 172,
@@ -840,7 +840,7 @@ const CSS_MATCH_4415083954137121609_PROPERTIES: &[NodeDataInlineCssProperty] = &
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
         StyleBorderRightColorValue::Exact(StyleBorderRightColor {
             inner: ColorU {
                 r: 172,
@@ -850,7 +850,7 @@ const CSS_MATCH_4415083954137121609_PROPERTIES: &[NodeDataInlineCssProperty] = &
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
         StyleBorderTopColorValue::Exact(StyleBorderTopColor {
             inner: ColorU {
                 r: 172,
@@ -860,143 +860,143 @@ const CSS_MATCH_4415083954137121609_PROPERTIES: &[NodeDataInlineCssProperty] = &
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS,
         )),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
         LayoutAlignItems::Center,
     ))),
 ];
-const CSS_MATCH_4415083954137121609: NodeDataInlineCssPropertyVec =
-    NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_4415083954137121609_PROPERTIES);
+const CSS_MATCH_4415083954137121609: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4415083954137121609_PROPERTIES);
 
-const CSS_MATCH_4738503469417034630_PROPERTIES: &[NodeDataInlineCssProperty] = &[
+const CSS_MATCH_4738503469417034630_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-container
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
         LayoutPaddingLeft {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
         LayoutPaddingBottom {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
         LayoutPaddingTop {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
         LayoutFlexGrow {
             inner: FloatValue::const_new(1),
         },
     ))),
 ];
-const CSS_MATCH_4738503469417034630: NodeDataInlineCssPropertyVec =
-    NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_4738503469417034630_PROPERTIES);
+const CSS_MATCH_4738503469417034630: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4738503469417034630_PROPERTIES);
 
-const CSS_MATCH_9988039989460234263_PROPERTIES: &[NodeDataInlineCssProperty] = &[
+const CSS_MATCH_9988039989460234263_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header
-    NodeDataInlineCssProperty::Normal(CssProperty::FontSize(StyleFontSizeValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
         StyleFontSize {
             inner: PixelValue::const_px(11),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
         StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
         LayoutFlexDirection::Row,
     ))),
 ];
-const CSS_MATCH_9988039989460234263: NodeDataInlineCssPropertyVec =
-    NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_9988039989460234263_PROPERTIES);
+const CSS_MATCH_9988039989460234263: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_9988039989460234263_PROPERTIES);
 
 // -- NO PADDING
-const CSS_MATCH_18014909903571752977_PROPERTIES_NO_PADDING: &[NodeDataInlineCssProperty] = &[
+const CSS_MATCH_18014909903571752977_PROPERTIES_NO_PADDING: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-content
-    NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
         LayoutFlexGrow {
             inner: FloatValue::const_new(1),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_16746671892555275291_ITEMS,
         )),
     )),
 ];
-const CSS_MATCH_18014909903571752977_NO_PADDING: NodeDataInlineCssPropertyVec =
-    NodeDataInlineCssPropertyVec::from_const_slice(
+const CSS_MATCH_18014909903571752977_NO_PADDING: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(
         CSS_MATCH_18014909903571752977_PROPERTIES_NO_PADDING,
     );
 
-const CSS_MATCH_4738503469417034630_PROPERTIES_NO_PADDING: &[NodeDataInlineCssProperty] = &[
+const CSS_MATCH_4738503469417034630_PROPERTIES_NO_PADDING: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-container
-    NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
         LayoutFlexGrow {
             inner: FloatValue::const_new(1),
         },
     ))),
 ];
-const CSS_MATCH_4738503469417034630_NO_PADDING: NodeDataInlineCssPropertyVec =
-    NodeDataInlineCssPropertyVec::from_const_slice(
+const CSS_MATCH_4738503469417034630_NO_PADDING: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(
         CSS_MATCH_4738503469417034630_PROPERTIES_NO_PADDING,
     );
 
 // -- REGULAR_INACTIVE_TAB
 
-const CSS_MATCH_11510695043643111367_PROPERTIES: &[NodeDataInlineCssProperty] = &[
+const CSS_MATCH_11510695043643111367_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active:hover
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderBottomWidth(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderLeftWidth(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderRightWidth(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderTopWidth(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopWidth(
         LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderBottomStyle(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomStyle(
         StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderLeftStyle(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftStyle(
         StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderRightStyle(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightStyle(
         StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderTopStyle(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopStyle(
         StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderBottomColor(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(
         StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
             inner: ColorU {
                 r: 126,
@@ -1006,7 +1006,7 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderLeftColor(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderLeftColor(
         StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
             inner: ColorU {
                 r: 126,
@@ -1016,7 +1016,7 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderRightColor(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderRightColor(
         StyleBorderRightColorValue::Exact(StyleBorderRightColor {
             inner: ColorU {
                 r: 126,
@@ -1026,7 +1026,7 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BorderTopColor(
+    CssPropertyWithConditions::on_hover(CssProperty::BorderTopColor(
         StyleBorderTopColorValue::Exact(StyleBorderTopColor {
             inner: ColorU {
                 r: 126,
@@ -1036,85 +1036,85 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Hover(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_15534185073326444643_ITEMS,
         )),
     )),
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
         LayoutPaddingLeft {
             inner: PixelValue::const_px(5),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
         LayoutPaddingBottom {
             inner: PixelValue::const_px(1),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
         LayoutPaddingTop {
             inner: PixelValue::const_px(1),
         },
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::MarginTop(LayoutMarginTopValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::MarginTop(LayoutMarginTopValue::Exact(
         LayoutMarginTop {
             inner: PixelValue::const_px(2),
         },
     ))),
     // .__azul-native-tabs-header p
-    NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::TextAlign(StyleTextAlignValue::Exact(
         StyleTextAlign::Center,
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
         LayoutHeight::Px(PixelValue::const_px(21)),
     ))),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopWidth(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
         LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
             inner: PixelValue::const_px(1),
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
         StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
         StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
         StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopStyle(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
         StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
             inner: BorderStyle::Solid,
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
         StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
             inner: ColorU {
                 r: 172,
@@ -1124,7 +1124,7 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
         StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
             inner: ColorU {
                 r: 172,
@@ -1134,7 +1134,7 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
         StyleBorderRightColorValue::Exact(StyleBorderRightColor {
             inner: ColorU {
                 r: 172,
@@ -1144,7 +1144,7 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopColor(
+    CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
         StyleBorderTopColorValue::Exact(StyleBorderTopColor {
             inner: ColorU {
                 r: 172,
@@ -1154,17 +1154,17 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[NodeDataInlineCssProperty] = 
             },
         }),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+    CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS,
         )),
     )),
-    NodeDataInlineCssProperty::Normal(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
+    CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
         LayoutAlignItems::Center,
     ))),
 ];
-const CSS_MATCH_11510695043643111367: NodeDataInlineCssPropertyVec =
-    NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_11510695043643111367_PROPERTIES);
+const CSS_MATCH_11510695043643111367: CssPropertyWithConditionsVec =
+    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_11510695043643111367_PROPERTIES);
 
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -1241,7 +1241,7 @@ impl TabHeader {
         let on_click_is_some = self.on_click.is_some();
 
         Dom::create_div()
-            .with_inline_css_props(CSS_MATCH_9988039989460234263)
+            .with_css_props(CSS_MATCH_9988039989460234263)
             .with_ids_and_classes({
                 const IDS_AND_CLASSES_6172459441955124689: &[IdOrClass] =
                     &[Class(AzString::from_const_str("__azul-native-tabs-header"))];
@@ -1249,7 +1249,7 @@ impl TabHeader {
             })
             .with_children({
                 let mut tab_items = vec![Dom::create_div()
-                    .with_inline_css_props(CSS_MATCH_17290739305197504468)
+                    .with_css_props(CSS_MATCH_17290739305197504468)
                     .with_ids_and_classes({
                         const IDS_AND_CLASSES_8360971686689797550: &[IdOrClass] = &[Class(
                             AzString::from_const_str("__azul-native-tabs-before-tabs"),
@@ -1344,14 +1344,14 @@ impl TabHeader {
                                 CoreCallbackDataVec::from_const_slice(&[])
                             })
                             .with_dataset(Some(dataset).into())
-                            .with_inline_css_props(css_props)
+                            .with_css_props(css_props)
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(ids_and_classes)),
                     );
                 }
 
                 tab_items.push(
                     Dom::create_div()
-                        .with_inline_css_props(CSS_MATCH_3088386549906605418)
+                        .with_css_props(CSS_MATCH_3088386549906605418)
                         .with_ids_and_classes({
                             const IDS_AND_CLASSES_11001585590816277275: &[IdOrClass] = &[Class(
                                 AzString::from_const_str("__azul-native-tabs-after-tabs"),
@@ -1416,7 +1416,7 @@ impl TabContent {
         };
 
         Dom::create_div()
-            .with_inline_css_props(tab_content_css_style)
+            .with_css_props(tab_content_css_style)
             .with_children(DomVec::from_vec(vec![Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(
                     IDS_AND_CLASSES_2989815829020816222,

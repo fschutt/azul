@@ -1,11 +1,9 @@
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{
-        Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssPropertyVec,
-    },
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec},
 };
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::*,
         layout::*,
@@ -262,15 +260,15 @@ impl ProgressBar {
         let flex_grow_remaining = 10000000.0 / 100.0 * (100.0 - percent_done);
 
         Dom::create_div()
-            .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
                 // .__azul-native-progress-bar-container
-                NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
+                CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
                     LayoutHeight::Px(self.height.clone()),
                 ))),
-                NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(
+                CssPropertyWithConditions::simple(CssProperty::FlexDirection(
                     LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowBottom(
+                CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
                     StyleBoxShadowValue::Exact(StyleBoxShadow {
                         offset_x: PixelValueNoPercent {
                             inner: PixelValue::const_px(0),
@@ -293,7 +291,7 @@ impl ProgressBar {
                         clip_mode: BoxShadowClipMode::Inset,
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowTop(
+                CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(
                     StyleBoxShadowValue::Exact(StyleBoxShadow {
                         offset_x: PixelValueNoPercent {
                             inner: PixelValue::const_px(0),
@@ -316,7 +314,7 @@ impl ProgressBar {
                         clip_mode: BoxShadowClipMode::Inset,
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowRight(
+                CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(
                     StyleBoxShadowValue::Exact(StyleBoxShadow {
                         offset_x: PixelValueNoPercent {
                             inner: PixelValue::const_px(0),
@@ -339,7 +337,7 @@ impl ProgressBar {
                         clip_mode: BoxShadowClipMode::Inset,
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowLeft(
+                CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(
                     StyleBoxShadowValue::Exact(StyleBoxShadow {
                         offset_x: PixelValueNoPercent {
                             inner: PixelValue::const_px(0),
@@ -362,67 +360,67 @@ impl ProgressBar {
                         clip_mode: BoxShadowClipMode::Inset,
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomRightRadius(
+                CssPropertyWithConditions::simple(CssProperty::BorderBottomRightRadius(
                     StyleBorderBottomRightRadiusValue::Exact(StyleBorderBottomRightRadius {
                         inner: PixelValue::const_px(3),
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomLeftRadius(
+                CssPropertyWithConditions::simple(CssProperty::BorderBottomLeftRadius(
                     StyleBorderBottomLeftRadiusValue::Exact(StyleBorderBottomLeftRadius {
                         inner: PixelValue::const_px(3),
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderTopRightRadius(
+                CssPropertyWithConditions::simple(CssProperty::BorderTopRightRadius(
                     StyleBorderTopRightRadiusValue::Exact(StyleBorderTopRightRadius {
                         inner: PixelValue::const_px(3),
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderTopLeftRadius(
+                CssPropertyWithConditions::simple(CssProperty::BorderTopLeftRadius(
                     StyleBorderTopLeftRadiusValue::Exact(StyleBorderTopLeftRadius {
                         inner: PixelValue::const_px(3),
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
+                CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
                     LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
                         inner: PixelValue::const_px(1),
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftWidth(
+                CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
                     LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
                         inner: PixelValue::const_px(1),
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
+                CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
                     LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
                         inner: PixelValue::const_px(1),
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderTopWidth(
+                CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
                     LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
                         inner: PixelValue::const_px(1),
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
+                CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
                     StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
                         inner: BorderStyle::Solid,
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftStyle(
+                CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
                     StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
                         inner: BorderStyle::Solid,
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(
+                CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
                     StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
                         inner: BorderStyle::Solid,
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderTopStyle(
+                CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
                     StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
                         inner: BorderStyle::Solid,
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
+                CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
                     StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
                         inner: ColorU {
                             r: 178,
@@ -432,7 +430,7 @@ impl ProgressBar {
                         },
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftColor(
+                CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
                     StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
                         inner: ColorU {
                             r: 178,
@@ -442,7 +440,7 @@ impl ProgressBar {
                         },
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(
+                CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
                     StyleBorderRightColorValue::Exact(StyleBorderRightColor {
                         inner: ColorU {
                             r: 178,
@@ -452,7 +450,7 @@ impl ProgressBar {
                         },
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BorderTopColor(
+                CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
                     StyleBorderTopColorValue::Exact(StyleBorderTopColor {
                         inner: ColorU {
                             r: 178,
@@ -462,7 +460,7 @@ impl ProgressBar {
                         },
                     }),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+                CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
                     StyleBackgroundContentVecValue::Exact(self.container_background.clone()),
                 )),
             ]))
@@ -474,14 +472,14 @@ impl ProgressBar {
             })
             .with_children(DomVec::from_vec(vec![
                 Dom::create_div()
-                    .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
                         // .__azul-native-progress-bar-bar
-                        NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(
+                        CssPropertyWithConditions::simple(CssProperty::FlexGrow(
                             LayoutFlexGrowValue::Exact(LayoutFlexGrow {
                                 inner: FloatValue::new(flex_grow_bar),
                             }),
                         )),
-                        NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowBottom(
+                        CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
                             StyleBoxShadowValue::Exact(StyleBoxShadow {
                                 offset_x: PixelValueNoPercent {
                                     inner: PixelValue::const_px(0),
@@ -504,7 +502,7 @@ impl ProgressBar {
                                 clip_mode: BoxShadowClipMode::Inset,
                             }),
                         )),
-                        NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowTop(
+                        CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(
                             StyleBoxShadowValue::Exact(StyleBoxShadow {
                                 offset_x: PixelValueNoPercent {
                                     inner: PixelValue::const_px(0),
@@ -527,7 +525,7 @@ impl ProgressBar {
                                 clip_mode: BoxShadowClipMode::Inset,
                             }),
                         )),
-                        NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowRight(
+                        CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(
                             StyleBoxShadowValue::Exact(StyleBoxShadow {
                                 offset_x: PixelValueNoPercent {
                                     inner: PixelValue::const_px(0),
@@ -550,7 +548,7 @@ impl ProgressBar {
                                 clip_mode: BoxShadowClipMode::Inset,
                             }),
                         )),
-                        NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowLeft(
+                        CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(
                             StyleBoxShadowValue::Exact(StyleBoxShadow {
                                 offset_x: PixelValueNoPercent {
                                     inner: PixelValue::const_px(0),
@@ -573,29 +571,29 @@ impl ProgressBar {
                                 clip_mode: BoxShadowClipMode::Inset,
                             }),
                         )),
-                        NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomRightRadius(
+                        CssPropertyWithConditions::simple(CssProperty::BorderBottomRightRadius(
                             StyleBorderBottomRightRadiusValue::Exact(
                                 StyleBorderBottomRightRadius {
                                     inner: PixelValue::const_px(1),
                                 },
                             ),
                         )),
-                        NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomLeftRadius(
+                        CssPropertyWithConditions::simple(CssProperty::BorderBottomLeftRadius(
                             StyleBorderBottomLeftRadiusValue::Exact(StyleBorderBottomLeftRadius {
                                 inner: PixelValue::const_px(1),
                             }),
                         )),
-                        NodeDataInlineCssProperty::Normal(CssProperty::BorderTopRightRadius(
+                        CssPropertyWithConditions::simple(CssProperty::BorderTopRightRadius(
                             StyleBorderTopRightRadiusValue::Exact(StyleBorderTopRightRadius {
                                 inner: PixelValue::const_px(1),
                             }),
                         )),
-                        NodeDataInlineCssProperty::Normal(CssProperty::BorderTopLeftRadius(
+                        CssPropertyWithConditions::simple(CssProperty::BorderTopLeftRadius(
                             StyleBorderTopLeftRadiusValue::Exact(StyleBorderTopLeftRadius {
                                 inner: PixelValue::const_px(1),
                             }),
                         )),
-                        NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+                        CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
                             StyleBackgroundContentVecValue::Exact(self.bar_background.clone()),
                         )),
                     ]))
@@ -606,9 +604,9 @@ impl ProgressBar {
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16512648314570682783)
                     }),
                 Dom::create_div()
-                    .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
+                    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
                         // .__azul-native-progress-bar-remaining
-                        NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(
+                        CssPropertyWithConditions::simple(CssProperty::FlexGrow(
                             LayoutFlexGrowValue::Exact(LayoutFlexGrow {
                                 inner: FloatValue::new(flex_grow_remaining),
                             }),

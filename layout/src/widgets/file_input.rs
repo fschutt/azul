@@ -3,11 +3,12 @@
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{Dom, NodeDataInlineCssPropertyVec},
+    dom::Dom,
     refany::RefAny,
     resources::OptionImageRef,
 };
 use azul_css::{
+    dynamic_selector::CssPropertyWithConditionsVec,
     props::{
         basic::*,
         layout::*,
@@ -34,11 +35,11 @@ pub struct FileInput {
     /// Optional image that is displayed next to the label
     pub image: OptionImageRef,
     /// Style for this button container
-    pub container_style: NodeDataInlineCssPropertyVec,
+    pub container_style: CssPropertyWithConditionsVec,
     /// Style of the label
-    pub label_style: NodeDataInlineCssPropertyVec,
+    pub label_style: CssPropertyWithConditionsVec,
     /// Style of the image
-    pub image_style: NodeDataInlineCssPropertyVec,
+    pub image_style: CssPropertyWithConditionsVec,
 }
 
 impl Default for FileInput {

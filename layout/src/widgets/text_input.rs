@@ -4,16 +4,13 @@ use alloc::{string::String, vec::Vec};
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{
-        Dom, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::{Focus, Hover, Normal},
-        NodeDataInlineCssPropertyVec,
-    },
+    dom::Dom,
     refany::RefAny,
     task::OptionTimerId,
     window::VirtualKeyCode,
 };
 use azul_css::{
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::*,
         layout::*,
@@ -80,13 +77,13 @@ const TEXT_CURSOR_TRANSFORM: &[StyleTransform] =
         y: PixelValue::const_px(2),
     })];
 
-static TEXT_CURSOR_PROPS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_position(LayoutPosition::Absolute)),
-    Normal(CssProperty::const_width(LayoutWidth::const_px(1))),
-    Normal(CssProperty::const_height(LayoutHeight::const_px(11))),
-    Normal(CssProperty::const_background_content(CURSOR_COLOR)),
-    Normal(CssProperty::const_opacity(StyleOpacity::const_new(0))),
-    Normal(CssProperty::const_transform(
+static TEXT_CURSOR_PROPS: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(11))),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(CURSOR_COLOR)),
+    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_transform(
         StyleTransformVec::from_const_slice(TEXT_CURSOR_TRANSFORM),
     )),
 ];
@@ -94,109 +91,109 @@ static TEXT_CURSOR_PROPS: &[NodeDataInlineCssProperty] = &[
 // -- container style
 
 #[cfg(target_os = "windows")]
-static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_position(LayoutPosition::Relative)),
-    Normal(CssProperty::const_cursor(StyleCursor::Text)),
-    Normal(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    Normal(CssProperty::const_background_content(
+static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
     )),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
-    Normal(CssProperty::const_padding_left(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(2),
     )),
-    Normal(CssProperty::const_padding_right(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(2),
     )),
-    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         1,
     ))),
-    Normal(CssProperty::const_padding_bottom(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(1),
     )),
     // border: 1px solid #484c52;
-    Normal(CssProperty::const_border_top_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_bottom_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
         LayoutBorderBottomWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_left_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
         LayoutBorderLeftWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_right_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
         LayoutBorderRightWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle {
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
         inner: BorderStyle::Inset,
     })),
-    Normal(CssProperty::const_border_bottom_style(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
         StyleBorderBottomStyle {
             inner: BorderStyle::Inset,
         },
     )),
-    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
         inner: BorderStyle::Inset,
     })),
-    Normal(CssProperty::const_border_right_style(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
         StyleBorderRightStyle {
             inner: BorderStyle::Inset,
         },
     )),
-    Normal(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: COLOR_9B9B9B,
     })),
-    Normal(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: COLOR_9B9B9B,
         },
     )),
-    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: COLOR_9B9B9B,
     })),
-    Normal(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_9B9B9B,
         },
     )),
-    Normal(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
-    Normal(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
-    Normal(CssProperty::const_justify_content(
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
     // Hover(border-color: #4c4c4c;)
-    Hover(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: COLOR_4C4C4C,
     })),
-    Hover(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: COLOR_4C4C4C,
         },
     )),
-    Hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: COLOR_4C4C4C,
     })),
-    Hover(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_4C4C4C,
         },
     )),
     // Focus(border-color: #4286f4;)
-    Focus(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: COLOR_4286F4,
     })),
-    Focus(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: COLOR_4286F4,
         },
     )),
-    Focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: COLOR_4286F4,
     })),
-    Focus(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_4286F4,
         },
@@ -204,113 +201,113 @@ static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
 ];
 
 #[cfg(target_os = "linux")]
-static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_position(LayoutPosition::Relative)),
-    Normal(CssProperty::const_cursor(StyleCursor::Text)),
-    Normal(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    Normal(CssProperty::const_background_content(
+static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
     )),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
-    Normal(CssProperty::const_padding_left(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(2),
     )),
-    Normal(CssProperty::const_padding_right(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(2),
     )),
-    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         1,
     ))),
-    Normal(CssProperty::const_padding_bottom(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(1),
     )),
     // border: 1px solid #484c52;
-    Normal(CssProperty::const_border_top_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_bottom_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
         LayoutBorderBottomWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_left_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
         LayoutBorderLeftWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_right_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
         LayoutBorderRightWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle {
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
         inner: BorderStyle::Inset,
     })),
-    Normal(CssProperty::const_border_bottom_style(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
         StyleBorderBottomStyle {
             inner: BorderStyle::Inset,
         },
     )),
-    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
         inner: BorderStyle::Inset,
     })),
-    Normal(CssProperty::const_border_right_style(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
         StyleBorderRightStyle {
             inner: BorderStyle::Inset,
         },
     )),
-    Normal(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: COLOR_9B9B9B,
     })),
-    Normal(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: COLOR_9B9B9B,
         },
     )),
-    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: COLOR_9B9B9B,
     })),
-    Normal(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_9B9B9B,
         },
     )),
-    Normal(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
-    Normal(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
-    Normal(CssProperty::const_text_align(StyleTextAlign::Left)),
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_justify_content(
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
-    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
     // Hover(border-color: #4286f4;)
-    Hover(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: COLOR_4286F4,
     })),
-    Hover(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: COLOR_4286F4,
         },
     )),
-    Hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: COLOR_4286F4,
     })),
-    Hover(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_4286F4,
         },
     )),
     // Focus(border-color: #4286f4;)
-    Focus(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: COLOR_4286F4,
     })),
-    Focus(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: COLOR_4286F4,
         },
     )),
-    Focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: COLOR_4286F4,
     })),
-    Focus(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_4286F4,
         },
@@ -318,110 +315,110 @@ static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
 ];
 
 #[cfg(target_os = "macos")]
-static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_position(LayoutPosition::Relative)),
-    Normal(CssProperty::const_cursor(StyleCursor::Text)),
-    Normal(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    Normal(CssProperty::const_background_content(
+static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
+    CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
     )),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
-    Normal(CssProperty::const_padding_left(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(2),
     )),
-    Normal(CssProperty::const_padding_right(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(2),
     )),
-    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         1,
     ))),
-    Normal(CssProperty::const_padding_bottom(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(1),
     )),
     // border: 1px solid #484c52;
-    Normal(CssProperty::const_border_top_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_bottom_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
         LayoutBorderBottomWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_left_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
         LayoutBorderLeftWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_right_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
         LayoutBorderRightWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle {
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
         inner: BorderStyle::Inset,
     })),
-    Normal(CssProperty::const_border_bottom_style(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
         StyleBorderBottomStyle {
             inner: BorderStyle::Inset,
         },
     )),
-    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
         inner: BorderStyle::Inset,
     })),
-    Normal(CssProperty::const_border_right_style(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
         StyleBorderRightStyle {
             inner: BorderStyle::Inset,
         },
     )),
-    Normal(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: COLOR_9B9B9B,
     })),
-    Normal(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: COLOR_9B9B9B,
         },
     )),
-    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: COLOR_9B9B9B,
     })),
-    Normal(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_9B9B9B,
         },
     )),
-    Normal(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
-    Normal(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
-    Normal(CssProperty::const_text_align(StyleTextAlign::Left)),
-    Normal(CssProperty::const_justify_content(
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
+    CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
     // Hover(border-color: #4286f4;)
-    Hover(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: COLOR_4286F4,
     })),
-    Hover(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: COLOR_4286F4,
         },
     )),
-    Hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: COLOR_4286F4,
     })),
-    Hover(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_4286F4,
         },
     )),
     // Focus(border-color: #4286f4;)
-    Focus(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: COLOR_4286F4,
     })),
-    Focus(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: COLOR_4286F4,
         },
     )),
-    Focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: COLOR_4286F4,
     })),
-    Focus(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_4286F4,
         },
@@ -431,95 +428,95 @@ static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
 // -- label style
 
 #[cfg(target_os = "windows")]
-static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_display(LayoutDisplay::InlineBlock)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    Normal(CssProperty::const_position(LayoutPosition::Relative)),
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
-    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
 #[cfg(target_os = "linux")]
-static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_display(LayoutDisplay::InlineBlock)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    Normal(CssProperty::const_position(LayoutPosition::Relative)),
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
-    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
 #[cfg(target_os = "macos")]
-static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_display(LayoutDisplay::InlineBlock)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    Normal(CssProperty::const_position(LayoutPosition::Relative)),
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
-    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
 // --- placeholder
 
 #[cfg(target_os = "windows")]
-static TEXT_INPUT_PLACEHOLDER_PROPS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_display(LayoutDisplay::Block)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    Normal(CssProperty::const_position(LayoutPosition::Absolute)),
-    Normal(CssProperty::const_top(LayoutTop::const_px(2))),
-    Normal(CssProperty::const_left(LayoutLeft::const_px(2))),
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+static TEXT_INPUT_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(2))),
+    CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(2))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
-    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
-    Normal(CssProperty::const_opacity(StyleOpacity::const_new(100))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 ];
 
 #[cfg(target_os = "linux")]
-static TEXT_INPUT_PLACEHOLDER_PROPS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_display(LayoutDisplay::Block)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    Normal(CssProperty::const_position(LayoutPosition::Absolute)),
-    Normal(CssProperty::const_top(LayoutTop::const_px(2))),
-    Normal(CssProperty::const_left(LayoutLeft::const_px(2))),
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+static TEXT_INPUT_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(2))),
+    CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(2))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
-    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
-    Normal(CssProperty::const_opacity(StyleOpacity::const_new(100))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 ];
 
 #[cfg(target_os = "macos")]
-static TEXT_INPUT_PLACEHOLDER_PROPS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_display(LayoutDisplay::Block)),
-    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    Normal(CssProperty::const_position(LayoutPosition::Absolute)),
-    Normal(CssProperty::const_top(LayoutTop::const_px(2))),
-    Normal(CssProperty::const_left(LayoutLeft::const_px(2))),
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    Normal(CssProperty::const_text_color(StyleTextColor {
+static TEXT_INPUT_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+    CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(2))),
+    CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(2))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: COLOR_4C4C4C,
     })),
-    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
-    Normal(CssProperty::const_opacity(StyleOpacity::const_new(100))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 ];
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct TextInput {
     pub text_input_state: TextInputStateWrapper,
-    pub placeholder_style: NodeDataInlineCssPropertyVec,
-    pub container_style: NodeDataInlineCssPropertyVec,
-    pub label_style: NodeDataInlineCssPropertyVec,
+    pub placeholder_style: CssPropertyWithConditionsVec,
+    pub container_style: CssPropertyWithConditionsVec,
+    pub label_style: CssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -612,13 +609,13 @@ impl Default for TextInput {
     fn default() -> Self {
         TextInput {
             text_input_state: TextInputStateWrapper::default(),
-            placeholder_style: NodeDataInlineCssPropertyVec::from_const_slice(
+            placeholder_style: CssPropertyWithConditionsVec::from_const_slice(
                 TEXT_INPUT_PLACEHOLDER_PROPS,
             ),
-            container_style: NodeDataInlineCssPropertyVec::from_const_slice(
+            container_style: CssPropertyWithConditionsVec::from_const_slice(
                 TEXT_INPUT_CONTAINER_PROPS,
             ),
-            label_style: NodeDataInlineCssPropertyVec::from_const_slice(TEXT_INPUT_LABEL_PROPS),
+            label_style: CssPropertyWithConditionsVec::from_const_slice(TEXT_INPUT_LABEL_PROPS),
         }
     }
 }
@@ -741,29 +738,29 @@ impl TextInput {
         self
     }
 
-    pub fn set_placeholder_style(&mut self, style: NodeDataInlineCssPropertyVec) {
+    pub fn set_placeholder_style(&mut self, style: CssPropertyWithConditionsVec) {
         self.placeholder_style = style;
     }
 
-    pub fn with_placeholder_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+    pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_placeholder_style(style);
         self
     }
 
-    pub fn set_container_style(&mut self, style: NodeDataInlineCssPropertyVec) {
+    pub fn set_container_style(&mut self, style: CssPropertyWithConditionsVec) {
         self.container_style = style;
     }
 
-    pub fn with_container_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+    pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_container_style(style);
         self
     }
 
-    pub fn set_label_style(&mut self, style: NodeDataInlineCssPropertyVec) {
+    pub fn set_label_style(&mut self, style: CssPropertyWithConditionsVec) {
         self.label_style = style;
     }
 
-    pub fn with_label_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+    pub fn with_label_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
         self.set_label_style(style);
         self
     }
@@ -802,7 +799,7 @@ impl TextInput {
 
         Dom::create_div()
             .with_ids_and_classes(vec![Class("__azul-native-text-input-container".into())].into())
-            .with_inline_css_props(self.container_style)
+            .with_css_props(self.container_style)
             .with_tab_index(TabIndex::Auto)
             .with_dataset(Some(state_ref.clone()).into())
             .with_callbacks(
@@ -856,19 +853,19 @@ impl TextInput {
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-input-placeholder".into())].into(),
                         )
-                        .with_inline_css_props(self.placeholder_style),
+                        .with_css_props(self.placeholder_style),
                     Dom::create_text(label_text)
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-input-label".into())].into(),
                         )
-                        .with_inline_css_props(self.label_style)
+                        .with_css_props(self.label_style)
                         .with_children(
                             vec![Dom::create_div()
                                 .with_ids_and_classes(
                                     vec![Class("__azul-native-text-input-cursor".into())].into(),
                                 )
-                                .with_inline_css_props(
-                                    NodeDataInlineCssPropertyVec::from_const_slice(
+                                .with_css_props(
+                                    CssPropertyWithConditionsVec::from_const_slice(
                                         TEXT_CURSOR_PROPS,
                                     ),
                                 )]

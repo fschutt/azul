@@ -1,11 +1,11 @@
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
     dom::{
-        Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::Normal, NodeDataInlineCssPropertyVec, TabIndex,
+        Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex,
     },
     refany::RefAny,
 };
+use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
     props::{
         basic::{color::ColorU, *},
@@ -39,9 +39,9 @@ impl_widget_callback!(
 pub struct CheckBox {
     pub check_box_state: CheckBoxStateWrapper,
     /// Style for the checkbox container
-    pub container_style: NodeDataInlineCssPropertyVec,
+    pub container_style: CssPropertyWithConditionsVec,
     /// Style for the checkbox content
-    pub content_style: NodeDataInlineCssPropertyVec,
+    pub content_style: CssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -86,87 +86,87 @@ const FILL_THEME: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(FI
 const FILL_COLOR_BACKGROUND: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(FILL_THEME);
 
-static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_background_content(
+static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
     )),
-    Normal(CssProperty::const_display(LayoutDisplay::Block)),
-    Normal(CssProperty::const_width(LayoutWidth::const_px(14))),
-    Normal(CssProperty::const_height(LayoutHeight::const_px(14))),
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(14))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(14))),
     // padding: 2px
-    Normal(CssProperty::const_padding_left(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(2),
     )),
-    Normal(CssProperty::const_padding_right(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(2),
     )),
-    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
         2,
     ))),
-    Normal(CssProperty::const_padding_bottom(
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(2),
     )),
     // border: 1px solid #484c52;
-    Normal(CssProperty::const_border_top_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
         LayoutBorderTopWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_bottom_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
         LayoutBorderBottomWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_left_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
         LayoutBorderLeftWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_right_width(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
         LayoutBorderRightWidth::const_px(1),
     )),
-    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle {
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
         inner: BorderStyle::Inset,
     })),
-    Normal(CssProperty::const_border_bottom_style(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
         StyleBorderBottomStyle {
             inner: BorderStyle::Inset,
         },
     )),
-    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
         inner: BorderStyle::Inset,
     })),
-    Normal(CssProperty::const_border_right_style(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
         StyleBorderRightStyle {
             inner: BorderStyle::Inset,
         },
     )),
-    Normal(CssProperty::const_border_top_color(StyleBorderTopColor {
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
         inner: COLOR_9B9B9B,
     })),
-    Normal(CssProperty::const_border_bottom_color(
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: COLOR_9B9B9B,
         },
     )),
-    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor {
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: COLOR_9B9B9B,
     })),
-    Normal(CssProperty::const_border_right_color(
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_9B9B9B,
         },
     )),
-    Normal(CssProperty::const_cursor(StyleCursor::Pointer)),
+    CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
 ];
 
-static DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_width(LayoutWidth::const_px(8))),
-    Normal(CssProperty::const_height(LayoutHeight::const_px(8))),
-    Normal(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
-    Normal(CssProperty::const_opacity(StyleOpacity::const_new(100))),
+static DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(8))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(8))),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
+    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
     // padding: 2px
 ];
 
-static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_width(LayoutWidth::const_px(8))),
-    Normal(CssProperty::const_height(LayoutHeight::const_px(8))),
-    Normal(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
-    Normal(CssProperty::const_opacity(StyleOpacity::const_new(0))),
+static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(8))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(8))),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
+    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(0))),
     // padding: 2px
 ];
 
@@ -177,15 +177,15 @@ impl CheckBox {
                 inner: CheckBoxState { checked },
                 ..Default::default()
             },
-            container_style: NodeDataInlineCssPropertyVec::from_const_slice(
+            container_style: CssPropertyWithConditionsVec::from_const_slice(
                 DEFAULT_CHECKBOX_CONTAINER_STYLE,
             ),
             content_style: if checked {
-                NodeDataInlineCssPropertyVec::from_const_slice(
+                CssPropertyWithConditionsVec::from_const_slice(
                     DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED,
                 )
             } else {
-                NodeDataInlineCssPropertyVec::from_const_slice(
+                CssPropertyWithConditionsVec::from_const_slice(
                     DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED,
                 )
             },
@@ -223,7 +223,7 @@ impl CheckBox {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTAINER_CLASS))
-            .with_inline_css_props(self.container_style)
+            .with_css_props(self.container_style)
             .with_callbacks(
                 vec![CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
@@ -239,7 +239,7 @@ impl CheckBox {
             .with_children(
                 vec![Dom::create_div()
                     .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTENT_CLASS))
-                    .with_inline_css_props(self.content_style)]
+                    .with_css_props(self.content_style)]
                 .into(),
             )
     }
