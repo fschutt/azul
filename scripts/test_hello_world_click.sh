@@ -114,7 +114,7 @@ log_success "Example is running"
 
 # Step 4: Test connectivity
 log_step 4 "Testing HTTP connectivity..."
-response=$(send_request '{"type":"get_logs"}')
+response=$(send_request '{"op":"get_logs"}')
 status=$(get_status "$response")
 if [ "$status" != "ok" ]; then
     log_error "HTTP connectivity failed: $response"
@@ -124,7 +124,7 @@ log_success "HTTP connectivity OK"
 
 # Step 5: Get initial DOM tree info
 log_step 5 "Getting initial DOM tree..."
-response=$(send_request '{"type":"get_dom_tree"}')
+response=$(send_request '{"op":"get_dom_tree"}')
 status=$(get_status "$response")
 if [ "$status" != "ok" ]; then
     log_error "get_dom_tree failed: $response"
@@ -135,7 +135,7 @@ log_info "DOM has $node_count nodes"
 
 # Step 6: Get initial display list
 log_step 6 "Getting initial display list..."
-response=$(send_request '{"type":"get_display_list"}')
+response=$(send_request '{"op":"get_display_list"}')
 status=$(get_status "$response")
 if [ "$status" != "ok" ]; then
     log_error "get_display_list failed: $response"
@@ -146,7 +146,7 @@ log_info "Initial display list has $initial_text_count text items"
 
 # Step 7: Get all nodes with layout to find button position
 log_step 7 "Getting node layout to find button..."
-response=$(send_request '{"type":"get_all_nodes_layout"}')
+response=$(send_request '{"op":"get_all_nodes_layout"}')
 status=$(get_status "$response")
 if [ "$status" != "ok" ]; then
     log_error "get_all_nodes_layout failed: $response"
@@ -170,7 +170,7 @@ log_info "Will click at position: ($button_x, $button_y)"
 
 # Step 8: Get HTML string to see current state
 log_step 8 "Getting initial HTML string..."
-response=$(send_request '{"type":"get_html_string"}')
+response=$(send_request '{"op":"get_html_string"}')
 status=$(get_status "$response")
 if [ "$status" != "ok" ]; then
     log_error "get_html_string failed: $response"
@@ -226,11 +226,11 @@ log_info "mouse_up status: $status"
 # Wait for frame to render
 log_info "Waiting for render..."
 sleep 0.2
-response=$(send_request '{"type":"wait_frame"}')
+response=$(send_request '{"op":"wait_frame"}')
 
 # Step 11: Check if counter increased
 log_step 11 "Checking if counter increased..."
-response=$(send_request '{"type":"get_html_string"}')
+response=$(send_request '{"op":"get_html_string"}')
 status=$(get_status "$response")
 if [ "$status" != "ok" ]; then
     log_error "get_html_string failed: $response"
@@ -251,16 +251,16 @@ else
     log_info ""
     log_info "=== Additional Debugging ==="
     
-    response=$(send_request '{"type":"get_display_list"}')
+    response=$(send_request '{"op":"get_display_list"}')
     new_text_count=$(echo "$response" | jq -r '.data.value.text_count // 0')
     log_info "Display list now has $new_text_count text items (was $initial_text_count)"
     
     # Get scroll states
-    response=$(send_request '{"type":"get_scroll_states"}')
+    response=$(send_request '{"op":"get_scroll_states"}')
     log_info "Scroll states: $response"
     
     # Get logs
-    response=$(send_request '{"type":"get_logs"}')
+    response=$(send_request '{"op":"get_logs"}')
     logs=$(echo "$response" | jq -r '.data.value.logs // []')
     log_info "Recent logs: $logs"
     
@@ -269,7 +269,7 @@ fi
 
 # Step 12: Verify display list was regenerated
 log_step 12 "Verifying display list was regenerated..."
-response=$(send_request '{"type":"get_display_list"}')
+response=$(send_request '{"op":"get_display_list"}')
 status=$(get_status "$response")
 if [ "$status" != "ok" ]; then
     log_error "get_display_list failed: $response"
@@ -280,7 +280,7 @@ log_info "Display list now has $new_text_count text items"
 
 # Step 13: Close application
 log_step 13 "Closing application..."
-response=$(send_request '{"type":"close"}')
+response=$(send_request '{"op":"close"}')
 sleep 2
 
 # Summary

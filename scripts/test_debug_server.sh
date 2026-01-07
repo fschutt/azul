@@ -59,7 +59,7 @@ cleanup() {
     echo -e "${YELLOW}Cleaning up...${NC}"
     if [ -n "$APP_PID" ] && kill -0 "$APP_PID" 2>/dev/null; then
         # Try graceful shutdown first
-        curl -s -X POST "$URL/event" -d '{"type":"shutdown"}' --max-time 2 || true
+        curl -s -X POST "$URL/event" -d '{"op":"shutdown"}' --max-time 2 || true
         sleep 1
         kill "$APP_PID" 2>/dev/null || true
     fi
@@ -193,7 +193,7 @@ assert_json_field "$HEALTH" ".status" "ok" "Health endpoint returns ok"
 # ============================================================================
 echo -e "\n${YELLOW}[PHASE 3] Get initial window state${NC}\n"
 
-RESPONSE=$(send_request "event" '{"type":"get_state"}' "POST /event get_state")
+RESPONSE=$(send_request "event" '{"op":"get_state"}' "POST /event get_state")
 assert_json_field "$RESPONSE" ".status" "ok" "get_state returns ok"
 assert_json_exists "$RESPONSE" ".window_state.logical_width" "Window has logical_width"
 assert_json_exists "$RESPONSE" ".window_state.logical_height" "Window has logical_height"
@@ -212,14 +212,14 @@ echo "  Initial size: ${INITIAL_WIDTH}x${INITIAL_HEIGHT} @ DPI ${INITIAL_DPI}"
 # ============================================================================
 echo -e "\n${YELLOW}[PHASE 4] Test window resize${NC}\n"
 
-RESPONSE=$(send_request "event" '{"type":"resize","width":800.0,"height":600.0}' "Resize to 800x600")
+RESPONSE=$(send_request "event" '{"op":"resize","width":800.0,"height":600.0}' "Resize to 800x600")
 assert_json_field "$RESPONSE" ".status" "ok" "Resize command accepted"
 
 # Wait for layout
 sleep 0.5
 
 # Verify new size
-RESPONSE=$(send_request "event" '{"type":"get_state"}' "Get state after resize")
+RESPONSE=$(send_request "event" '{"op":"get_state"}' "Get state after resize")
 NEW_WIDTH=$(echo "$RESPONSE" | jq '.window_state.logical_width')
 NEW_HEIGHT=$(echo "$RESPONSE" | jq '.window_state.logical_height')
 echo ""
@@ -238,7 +238,7 @@ fi
 # ============================================================================
 echo -e "\n${YELLOW}[PHASE 5] Test relayout${NC}\n"
 
-RESPONSE=$(send_request "event" '{"type":"relayout"}' "Force relayout")
+RESPONSE=$(send_request "event" '{"op":"relayout"}' "Force relayout")
 assert_json_field "$RESPONSE" ".status" "ok" "Relayout command accepted"
 
 # ============================================================================
@@ -267,7 +267,7 @@ fi
 # ============================================================================
 echo -e "\n${YELLOW}[PHASE 7] Test hit testing${NC}\n"
 
-RESPONSE=$(send_request "event" '{"type":"hit_test","x":100.0,"y":100.0}' "Hit test at (100,100)")
+RESPONSE=$(send_request "event" '{"op":"hit_test","x":100.0,"y":100.0}' "Hit test at (100,100)")
 assert_json_field "$RESPONSE" ".status" "ok" "Hit test accepted"
 if echo "$RESPONSE" | jq -e '.data' > /dev/null 2>&1; then
     echo -e "${GREEN}✓${NC} Hit test returned data"
@@ -279,7 +279,7 @@ fi
 # ============================================================================
 echo -e "\n${YELLOW}[PHASE 8] Test frame synchronization${NC}\n"
 
-RESPONSE=$(send_request "event" '{"type":"wait_frame"}' "Wait for frame")
+RESPONSE=$(send_request "event" '{"op":"wait_frame"}' "Wait for frame")
 assert_json_field "$RESPONSE" ".status" "ok" "Wait frame completed"
 
 # ============================================================================
@@ -287,7 +287,7 @@ assert_json_field "$RESPONSE" ".status" "ok" "Wait frame completed"
 # ============================================================================
 echo -e "\n${YELLOW}[PHASE 9] Clean shutdown${NC}\n"
 
-RESPONSE=$(send_request "event" '{"type":"shutdown"}' "Request shutdown")
+RESPONSE=$(send_request "event" '{"op":"shutdown"}' "Request shutdown")
 assert_json_field "$RESPONSE" ".status" "ok" "Shutdown accepted"
 
 # Wait for app to exit

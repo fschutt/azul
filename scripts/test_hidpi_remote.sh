@@ -83,36 +83,36 @@ fi
 echo "[6/7] Sending test events..."
 
 # Get initial state
-send_event '{"type":"get_state"}' "get_state (initial)"
+send_event '{"op":"get_state"}' "get_state (initial)"
 sleep 1
 
 # Force relayout
-send_event '{"type":"relayout"}' "relayout"
+send_event '{"op":"relayout"}' "relayout"
 sleep 1
 
 # Get state after relayout
-send_event '{"type":"get_state"}' "get_state (after relayout)"
+send_event '{"op":"get_state"}' "get_state (after relayout)"
 sleep 1
 
 # Simulate resize to 800x600
-send_event '{"type":"resize","width":800.0,"height":600.0}' "resize to 800x600"
+send_event '{"op":"resize","width":800.0,"height":600.0}' "resize to 800x600"
 sleep 1
 
 # Get state after resize
-send_event '{"type":"get_state"}' "get_state (after resize)"
+send_event '{"op":"get_state"}' "get_state (after resize)"
 sleep 1
 
 # Simulate DPI change to 192 (2x scale)
-send_event '{"type":"dpi_changed","dpi":192}' "dpi_changed to 192"
+send_event '{"op":"dpi_changed","dpi":192}' "dpi_changed to 192"
 sleep 1
 
 # Get final state
-send_event '{"type":"get_state"}' "get_state (final)"
+send_event '{"op":"get_state"}' "get_state (final)"
 sleep 2
 
 # Shutdown
 echo "[7/7] Shutting down application..."
-send_event '{"type":"shutdown"}' "shutdown"
+send_event '{"op":"shutdown"}' "shutdown"
 sleep 2
 
 # Wait for application to exit

@@ -698,8 +698,17 @@ pub trait PlatformWindowV2 {
     /// ## Workflow
     /// 1. Collect callbacks from NodeData based on target (Node or RootNodes)
     /// 2. Filter callbacks by event type
-    /// 3. Invoke each callback using `layout_window.invoke_single_callback()`
-    /// 4. Return all callback results
+    /// 3. Build an event chain from target node up to root (JS-style bubbling)
+    /// 4. Invoke callbacks in bubbling order, stopping if stopPropagation() is called
+    /// 5. Return all callback results
+    ///
+    /// ## Event Bubbling
+    /// For hover events (clicks, mouse moves, etc.), this implements JavaScript-style
+    /// event bubbling:
+    /// 1. Find the deepest (target) node that was hit
+    /// 2. Build a chain: target → parent → grandparent → ... → root
+    /// 3. Invoke callbacks at each level in order
+    /// 4. Stop propagation if a callback calls `stop_propagation()`
     ///
     /// ## Returns
     /// * `Vec<CallCallbacksResult>` - Results from all invoked callbacks
@@ -709,12 +718,22 @@ pub trait PlatformWindowV2 {
         event_filter: EventFilter,
     ) -> Vec<CallCallbacksResult> {
         use azul_core::{
+            callbacks::CoreCallbackData,
             dom::{DomId, NodeId},
             id::NodeId as CoreNodeId,
         };
 
-        // Collect callbacks based on target
-        let callback_data_list = match target {
+        // Internal struct to track callback with its source node for bubbling
+        #[derive(Clone)]
+        struct NodeCallback {
+            dom_id: DomId,
+            node_id: NodeId,
+            depth: usize, // 0 = target (deepest), higher = closer to root
+            callback: CoreCallbackData,
+        }
+
+        // Collect callbacks based on target, now with node info for bubbling
+        let node_callbacks: Vec<NodeCallback> = match target {
             CallbackTarget::Node(node) => {
                 let layout_window = match self.get_layout_window() {
                     Some(lw) => lw,
@@ -740,13 +759,19 @@ pub trait PlatformWindowV2 {
                     None => return Vec::new(),
                 };
 
+                // For targeted node, just collect its callbacks (no bubbling for explicit target)
                 node_data
                     .get_callbacks()
                     .as_container()
                     .iter()
                     .filter(|cd| cd.event == event_filter)
-                    .cloned()
-                    .collect::<Vec<_>>()
+                    .map(|cb| NodeCallback {
+                        dom_id,
+                        node_id,
+                        depth: 0,
+                        callback: cb.clone(),
+                    })
+                    .collect()
             }
             CallbackTarget::RootNodes => {
                 let layout_window = match self.get_layout_window() {
@@ -754,27 +779,64 @@ pub trait PlatformWindowV2 {
                     None => return Vec::new(),
                 };
 
-                let mut callbacks = Vec::new();
+                let mut node_callbacks = Vec::new();
                 
-                // Check if this is a HoverEventFilter - if so, we need to search
-                // all hovered nodes, not just the root node
+                // Check if this is a HoverEventFilter - if so, implement event bubbling
                 let is_hover_event = matches!(event_filter, EventFilter::Hover(_));
                 
                 if is_hover_event {
-                    // For hover events, search all nodes in the current hit test
+                    // For hover events, implement JS-style event bubbling:
+                    // Find deepest hit node, then bubble up to root
                     use azul_layout::managers::hover::InputPointId;
+                    
                     if let Some(hit_test) = layout_window.hover_manager.get_current(&InputPointId::Mouse) {
                         for (dom_id, hit_test_data) in &hit_test.hovered_nodes {
                             if let Some(layout_result) = layout_window.layout_results.get(dom_id) {
                                 let node_data_container = layout_result.styled_dom.node_data.as_container();
-                                // Iterate through all hovered nodes and check for matching callbacks
-                                for (node_id, _hit_item) in &hit_test_data.regular_hit_test_nodes {
-                                    if let Some(node_data) = node_data_container.get(*node_id) {
-                                        for callback in node_data.get_callbacks().iter() {
-                                            if callback.event == event_filter {
-                                                callbacks.push(callback.clone());
+                                let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+                                
+                                // Find the deepest hit node (target)
+                                // In regular_hit_test_nodes, the last node is typically the deepest
+                                // but we should find the one with the maximum depth
+                                let deepest_node = hit_test_data
+                                    .regular_hit_test_nodes
+                                    .iter()
+                                    .max_by_key(|(node_id, _)| {
+                                        // Count depth by traversing to root
+                                        let mut depth = 0usize;
+                                        let mut current = Some(**node_id);
+                                        while let Some(nid) = current {
+                                            depth += 1;
+                                            current = node_hierarchy.get(nid)
+                                                .and_then(|h| h.parent_id());
+                                        }
+                                        depth
+                                    });
+                                
+                                if let Some((target_node_id, _)) = deepest_node {
+                                    // Build event chain: target → parent → ... → root
+                                    let mut current_node = Some(*target_node_id);
+                                    let mut depth = 0usize;
+                                    
+                                    while let Some(node_id) = current_node {
+                                        // Collect callbacks from this node
+                                        if let Some(node_data) = node_data_container.get(node_id) {
+                                            for callback in node_data.get_callbacks().iter() {
+                                                if callback.event == event_filter {
+                                                    node_callbacks.push(NodeCallback {
+                                                        dom_id: *dom_id,
+                                                        node_id,
+                                                        depth,
+                                                        callback: callback.clone(),
+                                                    });
+                                                }
                                             }
                                         }
+                                        
+                                        // Move to parent
+                                        current_node = node_hierarchy.get(node_id)
+                                            .and_then(|h| h.parent_id());
+                                        depth += 1;
                                     }
                                 }
                             }
@@ -782,7 +844,7 @@ pub trait PlatformWindowV2 {
                     }
                 } else {
                     // For non-hover events (window events, etc.), search only root nodes
-                    for (_dom_id, layout_result) in &layout_window.layout_results {
+                    for (dom_id, layout_result) in &layout_window.layout_results {
                         if let Some(root_node) = layout_result
                             .styled_dom
                             .node_data
@@ -791,31 +853,45 @@ pub trait PlatformWindowV2 {
                         {
                             for callback in root_node.get_callbacks().iter() {
                                 if callback.event == event_filter {
-                                    callbacks.push(callback.clone());
+                                    let node_id = match NodeId::from_usize(0) {
+                                        Some(nid) => nid,
+                                        None => continue,
+                                    };
+                                    node_callbacks.push(NodeCallback {
+                                        dom_id: *dom_id,
+                                        node_id,
+                                        depth: 0,
+                                        callback: callback.clone(),
+                                    });
                                 }
                             }
                         }
                     }
                 }
-                callbacks
+                node_callbacks
             }
         };
 
-        if callback_data_list.is_empty() {
+        if node_callbacks.is_empty() {
             return Vec::new();
         }
+
+        // Sort by depth (0 = target first, then parents)
+        // This ensures JS-style bubbling order: target → parent → grandparent → root
+        let mut sorted_callbacks = node_callbacks;
+        sorted_callbacks.sort_by_key(|nc| nc.depth);
 
         // Prepare all borrows in one call - avoids multiple &mut self borrows
         let mut borrows = self.prepare_callback_invocation();
 
         let mut results = Vec::new();
 
-        for callback_data in callback_data_list {
-            let mut callback = LayoutCallback::from_core(callback_data.callback);
+        for node_callback in sorted_callbacks {
+            let mut callback = LayoutCallback::from_core(node_callback.callback.callback);
 
             let callback_result = borrows.layout_window.invoke_single_callback(
                 &mut callback,
-                &mut callback_data.refany.clone(),
+                &mut node_callback.callback.refany.clone(),
                 &borrows.window_handle,
                 borrows.gl_context_ptr,
                 borrows.image_cache,
@@ -827,7 +903,15 @@ pub trait PlatformWindowV2 {
                 borrows.renderer_resources,
             );
 
+            // Check if stopPropagation() was called - if so, stop bubbling
+            let should_stop = callback_result.stop_propagation;
+            
             results.push(callback_result);
+            
+            if should_stop {
+                // Stop event propagation - don't invoke callbacks on parent nodes
+                break;
+            }
         }
 
         results
@@ -2046,6 +2130,13 @@ pub trait PlatformWindowV2 {
         // Handle tooltip hide request
         if result.hide_tooltip {
             self.hide_tooltip_from_callback();
+        }
+
+        // Handle explicit hit test update request (from Debug API)
+        // This is separate from mouse_state_changed to allow explicit hit test updates
+        // without modifying mouse position
+        if let Some(position) = result.hit_test_update_requested {
+            self.update_hit_test_at(position);
         }
 
         // Process Update screen command

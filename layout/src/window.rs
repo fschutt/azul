@@ -224,6 +224,9 @@ pub struct CallbackChangeResult {
     pub nodes_scrolled: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
     /// Modified window state
     pub modified_window_state: FullWindowState,
+    /// Hit test update requested at this position (for Debug API)
+    /// When set, the shell layer should perform a hit test update before processing events
+    pub hit_test_update_requested: Option<LogicalPosition>,
 }
 
 /// A window-level layout manager that encapsulates all layout state and caching.
@@ -1687,6 +1690,11 @@ impl LayoutWindow {
                             .set_range(target.dom, dom_node_id, range);
                     }
                 }
+                CallbackChange::RequestHitTestUpdate { position } => {
+                    // Mark that a hit test update is requested
+                    // This will be processed by the shell layer which has access to WebRender
+                    result.hit_test_update_requested = Some(position);
+                }
             }
         }
 
@@ -2709,6 +2717,7 @@ impl LayoutWindow {
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
+            hit_test_update_requested: None,
         };
 
         let mut should_terminate = TerminateTimer::Continue;
@@ -2821,6 +2830,11 @@ impl LayoutWindow {
             if !change_result.nodes_scrolled.is_empty() {
                 ret.nodes_scrolled_in_callbacks = Some(change_result.nodes_scrolled);
             }
+            
+            // Forward hit test update request to shell layer
+            if change_result.hit_test_update_requested.is_some() {
+                ret.hit_test_update_requested = change_result.hit_test_update_requested;
+            }
 
             // Handle focus target outside the timer block so it's available later
             if let Some(ft) = change_result.focus_target {
@@ -2889,6 +2903,7 @@ impl LayoutWindow {
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
+            hit_test_update_requested: None,
         };
 
         let mut ret_modified_window_state = current_window_state.clone();
@@ -3002,6 +3017,11 @@ impl LayoutWindow {
             ret.prevent_default = ret.prevent_default || change_result.prevent_default;
             ret.tooltips_to_show.extend(change_result.tooltips_to_show);
             ret.hide_tooltip = ret.hide_tooltip || change_result.hide_tooltip;
+            
+            // Forward hit test update request
+            if change_result.hit_test_update_requested.is_some() {
+                ret.hit_test_update_requested = change_result.hit_test_update_requested;
+            }
 
             // Merge changes into accumulated results
             ret_timers.extend(change_result.timers);
@@ -3146,6 +3166,7 @@ impl LayoutWindow {
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
+            hit_test_update_requested: None,
         };
 
         let mut ret_modified_window_state = current_window_state.clone();
@@ -3208,6 +3229,11 @@ impl LayoutWindow {
         ret.prevent_default = change_result.prevent_default;
         ret.tooltips_to_show = change_result.tooltips_to_show;
         ret.hide_tooltip = change_result.hide_tooltip;
+        
+        // Forward hit test update request (invoke_single_callback)
+        if change_result.hit_test_update_requested.is_some() {
+            ret.hit_test_update_requested = change_result.hit_test_update_requested;
+        }
 
         ret_timers.extend(change_result.timers);
         ret_threads.extend(change_result.threads);
@@ -3311,6 +3337,7 @@ impl LayoutWindow {
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
+            hit_test_update_requested: None,
         };
 
         let mut ret_modified_window_state = current_window_state.clone();
@@ -3374,6 +3401,11 @@ impl LayoutWindow {
         ret.prevent_default = change_result.prevent_default;
         ret.tooltips_to_show = change_result.tooltips_to_show;
         ret.hide_tooltip = change_result.hide_tooltip;
+        
+        // Forward hit test update request (invoke_menu_callback)
+        if change_result.hit_test_update_requested.is_some() {
+            ret.hit_test_update_requested = change_result.hit_test_update_requested;
+        }
 
         ret_timers.extend(change_result.timers);
         ret_threads.extend(change_result.threads);

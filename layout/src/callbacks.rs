@@ -334,6 +334,16 @@ pub enum CallbackChange {
         target: DomNodeId,
         range: SelectionRange,
     },
+
+    // Hit Test Request (for Debug API)
+    /// Request a hit test update at a specific position
+    /// 
+    /// This is used by the Debug API to update the hover manager's hit test
+    /// data after modifying the mouse position, ensuring that callbacks
+    /// can find the correct nodes under the cursor.
+    RequestHitTestUpdate {
+        position: LogicalPosition,
+    },
 }
 
 /// Main callback type for UI event handling
@@ -2535,6 +2545,17 @@ impl CallbackInfo {
         self.push_change(CallbackChange::SetSelectAllRange { target, range });
     }
 
+    /// Request a hit test update at a specific position
+    ///
+    /// This is used by the Debug API to update the hover manager's hit test
+    /// data after modifying the mouse position. This ensures that mouse event
+    /// callbacks can find the correct nodes under the cursor.
+    ///
+    /// The hit test is performed during the next frame update.
+    pub fn request_hit_test_update(&mut self, position: LogicalPosition) {
+        self.push_change(CallbackChange::RequestHitTestUpdate { position });
+    }
+
     /// Get the current text content of a node
     ///
     /// Helper for inspecting text before operations.
@@ -2990,6 +3011,9 @@ pub struct CallCallbacksResult {
     pub stop_propagation: bool,
     /// Whether preventDefault() was called (prevents default browser behavior)
     pub prevent_default: bool,
+    /// Hit test update requested at this position (for Debug API)
+    /// When set, the shell layer should perform a hit test update before the next event dispatch
+    pub hit_test_update_requested: Option<LogicalPosition>,
 }
 
 impl Default for CallCallbacksResult {
@@ -3016,6 +3040,7 @@ impl Default for CallCallbacksResult {
             cursor_changed: false,
             stop_propagation: false,
             prevent_default: false,
+            hit_test_update_requested: None,
         }
     }
 }
