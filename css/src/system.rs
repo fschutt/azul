@@ -81,6 +81,9 @@ pub struct SystemStyle {
     pub fonts: SystemFonts,
     pub metrics: SystemMetrics,
     pub scrollbar: Option<ComputedScrollbarStyle>,
+    /// System language/locale in BCP 47 format (e.g., "en-US", "de-DE")
+    /// Detected from OS settings at startup
+    pub language: AzString,
     /// An optional, user-provided stylesheet loaded from a conventional
     /// location (`~/.config/azul/styles/<app_name>.css`), allowing for
     /// application-specific "ricing". This is only loaded when the "io"
@@ -413,6 +416,7 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
     };
 
     style.platform = Platform::Linux(DesktopEnvironment::Gnome);
+    style.language = detect_system_language();
     if let Some(font) = ui_font {
         style.fonts.ui_font = OptionString::Some(font.trim().trim_matches('\'').to_string().into());
     }
@@ -450,6 +454,7 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
         defaults::kde_breeze_light()
     };
     style.platform = Platform::Linux(DesktopEnvironment::Kde);
+    style.language = detect_system_language();
 
     // Get the UI font. The format is "Font Name,Size,-1,5,50,0,0,0,0,0"
     if let Ok(font_str) = run_command_with_timeout(
@@ -517,6 +522,7 @@ fn discover_riced_style() -> Result<SystemStyle, ()> {
         // Start with a generic dark theme, as it's common for riced setups.
         ..defaults::gnome_adwaita_dark()
     };
+    style.language = detect_system_language();
 
     // Strategy 3: Check for a `pywal` cache first, as it's a great source for colors.
     let home_dir = std::env::var("HOME").unwrap_or_default();
@@ -600,6 +606,7 @@ fn discover_riced_style() -> Result<SystemStyle, ()> {
 fn discover_windows_style() -> SystemStyle {
     let mut style = defaults::windows_11_light(); // Start with a modern default
     style.platform = Platform::Windows;
+    style.language = detect_system_language();
 
     let theme_val = run_command_with_timeout(
         "reg",
@@ -646,6 +653,7 @@ fn discover_windows_style() -> SystemStyle {
 fn discover_macos_style() -> SystemStyle {
     let mut style = defaults::macos_modern_light();
     style.platform = Platform::MacOs;
+    style.language = detect_system_language();
 
     let theme_val = run_command_with_timeout(
         "defaults",
@@ -751,6 +759,142 @@ fn load_app_specific_stylesheet() -> Option<Stylesheet> {
     } else {
         None
     }
+}
+
+// -- Language Detection Functions --
+
+/// Detect the system language and return a BCP 47 language tag.
+/// Falls back to "en-US" if detection fails.
+#[cfg(feature = "io")]
+pub fn detect_system_language() -> AzString {
+    #[cfg(target_os = "windows")]
+    {
+        detect_language_windows()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        detect_language_macos()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        detect_language_linux()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        AzString::from_const_str("en-US")
+    }
+}
+
+/// Detect language on Windows using PowerShell
+#[cfg(all(feature = "io", target_os = "windows"))]
+fn detect_language_windows() -> AzString {
+    // Try to get the system UI culture via PowerShell
+    if let Ok(output) = run_command_with_timeout(
+        "powershell",
+        &["-Command", "(Get-Culture).Name"],
+        Duration::from_secs(2),
+    ) {
+        let lang = output.trim();
+        if !lang.is_empty() && lang.contains('-') {
+            return AzString::from(lang.to_string());
+        }
+    }
+    
+    // Fallback: try registry
+    if let Ok(output) = run_command_with_timeout(
+        "reg",
+        &[
+            "query",
+            r"HKCU\Control Panel\International",
+            "/v",
+            "LocaleName",
+        ],
+        Duration::from_secs(1),
+    ) {
+        // Parse registry output: "LocaleName    REG_SZ    de-DE"
+        for line in output.lines() {
+            if line.contains("LocaleName") {
+                if let Some(lang) = line.split_whitespace().last() {
+                    let lang = lang.trim();
+                    if !lang.is_empty() {
+                        return AzString::from(lang.to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    AzString::from_const_str("en-US")
+}
+
+/// Detect language on macOS using defaults command
+#[cfg(all(feature = "io", target_os = "macos"))]
+fn detect_language_macos() -> AzString {
+    // Try AppleLocale first (more specific)
+    if let Ok(output) = run_command_with_timeout(
+        "defaults",
+        &["read", "-g", "AppleLocale"],
+        Duration::from_secs(1),
+    ) {
+        let locale = output.trim();
+        if !locale.is_empty() {
+            // Convert underscore to hyphen: "de_DE" -> "de-DE"
+            return AzString::from(locale.replace('_', "-"));
+        }
+    }
+    
+    // Fallback: try AppleLanguages array
+    if let Ok(output) = run_command_with_timeout(
+        "defaults",
+        &["read", "-g", "AppleLanguages"],
+        Duration::from_secs(1),
+    ) {
+        // Output is a plist array, extract first language
+        // Example: "(\n    \"de-DE\",\n    \"en-US\"\n)"
+        for line in output.lines() {
+            let trimmed = line.trim().trim_matches(|c| c == '"' || c == ',' || c == '(' || c == ')');
+            if !trimmed.is_empty() && trimmed.contains('-') {
+                return AzString::from(trimmed.to_string());
+            }
+        }
+    }
+    
+    AzString::from_const_str("en-US")
+}
+
+/// Detect language on Linux using environment variables
+#[cfg(all(feature = "io", target_os = "linux"))]
+fn detect_language_linux() -> AzString {
+    // Check LANGUAGE, LANG, LC_ALL, LC_MESSAGES in order of priority
+    let env_vars = ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"];
+    
+    for var in &env_vars {
+        if let Ok(value) = std::env::var(var) {
+            let value = value.trim();
+            if value.is_empty() || value == "C" || value == "POSIX" {
+                continue;
+            }
+            
+            // Parse locale format: "de_DE.UTF-8" or "de_DE" or "de"
+            let lang = value
+                .split('.')  // Remove .UTF-8 suffix
+                .next()
+                .unwrap_or(value)
+                .replace('_', "-");  // Convert to BCP 47
+            
+            if !lang.is_empty() {
+                return AzString::from(lang);
+            }
+        }
+    }
+    
+    AzString::from_const_str("en-US")
+}
+
+/// Default language when io feature is disabled
+#[cfg(not(feature = "io"))]
+pub fn detect_system_language() -> AzString {
+    AzString::from_const_str("en-US")
 }
 
 pub mod defaults {
@@ -927,6 +1071,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_LIGHT)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 
@@ -954,6 +1099,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_DARK)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 
@@ -981,6 +1127,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 
@@ -1008,6 +1155,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_CLASSIC)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 
@@ -1035,6 +1183,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_MACOS_LIGHT)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 
@@ -1060,6 +1209,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_MACOS_DARK)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 
@@ -1085,6 +1235,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_MACOS_AQUA)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 
@@ -1112,6 +1263,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 
@@ -1137,6 +1289,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_DARK)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 
@@ -1161,6 +1314,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 
@@ -1185,6 +1339,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_KDE_OXYGEN)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 
@@ -1211,6 +1366,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_LIGHT)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 
@@ -1235,6 +1391,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_DARK)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 
@@ -1259,6 +1416,7 @@ pub mod defaults {
             },
             scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_IOS_LIGHT)),
             app_specific_stylesheet: None,
+            language: AzString::from_const_str("en-US"),
         }
     }
 }
