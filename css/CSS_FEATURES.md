@@ -2,16 +2,6 @@
 
 This guide shows how to use Azul's CSS features for styling your application.
 
-## Table of Contents
-
-- [Language-Specific Styling](#language-specific-styling)
-- [Media Queries](#media-queries)
-- [Pseudo-States](#pseudo-states)
-- [OS-Specific Styling](#os-specific-styling)
-- [Theme-Specific Styling](#theme-specific-styling)
-
----
-
 ## Language-Specific Styling
 
 Style elements differently based on the user's language using the `:lang()` pseudo-class.
@@ -47,32 +37,10 @@ div:lang(ar) {
 }
 ```
 
-### Rust API Examples
-
-```rust
-use azul::prelude::*;
-use azul::css::Css;
-
-fn build_ui(data: &mut AppData) -> Dom {
-    // CSS with language-specific styles
-    let css = Css::from_str(r#"
-        .greeting:lang(de) { content: "Guten Tag"; }
-        .greeting:lang(en) { content: "Hello"; }
-        .greeting:lang(fr) { content: "Bonjour"; }
-    "#);
-    
-    Dom::body()
-        .with_child(
-            Dom::div()
-                .with_class("greeting")
-        )
-        .style(css)
-}
-```
-
 ### Language Detection
 
 Azul automatically detects the system language:
+
 - **macOS**: From system preferences
 - **Windows**: From user locale settings  
 - **Linux**: From `$LANG` environment variable
@@ -88,13 +56,9 @@ The detected language (e.g., `"de-DE"`, `"en-US"`) is used for `:lang()` matchin
 | `:lang(en)` | `en`, `en-US`, `en-GB`, `en-AU` |
 | `:lang(zh-Hans)` | `zh-Hans`, `zh-Hans-CN` |
 
----
-
 ## Media Queries
 
-Apply styles based on screen type.
-
-### CSS Examples
+Media queries apply styles based on screen type.
 
 ```css
 /* Screen-only styles */
@@ -124,44 +88,9 @@ Apply styles based on screen type.
 }
 ```
 
-### Rust API Examples
-
-```rust
-use azul::prelude::*;
-use azul::css::Css;
-
-fn build_ui(data: &mut AppData) -> Dom {
-    let css = Css::from_str(r#"
-        @media screen {
-            .content { background: white; }
-        }
-        
-        @media print {
-            .no-print { display: none; }
-        }
-    "#);
-    
-    Dom::body()
-        .with_child(
-            Dom::div()
-                .with_class("content")
-                .with_child(
-                    Dom::div()
-                        .with_class("no-print")
-                        .with_text("This won't print")
-                )
-        )
-        .style(css)
-}
-```
-
----
-
 ## Pseudo-States
 
-Style elements based on user interaction.
-
-### CSS Examples
+Pseudo-states can configure the style of elements based on user interaction.
 
 ```css
 /* Hover effect */
@@ -192,40 +121,7 @@ a:lang(de):hover {
 }
 ```
 
-### Rust API Examples
-
-```rust
-use azul::prelude::*;
-use azul::css::*;
-
-fn build_button() -> Dom {
-    Dom::div()
-        .with_class("button")
-        // Normal state
-        .with_inline_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-            CssPropertyWithConditions::simple(
-                CssProperty::BackgroundColor(ColorU::rgb(240, 240, 240))
-            ),
-            CssPropertyWithConditions::simple(
-                CssProperty::Cursor(StyleCursor::Pointer)
-            ),
-        ]))
-        // Hover state
-        .with_inline_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-            CssPropertyWithConditions::on_hover(
-                CssProperty::BackgroundColor(ColorU::rgb(220, 220, 220))
-            ),
-        ]))
-        // Active state
-        .with_inline_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-            CssPropertyWithConditions::on_active(
-                CssProperty::BackgroundColor(ColorU::rgb(200, 200, 200))
-            ),
-        ]))
-}
-```
-
-### Using Helper Methods
+This can also be done inline in the Rust code:
 
 ```rust
 use azul::prelude::*;
@@ -242,13 +138,12 @@ fn styled_button(label: &str) -> Dom {
 }
 ```
 
----
-
 ## OS-Specific Styling
 
-Apply different styles based on the operating system.
-
-### Rust API Examples
+Azul has the special ability to apply different styles based on the 
+operating system. The OS is detected on app start, but can be overwritten,
+so that you can, for example, test the Linux style without running the App
+on Linux natively (cross-UI-paradigm debugging)
 
 ```rust
 use azul::prelude::*;
@@ -259,6 +154,7 @@ fn platform_button() -> Dom {
     Dom::div()
         .with_class("button")
         .with_inline_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            
             // macOS: Rounded corners, subtle shadow
             CssPropertyWithConditions::on_macos(
                 CssProperty::BorderRadius(LayoutBorderRadius::px(6.0))
@@ -280,28 +176,9 @@ fn platform_button() -> Dom {
 }
 ```
 
-### Available OS Conditions
-
-```rust
-// Target specific platforms
-CssPropertyWithConditions::on_windows(property)
-CssPropertyWithConditions::on_macos(property)
-CssPropertyWithConditions::on_linux(property)
-
-// Or use the generic method
-CssPropertyWithConditions::with_condition(
-    property,
-    DynamicSelector::Os(OsCondition::MacOS)
-)
-```
-
----
-
 ## Theme-Specific Styling
 
-Style differently for light and dark themes.
-
-### Rust API Examples
+Azul can handle differen styles based on different themes (light / dark / custom).
 
 ```rust
 use azul::prelude::*;
@@ -331,13 +208,10 @@ fn themed_container() -> Dom {
 }
 ```
 
----
-
 ## Combining Conditions
 
-You can combine multiple conditions - all must match for the style to apply.
-
-### Rust API Examples
+You can combine multiple conditions - **all conditions** must match for the 
+style to finally apply.
 
 ```rust
 use azul::prelude::*;
@@ -368,8 +242,6 @@ fn complex_button() -> Dom {
         ]))
 }
 ```
-
----
 
 ## Quick Reference
 
