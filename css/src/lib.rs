@@ -11,6 +11,7 @@ extern crate core;
 pub mod macros;
 pub mod corety;
 pub mod css;
+pub mod dynamic_selector;
 pub mod format_rust_code;
 #[cfg(feature = "parser")]
 pub mod parser2;
