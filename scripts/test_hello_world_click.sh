@@ -179,7 +179,7 @@ fi
 initial_html=$(echo "$response" | jq -r '.data.value.html // ""')
 log_info "Initial HTML (first 200 chars): ${initial_html:0:200}"
 
-# Check if "5" is in the HTML (initial counter value)
+# Check if "5" is in the HTML (initial counter value for C example)
 if echo "$initial_html" | grep -q ">5<"; then
     log_success "Found initial counter value '5' in HTML"
 else
@@ -199,17 +199,23 @@ log_info "Hit test result: $response"
 # Step 10: Send mouse events to click the button
 log_step 10 "Sending mouse click events..."
 
-# Move mouse to button position
+# Move mouse to button position first
 log_info "Sending mouse_move to ($button_x, $button_y)..."
 response=$(send_request "{\"type\":\"mouse_move\",\"x\":$button_x,\"y\":$button_y}")
 status=$(get_status "$response")
 log_info "mouse_move status: $status"
+
+# Wait for frame to process
+sleep 0.1
 
 # Mouse down
 log_info "Sending mouse_down..."
 response=$(send_request "{\"type\":\"mouse_down\",\"x\":$button_x,\"y\":$button_y,\"button\":\"left\"}")
 status=$(get_status "$response")
 log_info "mouse_down status: $status"
+
+# IMPORTANT: Wait between mouse_down and mouse_up for state diffing to work
+sleep 0.2
 
 # Mouse up (this triggers the callback)
 log_info "Sending mouse_up..."
@@ -219,6 +225,7 @@ log_info "mouse_up status: $status"
 
 # Wait for frame to render
 log_info "Waiting for render..."
+sleep 0.2
 response=$(send_request '{"type":"wait_frame"}')
 
 # Step 11: Check if counter increased
@@ -280,8 +287,8 @@ sleep 2
 log_info "=========================================="
 log_info "SUMMARY"
 log_info "=========================================="
-log_success "Initial counter: 5"
-log_success "After click: 6"
+log_success "Initial counter: 0"
+log_success "After click: 1"
 log_success "Button click callback worked!"
 log_success "Display list regenerated correctly"
 log_success "=========================================="

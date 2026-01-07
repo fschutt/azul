@@ -1365,14 +1365,7 @@ impl CssPropertyCache {
         // If that fails, see if there is an inline CSS property that matches
         // :focus > :active > :hover > :normal
         if node_state.focused {
-            if let Some(p) = self
-                .css_focus_props
-                .get(node_id)
-                .and_then(|map| map.get(css_property_type))
-            {
-                return Some(p);
-            }
-
+            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
             if let Some(p) = node_data
                 .inline_css_props
                 .as_ref()
@@ -1389,6 +1382,16 @@ impl CssPropertyCache {
                 return Some(p);
             }
 
+            // PRIORITY 2: CSS stylesheet properties
+            if let Some(p) = self
+                .css_focus_props
+                .get(node_id)
+                .and_then(|map| map.get(css_property_type))
+            {
+                return Some(p);
+            }
+
+            // PRIORITY 3: Cascaded/inherited properties
             if let Some(p) = self
                 .cascaded_focus_props
                 .get(node_id)
@@ -1399,14 +1402,7 @@ impl CssPropertyCache {
         }
 
         if node_state.active {
-            if let Some(p) = self
-                .css_active_props
-                .get(node_id)
-                .and_then(|map| map.get(css_property_type))
-            {
-                return Some(p);
-            }
-
+            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
             if let Some(p) = node_data
                 .inline_css_props
                 .as_ref()
@@ -1423,6 +1419,16 @@ impl CssPropertyCache {
                 return Some(p);
             }
 
+            // PRIORITY 2: CSS stylesheet properties
+            if let Some(p) = self
+                .css_active_props
+                .get(node_id)
+                .and_then(|map| map.get(css_property_type))
+            {
+                return Some(p);
+            }
+
+            // PRIORITY 3: Cascaded/inherited properties
             if let Some(p) = self
                 .cascaded_active_props
                 .get(node_id)
@@ -1433,14 +1439,7 @@ impl CssPropertyCache {
         }
 
         if node_state.hover {
-            if let Some(p) = self
-                .css_hover_props
-                .get(node_id)
-                .and_then(|map| map.get(css_property_type))
-            {
-                return Some(p);
-            }
-
+            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
             if let Some(p) = node_data
                 .inline_css_props
                 .as_ref()
@@ -1457,6 +1456,16 @@ impl CssPropertyCache {
                 return Some(p);
             }
 
+            // PRIORITY 2: CSS stylesheet properties
+            if let Some(p) = self
+                .css_hover_props
+                .get(node_id)
+                .and_then(|map| map.get(css_property_type))
+            {
+                return Some(p);
+            }
+
+            // PRIORITY 3: Cascaded/inherited properties
             if let Some(p) = self
                 .cascaded_hover_props
                 .get(node_id)
@@ -1467,14 +1476,7 @@ impl CssPropertyCache {
         }
 
         if node_state.normal {
-            if let Some(p) = self
-                .css_normal_props
-                .get(node_id)
-                .and_then(|map| map.get(css_property_type))
-            {
-                return Some(p);
-            }
-
+            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
             if let Some(p) = node_data
                 .inline_css_props
                 .as_ref()
@@ -1491,6 +1493,16 @@ impl CssPropertyCache {
                 return Some(p);
             }
 
+            // PRIORITY 2: CSS stylesheet properties
+            if let Some(p) = self
+                .css_normal_props
+                .get(node_id)
+                .and_then(|map| map.get(css_property_type))
+            {
+                return Some(p);
+            }
+
+            // PRIORITY 3: Cascaded/inherited properties
             if let Some(p) = self
                 .cascaded_normal_props
                 .get(node_id)

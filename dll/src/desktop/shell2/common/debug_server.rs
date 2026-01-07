@@ -90,6 +90,10 @@ pub enum ResponseData {
     Logs(LogsResponse),
     /// Health check
     Health(HealthResponse),
+    /// Find node result
+    FindNode(FindNodeResponse),
+    /// Click node result
+    ClickNode(ClickNodeResponse),
 }
 
 /// Screenshot response data
@@ -108,6 +112,28 @@ pub struct HitTestResponse {
     pub y: f32,
     pub node_id: Option<u64>,
     pub node_tag: Option<String>,
+}
+
+/// Find node response - returns location and size of found node
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FindNodeResponse {
+    pub found: bool,
+    pub node_id: Option<u64>,
+    pub x: Option<f32>,
+    pub y: Option<f32>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+    pub tag: Option<String>,
+    pub classes: Option<Vec<String>>,
+}
+
+/// Click node response
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ClickNodeResponse {
+    pub success: bool,
+    pub message: String,
 }
 
 /// HTML string response
@@ -544,6 +570,14 @@ pub enum DebugEvent {
     GetScrollableNodes,
     /// Scroll a specific node to a position
     ScrollToNode { node_id: u64, x: f32, y: f32 },
+    
+    // Node Finding & Interaction
+    /// Find a node by CSS class name (returns node_id and bounds)
+    FindNodeByClass { class_name: String },
+    /// Find a node by text content (returns node_id and bounds)
+    FindNodeByText { text: String },
+    /// Click on a specific node by its ID (clicks at center of node)
+    ClickNode { node_id: u64, #[serde(default)] button: MouseButton },
     
     // Control
     Relayout,
@@ -1945,6 +1979,186 @@ fn process_debug_event(
                 y: *y,
             };
             send_ok(request, None, Some(ResponseData::ScrollToNode(response)));
+        }
+
+        DebugEvent::FindNodeByClass { class_name } => {
+            log(LogLevel::Debug, LogCategory::DebugServer, format!("Finding node by class: {}", class_name), None);
+            use azul_core::dom::{DomId, DomNodeId};
+            use azul_core::id::NodeId;
+            
+            let dom_id = DomId { inner: 0 };
+            let layout_window = callback_info.get_layout_window();
+            
+            if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
+                let styled_dom = &layout_result.styled_dom;
+                let node_count = styled_dom.node_data.len();
+                
+                let mut found_node = None;
+                for i in 0..node_count {
+                    let dom_node_id = DomNodeId {
+                        dom: dom_id.clone(),
+                        node: NodeId::from_usize(i).into(),
+                    };
+                    
+                    let classes = callback_info.get_node_classes(dom_node_id);
+                    for class in classes.as_ref().iter() {
+                        if class.as_str() == class_name.as_str() {
+                            found_node = Some((i, dom_node_id));
+                            break;
+                        }
+                    }
+                    if found_node.is_some() {
+                        break;
+                    }
+                }
+                
+                if let Some((node_idx, dom_node_id)) = found_node {
+                    let rect = callback_info.get_node_rect(dom_node_id);
+                    let tag = callback_info.get_node_tag_name(dom_node_id);
+                    let classes = callback_info.get_node_classes(dom_node_id);
+                    
+                    let response = FindNodeResponse {
+                        found: true,
+                        node_id: Some(node_idx as u64),
+                        x: rect.as_ref().map(|r| r.origin.x),
+                        y: rect.as_ref().map(|r| r.origin.y),
+                        width: rect.as_ref().map(|r| r.size.width),
+                        height: rect.as_ref().map(|r| r.size.height),
+                        tag: tag.map(|s| s.as_str().to_string()),
+                        classes: Some(classes.as_ref().iter().map(|s| s.as_str().to_string()).collect()),
+                    };
+                    send_ok(request, None, Some(ResponseData::FindNode(response)));
+                } else {
+                    let response = FindNodeResponse {
+                        found: false,
+                        node_id: None,
+                        x: None,
+                        y: None,
+                        width: None,
+                        height: None,
+                        tag: None,
+                        classes: None,
+                    };
+                    send_ok(request, None, Some(ResponseData::FindNode(response)));
+                }
+            } else {
+                send_err(request, "No layout result for DOM 0");
+            }
+        }
+
+        DebugEvent::FindNodeByText { text } => {
+            log(LogLevel::Debug, LogCategory::DebugServer, format!("Finding node by text: {}", text), None);
+            use azul_core::dom::{DomId, DomNodeId};
+            use azul_core::id::NodeId;
+            
+            let dom_id = DomId { inner: 0 };
+            let layout_window = callback_info.get_layout_window();
+            
+            if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
+                let styled_dom = &layout_result.styled_dom;
+                let node_data = styled_dom.node_data.as_container();
+                let node_count = node_data.len();
+                
+                let mut found_node = None;
+                for i in 0..node_count {
+                    let data = &node_data[NodeId::new(i)];
+                    if let azul_core::dom::NodeType::Text(t) = data.get_node_type() {
+                        if t.as_str().contains(text.as_str()) {
+                            let dom_node_id = DomNodeId {
+                                dom: dom_id.clone(),
+                                node: NodeId::from_usize(i).into(),
+                            };
+                            found_node = Some((i, dom_node_id));
+                            break;
+                        }
+                    }
+                }
+                
+                if let Some((node_idx, dom_node_id)) = found_node {
+                    let rect = callback_info.get_node_rect(dom_node_id);
+                    let tag = callback_info.get_node_tag_name(dom_node_id);
+                    let classes = callback_info.get_node_classes(dom_node_id);
+                    
+                    let response = FindNodeResponse {
+                        found: true,
+                        node_id: Some(node_idx as u64),
+                        x: rect.as_ref().map(|r| r.origin.x),
+                        y: rect.as_ref().map(|r| r.origin.y),
+                        width: rect.as_ref().map(|r| r.size.width),
+                        height: rect.as_ref().map(|r| r.size.height),
+                        tag: tag.map(|s| s.as_str().to_string()),
+                        classes: Some(classes.as_ref().iter().map(|s| s.as_str().to_string()).collect()),
+                    };
+                    send_ok(request, None, Some(ResponseData::FindNode(response)));
+                } else {
+                    let response = FindNodeResponse {
+                        found: false,
+                        node_id: None,
+                        x: None,
+                        y: None,
+                        width: None,
+                        height: None,
+                        tag: None,
+                        classes: None,
+                    };
+                    send_ok(request, None, Some(ResponseData::FindNode(response)));
+                }
+            } else {
+                send_err(request, "No layout result for DOM 0");
+            }
+        }
+
+        DebugEvent::ClickNode { node_id, button } => {
+            log(LogLevel::Debug, LogCategory::DebugServer, format!("Clicking node {} with button {:?}", node_id, button), None);
+            use azul_core::dom::{DomId, DomNodeId};
+            use azul_core::id::NodeId;
+            
+            let dom_id = DomId { inner: 0 };
+            let dom_node_id = DomNodeId {
+                dom: dom_id.clone(),
+                node: NodeId::from_usize(*node_id as usize).into(),
+            };
+            
+            // Get the node's rect to find the center position
+            if let Some(rect) = callback_info.get_node_rect(dom_node_id) {
+                let center_x = rect.origin.x + rect.size.width / 2.0;
+                let center_y = rect.origin.y + rect.size.height / 2.0;
+                
+                // Simulate click at the center of the node
+                let mut new_state = callback_info.get_current_window_state().clone();
+                new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
+                    LogicalPosition { x: center_x, y: center_y }
+                );
+                
+                // Mouse down
+                match button {
+                    MouseButton::Left => new_state.mouse_state.left_down = true,
+                    MouseButton::Right => new_state.mouse_state.right_down = true,
+                    MouseButton::Middle => new_state.mouse_state.middle_down = true,
+                }
+                callback_info.modify_window_state(new_state.clone());
+                
+                // Mouse up
+                match button {
+                    MouseButton::Left => new_state.mouse_state.left_down = false,
+                    MouseButton::Right => new_state.mouse_state.right_down = false,
+                    MouseButton::Middle => new_state.mouse_state.middle_down = false,
+                }
+                callback_info.modify_window_state(new_state);
+                needs_update = true;
+                
+                let response = ClickNodeResponse {
+                    success: true,
+                    message: format!("Clicked node {} at ({}, {})", node_id, center_x, center_y),
+                };
+                send_ok(request, None, Some(ResponseData::ClickNode(response)));
+            } else {
+                let response = ClickNodeResponse {
+                    success: false,
+                    message: format!("Node {} not found or has no rect", node_id),
+                };
+                send_ok(request, None, Some(ResponseData::ClickNode(response)));
+            }
         }
 
         _ => {

@@ -755,16 +755,44 @@ pub trait PlatformWindowV2 {
                 };
 
                 let mut callbacks = Vec::new();
-                for (_dom_id, layout_result) in &layout_window.layout_results {
-                    if let Some(root_node) = layout_result
-                        .styled_dom
-                        .node_data
-                        .as_container()
-                        .get(CoreNodeId::ZERO)
-                    {
-                        for callback in root_node.get_callbacks().iter() {
-                            if callback.event == event_filter {
-                                callbacks.push(callback.clone());
+                
+                // Check if this is a HoverEventFilter - if so, we need to search
+                // all hovered nodes, not just the root node
+                let is_hover_event = matches!(event_filter, EventFilter::Hover(_));
+                
+                if is_hover_event {
+                    // For hover events, search all nodes in the current hit test
+                    use azul_layout::managers::hover::InputPointId;
+                    if let Some(hit_test) = layout_window.hover_manager.get_current(&InputPointId::Mouse) {
+                        for (dom_id, hit_test_data) in &hit_test.hovered_nodes {
+                            if let Some(layout_result) = layout_window.layout_results.get(dom_id) {
+                                let node_data_container = layout_result.styled_dom.node_data.as_container();
+                                // Iterate through all hovered nodes and check for matching callbacks
+                                for (node_id, _hit_item) in &hit_test_data.regular_hit_test_nodes {
+                                    if let Some(node_data) = node_data_container.get(*node_id) {
+                                        for callback in node_data.get_callbacks().iter() {
+                                            if callback.event == event_filter {
+                                                callbacks.push(callback.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // For non-hover events (window events, etc.), search only root nodes
+                    for (_dom_id, layout_result) in &layout_window.layout_results {
+                        if let Some(root_node) = layout_result
+                            .styled_dom
+                            .node_data
+                            .as_container()
+                            .get(CoreNodeId::ZERO)
+                        {
+                            for callback in root_node.get_callbacks().iter() {
+                                if callback.event == event_filter {
+                                    callbacks.push(callback.clone());
+                                }
                             }
                         }
                     }
@@ -1843,14 +1871,20 @@ pub trait PlatformWindowV2 {
 
         // Handle window state modifications
         if let Some(ref modified_state) = result.modified_window_state {
-            let current_state = self.get_current_window_state_mut();
-            
             // Check if mouse_state changed (for synthetic event injection)
-            let old_mouse_state = current_state.mouse_state.clone();
+            // NOTE: We must save previous state BEFORE modifying current state
+            // so that process_window_events_recursive_v2 can detect the change
+            let old_mouse_state = self.get_current_window_state().mouse_state.clone();
             if old_mouse_state != modified_state.mouse_state {
                 mouse_state_changed = true;
+                // Save current state as previous BEFORE updating
+                // This is critical for synthetic events from debug API
+                let old_state = self.get_current_window_state().clone();
+                self.set_previous_window_state(old_state);
             }
             
+            // Now update current state
+            let current_state = self.get_current_window_state_mut();
             current_state.title = modified_state.title.clone();
             current_state.size = modified_state.size;
             current_state.position = modified_state.position;

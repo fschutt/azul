@@ -191,7 +191,7 @@ const BUTTON_ACTIVE_BACKGROUND_WINDOWS: &[StyleBackgroundContent] =
     })];
 
 static BUTTON_CONTAINER_WINDOWS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_display(LayoutDisplay::Inline)),
+    Normal(CssProperty::const_display(LayoutDisplay::InlineBlock)),
     Normal(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(BUTTON_NORMAL_BACKGROUND),
     )),
@@ -375,7 +375,7 @@ const LINUX_BORDER_COLOR: ColorU = ColorU { r: 183, g: 183, b: 183, a: 255 };
 
 static BUTTON_CONTAINER_LINUX: &[NodeDataInlineCssProperty] = &[
     // Linux/GTK-style button styling
-    Normal(CssProperty::const_display(LayoutDisplay::Inline)),
+    Normal(CssProperty::const_display(LayoutDisplay::InlineBlock)),
     Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
     Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
     Normal(CssProperty::const_cursor(StyleCursor::Pointer)),
@@ -422,14 +422,10 @@ const MAC_NORMAL_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
         color: ColorU { r: 239, g: 239, b: 239, a: 255 },
     },
 ];
-const MAC_NORMAL_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::LinearGradient(LinearGradient {
-    direction: Direction::FromTo(DirectionCorners {
-        dir_from: DirectionCorner::Top,
-        dir_to: DirectionCorner::Bottom,
-    }),
-    extend_mode: ExtendMode::Clamp,
-    stops: NormalizedLinearColorStopVec::from_const_slice(MAC_NORMAL_GRADIENT_STOPS),
-})];
+// Temporarily use simple color for testing inline rendering on macOS
+const MAC_NORMAL_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(
+    ColorU { r: 239, g: 239, b: 239, a: 255 }
+)];
 
 const MAC_HOVER_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
@@ -473,7 +469,7 @@ const MAC_BORDER_COLOR: ColorU = ColorU { r: 183, g: 183, b: 183, a: 255 };
 
 static BUTTON_CONTAINER_MAC: &[NodeDataInlineCssProperty] = &[
     // macOS native button styling
-    Normal(CssProperty::const_display(LayoutDisplay::Inline)),
+    Normal(CssProperty::const_display(LayoutDisplay::InlineBlock)),
     Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
     Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
     Normal(CssProperty::const_cursor(StyleCursor::Pointer)),
