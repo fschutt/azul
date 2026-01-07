@@ -13,6 +13,10 @@ use crate::{
         CssRuleBlock, DynamicCssProperty, NodeTypeTag, NodeTypeTagParseError,
         NodeTypeTagParseErrorOwned, Stylesheet,
     },
+    dynamic_selector::{
+        DynamicSelector, DynamicSelectorVec, LanguageCondition, MediaType, MinMaxRange,
+        OrientationType,
+    },
     props::{
         basic::parse::parse_parentheses,
         property::{
@@ -342,6 +346,20 @@ pub fn pseudo_selector_from_str<'a>(
             let parsed = parse_nth_child_selector(value)?;
             Ok(CssPathPseudoSelector::NthChild(parsed))
         }
+        "lang" => {
+            let lang_value = value.ok_or(CssPseudoSelectorParseError::UnknownSelector(
+                selector, value,
+            ))?;
+            // Remove quotes if present
+            let lang_value = lang_value
+                .trim()
+                .trim_start_matches('"')
+                .trim_end_matches('"')
+                .trim_start_matches('\'')
+                .trim_end_matches('\'')
+                .trim();
+            Ok(CssPathPseudoSelector::Lang(AzString::from(lang_value.to_string())))
+        }
         _ => Err(CssPseudoSelectorParseError::UnknownSelector(
             selector, value,
         )),
@@ -652,6 +670,8 @@ pub struct UnparsedCssRuleBlock<'a> {
     pub path: CssPath,
     /// `"justify-content" => "center"`
     pub declarations: BTreeMap<&'a str, (&'a str, (ErrorLocation, ErrorLocation))>,
+    /// Conditions from enclosing @-rules (@media, @lang, etc.)
+    pub conditions: Vec<DynamicSelector>,
 }
 
 /// Owned version of UnparsedCssRuleBlock, with BTreeMap of Strings.
@@ -659,6 +679,7 @@ pub struct UnparsedCssRuleBlock<'a> {
 pub struct UnparsedCssRuleBlockOwned {
     pub path: CssPath,
     pub declarations: BTreeMap<String, (String, (ErrorLocation, ErrorLocation))>,
+    pub conditions: Vec<DynamicSelector>,
 }
 
 impl<'a> UnparsedCssRuleBlock<'a> {
@@ -670,6 +691,7 @@ impl<'a> UnparsedCssRuleBlock<'a> {
                 .iter()
                 .map(|(k, (v, loc))| (k.to_string(), (v.to_string(), loc.clone())))
                 .collect(),
+            conditions: self.conditions.clone(),
         }
     }
 }
@@ -683,6 +705,7 @@ impl UnparsedCssRuleBlockOwned {
                 .iter()
                 .map(|(k, (v, loc))| (k.as_str(), (v.as_str(), loc.clone())))
                 .collect(),
+            conditions: self.conditions.clone(),
         }
     }
 }
@@ -824,6 +847,140 @@ impl_display! { CssParseWarnMsgInner<'a>, {
     MalformedStructure { message } => format!("Malformed CSS structure: {}", message),
 }}
 
+/// Parses @media conditions from the content following "@media"
+/// Returns a list of DynamicSelectors for the conditions
+fn parse_media_conditions(content: &str) -> Vec<DynamicSelector> {
+    let mut conditions = Vec::new();
+    let content = content.trim();
+
+    // Handle simple media types: "screen", "print", "all"
+    if content.eq_ignore_ascii_case("screen") {
+        conditions.push(DynamicSelector::Media(MediaType::Screen));
+        return conditions;
+    }
+    if content.eq_ignore_ascii_case("print") {
+        conditions.push(DynamicSelector::Media(MediaType::Print));
+        return conditions;
+    }
+    if content.eq_ignore_ascii_case("all") {
+        conditions.push(DynamicSelector::Media(MediaType::All));
+        return conditions;
+    }
+
+    // Parse more complex media queries like "(min-width: 800px)" or "screen and (max-width: 600px)"
+    // Split by "and" for compound queries
+    for part in content.split(" and ") {
+        let part = part.trim();
+
+        // Skip media type keywords in compound queries
+        if part.eq_ignore_ascii_case("screen")
+            || part.eq_ignore_ascii_case("print")
+            || part.eq_ignore_ascii_case("all")
+        {
+            if part.eq_ignore_ascii_case("screen") {
+                conditions.push(DynamicSelector::Media(MediaType::Screen));
+            } else if part.eq_ignore_ascii_case("print") {
+                conditions.push(DynamicSelector::Media(MediaType::Print));
+            }
+            continue;
+        }
+
+        // Parse parenthesized conditions like "(min-width: 800px)"
+        if let Some(inner) = part.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
+            if let Some(selector) = parse_media_feature(inner) {
+                conditions.push(selector);
+            }
+        }
+    }
+
+    conditions
+}
+
+/// Parses a single media feature like "min-width: 800px"
+fn parse_media_feature(feature: &str) -> Option<DynamicSelector> {
+    let parts: Vec<&str> = feature.splitn(2, ':').collect();
+    if parts.len() != 2 {
+        // Handle features without values like "orientation: portrait"
+        return None;
+    }
+
+    let key = parts[0].trim();
+    let value = parts[1].trim();
+
+    match key.to_lowercase().as_str() {
+        "min-width" => {
+            if let Some(px) = parse_px_value(value) {
+                return Some(DynamicSelector::ViewportWidth(MinMaxRange::new(Some(px), None)));
+            }
+        }
+        "max-width" => {
+            if let Some(px) = parse_px_value(value) {
+                return Some(DynamicSelector::ViewportWidth(MinMaxRange::new(None, Some(px))));
+            }
+        }
+        "min-height" => {
+            if let Some(px) = parse_px_value(value) {
+                return Some(DynamicSelector::ViewportHeight(MinMaxRange::new(Some(px), None)));
+            }
+        }
+        "max-height" => {
+            if let Some(px) = parse_px_value(value) {
+                return Some(DynamicSelector::ViewportHeight(MinMaxRange::new(None, Some(px))));
+            }
+        }
+        "orientation" => {
+            if value.eq_ignore_ascii_case("portrait") {
+                return Some(DynamicSelector::Orientation(OrientationType::Portrait));
+            } else if value.eq_ignore_ascii_case("landscape") {
+                return Some(DynamicSelector::Orientation(OrientationType::Landscape));
+            }
+        }
+        _ => {}
+    }
+
+    None
+}
+
+/// Parses a pixel value like "800px" and returns the numeric value
+fn parse_px_value(value: &str) -> Option<f32> {
+    let value = value.trim();
+    if let Some(num_str) = value.strip_suffix("px") {
+        num_str.trim().parse::<f32>().ok()
+    } else {
+        // Try parsing as a bare number
+        value.parse::<f32>().ok()
+    }
+}
+
+/// Parses @lang condition from the content following "@lang"
+/// Format: @lang("de-DE") or @lang(de-DE)
+fn parse_lang_condition(content: &str) -> Option<DynamicSelector> {
+    let content = content.trim();
+
+    // Remove parentheses and quotes
+    let lang = content
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(content)
+        .trim();
+
+    let lang = lang
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| lang.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+        .unwrap_or(lang)
+        .trim();
+
+    if lang.is_empty() {
+        return None;
+    }
+
+    // Use Prefix matching by default (e.g., "de" matches "de-DE", "de-AT")
+    Some(DynamicSelector::Language(LanguageCondition::Prefix(
+        AzString::from(lang.to_string()),
+    )))
+}
+
 /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
 ///
 /// May return "warning" messages, i.e. messages that just serve as a warning,
@@ -844,6 +1001,12 @@ fn new_from_str_inner<'a>(
     let mut current_rules = BTreeMap::<&str, (&str, (ErrorLocation, ErrorLocation))>::new();
     let mut last_path = Vec::new();
     let mut last_error_location = ErrorLocation { original_pos: 0 };
+
+    // Stack for tracking @-rule conditions (e.g., @media, @lang)
+    // Each entry contains the conditions and the nesting level where they were introduced
+    let mut at_rule_stack: Vec<(Vec<DynamicSelector>, usize)> = Vec::new();
+    // Pending @-rule that needs to be combined with AtStr
+    let mut pending_at_rule: Option<&str> = None;
 
     // Safety: limit maximum iterations to prevent infinite loops
     // A reasonable limit is 10x the input length (each char could produce at most a few tokens)
@@ -907,17 +1070,49 @@ fn new_from_str_inner<'a>(
         }
 
         match token {
-            Token::BlockStart => {
-                if parser_in_block {
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Block start inside another block"
-                    });
+            Token::AtRule(rule_name) => {
+                // Store the @-rule name to combine with the following AtStr
+                pending_at_rule = Some(rule_name);
+            }
+            Token::AtStr(content) => {
+                // Combine with pending @-rule
+                if let Some(rule_name) = pending_at_rule.take() {
+                    let conditions = match rule_name.to_lowercase().as_str() {
+                        "media" => parse_media_conditions(content),
+                        "lang" => parse_lang_condition(content).into_iter().collect(),
+                        _ => {
+                            // Unknown @-rule, ignore
+                            Vec::new()
+                        }
+                    };
+
+                    if !conditions.is_empty() {
+                        // Push conditions to stack, will be applied to nested rules
+                        at_rule_stack.push((conditions, block_nesting + 1));
+                    }
                 }
-                parser_in_block = true;
+            }
+            Token::BlockStart => {
+                // Check if this is an @-rule block start (pending_at_rule means we saw @media/@lang)
+                if pending_at_rule.is_some() {
+                    // This is an @-rule block without AtStr content (e.g., "@media { ... }")
+                    pending_at_rule = None;
+                }
+
                 block_nesting += 1;
-                if !last_path.is_empty() {
-                    current_paths.push(last_path.clone());
-                    last_path.clear();
+
+                // Only set parser_in_block for rule blocks (with selectors), not @-rule blocks
+                if !current_paths.is_empty() || !last_path.is_empty() {
+                    if parser_in_block {
+                        warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                            message: "Block start inside another block"
+                        });
+                    }
+                    parser_in_block = true;
+                    if !last_path.is_empty() {
+                        current_paths.push(last_path.clone());
+                        last_path.clear();
+                    }
                 }
             }
             Token::Comma => {
@@ -942,23 +1137,43 @@ fn new_from_str_inner<'a>(
                     });
                 }
 
-                block_nesting = block_nesting.saturating_sub(1);
-                parser_in_block = false;
+                // Collect all conditions from the current @-rule stack
+                let current_conditions: Vec<DynamicSelector> = at_rule_stack
+                    .iter()
+                    .flat_map(|(conds, _)| conds.iter().cloned())
+                    .collect();
 
+                // Pop @-rule conditions that are at this nesting level
+                while let Some((_, level)) = at_rule_stack.last() {
+                    if *level >= block_nesting {
+                        at_rule_stack.pop();
+                    } else {
+                        break;
+                    }
+                }
+
+                block_nesting = block_nesting.saturating_sub(1);
+
+                // Only process as a rule block if we have selectors (not an @-rule block)
                 if !current_paths.is_empty() {
+                    parser_in_block = false;
                     css_blocks.extend(current_paths.drain(..).map(|path| UnparsedCssRuleBlock {
                         path: CssPath {
                             selectors: path.into(),
                         },
                         declarations: current_rules.clone(),
+                        conditions: current_conditions.clone(),
                     }));
-                } else {
+                    current_rules.clear();
+                } else if parser_in_block {
+                    // We were in a block but no selectors - this is an error
+                    parser_in_block = false;
                     warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
                         message: "Block with no selectors"
                     });
                 }
+                // If !parser_in_block and current_paths is empty, this is closing an @-rule block
 
-                current_rules.clear();
                 last_path.clear();
             }
             Token::UniversalSelector => {
@@ -1062,6 +1277,28 @@ fn new_from_str_inner<'a>(
                     (val, (last_error_location, get_error_location(tokenizer))),
                 );
             }
+            Token::DeclarationStr(content) => {
+                // Inside @-rule blocks, selectors appear as DeclarationStr
+                // Parse the content as a selector if we're in an @-rule block
+                if !at_rule_stack.is_empty() && !parser_in_block {
+                    // Try to parse as a selector
+                    let content = content.trim();
+                    if let Ok(nt) = NodeTypeTag::from_str(content) {
+                        last_path.push(CssPathSelector::Type(nt));
+                    } else if content.starts_with('.') {
+                        last_path.push(CssPathSelector::Class(content[1..].to_string().into()));
+                    } else if content.starts_with('#') {
+                        last_path.push(CssPathSelector::Id(content[1..].to_string().into()));
+                    } else if content == "*" {
+                        last_path.push(CssPathSelector::Global);
+                    }
+                    // Push current path if we have one
+                    if !last_path.is_empty() {
+                        current_paths.push(last_path.clone());
+                        last_path.clear();
+                    }
+                }
+            }
             Token::EndOfStream => {
                 if block_nesting != 0 {
                     warnings.push(CssParseWarnMsg {
@@ -1121,6 +1358,7 @@ fn css_blocks_to_stylesheet<'a>(
         parsed_css_blocks.push(CssRuleBlock {
             path: unparsed_css_block.path.into(),
             declarations: declarations.into(),
+            conditions: unparsed_css_block.conditions.into(),
         });
     }
 
@@ -1220,6 +1458,7 @@ fn unparsed_css_blocks_to_stylesheet<'a>(
             Ok(CssRuleBlock {
                 path: unparsed_css_block.path.into(),
                 declarations: declarations.into(),
+                conditions: unparsed_css_block.conditions.into(),
             })
         })
         .collect::<Result<Vec<CssRuleBlock>, CssParseError>>()?;

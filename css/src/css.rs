@@ -3,6 +3,7 @@ use alloc::{string::String, vec::Vec};
 use core::fmt;
 
 use crate::{
+    dynamic_selector::DynamicSelectorVec,
     props::property::{format_static_css_prop, CssProperty, CssPropertyType},
     AzString,
 };
@@ -341,7 +342,10 @@ impl DynamicCssProperty {
 
 /// One block of rules that applies a bunch of rules to a "path" in the style, i.e.
 /// `div#myid.myclass -> { ("justify-content", "center") }`
-#[derive(Debug, Clone, PartialOrd, PartialEq)]
+///
+/// The `conditions` field contains @media/@lang/etc. conditions that must ALL be
+/// satisfied for this rule block to apply (from enclosing @-rule blocks).
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct CssRuleBlock {
     /// The css path (full selector) of the style ruleset
@@ -349,6 +353,19 @@ pub struct CssRuleBlock {
     /// `"justify-content: center"` =>
     /// `CssDeclaration::Static(CssProperty::JustifyContent(LayoutJustifyContent::Center))`
     pub declarations: CssDeclarationVec,
+    /// Conditions from enclosing @-rules (@media, @lang, etc.) that must ALL be
+    /// satisfied for this rule block to apply. Empty = unconditional.
+    pub conditions: DynamicSelectorVec,
+}
+
+impl PartialOrd for CssRuleBlock {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        // Compare by path and declarations only, conditions are not ordered
+        match self.path.partial_cmp(&other.path) {
+            Some(core::cmp::Ordering::Equal) => self.declarations.partial_cmp(&other.declarations),
+            ord => ord,
+        }
+    }
 }
 
 impl_vec!(
@@ -375,6 +392,19 @@ impl CssRuleBlock {
         Self {
             path,
             declarations: declarations.into(),
+            conditions: DynamicSelectorVec::from_const_slice(&[]),
+        }
+    }
+
+    pub fn with_conditions(
+        path: CssPath,
+        declarations: Vec<CssDeclaration>,
+        conditions: Vec<crate::dynamic_selector::DynamicSelector>,
+    ) -> Self {
+        Self {
+            path,
+            declarations: declarations.into(),
+            conditions: conditions.into(),
         }
     }
 }
@@ -964,7 +994,7 @@ impl fmt::Display for CssPathSelector {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum CssPathPseudoSelector {
     /// `:first`
@@ -979,6 +1009,8 @@ pub enum CssPathPseudoSelector {
     Active,
     /// `:focus` - element has received focus
     Focus,
+    /// `:lang(de)` - element matches language
+    Lang(AzString),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1019,6 +1051,7 @@ impl fmt::Display for CssPathPseudoSelector {
             Hover => write!(f, "hover"),
             Active => write!(f, "active"),
             Focus => write!(f, "focus"),
+            Lang(lang) => write!(f, "lang({})", lang.as_str()),
         }
     }
 }
@@ -1371,6 +1404,10 @@ pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
         CssPathPseudoSelector::Hover => format!("CssPathPseudoSelector::Hover"),
         CssPathPseudoSelector::Active => format!("CssPathPseudoSelector::Active"),
         CssPathPseudoSelector::Focus => format!("CssPathPseudoSelector::Focus"),
+        CssPathPseudoSelector::Lang(lang) => format!(
+            "CssPathPseudoSelector::Lang(AzString::from_const_str(\"{}\"))",
+            lang.as_str()
+        ),
     }
 }
 
