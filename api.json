@@ -26263,20 +26263,6 @@
                 ],
                 "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::simple(property)"
               },
-              "with_single_condition": {
-                "doc": [
-                  "Create a property with a single condition (const version using slice reference)"
-                ],
-                "fn_args": [
-                  {
-                    "property": "CssProperty"
-                  },
-                  {
-                    "conditions": "[DynamicSelector]"
-                  }
-                ],
-                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::with_single_condition(property, conditions)"
-              },
               "with_condition": {
                 "doc": [
                   "Create a property with a single condition (non-const, allocates)"
@@ -26420,23 +26406,6 @@
               }
             },
             "functions": {
-              "matches": {
-                "doc": [
-                  "Check if this property matches in the given context"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "ctx": "DynamicSelectorContext"
-                  }
-                ],
-                "returns": {
-                  "type": "bool"
-                },
-                "fn_body": "object.matches(ctx)"
-              },
               "is_conditional": {
                 "doc": [
                   "Check if this property has any conditions"
@@ -26480,20 +26449,6 @@
                   "type": "bool"
                 },
                 "fn_body": "object.is_layout_affecting()"
-              },
-              "partial_cmp": {
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "other": "CssPropertyWithConditions"
-                  }
-                ],
-                "returns": {
-                  "type": "OptionOrdering"
-                },
-                "fn_body": "object.partial_cmp(other).into()"
               }
             },
             "repr": "C"

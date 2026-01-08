@@ -131,7 +131,7 @@ echo "  PID: $APP_PID"
 cleanup() {
     echo ""
     echo -e "${YELLOW}Cleaning up...${NC}"
-    curl -s "http://localhost:$DEBUG_PORT/" -X POST -d '{"type":"close"}' --max-time 2 > /dev/null 2>&1 || true
+    curl -s "http://localhost:$DEBUG_PORT/" -X POST -d '{"op":"close"}' --max-time 2 > /dev/null 2>&1 || true
     sleep 0.5
     kill $APP_PID 2>/dev/null || true
     wait $APP_PID 2>/dev/null || true
@@ -143,7 +143,7 @@ echo "  Waiting for debug server..."
 MAX_WAIT=30
 WAITED=0
 while [ $WAITED -lt $MAX_WAIT ]; do
-    if curl -s --max-time 2 -X POST -H "Content-Type: application/json" -d '{"type":"get_state"}' "http://localhost:$DEBUG_PORT/" > /dev/null 2>&1; then
+    if curl -s --max-time 2 -X POST -H "Content-Type: application/json" -d '{"op":"get_state"}' "http://localhost:$DEBUG_PORT/" > /dev/null 2>&1; then
         echo -e "  ${GREEN}✓${NC} Debug server ready after ${WAITED}s"
         break
     fi
@@ -168,7 +168,7 @@ send_command() {
 echo ""
 echo -e "${BLUE}=== Test 1: Initial Window State ===${NC}"
 
-RESPONSE=$(send_command '{"type":"get_state"}')
+RESPONSE=$(send_command '{"op":"get_state"}')
 echo "$RESPONSE" > "$OUTPUT_DIR/initial_state.json"
 
 STATUS=$(echo "$RESPONSE" | jq -r '.status' 2>/dev/null)
@@ -185,7 +185,7 @@ fi
 echo ""
 echo -e "${BLUE}=== Test 2: DOM Tree Structure ===${NC}"
 
-RESPONSE=$(send_command '{"type":"get_dom_tree"}')
+RESPONSE=$(send_command '{"op":"get_dom_tree"}')
 echo "$RESPONSE" > "$OUTPUT_DIR/dom_tree.json"
 
 DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
@@ -211,7 +211,7 @@ fi
 echo ""
 echo -e "${BLUE}=== Test 3: Initial Scroll State ===${NC}"
 
-RESPONSE=$(send_command '{"type":"get_scroll_states"}')
+RESPONSE=$(send_command '{"op":"get_scroll_states"}')
 echo "$RESPONSE" > "$OUTPUT_DIR/scroll_states_initial.json"
 
 DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
@@ -236,7 +236,7 @@ fi
 if [ "$TAKE_SCREENSHOTS" = "true" ]; then
     echo ""
     echo "  Taking initial screenshot..."
-    RESPONSE=$(send_command '{"type":"take_native_screenshot"}')
+    RESPONSE=$(send_command '{"op":"take_native_screenshot"}')
     DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
     if [ -n "$DATA" ] && [[ "$DATA" == data:image/png\;base64,* ]]; then
         BASE64_DATA="${DATA#data:image/png;base64,}"
@@ -253,7 +253,7 @@ echo -e "${BLUE}=== Test 4: Scroll Down ===${NC}"
 
 # Send scroll event at center of window (300, 300), scroll down 200px
 echo "  Sending scroll event (delta_y=-200)..."
-RESPONSE=$(send_command '{"type":"scroll","x":300,"y":300,"delta_x":0,"delta_y":-200}')
+RESPONSE=$(send_command '{"op":"scroll","x":300,"y":300,"delta_x":0,"delta_y":-200}')
 STATUS=$(echo "$RESPONSE" | jq -r '.status' 2>/dev/null)
 
 if [ "$STATUS" = "ok" ]; then
@@ -265,10 +265,10 @@ fi
 
 # Wait for render
 sleep 0.3
-send_command '{"type":"wait_frame"}' > /dev/null 2>&1
+send_command '{"op":"wait_frame"}' > /dev/null 2>&1
 
 # Check scroll state after scrolling
-RESPONSE=$(send_command '{"type":"get_scroll_states"}')
+RESPONSE=$(send_command '{"op":"get_scroll_states"}')
 echo "$RESPONSE" > "$OUTPUT_DIR/scroll_states_after_scroll.json"
 
 DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
@@ -287,7 +287,7 @@ fi
 
 # Take screenshot after scroll
 if [ "$TAKE_SCREENSHOTS" = "true" ]; then
-    RESPONSE=$(send_command '{"type":"take_native_screenshot"}')
+    RESPONSE=$(send_command '{"op":"take_native_screenshot"}')
     DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
     if [ -n "$DATA" ] && [[ "$DATA" == data:image/png\;base64,* ]]; then
         BASE64_DATA="${DATA#data:image/png;base64,}"
@@ -302,17 +302,17 @@ fi
 echo ""
 echo -e "${BLUE}=== Test 5: Scroll Down More ===${NC}"
 
-send_command '{"type":"scroll","x":300,"y":300,"delta_x":0,"delta_y":-300}' > /dev/null 2>&1
+send_command '{"op":"scroll","x":300,"y":300,"delta_x":0,"delta_y":-300}' > /dev/null 2>&1
 sleep 0.3
-send_command '{"type":"wait_frame"}' > /dev/null 2>&1
+send_command '{"op":"wait_frame"}' > /dev/null 2>&1
 
-RESPONSE=$(send_command '{"type":"get_scroll_states"}')
+RESPONSE=$(send_command '{"op":"get_scroll_states"}')
 DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
 SCROLL_Y=$(echo "$DATA" | jq -r '.scroll_states[0].scroll_y // 0' 2>/dev/null || echo "0")
 echo "  Current scroll_y: $SCROLL_Y"
 
 if [ "$TAKE_SCREENSHOTS" = "true" ]; then
-    RESPONSE=$(send_command '{"type":"take_native_screenshot"}')
+    RESPONSE=$(send_command '{"op":"take_native_screenshot"}')
     DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
     if [ -n "$DATA" ] && [[ "$DATA" == data:image/png\;base64,* ]]; then
         BASE64_DATA="${DATA#data:image/png;base64,}"
@@ -327,17 +327,17 @@ fi
 echo ""
 echo -e "${BLUE}=== Test 6: Scroll Back Up ===${NC}"
 
-send_command '{"type":"scroll","x":300,"y":300,"delta_x":0,"delta_y":250}' > /dev/null 2>&1
+send_command '{"op":"scroll","x":300,"y":300,"delta_x":0,"delta_y":250}' > /dev/null 2>&1
 sleep 0.3
-send_command '{"type":"wait_frame"}' > /dev/null 2>&1
+send_command '{"op":"wait_frame"}' > /dev/null 2>&1
 
-RESPONSE=$(send_command '{"type":"get_scroll_states"}')
+RESPONSE=$(send_command '{"op":"get_scroll_states"}')
 DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
 SCROLL_Y=$(echo "$DATA" | jq -r '.scroll_states[0].scroll_y // 0' 2>/dev/null || echo "0")
 echo "  Current scroll_y: $SCROLL_Y"
 
 if [ "$TAKE_SCREENSHOTS" = "true" ]; then
-    RESPONSE=$(send_command '{"type":"take_native_screenshot"}')
+    RESPONSE=$(send_command '{"op":"take_native_screenshot"}')
     DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
     if [ -n "$DATA" ] && [[ "$DATA" == data:image/png\;base64,* ]]; then
         BASE64_DATA="${DATA#data:image/png;base64,}"
@@ -352,7 +352,7 @@ fi
 echo ""
 echo -e "${BLUE}=== Test 7: Display List ===${NC}"
 
-RESPONSE=$(send_command '{"type":"get_display_list"}')
+RESPONSE=$(send_command '{"op":"get_display_list"}')
 echo "$RESPONSE" > "$OUTPUT_DIR/display_list.json"
 
 DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
