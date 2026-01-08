@@ -3229,7 +3229,7 @@ fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssBlock> {
                 if let Some(CssPathSelector::PseudoSelector(p)) =
                     css_block.path.selectors.as_ref().last()
                 {
-                    ending = Some(*p);
+                    ending = Some(p.clone());
                 }
 
                 blocks.push(CssBlock {

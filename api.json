@@ -13966,6 +13966,9 @@
               "One block of rules that applies a bunch of rules to a \"path\" in the style, i.e. `div#myid.myclass -> { (\"justify-content\", \"center\") }`"
             ],
             "external": "azul_css::css::CssRuleBlock",
+            "custom_impls": [
+              "PartialOrd"
+            ],
             "derive": [
               "Debug",
               "Clone",
@@ -26229,6 +26232,7 @@
             "external": "azul_css::dynamic_selector::CssPropertyWithConditions",
             "custom_impls": [
               "Eq",
+              "Hash",
               "Ord",
               "PartialOrd"
             ],
@@ -26247,6 +26251,251 @@
                 }
               }
             ],
+            "constructors": {
+              "simple": {
+                "doc": [
+                  "Create an unconditional property (always applies) - const version"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::simple(property)"
+              },
+              "with_single_condition": {
+                "doc": [
+                  "Create a property with a single condition (const version using slice reference)"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  },
+                  {
+                    "conditions": "[DynamicSelector]"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::with_single_condition(property, conditions)"
+              },
+              "with_condition": {
+                "doc": [
+                  "Create a property with a single condition (non-const, allocates)"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  },
+                  {
+                    "condition": "DynamicSelector"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::with_condition(property, condition)"
+              },
+              "with_conditions": {
+                "doc": [
+                  "Create a property with multiple conditions (all must match)"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  },
+                  {
+                    "conditions": "DynamicSelectorVec"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::with_conditions(property, conditions)"
+              },
+              "on_hover": {
+                "doc": [
+                  "Create a property that applies only on hover (const version)"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::on_hover(property)"
+              },
+              "on_active": {
+                "doc": [
+                  "Create a property that applies only when active (const version)"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::on_active(property)"
+              },
+              "on_focus": {
+                "doc": [
+                  "Create a property that applies only when focused (const version)"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::on_focus(property)"
+              },
+              "when_disabled": {
+                "doc": [
+                  "Create a property that applies only when disabled (const version)"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::when_disabled(property)"
+              },
+              "on_os": {
+                "doc": [
+                  "Create a property that applies only on a specific OS (non-const, needs runtime value)"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  },
+                  {
+                    "os": "OsCondition"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::on_os(property, os)"
+              },
+              "dark_theme": {
+                "doc": [
+                  "Create a property that applies only in dark theme (const version)"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::dark_theme(property)"
+              },
+              "light_theme": {
+                "doc": [
+                  "Create a property that applies only in light theme (const version)"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::light_theme(property)"
+              },
+              "on_windows": {
+                "doc": [
+                  "Create a property for Windows only (const version)"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::on_windows(property)"
+              },
+              "on_macos": {
+                "doc": [
+                  "Create a property for macOS only (const version)"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::on_macos(property)"
+              },
+              "on_linux": {
+                "doc": [
+                  "Create a property for Linux only (const version)"
+                ],
+                "fn_args": [
+                  {
+                    "property": "CssProperty"
+                  }
+                ],
+                "fn_body": "azul_css::dynamic_selector::CssPropertyWithConditions::on_linux(property)"
+              }
+            },
+            "functions": {
+              "matches": {
+                "doc": [
+                  "Check if this property matches in the given context"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "ctx": "DynamicSelectorContext"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.matches(ctx)"
+              },
+              "is_conditional": {
+                "doc": [
+                  "Check if this property has any conditions"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_conditional()"
+              },
+              "is_pseudo_state_only": {
+                "doc": [
+                  "Check if this property is a pseudo-state conditional only",
+                  "(hover, active, focus, etc.)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_pseudo_state_only()"
+              },
+              "is_layout_affecting": {
+                "doc": [
+                  "Check if this property affects layout (width, height, margin, etc.)",
+                  "TODO: Implement when CssProperty has this method"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_layout_affecting()"
+              },
+              "partial_cmp": {
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "other": "CssPropertyWithConditions"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionOrdering"
+                },
+                "fn_body": "object.partial_cmp(other).into()"
+              }
+            },
             "repr": "C"
           },
           "LinuxDesktopEnv": {
@@ -26283,6 +26532,66 @@
               },
               {
                 "Other": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "DynamicSelectorContext": {
+            "external": "azul_css::dynamic_selector::DynamicSelectorContext",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "os": {
+                  "type": "OsCondition"
+                },
+                "os_version": {
+                  "type": "String"
+                },
+                "desktop_env": {
+                  "type": "OptionLinuxDesktopEnv"
+                },
+                "theme": {
+                  "type": "ThemeCondition"
+                },
+                "media_type": {
+                  "type": "MediaType"
+                },
+                "viewport_width": {
+                  "type": "f32"
+                },
+                "viewport_height": {
+                  "type": "f32"
+                },
+                "container_width": {
+                  "type": "f32"
+                },
+                "container_height": {
+                  "type": "f32"
+                },
+                "container_name": {
+                  "type": "OptionString"
+                },
+                "prefers_reduced_motion": {
+                  "type": "BoolCondition"
+                },
+                "prefers_high_contrast": {
+                  "type": "BoolCondition"
+                },
+                "orientation": {
+                  "type": "OrientationType"
+                },
+                "pseudo_state": {
+                  "type": "PseudoStateFlags"
+                },
+                "language": {
+                  "type": "String"
+                }
               }
             ],
             "repr": "C"
@@ -44480,7 +44789,6 @@
               "Ord",
               "Eq",
               "PartialOrd",
-              "Copy",
               "Hash",
               "Clone",
               "PartialEq",
@@ -44495,7 +44803,10 @@
                 },
                 "Hover": {},
                 "Active": {},
-                "Focus": {}
+                "Focus": {},
+                "Lang": {
+                  "type": "String"
+                }
               }
             ],
             "repr": "C, u8"
@@ -45784,6 +46095,7 @@
               "Clone",
               "Debug",
               "Eq",
+              "Hash",
               "Ord",
               "PartialEq",
               "PartialOrd"
@@ -51706,6 +52018,26 @@
               }
             ],
             "repr": "C"
+          },
+          "OptionLinuxDesktopEnv": {
+            "external": "azul_css::dynamic_selector::OptionLinuxDesktopEnv",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "LinuxDesktopEnv"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -53401,71 +53733,48 @@
               {
                 "Os": {
                   "type": "OsCondition"
-                }
-              },
-              {
+                },
                 "OsVersion": {
                   "type": "OsVersionCondition"
-                }
-              },
-              {
+                },
                 "Media": {
                   "type": "MediaType"
-                }
-              },
-              {
+                },
                 "ViewportWidth": {
                   "type": "MinMaxRange"
-                }
-              },
-              {
+                },
                 "ViewportHeight": {
                   "type": "MinMaxRange"
-                }
-              },
-              {
+                },
                 "ContainerWidth": {
                   "type": "MinMaxRange"
-                }
-              },
-              {
+                },
                 "ContainerHeight": {
                   "type": "MinMaxRange"
-                }
-              },
-              {
+                },
                 "ContainerName": {
                   "type": "String"
-                }
-              },
-              {
+                },
                 "Theme": {
                   "type": "ThemeCondition"
-                }
-              },
-              {
+                },
                 "AspectRatio": {
                   "type": "MinMaxRange"
-                }
-              },
-              {
+                },
                 "Orientation": {
                   "type": "OrientationType"
-                }
-              },
-              {
+                },
                 "PrefersReducedMotion": {
                   "type": "BoolCondition"
-                }
-              },
-              {
+                },
                 "PrefersHighContrast": {
                   "type": "BoolCondition"
-                }
-              },
-              {
+                },
                 "PseudoState": {
                   "type": "PseudoStateType"
+                },
+                "Language": {
+                  "type": "LanguageCondition"
                 }
               }
             ],
@@ -53625,6 +53934,65 @@
               },
               {
                 "Visited": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "LanguageCondition": {
+            "external": "azul_css::dynamic_selector::LanguageCondition",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Exact": {
+                  "type": "String"
+                },
+                "Prefix": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "PseudoStateFlags": {
+            "external": "azul_css::dynamic_selector::PseudoStateFlags",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "Default",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "hover": {
+                  "type": "bool"
+                },
+                "active": {
+                  "type": "bool"
+                },
+                "focused": {
+                  "type": "bool"
+                },
+                "disabled": {
+                  "type": "bool"
+                },
+                "checked": {
+                  "type": "bool"
+                },
+                "focus_within": {
+                  "type": "bool"
+                },
+                "visited": {
+                  "type": "bool"
+                }
               }
             ],
             "repr": "C"

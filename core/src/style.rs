@@ -72,7 +72,7 @@ pub fn matches_html_element(
             &content_group,
             &html_node_tree[cur_node_id],
             &node_data[cur_node_id],
-            expected_path_ending,
+            expected_path_ending.clone(),
             is_last_content_group,
         );
 
@@ -101,7 +101,7 @@ pub fn matches_html_element(
                             &content_group,
                             &html_node_tree[sib_id],
                             &node_data[sib_id],
-                            expected_path_ending,
+                            expected_path_ending.clone(),
                             is_last_content_group,
                         ) {
                             found_match = true;
@@ -333,7 +333,7 @@ pub fn selector_group_matches(
     is_last_content_group: bool,
 ) -> bool {
     selectors.iter().all(|selector| {
-        match_single_selector(selector, html_node, node_data, expected_path_ending, is_last_content_group)
+        match_single_selector(selector, html_node, node_data, expected_path_ending.clone(), is_last_content_group)
     })
 }
 
@@ -389,6 +389,17 @@ fn match_pseudo_selector(
         CssPathPseudoSelector::Hover => match_interactive_pseudo(CssPathPseudoSelector::Hover, expected_path_ending, is_last_content_group),
         CssPathPseudoSelector::Active => match_interactive_pseudo(CssPathPseudoSelector::Active, expected_path_ending, is_last_content_group),
         CssPathPseudoSelector::Focus => match_interactive_pseudo(CssPathPseudoSelector::Focus, expected_path_ending, is_last_content_group),
+        CssPathPseudoSelector::Lang(lang) => {
+            // :lang() is matched via DynamicSelector at runtime, not during CSS cascade
+            // During cascade, we just check if this is the expected ending
+            if let Some(ref expected) = expected_path_ending {
+                if let CssPathPseudoSelector::Lang(expected_lang) = expected {
+                    return lang == expected_lang;
+                }
+            }
+            // If not specifically looking for :lang, it doesn't match structurally
+            false
+        }
     }
 }
 

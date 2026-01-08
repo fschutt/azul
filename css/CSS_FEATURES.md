@@ -6,18 +6,11 @@ This guide shows how to use Azul's CSS features for styling your application.
 
 Style elements differently based on the user's language using the `:lang()` pseudo-class.
 
-### CSS Examples
-
 ```css
 /* German typography */
 p:lang(de) {
     font-family: "Fira Sans", sans-serif;
     hyphens: auto;
-}
-
-/* German quotation marks */
-blockquote:lang(de) {
-    quotes: "„" """ "‚" "'";
 }
 
 /* Japanese font stack */
@@ -37,13 +30,11 @@ div:lang(ar) {
 }
 ```
 
-### Language Detection
-
 Azul automatically detects the system language:
 
-- **macOS**: From system preferences
-- **Windows**: From user locale settings  
-- **Linux**: From `$LANG` environment variable
+- **macOS**: From the system preferences
+- **Windows**: From the user locale settings  
+- **Linux**: From the `$LANG` environment variable
 
 The detected language (e.g., `"de-DE"`, `"en-US"`) is used for `:lang()` matching.
 
