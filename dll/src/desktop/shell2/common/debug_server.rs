@@ -1910,18 +1910,7 @@ fn process_debug_event(
                     let hier = &hierarchy[node_id];
                     let data = &node_data[node_id];
                     
-                    let node_type = match data.get_node_type() {
-                        azul_core::dom::NodeType::Html => "Html",
-                        azul_core::dom::NodeType::Head => "Head",
-                        azul_core::dom::NodeType::Body => "Body",
-                        azul_core::dom::NodeType::Div => "Div",
-                        azul_core::dom::NodeType::Span => "Span",
-                        azul_core::dom::NodeType::P => "P",
-                        azul_core::dom::NodeType::Text(_) => "Text",
-                        azul_core::dom::NodeType::Image(_) => "Image",
-                        azul_core::dom::NodeType::IFrame(_) => "IFrame",
-                        _ => "Other",
-                    };
+                    let node_type = data.get_node_type().get_path().to_string();
                     
                     let text_content = match data.get_node_type() {
                         azul_core::dom::NodeType::Text(t) => {

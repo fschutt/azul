@@ -51,6 +51,12 @@ pub fn matches_html_element(
         return false;
     }
 
+    // Skip anonymous nodes - they are not part of the original DOM tree
+    // and should not participate in CSS selector matching
+    if node_data[node_id].is_anonymous() {
+        return false;
+    }
+
     let mut current_node = Some(node_id);
     let mut next_match_requirement = Children; // Default: any ancestor can match
     let mut last_selector_matched = true;
@@ -136,12 +142,26 @@ pub fn matches_html_element(
         // Navigate to the next node based on the combinator type
         match reason {
             Children | DirectChildren => {
-                // Go to parent for descendant/child selectors
-                current_node = node_hierarchy[cur_node_id].parent_id();
+                // Go to parent for descendant/child selectors, skipping anonymous nodes
+                let mut next = node_hierarchy[cur_node_id].parent_id();
+                while let Some(n) = next {
+                    if !node_data[n].is_anonymous() {
+                        break;
+                    }
+                    next = node_hierarchy[n].parent_id();
+                }
+                current_node = next;
             }
             AdjacentSibling | GeneralSibling => {
-                // Go to previous sibling for sibling selectors
-                current_node = node_hierarchy[cur_node_id].previous_sibling_id();
+                // Go to previous sibling for sibling selectors, skipping anonymous nodes
+                let mut next = node_hierarchy[cur_node_id].previous_sibling_id();
+                while let Some(n) = next {
+                    if !node_data[n].is_anonymous() {
+                        break;
+                    }
+                    next = node_hierarchy[n].previous_sibling_id();
+                }
+                current_node = next;
             }
         }
     }
