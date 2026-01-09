@@ -83,19 +83,25 @@ BINARY="${BINARY_DIR}/hello-world"
 # ============================================================================
 echo -e "${YELLOW}[Phase 1] Building${NC}"
 
-# Check library
+# Build library if not exists or if source is newer
 if [ ! -f "$DYLIB_PATH" ]; then
-    echo -e "${RED}FAIL: Library not found at $DYLIB_PATH${NC}"
-    echo "Please run: cargo build -p azul-dll --release --features build-dll"
-    exit 1
+    echo "  Building azul-dll (this may take a while)..."
+    if ! cargo build -p azul-dll --release --features build-dll 2>&1 | tail -5; then
+        echo -e "${RED}FAIL: DLL build failed${NC}"
+        exit 1
+    fi
+    echo -e "  ${GREEN}✓${NC} Built DLL"
 fi
 echo "  Library: $DYLIB_PATH"
 
-# Check header
+# Build header if not exists
 if [ ! -f "${HEADER_DIR}/azul.h" ]; then
-    echo -e "${RED}FAIL: Header not found at ${HEADER_DIR}/azul.h${NC}"
-    echo "Please run: cargo run -p azul-doc -- codegen all"
-    exit 1
+    echo "  Generating C headers..."
+    if ! cargo run -p azul-doc -- codegen all 2>&1 | tail -5; then
+        echo -e "${RED}FAIL: Header generation failed${NC}"
+        exit 1
+    fi
+    echo -e "  ${GREEN}✓${NC} Generated headers"
 fi
 echo "  Header: ${HEADER_DIR}/azul.h"
 
@@ -289,7 +295,7 @@ echo "  Logs: $LOGS"
 echo ""
 echo -e "${BLUE}=== Test 5: Click Button (using CSS selector) ===${NC}"
 
-# The button element
+# The button is now a proper Button widget (creates a <button> element)
 echo "  Clicking button with selector 'button'..."
 RESPONSE=$(send_command '{"op":"click","selector":"button"}')
 echo "$RESPONSE" > "$OUTPUT_DIR/click_response.json"
