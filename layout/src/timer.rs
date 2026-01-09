@@ -212,12 +212,11 @@ impl Timer {
         let is_about_to_finish = self.is_about_to_finish(&now);
 
         // Create a new TimerCallbackInfo wrapping the callback_info
-        // We need to use unsafe to create a copy of the pointer-based CallbackInfo
-        let timer_callback_info_inner =
-            unsafe { core::ptr::read(callback_info as *const CallbackInfo) };
-
+        // CallbackInfo is Copy, so we can just copy it directly
+        #[cfg(feature = "std")]
+        println!("[DEBUG Timer::invoke] callback_info.changes ptr = {:p}", callback_info.get_changes_ptr());
         let mut timer_callback_info = TimerCallbackInfo {
-            callback_info: timer_callback_info_inner,
+            callback_info: *callback_info,
             node_id: self.node_id,
             frame_start: now.clone(),
             call_count: self.run_count,
@@ -225,6 +224,8 @@ impl Timer {
             _abi_ref: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
         };
+        #[cfg(feature = "std")]
+        println!("[DEBUG Timer::invoke] timer_callback_info.callback_info.changes ptr = {:p}", timer_callback_info.callback_info.get_changes_ptr());
 
         let mut result = (self.callback.cb)(self.refany.clone(), timer_callback_info);
 
