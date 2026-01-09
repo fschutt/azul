@@ -19349,6 +19349,15 @@
                 },
                 "clip_to_container_border": {
                   "type": "bool"
+                },
+                "scroll_behavior": {
+                  "type": "ScrollBehavior"
+                },
+                "overscroll_behavior_x": {
+                  "type": "OverscrollBehavior"
+                },
+                "overscroll_behavior_y": {
+                  "type": "OverscrollBehavior"
                 }
               }
             ],
@@ -53798,6 +53807,49 @@
               }
             ],
             "repr": "C, u8"
+          },
+          "OverscrollBehavior": {
+            "external": "azul_css::props::style::scrollbar::OverscrollBehavior",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash",
+              "Default"
+            ],
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Contain": {},
+                "None": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "ScrollBehavior": {
+            "external": "azul_css::props::style::scrollbar::ScrollBehavior",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash",
+              "Default"
+            ],
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Smooth": {}
+              }
+            ],
+            "repr": "C"
           }
         }
       }

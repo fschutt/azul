@@ -34,7 +34,7 @@ use crate::{
             color::{parse_css_color, ColorU, OptionColorU},
             pixel::PixelValue,
         },
-        style::scrollbar::ComputedScrollbarStyle,
+        style::scrollbar::{ComputedScrollbarStyle, ScrollBehavior, OverscrollBehavior},
     },
 };
 
@@ -917,10 +917,11 @@ pub mod defaults {
             style::{
                 background::StyleBackgroundContent,
                 scrollbar::{
-                    ComputedScrollbarStyle, ScrollbarInfo, SCROLLBAR_ANDROID_DARK,
-                    SCROLLBAR_ANDROID_LIGHT, SCROLLBAR_CLASSIC_DARK, SCROLLBAR_CLASSIC_LIGHT,
-                    SCROLLBAR_IOS_DARK, SCROLLBAR_IOS_LIGHT, SCROLLBAR_MACOS_DARK,
-                    SCROLLBAR_MACOS_LIGHT, SCROLLBAR_WINDOWS_DARK, SCROLLBAR_WINDOWS_LIGHT,
+                    ComputedScrollbarStyle, OverscrollBehavior, ScrollBehavior, ScrollbarInfo,
+                    SCROLLBAR_ANDROID_DARK, SCROLLBAR_ANDROID_LIGHT, SCROLLBAR_CLASSIC_DARK,
+                    SCROLLBAR_CLASSIC_LIGHT, SCROLLBAR_IOS_DARK, SCROLLBAR_IOS_LIGHT,
+                    SCROLLBAR_MACOS_DARK, SCROLLBAR_MACOS_LIGHT, SCROLLBAR_WINDOWS_DARK,
+                    SCROLLBAR_WINDOWS_LIGHT,
                 },
             },
         },
@@ -967,6 +968,9 @@ pub mod defaults {
         }),
         resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
         clip_to_container_border: false,
+        scroll_behavior: ScrollBehavior::Auto,
+        overscroll_behavior_x: OverscrollBehavior::None,
+        overscroll_behavior_y: OverscrollBehavior::None,
     };
 
     /// A scrollbar style mimicking the macOS "Aqua" theme from the early 2000s.
@@ -999,6 +1003,9 @@ pub mod defaults {
         corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
         resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
         clip_to_container_border: true,
+        scroll_behavior: ScrollBehavior::Smooth,
+        overscroll_behavior_x: OverscrollBehavior::Auto,
+        overscroll_behavior_y: OverscrollBehavior::Auto,
     };
 
     /// A scrollbar style mimicking the KDE Oxygen theme.
@@ -1031,6 +1038,9 @@ pub mod defaults {
         corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
         resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
         clip_to_container_border: false,
+        scroll_behavior: ScrollBehavior::Auto,
+        overscroll_behavior_x: OverscrollBehavior::Auto,
+        overscroll_behavior_y: OverscrollBehavior::Auto,
     };
 
     /// Helper to convert a detailed `ScrollbarInfo` into the simplified `ComputedScrollbarStyle`.

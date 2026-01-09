@@ -15,7 +15,191 @@ use crate::props::{
     style::background::StyleBackgroundContent,
 };
 
-// -- Standard Properties --
+// ============================================================================
+// CSS Standard Scroll Behavior Properties
+// ============================================================================
+
+/// CSS `scroll-behavior` property - controls smooth scrolling
+/// https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-behavior
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum ScrollBehavior {
+    /// Scrolling jumps instantly to the final position
+    #[default]
+    Auto,
+    /// Scrolling animates smoothly to the final position
+    Smooth,
+}
+
+impl PrintAsCssValue for ScrollBehavior {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            Self::Auto => "auto".to_string(),
+            Self::Smooth => "smooth".to_string(),
+        }
+    }
+}
+
+/// CSS `overscroll-behavior` property - controls overscroll effects
+/// https://developer.mozilla.org/en-US/docs/Web/CSS/overscroll-behavior
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum OverscrollBehavior {
+    /// Default scroll overflow behavior (bounce/glow effects, scroll chaining)
+    #[default]
+    Auto,
+    /// Prevents scroll chaining to parent elements, but allows local overscroll effects
+    Contain,
+    /// No scroll chaining and no overscroll effects (hard stop at boundaries)
+    None,
+}
+
+impl PrintAsCssValue for OverscrollBehavior {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            Self::Auto => "auto".to_string(),
+            Self::Contain => "contain".to_string(),
+            Self::None => "none".to_string(),
+        }
+    }
+}
+
+/// Combined overscroll behavior for X and Y axes
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub struct OverscrollBehaviorXY {
+    pub x: OverscrollBehavior,
+    pub y: OverscrollBehavior,
+}
+
+// ============================================================================
+// Extended Scroll Configuration (Azul-specific)
+// ============================================================================
+
+/// Scroll physics configuration for momentum scrolling
+/// 
+/// This controls how scrolling feels - the "weight" and "friction" of the scroll.
+/// Different platforms have different scroll physics (iOS vs Android vs Windows).
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct ScrollPhysics {
+    /// Smooth scroll animation duration in milliseconds (default: 300ms)
+    /// Only used when scroll-behavior: smooth
+    pub smooth_scroll_duration_ms: u32,
+    
+    /// Deceleration rate for momentum scrolling (0.0 = instant stop, 1.0 = never stops)
+    /// Typical values: 0.95 (fast deceleration) to 0.998 (slow, iOS-like)
+    /// Default: 0.95
+    pub deceleration_rate: f32,
+    
+    /// Minimum velocity threshold to start momentum scrolling (pixels/second)
+    /// Below this, scrolling stops immediately. Default: 50.0
+    pub min_velocity_threshold: f32,
+    
+    /// Maximum scroll velocity (pixels/second). Default: 8000.0
+    pub max_velocity: f32,
+    
+    /// Scroll wheel multiplier. Default: 1.0
+    /// Values > 1.0 make scrolling faster, < 1.0 slower
+    pub wheel_multiplier: f32,
+    
+    /// Whether to invert scroll direction (natural scrolling). Default: false
+    pub invert_direction: bool,
+    
+    /// Overscroll elasticity (0.0 = no bounce, 1.0 = full bounce like iOS)
+    /// Only applies when overscroll-behavior: auto. Default: 0.0 (no bounce)
+    pub overscroll_elasticity: f32,
+    
+    /// Maximum overscroll distance in pixels before rubber-banding stops
+    /// Default: 100.0
+    pub max_overscroll_distance: f32,
+    
+    /// Bounce-back duration when releasing overscroll (milliseconds)
+    /// Default: 400
+    pub bounce_back_duration_ms: u32,
+}
+
+impl Default for ScrollPhysics {
+    fn default() -> Self {
+        Self {
+            smooth_scroll_duration_ms: 300,
+            deceleration_rate: 0.95,
+            min_velocity_threshold: 50.0,
+            max_velocity: 8000.0,
+            wheel_multiplier: 1.0,
+            invert_direction: false,
+            overscroll_elasticity: 0.0, // No bounce by default (Windows-like)
+            max_overscroll_distance: 100.0,
+            bounce_back_duration_ms: 400,
+        }
+    }
+}
+
+impl ScrollPhysics {
+    /// iOS-like scroll physics with momentum and bounce
+    pub const fn ios() -> Self {
+        Self {
+            smooth_scroll_duration_ms: 300,
+            deceleration_rate: 0.998,
+            min_velocity_threshold: 20.0,
+            max_velocity: 8000.0,
+            wheel_multiplier: 1.0,
+            invert_direction: true, // Natural scrolling
+            overscroll_elasticity: 0.5,
+            max_overscroll_distance: 120.0,
+            bounce_back_duration_ms: 500,
+        }
+    }
+    
+    /// macOS-like scroll physics
+    pub const fn macos() -> Self {
+        Self {
+            smooth_scroll_duration_ms: 250,
+            deceleration_rate: 0.997,
+            min_velocity_threshold: 30.0,
+            max_velocity: 6000.0,
+            wheel_multiplier: 1.0,
+            invert_direction: true, // Natural scrolling by default
+            overscroll_elasticity: 0.3,
+            max_overscroll_distance: 80.0,
+            bounce_back_duration_ms: 400,
+        }
+    }
+    
+    /// Windows-like scroll physics (no momentum, no bounce)
+    pub const fn windows() -> Self {
+        Self {
+            smooth_scroll_duration_ms: 200,
+            deceleration_rate: 0.9,
+            min_velocity_threshold: 100.0,
+            max_velocity: 4000.0,
+            wheel_multiplier: 1.0,
+            invert_direction: false,
+            overscroll_elasticity: 0.0,
+            max_overscroll_distance: 0.0,
+            bounce_back_duration_ms: 200,
+        }
+    }
+    
+    /// Android-like scroll physics
+    pub const fn android() -> Self {
+        Self {
+            smooth_scroll_duration_ms: 250,
+            deceleration_rate: 0.996,
+            min_velocity_threshold: 40.0,
+            max_velocity: 8000.0,
+            wheel_multiplier: 1.0,
+            invert_direction: false,
+            overscroll_elasticity: 0.2, // Subtle glow effect
+            max_overscroll_distance: 60.0,
+            bounce_back_duration_ms: 300,
+        }
+    }
+}
+
+// ============================================================================
+// Standard Properties
+// ============================================================================
 
 /// Represents the standard `scrollbar-width` property.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -105,6 +289,12 @@ pub struct ScrollbarInfo {
     /// clipped to those rounded corners instead of having rectangular edges.
     /// Default is false for classic scrollbars, true for overlay scrollbars.
     pub clip_to_container_border: bool,
+    /// Scroll behavior for this scrollbar's container (auto or smooth)
+    pub scroll_behavior: ScrollBehavior,
+    /// Overscroll behavior for the X axis
+    pub overscroll_behavior_x: OverscrollBehavior,
+    /// Overscroll behavior for the Y axis  
+    pub overscroll_behavior_y: OverscrollBehavior,
 }
 
 impl Default for ScrollbarInfo {
@@ -264,6 +454,9 @@ pub const SCROLLBAR_CLASSIC_LIGHT: ScrollbarInfo = ScrollbarInfo {
         a: 255,
     }),
     clip_to_container_border: false,
+    scroll_behavior: ScrollBehavior::Auto,
+    overscroll_behavior_x: OverscrollBehavior::Auto,
+    overscroll_behavior_y: OverscrollBehavior::Auto,
 };
 
 /// A classic dark-themed scrollbar.
@@ -306,6 +499,9 @@ pub const SCROLLBAR_CLASSIC_DARK: ScrollbarInfo = ScrollbarInfo {
         a: 255,
     }),
     clip_to_container_border: false,
+    scroll_behavior: ScrollBehavior::Auto,
+    overscroll_behavior_x: OverscrollBehavior::Auto,
+    overscroll_behavior_y: OverscrollBehavior::Auto,
 };
 
 /// A modern, thin, overlay scrollbar inspired by macOS (Light Theme).
@@ -328,6 +524,9 @@ pub const SCROLLBAR_MACOS_LIGHT: ScrollbarInfo = ScrollbarInfo {
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     clip_to_container_border: true, // Overlay scrollbars should clip to rounded borders
+    scroll_behavior: ScrollBehavior::Smooth,
+    overscroll_behavior_x: OverscrollBehavior::Auto,
+    overscroll_behavior_y: OverscrollBehavior::Auto,
 };
 
 /// A modern, thin, overlay scrollbar inspired by macOS (Dark Theme).
@@ -350,6 +549,9 @@ pub const SCROLLBAR_MACOS_DARK: ScrollbarInfo = ScrollbarInfo {
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     clip_to_container_border: true, // Overlay scrollbars should clip to rounded borders
+    scroll_behavior: ScrollBehavior::Smooth,
+    overscroll_behavior_x: OverscrollBehavior::Auto,
+    overscroll_behavior_y: OverscrollBehavior::Auto,
 };
 
 /// A modern scrollbar inspired by Windows 11 (Light Theme).
@@ -377,6 +579,9 @@ pub const SCROLLBAR_WINDOWS_LIGHT: ScrollbarInfo = ScrollbarInfo {
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     clip_to_container_border: false,
+    scroll_behavior: ScrollBehavior::Auto,
+    overscroll_behavior_x: OverscrollBehavior::None,
+    overscroll_behavior_y: OverscrollBehavior::None,
 };
 
 /// A modern scrollbar inspired by Windows 11 (Dark Theme).
@@ -404,6 +609,9 @@ pub const SCROLLBAR_WINDOWS_DARK: ScrollbarInfo = ScrollbarInfo {
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     clip_to_container_border: false,
+    scroll_behavior: ScrollBehavior::Auto,
+    overscroll_behavior_x: OverscrollBehavior::None,
+    overscroll_behavior_y: OverscrollBehavior::None,
 };
 
 /// A modern, thin, overlay scrollbar inspired by iOS (Light Theme).
@@ -426,6 +634,9 @@ pub const SCROLLBAR_IOS_LIGHT: ScrollbarInfo = ScrollbarInfo {
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     clip_to_container_border: true, // Overlay scrollbars should clip to rounded borders
+    scroll_behavior: ScrollBehavior::Smooth,
+    overscroll_behavior_x: OverscrollBehavior::Auto,
+    overscroll_behavior_y: OverscrollBehavior::Auto,
 };
 
 /// A modern, thin, overlay scrollbar inspired by iOS (Dark Theme).
@@ -448,6 +659,9 @@ pub const SCROLLBAR_IOS_DARK: ScrollbarInfo = ScrollbarInfo {
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     clip_to_container_border: true, // Overlay scrollbars should clip to rounded borders
+    scroll_behavior: ScrollBehavior::Smooth,
+    overscroll_behavior_x: OverscrollBehavior::Auto,
+    overscroll_behavior_y: OverscrollBehavior::Auto,
 };
 
 /// A modern, thin, overlay scrollbar inspired by Android (Light Theme).
@@ -470,6 +684,9 @@ pub const SCROLLBAR_ANDROID_LIGHT: ScrollbarInfo = ScrollbarInfo {
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     clip_to_container_border: true, // Overlay scrollbars should clip to rounded borders
+    scroll_behavior: ScrollBehavior::Smooth,
+    overscroll_behavior_x: OverscrollBehavior::Contain,
+    overscroll_behavior_y: OverscrollBehavior::Auto,
 };
 
 /// A modern, thin, overlay scrollbar inspired by Android (Dark Theme).
@@ -492,6 +709,9 @@ pub const SCROLLBAR_ANDROID_DARK: ScrollbarInfo = ScrollbarInfo {
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     clip_to_container_border: true, // Overlay scrollbars should clip to rounded borders
+    scroll_behavior: ScrollBehavior::Smooth,
+    overscroll_behavior_x: OverscrollBehavior::Contain,
+    overscroll_behavior_y: OverscrollBehavior::Auto,
 };
 
 // --- PARSERS ---
