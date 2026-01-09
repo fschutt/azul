@@ -100,6 +100,11 @@ pub struct ScrollbarInfo {
     /// Addresses the draggable resizing handle that appears above the
     /// `corner` at the bottom corner of some elements (`-webkit-resizer`)
     pub resizer: StyleBackgroundContent,
+    /// Whether to clip the scrollbar to the container's border-radius.
+    /// When true, if the container has rounded corners, the scrollbar will be
+    /// clipped to those rounded corners instead of having rectangular edges.
+    /// Default is false for classic scrollbars, true for overlay scrollbars.
+    pub clip_to_container_border: bool,
 }
 
 impl Default for ScrollbarInfo {
@@ -258,6 +263,7 @@ pub const SCROLLBAR_CLASSIC_LIGHT: ScrollbarInfo = ScrollbarInfo {
         b: 241,
         a: 255,
     }),
+    clip_to_container_border: false,
 };
 
 /// A classic dark-themed scrollbar.
@@ -299,6 +305,7 @@ pub const SCROLLBAR_CLASSIC_DARK: ScrollbarInfo = ScrollbarInfo {
         b: 45,
         a: 255,
     }),
+    clip_to_container_border: false,
 };
 
 /// A modern, thin, overlay scrollbar inspired by macOS (Light Theme).
@@ -320,6 +327,7 @@ pub const SCROLLBAR_MACOS_LIGHT: ScrollbarInfo = ScrollbarInfo {
     button: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
+    clip_to_container_border: true, // Overlay scrollbars should clip to rounded borders
 };
 
 /// A modern, thin, overlay scrollbar inspired by macOS (Dark Theme).
@@ -341,6 +349,7 @@ pub const SCROLLBAR_MACOS_DARK: ScrollbarInfo = ScrollbarInfo {
     button: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
+    clip_to_container_border: true, // Overlay scrollbars should clip to rounded borders
 };
 
 /// A modern scrollbar inspired by Windows 11 (Light Theme).
@@ -367,6 +376,7 @@ pub const SCROLLBAR_WINDOWS_LIGHT: ScrollbarInfo = ScrollbarInfo {
     button: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
+    clip_to_container_border: false,
 };
 
 /// A modern scrollbar inspired by Windows 11 (Dark Theme).
@@ -393,6 +403,7 @@ pub const SCROLLBAR_WINDOWS_DARK: ScrollbarInfo = ScrollbarInfo {
     button: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
+    clip_to_container_border: false,
 };
 
 /// A modern, thin, overlay scrollbar inspired by iOS (Light Theme).
@@ -414,6 +425,7 @@ pub const SCROLLBAR_IOS_LIGHT: ScrollbarInfo = ScrollbarInfo {
     button: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
+    clip_to_container_border: true, // Overlay scrollbars should clip to rounded borders
 };
 
 /// A modern, thin, overlay scrollbar inspired by iOS (Dark Theme).
@@ -435,6 +447,7 @@ pub const SCROLLBAR_IOS_DARK: ScrollbarInfo = ScrollbarInfo {
     button: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
+    clip_to_container_border: true, // Overlay scrollbars should clip to rounded borders
 };
 
 /// A modern, thin, overlay scrollbar inspired by Android (Light Theme).
@@ -456,6 +469,7 @@ pub const SCROLLBAR_ANDROID_LIGHT: ScrollbarInfo = ScrollbarInfo {
     button: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
+    clip_to_container_border: true, // Overlay scrollbars should clip to rounded borders
 };
 
 /// A modern, thin, overlay scrollbar inspired by Android (Dark Theme).
@@ -477,6 +491,7 @@ pub const SCROLLBAR_ANDROID_DARK: ScrollbarInfo = ScrollbarInfo {
     button: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
     resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
+    clip_to_container_border: true, // Overlay scrollbars should clip to rounded borders
 };
 
 // --- PARSERS ---

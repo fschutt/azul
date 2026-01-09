@@ -966,6 +966,7 @@ pub mod defaults {
             a: 255,
         }),
         resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
+        clip_to_container_border: false,
     };
 
     /// A scrollbar style mimicking the macOS "Aqua" theme from the early 2000s.
@@ -997,6 +998,7 @@ pub mod defaults {
         }),
         corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
         resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
+        clip_to_container_border: true,
     };
 
     /// A scrollbar style mimicking the KDE Oxygen theme.
@@ -1028,6 +1030,7 @@ pub mod defaults {
         }),
         corner: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
         resizer: StyleBackgroundContent::Color(ColorU::TRANSPARENT),
+        clip_to_container_border: false,
     };
 
     /// Helper to convert a detailed `ScrollbarInfo` into the simplified `ComputedScrollbarStyle`.
