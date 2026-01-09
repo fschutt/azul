@@ -12,6 +12,9 @@ use alloc::{
     vec::Vec,
 };
 
+#[cfg(feature = "std")]
+use std::sync::Mutex;
+
 use azul_core::{
     animation::UpdateImageType,
     callbacks::{CoreCallback, FocusTarget, FocusTargetPath, HidpiAdjustedBounds, Update},
@@ -143,6 +146,10 @@ pub enum CallbackChange {
     // Window State Changes
     /// Modify the window state (size, position, title, etc.)
     ModifyWindowState { state: FullWindowState },
+    /// Queue multiple window state changes to be applied in sequence across frames.
+    /// This is needed for simulating clicks (mouse down → wait → mouse up) where each
+    /// state change needs to trigger separate event processing.
+    QueueWindowStateSequence { states: Vec<FullWindowState> },
     /// Create a new window
     CreateNewWindow { options: WindowCreateOptions },
     /// Close the current window (via Update::CloseWindow return value, tracked here for logging)
@@ -529,6 +536,10 @@ pub struct CallbackInfoRefData<'a> {
 /// data lives on the stack and outlives the callback invocation.
 /// This allows callbacks to "consume" CallbackInfo by value while the caller
 /// retains access to the same underlying data.
+/// 
+/// The `changes` field uses a pointer to Arc<Mutex<...>> so that cloned CallbackInfo instances
+/// (e.g., passed to timer callbacks) still push changes to the original collection,
+/// while keeping CallbackInfo as Copy.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct CallbackInfo {
@@ -544,15 +555,20 @@ pub struct CallbackInfo {
     cursor_relative_to_item: OptionLogicalPosition,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**
     cursor_in_viewport: OptionLogicalPosition,
-    // Transaction Container (New System)
+    // Transaction Container (New System) - Uses pointer to Arc<Mutex> for shared access across clones
     /// All changes made by the callback, applied atomically after callback returns
+    /// Stored as raw pointer so CallbackInfo remains Copy
+    #[cfg(feature = "std")]
+    changes: *const Arc<Mutex<Vec<CallbackChange>>>,
+    #[cfg(not(feature = "std"))]
     changes: *mut Vec<CallbackChange>,
 }
 
 impl CallbackInfo {
+    #[cfg(feature = "std")]
     pub fn new<'a>(
         ref_data: &'a CallbackInfoRefData<'a>,
-        changes: &'a mut Vec<CallbackChange>,
+        changes: &'a Arc<Mutex<Vec<CallbackChange>>>,
         hit_dom_node: DomNodeId,
         cursor_relative_to_item: OptionLogicalPosition,
         cursor_in_viewport: OptionLogicalPosition,
@@ -568,7 +584,24 @@ impl CallbackInfo {
             cursor_relative_to_item,
             cursor_in_viewport,
 
-            // Transaction container (new system)
+            // Transaction container - store pointer to Arc<Mutex> for shared access
+            changes: changes as *const Arc<Mutex<Vec<CallbackChange>>>,
+        }
+    }
+    
+    #[cfg(not(feature = "std"))]
+    pub fn new<'a>(
+        ref_data: &'a CallbackInfoRefData<'a>,
+        changes: &'a mut Vec<CallbackChange>,
+        hit_dom_node: DomNodeId,
+        cursor_relative_to_item: OptionLogicalPosition,
+        cursor_in_viewport: OptionLogicalPosition,
+    ) -> Self {
+        Self {
+            ref_data: unsafe { core::mem::transmute(ref_data) },
+            hit_dom_node,
+            cursor_relative_to_item,
+            cursor_in_viewport,
             changes: changes as *mut Vec<CallbackChange>,
         }
     }
@@ -590,8 +623,48 @@ impl CallbackInfo {
 
     /// Push a change to be applied after the callback returns
     /// This is the primary method for modifying window state from callbacks
+    #[cfg(feature = "std")]
+    pub fn push_change(&mut self, change: CallbackChange) {
+        // SAFETY: The pointer is valid for the lifetime of the callback
+        unsafe {
+            println!("[DEBUG push_change] self.changes ptr = {:p}", self.changes);
+            if let Ok(mut changes) = (*self.changes).lock() {
+                println!("[DEBUG push_change] Pushing change: {:?}, total now: {}", 
+                    std::mem::discriminant(&change), changes.len() + 1);
+                changes.push(change);
+            } else {
+                println!("[DEBUG push_change] Failed to lock mutex!");
+            }
+        }
+    }
+    
+    #[cfg(not(feature = "std"))]
     pub fn push_change(&mut self, change: CallbackChange) {
         unsafe { (*self.changes).push(change) }
+    }
+    
+    /// Debug helper to get the changes pointer for debugging
+    #[cfg(feature = "std")]
+    pub fn get_changes_ptr(&self) -> *const () {
+        self.changes as *const ()
+    }
+    
+    /// Get the collected changes (consumes them from the Arc<Mutex>)
+    #[cfg(feature = "std")]
+    pub fn take_changes(&self) -> Vec<CallbackChange> {
+        // SAFETY: The pointer is valid for the lifetime of the callback
+        unsafe {
+            if let Ok(mut changes) = (*self.changes).lock() {
+                core::mem::take(&mut *changes)
+            } else {
+                Vec::new()
+            }
+        }
+    }
+    
+    #[cfg(not(feature = "std"))]
+    pub fn take_changes(&self) -> Vec<CallbackChange> {
+        unsafe { core::mem::take(&mut *self.changes) }
     }
 
     // Modern Api (using CallbackChange transactions)
@@ -639,6 +712,13 @@ impl CallbackInfo {
     /// Modify the window state (applied after callback returns)
     pub fn modify_window_state(&mut self, state: FullWindowState) {
         self.push_change(CallbackChange::ModifyWindowState { state });
+    }
+
+    /// Queue multiple window state changes to be applied in sequence.
+    /// Each state triggers a separate event processing cycle, which is needed
+    /// for simulating clicks where mouse down and mouse up must be separate events.
+    pub fn queue_window_state_sequence(&mut self, states: Vec<FullWindowState>) {
+        self.push_change(CallbackChange::QueueWindowStateSequence { states });
     }
 
     /// Change the text content of a node (applied after callback returns)
@@ -1148,6 +1228,14 @@ impl CallbackInfo {
 
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
         self.get_layout_window().get_node_position(node_id)
+    }
+
+    /// Get the hit test bounds of a node from the display list
+    /// 
+    /// This is more reliable than get_node_rect because the display list
+    /// always contains the correct final rendered positions.
+    pub fn get_node_hit_test_bounds(&self, node_id: DomNodeId) -> Option<LogicalRect> {
+        self.get_layout_window().get_node_hit_test_bounds(node_id)
     }
 
     /// Get the bounding rectangle of a node (position + size)
@@ -3014,6 +3102,9 @@ pub struct CallCallbacksResult {
     /// Hit test update requested at this position (for Debug API)
     /// When set, the shell layer should perform a hit test update before the next event dispatch
     pub hit_test_update_requested: Option<LogicalPosition>,
+    /// Queued window states to apply in sequence (for simulating clicks, etc.)
+    /// The shell layer should apply these one at a time, processing events after each.
+    pub queued_window_states: Vec<FullWindowState>,
 }
 
 impl Default for CallCallbacksResult {
@@ -3041,6 +3132,7 @@ impl Default for CallCallbacksResult {
             stop_propagation: false,
             prevent_default: false,
             hit_test_update_requested: None,
+            queued_window_states: Vec::new(),
         }
     }
 }
