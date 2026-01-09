@@ -415,6 +415,8 @@ impl ScrollManager {
     }
 
     /// Scrolls to an absolute position with animation
+    /// 
+    /// If duration is zero, the position is set immediately without animation.
     pub fn scroll_to(
         &mut self,
         dom_id: DomId,
@@ -424,6 +426,17 @@ impl ScrollManager {
         easing: EasingFunction,
         now: Instant,
     ) {
+        // For zero duration, set position immediately
+        let is_zero = match &duration {
+            Duration::System(s) => s.secs == 0 && s.nanos == 0,
+            Duration::Tick(t) => t.tick_diff == 0,
+        };
+        
+        if is_zero {
+            self.set_scroll_position(dom_id, node_id, target, now);
+            return;
+        }
+        
         let state = self
             .states
             .entry((dom_id, node_id))
