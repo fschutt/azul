@@ -350,7 +350,13 @@ define_class!(
                     for result in &timer_results {
                         // Apply window state changes from callback result
                         // Also process queued_window_states (for debug server click simulation)
-                        if result.modified_window_state.is_some() || !result.queued_window_states.is_empty() {
+                        // Also process nodes_scrolled_in_callbacks (for scroll_node_by API)
+                        let has_window_changes = result.modified_window_state.is_some() 
+                            || !result.queued_window_states.is_empty();
+                        let has_scroll_changes = result.nodes_scrolled_in_callbacks.as_ref()
+                            .map(|s| !s.is_empty()).unwrap_or(false);
+                        
+                        if has_window_changes || has_scroll_changes {
                             // Save previous state BEFORE applying changes (for sync_window_state diff)
                             macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
                             let _ = macos_window.process_callback_result_v2(result);
@@ -756,7 +762,13 @@ define_class!(
                     for result in &timer_results {
                         // Apply window state changes from callback result
                         // Also process queued_window_states (for debug server click simulation)
-                        if result.modified_window_state.is_some() || !result.queued_window_states.is_empty() {
+                        // Also process nodes_scrolled_in_callbacks (for scroll_node_by API)
+                        let has_window_changes = result.modified_window_state.is_some() 
+                            || !result.queued_window_states.is_empty();
+                        let has_scroll_changes = result.nodes_scrolled_in_callbacks.as_ref()
+                            .map(|s| !s.is_empty()).unwrap_or(false);
+                        
+                        if has_window_changes || has_scroll_changes {
                             // Save previous state BEFORE applying changes (for sync_window_state diff)
                             macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
                             let _ = macos_window.process_callback_result_v2(result);
