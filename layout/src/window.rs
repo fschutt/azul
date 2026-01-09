@@ -224,6 +224,9 @@ pub struct CallbackChangeResult {
     pub nodes_scrolled: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
     /// Modified window state
     pub modified_window_state: FullWindowState,
+    /// Queued window states to apply in sequence (for simulating clicks, etc.)
+    /// Each state will trigger separate event processing to detect state changes.
+    pub queued_window_states: Vec<FullWindowState>,
     /// Hit test update requested at this position (for Debug API)
     /// When set, the shell layer should perform a hit test update before processing events
     pub hit_test_update_requested: Option<LogicalPosition>,
@@ -1073,6 +1076,32 @@ impl LayoutWindow {
         Some(*position)
     }
 
+    /// Get the hit test bounds of a node from the display list
+    /// 
+    /// This is more reliable than get_node_position + get_node_size because
+    /// the display list always contains the correct final rendered positions,
+    /// including for nodes that may not have entries in calculated_positions.
+    pub fn get_node_hit_test_bounds(&self, node_id: DomNodeId) -> Option<LogicalRect> {
+        use crate::solver3::display_list::DisplayListItem;
+        
+        let layout_result = self.layout_results.get(&node_id.dom)?;
+        let nid = node_id.node.into_crate_internal()?;
+        
+        // Get the actual tag_id from styled_nodes (matches what get_tag_id in display_list.rs uses)
+        let styled_nodes = layout_result.styled_dom.styled_nodes.as_container();
+        let tag_id = styled_nodes.get(nid)?.tag_id.into_option()?.inner;
+        
+        // Search the display list for a HitTestArea with matching tag
+        for item in &layout_result.display_list.items {
+            if let DisplayListItem::HitTestArea { bounds, tag } = item {
+                if *tag == tag_id && bounds.size.width > 0.0 && bounds.size.height > 0.0 {
+                    return Some(*bounds);
+                }
+            }
+        }
+        None
+    }
+
     /// Get the parent of a node
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         let layout_result = self.layout_results.get(&node_id.dom)?;
@@ -1322,6 +1351,12 @@ impl LayoutWindow {
             match change {
                 CallbackChange::ModifyWindowState { state } => {
                     result.modified_window_state = state;
+                }
+                CallbackChange::QueueWindowStateSequence { states } => {
+                    // Queue the states to be processed in sequence.
+                    // The first state is applied immediately, subsequent states
+                    // are stored for processing in future frames.
+                    result.queued_window_states.extend(states);
                 }
                 CallbackChange::CreateNewWindow { options } => {
                     result.windows_created.push(options);
@@ -2730,6 +2765,7 @@ impl LayoutWindow {
             stop_propagation: false,
             prevent_default: false,
             hit_test_update_requested: None,
+            queued_window_states: Vec::new(),
         };
 
         let mut should_terminate = TerminateTimer::Continue;
@@ -2755,8 +2791,10 @@ impl LayoutWindow {
             let cursor_relative_to_item = OptionLogicalPosition::None;
             let cursor_in_viewport = OptionLogicalPosition::None;
 
-            // Create changes vector for callback transaction system
-            let mut callback_changes = Vec::new();
+            // Create changes container for callback transaction system
+            // Uses Arc<Mutex> so that cloned CallbackInfo (e.g., in timer callbacks) 
+            // still push to the same collection
+            let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
             // Create reference data container (syntax sugar to reduce parameter count)
             // First get the ctx from the timer's callback before we borrow timer again
@@ -2779,7 +2817,7 @@ impl LayoutWindow {
 
             let callback_info = CallbackInfo::new(
                 &ref_data,
-                &mut callback_changes,
+                &callback_changes,
                 hit_dom_node,
                 cursor_relative_to_item,
                 cursor_in_viewport,
@@ -2790,9 +2828,19 @@ impl LayoutWindow {
             ret.callbacks_update_screen = tcr.should_update;
             should_terminate = tcr.should_terminate;
 
+            // Extract changes from the Arc<Mutex> - they may have been pushed by
+            // cloned CallbackInfo instances (e.g., in timer callbacks)
+            println!("[DEBUG run_single_timer] callback_changes Arc ptr = {:p}", &callback_changes as *const _);
+            println!("[DEBUG run_single_timer] callback_info.changes ptr = {:p}", callback_info.get_changes_ptr());
+            let collected_changes = callback_changes.lock()
+                .map(|mut guard| core::mem::take(&mut *guard))
+                .unwrap_or_default();
+            
+            println!("[DEBUG run_single_timer] collected_changes.len() = {}", collected_changes.len());
+
             // Apply callback changes collected during timer execution
             let change_result = self.apply_callback_changes(
-                callback_changes,
+                collected_changes,
                 current_window_state,
                 image_cache,
                 system_fonts,
@@ -2846,6 +2894,11 @@ impl LayoutWindow {
             // Forward hit test update request to shell layer
             if change_result.hit_test_update_requested.is_some() {
                 ret.hit_test_update_requested = change_result.hit_test_update_requested;
+            }
+            
+            // Forward queued window states to shell layer for sequential processing
+            if !change_result.queued_window_states.is_empty() {
+                ret.queued_window_states = change_result.queued_window_states;
             }
 
             // Handle focus target outside the timer block so it's available later
@@ -2916,6 +2969,7 @@ impl LayoutWindow {
             stop_propagation: false,
             prevent_default: false,
             hit_test_update_requested: None,
+            queued_window_states: Vec::new(),
         };
 
         let mut ret_modified_window_state = current_window_state.clone();
@@ -2983,8 +3037,8 @@ impl LayoutWindow {
                 ThreadReceiveMsg::WriteBack(t) => t,
             };
 
-            // Create changes vector for callback transaction system
-            let mut callback_changes = Vec::new();
+            // Create changes container for callback transaction system
+            let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
             // Create reference data container (syntax sugar to reduce parameter count)
             let ref_data = crate::callbacks::CallbackInfoRefData {
@@ -3002,7 +3056,7 @@ impl LayoutWindow {
 
             let callback_info = CallbackInfo::new(
                 &ref_data,
-                &mut callback_changes,
+                &callback_changes,
                 hit_dom_node,
                 cursor_relative_to_item,
                 cursor_in_viewport,
@@ -3014,9 +3068,14 @@ impl LayoutWindow {
             );
             ret.callbacks_update_screen.max_self(callback_update);
 
+            // Extract changes from the Arc<Mutex>
+            let collected_changes = callback_changes.lock()
+                .map(|mut guard| core::mem::take(&mut *guard))
+                .unwrap_or_default();
+
             // Apply callback changes collected during thread writeback
             let change_result = self.apply_callback_changes(
-                callback_changes,
+                collected_changes,
                 current_window_state,
                 image_cache,
                 system_fonts,
@@ -3179,6 +3238,7 @@ impl LayoutWindow {
             stop_propagation: false,
             prevent_default: false,
             hit_test_update_requested: None,
+            queued_window_states: Vec::new(),
         };
 
         let mut ret_modified_window_state = current_window_state.clone();
@@ -3199,8 +3259,8 @@ impl LayoutWindow {
         let cursor_relative_to_item = OptionLogicalPosition::None;
         let cursor_in_viewport = OptionLogicalPosition::None;
 
-        // Create changes vector for callback transaction system
-        let mut callback_changes = Vec::new();
+        // Create changes container for callback transaction system
+        let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
         // Create reference data container (syntax sugar to reduce parameter count)
         let ref_data = crate::callbacks::CallbackInfoRefData {
@@ -3218,7 +3278,7 @@ impl LayoutWindow {
 
         let callback_info = CallbackInfo::new(
             &ref_data,
-            &mut callback_changes,
+            &callback_changes,
             hit_dom_node,
             cursor_relative_to_item,
             cursor_in_viewport,
@@ -3226,9 +3286,14 @@ impl LayoutWindow {
 
         ret.callbacks_update_screen = (callback.cb)(data.clone(), callback_info);
 
+        // Extract changes from the Arc<Mutex>
+        let collected_changes = callback_changes.lock()
+            .map(|mut guard| core::mem::take(&mut *guard))
+            .unwrap_or_default();
+
         // Apply callback changes collected during callback execution
         let change_result = self.apply_callback_changes(
-            callback_changes,
+            collected_changes,
             current_window_state,
             image_cache,
             system_fonts,
@@ -3350,6 +3415,7 @@ impl LayoutWindow {
             stop_propagation: false,
             prevent_default: false,
             hit_test_update_requested: None,
+            queued_window_states: Vec::new(),
         };
 
         let mut ret_modified_window_state = current_window_state.clone();
@@ -3370,8 +3436,8 @@ impl LayoutWindow {
         let cursor_relative_to_item = OptionLogicalPosition::None;
         let cursor_in_viewport = OptionLogicalPosition::None;
 
-        // Create changes vector for callback transaction system
-        let mut callback_changes = Vec::new();
+        // Create changes container for callback transaction system
+        let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
         // Create reference data container (syntax sugar to reduce parameter count)
         let ref_data = crate::callbacks::CallbackInfoRefData {
@@ -3389,7 +3455,7 @@ impl LayoutWindow {
 
         let callback_info = CallbackInfo::new(
             &ref_data,
-            &mut callback_changes,
+            &callback_changes,
             hit_dom_node,
             cursor_relative_to_item,
             cursor_in_viewport,
@@ -3398,9 +3464,14 @@ impl LayoutWindow {
         ret.callbacks_update_screen =
             (menu_callback.callback.cb)(menu_callback.refany.clone(), callback_info);
 
+        // Extract changes from the Arc<Mutex>
+        let collected_changes = callback_changes.lock()
+            .map(|mut guard| core::mem::take(&mut *guard))
+            .unwrap_or_default();
+
         // Apply callback changes collected during menu callback execution
         let change_result = self.apply_callback_changes(
-            callback_changes,
+            collected_changes,
             current_window_state,
             image_cache,
             system_fonts,

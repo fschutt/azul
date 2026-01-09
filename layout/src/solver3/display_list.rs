@@ -2259,7 +2259,11 @@ fn get_scroll_content_size(node: &LayoutNode) -> LogicalSize {
 }
 
 fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<DisplayListTagId> {
-    id.map(|i| i.index() as u64)
+    let node_id = id?;
+    let styled_nodes = dom.styled_nodes.as_container();
+    let styled_node = styled_nodes.get(node_id)?;
+    let tag_id = styled_node.tag_id.into_option()?;
+    Some(tag_id.inner)
 }
 
 fn get_image_key_for_src(src: &ImageRefHash, namespace: IdNamespace) -> ImageKey {
