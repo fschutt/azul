@@ -474,20 +474,15 @@ pub fn translate_displaylist_to_wr(
                 // - u16 is for additional data (usually 0)
                 let item_tag: ItemTag = (*tag, 0);
 
-                let info = CommonItemProperties {
-                    clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
-                    flags: WrPrimitiveFlags::default(),
-                };
-
-                // Push a transparent rect with the hit test tag
-                // This creates a hittable area without visible rendering
-                builder.push_rect(&info, rect, ColorF::TRANSPARENT);
-
-                // Note: In newer WebRender versions, there's a dedicated push_hit_test() method
-                // For version 0.62.2, we use transparent rects with ItemTags in
-                // CommonItemProperties The tag will be returned in hit test results
+                // Use WebRender's push_hit_test to create a hittable area
+                // This is required for the hit tester to find items at cursor position
+                builder.push_hit_test(
+                    rect,
+                    *clip_stack.last().unwrap(),
+                    *spatial_stack.last().unwrap(),
+                    WrPrimitiveFlags::default(),
+                    item_tag,
+                );
 
                 log_debug!(LogCategory::DisplayList, 
                     "[compositor2] HitTestArea: bounds={:?}, tag={:?}",
