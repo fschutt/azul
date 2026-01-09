@@ -736,7 +736,7 @@ fn resolve_node_center(
     if let Some(nid) = resolve_node_target(callback_info, selector, node_id, text) {
         let dom_node_id = DomNodeId {
             dom: dom_id,
-            node: NodeId::from_usize(nid.index()).into(),
+            node: Some(nid).into(),
         };
         if let Some(rect) = callback_info.get_node_rect(dom_node_id) {
             return Some((
@@ -1444,13 +1444,13 @@ fn process_debug_event(
                 // Direct position provided
                 Some((*x, *y))
             } else if let Some(nid) = node_id {
-                // Click by node ID
+                // Click by node ID - use hit test bounds from display list
                 let dom_id = DomId { inner: 0 };
                 let dom_node_id = DomNodeId {
                     dom: dom_id,
-                    node: NodeId::from_usize(*nid as usize).into(),
+                    node: Some(NodeId::new(*nid as usize)).into(),
                 };
-                if let Some(rect) = callback_info.get_node_rect(dom_node_id) {
+                if let Some(rect) = callback_info.get_node_hit_test_bounds(dom_node_id) {
                     Some((rect.origin.x + rect.size.width / 2.0, rect.origin.y + rect.size.height / 2.0))
                 } else {
                     None
@@ -1486,9 +1486,10 @@ fn process_debug_event(
                             ) {
                                 let dom_node_id = DomNodeId {
                                     dom: dom_id.clone(),
-                                    node: NodeId::from_usize(i).into(),
+                                    node: Some(NodeId::new(i)).into(),
                                 };
-                                if let Some(rect) = callback_info.get_node_rect(dom_node_id) {
+                                // Use get_node_hit_test_bounds for reliable positions from display list
+                                if let Some(rect) = callback_info.get_node_hit_test_bounds(dom_node_id) {
                                     found = Some((rect.origin.x + rect.size.width / 2.0, rect.origin.y + rect.size.height / 2.0));
                                     break;
                                 }
@@ -1515,7 +1516,7 @@ fn process_debug_event(
                                 // For text nodes, get the parent's rect (the container)
                                 let dom_node_id = DomNodeId {
                                     dom: dom_id.clone(),
-                                    node: NodeId::from_usize(i).into(),
+                                    node: Some(NodeId::new(i)).into(),
                                 };
                                 // Try parent first (text nodes might not have rects)
                                 let hierarchy = styled_dom.node_hierarchy.as_container();
@@ -1523,12 +1524,13 @@ fn process_debug_event(
                                 let parent_idx = if node_hier.parent > 0 { node_hier.parent - 1 } else { i };
                                 let parent_dom_node_id = DomNodeId {
                                     dom: dom_id.clone(),
-                                    node: NodeId::from_usize(parent_idx).into(),
+                                    node: Some(NodeId::new(parent_idx)).into(),
                                 };
-                                if let Some(rect) = callback_info.get_node_rect(parent_dom_node_id) {
+                                // Use get_node_hit_test_bounds for reliable positions from display list
+                                if let Some(rect) = callback_info.get_node_hit_test_bounds(parent_dom_node_id) {
                                     found = Some((rect.origin.x + rect.size.width / 2.0, rect.origin.y + rect.size.height / 2.0));
                                     break;
-                                } else if let Some(rect) = callback_info.get_node_rect(dom_node_id) {
+                                } else if let Some(rect) = callback_info.get_node_hit_test_bounds(dom_node_id) {
                                     found = Some((rect.origin.x + rect.size.width / 2.0, rect.origin.y + rect.size.height / 2.0));
                                     break;
                                 }
@@ -1550,26 +1552,36 @@ fn process_debug_event(
                         None,
                     );
 
-                    // Click = mouse down + mouse up at same position
-                    let mut new_state = callback_info.get_current_window_state().clone();
-                    new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
+                    // Click = mouse move + mouse down + mouse up at same position
+                    // We use queue_window_state_sequence to ensure each state change
+                    // is processed separately, allowing the event system to detect
+                    // the transitions (down→up) and trigger the appropriate callbacks.
+                    let base_state = callback_info.get_current_window_state().clone();
+                    
+                    // State 1: Move cursor to position
+                    let mut move_state = base_state.clone();
+                    move_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
                         LogicalPosition { x: cx, y: cy }
                     );
-                    // First set button down
-                    match button {
-                        MouseButton::Left => new_state.mouse_state.left_down = true,
-                        MouseButton::Right => new_state.mouse_state.right_down = true,
-                        MouseButton::Middle => new_state.mouse_state.middle_down = true,
-                    }
-                    callback_info.modify_window_state(new_state.clone());
                     
-                    // Then set button up (this should trigger the mouseUp event)
+                    // State 2: Mouse button down
+                    let mut down_state = move_state.clone();
                     match button {
-                        MouseButton::Left => new_state.mouse_state.left_down = false,
-                        MouseButton::Right => new_state.mouse_state.right_down = false,
-                        MouseButton::Middle => new_state.mouse_state.middle_down = false,
+                        MouseButton::Left => down_state.mouse_state.left_down = true,
+                        MouseButton::Right => down_state.mouse_state.right_down = true,
+                        MouseButton::Middle => down_state.mouse_state.middle_down = true,
                     }
-                    callback_info.modify_window_state(new_state);
+                    
+                    // State 3: Mouse button up (this triggers MouseUp event)
+                    let mut up_state = down_state.clone();
+                    match button {
+                        MouseButton::Left => up_state.mouse_state.left_down = false,
+                        MouseButton::Right => up_state.mouse_state.right_down = false,
+                        MouseButton::Middle => up_state.mouse_state.middle_down = false,
+                    }
+                    
+                    // Queue all states to be applied in sequence across frames
+                    callback_info.queue_window_state_sequence(vec![move_state, down_state, up_state]);
                     needs_update = true;
 
                     let response = ClickNodeResponse {
@@ -1754,7 +1766,7 @@ fn process_debug_event(
             
             let dom_node_id = DomNodeId {
                 dom: DomId { inner: 0 },
-                node: NodeId::from_usize(nid as usize).into(),
+                node: Some(NodeId::new(nid as usize)).into(),
             };
             
             // Collect all CSS properties that are set on this node
@@ -1797,7 +1809,7 @@ fn process_debug_event(
             
             let dom_node_id = DomNodeId {
                 dom: DomId { inner: 0 },
-                node: NodeId::from_usize(nid as usize).into(),
+                node: Some(NodeId::new(nid as usize)).into(),
             };
             
             let size = callback_info.get_node_size(dom_node_id);
@@ -1826,7 +1838,7 @@ fn process_debug_event(
                 for i in 0..node_count {
                     let dom_node_id = DomNodeId {
                         dom: dom_id.clone(),
-                        node: NodeId::from_usize(i).into(),
+                        node: Some(NodeId::new(i)).into(),
                     };
                     
                     let rect = callback_info.get_node_rect(dom_node_id);
@@ -2361,7 +2373,7 @@ fn process_debug_event(
                         if t.as_str().contains(text.as_str()) {
                             let dom_node_id = DomNodeId {
                                 dom: dom_id.clone(),
-                                node: NodeId::from_usize(i).into(),
+                                node: Some(NodeId::new(i)).into(),
                             };
                             found_node = Some((i, dom_node_id));
                             break;
@@ -2411,7 +2423,7 @@ fn process_debug_event(
             let dom_id = DomId { inner: 0 };
             let dom_node_id = DomNodeId {
                 dom: dom_id.clone(),
-                node: NodeId::from_usize(*node_id as usize).into(),
+                node: Some(NodeId::new(*node_id as usize)).into(),
             };
             
             // Get the node's rect to find the center position
