@@ -454,6 +454,7 @@ pub fn fullhittest_new_webrender(
 
     let mut cursor_location = match cursor_position {
         CursorPosition::OutOfWindow(_) | CursorPosition::Uninitialized => {
+            println!("[DEBUG fullhittest] cursor out of window or uninitialized");
             return FullHitTest::empty(old_focus_node);
         }
         CursorPosition::InWindow(pos) => LogicalPosition::new(pos.x, pos.y),
@@ -479,14 +480,24 @@ pub fn fullhittest_new_webrender(
 
             let layout_result = match layout_results.get(dom_id) {
                 Some(s) => s,
-                None => break,
+                None => {
+                    println!("[DEBUG fullhittest] no layout_result for dom_id={}", dom_id.inner);
+                    break;
+                }
             };
 
             // Perform WebRender hit test at cursor position
-            let wr_result = wr_hittester.hit_test(WrWorldPoint::new(
+            let physical_pos = WrWorldPoint::new(
                 cursor_relative_to_dom.x * hidpi_factor.inner.get(),
                 cursor_relative_to_dom.y * hidpi_factor.inner.get(),
-            ));
+            );
+            let wr_result = wr_hittester.hit_test(physical_pos);
+            
+            println!("[DEBUG fullhittest] cursor_logical=({}, {}), physical=({}, {}), hidpi={}, wr_result.items.len()={}", 
+                cursor_relative_to_dom.x, cursor_relative_to_dom.y,
+                physical_pos.x, physical_pos.y,
+                hidpi_factor.inner.get(),
+                wr_result.items.len());
 
             // Convert WebRender hit test results to azul hit test items
             let hit_items = wr_result
