@@ -188,9 +188,9 @@ echo -e "${BLUE}=== Test 2: DOM Tree Structure ===${NC}"
 RESPONSE=$(send_command '{"op":"get_dom_tree"}')
 echo "$RESPONSE" > "$OUTPUT_DIR/dom_tree.json"
 
-DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
-if [ -n "$DATA" ]; then
-    NODE_COUNT=$(echo "$DATA" | jq -r '.node_count // 0' 2>/dev/null || echo "0")
+VALUE=$(echo "$RESPONSE" | jq -r '.data.value // empty' 2>/dev/null)
+if [ -n "$VALUE" ]; then
+    NODE_COUNT=$(echo "$VALUE" | jq -r '.node_count // 0' 2>/dev/null || echo "0")
     echo "  Node count: $NODE_COUNT"
     
     # We expect many nodes (header + scroll container + 50 items + footer)
@@ -214,16 +214,16 @@ echo -e "${BLUE}=== Test 3: Initial Scroll State ===${NC}"
 RESPONSE=$(send_command '{"op":"get_scroll_states"}')
 echo "$RESPONSE" > "$OUTPUT_DIR/scroll_states_initial.json"
 
-DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
-if [ -n "$DATA" ]; then
-    SCROLL_COUNT=$(echo "$DATA" | jq -r '.scroll_node_count // 0' 2>/dev/null || echo "0")
+VALUE=$(echo "$RESPONSE" | jq -r '.data.value // empty' 2>/dev/null)
+if [ -n "$VALUE" ]; then
+    SCROLL_COUNT=$(echo "$VALUE" | jq -r '.scroll_node_count // 0' 2>/dev/null || echo "0")
     echo "  Scrollable nodes: $SCROLL_COUNT"
     
     if [ "$SCROLL_COUNT" -ge 1 ]; then
         echo -e "  ${GREEN}✓ PASS:${NC} Found scrollable node(s)"
         
         # Show scroll state details
-        echo "$DATA" | jq -r '.scroll_states[] | "    Node \(.node_id): scroll=(\(.scroll_x), \(.scroll_y)) content=\(.content_width)x\(.content_height) container=\(.container_width)x\(.container_height)"' 2>/dev/null || true
+        echo "$VALUE" | jq -r '.scroll_states[] | "    Node \(.node_id): scroll=(\(.scroll_x), \(.scroll_y)) content=\(.content_width)x\(.content_height) container=\(.container_width)x\(.container_height)"' 2>/dev/null || true
     else
         echo -e "  ${YELLOW}⚠ WARN:${NC} No scrollable nodes found yet (may need content overflow)"
     fi
@@ -271,9 +271,9 @@ send_command '{"op":"wait_frame"}' > /dev/null 2>&1
 RESPONSE=$(send_command '{"op":"get_scroll_states"}')
 echo "$RESPONSE" > "$OUTPUT_DIR/scroll_states_after_scroll.json"
 
-DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
-if [ -n "$DATA" ]; then
-    SCROLL_Y=$(echo "$DATA" | jq -r '.scroll_states[0].scroll_y // 0' 2>/dev/null || echo "0")
+VALUE=$(echo "$RESPONSE" | jq -r '.data.value // empty' 2>/dev/null)
+if [ -n "$VALUE" ]; then
+    SCROLL_Y=$(echo "$VALUE" | jq -r '.scroll_states[0].scroll_y // 0' 2>/dev/null || echo "0")
     echo "  Current scroll_y: $SCROLL_Y"
     
     # Check if scroll position changed (negative = scrolled down)
@@ -288,9 +288,9 @@ fi
 # Take screenshot after scroll
 if [ "$TAKE_SCREENSHOTS" = "true" ]; then
     RESPONSE=$(send_command '{"op":"take_native_screenshot"}')
-    DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
-    if [ -n "$DATA" ] && [[ "$DATA" == data:image/png\;base64,* ]]; then
-        BASE64_DATA="${DATA#data:image/png;base64,}"
+    SCREENSHOT_DATA=$(echo "$RESPONSE" | jq -r '.data.value // empty' 2>/dev/null)
+    if [ -n "$SCREENSHOT_DATA" ] && [[ "$SCREENSHOT_DATA" == data:image/png\;base64,* ]]; then
+        BASE64_DATA="${SCREENSHOT_DATA#data:image/png;base64,}"
         echo "$BASE64_DATA" | base64 -d > "$SCREENSHOT_DIR/02_scrolled_down.png"
         echo -e "  ${GREEN}✓${NC} Screenshot: $SCREENSHOT_DIR/02_scrolled_down.png"
     fi
@@ -307,15 +307,15 @@ sleep 0.3
 send_command '{"op":"wait_frame"}' > /dev/null 2>&1
 
 RESPONSE=$(send_command '{"op":"get_scroll_states"}')
-DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
-SCROLL_Y=$(echo "$DATA" | jq -r '.scroll_states[0].scroll_y // 0' 2>/dev/null || echo "0")
+VALUE=$(echo "$RESPONSE" | jq -r '.data.value // empty' 2>/dev/null)
+SCROLL_Y=$(echo "$VALUE" | jq -r '.scroll_states[0].scroll_y // 0' 2>/dev/null || echo "0")
 echo "  Current scroll_y: $SCROLL_Y"
 
 if [ "$TAKE_SCREENSHOTS" = "true" ]; then
     RESPONSE=$(send_command '{"op":"take_native_screenshot"}')
-    DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
-    if [ -n "$DATA" ] && [[ "$DATA" == data:image/png\;base64,* ]]; then
-        BASE64_DATA="${DATA#data:image/png;base64,}"
+    SCREENSHOT_DATA=$(echo "$RESPONSE" | jq -r '.data.value // empty' 2>/dev/null)
+    if [ -n "$SCREENSHOT_DATA" ] && [[ "$SCREENSHOT_DATA" == data:image/png\;base64,* ]]; then
+        BASE64_DATA="${SCREENSHOT_DATA#data:image/png;base64,}"
         echo "$BASE64_DATA" | base64 -d > "$SCREENSHOT_DIR/03_scrolled_more.png"
         echo -e "  ${GREEN}✓${NC} Screenshot: $SCREENSHOT_DIR/03_scrolled_more.png"
     fi
@@ -332,15 +332,15 @@ sleep 0.3
 send_command '{"op":"wait_frame"}' > /dev/null 2>&1
 
 RESPONSE=$(send_command '{"op":"get_scroll_states"}')
-DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
-SCROLL_Y=$(echo "$DATA" | jq -r '.scroll_states[0].scroll_y // 0' 2>/dev/null || echo "0")
+VALUE=$(echo "$RESPONSE" | jq -r '.data.value // empty' 2>/dev/null)
+SCROLL_Y=$(echo "$VALUE" | jq -r '.scroll_states[0].scroll_y // 0' 2>/dev/null || echo "0")
 echo "  Current scroll_y: $SCROLL_Y"
 
 if [ "$TAKE_SCREENSHOTS" = "true" ]; then
     RESPONSE=$(send_command '{"op":"take_native_screenshot"}')
-    DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
-    if [ -n "$DATA" ] && [[ "$DATA" == data:image/png\;base64,* ]]; then
-        BASE64_DATA="${DATA#data:image/png;base64,}"
+    SCREENSHOT_DATA=$(echo "$RESPONSE" | jq -r '.data.value // empty' 2>/dev/null)
+    if [ -n "$SCREENSHOT_DATA" ] && [[ "$SCREENSHOT_DATA" == data:image/png\;base64,* ]]; then
+        BASE64_DATA="${SCREENSHOT_DATA#data:image/png;base64,}"
         echo "$BASE64_DATA" | base64 -d > "$SCREENSHOT_DIR/04_scrolled_up.png"
         echo -e "  ${GREEN}✓${NC} Screenshot: $SCREENSHOT_DIR/04_scrolled_up.png"
     fi
@@ -355,11 +355,11 @@ echo -e "${BLUE}=== Test 7: Display List ===${NC}"
 RESPONSE=$(send_command '{"op":"get_display_list"}')
 echo "$RESPONSE" > "$OUTPUT_DIR/display_list.json"
 
-DATA=$(echo "$RESPONSE" | jq -r '.data // empty' 2>/dev/null)
-if [ -n "$DATA" ]; then
-    TOTAL_ITEMS=$(echo "$DATA" | jq -r '.total_items // 0' 2>/dev/null || echo "0")
-    TEXT_COUNT=$(echo "$DATA" | jq -r '.text_count // 0' 2>/dev/null || echo "0")
-    RECT_COUNT=$(echo "$DATA" | jq -r '.rect_count // 0' 2>/dev/null || echo "0")
+VALUE=$(echo "$RESPONSE" | jq -r '.data.value // empty' 2>/dev/null)
+if [ -n "$VALUE" ]; then
+    TOTAL_ITEMS=$(echo "$VALUE" | jq -r '.total_items // 0' 2>/dev/null || echo "0")
+    TEXT_COUNT=$(echo "$VALUE" | jq -r '.text_count // 0' 2>/dev/null || echo "0")
+    RECT_COUNT=$(echo "$VALUE" | jq -r '.rect_count // 0' 2>/dev/null || echo "0")
     
     echo "  Display list items: $TOTAL_ITEMS"
     echo "  Rects: $RECT_COUNT, Texts: $TEXT_COUNT"

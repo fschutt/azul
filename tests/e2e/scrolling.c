@@ -75,11 +75,11 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&scroll_container, item);
     }
     
-    // Style the container to have fixed height with overflow: auto
+    // Style the container with explicit height and overflow: auto
     // This should trigger automatic vertical scrollbar
     AzString container_style = AzString_copyFromBytes(
-        "flex: 1; overflow: auto; padding: 10px; background-color: #ffffff; "
-        "border: 2px solid #4a90d9; margin: 10px;", 0, 111);
+        "height: 300px; overflow: auto; padding: 10px; background-color: #ffffff; "
+        "border: 2px solid #4a90d9; margin: 10px;", 0, 114);
     AzDom_setInlineStyle(&scroll_container, container_style);
     
     // Create footer with scroll info
@@ -139,9 +139,8 @@ int main(int argc, char** argv) {
     ScrollTestData model = { .item_count = item_count };
     AzRefAny data = ScrollTestData_upcast(model);
     
-    AzLayoutCallback layout_cb = AzLayoutCallback_create(layout);
-    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout_cb);
-    AzString title = AzString_copyFromBytes((const uint8_t*)"Scrolling Test", 0, 14);
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
+    AzString title = AzString_copyFromBytes("Scrolling Test", 0, 14);
     window.window_state.title = title;
     window.window_state.size.dimensions.width = 600.0;
     window.window_state.size.dimensions.height = 500.0;
