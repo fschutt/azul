@@ -3036,7 +3036,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             let result = match refany.callbacks.on_node_dragged.as_ref() {
                 Some(OnNodeDragged { callback, refany }) => (callback.cb)(
                     refany.clone(),
-                    info,
+                    info.clone(),
                     node_graph_node_id,
                     NodeDragAmount { x: dx, y: dy },
                 ),
@@ -3174,7 +3174,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
         None => {
             let result = match refany.callbacks.on_node_graph_dragged.as_ref() {
                 Some(OnNodeGraphDragged { callback, refany }) => {
-                    (callback.cb)(refany.clone(), info, GraphDragAmount { x: dx, y: dy })
+                    (callback.cb)(refany.clone(), info.clone(), GraphDragAmount { x: dx, y: dy })
                 }
                 None => Update::DoNothing,
             };
