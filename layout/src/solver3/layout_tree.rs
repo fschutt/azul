@@ -250,13 +250,22 @@ pub struct LayoutNode {
     /// Cached scrollbar information (calculated during layout)
     /// Used to determine if scrollbars appeared/disappeared requiring reflow
     pub scrollbar_info: Option<ScrollbarRequirements>,
+    /// The actual content size (children overflow size) for scrollable containers.
+    /// This is the size of all content that might need to be scrolled, which can
+    /// be larger than `used_size` when content overflows the container.
+    pub overflow_content_size: Option<LogicalSize>,
 }
 
 impl LayoutNode {
     /// Calculates the actual content size of this node, including all children and text.
     /// This is used to determine if scrollbars should appear for overflow: auto.
     pub fn get_content_size(&self) -> LogicalSize {
-        // Start with the node's own size
+        // First, check if we have overflow_content_size from layout computation
+        if let Some(content_size) = self.overflow_content_size {
+            return content_size;
+        }
+        
+        // Fall back to computing from used_size and text layout
         let mut content_size = self.used_size.unwrap_or_default();
 
         // If this node has text layout, calculate the bounds of all text items
@@ -798,6 +807,7 @@ impl LayoutTreeBuilder {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             scrollbar_info: None,
+            overflow_content_size: None,
         });
 
         self.nodes[parent].children.push(index);
@@ -852,6 +862,7 @@ impl LayoutTreeBuilder {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             scrollbar_info: None,
+            overflow_content_size: None,
         });
 
         // Insert as FIRST child (per spec)
@@ -898,6 +909,7 @@ impl LayoutTreeBuilder {
             escaped_top_margin: None,
             escaped_bottom_margin: None,
             scrollbar_info: None,
+            overflow_content_size: None,
         });
         if let Some(p) = parent {
             self.nodes[p].children.push(index);

@@ -1282,18 +1282,51 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                             let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
                             let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
                             
+                            // For scrollbar detection, we need to compare content size against
+                            // the CSS-specified container size, not the final laid-out size.
+                            // For nodes with explicit height + overflow:auto, the CSS height is
+                            // the constraint, while content may overflow that.
+                            let css_height = get_css_height(self.ctx.styled_dom, dom_id, &styled_node_state);
+                            let css_width = get_css_width(self.ctx.styled_dom, dom_id, &styled_node_state);
+                            
+                            // Helper to extract pixel value from LayoutHeight/LayoutWidth
+                            let height_to_px = |h: azul_css::props::layout::LayoutHeight| -> Option<f32> {
+                                match h {
+                                    azul_css::props::layout::LayoutHeight::Px(px) => pixel_value_to_pixels_fallback(&px),
+                                    _ => None,
+                                }
+                            };
+                            let width_to_px = |w: azul_css::props::layout::LayoutWidth| -> Option<f32> {
+                                match w {
+                                    azul_css::props::layout::LayoutWidth::Px(px) => pixel_value_to_pixels_fallback(&px),
+                                    _ => None,
+                                }
+                            };
+                            
+                            // Use CSS-specified size if available, otherwise fall back to final size
+                            let css_container_height = css_height
+                                .exact()
+                                .and_then(|h| height_to_px(h))
+                                .unwrap_or(final_height - padding_height - border_height);
+                            let css_container_width = css_width
+                                .exact()
+                                .and_then(|w| width_to_px(w))
+                                .unwrap_or(final_width - padding_width - border_width);
+                            
                             let content_size = LogicalSize::new(content_width, content_height);
                             let container_size = LogicalSize::new(
-                                final_width - padding_width - border_width,
-                                final_height - padding_height - border_height,
+                                css_container_width,
+                                css_container_height,
                             );
                             
-                            crate::solver3::fc::check_scrollbar_necessity(
+                            let scrollbar_result = crate::solver3::fc::check_scrollbar_necessity(
                                 content_size,
                                 container_size,
                                 crate::solver3::cache::to_overflow_behavior(overflow_x),
                                 crate::solver3::cache::to_overflow_behavior(overflow_y),
-                            )
+                            );
+                            
+                            scrollbar_result
                         })
                         .unwrap_or_default()
                 };
@@ -1305,6 +1338,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                         height: final_height,
                     });
                     node.scrollbar_info = Some(scrollbar_info);
+                    // Store the actual content size for scroll calculations
+                    node.overflow_content_size = Some(LogicalSize {
+                        width: content_width,
+                        height: content_height,
+                    });
                 }
 
                 // Return the same size to Taffy for correct positioning
