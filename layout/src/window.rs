@@ -529,16 +529,28 @@ impl LayoutWindow {
         }
 
         // After successful layout, update the accessibility tree
+        // Note: This is wrapped in catch_unwind to prevent a11y issues from crashing the app
         #[cfg(feature = "a11y")]
         if result.is_ok() {
-            let tree_update = crate::managers::a11y::A11yManager::update_tree(
-                self.a11y_manager.root_id,
-                &self.layout_results,
-                &self.current_window_state.title,
-                self.current_window_state.size.dimensions,
-            );
-            // Store the tree_update for platform adapter to consume
-            self.a11y_manager.last_tree_update = Some(tree_update);
+            // Use catch_unwind to prevent a11y panics from crashing the main application
+            let a11y_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::managers::a11y::A11yManager::update_tree(
+                    self.a11y_manager.root_id,
+                    &self.layout_results,
+                    &self.current_window_state.title,
+                    self.current_window_state.size.dimensions,
+                )
+            }));
+            
+            match a11y_result {
+                Ok(tree_update) => {
+                    // Store the tree_update for platform adapter to consume
+                    self.a11y_manager.last_tree_update = Some(tree_update);
+                }
+                Err(_) => {
+                    // A11y update failed - log and continue without a11y
+                }
+            }
         }
 
         // After layout, automatically scroll cursor into view if there's a focused text input

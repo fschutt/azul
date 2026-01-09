@@ -139,10 +139,15 @@ impl A11yManager {
                 let hierarchy_item = &node_hierarchy[node_index];
 
                 // Find accessible parent by walking up the tree
+                // Safety: limit iterations to prevent infinite loops in case of malformed hierarchy
                 let mut parent_node_index = hierarchy_item.parent;
                 let mut accessible_parent_id = None;
+                let max_hierarchy_depth = 10_000; // Limit for UI tree depth
+                let mut iterations = 0;
 
-                while parent_node_index != usize::MAX {
+                while parent_node_index != usize::MAX && iterations < max_hierarchy_depth {
+                    iterations += 1;
+                    
                     if let Some(parent_a11y_id) =
                         node_id_map.get(&(dom_id.inner as u32, parent_node_index as u32))
                     {
@@ -150,6 +155,10 @@ impl A11yManager {
                         break;
                     }
                     // Parent doesn't have a11y node, walk up further
+                    // Check bounds before accessing
+                    if parent_node_index >= node_hierarchy.len() {
+                        break;
+                    }
                     let parent_item = &node_hierarchy[parent_node_index];
                     parent_node_index = parent_item.parent;
                 }

@@ -49,20 +49,44 @@ impl LinuxAccessibilityAdapter {
         };
         let deactivation_handler = AccessibilityDeactivationHandler;
 
-        // Create the accesskit adapter - this sets up the DBus connection
-        let adapter = Adapter::new(activation_handler, action_handler, deactivation_handler);
+        // Create the accesskit adapter - wrap in catch_unwind for safety
+        // DBus connection can fail in various ways
+        let adapter_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Adapter::new(activation_handler, action_handler, deactivation_handler)
+        }));
 
-        *self.adapter.lock().unwrap() = Some(adapter);
-
-        Ok(())
+        match adapter_result {
+            Ok(adapter) => {
+                if let Ok(mut guard) = self.adapter.try_lock() {
+                    *guard = Some(adapter);
+                }
+                Ok(())
+            }
+            Err(_) => {
+                // Accessibility initialization failed - not critical, continue without it
+                Ok(())
+            }
+        }
     }
 
     /// Update the accessibility tree
     ///
     /// This should be called after layout when the accessibility tree changes.
+    ///
+    /// # Note
+    /// This function is designed to be non-blocking. If the a11y lock cannot
+    /// be acquired immediately, the update is skipped to prevent UI hangs.
     pub fn update_tree(&self, tree_update: TreeUpdate) {
-        if let Some(adapter) = self.adapter.lock().unwrap().as_mut() {
-            adapter.update_if_active(|| tree_update);
+        // Use try_lock to avoid blocking the UI thread
+        let Ok(mut guard) = self.adapter.try_lock() else {
+            return; // Skip update if lock not available
+        };
+        
+        if let Some(adapter) = guard.as_mut() {
+            // Wrap in catch_unwind to prevent panics from crashing the app
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                adapter.update_if_active(|| tree_update);
+            }));
         }
     }
 
@@ -77,8 +101,12 @@ impl LinuxAccessibilityAdapter {
     /// Returns actions that screen readers or other AT requested,
     /// which should be processed by the application.
     pub fn take_pending_actions(&self) -> Vec<ActionRequest> {
-        let mut pending = self.pending_actions.lock().unwrap();
-        std::mem::take(&mut *pending)
+        // Use try_lock to avoid blocking
+        if let Ok(mut pending) = self.pending_actions.try_lock() {
+            std::mem::take(&mut *pending)
+        } else {
+            Vec::new()
+        }
     }
 }
 
@@ -99,7 +127,10 @@ impl ActivationHandler for AccessibilityActionHandler {
 impl ActionHandler for AccessibilityActionHandler {
     fn do_action(&mut self, request: ActionRequest) {
         // Queue the action for processing by the main event loop
-        self.pending_actions.lock().unwrap().push(request);
+        // Use try_lock to avoid blocking - drop action if lock unavailable
+        if let Ok(mut pending) = self.pending_actions.try_lock() {
+            pending.push(request);
+        }
     }
 }
 
