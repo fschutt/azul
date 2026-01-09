@@ -176,7 +176,7 @@ use crate::desktop::wr_translate2::{self, AsyncHitTester, WrRenderApi};
 ///
 /// Events can trigger callbacks that regenerate the DOM, which triggers new events.
 /// This limit prevents infinite loops.
-const MAX_EVENT_RECURSION_DEPTH: usize = 5;
+const MAX_EVENT_RECURSION_DEPTH: usize = 7;
 
 /// Unique timer ID for auto-scroll during drag selection.
 ///
@@ -1928,6 +1928,13 @@ pub trait PlatformWindowV2 {
 
         // Recurse if needed (DOM regeneration)
         if should_recurse && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
+            // CRITICAL: Update previous_state BEFORE recursing to prevent the same
+            // mouse/keyboard events from being detected again. Without this, a MouseUp
+            // event would trigger the callback on every recursion level, causing
+            // the callback to fire multiple times for a single click.
+            let current = self.get_current_window_state().clone();
+            self.set_previous_window_state(current);
+            
             let recursive_result = self.process_window_events_recursive_v2(depth + 1);
             result = result.max(recursive_result);
         }
