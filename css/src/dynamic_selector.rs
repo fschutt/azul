@@ -721,7 +721,7 @@ impl CssPropertyWithConditionsVec {
     /// Parse CSS properties from a string, all with "normal" (unconditional) state
     #[cfg(feature = "parser")]
     pub fn parse_normal(style: &str) -> Self {
-        use crate::props::property::{parse_css_property, CssPropertyType, CssKeyMap};
+        use crate::props::property::{parse_css_property, parse_combined_css_property, CssPropertyType, CombinedCssPropertyType, CssKeyMap};
         
         let mut props = Vec::new();
         let key_map = CssKeyMap::get();
@@ -735,9 +735,19 @@ impl CssPropertyWithConditionsVec {
             if let Some((key, value)) = pair.split_once(':') {
                 let key = key.trim();
                 let value = value.trim();
+                // First, try to parse as a regular (non-shorthand) property
                 if let Some(prop_type) = CssPropertyType::from_str(key, &key_map) {
                     if let Ok(prop) = parse_css_property(prop_type, value) {
                         props.push(CssPropertyWithConditions::simple(prop));
+                        continue;
+                    }
+                }
+                // If not found, try as a shorthand (combined) property (e.g., overflow, margin, padding)
+                if let Some(combined_type) = CombinedCssPropertyType::from_str(key, &key_map) {
+                    if let Ok(expanded_props) = parse_combined_css_property(combined_type, value) {
+                        for prop in expanded_props {
+                            props.push(CssPropertyWithConditions::simple(prop));
+                        }
                     }
                 }
             }
@@ -749,7 +759,7 @@ impl CssPropertyWithConditionsVec {
     /// Parse CSS properties from a string, all with hover condition
     #[cfg(feature = "parser")]
     pub fn parse_hover(style: &str) -> Self {
-        use crate::props::property::{parse_css_property, CssPropertyType, CssKeyMap};
+        use crate::props::property::{parse_css_property, parse_combined_css_property, CssPropertyType, CombinedCssPropertyType, CssKeyMap};
         
         let mut props = Vec::new();
         let key_map = CssKeyMap::get();
@@ -762,9 +772,19 @@ impl CssPropertyWithConditionsVec {
             if let Some((key, value)) = pair.split_once(':') {
                 let key = key.trim();
                 let value = value.trim();
+                // First, try to parse as a regular (non-shorthand) property
                 if let Some(prop_type) = CssPropertyType::from_str(key, &key_map) {
                     if let Ok(prop) = parse_css_property(prop_type, value) {
                         props.push(CssPropertyWithConditions::on_hover(prop));
+                        continue;
+                    }
+                }
+                // If not found, try as a shorthand (combined) property
+                if let Some(combined_type) = CombinedCssPropertyType::from_str(key, &key_map) {
+                    if let Ok(expanded_props) = parse_combined_css_property(combined_type, value) {
+                        for prop in expanded_props {
+                            props.push(CssPropertyWithConditions::on_hover(prop));
+                        }
                     }
                 }
             }
@@ -776,7 +796,7 @@ impl CssPropertyWithConditionsVec {
     /// Parse CSS properties from a string, all with active condition
     #[cfg(feature = "parser")]
     pub fn parse_active(style: &str) -> Self {
-        use crate::props::property::{parse_css_property, CssPropertyType, CssKeyMap};
+        use crate::props::property::{parse_css_property, parse_combined_css_property, CssPropertyType, CombinedCssPropertyType, CssKeyMap};
         
         let mut props = Vec::new();
         let key_map = CssKeyMap::get();
@@ -789,9 +809,19 @@ impl CssPropertyWithConditionsVec {
             if let Some((key, value)) = pair.split_once(':') {
                 let key = key.trim();
                 let value = value.trim();
+                // First, try to parse as a regular (non-shorthand) property
                 if let Some(prop_type) = CssPropertyType::from_str(key, &key_map) {
                     if let Ok(prop) = parse_css_property(prop_type, value) {
                         props.push(CssPropertyWithConditions::on_active(prop));
+                        continue;
+                    }
+                }
+                // If not found, try as a shorthand (combined) property
+                if let Some(combined_type) = CombinedCssPropertyType::from_str(key, &key_map) {
+                    if let Ok(expanded_props) = parse_combined_css_property(combined_type, value) {
+                        for prop in expanded_props {
+                            props.push(CssPropertyWithConditions::on_active(prop));
+                        }
                     }
                 }
             }
@@ -803,7 +833,7 @@ impl CssPropertyWithConditionsVec {
     /// Parse CSS properties from a string, all with focus condition
     #[cfg(feature = "parser")]
     pub fn parse_focus(style: &str) -> Self {
-        use crate::props::property::{parse_css_property, CssPropertyType, CssKeyMap};
+        use crate::props::property::{parse_css_property, parse_combined_css_property, CssPropertyType, CombinedCssPropertyType, CssKeyMap};
         
         let mut props = Vec::new();
         let key_map = CssKeyMap::get();
@@ -816,9 +846,19 @@ impl CssPropertyWithConditionsVec {
             if let Some((key, value)) = pair.split_once(':') {
                 let key = key.trim();
                 let value = value.trim();
+                // First, try to parse as a regular (non-shorthand) property
                 if let Some(prop_type) = CssPropertyType::from_str(key, &key_map) {
                     if let Ok(prop) = parse_css_property(prop_type, value) {
                         props.push(CssPropertyWithConditions::on_focus(prop));
+                        continue;
+                    }
+                }
+                // If not found, try as a shorthand (combined) property
+                if let Some(combined_type) = CombinedCssPropertyType::from_str(key, &key_map) {
+                    if let Ok(expanded_props) = parse_combined_css_property(combined_type, value) {
+                        for prop in expanded_props {
+                            props.push(CssPropertyWithConditions::on_focus(prop));
+                        }
                     }
                 }
             }
