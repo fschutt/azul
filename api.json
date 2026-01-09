@@ -19324,66 +19324,31 @@
             "struct_fields": [
               {
                 "width": {
-                  "type": "LayoutWidth",
-                  "doc": [
-                    "Total width (or height for vertical scrollbars) of the scrollbar in pixels"
-                  ]
-                }
-              },
-              {
+                  "type": "LayoutWidth"
+                },
                 "padding_left": {
-                  "type": "LayoutPaddingLeft",
-                  "doc": [
-                    "Padding of the scrollbar tracker, in pixels. The inner bar is `width - padding` pixels wide."
-                  ]
-                }
-              },
-              {
+                  "type": "LayoutPaddingLeft"
+                },
                 "padding_right": {
-                  "type": "LayoutPaddingRight",
-                  "doc": [
-                    "Padding of the scrollbar (right)"
-                  ]
-                }
-              },
-              {
+                  "type": "LayoutPaddingRight"
+                },
                 "track": {
-                  "type": "StyleBackgroundContent",
-                  "doc": [
-                    "Style of the scrollbar background (`-webkit-scrollbar` / `-webkit-scrollbar-track` / `-webkit-scrollbar-track-piece` combined)"
-                  ]
-                }
-              },
-              {
+                  "type": "StyleBackgroundContent"
+                },
                 "thumb": {
-                  "type": "StyleBackgroundContent",
-                  "doc": [
-                    "Style of the scrollbar thumbs (the \"up\" / \"down\" arrows), (`-webkit-scrollbar-thumb`)"
-                  ]
-                }
-              },
-              {
+                  "type": "StyleBackgroundContent"
+                },
                 "button": {
-                  "type": "StyleBackgroundContent",
-                  "doc": [
-                    "Styles the directional buttons on the scrollbar (`-webkit-scrollbar-button`)"
-                  ]
-                }
-              },
-              {
+                  "type": "StyleBackgroundContent"
+                },
                 "corner": {
-                  "type": "StyleBackgroundContent",
-                  "doc": [
-                    "If two scrollbars are present, addresses the (usually) bottom corner of the scrollable element, where two scrollbars might meet (`-webkit-scrollbar-corner`)"
-                  ]
-                }
-              },
-              {
+                  "type": "StyleBackgroundContent"
+                },
                 "resizer": {
-                  "type": "StyleBackgroundContent",
-                  "doc": [
-                    "Addresses the draggable resizing handle that appears above the `corner` at the bottom corner of some elements (`-webkit-resizer`)"
-                  ]
+                  "type": "StyleBackgroundContent"
+                },
+                "clip_to_container_border": {
+                  "type": "bool"
                 }
               }
             ],
@@ -26487,66 +26452,6 @@
               },
               {
                 "Other": {}
-              }
-            ],
-            "repr": "C"
-          },
-          "DynamicSelectorContext": {
-            "external": "azul_css::dynamic_selector::DynamicSelectorContext",
-            "custom_impls": [
-              "Default"
-            ],
-            "derive": [
-              "Debug",
-              "Clone"
-            ],
-            "struct_fields": [
-              {
-                "os": {
-                  "type": "OsCondition"
-                },
-                "os_version": {
-                  "type": "String"
-                },
-                "desktop_env": {
-                  "type": "OptionLinuxDesktopEnv"
-                },
-                "theme": {
-                  "type": "ThemeCondition"
-                },
-                "media_type": {
-                  "type": "MediaType"
-                },
-                "viewport_width": {
-                  "type": "f32"
-                },
-                "viewport_height": {
-                  "type": "f32"
-                },
-                "container_width": {
-                  "type": "f32"
-                },
-                "container_height": {
-                  "type": "f32"
-                },
-                "container_name": {
-                  "type": "OptionString"
-                },
-                "prefers_reduced_motion": {
-                  "type": "BoolCondition"
-                },
-                "prefers_high_contrast": {
-                  "type": "BoolCondition"
-                },
-                "orientation": {
-                  "type": "OrientationType"
-                },
-                "pseudo_state": {
-                  "type": "PseudoStateFlags"
-                },
-                "language": {
-                  "type": "String"
-                }
               }
             ],
             "repr": "C"
@@ -51973,26 +51878,6 @@
               }
             ],
             "repr": "C"
-          },
-          "OptionLinuxDesktopEnv": {
-            "external": "azul_css::dynamic_selector::OptionLinuxDesktopEnv",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialEq",
-              "Eq",
-              "Hash"
-            ],
-            "enum_fields": [
-              {
-                "None": {},
-                "Some": {
-                  "type": "LinuxDesktopEnv"
-                }
-              }
-            ],
-            "repr": "C"
           }
         }
       },
@@ -53913,44 +53798,6 @@
               }
             ],
             "repr": "C, u8"
-          },
-          "PseudoStateFlags": {
-            "external": "azul_css::dynamic_selector::PseudoStateFlags",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "Default",
-              "PartialEq",
-              "Eq",
-              "Hash"
-            ],
-            "struct_fields": [
-              {
-                "hover": {
-                  "type": "bool"
-                },
-                "active": {
-                  "type": "bool"
-                },
-                "focused": {
-                  "type": "bool"
-                },
-                "disabled": {
-                  "type": "bool"
-                },
-                "checked": {
-                  "type": "bool"
-                },
-                "focus_within": {
-                  "type": "bool"
-                },
-                "visited": {
-                  "type": "bool"
-                }
-              }
-            ],
-            "repr": "C"
           }
         }
       }
