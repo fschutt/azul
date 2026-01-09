@@ -23,30 +23,33 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzCssProperty font_size = AzCssProperty_fontSize(AzStyleFontSize_px(50.0));
     AzDom_addCssProperty(&label, font_size);
 
-    AzDom button = AzDom_createDiv();
-    AzCssProperty flex_grow = AzCssProperty_flexGrow(AzLayoutFlexGrow_new(1.0));
-    AzDom_addCssProperty(&button, flex_grow);
+    // Create a proper Button widget instead of a plain div
     AzString button_text = AzString_copyFromBytes("Increase counter", 0, 16);
-    AzDom_addChild(&button, AzDom_createText(button_text));
-    
-    AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
+    AzButton button = AzButton_create(button_text);
     AzRefAny data_clone = AzRefAny_clone(&data);
-    AzDom_addCallback(&button, event, data_clone, on_click);
+    AzButton_setOnClick(&button, data_clone, on_click);
+    AzDom button_dom = AzButton_dom(button);
 
     AzDom body = AzDom_createBody();
     AzDom_addChild(&body, label);
-    AzDom_addChild(&body, button);
+    AzDom_addChild(&body, button_dom);
 
     AzCss css = AzCss_empty();
     return AzDom_style(&body, css);
 }
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
+    printf("[C CALLBACK] on_click called!\n");
+    fflush(stdout);
     MyDataModelRefMut d = MyDataModelRefMut_create(&data);
     if (!MyDataModel_downcastMut(&data, &d)) {
+        printf("[C CALLBACK] downcast failed!\n");
+        fflush(stdout);
         return AzUpdate_DoNothing;
     }
     d.ptr->counter += 1;
+    printf("[C CALLBACK] counter incremented to %d\n", d.ptr->counter);
+    fflush(stdout);
     MyDataModelRefMut_delete(&d);
     return AzUpdate_RefreshDom;
 }
