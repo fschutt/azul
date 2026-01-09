@@ -251,9 +251,12 @@ fi
 echo ""
 echo -e "${BLUE}=== Test 4: Scroll Down ===${NC}"
 
-# Send scroll event at center of window (300, 300), scroll down 200px
-echo "  Sending scroll event (delta_y=-200)..."
-RESPONSE=$(send_command '{"op":"scroll","x":300,"y":300,"delta_x":0,"delta_y":-200}')
+# Use scroll_node_by on node 3 (the scroll container) 
+# Note: "scroll" event only simulates mouse position, not actual scrolling
+# The scroll_node_by API directly modifies scroll position
+# Positive delta_y = scroll down (content moves up, viewport moves down)
+echo "  Scrolling node 3 by delta_y=200..."
+RESPONSE=$(send_command '{"op":"scroll_node_by","node_id":3,"delta_x":0,"delta_y":200}')
 STATUS=$(echo "$RESPONSE" | jq -r '.status' 2>/dev/null)
 
 if [ "$STATUS" = "ok" ]; then
@@ -276,10 +279,10 @@ if [ -n "$VALUE" ]; then
     SCROLL_Y=$(echo "$VALUE" | jq -r '.scroll_states[0].scroll_y // 0' 2>/dev/null || echo "0")
     echo "  Current scroll_y: $SCROLL_Y"
     
-    # Check if scroll position changed (negative = scrolled down)
+    # Check if scroll position changed (positive = scrolled down)
     SCROLL_Y_INT="${SCROLL_Y%.*}"
-    if [ "${SCROLL_Y_INT:-0}" -lt 0 ]; then
-        echo -e "  ${GREEN}✓ PASS:${NC} Content scrolled (scroll_y < 0)"
+    if [ "${SCROLL_Y_INT:-0}" -gt 0 ]; then
+        echo -e "  ${GREEN}✓ PASS:${NC} Content scrolled (scroll_y > 0)"
     else
         echo -e "  ${YELLOW}⚠ WARN:${NC} Scroll position unchanged (may need scrollable content)"
     fi
@@ -302,7 +305,9 @@ fi
 echo ""
 echo -e "${BLUE}=== Test 5: Scroll Down More ===${NC}"
 
-send_command '{"op":"scroll","x":300,"y":300,"delta_x":0,"delta_y":-300}' > /dev/null 2>&1
+# Positive delta_y = scroll down (scroll position increases)
+echo "  Scrolling node 3 by delta_y=300..."
+send_command '{"op":"scroll_node_by","node_id":3,"delta_x":0,"delta_y":300}' > /dev/null 2>&1
 sleep 0.3
 send_command '{"op":"wait_frame"}' > /dev/null 2>&1
 
@@ -327,7 +332,9 @@ fi
 echo ""
 echo -e "${BLUE}=== Test 6: Scroll Back Up ===${NC}"
 
-send_command '{"op":"scroll","x":300,"y":300,"delta_x":0,"delta_y":250}' > /dev/null 2>&1
+# Negative delta_y = scroll up (scroll position decreases)
+echo "  Scrolling node 3 by delta_y=-250..."
+send_command '{"op":"scroll_node_by","node_id":3,"delta_x":0,"delta_y":-250}' > /dev/null 2>&1
 sleep 0.3
 send_command '{"op":"wait_frame"}' > /dev/null 2>&1
 
