@@ -2066,6 +2066,36 @@ pub trait PlatformWindowV2 {
             }
         }
 
+        // Handle scroll position changes from callbacks (e.g., scroll_node_by API)
+        if let Some(ref nodes_scrolled) = result.nodes_scrolled_in_callbacks {
+            if !nodes_scrolled.is_empty() {
+                // Get current time for scroll animation
+                let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+                let now = (external.get_system_time_fn.cb)();
+
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    for (dom_id, node_map) in nodes_scrolled {
+                        for (hierarchy_id, target_position) in node_map {
+                            // Convert NodeHierarchyItemId to NodeId
+                            if let Some(node_id) = hierarchy_id.into_crate_internal() {
+                                // Use instant scroll (duration = 0) for programmatic scrolling
+                                layout_window.scroll_manager.scroll_to(
+                                    *dom_id,
+                                    node_id,
+                                    *target_position,
+                                    std::time::Duration::from_millis(0).into(),
+                                    azul_core::events::EasingFunction::Linear,
+                                    now.clone().into(),
+                                );
+                            }
+                        }
+                    }
+                    // Scrolling changes require re-render
+                    event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                }
+            }
+        }
+
         // Handle image updates
         if result.images_changed.is_some() || result.image_masks_changed.is_some() {
             event_result =

@@ -2129,6 +2129,26 @@ fn process_debug_event(
                                 z_index: None,
                             }
                         }
+                        azul_layout::solver3::display_list::DisplayListItem::ScrollBarStyled { info } => {
+                            other_count += 1;
+                            let orient_str = match info.orientation {
+                                azul_core::dom::ScrollbarOrientation::Vertical => "vertical_styled",
+                                azul_core::dom::ScrollbarOrientation::Horizontal => "horizontal_styled",
+                            };
+                            DisplayListItemInfo {
+                                index: idx,
+                                item_type: format!("scrollbar_{}", orient_str),
+                                x: Some(info.bounds.origin.x),
+                                y: Some(info.bounds.origin.y),
+                                width: Some(info.bounds.size.width),
+                                height: Some(info.bounds.size.height),
+                                color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", 
+                                    info.thumb_color.r, info.thumb_color.g, info.thumb_color.b, info.thumb_color.a)),
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
+                            }
+                        }
                         azul_layout::solver3::display_list::DisplayListItem::PushStackingContext { z_index, bounds } => {
                             other_count += 1;
                             DisplayListItemInfo {
