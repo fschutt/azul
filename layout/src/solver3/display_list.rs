@@ -51,8 +51,8 @@ use crate::{
         getters::{
             get_background_color, get_background_contents, get_border_info, get_border_radius,
             get_caret_style, get_overflow_x, get_overflow_y, get_scrollbar_info_from_layout,
-            get_selection_style, get_style_border_radius, get_z_index, BorderInfo, CaretStyle,
-            SelectionStyle,
+            get_scrollbar_style, get_selection_style, get_style_border_radius, get_z_index,
+            BorderInfo, CaretStyle, ComputedScrollbarStyle, SelectionStyle,
         },
         layout_tree::{LayoutNode, LayoutTree},
         positioning::get_position_type,
@@ -120,6 +120,52 @@ pub struct BorderBoxRect(pub LogicalRect);
 pub struct PhysicalSizeImport {
     pub width: f32,
     pub height: f32,
+}
+
+/// Complete drawing information for a scrollbar with all visual components.
+/// 
+/// This contains the resolved geometry and colors for all scrollbar parts:
+/// - Track: The background area where the thumb slides
+/// - Thumb: The draggable indicator showing current scroll position
+/// - Buttons: Optional up/down or left/right arrow buttons
+/// - Corner: The area where horizontal and vertical scrollbars meet
+#[derive(Debug, Clone)]
+pub struct ScrollbarDrawInfo {
+    /// Overall bounds of the entire scrollbar (including track and buttons)
+    pub bounds: LogicalRect,
+    /// Scrollbar orientation (horizontal or vertical)
+    pub orientation: ScrollbarOrientation,
+    
+    // Track area (the background rail)
+    /// Bounds of the track area
+    pub track_bounds: LogicalRect,
+    /// Color of the track background
+    pub track_color: ColorU,
+    
+    // Thumb (the draggable part)
+    /// Bounds of the thumb
+    pub thumb_bounds: LogicalRect,
+    /// Color of the thumb
+    pub thumb_color: ColorU,
+    /// Border radius for rounded thumb corners
+    pub thumb_border_radius: BorderRadius,
+    
+    // Optional buttons (arrows at ends)
+    /// Optional decrement button bounds (up/left arrow)
+    pub button_decrement_bounds: Option<LogicalRect>,
+    /// Optional increment button bounds (down/right arrow)
+    pub button_increment_bounds: Option<LogicalRect>,
+    /// Color for buttons
+    pub button_color: ColorU,
+    
+    /// Optional opacity key for GPU-side fading animation.
+    pub opacity_key: Option<OpacityKey>,
+    /// Optional hit-test ID for WebRender hit-testing.
+    pub hit_id: Option<azul_core::hit_test::ScrollbarHitId>,
+    /// Whether to clip scrollbar to container's border-radius
+    pub clip_to_container_border: bool,
+    /// Container's border-radius (for clipping)
+    pub container_border_radius: BorderRadius,
 }
 
 impl BorderBoxRect {
@@ -269,6 +315,7 @@ pub enum DisplayListItem {
         key: ImageKey,
     },
     /// A dedicated primitive for a scrollbar with optional GPU-animated opacity.
+    /// This is a simple single-color scrollbar used for basic rendering.
     ScrollBar {
         bounds: LogicalRect,
         color: ColorU,
@@ -280,6 +327,12 @@ pub enum DisplayListItem {
         /// Optional hit-test ID for WebRender hit-testing.
         /// If present, allows event handlers to identify which scrollbar component was clicked.
         hit_id: Option<azul_core::hit_test::ScrollbarHitId>,
+    },
+    /// A fully styled scrollbar with separate track, thumb, and optional buttons.
+    /// Used when CSS scrollbar properties are specified.
+    ScrollBarStyled {
+        /// Complete drawing information for all scrollbar components
+        info: Box<ScrollbarDrawInfo>,
     },
 
     /// An embedded IFrame that references a child DOM with its own display list.
@@ -478,6 +531,8 @@ impl DisplayListBuilder {
     pub fn push_hit_test_area(&mut self, bounds: LogicalRect, tag: DisplayListTagId) {
         self.push_item(DisplayListItem::HitTestArea { bounds, tag });
     }
+    
+    /// Push a simple single-color scrollbar (legacy method).
     pub fn push_scrollbar(
         &mut self,
         bounds: LogicalRect,
@@ -497,6 +552,17 @@ impl DisplayListBuilder {
             });
         }
     }
+    
+    /// Push a fully styled scrollbar with track, thumb, and optional buttons.
+    pub fn push_scrollbar_styled(&mut self, info: ScrollbarDrawInfo) {
+        // Only push if at least the thumb or track is visible
+        if info.thumb_color.a > 0 || info.track_color.a > 0 || info.opacity_key.is_some() {
+            self.push_item(DisplayListItem::ScrollBarStyled {
+                info: Box::new(info),
+            });
+        }
+    }
+    
     pub fn push_rect(&mut self, bounds: LogicalRect, color: ColorU, border_radius: BorderRadius) {
         if color.a > 0 {
             // Optimization: Don't draw fully transparent items.
@@ -1313,14 +1379,21 @@ where
         let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
 
         let border = &node.box_props.border;
+        
+        // Get scrollbar info to adjust clip rect for content area
+        let scrollbar_info = get_scrollbar_info_from_layout(node);
+        
+        // The clip rect for content should exclude the scrollbar area
+        // Scrollbars are drawn inside the border-box, on the right/bottom edges
         let clip_rect = LogicalRect {
             origin: LogicalPosition {
                 x: paint_rect.origin.x + border.left,
                 y: paint_rect.origin.y + border.top,
             },
             size: LogicalSize {
-                width: (paint_rect.size.width - border.left - border.right).max(0.0),
-                height: (paint_rect.size.height - border.top - border.bottom).max(0.0),
+                // Reduce width/height by scrollbar dimensions so content doesn't overlap scrollbar
+                width: (paint_rect.size.width - border.left - border.right - scrollbar_info.scrollbar_width).max(0.0),
+                height: (paint_rect.size.height - border.top - border.bottom - scrollbar_info.scrollbar_height).max(0.0),
             },
         };
 
@@ -1801,10 +1874,89 @@ where
         }
 
         // Check if we need to draw scrollbars for this node.
-        let scrollbar_info = get_scrollbar_info_from_layout(node); // This data would be cached from the layout phase.
+        let scrollbar_info = get_scrollbar_info_from_layout(node);
 
-        // Get node_id for GPU cache lookup
+        // Get node_id for GPU cache lookup and CSS style lookup
         let node_id = node.dom_node_id;
+        
+        // Get CSS scrollbar style for this node
+        let scrollbar_style = node_id
+            .map(|nid| {
+                let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
+                get_scrollbar_style(self.ctx.styled_dom, nid, node_state)
+            })
+            .unwrap_or_default();
+        
+        // Skip if scrollbar-width: none
+        if matches!(scrollbar_style.width_mode, azul_css::props::style::scrollbar::LayoutScrollbarWidth::None) {
+            return Ok(());
+        }
+        
+        // Get border dimensions to position scrollbar inside the border-box
+        let border = &node.box_props.border;
+        
+        // Get border-radius for potential clipping
+        let container_border_radius = node_id
+            .map(|nid| {
+                let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
+                let element_size = PhysicalSizeImport {
+                    width: paint_rect.size.width,
+                    height: paint_rect.size.height,
+                };
+                let viewport_size = LogicalSize::new(
+                    self.ctx.viewport_size.width,
+                    self.ctx.viewport_size.height,
+                );
+                get_border_radius(self.ctx.styled_dom, nid, node_state, element_size, viewport_size)
+            })
+            .unwrap_or_default();
+        
+        // Calculate the inner rect (content-box) where scrollbars should be placed
+        // Scrollbars are positioned inside the border, at the right/bottom edges
+        let inner_rect = LogicalRect {
+            origin: LogicalPosition::new(
+                paint_rect.origin.x + border.left,
+                paint_rect.origin.y + border.top,
+            ),
+            size: LogicalSize::new(
+                (paint_rect.size.width - border.left - border.right).max(0.0),
+                (paint_rect.size.height - border.top - border.bottom).max(0.0),
+            ),
+        };
+        
+        // Get scroll position for thumb calculation
+        // ScrollPosition contains parent_rect and children_rect
+        // The scroll offset is the difference between children_rect.origin and parent_rect.origin
+        let (scroll_offset_x, scroll_offset_y) = node_id.and_then(|nid| {
+            self.scroll_offsets.get(&nid).map(|pos| {
+                (
+                    pos.children_rect.origin.x - pos.parent_rect.origin.x,
+                    pos.children_rect.origin.y - pos.parent_rect.origin.y,
+                )
+            })
+        }).unwrap_or((0.0, 0.0));
+        
+        // Get content size for thumb proportional sizing
+        let content_size = if let Some(ref inline_layout) = node.inline_layout_result {
+            let bounds = inline_layout.layout.bounds();
+            LogicalSize::new(bounds.width, bounds.height)
+        } else {
+            // Fallback: estimate from scrollbar requirements
+            let container = node.used_size.unwrap_or_default();
+            LogicalSize::new(
+                if scrollbar_info.needs_horizontal { container.width * 2.0 } else { container.width },
+                if scrollbar_info.needs_vertical { container.height * 2.0 } else { container.height },
+            )
+        };
+        
+        // Calculate thumb border-radius (half the scrollbar width for pill-shaped thumb)
+        let thumb_radius = scrollbar_style.width_px / 2.0;
+        let thumb_border_radius = BorderRadius {
+            top_left: thumb_radius,
+            top_right: thumb_radius,
+            bottom_left: thumb_radius,
+            bottom_right: thumb_radius,
+        };
         
         if scrollbar_info.needs_vertical {
             // Look up opacity key from GPU cache
@@ -1817,27 +1969,57 @@ where
                 })
             });
 
-            // Calculate scrollbar bounds based on paint_rect
-            let sb_bounds = LogicalRect {
+            // Vertical scrollbar: positioned at the right edge of the inner rect
+            let track_height = if scrollbar_info.needs_horizontal {
+                inner_rect.size.height - scrollbar_style.width_px
+            } else {
+                inner_rect.size.height
+            };
+            
+            let track_bounds = LogicalRect {
                 origin: LogicalPosition::new(
-                    paint_rect.origin.x + paint_rect.size.width - scrollbar_info.scrollbar_width,
-                    paint_rect.origin.y,
+                    inner_rect.origin.x + inner_rect.size.width - scrollbar_style.width_px,
+                    inner_rect.origin.y,
                 ),
-                size: LogicalSize::new(scrollbar_info.scrollbar_width, paint_rect.size.height),
+                size: LogicalSize::new(scrollbar_style.width_px, track_height),
+            };
+            
+            // Calculate thumb size and position
+            let viewport_height = inner_rect.size.height;
+            let thumb_ratio = (viewport_height / content_size.height).min(1.0);
+            let thumb_height = (track_height * thumb_ratio).max(scrollbar_style.width_px * 2.0);
+            
+            let max_scroll = (content_size.height - viewport_height).max(0.0);
+            let scroll_ratio = if max_scroll > 0.0 { scroll_offset_y.abs() / max_scroll } else { 0.0 };
+            let thumb_y = track_bounds.origin.y + (track_height - thumb_height) * scroll_ratio.clamp(0.0, 1.0);
+            
+            let thumb_bounds = LogicalRect {
+                origin: LogicalPosition::new(track_bounds.origin.x, thumb_y),
+                size: LogicalSize::new(scrollbar_style.width_px, thumb_height),
             };
 
             // Generate hit-test ID for vertical scrollbar thumb
             let hit_id = node_id
                 .map(|nid| azul_core::hit_test::ScrollbarHitId::VerticalThumb(self.dom_id, nid));
 
-            builder.push_scrollbar(
-                sb_bounds,
-                ColorU::new(192, 192, 192, 255),
-                ScrollbarOrientation::Vertical,
+            builder.push_scrollbar_styled(ScrollbarDrawInfo {
+                bounds: track_bounds,
+                orientation: ScrollbarOrientation::Vertical,
+                track_bounds,
+                track_color: scrollbar_style.track_color,
+                thumb_bounds,
+                thumb_color: scrollbar_style.thumb_color,
+                thumb_border_radius,
+                button_decrement_bounds: None, // No buttons for modern scrollbars
+                button_increment_bounds: None,
+                button_color: scrollbar_style.button_color,
                 opacity_key,
                 hit_id,
-            );
+                clip_to_container_border: scrollbar_style.clip_to_container_border,
+                container_border_radius,
+            });
         }
+        
         if scrollbar_info.needs_horizontal {
             // Look up opacity key from GPU cache
             let opacity_key = node_id.and_then(|nid| {
@@ -1849,25 +2031,55 @@ where
                 })
             });
 
-            let sb_bounds = LogicalRect {
+            // Horizontal scrollbar: positioned at the bottom edge of the inner rect
+            let track_width = if scrollbar_info.needs_vertical {
+                inner_rect.size.width - scrollbar_style.width_px
+            } else {
+                inner_rect.size.width
+            };
+            
+            let track_bounds = LogicalRect {
                 origin: LogicalPosition::new(
-                    paint_rect.origin.x,
-                    paint_rect.origin.y + paint_rect.size.height - scrollbar_info.scrollbar_height,
+                    inner_rect.origin.x,
+                    inner_rect.origin.y + inner_rect.size.height - scrollbar_style.width_px,
                 ),
-                size: LogicalSize::new(paint_rect.size.width, scrollbar_info.scrollbar_height),
+                size: LogicalSize::new(track_width, scrollbar_style.width_px),
+            };
+            
+            // Calculate thumb size and position
+            let viewport_width = inner_rect.size.width;
+            let thumb_ratio = (viewport_width / content_size.width).min(1.0);
+            let thumb_width = (track_width * thumb_ratio).max(scrollbar_style.width_px * 2.0);
+            
+            let max_scroll = (content_size.width - viewport_width).max(0.0);
+            let scroll_ratio = if max_scroll > 0.0 { scroll_offset_x.abs() / max_scroll } else { 0.0 };
+            let thumb_x = track_bounds.origin.x + (track_width - thumb_width) * scroll_ratio.clamp(0.0, 1.0);
+            
+            let thumb_bounds = LogicalRect {
+                origin: LogicalPosition::new(thumb_x, track_bounds.origin.y),
+                size: LogicalSize::new(thumb_width, scrollbar_style.width_px),
             };
 
             // Generate hit-test ID for horizontal scrollbar thumb
             let hit_id = node_id
                 .map(|nid| azul_core::hit_test::ScrollbarHitId::HorizontalThumb(self.dom_id, nid));
 
-            builder.push_scrollbar(
-                sb_bounds,
-                ColorU::new(192, 192, 192, 255),
-                ScrollbarOrientation::Horizontal,
+            builder.push_scrollbar_styled(ScrollbarDrawInfo {
+                bounds: track_bounds,
+                orientation: ScrollbarOrientation::Horizontal,
+                track_bounds,
+                track_color: scrollbar_style.track_color,
+                thumb_bounds,
+                thumb_color: scrollbar_style.thumb_color,
+                thumb_border_radius,
+                button_decrement_bounds: None,
+                button_increment_bounds: None,
+                button_color: scrollbar_style.button_color,
                 opacity_key,
                 hit_id,
-            );
+                clip_to_container_border: scrollbar_style.clip_to_container_border,
+                container_border_radius,
+            });
         }
 
         Ok(())
@@ -2293,6 +2505,7 @@ fn get_display_item_bounds(item: &DisplayListItem) -> Option<LogicalRect> {
         DisplayListItem::Overline { bounds, .. } => Some(*bounds),
         DisplayListItem::Image { bounds, .. } => Some(*bounds),
         DisplayListItem::ScrollBar { bounds, .. } => Some(*bounds),
+        DisplayListItem::ScrollBarStyled { info } => Some(info.bounds),
         DisplayListItem::PushClip { bounds, .. } => Some(*bounds),
         DisplayListItem::PushScrollFrame { clip_bounds, .. } => Some(*clip_bounds),
         DisplayListItem::HitTestArea { bounds, .. } => Some(*bounds),
@@ -2442,6 +2655,30 @@ fn clip_and_offset_display_item(
             bounds,
             clip_rect,
         } => clip_iframe_item(*child_dom_id, *bounds, *clip_rect, page_top, page_bottom),
+
+        // ScrollBarStyled - clip based on overall bounds
+        DisplayListItem::ScrollBarStyled { info } => {
+            let bounds = info.bounds;
+            if bounds.origin.y + bounds.size.height < page_top || bounds.origin.y > page_bottom {
+                None
+            } else {
+                // Clone and offset all the internal bounds
+                let mut clipped_info = (**info).clone();
+                let y_offset = -page_top;
+                clipped_info.bounds = offset_rect_y(clipped_info.bounds, y_offset);
+                clipped_info.track_bounds = offset_rect_y(clipped_info.track_bounds, y_offset);
+                clipped_info.thumb_bounds = offset_rect_y(clipped_info.thumb_bounds, y_offset);
+                if let Some(b) = clipped_info.button_decrement_bounds {
+                    clipped_info.button_decrement_bounds = Some(offset_rect_y(b, y_offset));
+                }
+                if let Some(b) = clipped_info.button_increment_bounds {
+                    clipped_info.button_increment_bounds = Some(offset_rect_y(b, y_offset));
+                }
+                Some(DisplayListItem::ScrollBarStyled {
+                    info: Box::new(clipped_info),
+                })
+            }
+        }
 
         // State management items - skip for now (would need proper per-page tracking)
         DisplayListItem::PushClip { .. }
@@ -3526,6 +3763,21 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             opacity: *opacity,
         },
         DisplayListItem::PopOpacity => DisplayListItem::PopOpacity,
+        DisplayListItem::ScrollBarStyled { info } => {
+            let mut offset_info = (**info).clone();
+            offset_info.bounds = offset_rect_y(offset_info.bounds, y_offset);
+            offset_info.track_bounds = offset_rect_y(offset_info.track_bounds, y_offset);
+            offset_info.thumb_bounds = offset_rect_y(offset_info.thumb_bounds, y_offset);
+            if let Some(b) = offset_info.button_decrement_bounds {
+                offset_info.button_decrement_bounds = Some(offset_rect_y(b, y_offset));
+            }
+            if let Some(b) = offset_info.button_increment_bounds {
+                offset_info.button_increment_bounds = Some(offset_rect_y(b, y_offset));
+            }
+            DisplayListItem::ScrollBarStyled {
+                info: Box::new(offset_info),
+            }
+        }
     }
 }
 

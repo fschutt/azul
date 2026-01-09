@@ -2148,3 +2148,151 @@ where
 
     (chains, load_result)
 }
+
+// ============================================================================
+// Scrollbar Style Getters
+// ============================================================================
+
+use azul_css::props::style::scrollbar::{
+    LayoutScrollbarWidth, ScrollbarColorCustom, ScrollbarInfo, StyleScrollbarColor,
+    SCROLLBAR_CLASSIC_LIGHT,
+};
+
+/// Computed scrollbar style for a node, combining CSS properties
+#[derive(Debug, Clone)]
+pub struct ComputedScrollbarStyle {
+    /// The scrollbar width mode (auto/thin/none)
+    pub width_mode: LayoutScrollbarWidth,
+    /// Actual width in pixels (resolved from width_mode or scrollbar-style)
+    pub width_px: f32,
+    /// Thumb color
+    pub thumb_color: ColorU,
+    /// Track color
+    pub track_color: ColorU,
+    /// Button color (for scroll arrows)
+    pub button_color: ColorU,
+    /// Corner color (where scrollbars meet)
+    pub corner_color: ColorU,
+    /// Whether to clip the scrollbar to the container's border-radius
+    pub clip_to_container_border: bool,
+}
+
+impl Default for ComputedScrollbarStyle {
+    fn default() -> Self {
+        Self {
+            width_mode: LayoutScrollbarWidth::Auto,
+            width_px: 16.0, // Standard scrollbar width
+            thumb_color: ColorU::new(193, 193, 193, 255),
+            track_color: ColorU::new(241, 241, 241, 255),
+            button_color: ColorU::new(163, 163, 163, 255),
+            corner_color: ColorU::new(241, 241, 241, 255),
+            clip_to_container_border: false,
+        }
+    }
+}
+
+/// Get the computed scrollbar style for a node
+///
+/// This combines:
+/// - `scrollbar-width` property (auto/thin/none)
+/// - `scrollbar-color` property (thumb and track colors)
+/// - `-azul-scrollbar-style` property (full scrollbar customization)
+pub fn get_scrollbar_style(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> ComputedScrollbarStyle {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+
+    // Start with defaults
+    let mut result = ComputedScrollbarStyle::default();
+
+    // Check for -azul-scrollbar-style (full customization)
+    if let Some(scrollbar_style) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_scrollbar_style(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+    {
+        // Use the detailed scrollbar info
+        result.width_px = match scrollbar_style.horizontal.width {
+            azul_css::props::layout::dimensions::LayoutWidth::Px(px) => {
+                // Use to_pixels_internal with 100% = 16px and 1em = 16px as reasonable defaults
+                px.to_pixels_internal(16.0, 16.0)
+            }
+            _ => 16.0,
+        };
+        result.thumb_color = extract_color_from_background(&scrollbar_style.horizontal.thumb);
+        result.track_color = extract_color_from_background(&scrollbar_style.horizontal.track);
+        result.button_color = extract_color_from_background(&scrollbar_style.horizontal.button);
+        result.corner_color = extract_color_from_background(&scrollbar_style.horizontal.corner);
+        result.clip_to_container_border = scrollbar_style.horizontal.clip_to_container_border;
+    }
+
+    // Check for scrollbar-width (overrides width)
+    if let Some(scrollbar_width) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_scrollbar_width(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+    {
+        result.width_mode = *scrollbar_width;
+        result.width_px = match scrollbar_width {
+            LayoutScrollbarWidth::Auto => 16.0,
+            LayoutScrollbarWidth::Thin => 8.0,
+            LayoutScrollbarWidth::None => 0.0,
+        };
+    }
+
+    // Check for scrollbar-color (overrides thumb/track colors)
+    if let Some(scrollbar_color) = styled_dom
+        .css_property_cache
+        .ptr
+        .get_scrollbar_color(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+    {
+        match scrollbar_color {
+            StyleScrollbarColor::Auto => {
+                // Keep default colors
+            }
+            StyleScrollbarColor::Custom(custom) => {
+                result.thumb_color = custom.thumb;
+                result.track_color = custom.track;
+            }
+        }
+    }
+
+    result
+}
+
+/// Helper to extract a solid color from a StyleBackgroundContent
+fn extract_color_from_background(
+    bg: &azul_css::props::style::background::StyleBackgroundContent,
+) -> ColorU {
+    use azul_css::props::style::background::StyleBackgroundContent;
+    match bg {
+        StyleBackgroundContent::Color(c) => *c,
+        _ => ColorU::TRANSPARENT,
+    }
+}
+
+/// Check if a node should clip its scrollbar to the container's border-radius
+pub fn should_clip_scrollbar_to_border(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> bool {
+    let style = get_scrollbar_style(styled_dom, node_id, node_state);
+    style.clip_to_container_border
+}
+
+/// Get the scrollbar width in pixels for a node
+pub fn get_scrollbar_width_px(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> f32 {
+    let style = get_scrollbar_style(styled_dom, node_id, node_state);
+    style.width_px
+}
+
