@@ -2830,13 +2830,9 @@ impl LayoutWindow {
 
             // Extract changes from the Arc<Mutex> - they may have been pushed by
             // cloned CallbackInfo instances (e.g., in timer callbacks)
-            println!("[DEBUG run_single_timer] callback_changes Arc ptr = {:p}", &callback_changes as *const _);
-            println!("[DEBUG run_single_timer] callback_info.changes ptr = {:p}", callback_info.get_changes_ptr());
             let collected_changes = callback_changes.lock()
                 .map(|mut guard| core::mem::take(&mut *guard))
                 .unwrap_or_default();
-            
-            println!("[DEBUG run_single_timer] collected_changes.len() = {}", collected_changes.len());
 
             // Apply callback changes collected during timer execution
             let change_result = self.apply_callback_changes(

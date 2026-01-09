@@ -213,8 +213,6 @@ impl Timer {
 
         // Create a new TimerCallbackInfo wrapping the callback_info
         // CallbackInfo is Copy, so we can just copy it directly
-        #[cfg(feature = "std")]
-        println!("[DEBUG Timer::invoke] callback_info.changes ptr = {:p}", callback_info.get_changes_ptr());
         let mut timer_callback_info = TimerCallbackInfo {
             callback_info: *callback_info,
             node_id: self.node_id,
@@ -224,8 +222,6 @@ impl Timer {
             _abi_ref: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
         };
-        #[cfg(feature = "std")]
-        println!("[DEBUG Timer::invoke] timer_callback_info.callback_info.changes ptr = {:p}", timer_callback_info.callback_info.get_changes_ptr());
 
         let mut result = (self.callback.cb)(self.refany.clone(), timer_callback_info);
 

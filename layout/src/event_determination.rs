@@ -246,15 +246,12 @@ pub fn determine_all_events(
     };
 
     // Mouse Button Events
-    println!("[DEBUG determine_all_events] prev_left_down={}, curr_left_down={}", 
-        previous_state.mouse_state.left_down, current_state.mouse_state.left_down);
 
     let current_mouse_down = current_state.mouse_state.mouse_down();
     let previous_mouse_down = previous_state.mouse_state.mouse_down();
 
     // Left mouse button
     if current_state.mouse_state.left_down && !previous_state.mouse_state.left_down {
-        println!("[DEBUG determine_all_events] Detected MouseDown event!");
         events.push(SyntheticEvent::new(
             EventType::MouseDown,
             EventSource::User,
@@ -264,7 +261,6 @@ pub fn determine_all_events(
         ));
     }
     if !current_state.mouse_state.left_down && previous_state.mouse_state.left_down {
-        println!("[DEBUG determine_all_events] Detected MouseUp event!");
         events.push(SyntheticEvent::new(
             EventType::MouseUp,
             EventSource::User,

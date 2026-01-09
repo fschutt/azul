@@ -627,13 +627,8 @@ impl CallbackInfo {
     pub fn push_change(&mut self, change: CallbackChange) {
         // SAFETY: The pointer is valid for the lifetime of the callback
         unsafe {
-            println!("[DEBUG push_change] self.changes ptr = {:p}", self.changes);
             if let Ok(mut changes) = (*self.changes).lock() {
-                println!("[DEBUG push_change] Pushing change: {:?}, total now: {}", 
-                    std::mem::discriminant(&change), changes.len() + 1);
                 changes.push(change);
-            } else {
-                println!("[DEBUG push_change] Failed to lock mutex!");
             }
         }
     }

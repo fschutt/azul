@@ -3793,17 +3793,13 @@ impl MacOSWindow {
         // CRITICAL: Invoke expired timer callbacks FIRST, before any rendering
         // This allows timer callbacks (like the debug server timer) to run
         let timer_results = self.invoke_expired_timers();
-        println!("[DEBUG render_and_present] timer_results.len() = {}", timer_results.len());
         if !timer_results.is_empty() {
             log_trace!(LogCategory::Timer, "[render_and_present] Invoked {} timer callbacks", timer_results.len());
             
             // Process each callback result to handle window state modifications
             // and queued_window_states (for debug server click simulation)
             for result in &timer_results {
-                println!("[DEBUG render_and_present] result.queued_window_states.len() = {}", result.queued_window_states.len());
-                println!("[DEBUG render_and_present] result.modified_window_state.is_some() = {}", result.modified_window_state.is_some());
                 if result.modified_window_state.is_some() || !result.queued_window_states.is_empty() {
-                    println!("[DEBUG render_and_present] PROCESSING callback result with queued states!");
                     // Save previous state BEFORE applying changes (for sync_window_state diff)
                     self.previous_window_state = Some(self.current_window_state.clone());
                     let _ = self.process_callback_result_v2(result);
@@ -3916,9 +3912,7 @@ impl MacOSWindow {
         log_trace!(LogCategory::Rendering, "[WebRender] Transaction sent");
 
         // Step 2: Call WebRender to composite the scene
-        println!("[DEBUG render_and_present] self.renderer.is_some() = {}", self.renderer.is_some());
         if let Some(ref mut renderer) = self.renderer {
-            println!("[DEBUG render_and_present] calling renderer.update()");
             log_trace!(LogCategory::Rendering, "[WebRender] renderer.update()");
             renderer.update();
 
@@ -3937,10 +3931,8 @@ impl MacOSWindow {
                     // Update hit tester after render - WebRender now has valid scene data
                     if let Some(layout_window) = self.layout_window.as_ref() {
                         let doc_id = wr_translate_document_id(layout_window.document_id);
-                        println!("[DEBUG render_and_present] Updating hit tester after render for doc_id={:?}", doc_id);
                         let new_hit_tester = self.render_api.request_hit_tester(doc_id).resolve();
                         self.hit_tester = crate::desktop::wr_translate2::AsyncHitTester::Resolved(new_hit_tester);
-                        println!("[DEBUG render_and_present] Hit tester updated successfully");
                         log_trace!(LogCategory::Rendering, "[WebRender] Hit tester updated after render");
                     }
                 }

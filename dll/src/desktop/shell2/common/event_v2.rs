@@ -652,8 +652,6 @@ pub trait PlatformWindowV2 {
         use azul_core::window::CursorPosition;
         use azul_layout::managers::hover::InputPointId;
         
-        println!("[DEBUG update_hit_test_at] position = {:?}", position);
-        
         let document_id = self.get_document_id();
         let hidpi_factor = self.get_current_window_state().size.get_hidpi_factor();
         
@@ -664,7 +662,6 @@ pub trait PlatformWindowV2 {
         // Check if layout window exists
         let has_layout_window = self.get_layout_window().is_some();
         if !has_layout_window {
-            println!("[DEBUG update_hit_test_at] no layout window!");
             return;
         }
         
@@ -684,11 +681,6 @@ pub trait PlatformWindowV2 {
                 hidpi_factor,
             )
         };
-        
-        println!("[DEBUG update_hit_test_at] hit_test.hovered_nodes.len() = {}", hit_test.hovered_nodes.len());
-        for (dom_id, ht_result) in hit_test.hovered_nodes.iter() {
-            println!("[DEBUG update_hit_test_at] dom_id={}, regular_hit_test_nodes.len()={}", dom_id.inner, ht_result.regular_hit_test_nodes.len());
-        }
         
         // Store hit test in hover manager
         if let Some(layout_window) = self.get_layout_window_mut() {
@@ -1534,21 +1526,6 @@ pub trait PlatformWindowV2 {
         }
 
         // EVENT FILTERING AND CALLBACK DISPATCH
-        
-        println!("[DEBUG process_window_events] user_events.len() = {}", pre_filter.user_events.len());
-        for (i, ev) in pre_filter.user_events.iter().enumerate() {
-            println!("[DEBUG process_window_events] event[{}] = {:?}", i, ev.event_type);
-        }
-        println!("[DEBUG process_window_events] hit_test_for_dispatch.is_some() = {}", hit_test_for_dispatch.is_some());
-        if let Some(ref ht) = hit_test_for_dispatch {
-            println!("[DEBUG process_window_events] hovered_nodes.len() = {}", ht.hovered_nodes.len());
-            for (dom_id, ht_result) in ht.hovered_nodes.iter() {
-                println!("[DEBUG process_window_events] dom_id={}, regular_hit_test_nodes.len()={}", dom_id.inner, ht_result.regular_hit_test_nodes.len());
-                for (nid, _) in ht_result.regular_hit_test_nodes.iter().take(5) {
-                    println!("[DEBUG process_window_events]   hit node_id={}", nid.index());
-                }
-            }
-        }
 
         // Dispatch user events to callbacks (internal events already processed)
         let dispatch_result = azul_core::events::dispatch_synthetic_events(
@@ -1556,10 +1533,7 @@ pub trait PlatformWindowV2 {
             hit_test_for_dispatch.as_ref(),
         );
         
-        println!("[DEBUG process_window_events] dispatch_result.callbacks.len() = {}", dispatch_result.callbacks.len());
-
         if dispatch_result.is_empty() {
-            println!("[DEBUG process_window_events] dispatch_result.is_empty() = true, returning DoNothing");
             return ProcessEventResult::DoNothing;
         }
 
@@ -2043,7 +2017,6 @@ pub trait PlatformWindowV2 {
         // Each state is applied in order, with event processing between states
         // to detect the transitions (e.g., mouse down → mouse up)
         if !result.queued_window_states.is_empty() {
-            println!("[DEBUG] process_callback_result_v2: processing {} queued states", result.queued_window_states.len());
             for (i, queued_state) in result.queued_window_states.iter().enumerate() {
                 // Save current state as previous
                 let old_state = self.get_current_window_state().clone();
@@ -2059,15 +2032,12 @@ pub trait PlatformWindowV2 {
                 
                 // Update hit testing at the new mouse position
                 let mouse_pos = queued_state.mouse_state.cursor_position.get_position();
-                println!("[DEBUG] process_callback_result_v2: state {} mouse_pos = {:?}", i, mouse_pos);
                 if let Some(pos) = mouse_pos {
-                    println!("[DEBUG] process_callback_result_v2: calling update_hit_test_at({:?})", pos);
                     self.update_hit_test_at(pos);
                 }
                 
                 // Process events with this state (will detect state changes)
                 let nested_result = self.process_window_events_recursive_v2(0);
-                println!("[DEBUG] process_callback_result_v2: state {} result = {:?}", i, nested_result);
                 event_result = event_result.max(nested_result);
             }
         }
