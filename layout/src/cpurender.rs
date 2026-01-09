@@ -312,6 +312,66 @@ fn render_display_list(
                     dpi_factor,
                 )?;
             }
+            DisplayListItem::ScrollBarStyled { info } => {
+                let transform = transform_stack.last().unwrap();
+                let clip = clip_stack.last().unwrap();
+                
+                // Render track
+                if info.track_color.a > 0 {
+                    render_rect(
+                        pixmap,
+                        &info.track_bounds,
+                        info.track_color,
+                        &BorderRadius::default(),
+                        *transform,
+                        *clip,
+                        dpi_factor,
+                    )?;
+                }
+                
+                // Render decrement button
+                if let Some(btn_bounds) = &info.button_decrement_bounds {
+                    if info.button_color.a > 0 {
+                        render_rect(
+                            pixmap,
+                            btn_bounds,
+                            info.button_color,
+                            &BorderRadius::default(),
+                            *transform,
+                            *clip,
+                            dpi_factor,
+                        )?;
+                    }
+                }
+                
+                // Render increment button
+                if let Some(btn_bounds) = &info.button_increment_bounds {
+                    if info.button_color.a > 0 {
+                        render_rect(
+                            pixmap,
+                            btn_bounds,
+                            info.button_color,
+                            &BorderRadius::default(),
+                            *transform,
+                            *clip,
+                            dpi_factor,
+                        )?;
+                    }
+                }
+                
+                // Render thumb
+                if info.thumb_color.a > 0 {
+                    render_rect(
+                        pixmap,
+                        &info.thumb_bounds,
+                        info.thumb_color,
+                        &info.thumb_border_radius,
+                        *transform,
+                        *clip,
+                        dpi_factor,
+                    )?;
+                }
+            }
             DisplayListItem::PushClip {
                 bounds,
                 border_radius,

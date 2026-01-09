@@ -332,6 +332,177 @@ pub fn translate_displaylist_to_wr(
                 }
             }
 
+            DisplayListItem::ScrollBarStyled { info } => {
+                let spatial_id = *spatial_stack.last().unwrap();
+                let base_clip_chain_id = *clip_stack.last().unwrap();
+                
+                // If clip_to_container_border is enabled and container has border-radius,
+                // create a clip chain for the container's rounded corners
+                let clip_chain_id = if info.clip_to_container_border && !info.container_border_radius.is_zero() {
+                    let style_border_radius = convert_border_radius_to_style(&info.container_border_radius);
+                    let wr_border_radius = wr_translate_border_radius(
+                        style_border_radius,
+                        azul_core::geom::LogicalSize::new(
+                            scale_px(info.bounds.size.width, dpi_scale),
+                            scale_px(info.bounds.size.height, dpi_scale),
+                        ),
+                    );
+                    
+                    let scaled_bounds = azul_core::geom::LogicalRect::new(
+                        azul_core::geom::LogicalPosition::new(
+                            scale_px(info.bounds.origin.x, dpi_scale),
+                            scale_px(info.bounds.origin.y, dpi_scale),
+                        ),
+                        azul_core::geom::LogicalSize::new(
+                            scale_px(info.bounds.size.width, dpi_scale),
+                            scale_px(info.bounds.size.height, dpi_scale),
+                        ),
+                    );
+                    
+                    define_border_radius_clip(
+                        &mut builder,
+                        scaled_bounds,
+                        wr_border_radius,
+                        spatial_id,
+                        base_clip_chain_id,
+                    )
+                } else {
+                    base_clip_chain_id
+                };
+                
+                // Render track (background)
+                if info.track_color.a > 0 {
+                    let track_rect = scale_bounds_to_layout_rect(&info.track_bounds, dpi_scale);
+                    let track_color = ColorF::new(
+                        info.track_color.r as f32 / 255.0,
+                        info.track_color.g as f32 / 255.0,
+                        info.track_color.b as f32 / 255.0,
+                        info.track_color.a as f32 / 255.0,
+                    );
+                    let track_info = CommonItemProperties {
+                        clip_rect: track_rect,
+                        clip_chain_id,
+                        spatial_id,
+                        flags: Default::default(),
+                    };
+                    builder.push_rect(&track_info, track_rect, track_color);
+                }
+                
+                // Render decrement button (if present)
+                if let Some(btn_bounds) = &info.button_decrement_bounds {
+                    if info.button_color.a > 0 {
+                        let btn_rect = scale_bounds_to_layout_rect(btn_bounds, dpi_scale);
+                        let btn_color = ColorF::new(
+                            info.button_color.r as f32 / 255.0,
+                            info.button_color.g as f32 / 255.0,
+                            info.button_color.b as f32 / 255.0,
+                            info.button_color.a as f32 / 255.0,
+                        );
+                        let btn_info = CommonItemProperties {
+                            clip_rect: btn_rect,
+                            clip_chain_id,
+                            spatial_id,
+                            flags: Default::default(),
+                        };
+                        builder.push_rect(&btn_info, btn_rect, btn_color);
+                    }
+                }
+                
+                // Render increment button (if present)
+                if let Some(btn_bounds) = &info.button_increment_bounds {
+                    if info.button_color.a > 0 {
+                        let btn_rect = scale_bounds_to_layout_rect(btn_bounds, dpi_scale);
+                        let btn_color = ColorF::new(
+                            info.button_color.r as f32 / 255.0,
+                            info.button_color.g as f32 / 255.0,
+                            info.button_color.b as f32 / 255.0,
+                            info.button_color.a as f32 / 255.0,
+                        );
+                        let btn_info = CommonItemProperties {
+                            clip_rect: btn_rect,
+                            clip_chain_id,
+                            spatial_id,
+                            flags: Default::default(),
+                        };
+                        builder.push_rect(&btn_info, btn_rect, btn_color);
+                    }
+                }
+                
+                // Render thumb (the draggable part)
+                if info.thumb_color.a > 0 {
+                    let thumb_rect = scale_bounds_to_layout_rect(&info.thumb_bounds, dpi_scale);
+                    let thumb_color = ColorF::new(
+                        info.thumb_color.r as f32 / 255.0,
+                        info.thumb_color.g as f32 / 255.0,
+                        info.thumb_color.b as f32 / 255.0,
+                        info.thumb_color.a as f32 / 255.0,
+                    );
+                    
+                    // Handle rounded thumb corners
+                    if !info.thumb_border_radius.is_zero() {
+                        let style_border_radius = convert_border_radius_to_style(&info.thumb_border_radius);
+                        let wr_border_radius = wr_translate_border_radius(
+                            style_border_radius,
+                            azul_core::geom::LogicalSize::new(
+                                scale_px(info.thumb_bounds.size.width, dpi_scale),
+                                scale_px(info.thumb_bounds.size.height, dpi_scale),
+                            ),
+                        );
+                        
+                        // Create clip for rounded thumb
+                        let scaled_thumb_bounds = azul_core::geom::LogicalRect::new(
+                            azul_core::geom::LogicalPosition::new(
+                                scale_px(info.thumb_bounds.origin.x, dpi_scale),
+                                scale_px(info.thumb_bounds.origin.y, dpi_scale),
+                            ),
+                            azul_core::geom::LogicalSize::new(
+                                scale_px(info.thumb_bounds.size.width, dpi_scale),
+                                scale_px(info.thumb_bounds.size.height, dpi_scale),
+                            ),
+                        );
+                        
+                        let thumb_clip_id = define_border_radius_clip(
+                            &mut builder,
+                            scaled_thumb_bounds,
+                            wr_border_radius,
+                            spatial_id,
+                            clip_chain_id,
+                        );
+                        
+                        let thumb_info = CommonItemProperties {
+                            clip_rect: thumb_rect,
+                            clip_chain_id: thumb_clip_id,
+                            spatial_id,
+                            flags: Default::default(),
+                        };
+                        builder.push_rect(&thumb_info, thumb_rect, thumb_color);
+                    } else {
+                        let thumb_info = CommonItemProperties {
+                            clip_rect: thumb_rect,
+                            clip_chain_id,
+                            spatial_id,
+                            flags: Default::default(),
+                        };
+                        builder.push_rect(&thumb_info, thumb_rect, thumb_color);
+                    }
+                }
+                
+                // Add hit-test for scrollbar thumb
+                if let Some(scrollbar_hit_id) = &info.hit_id {
+                    let thumb_rect = scale_bounds_to_layout_rect(&info.thumb_bounds, dpi_scale);
+                    let (tag, _) = crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id(
+                        *scrollbar_hit_id,
+                    );
+                    builder.push_hit_test(
+                        thumb_rect,
+                        clip_chain_id,
+                        spatial_id,
+                        Default::default(),
+                        tag,
+                    );
+                }
+            }
+
             DisplayListItem::PushClip {
                 bounds,
                 border_radius,
@@ -438,11 +609,17 @@ pub fn translate_displaylist_to_wr(
                 // Push the new spatial ID onto the stack
                 spatial_stack.push(scroll_spatial_id);
 
-                // Define clip for the scroll frame
-                let scroll_clip_id = builder.define_clip_rect(scroll_spatial_id, frame_rect);
+                // Define clip for the scroll frame on the PARENT space, not the scroll space.
+                // The clip should be stationary (in parent space) while content scrolls.
+                let scroll_clip_id = builder.define_clip_rect(parent_space, frame_rect);
 
-                // Create a clip chain with this clip
-                let scroll_clip_chain = builder.define_clip_chain(None, [scroll_clip_id]);
+                // Create a clip chain with this clip, parented to the current clip chain
+                let parent_clip = if *clip_stack.last().unwrap() == WrClipChainId::INVALID {
+                    None
+                } else {
+                    Some(*clip_stack.last().unwrap())
+                };
+                let scroll_clip_chain = builder.define_clip_chain(parent_clip, [scroll_clip_id]);
                 clip_stack.push(scroll_clip_chain);
 
                 log_debug!(LogCategory::DisplayList, 
