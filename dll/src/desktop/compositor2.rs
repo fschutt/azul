@@ -781,17 +781,20 @@ pub fn translate_displaylist_to_wr(
                 // Push the new spatial ID onto the stack
                 spatial_stack.push(scroll_spatial_id);
 
-                // Push new offset for items inside the scroll frame
-                // Items have absolute coords, but should be relative to scroll frame origin
-                let new_offset = (
-                    scale_px(clip_bounds.origin.x, dpi_scale),
-                    scale_px(clip_bounds.origin.y, dpi_scale),
-                );
-                offset_stack.push(new_offset);
+                // DO NOT push a new offset for scroll frames!
+                // WebRender expects primitives to keep their absolute coordinates (relative to window origin).
+                // The scroll_spatial_id handles the scroll offset transformation internally.
+                // Previously we subtracted frame_rect.origin here, which caused children to be 
+                // positioned incorrectly (too far top-left) by the frame origin amount.
+                // 
+                // Keep the current offset on the stack unchanged - just push the same value
+                // so push/pop remain balanced.
+                let current = current_offset;
+                offset_stack.push(current);
                 
                 log_debug!(LogCategory::DisplayList,
-                    "[CLIP DEBUG] PushScrollFrame: pushed offset={:?}",
-                    new_offset
+                    "[CLIP DEBUG] PushScrollFrame: keeping offset={:?} (not offsetting for scroll frame)",
+                    current
                 );
 
                 // Define clip for the scroll frame in PARENT SPACE (where the viewport is)
