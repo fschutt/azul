@@ -1190,6 +1190,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
             current_node.used_size = Some(final_used_size);
         }
         current_node.scrollbar_info = Some(merged_scrollbar_info);
+        // Store overflow content size for scroll frame calculation
+        current_node.overflow_content_size = Some(content_size);
 
         let pos = calculate_content_box_pos(containing_block_pos, &current_node.box_props);
         log_content_box_calculation(ctx, node_index, current_node, containing_block_pos, pos);

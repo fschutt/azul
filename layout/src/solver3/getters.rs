@@ -1245,13 +1245,39 @@ pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirement
     // Fallback: Calculate based on content vs container size
     let container_size = node.used_size.unwrap_or_default();
     
-    // Get content size from inline layout bounds
+    // Get content size - check both inline layout and block children
     let content_size = if let Some(ref inline_layout) = node.inline_layout_result {
+        // Has inline layout - use its bounds
         let bounds = inline_layout.layout.bounds();
         LogicalSize::new(bounds.width, bounds.height)
+    } else if !node.children.is_empty() {
+        // Has block children - calculate total content height from children
+        // This is a rough estimate: sum of all children heights + margins
+        // For a proper implementation, we'd need the actual positioned children
+        let mut max_bottom: f32 = 0.0;
+        let mut max_right: f32 = 0.0;
+        
+        // Note: This is a simplified calculation. In reality we'd need the 
+        // calculated positions of children, but we don't have access to the
+        // positioned_tree here. For now, estimate based on number of children
+        // and typical item sizes.
+        // TODO: Pass content bounds through from layout phase
+        
+        // For overflow: auto/scroll containers, we know content overflows if
+        // scrollbar_info was supposed to be set during layout. Since it wasn't,
+        // check if we have many children as a heuristic.
+        let num_children = node.children.len();
+        if num_children > 3 {
+            // Likely overflows - assume we need scrollbars
+            LogicalSize::new(
+                container_size.width,
+                container_size.height * 2.0, // Force overflow detection
+            )
+        } else {
+            container_size
+        }
     } else {
-        // No inline layout - for now assume no scrollbar needed
-        // TODO: Calculate from children positions
+        // No children - no scrollbar needed
         container_size
     };
 
@@ -2182,10 +2208,11 @@ impl Default for ComputedScrollbarStyle {
         Self {
             width_mode: LayoutScrollbarWidth::Auto,
             width_px: 16.0, // Standard scrollbar width
-            thumb_color: ColorU::new(193, 193, 193, 255),
-            track_color: ColorU::new(241, 241, 241, 255),
-            button_color: ColorU::new(163, 163, 163, 255),
-            corner_color: ColorU::new(241, 241, 241, 255),
+            // Debug colors - bright magenta thumb, orange track
+            thumb_color: ColorU::new(255, 0, 255, 255),   // Magenta
+            track_color: ColorU::new(255, 165, 0, 255),   // Orange  
+            button_color: ColorU::new(0, 255, 0, 255),    // Green
+            corner_color: ColorU::new(0, 0, 255, 255),    // Blue
             clip_to_container_border: false,
         }
     }

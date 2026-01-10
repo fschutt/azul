@@ -137,6 +137,38 @@ pub fn translate_displaylist_to_wr(
     // Spatial stack management (for PushScrollFrame/PopScrollFrame)
     let mut spatial_stack: Vec<SpatialId> = vec![spatial_id];
 
+    // Coordinate offset stack - tracks the origin offset for each spatial context.
+    // When we enter a scroll frame, items inside have absolute coordinates but
+    // WebRender expects coordinates relative to the scroll frame's content_rect origin.
+    // We push the scroll frame's origin when entering, and subtract it from all coordinates.
+    let mut offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+
+    // Helper to apply current offset to a rect
+    let apply_offset = |rect: LayoutRect, offset: (f32, f32)| -> LayoutRect {
+        LayoutRect::from_origin_and_size(
+            LayoutPoint::new(rect.min.x - offset.0, rect.min.y - offset.1),
+            LayoutSize::new(rect.width(), rect.height()),
+        )
+    };
+
+    // Helper macros to safely get current stack values with defaults
+    // This prevents panics when stacks become unexpectedly empty
+    macro_rules! current_spatial {
+        () => {
+            spatial_stack.last().copied().unwrap_or(spatial_id)
+        };
+    }
+    macro_rules! current_clip {
+        () => {
+            clip_stack.last().copied().unwrap_or(root_clip_chain_id)
+        };
+    }
+    macro_rules! current_offset {
+        () => {
+            offset_stack.last().copied().unwrap_or((0.0, 0.0))
+        };
+    }
+
     // Translate display list items to WebRender
     for item in &display_list.items {
         match item {
@@ -150,8 +182,10 @@ pub fn translate_displaylist_to_wr(
                     "[compositor2] Rect item: bounds={:?}, color={:?}, dpi={}",
                     bounds, color, dpi_scale
                 );
-                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
-                log_debug!(LogCategory::DisplayList, "[compositor2] Translated to LayoutRect: {:?}", rect);
+                let raw_rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let current_offset = current_offset!();
+                let rect = apply_offset(raw_rect, current_offset);
+                
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -159,13 +193,26 @@ pub fn translate_displaylist_to_wr(
                     color.a as f32 / 255.0,
                 );
 
+                let current_clip_chain = current_clip!();
+                let current_spatial = current_spatial!();
+                
+                log_debug!(LogCategory::DisplayList,
+                    "[CLIP DEBUG] Rect: raw={:?}, offset={:?}, adjusted={:?}, clip_chain={:?}, spatial={:?}",
+                    raw_rect, current_offset, rect, current_clip_chain, current_spatial
+                );
+                
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] Rect push: rect={:?}, clip_chain_id={:?}, spatial_id={:?}, clip_stack.len={}, spatial_stack.len={}",
+                    rect, current_clip_chain, current_spatial, clip_stack.len(), spatial_stack.len()
+                );
+
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
+                    clip_chain_id: current_clip_chain,
+                    spatial_id: current_spatial,
                     flags: Default::default(),
                 };
-
                 // Handle border_radius by creating clip region
                 // Note: LogicalRect here is used for clipping calculations, but we pass
                 // the scaled rect to WebRender
@@ -193,14 +240,14 @@ pub fn translate_displaylist_to_wr(
                         &mut builder,
                         logical_rect,
                         wr_border_radius,
-                        *spatial_stack.last().unwrap(),
-                        *clip_stack.last().unwrap(),
+                        current_spatial!(),
+                        current_clip!(),
                     );
 
                     let info_clipped = CommonItemProperties {
                         clip_rect: rect,
                         clip_chain_id: new_clip_id,
-                        spatial_id: *spatial_stack.last().unwrap(),
+                        spatial_id: current_spatial!(),
                         flags: Default::default(),
                     };
 
@@ -232,8 +279,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
+                    clip_chain_id: current_clip!(),
+                    spatial_id: current_spatial!(),
                     flags: Default::default(),
                 };
 
@@ -251,8 +298,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
+                    clip_chain_id: current_clip!(),
+                    spatial_id: current_spatial!(),
                     flags: Default::default(),
                 };
 
@@ -270,8 +317,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
+                    clip_chain_id: current_clip!(),
+                    spatial_id: current_spatial!(),
                     flags: Default::default(),
                 };
 
@@ -299,7 +346,12 @@ pub fn translate_displaylist_to_wr(
                 opacity_key,
                 hit_id,
             } => {
-                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                // ScrollBars are painted in parent space (after pop_node_clips)
+                // Apply current offset to convert from absolute to parent-relative coords
+                let raw_rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let current_offset = current_offset!();
+                let rect = apply_offset(raw_rect, current_offset);
+                
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -307,10 +359,15 @@ pub fn translate_displaylist_to_wr(
                     color.a as f32 / 255.0,
                 );
 
+                log_debug!(LogCategory::DisplayList,
+                    "[compositor2] ScrollBar: raw_rect={:?}, offset={:?}, adjusted_rect={:?}",
+                    raw_rect, current_offset, rect
+                );
+
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
+                    clip_chain_id: current_clip!(),
+                    spatial_id: current_spatial!(),
                     flags: Default::default(),
                 };
 
@@ -324,8 +381,8 @@ pub fn translate_displaylist_to_wr(
 
                     builder.push_hit_test(
                         rect,
-                        *clip_stack.last().unwrap(),
-                        *spatial_stack.last().unwrap(),
+                        current_clip!(),
+                        current_spatial!(),
                         Default::default(),
                         tag,
                     );
@@ -333,8 +390,14 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::ScrollBarStyled { info } => {
-                let spatial_id = *spatial_stack.last().unwrap();
-                let base_clip_chain_id = *clip_stack.last().unwrap();
+                let spatial_id = current_spatial!();
+                let base_clip_chain_id = current_clip!();
+                let current_offset = current_offset!();
+                
+                log_debug!(LogCategory::DisplayList,
+                    "[compositor2] ScrollBarStyled: bounds={:?}, offset={:?}, track={:?}, thumb={:?}",
+                    info.bounds, current_offset, info.track_bounds, info.thumb_bounds
+                );
                 
                 // If clip_to_container_border is enabled and container has border-radius,
                 // create a clip chain for the container's rounded corners
@@ -348,7 +411,8 @@ pub fn translate_displaylist_to_wr(
                         ),
                     );
                     
-                    let scaled_bounds = azul_core::geom::LogicalRect::new(
+                    // Apply offset to scaled bounds for clip definition
+                    let raw_scaled_bounds = azul_core::geom::LogicalRect::new(
                         azul_core::geom::LogicalPosition::new(
                             scale_px(info.bounds.origin.x, dpi_scale),
                             scale_px(info.bounds.origin.y, dpi_scale),
@@ -357,6 +421,13 @@ pub fn translate_displaylist_to_wr(
                             scale_px(info.bounds.size.width, dpi_scale),
                             scale_px(info.bounds.size.height, dpi_scale),
                         ),
+                    );
+                    let scaled_bounds = azul_core::geom::LogicalRect::new(
+                        azul_core::geom::LogicalPosition::new(
+                            raw_scaled_bounds.origin.x - current_offset.0,
+                            raw_scaled_bounds.origin.y - current_offset.1,
+                        ),
+                        raw_scaled_bounds.size,
                     );
                     
                     define_border_radius_clip(
@@ -372,7 +443,8 @@ pub fn translate_displaylist_to_wr(
                 
                 // Render track (background)
                 if info.track_color.a > 0 {
-                    let track_rect = scale_bounds_to_layout_rect(&info.track_bounds, dpi_scale);
+                    let raw_track_rect = scale_bounds_to_layout_rect(&info.track_bounds, dpi_scale);
+                    let track_rect = apply_offset(raw_track_rect, current_offset);
                     let track_color = ColorF::new(
                         info.track_color.r as f32 / 255.0,
                         info.track_color.g as f32 / 255.0,
@@ -391,7 +463,8 @@ pub fn translate_displaylist_to_wr(
                 // Render decrement button (if present)
                 if let Some(btn_bounds) = &info.button_decrement_bounds {
                     if info.button_color.a > 0 {
-                        let btn_rect = scale_bounds_to_layout_rect(btn_bounds, dpi_scale);
+                        let raw_btn_rect = scale_bounds_to_layout_rect(btn_bounds, dpi_scale);
+                        let btn_rect = apply_offset(raw_btn_rect, current_offset);
                         let btn_color = ColorF::new(
                             info.button_color.r as f32 / 255.0,
                             info.button_color.g as f32 / 255.0,
@@ -411,7 +484,8 @@ pub fn translate_displaylist_to_wr(
                 // Render increment button (if present)
                 if let Some(btn_bounds) = &info.button_increment_bounds {
                     if info.button_color.a > 0 {
-                        let btn_rect = scale_bounds_to_layout_rect(btn_bounds, dpi_scale);
+                        let raw_btn_rect = scale_bounds_to_layout_rect(btn_bounds, dpi_scale);
+                        let btn_rect = apply_offset(raw_btn_rect, current_offset);
                         let btn_color = ColorF::new(
                             info.button_color.r as f32 / 255.0,
                             info.button_color.g as f32 / 255.0,
@@ -430,7 +504,8 @@ pub fn translate_displaylist_to_wr(
                 
                 // Render thumb (the draggable part)
                 if info.thumb_color.a > 0 {
-                    let thumb_rect = scale_bounds_to_layout_rect(&info.thumb_bounds, dpi_scale);
+                    let raw_thumb_rect = scale_bounds_to_layout_rect(&info.thumb_bounds, dpi_scale);
+                    let thumb_rect = apply_offset(raw_thumb_rect, current_offset);
                     let thumb_color = ColorF::new(
                         info.thumb_color.r as f32 / 255.0,
                         info.thumb_color.g as f32 / 255.0,
@@ -440,7 +515,14 @@ pub fn translate_displaylist_to_wr(
                     
                     // Handle rounded thumb corners
                     if !info.thumb_border_radius.is_zero() {
-                        let style_border_radius = convert_border_radius_to_style(&info.thumb_border_radius);
+                        // Scale the border radius by DPI (border radius is in logical pixels)
+                        let scaled_border_radius = BorderRadius {
+                            top_left: scale_px(info.thumb_border_radius.top_left, dpi_scale),
+                            top_right: scale_px(info.thumb_border_radius.top_right, dpi_scale),
+                            bottom_left: scale_px(info.thumb_border_radius.bottom_left, dpi_scale),
+                            bottom_right: scale_px(info.thumb_border_radius.bottom_right, dpi_scale),
+                        };
+                        let style_border_radius = convert_border_radius_to_style(&scaled_border_radius);
                         let wr_border_radius = wr_translate_border_radius(
                             style_border_radius,
                             azul_core::geom::LogicalSize::new(
@@ -449,11 +531,11 @@ pub fn translate_displaylist_to_wr(
                             ),
                         );
                         
-                        // Create clip for rounded thumb
+                        // Create clip for rounded thumb (with offset applied)
                         let scaled_thumb_bounds = azul_core::geom::LogicalRect::new(
                             azul_core::geom::LogicalPosition::new(
-                                scale_px(info.thumb_bounds.origin.x, dpi_scale),
-                                scale_px(info.thumb_bounds.origin.y, dpi_scale),
+                                scale_px(info.thumb_bounds.origin.x, dpi_scale) - current_offset.0,
+                                scale_px(info.thumb_bounds.origin.y, dpi_scale) - current_offset.1,
                             ),
                             azul_core::geom::LogicalSize::new(
                                 scale_px(info.thumb_bounds.size.width, dpi_scale),
@@ -489,7 +571,8 @@ pub fn translate_displaylist_to_wr(
                 
                 // Add hit-test for scrollbar thumb
                 if let Some(scrollbar_hit_id) = &info.hit_id {
-                    let thumb_rect = scale_bounds_to_layout_rect(&info.thumb_bounds, dpi_scale);
+                    let raw_thumb_rect = scale_bounds_to_layout_rect(&info.thumb_bounds, dpi_scale);
+                    let thumb_rect = apply_offset(raw_thumb_rect, current_offset);
                     let (tag, _) = crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id(
                         *scrollbar_hit_id,
                     );
@@ -508,6 +591,15 @@ pub fn translate_displaylist_to_wr(
                 border_radius,
             } => {
                 let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let current_spatial = current_spatial!();
+                let current_clip = current_clip!();
+                
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] PushClip: bounds={:?} -> rect={:?}, spatial_stack.len={}, clip_stack.len={}, \
+                     current_spatial={:?}, current_clip={:?}",
+                    bounds, rect, spatial_stack.len(), clip_stack.len(), current_spatial, current_clip
+                );
 
                 // Handle rounded corners if border_radius is non-zero
                 if !border_radius.is_zero() {
@@ -538,28 +630,59 @@ pub fn translate_displaylist_to_wr(
                         &mut builder,
                         scaled_bounds,
                         wr_border_radius,
-                        *spatial_stack.last().unwrap(),
-                        *clip_stack.last().unwrap(),
+                        current_spatial,
+                        current_clip,
+                    );
+                    
+                    log_debug!(
+                        LogCategory::DisplayList,
+                        "[compositor2] PushClip (rounded): created new_clip_id={:?}, pushing to clip_stack",
+                        new_clip_id
                     );
 
                     clip_stack.push(new_clip_id);
                 } else {
                     // Rectangular clip
-                    let clip_id = builder.define_clip_rect(*spatial_stack.last().unwrap(), rect);
+                    let clip_id = builder.define_clip_rect(current_spatial, rect);
                     // Create a clip chain from the clip id
-                    let parent = if *clip_stack.last().unwrap() == WrClipChainId::INVALID {
+                    let parent = if current_clip == WrClipChainId::INVALID {
                         None
                     } else {
-                        Some(*clip_stack.last().unwrap())
+                        Some(current_clip)
                     };
                     let new_clip_chain_id = builder.define_clip_chain(parent, vec![clip_id]);
+                    
+                    log_debug!(
+                        LogCategory::DisplayList,
+                        "[compositor2] PushClip (rect): clip_id={:?}, parent={:?}, new_clip_chain_id={:?}, pushing to clip_stack",
+                        clip_id, parent, new_clip_chain_id
+                    );
+                    
                     clip_stack.push(new_clip_chain_id);
                 }
+                
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] PushClip DONE: clip_stack.len now = {}",
+                    clip_stack.len()
+                );
             }
 
             DisplayListItem::PopClip => {
+                let before_len = clip_stack.len();
                 if clip_stack.len() > 1 {
-                    clip_stack.pop();
+                    let popped = clip_stack.pop();
+                    log_debug!(
+                        LogCategory::DisplayList,
+                        "[compositor2] PopClip: popped {:?}, clip_stack.len {} -> {}",
+                        popped, before_len, clip_stack.len()
+                    );
+                } else {
+                    log_debug!(
+                        LogCategory::DisplayList,
+                        "[compositor2] PopClip: SKIPPED (clip_stack.len={}, would underflow)",
+                        before_len
+                    );
                 }
             }
 
@@ -569,6 +692,7 @@ pub fn translate_displaylist_to_wr(
                 scroll_id,
             } => {
                 // Create a scroll frame with proper clipping and content size
+                // The frame_rect is in PARENT space (where the visible viewport is)
                 let frame_rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(
                         scale_px(clip_bounds.origin.x, dpi_scale),
@@ -580,11 +704,10 @@ pub fn translate_displaylist_to_wr(
                     ),
                 );
 
+                // The content_rect is in SCROLL space (where (0,0) is the content origin)
+                // It should start at (0,0) and have the full content size
                 let content_rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(
-                        scale_px(clip_bounds.origin.x, dpi_scale),
-                        scale_px(clip_bounds.origin.y, dpi_scale),
-                    ),
+                    LayoutPoint::new(0.0, 0.0),  // Content starts at origin in scroll space
                     LayoutSize::new(
                         scale_px(content_size.width, dpi_scale),
                         scale_px(content_size.height, dpi_scale),
@@ -592,54 +715,131 @@ pub fn translate_displaylist_to_wr(
                 );
 
                 // Define scroll frame using WebRender API
-                let parent_space = *spatial_stack.last().unwrap();
+                let parent_space = current_spatial!();
+                let current_clip = current_clip!();
+                let current_offset = current_offset!();
                 let external_scroll_id = ExternalScrollId(*scroll_id, pipeline_id);
+
+                log_debug!(LogCategory::DisplayList, 
+                    "[compositor2] PushScrollFrame START: frame_rect={:?}, content_rect={:?}, \
+                     scroll_id={}, parent_space={:?}, current_clip={:?}, \
+                     spatial_stack.len={}, clip_stack.len={}",
+                    frame_rect, content_rect, scroll_id, parent_space, current_clip,
+                    spatial_stack.len(), clip_stack.len()
+                );
+
+                // Apply parent offset to frame_rect for correct positioning in parent space
+                let adjusted_frame_rect = apply_offset(frame_rect, current_offset);
+                
+                log_debug!(LogCategory::DisplayList,
+                    "[CLIP DEBUG] PushScrollFrame: frame_rect={:?}, adjusted={:?}, content_rect={:?}",
+                    frame_rect, adjusted_frame_rect, content_rect
+                );
 
                 let scroll_spatial_id = builder.define_scroll_frame(
                     parent_space,
                     external_scroll_id,
                     content_rect,
-                    frame_rect,
+                    adjusted_frame_rect,
                     LayoutVector2D::zero(), // external_scroll_offset
                     0,                      // scroll_offset_generation (APZScrollGeneration)
                     HasScrollLinkedEffect::No,
                     SpatialTreeItemKey::new(*scroll_id, 0),
                 );
 
+                log_debug!(LogCategory::DisplayList, 
+                    "[compositor2] PushScrollFrame: defined scroll_spatial_id={:?}",
+                    scroll_spatial_id
+                );
+
                 // Push the new spatial ID onto the stack
                 spatial_stack.push(scroll_spatial_id);
 
-                // Define clip for the scroll frame on the PARENT space, not the scroll space.
-                // The clip should be stationary (in parent space) while content scrolls.
-                let scroll_clip_id = builder.define_clip_rect(parent_space, frame_rect);
+                // Push new offset for items inside the scroll frame
+                // Items have absolute coords, but should be relative to scroll frame origin
+                let new_offset = (
+                    scale_px(clip_bounds.origin.x, dpi_scale),
+                    scale_px(clip_bounds.origin.y, dpi_scale),
+                );
+                offset_stack.push(new_offset);
+                
+                log_debug!(LogCategory::DisplayList,
+                    "[CLIP DEBUG] PushScrollFrame: pushed offset={:?}",
+                    new_offset
+                );
+
+                // Define clip for the scroll frame in SCROLL SPACE (where content lives)
+                // The clip rect in scroll space is (0,0) to (viewport_width, viewport_height)
+                let clip_rect_in_scroll_space = LayoutRect::from_origin_and_size(
+                    LayoutPoint::new(0.0, 0.0),
+                    LayoutSize::new(adjusted_frame_rect.width(), adjusted_frame_rect.height()),
+                );
+                let scroll_clip_id = builder.define_clip_rect(scroll_spatial_id, clip_rect_in_scroll_space);
+
+                log_debug!(LogCategory::DisplayList,
+                    "[CLIP DEBUG] PushScrollFrame: scroll_clip_id={:?}, scroll_spatial_id={:?}, clip_rect_in_scroll_space={:?}",
+                    scroll_clip_id, scroll_spatial_id, clip_rect_in_scroll_space
+                );
+
+                log_debug!(LogCategory::DisplayList, 
+                    "[compositor2] PushScrollFrame: defined scroll_clip_id={:?} on parent_space={:?} with frame_rect={:?}",
+                    scroll_clip_id, parent_space, frame_rect
+                );
 
                 // Create a clip chain with this clip, parented to the current clip chain
-                let parent_clip = if *clip_stack.last().unwrap() == WrClipChainId::INVALID {
+                let parent_clip = if current_clip == WrClipChainId::INVALID {
                     None
                 } else {
-                    Some(*clip_stack.last().unwrap())
+                    Some(current_clip)
                 };
                 let scroll_clip_chain = builder.define_clip_chain(parent_clip, [scroll_clip_id]);
+                
+                log_debug!(LogCategory::DisplayList,
+                    "[CLIP DEBUG] PushScrollFrame: scroll_clip_chain={:?}, parent_clip={:?}",
+                    scroll_clip_chain, parent_clip
+                );
+                
+                log_debug!(LogCategory::DisplayList, 
+                    "[compositor2] PushScrollFrame: defined scroll_clip_chain={:?} with parent={:?}",
+                    scroll_clip_chain, parent_clip
+                );
+                
                 clip_stack.push(scroll_clip_chain);
 
                 log_debug!(LogCategory::DisplayList, 
-                    "[compositor2] PushScrollFrame: frame_rect={:?}, content_rect={:?}, \
-                     scroll_id={}, spatial_id={:?}",
-                    frame_rect, content_rect, scroll_id, scroll_spatial_id
+                    "[compositor2] PushScrollFrame DONE: spatial_stack.len={}, clip_stack.len={}",
+                    spatial_stack.len(), clip_stack.len()
                 );
             }
 
             DisplayListItem::PopScrollFrame => {
-                // Pop both spatial and clip stacks
-                clip_stack.pop();
-                spatial_stack.pop();
+                let spatial_before = spatial_stack.len();
+                let clip_before = clip_stack.len();
+                let offset_before = offset_stack.len();
+                
+                // Pop spatial, clip, and offset stacks
+                let popped_clip = clip_stack.pop();
+                let popped_spatial = spatial_stack.pop();
+                let popped_offset = offset_stack.pop();
+                
+                log_debug!(LogCategory::DisplayList,
+                    "[CLIP DEBUG] PopScrollFrame: popped_offset={:?}",
+                    popped_offset
+                );
+                
+                log_debug!(LogCategory::DisplayList, 
+                    "[compositor2] PopScrollFrame: popped_clip={:?}, popped_spatial={:?}, popped_offset={:?}, \
+                     spatial_stack {} -> {}, clip_stack {} -> {}, offset_stack {} -> {}",
+                    popped_clip, popped_spatial, popped_offset, 
+                    spatial_before, spatial_stack.len(),
+                    clip_before, clip_stack.len(),
+                    offset_before, offset_stack.len()
+                );
 
-                if spatial_stack.is_empty() || clip_stack.is_empty() {
+                if spatial_stack.is_empty() || clip_stack.is_empty() || offset_stack.is_empty() {
                     log_debug!(LogCategory::DisplayList, "[compositor2] ERROR: PopScrollFrame caused stack underflow");
                     return Err("Scroll frame stack underflow".to_string());
                 }
-
-                log_debug!(LogCategory::DisplayList, "[compositor2] PopScrollFrame: spatial and clip stacks popped");
             }
 
             DisplayListItem::HitTestArea { bounds, tag } => {
@@ -655,8 +855,8 @@ pub fn translate_displaylist_to_wr(
                 // This is required for the hit tester to find items at cursor position
                 builder.push_hit_test(
                     rect,
-                    *clip_stack.last().unwrap(),
-                    *spatial_stack.last().unwrap(),
+                    current_clip!(),
+                    current_spatial!(),
                     WrPrimitiveFlags::default(),
                     item_tag,
                 );
@@ -691,8 +891,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
+                    clip_chain_id: current_clip!(),
+                    spatial_id: current_spatial!(),
                     flags: Default::default(),
                 };
 
@@ -723,8 +923,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
+                    clip_chain_id: current_clip!(),
+                    spatial_id: current_spatial!(),
                     flags: Default::default(),
                 };
 
@@ -755,8 +955,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
+                    clip_chain_id: current_clip!(),
+                    spatial_id: current_spatial!(),
                     flags: Default::default(),
                 };
 
@@ -804,8 +1004,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
+                    clip_chain_id: current_clip!(),
+                    spatial_id: current_spatial!(),
                     flags: Default::default(),
                 };
 
@@ -844,8 +1044,8 @@ pub fn translate_displaylist_to_wr(
 
                     let info = CommonItemProperties {
                         clip_rect: rect,
-                        clip_chain_id: *clip_stack.last().unwrap(),
-                        spatial_id: *spatial_stack.last().unwrap(),
+                        clip_chain_id: current_clip!(),
+                        spatial_id: current_spatial!(),
                         flags: Default::default(),
                     };
 
@@ -882,7 +1082,7 @@ pub fn translate_displaylist_to_wr(
 
                 // Just push a simple stacking context at the bounds origin
                 // Use the current spatial_id from the stack (don't create a new reference frame)
-                let current_spatial_id = *spatial_stack.last().unwrap();
+                let current_spatial_id = current_spatial!();
                 let scaled_origin = LayoutPoint::new(
                     scale_px(bounds.origin.x, dpi_scale),
                     scale_px(bounds.origin.y, dpi_scale),
@@ -962,8 +1162,8 @@ pub fn translate_displaylist_to_wr(
 
                             // Push iframe to current display list
                             let space_and_clip = SpaceAndClipInfo {
-                                spatial_id: *spatial_stack.last().unwrap(),
-                                clip_chain_id: *clip_stack.last().unwrap(),
+                                spatial_id: current_spatial!(),
+                                clip_chain_id: current_clip!(),
                             };
 
                             let wr_bounds = scale_bounds_to_layout_rect(bounds, dpi_scale);
@@ -1067,8 +1267,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
+                    clip_chain_id: current_clip!(),
+                    spatial_id: current_spatial!(),
                     flags: Default::default(),
                 };
 
@@ -1220,8 +1420,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
+                    clip_chain_id: current_clip!(),
+                    spatial_id: current_spatial!(),
                     flags: Default::default(),
                 };
 
@@ -1302,8 +1502,8 @@ pub fn translate_displaylist_to_wr(
 
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
+                    clip_chain_id: current_clip!(),
+                    spatial_id: current_spatial!(),
                     flags: Default::default(),
                 };
 
@@ -1340,8 +1540,8 @@ pub fn translate_displaylist_to_wr(
                     wr_translate_color_f(azul_css::props::basic::color::ColorF::from(shadow.color));
                 let info = CommonItemProperties {
                     clip_rect: rect,
-                    clip_chain_id: *clip_stack.last().unwrap(),
-                    spatial_id: *spatial_stack.last().unwrap(),
+                    clip_chain_id: current_clip!(),
+                    spatial_id: current_spatial!(),
                     flags: Default::default(),
                 };
                 builder.push_rect(&info, rect, color_f);
@@ -1356,7 +1556,7 @@ pub fn translate_displaylist_to_wr(
                 );
                 // TODO: Implement proper WebRender filter stacking context
                 // For now, just push a simple stacking context
-                let current_spatial_id = *spatial_stack.last().unwrap();
+                let current_spatial_id = current_spatial!();
                 builder.push_simple_stacking_context(
                     LayoutPoint::new(
                         scale_px(bounds.origin.x, dpi_scale),
@@ -1379,7 +1579,7 @@ pub fn translate_displaylist_to_wr(
                 );
                 // TODO: Implement proper WebRender backdrop filter
                 // Backdrop filters require special handling in WebRender
-                let current_spatial_id = *spatial_stack.last().unwrap();
+                let current_spatial_id = current_spatial!();
                 builder.push_simple_stacking_context(
                     LayoutPoint::new(
                         scale_px(bounds.origin.x, dpi_scale),
@@ -1400,7 +1600,7 @@ pub fn translate_displaylist_to_wr(
                     bounds, opacity
                 );
                 // TODO: Implement proper WebRender opacity stacking context
-                let current_spatial_id = *spatial_stack.last().unwrap();
+                let current_spatial_id = current_spatial!();
                 builder.push_simple_stacking_context(
                     LayoutPoint::new(
                         scale_px(bounds.origin.x, dpi_scale),
@@ -1472,9 +1672,11 @@ fn define_border_radius_clip(
     rect_spatial_id: SpatialId,
     parent_clip_chain_id: WrClipChainId,
 ) -> WrClipChainId {
-    // NOTE: only translate the size, position is always (0.0, 0.0)
-    let wr_layout_size = wr_translate_logical_size(layout_rect.size);
-    let wr_layout_rect = LayoutRect::from_size(wr_layout_size);
+    // Create the clip at the actual position of the element
+    let wr_layout_rect = LayoutRect::from_origin_and_size(
+        LayoutPoint::new(layout_rect.origin.x, layout_rect.origin.y),
+        LayoutSize::new(layout_rect.size.width, layout_rect.size.height),
+    );
 
     let clip_id = if wr_border_radius.is_zero() {
         builder.define_clip_rect(rect_spatial_id, wr_layout_rect)

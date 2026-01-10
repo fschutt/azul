@@ -404,11 +404,55 @@ pub struct DisplayListResponse {
     pub image_count: usize,
     pub other_count: usize,
     pub items: Vec<DisplayListItemInfo>,
+    /// Clip chain analysis - shows push/pop balance
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clip_analysis: Option<ClipChainAnalysis>,
+}
+
+/// Clip chain analysis for debugging clipping issues
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ClipChainAnalysis {
+    /// Final clip depth (should be 0 if balanced)
+    pub final_clip_depth: i32,
+    /// Final scroll depth (should be 0 if balanced)
+    pub final_scroll_depth: i32,
+    /// Final stacking context depth (should be 0 if balanced)
+    pub final_stacking_depth: i32,
+    /// Whether all push/pop pairs are balanced
+    pub balanced: bool,
+    /// List of clip operations in order
+    pub operations: Vec<ClipOperation>,
+}
+
+/// A single clip/scroll/stacking operation
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ClipOperation {
+    /// Index in display list
+    pub index: usize,
+    /// Operation type
+    pub op: String,
+    /// Clip depth after this operation
+    pub clip_depth: i32,
+    /// Scroll depth after this operation
+    pub scroll_depth: i32,
+    /// Stacking context depth after this operation
+    pub stacking_depth: i32,
+    /// Bounds if applicable
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<LogicalRectJson>,
+    /// Content size (for scroll frames)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_size: Option<LogicalSizeJson>,
+    /// Scroll ID (for scroll frames)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scroll_id: Option<u64>,
 }
 
 /// Display list item info
 #[cfg(feature = "std")]
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct DisplayListItemInfo {
     pub index: usize,
     #[serde(rename = "type")]
@@ -429,6 +473,21 @@ pub struct DisplayListItemInfo {
     pub glyph_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub z_index: Option<i32>,
+    /// Current clip depth when this item is rendered
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clip_depth: Option<i32>,
+    /// Current scroll depth when this item is rendered
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scroll_depth: Option<i32>,
+    /// Content size (for scroll frames)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_size: Option<LogicalSizeJson>,
+    /// Scroll ID (for scroll frames)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scroll_id: Option<u64>,
+    /// Debug info string (for debugging scrollbar bounds, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debug_info: Option<String>,
 }
 
 /// Response for GetScrollStates
@@ -1324,6 +1383,134 @@ pub extern "C" fn debug_timer_callback(
 
 /// Process a single debug event
 #[cfg(feature = "std")]
+fn build_clip_analysis(items: &[azul_layout::solver3::display_list::DisplayListItem]) -> ClipChainAnalysis {
+    use azul_layout::solver3::display_list::DisplayListItem;
+    
+    let mut clip_depth = 0i32;
+    let mut scroll_depth = 0i32;
+    let mut stacking_depth = 0i32;
+    let mut operations = Vec::new();
+    
+    for (idx, item) in items.iter().enumerate() {
+        let op_info = match item {
+            DisplayListItem::PushClip { bounds, .. } => {
+                clip_depth += 1;
+                Some(ClipOperation {
+                    index: idx,
+                    op: "PushClip".to_string(),
+                    clip_depth,
+                    scroll_depth,
+                    stacking_depth,
+                    bounds: Some(LogicalRectJson {
+                        x: bounds.origin.x,
+                        y: bounds.origin.y,
+                        width: bounds.size.width,
+                        height: bounds.size.height,
+                    }),
+                    content_size: None,
+                    scroll_id: None,
+                })
+            }
+            DisplayListItem::PopClip => {
+                let op = ClipOperation {
+                    index: idx,
+                    op: "PopClip".to_string(),
+                    clip_depth: clip_depth - 1,
+                    scroll_depth,
+                    stacking_depth,
+                    bounds: None,
+                    content_size: None,
+                    scroll_id: None,
+                };
+                clip_depth -= 1;
+                Some(op)
+            }
+            DisplayListItem::PushScrollFrame { clip_bounds, content_size, scroll_id } => {
+                scroll_depth += 1;
+                Some(ClipOperation {
+                    index: idx,
+                    op: "PushScrollFrame".to_string(),
+                    clip_depth,
+                    scroll_depth,
+                    stacking_depth,
+                    bounds: Some(LogicalRectJson {
+                        x: clip_bounds.origin.x,
+                        y: clip_bounds.origin.y,
+                        width: clip_bounds.size.width,
+                        height: clip_bounds.size.height,
+                    }),
+                    content_size: Some(LogicalSizeJson {
+                        width: content_size.width,
+                        height: content_size.height,
+                    }),
+                    scroll_id: Some(*scroll_id),
+                })
+            }
+            DisplayListItem::PopScrollFrame => {
+                let op = ClipOperation {
+                    index: idx,
+                    op: "PopScrollFrame".to_string(),
+                    clip_depth,
+                    scroll_depth: scroll_depth - 1,
+                    stacking_depth,
+                    bounds: None,
+                    content_size: None,
+                    scroll_id: None,
+                };
+                scroll_depth -= 1;
+                Some(op)
+            }
+            DisplayListItem::PushStackingContext { bounds, .. } => {
+                stacking_depth += 1;
+                Some(ClipOperation {
+                    index: idx,
+                    op: "PushStackingContext".to_string(),
+                    clip_depth,
+                    scroll_depth,
+                    stacking_depth,
+                    bounds: Some(LogicalRectJson {
+                        x: bounds.origin.x,
+                        y: bounds.origin.y,
+                        width: bounds.size.width,
+                        height: bounds.size.height,
+                    }),
+                    content_size: None,
+                    scroll_id: None,
+                })
+            }
+            DisplayListItem::PopStackingContext => {
+                let op = ClipOperation {
+                    index: idx,
+                    op: "PopStackingContext".to_string(),
+                    clip_depth,
+                    scroll_depth,
+                    stacking_depth: stacking_depth - 1,
+                    bounds: None,
+                    content_size: None,
+                    scroll_id: None,
+                };
+                stacking_depth -= 1;
+                Some(op)
+            }
+            _ => None,
+        };
+        
+        if let Some(op) = op_info {
+            operations.push(op);
+        }
+    }
+    
+    ClipChainAnalysis {
+        final_clip_depth: clip_depth,
+        final_scroll_depth: scroll_depth,
+        final_stacking_depth: stacking_depth,
+        balanced: clip_depth == 0 && scroll_depth == 0 && stacking_depth == 0,
+        operations,
+    }
+}
+
+/// Process a single debug event
+#[cfg(feature = "std")]
 fn process_debug_event(
     request: &DebugRequest,
     callback_info: &mut azul_layout::callbacks::CallbackInfo,
@@ -2031,9 +2218,29 @@ fn process_debug_event(
                 let mut image_count = 0;
                 let mut other_count = 0;
                 
+                // Track clip/scroll depths for each item
+                let mut clip_depth = 0i32;
+                let mut scroll_depth = 0i32;
+                
                 let mut items = Vec::new();
                 
                 for (idx, item) in items_list.iter().enumerate() {
+                    // Track depth changes BEFORE creating item info
+                    match item {
+                        azul_layout::solver3::display_list::DisplayListItem::PushClip { .. } => {
+                            clip_depth += 1;
+                        }
+                        azul_layout::solver3::display_list::DisplayListItem::PopClip => {
+                            clip_depth -= 1;
+                        }
+                        azul_layout::solver3::display_list::DisplayListItem::PushScrollFrame { .. } => {
+                            scroll_depth += 1;
+                        }
+                        azul_layout::solver3::display_list::DisplayListItem::PopScrollFrame => {
+                            scroll_depth -= 1;
+                        }
+                        _ => {}
+                    }
                     let info = match item {
                         azul_layout::solver3::display_list::DisplayListItem::Rect { bounds, color, .. } => {
                             rect_count += 1;
@@ -2045,9 +2252,9 @@ fn process_debug_event(
                                 width: Some(bounds.size.width),
                                 height: Some(bounds.size.height),
                                 color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
-                                font_size: None,
-                                glyph_count: None,
-                                z_index: None,
+                                clip_depth: Some(clip_depth),
+                                scroll_depth: Some(scroll_depth),
+                                ..Default::default()
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::Text { glyphs, font_size_px, color, clip_rect, .. } => {
@@ -2062,7 +2269,9 @@ fn process_debug_event(
                                 color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
                                 font_size: Some(*font_size_px),
                                 glyph_count: Some(glyphs.len()),
-                                z_index: None,
+                                clip_depth: Some(clip_depth),
+                                scroll_depth: Some(scroll_depth),
+                                ..Default::default()
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::TextLayout { bounds, font_size_px, color, .. } => {
@@ -2076,8 +2285,9 @@ fn process_debug_event(
                                 height: Some(bounds.size.height),
                                 color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
                                 font_size: Some(*font_size_px),
-                                glyph_count: None,
-                                z_index: None,
+                                clip_depth: Some(clip_depth),
+                                scroll_depth: Some(scroll_depth),
+                                ..Default::default()
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::Border { bounds, .. } => {
@@ -2089,10 +2299,9 @@ fn process_debug_event(
                                 y: Some(bounds.origin.y),
                                 width: Some(bounds.size.width),
                                 height: Some(bounds.size.height),
-                                color: None,
-                                font_size: None,
-                                glyph_count: None,
-                                z_index: None,
+                                clip_depth: Some(clip_depth),
+                                scroll_depth: Some(scroll_depth),
+                                ..Default::default()
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::Image { bounds, .. } => {
@@ -2104,10 +2313,9 @@ fn process_debug_event(
                                 y: Some(bounds.origin.y),
                                 width: Some(bounds.size.width),
                                 height: Some(bounds.size.height),
-                                color: None,
-                                font_size: None,
-                                glyph_count: None,
-                                z_index: None,
+                                clip_depth: Some(clip_depth),
+                                scroll_depth: Some(scroll_depth),
+                                ..Default::default()
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::ScrollBar { bounds, color, orientation, .. } => {
@@ -2124,9 +2332,9 @@ fn process_debug_event(
                                 width: Some(bounds.size.width),
                                 height: Some(bounds.size.height),
                                 color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
-                                font_size: None,
-                                glyph_count: None,
-                                z_index: None,
+                                clip_depth: Some(clip_depth),
+                                scroll_depth: Some(scroll_depth),
+                                ..Default::default()
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::ScrollBarStyled { info } => {
@@ -2135,6 +2343,16 @@ fn process_debug_event(
                                 azul_core::dom::ScrollbarOrientation::Vertical => "vertical_styled",
                                 azul_core::dom::ScrollbarOrientation::Horizontal => "horizontal_styled",
                             };
+                            // Debug: include track and thumb bounds in the output
+                            let debug_info = format!(
+                                "track:({:.1},{:.1},{:.1}x{:.1}) thumb:({:.1},{:.1},{:.1}x{:.1}) track_color:#{:02x}{:02x}{:02x}{:02x} thumb_color:#{:02x}{:02x}{:02x}{:02x}",
+                                info.track_bounds.origin.x, info.track_bounds.origin.y,
+                                info.track_bounds.size.width, info.track_bounds.size.height,
+                                info.thumb_bounds.origin.x, info.thumb_bounds.origin.y,
+                                info.thumb_bounds.size.width, info.thumb_bounds.size.height,
+                                info.track_color.r, info.track_color.g, info.track_color.b, info.track_color.a,
+                                info.thumb_color.r, info.thumb_color.g, info.thumb_color.b, info.thumb_color.a,
+                            );
                             DisplayListItemInfo {
                                 index: idx,
                                 item_type: format!("scrollbar_{}", orient_str),
@@ -2144,9 +2362,10 @@ fn process_debug_event(
                                 height: Some(info.bounds.size.height),
                                 color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", 
                                     info.thumb_color.r, info.thumb_color.g, info.thumb_color.b, info.thumb_color.a)),
-                                font_size: None,
-                                glyph_count: None,
-                                z_index: None,
+                                debug_info: Some(debug_info),
+                                clip_depth: Some(clip_depth),
+                                scroll_depth: Some(scroll_depth),
+                                ..Default::default()
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::PushStackingContext { z_index, bounds } => {
@@ -2158,10 +2377,10 @@ fn process_debug_event(
                                 y: Some(bounds.origin.y),
                                 width: Some(bounds.size.width),
                                 height: Some(bounds.size.height),
-                                color: None,
-                                font_size: None,
-                                glyph_count: None,
                                 z_index: Some(*z_index),
+                                clip_depth: Some(clip_depth),
+                                scroll_depth: Some(scroll_depth),
+                                ..Default::default()
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::PopStackingContext => {
@@ -2169,14 +2388,9 @@ fn process_debug_event(
                             DisplayListItemInfo {
                                 index: idx,
                                 item_type: "pop_stacking_context".to_string(),
-                                x: None,
-                                y: None,
-                                width: None,
-                                height: None,
-                                color: None,
-                                font_size: None,
-                                glyph_count: None,
-                                z_index: None,
+                                clip_depth: Some(clip_depth),
+                                scroll_depth: Some(scroll_depth),
+                                ..Default::default()
                             }
                         }
                         _ => {
@@ -2184,19 +2398,17 @@ fn process_debug_event(
                             DisplayListItemInfo {
                                 index: idx,
                                 item_type: "unknown".to_string(),
-                                x: None,
-                                y: None,
-                                width: None,
-                                height: None,
-                                color: None,
-                                font_size: None,
-                                glyph_count: None,
-                                z_index: None,
+                                clip_depth: Some(clip_depth),
+                                scroll_depth: Some(scroll_depth),
+                                ..Default::default()
                             }
                         }
                     };
                     items.push(info);
                 }
+                
+                // Build clip chain analysis
+                let clip_analysis = build_clip_analysis(items_list);
                 
                 let response = DisplayListResponse {
                     total_items: items_list.len(),
@@ -2206,6 +2418,7 @@ fn process_debug_event(
                     image_count,
                     other_count,
                     items,
+                    clip_analysis: Some(clip_analysis),
                 };
                 send_ok(request, None, Some(ResponseData::DisplayList(response)));
             } else {

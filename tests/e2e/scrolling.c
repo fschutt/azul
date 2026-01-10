@@ -34,12 +34,12 @@ AzDom create_scroll_item(int index) {
     AzDom item = AzDom_createDiv();
     AzDom_addChild(&item, AzDom_createText(text));
     
-    // Alternate background colors for visibility
+    // Alternate background colors for visibility - use bright colors for debugging
     char style[256];
-    const char* bg_color = (index % 2 == 0) ? "#e8e8e8" : "#f8f8f8";
+    const char* bg_color = (index % 2 == 0) ? "#ff9999" : "#99ff99";  // Red/Green alternating
     int style_len = snprintf(style, sizeof(style), 
         "padding: 20px; margin: 5px; background-color: %s; "
-        "border: 1px solid #ccc; border-radius: 4px; font-size: 16px;",
+        "border: 2px solid #000; border-radius: 4px; font-size: 16px;",
         bg_color);
     
     AzString style_str = AzString_copyFromBytes(style, 0, style_len);
@@ -77,9 +77,10 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     
     // Style the container with explicit height and overflow: auto
     // This should trigger automatic vertical scrollbar
+    // Use bright yellow background to see container bounds clearly
     AzString container_style = AzString_copyFromBytes(
-        "height: 300px; overflow: auto; padding: 10px; background-color: #ffffff; "
-        "border: 2px solid #4a90d9; margin: 10px;", 0, 114);
+        "height: 300px; overflow: auto; padding: 10px; background-color: #ffff00; "
+        "border: 4px solid #ff00ff; margin: 10px;", 0, 116);
     AzDom_setInlineStyle(&scroll_container, container_style);
     
     // Create footer with scroll info
@@ -98,9 +99,10 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, scroll_container);
     AzDom_addChild(&body, footer);
     
-    // Body style: full height flex column
+    // Body style: full height flex column - cyan background to see body bounds
+    // margin: 0 removes default browser margin, padding: 0 ensures no padding
     AzString body_style = AzString_copyFromBytes(
-        "display: flex; flex-direction: column; height: 100%; box-sizing: border-box;", 0, 76);
+        "display: flex; flex-direction: column; height: 100%; box-sizing: border-box; background-color: #00ffff; margin: 0; padding: 0;", 0, 127);
     AzDom_setInlineStyle(&body, body_style);
     
     AzCss css = AzCss_empty();

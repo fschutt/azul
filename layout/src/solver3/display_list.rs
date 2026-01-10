@@ -227,6 +227,153 @@ pub struct DisplayList {
     pub node_mapping: Vec<Option<NodeId>>,
 }
 
+impl DisplayList {
+    /// Generates a JSON representation of the display list for debugging.
+    /// This includes clip chain analysis showing how clips are stacked.
+    pub fn to_debug_json(&self) -> String {
+        use std::fmt::Write;
+        let mut json = String::new();
+        writeln!(json, "{{").unwrap();
+        writeln!(json, "  \"total_items\": {},", self.items.len()).unwrap();
+        writeln!(json, "  \"items\": [").unwrap();
+        
+        let mut clip_depth = 0i32;
+        let mut scroll_depth = 0i32;
+        let mut stacking_depth = 0i32;
+        
+        for (i, item) in self.items.iter().enumerate() {
+            let comma = if i < self.items.len() - 1 { "," } else { "" };
+            let node_id = self.node_mapping.get(i).and_then(|n| *n);
+            
+            match item {
+                DisplayListItem::PushClip { bounds, border_radius } => {
+                    clip_depth += 1;
+                    writeln!(json, "    {{").unwrap();
+                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"type\": \"PushClip\",").unwrap();
+                    writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
+                    writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
+                    writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},", 
+                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height).unwrap();
+                    writeln!(json, "      \"border_radius\": {{ \"tl\": {:.1}, \"tr\": {:.1}, \"bl\": {:.1}, \"br\": {:.1} }},",
+                        border_radius.top_left, border_radius.top_right, 
+                        border_radius.bottom_left, border_radius.bottom_right).unwrap();
+                    writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
+                    writeln!(json, "    }}{}", comma).unwrap();
+                }
+                DisplayListItem::PopClip => {
+                    writeln!(json, "    {{").unwrap();
+                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"type\": \"PopClip\",").unwrap();
+                    writeln!(json, "      \"clip_depth_before\": {},", clip_depth).unwrap();
+                    writeln!(json, "      \"clip_depth_after\": {}", clip_depth - 1).unwrap();
+                    writeln!(json, "    }}{}", comma).unwrap();
+                    clip_depth -= 1;
+                }
+                DisplayListItem::PushScrollFrame { clip_bounds, content_size, scroll_id } => {
+                    scroll_depth += 1;
+                    writeln!(json, "    {{").unwrap();
+                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"type\": \"PushScrollFrame\",").unwrap();
+                    writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
+                    writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
+                    writeln!(json, "      \"clip_bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
+                        clip_bounds.origin.x, clip_bounds.origin.y, 
+                        clip_bounds.size.width, clip_bounds.size.height).unwrap();
+                    writeln!(json, "      \"content_size\": {{ \"w\": {:.1}, \"h\": {:.1} }},",
+                        content_size.width, content_size.height).unwrap();
+                    writeln!(json, "      \"scroll_id\": {},", scroll_id).unwrap();
+                    writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
+                    writeln!(json, "    }}{}", comma).unwrap();
+                }
+                DisplayListItem::PopScrollFrame => {
+                    writeln!(json, "    {{").unwrap();
+                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"type\": \"PopScrollFrame\",").unwrap();
+                    writeln!(json, "      \"scroll_depth_before\": {},", scroll_depth).unwrap();
+                    writeln!(json, "      \"scroll_depth_after\": {}", scroll_depth - 1).unwrap();
+                    writeln!(json, "    }}{}", comma).unwrap();
+                    scroll_depth -= 1;
+                }
+                DisplayListItem::PushStackingContext { z_index, bounds } => {
+                    stacking_depth += 1;
+                    writeln!(json, "    {{").unwrap();
+                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"type\": \"PushStackingContext\",").unwrap();
+                    writeln!(json, "      \"stacking_depth\": {},", stacking_depth).unwrap();
+                    writeln!(json, "      \"z_index\": {},", z_index).unwrap();
+                    writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }}",
+                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height).unwrap();
+                    writeln!(json, "    }}{}", comma).unwrap();
+                }
+                DisplayListItem::PopStackingContext => {
+                    writeln!(json, "    {{").unwrap();
+                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"type\": \"PopStackingContext\",").unwrap();
+                    writeln!(json, "      \"stacking_depth_before\": {},", stacking_depth).unwrap();
+                    writeln!(json, "      \"stacking_depth_after\": {}", stacking_depth - 1).unwrap();
+                    writeln!(json, "    }}{}", comma).unwrap();
+                    stacking_depth -= 1;
+                }
+                DisplayListItem::Rect { bounds, color, border_radius } => {
+                    writeln!(json, "    {{").unwrap();
+                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"type\": \"Rect\",").unwrap();
+                    writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
+                    writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
+                    writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
+                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height).unwrap();
+                    writeln!(json, "      \"color\": \"rgba({},{},{},{})\",", 
+                        color.r, color.g, color.b, color.a).unwrap();
+                    writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
+                    writeln!(json, "    }}{}", comma).unwrap();
+                }
+                DisplayListItem::Border { bounds, .. } => {
+                    writeln!(json, "    {{").unwrap();
+                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"type\": \"Border\",").unwrap();
+                    writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
+                    writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
+                    writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
+                        bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height).unwrap();
+                    writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
+                    writeln!(json, "    }}{}", comma).unwrap();
+                }
+                DisplayListItem::ScrollBarStyled { info } => {
+                    writeln!(json, "    {{").unwrap();
+                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"type\": \"ScrollBarStyled\",").unwrap();
+                    writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
+                    writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
+                    writeln!(json, "      \"orientation\": \"{:?}\",", info.orientation).unwrap();
+                    writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }}",
+                        info.bounds.origin.x, info.bounds.origin.y, 
+                        info.bounds.size.width, info.bounds.size.height).unwrap();
+                    writeln!(json, "    }}{}", comma).unwrap();
+                }
+                _ => {
+                    writeln!(json, "    {{").unwrap();
+                    writeln!(json, "      \"index\": {},", i).unwrap();
+                    writeln!(json, "      \"type\": \"{:?}\",", std::mem::discriminant(item)).unwrap();
+                    writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
+                    writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
+                    writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
+                    writeln!(json, "    }}{}", comma).unwrap();
+                }
+            }
+        }
+        
+        writeln!(json, "  ],").unwrap();
+        writeln!(json, "  \"final_clip_depth\": {},", clip_depth).unwrap();
+        writeln!(json, "  \"final_scroll_depth\": {},", scroll_depth).unwrap();
+        writeln!(json, "  \"final_stacking_depth\": {},", stacking_depth).unwrap();
+        writeln!(json, "  \"balanced\": {}", clip_depth == 0 && scroll_depth == 0 && stacking_depth == 0).unwrap();
+        writeln!(json, "}}").unwrap();
+        
+        json
+    }
+}
+
 /// A command in the display list. Can be either a drawing primitive or a
 /// state-management instruction for the renderer's graphics context.
 #[derive(Debug, Clone)]
@@ -500,6 +647,28 @@ impl DisplayListBuilder {
     
     /// Build the display list and transfer debug messages to the provided option
     pub fn build_with_debug(mut self, debug_messages: &mut Option<Vec<LayoutDebugMessage>>) -> DisplayList {
+        // Debug: dump display list structure
+        #[cfg(debug_assertions)]
+        {
+            eprintln!("[DisplayList] Generated {} items:", self.items.len());
+            for (i, item) in self.items.iter().enumerate() {
+                let item_name = match item {
+                    DisplayListItem::Rect { bounds, .. } => format!("Rect @ {:?}", bounds),
+                    DisplayListItem::PushClip { bounds, .. } => format!("PushClip @ {:?}", bounds),
+                    DisplayListItem::PopClip => "PopClip".to_string(),
+                    DisplayListItem::PushScrollFrame { clip_bounds, content_size, scroll_id } => 
+                        format!("PushScrollFrame clip={:?} content={:?} id={}", clip_bounds, content_size, scroll_id),
+                    DisplayListItem::PopScrollFrame => "PopScrollFrame".to_string(),
+                    DisplayListItem::PushStackingContext { z_index, .. } => format!("PushStackingContext z={}", z_index),
+                    DisplayListItem::PopStackingContext => "PopStackingContext".to_string(),
+                    DisplayListItem::Border { bounds, .. } => format!("Border @ {:?}", bounds),
+                    DisplayListItem::ScrollBarStyled { .. } => "ScrollBarStyled".to_string(),
+                    _ => format!("{:?}", std::mem::discriminant(item)),
+                };
+                eprintln!("  [{}] {}", i, item_name);
+            }
+        }
+        
         // Transfer collected debug messages to the context
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.append(&mut self.debug_messages);
@@ -1178,8 +1347,6 @@ where
             );
         }
 
-        let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node)?;
-
         // Push a stacking context for WebRender
         // Get the node's bounds for the stacking context
         let node_pos = self
@@ -1199,9 +1366,14 @@ where
         builder.push_stacking_context(context.z_index, node_bounds);
 
         // 1. Paint background and borders for the context's root element.
+        // This must be BEFORE push_node_clips so the container background 
+        // is rendered in parent space (stationary), not scroll space.
         self.paint_node_background_and_border(builder, context.node_index)?;
 
-        // 2. Paint child stacking contexts with negative z-indices.
+        // 2. Push clips and scroll frames AFTER painting background
+        let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node)?;
+
+        // 3. Paint child stacking contexts with negative z-indices.
         let mut negative_z_children: Vec<_> = context
             .child_contexts
             .iter()
@@ -1212,15 +1384,15 @@ where
             self.generate_for_stacking_context(builder, child)?;
         }
 
-        // 3. Paint the in-flow descendants of the context root.
+        // 4. Paint the in-flow descendants of the context root.
         self.paint_in_flow_descendants(builder, context.node_index, &context.in_flow_children)?;
 
-        // 4. Paint child stacking contexts with z-index: 0 / auto.
+        // 5. Paint child stacking contexts with z-index: 0 / auto.
         for child in context.child_contexts.iter().filter(|c| c.z_index == 0) {
             self.generate_for_stacking_context(builder, child)?;
         }
 
-        // 5. Paint child stacking contexts with positive z-indices.
+        // 6. Paint child stacking contexts with positive z-indices.
         let mut positive_z_children: Vec<_> = context
             .child_contexts
             .iter()
@@ -1240,6 +1412,10 @@ where
         if did_push_clip_or_scroll {
             self.pop_node_clips(builder, node)?;
         }
+
+        // Paint scrollbars AFTER popping the clip, so they appear on top of content
+        // and are not clipped by the scroll frame
+        self.paint_scrollbars(builder, context.node_index)?;
 
         Ok(())
     }
@@ -1306,18 +1482,24 @@ where
                 .get(child_index)
                 .ok_or(LayoutError::InvalidTree)?;
 
-            // Before painting the child, push its clips.
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
-
-            // Paint the child's background, border, content, and then its own children.
+            // IMPORTANT: Paint background and border BEFORE pushing clips!
+            // This ensures the container's background is in parent space (stationary),
+            // not in scroll space. Same logic as generate_for_stacking_context.
             self.paint_node_background_and_border(builder, child_index)?;
 
+            // Push clips and scroll frames AFTER painting background
+            let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
+
+            // Paint descendants inside the clip/scroll frame
             self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
 
             // Pop the child's clips.
             if did_push_clip {
                 self.pop_node_clips(builder, child_node)?;
             }
+            
+            // Paint scrollbars AFTER popping clips so they appear on top of content
+            self.paint_scrollbars(builder, child_index)?;
         }
 
         // Paint float children AFTER non-floats (so they appear on top)
@@ -1328,13 +1510,17 @@ where
                 .get(child_index)
                 .ok_or(LayoutError::InvalidTree)?;
 
-            let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
+            // Same as above: paint background BEFORE clips
             self.paint_node_background_and_border(builder, child_index)?;
+            let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
             self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
 
             if did_push_clip {
                 self.pop_node_clips(builder, child_node)?;
             }
+            
+            // Paint scrollbars AFTER popping clips so they appear on top of content
+            self.paint_scrollbars(builder, child_index)?;
         }
 
         Ok(())
@@ -1398,33 +1584,15 @@ where
         };
 
         if overflow_x.is_scroll() || overflow_y.is_scroll() {
-            // Always a scroll frame if overflow: scroll
+            // For scroll/auto: push BOTH a clip AND a scroll frame
+            // The clip ensures content is clipped (in parent space)
+            // The scroll frame enables scrolling (creates new spatial node)
+            builder.push_clip(clip_rect, border_radius);
             let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
             let content_size = get_scroll_content_size(node);
             builder.push_scroll_frame(clip_rect, content_size, scroll_id);
-        } else if overflow_x.is_auto_overflow() || overflow_y.is_auto_overflow() {
-            // overflow: auto - check if content actually overflows
-            let content_size = get_scroll_content_size(node);
-            let container_size = LogicalSize {
-                width: clip_rect.size.width,
-                height: clip_rect.size.height,
-            };
-
-            let overflows_x = content_size.width > container_size.width;
-            let overflows_y = content_size.height > container_size.height;
-
-            // If overflow: auto and content overflows, treat as scroll frame
-            if (overflow_x.is_auto_overflow() && overflows_x)
-                || (overflow_y.is_auto_overflow() && overflows_y)
-            {
-                let scroll_id = self.scroll_ids.get(&node_index).copied().unwrap_or(0);
-                builder.push_scroll_frame(clip_rect, content_size, scroll_id);
-            } else {
-                // No overflow, just clip
-                builder.push_clip(clip_rect, border_radius);
-            }
         } else {
-            // It's a simple clip
+            // Simple clip for hidden/clip
             builder.push_clip(clip_rect, border_radius);
         }
 
@@ -1464,46 +1632,17 @@ where
             self.ctx.viewport_size,
         );
 
-        let needs_clip = overflow_x.is_hidden_or_clip()
-            || overflow_y.is_hidden_or_clip()
+        let needs_clip = overflow_x.is_clipped()
+            || overflow_y.is_clipped()
             || !border_radius.is_zero();
 
         if needs_clip {
-            if overflow_x.is_scroll_explicit() || overflow_y.is_scroll_explicit() {
-                // Always pop scroll frame for overflow: scroll
+            if overflow_x.is_scroll() || overflow_y.is_scroll() {
+                // For scroll or auto overflow, pop both scroll frame AND clip
                 builder.pop_scroll_frame();
-            } else if overflow_x.is_auto_overflow() || overflow_y.is_auto_overflow() {
-                // For overflow: auto, check if we actually created a scroll frame
-                // by checking if content overflows
-                let content_size = get_scroll_content_size(node);
-                let paint_rect = self
-                    .get_paint_rect(
-                        self.positioned_tree
-                            .tree
-                            .nodes
-                            .iter()
-                            .position(|n| n.dom_node_id == Some(dom_id))
-                            .unwrap_or(0),
-                    )
-                    .unwrap_or_default();
-
-                let border = &node.box_props.border;
-                let container_size = LogicalSize {
-                    width: (paint_rect.size.width - border.left - border.right).max(0.0),
-                    height: (paint_rect.size.height - border.top - border.bottom).max(0.0),
-                };
-
-                let overflows_x = content_size.width > container_size.width;
-                let overflows_y = content_size.height > container_size.height;
-
-                if (overflow_x.is_auto_overflow() && overflows_x)
-                    || (overflow_y.is_auto_overflow() && overflows_y)
-                {
-                    builder.pop_scroll_frame();
-                } else {
-                    builder.pop_clip();
-                }
+                builder.pop_clip();
             } else {
+                // For hidden/clip, pop the simple clip
                 builder.pop_clip();
             }
         }
@@ -1872,6 +2011,26 @@ where
                 builder.push_image(paint_rect, image_key);
             }
         }
+
+        Ok(())
+    }
+
+    /// Emits drawing commands for scrollbars. This is called AFTER popping the scroll frame
+    /// clip so scrollbars appear on top of content and are not clipped.
+    fn paint_scrollbars(
+        &self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+    ) -> Result<()> {
+        let node = self
+            .positioned_tree
+            .tree
+            .get(node_index)
+            .ok_or(LayoutError::InvalidTree)?;
+
+        let Some(paint_rect) = self.get_paint_rect(node_index) else {
+            return Ok(());
+        };
 
         // Check if we need to draw scrollbars for this node.
         let scrollbar_info = get_scrollbar_info_from_layout(node);
@@ -2440,6 +2599,11 @@ fn get_scroll_id(id: Option<NodeId>) -> LocalScrollId {
 /// Calculates the actual content size of a node, including all children and text.
 /// This is used to determine if scrollbars should appear for overflow: auto.
 fn get_scroll_content_size(node: &LayoutNode) -> LogicalSize {
+    // First check if we have a pre-calculated overflow_content_size (for block children)
+    if let Some(overflow_size) = node.overflow_content_size {
+        return overflow_size;
+    }
+
     // Start with the node's own size
     let mut content_size = node.used_size.unwrap_or_default();
 
@@ -2463,9 +2627,6 @@ fn get_scroll_content_size(node: &LayoutNode) -> LogicalSize {
         content_size.width = content_size.width.max(max_x);
         content_size.height = content_size.height.max(max_y);
     }
-
-    // TODO: Also check children positions to get max content bounds
-    // For now, this handles the most common case (text overflowing)
 
     content_size
 }

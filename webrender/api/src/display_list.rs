@@ -889,10 +889,12 @@ impl<'a> BuiltDisplayListIter<'a> {
                 self.cur_points = &self.payload.points[self.point_index..];
                 self.point_index = self.payload.points.len();
             }
-            ClipChain(_) => {
-                self.cur_clip_chain_items =
-                    &self.payload.clip_chain_items[self.clip_chain_item_index..];
-                self.clip_chain_item_index = self.payload.clip_chain_items.len();
+            ClipChain(ref chain_item) => {
+                // Use clip_count to know how many clip items belong to this chain
+                let count = chain_item.clip_count;
+                let end = (self.clip_chain_item_index + count).min(self.payload.clip_chain_items.len());
+                self.cur_clip_chain_items = &self.payload.clip_chain_items[self.clip_chain_item_index..end];
+                self.clip_chain_item_index = end;
             }
             Text(ref text_item) => {
                 // Use glyph_count from the TextDisplayItem to know how many glyphs belong to this text
@@ -1909,11 +1911,15 @@ impl DisplayListBuilder {
         I::IntoIter: ExactSizeIterator + Clone,
     {
         let id = self.generate_clip_chain_id();
+        let clips_iter = clips.into_iter();
+        let clip_count = clips_iter.len();
         self.push_item(&di::DisplayItem::ClipChain(di::ClipChainItem {
             id,
             parent,
+            clip_count,
         }));
-        self.push_iter(clips);
+        // Store clip chain items directly in the payload
+        self.payload.clip_chain_items.extend(clips_iter);
         id
     }
 
@@ -1946,7 +1952,8 @@ impl DisplayListBuilder {
         // zero points when no SetPoints item has been pushed.
         if points.len() >= 3 {
             self.push_item(&di::DisplayItem::SetPoints);
-            self.push_iter(points);
+            // Store points directly in the payload
+            self.payload.points.extend_from_slice(points);
         }
         self.push_item(&item);
         id

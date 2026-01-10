@@ -55,3 +55,7 @@ path = "src/widgets.rs"
 [[example]]
 name = "xhtml"
 path = "src/xhtml.rs"
+
+[[example]]
+name = "scrolling"
+path = "src/scrolling.rs"

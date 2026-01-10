@@ -1637,6 +1637,7 @@ unsafe extern "system" fn window_proc(
 
                 let hidpi_factor = window.current_window_state.size.get_hidpi_factor();
                 let mut txn = WrTransaction::new();
+                // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
                 txn.set_document_view(
                     DeviceIntRect::from_size(DeviceIntSize::new(width as i32, height as i32)),
                     DevicePixelScale::new(hidpi_factor.inner.get()),

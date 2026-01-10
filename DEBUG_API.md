@@ -172,8 +172,46 @@ curl -X POST http://localhost:8765/ -d '{"op": "get_dom_tree"}'
 curl -X POST http://localhost:8765/ -d '{"op": "get_node_hierarchy"}'
 # get_layout_tree - get the layout tree structure
 curl -X POST http://localhost:8765/ -d '{"op": "get_layout_tree"}'
-# get_display_list - IMPORTANT: this is very useful for creating "success conditions"
+# get_display_list - Get all display list items with clip/scroll depth info
+# IMPORTANT: this is very useful for creating "success conditions" and debugging clipping
 curl -X POST http://localhost:8765/ -d '{"op": "get_display_list"}'
+```
+
+The `get_display_list` response includes a `clip_analysis` object that shows:
+- `final_clip_depth`, `final_scroll_depth`, `final_stacking_depth` - should all be 0 if balanced
+- `balanced` - true if all push/pop pairs match
+- `operations` - list of all clip/scroll/stacking operations with their depths
+
+Each item in the display list also includes:
+- `clip_depth` - current clip nesting level when item is rendered
+- `scroll_depth` - current scroll frame nesting level
+- `content_size` - for scroll frames, the total scrollable content size
+- `scroll_id` - unique identifier for scroll frames
+
+Example response structure:
+```json
+{
+  "data": {
+    "value": {
+      "items": [
+        {"index": 0, "type": "push_stacking_context", "clip_depth": 0, "scroll_depth": 0},
+        {"index": 1, "type": "rect", "x": 0, "y": 0, "clip_depth": 0, "scroll_depth": 0},
+        {"index": 2, "type": "unknown", "clip_depth": 1, "scroll_depth": 0},
+        {"index": 3, "type": "unknown", "clip_depth": 1, "scroll_depth": 1}
+      ],
+      "clip_analysis": {
+        "final_clip_depth": 0,
+        "final_scroll_depth": 0,
+        "final_stacking_depth": 0,
+        "balanced": true,
+        "operations": [
+          {"index": 2, "op": "PushClip", "clip_depth": 1, "scroll_depth": 0, "bounds": {...}},
+          {"index": 3, "op": "PushScrollFrame", "clip_depth": 1, "scroll_depth": 1, "content_size": {...}}
+        ]
+      }
+    }
+  }
+}
 ```
 
 ### Scroll Inspection

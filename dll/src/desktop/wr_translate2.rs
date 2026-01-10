@@ -1064,9 +1064,9 @@ fn translate_add_font_instance(add_instance: AddFontInstance) -> Option<WrAddFon
     
     // Convert Au to logical pixels (1 Au = 1/60 px), then multiply by DPI factor
     // to get the physical pixel size for rasterization.
-    // NOTE: We multiply by DPI factor here because azul's layout outputs coordinates
-    // in physical pixels, so WebRender's global_device_pixel_scale is 1.0.
-    // Therefore we need to pre-scale fonts to the correct physical size.
+    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
+    // WebRender handles HiDPI scaling via device_pixel_scale. However, font instances
+    // need to be pre-scaled because they are rasterized at specific pixel sizes.
     let glyph_size_px = (font_size_au.0 as f32) / 60.0 * dpi_factor;
 
     log_debug!(LogCategory::Rendering, 
@@ -1397,6 +1397,8 @@ pub fn generate_frame(
         DeviceIntRect::from_origin_and_size(DeviceIntPoint::new(0, 0), framebuffer_size);
     let hidpi_factor = layout_window.current_window_state.size.get_hidpi_factor();
     log_debug!(LogCategory::Rendering, "[generate_frame] Setting document view: {:?}, hidpi: {}", view_rect, hidpi_factor.inner.get());
+    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels), like a HTML engine.
+    // WebRender's device_pixel_scale handles the conversion to device pixels.
     txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
     // Process image callback updates (if any callbacks requested re-rendering)
@@ -2090,6 +2092,7 @@ pub fn build_webrender_transaction(
         "[build_atomic_txn] Step 4: Setting document view {:?}, hidpi: {}",
         view_rect, hidpi_factor.inner.get()
     );
+    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
     txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
     // Step 5: Add scroll offsets

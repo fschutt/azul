@@ -912,6 +912,7 @@ impl MacOSWindow {
         // Update WebRender document size
         let mut txn = webrender::Transaction::new();
         let device_rect = DeviceIntRect::from_size(new_size);
+        // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
         txn.set_document_view(device_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
         // Send transaction

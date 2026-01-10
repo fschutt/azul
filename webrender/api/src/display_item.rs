@@ -737,7 +737,9 @@ impl ConicGradient {
 pub struct ClipChainItem {
     pub id: ClipChainId,
     pub parent: Option<ClipChainId>,
-} // IMPLICIT clip_ids: Vec<ClipId>
+    /// Number of clip items that follow this display item in the payload
+    pub clip_count: usize,
+}
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct RadialGradientDisplayItem {
