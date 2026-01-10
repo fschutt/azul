@@ -1141,12 +1141,6 @@ impl<'a> SceneBuilder<'a> {
         let content_size = info.content_rect.size();
         let external_scroll_offset = self.current_external_scroll_offset(parent_node_index);
 
-        eprintln!(
-            "[WR SCENE] build_scroll_frame: frame_rect={:?}, content_rect={:?}, content_size={:?}, \
-             scroll_frame_id={:?}, external_scroll_offset={:?}",
-            info.frame_rect, info.content_rect, content_size, info.scroll_frame_id, external_scroll_offset
-        );
-
         self.add_scroll_frame(
             info.scroll_frame_id,
             parent_node_index,
@@ -1413,11 +1407,6 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::Rectangle(ref info) => {
                 let (layout, _, spatial_node_index, clip_node_id) =
                     self.process_common_properties_with_bounds(&info.common, info.bounds);
-
-                eprintln!(
-                    "[WR SCENE] Rectangle: bounds={:?}, clip_chain_id={:?}, spatial_id={:?}, layout.clip_rect={:?}",
-                    info.bounds, info.common.clip_chain_id, info.common.spatial_id, layout.clip_rect
-                );
 
                 self.add_primitive(
                     spatial_node_index,
@@ -1721,17 +1710,9 @@ impl<'a> SceneBuilder<'a> {
                 self.add_rounded_rect_clip_node(info.id, info.spatial_id, &info.clip);
             }
             DisplayItem::RectClip(ref info) => {
-                eprintln!(
-                    "[WR SCENE] RectClip: id={:?}, spatial_id={:?}, clip_rect={:?}",
-                    info.id, info.spatial_id, info.clip_rect
-                );
                 self.add_rect_clip_node(info.id, info.spatial_id, &info.clip_rect);
             }
             DisplayItem::ClipChain(ref info) => {
-                eprintln!(
-                    "[WR SCENE] ClipChain: id={:?}, parent={:?}",
-                    info.id, info.parent
-                );
                 self.clip_tree_builder.define_clip_chain(
                     info.id,
                     info.parent,

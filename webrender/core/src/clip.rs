@@ -453,16 +453,10 @@ impl ClipTreeBuilder {
         let parent = parent.and_then(|ref id| self.clip_chain_map.get(id).copied());
         let index = self.clip_chains.len();
         let clips_vec: Vec<ClipId> = clips.collect();
-        eprintln!(
-            "[WR define_clip_chain] id={:?}, parent={:?}, clips={:?}, clip_map.len={}",
-            id, parent, clips_vec, self.clip_map.len()
-        );
         let mut valid_clips = Vec::new();
         for clip_id in &clips_vec {
             if let Some(handle) = self.clip_map.get(clip_id) {
                 valid_clips.push(*handle);
-            } else {
-                eprintln!("[WR define_clip_chain] WARNING: clip_id {:?} not found in clip_map, skipping!", clip_id);
             }
         }
         self.clip_chains.push(ClipChain { parent, clips: valid_clips });
@@ -548,19 +542,13 @@ impl ClipTreeBuilder {
         //           finding shared_clips for tile caches etc.
 
         let clip_chain = &clip_chains[clip_chain_index];
-        eprintln!(
-            "[WR add_clips] clip_chain_index={}, parent={:?}, clips.len={}",
-            clip_chain_index, clip_chain.parent, clip_chain.clips.len()
-        );
 
         if let Some(parent) = clip_chain.parent {
             ClipTreeBuilder::add_clips(parent, seen_clips, output, clip_chains);
         }
 
         for clip_index in clip_chain.clips.iter().rev() {
-            let was_new = seen_clips.insert(*clip_index);
-            eprintln!("[WR add_clips] adding clip_index={:?}, was_new={}", clip_index, was_new);
-            if was_new {
+            if seen_clips.insert(*clip_index) {
                 output.push(*clip_index);
             }
         }
@@ -571,7 +559,6 @@ impl ClipTreeBuilder {
         let clip_stack = self.clip_stack.last_mut().unwrap();
 
         if clip_chain_id == ClipChainId::INVALID {
-            eprintln!("[WR build_clip_set] INVALID clip_chain_id, returning clip_stack.clip_node_id={:?}", clip_stack.clip_node_id);
             clip_stack.clip_node_id
         } else {
             if let Some((cached_clip_chain, cached_clip_node)) = clip_stack.last_clip_chain_cache {
@@ -583,7 +570,6 @@ impl ClipTreeBuilder {
             let clip_chain_index = match self.clip_chain_map.get(&clip_chain_id) {
                 Some(&idx) => idx,
                 None => {
-                    eprintln!("[WR build_clip_set] WARNING: clip_chain_id {:?} not in map, returning root", clip_chain_id);
                     return clip_stack.clip_node_id;
                 }
             };
@@ -595,11 +581,6 @@ impl ClipTreeBuilder {
                 &mut clip_stack.seen_clips,
                 &mut self.clip_handles_buffer,
                 &self.clip_chains,
-            );
-            
-            eprintln!(
-                "[WR build_clip_set] clip_chain_id={:?}, clip_chain_index={}, clip_handles_buffer.len={}",
-                clip_chain_id, clip_chain_index, self.clip_handles_buffer.len()
             );
 
             // We mutated the `clip_stack.seen_clips` in order to remove duplicate clips from
@@ -1245,18 +1226,9 @@ impl ClipStore {
 
         let mut local_clip_rect = clip_leaf.local_clip_rect;
         let mut current = clip_leaf.node_id;
-        
-        eprintln!(
-            "[WR SET_ACTIVE_CLIPS] prim_spatial={:?}, pic_spatial={:?}, clip_leaf_id={:?}, initial_local_clip_rect={:?}, node_id={:?}, clip_root={:?}",
-            prim_spatial_node_index, pic_spatial_node_index, clip_leaf_id, local_clip_rect, current, clip_root
-        );
 
         while current != clip_root {
             let node = clip_tree.get_node(current);
-            eprintln!(
-                "[WR SET_ACTIVE_CLIPS] traversing node {:?}, handle={:?}, parent={:?}",
-                current, node.handle, node.parent
-            );
 
             if !add_clip_node_to_current_chain(
                 node.handle,
@@ -1268,17 +1240,12 @@ impl ClipStore {
                 clip_data_store,
                 spatial_tree,
             ) {
-                eprintln!("[WR SET_ACTIVE_CLIPS] clip node culled primitive, returning early");
                 return;
             }
 
             current = node.parent;
         }
 
-        eprintln!(
-            "[WR SET_ACTIVE_CLIPS] FINAL active_local_clip_rect={:?}, active_clip_node_info.len={}",
-            local_clip_rect, self.active_clip_node_info.len()
-        );
         self.active_local_clip_rect = Some(local_clip_rect);
     }
 
@@ -1427,31 +1394,11 @@ impl ClipStore {
         let local_clip_rect = match self.active_local_clip_rect {
             Some(rect) => rect,
             None => {
-                eprintln!("[WR CLIP] build_clip_chain_instance: NO active_local_clip_rect, returning None");
                 return None;
             }
         };
 
-        eprintln!(
-            "[WR CLIP] build_clip_chain_instance: local_prim_rect={:?}, local_clip_rect={:?}",
-            local_prim_rect, local_clip_rect
-        );
-
-        let local_bounding_rect = match local_prim_rect.intersection(&local_clip_rect) {
-            Some(rect) => rect,
-            None => {
-                eprintln!(
-                    "[WR CLIP] REJECTED: prim {:?} has no intersection with clip {:?}",
-                    local_prim_rect, local_clip_rect
-                );
-                return None;
-            }
-        };
-        
-        eprintln!(
-            "[WR CLIP] local_bounding_rect (intersection)={:?}",
-            local_bounding_rect
-        );
+        let local_bounding_rect = local_prim_rect.intersection(&local_clip_rect)?;
         
         let mut pic_coverage_rect = prim_to_pic_mapper.map(&local_bounding_rect)?;
         let world_clip_rect = pic_to_world_mapper.map(&pic_coverage_rect)?;
@@ -1992,19 +1939,14 @@ impl ClipItemKind {
                 rect,
                 mode: ClipMode::Clip,
             } => {
-                let result = if rect.contains_box(prim_rect) {
+                if rect.contains_box(prim_rect) {
                     ClipResult::Accept
                 } else {
                     match rect.intersection(prim_rect) {
                         Some(..) => ClipResult::Partial,
                         None => ClipResult::Reject,
                     }
-                };
-                eprintln!(
-                    "[WR CLIP] get_clip_result: clip_rect={:?}, prim_rect={:?}, result={:?}",
-                    rect, prim_rect, result
-                );
-                result
+                }
             }
             ClipItemKind::Rectangle {
                 rect,
@@ -2271,11 +2213,6 @@ fn add_clip_node_to_current_chain(
     spatial_tree: &SpatialTree,
 ) -> bool {
     let clip_node = &clip_data_store[handle];
-    
-    eprintln!(
-        "[WR CLIP CHAIN] add_clip_node: handle={:?}, prim_spatial={:?}, pic_spatial={:?}, clip_spatial={:?}",
-        handle, prim_spatial_node_index, pic_spatial_node_index, clip_node.item.spatial_node_index
-    );
 
     // Determine the most efficient way to convert between coordinate
     // systems of the primitive and clip node.
@@ -2284,12 +2221,6 @@ fn add_clip_node_to_current_chain(
         clip_node.item.spatial_node_index,
         spatial_tree,
     );
-    
-    eprintln!("[WR CLIP CHAIN] conversion type: {:?}", match &conversion {
-        ClipSpaceConversion::Local => "Local",
-        ClipSpaceConversion::ScaleOffset(_) => "ScaleOffset",
-        ClipSpaceConversion::Transform(_) => "Transform",
-    });
 
     // If we can convert spaces, try to reduce the size of the region
     // requested, and cache the conversion information for the next step.

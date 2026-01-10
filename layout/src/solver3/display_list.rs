@@ -647,28 +647,6 @@ impl DisplayListBuilder {
     
     /// Build the display list and transfer debug messages to the provided option
     pub fn build_with_debug(mut self, debug_messages: &mut Option<Vec<LayoutDebugMessage>>) -> DisplayList {
-        // Debug: dump display list structure
-        #[cfg(debug_assertions)]
-        {
-            eprintln!("[DisplayList] Generated {} items:", self.items.len());
-            for (i, item) in self.items.iter().enumerate() {
-                let item_name = match item {
-                    DisplayListItem::Rect { bounds, .. } => format!("Rect @ {:?}", bounds),
-                    DisplayListItem::PushClip { bounds, .. } => format!("PushClip @ {:?}", bounds),
-                    DisplayListItem::PopClip => "PopClip".to_string(),
-                    DisplayListItem::PushScrollFrame { clip_bounds, content_size, scroll_id } => 
-                        format!("PushScrollFrame clip={:?} content={:?} id={}", clip_bounds, content_size, scroll_id),
-                    DisplayListItem::PopScrollFrame => "PopScrollFrame".to_string(),
-                    DisplayListItem::PushStackingContext { z_index, .. } => format!("PushStackingContext z={}", z_index),
-                    DisplayListItem::PopStackingContext => "PopStackingContext".to_string(),
-                    DisplayListItem::Border { bounds, .. } => format!("Border @ {:?}", bounds),
-                    DisplayListItem::ScrollBarStyled { .. } => "ScrollBarStyled".to_string(),
-                    _ => format!("{:?}", std::mem::discriminant(item)),
-                };
-                eprintln!("  [{}] {}", i, item_name);
-            }
-        }
-        
         // Transfer collected debug messages to the context
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.append(&mut self.debug_messages);
