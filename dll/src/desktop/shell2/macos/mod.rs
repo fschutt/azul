@@ -281,7 +281,6 @@ define_class!(
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
             // Forward to MacOSWindow for scroll handling
-            println!("[GLView scroll_wheel] received scroll event!");
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -785,7 +784,6 @@ define_class!(
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
             // Forward to MacOSWindow for scroll handling
-            println!("[CPUView scroll_wheel] received scroll event!");
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -3748,7 +3746,6 @@ impl MacOSWindow {
         use azul_core::events::MouseButton;
 
         let event_type = event.r#type();
-        println!("[process_event] received event type: {:?} (raw: {})", event_type, event_type.0);
 
         match event_type {
             NSEventType::LeftMouseDown => {
@@ -4192,9 +4189,6 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn poll_event(&mut self) -> Option<Self::EventType> {
-        // DEBUG: Verify poll_event is being called
-        println!("[poll_event] called");
-        
         // Check if a frame is ready without blocking
         let frame_ready = {
             let &(ref lock, _) = &*self.new_frame_ready;

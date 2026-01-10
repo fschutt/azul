@@ -395,9 +395,6 @@ impl MacOSWindow {
         let window_height = self.current_window_state.size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
-        println!("[macOS scroll] raw location: ({}, {}), window_height: {}, azul position: ({}, {}), delta: ({}, {})",
-            location.x, location.y, window_height, position.x, position.y, delta_x, delta_y);
-
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
 
@@ -413,7 +410,6 @@ impl MacOSWindow {
                 use azul_layout::managers::hover::InputPointId;
 
                 let now = Instant::from(std::time::Instant::now());
-                println!("[macOS scroll] calling record_sample with delta: ({}, {})", -delta_x as f32, -delta_y as f32);
                 let _scroll_node = layout_window.scroll_manager.record_sample(
                     -delta_x as f32, // Invert for natural scrolling
                     -delta_y as f32,
@@ -421,7 +417,6 @@ impl MacOSWindow {
                     &InputPointId::Mouse,
                     now,
                 );
-                println!("[macOS scroll] record_sample returned: {:?}", _scroll_node);
 
                 // Note: We do NOT call gpu_scroll() here - it would cause double-scrolling!
                 // The scroll state will be automatically synchronized to WebRender during
@@ -1217,12 +1212,10 @@ impl MacOSWindow {
 
     /// Update hit test at given position and store in current_window_state.
     fn update_hit_test(&mut self, position: LogicalPosition) {
-        println!("[update_hit_test] checking layout_window: {:?}", self.layout_window.is_some());
         if let Some(layout_window) = self.layout_window.as_mut() {
             let cursor_position = CursorPosition::InWindow(position);
             // Get focused node from FocusManager
             let focused_node = layout_window.focus_manager.get_focused_node().copied();
-            println!("[update_hit_test] calling fullhittest_new_webrender");
             let hit_test = crate::desktop::wr_translate2::fullhittest_new_webrender(
                 &*self.hit_tester.resolve(),
                 self.document_id,
@@ -1231,17 +1224,10 @@ impl MacOSWindow {
                 &cursor_position,
                 self.current_window_state.size.get_hidpi_factor(),
             );
-            println!("[update_hit_test] position: ({}, {}), hovered_nodes: {}, scroll_hit_test total: {}",
-                position.x, position.y,
-                hit_test.hovered_nodes.len(),
-                hit_test.hovered_nodes.values().map(|h| h.scroll_hit_test_nodes.len()).sum::<usize>()
-            );
             use azul_layout::managers::hover::InputPointId;
             layout_window
                 .hover_manager
                 .push_hit_test(InputPointId::Mouse, hit_test);
-        } else {
-            println!("[update_hit_test] layout_window is None!");
         }
     }
 
