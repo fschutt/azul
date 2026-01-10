@@ -728,21 +728,26 @@ pub fn translate_displaylist_to_wr(
                     ),
                 );
 
-                // The content_rect is in SCROLL space (where (0,0) is the content origin)
-                // It should start at (0,0) and have the full content size
-                let content_rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(0.0, 0.0),  // Content starts at origin in scroll space
-                    LayoutSize::new(
-                        scale_px(content_size.width, dpi_scale),
-                        scale_px(content_size.height, dpi_scale),
-                    ),
-                );
-
                 // Define scroll frame using WebRender API
                 let parent_space = current_spatial!();
                 let current_clip = current_clip!();
                 let current_offset = current_offset!();
                 let external_scroll_id = ExternalScrollId(*scroll_id, pipeline_id);
+
+                // Apply parent offset to frame_rect for correct positioning in parent space
+                let adjusted_frame_rect = apply_offset(frame_rect, current_offset);
+                
+                // The content_rect is in PARENT space (same coordinate system as frame_rect)
+                // Origin should match frame_rect.origin, size is the total scrollable content
+                // This ensures that child coordinates (which are in parent-space after offset adjustment)
+                // are correctly positioned relative to the scroll frame
+                let content_rect = LayoutRect::from_origin_and_size(
+                    adjusted_frame_rect.min, // Content origin matches frame origin
+                    LayoutSize::new(
+                        scale_px(content_size.width, dpi_scale),
+                        scale_px(content_size.height, dpi_scale),
+                    ),
+                );
 
                 log_debug!(LogCategory::DisplayList, 
                     "[compositor2] PushScrollFrame START: frame_rect={:?}, content_rect={:?}, \
@@ -752,9 +757,6 @@ pub fn translate_displaylist_to_wr(
                     spatial_stack.len(), clip_stack.len()
                 );
 
-                // Apply parent offset to frame_rect for correct positioning in parent space
-                let adjusted_frame_rect = apply_offset(frame_rect, current_offset);
-                
                 log_debug!(LogCategory::DisplayList,
                     "[CLIP DEBUG] PushScrollFrame: frame_rect={:?}, adjusted={:?}, content_rect={:?}",
                     frame_rect, adjusted_frame_rect, content_rect
