@@ -51,7 +51,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.87.0
+          toolchain: 1.88.0
 
       - name: Run autofix and normalize
         run: |
@@ -99,7 +99,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.87.0
+          toolchain: 1.88.0
 
       - name: Install Miri
         run: |
@@ -156,7 +156,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.87.0
+          toolchain: 1.88.0
 
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-22.04'
@@ -229,7 +229,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.87.0
+          toolchain: 1.88.0
 
       - name: Install clang (Linux)
         if: matrix.os == 'ubuntu-22.04'
@@ -502,7 +502,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.87.0
+          toolchain: 1.88.0
 
       - name: Generate codegen and NFPM config
         run: |
