@@ -135,6 +135,7 @@ pub fn run(
                     autoreleasepool(|_| {
 
                         // PHASE 1: Process all pending native events (non-blocking)
+                        // We need to dispatch events BOTH to the system (sendEvent) and to our handlers
                         loop {
                             let event = unsafe {
                                 app.nextEventMatchingMask_untilDate_inMode_dequeue(
@@ -146,6 +147,19 @@ pub fn run(
                             };
 
                             if let Some(event) = event {
+                                // First, dispatch to our window handlers for scroll wheel, gestures, etc.
+                                // Find the target window and dispatch the event
+                                let window_ptrs = super::macos::registry::get_all_window_ptrs();
+                                for wptr in &window_ptrs {
+                                    unsafe {
+                                        let window = &mut **wptr;
+                                        // Create MacOSEvent and dispatch to our handler
+                                        let macos_event = super::macos::MacOSEvent::from_nsevent(&event);
+                                        window.process_event(&event, &macos_event);
+                                    }
+                                }
+                                
+                                // Then forward to system for default handling
                                 unsafe {
                                     app.sendEvent(&event);
                                 }
@@ -177,6 +191,12 @@ pub fn run(
                         for wptr in window_ptrs {
                             unsafe {
                                 let window = &mut *wptr;
+
+                                // Process events for this window using poll_event
+                                // This handles scroll wheel, touch events, etc.
+                                while window.poll_event().is_some() {
+                                    // Event handling is done inside poll_event
+                                }
 
                                 // Process pending window creates (for popup menus, dialogs, etc.)
                                 while let Some(pending_create) = window.pending_window_creates.pop()

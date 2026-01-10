@@ -452,8 +452,12 @@ pub fn fullhittest_new_webrender(
         styled_dom::NodeHierarchyItemId,
     };
 
+    println!("[fullhittest] called with cursor_position: {:?}, layout_results: {} DOMs", 
+        cursor_position, layout_results.len());
+
     let mut cursor_location = match cursor_position {
         CursorPosition::OutOfWindow(_) | CursorPosition::Uninitialized => {
+            println!("[fullhittest] early return - cursor out of window or uninitialized");
             return FullHitTest::empty(old_focus_node);
         }
         CursorPosition::InWindow(pos) => LogicalPosition::new(pos.x, pos.y),
@@ -490,6 +494,9 @@ pub fn fullhittest_new_webrender(
                 cursor_relative_to_dom.y * hidpi_factor.inner.get(),
             );
             let wr_result = wr_hittester.hit_test(physical_pos);
+            
+            println!("[fullhittest] physical_pos: ({}, {}), wr_result.items: {}", 
+                physical_pos.x, physical_pos.y, wr_result.items.len());
 
             // Convert WebRender hit test results to azul hit test items
             let hit_items = wr_result

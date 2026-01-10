@@ -33,6 +33,19 @@ pub use crate::desktop::shell2::common::event_v2::HitTestNode;
 // Import V2 cross-platform event processing trait
 use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
 
+/// Convert macOS window coordinates to Azul logical coordinates.
+///
+/// macOS uses a bottom-left origin coordinate system where Y=0 is at the bottom.
+/// Azul/WebRender uses a top-left origin coordinate system where Y=0 is at the top.
+/// This function converts from macOS to Azul coordinates.
+#[inline]
+fn macos_to_azul_coords(location: NSPoint, window_height: f32) -> LogicalPosition {
+    LogicalPosition::new(
+        location.x as f32,
+        window_height - location.y as f32,
+    )
+}
+
 /// Extension trait for Callback to convert from CoreCallback
 trait CallbackExt {
     fn from_core(core_callback: azul_core::callbacks::CoreCallback) -> Self;
@@ -95,7 +108,8 @@ impl MacOSWindow {
         button: MouseButton,
     ) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
-        let position = LogicalPosition::new(location.x as f32, location.y as f32);
+        let window_height = self.current_window_state.size.dimensions.height;
+        let position = macos_to_azul_coords(location, window_height);
 
         // Check for scrollbar hit FIRST (before state changes)
         // Use trait method from PlatformWindowV2
@@ -144,7 +158,8 @@ impl MacOSWindow {
     /// Process a mouse button up event.
     pub fn handle_mouse_up(&mut self, event: &NSEvent, button: MouseButton) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
-        let position = LogicalPosition::new(location.x as f32, location.y as f32);
+        let window_height = self.current_window_state.size.dimensions.height;
+        let position = macos_to_azul_coords(location, window_height);
 
         // End scrollbar drag if active (before state changes)
         if self.scrollbar_drag_state.is_some() {
@@ -213,7 +228,8 @@ impl MacOSWindow {
     /// Process a mouse move event.
     pub fn handle_mouse_move(&mut self, event: &NSEvent) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
-        let position = LogicalPosition::new(location.x as f32, location.y as f32);
+        let window_height = self.current_window_state.size.dimensions.height;
+        let position = macos_to_azul_coords(location, window_height);
 
         // Handle active scrollbar drag (special case - not part of normal event system)
         // Use trait method from PlatformWindowV2
@@ -290,7 +306,8 @@ impl MacOSWindow {
     /// Process mouse entered window event.
     pub fn handle_mouse_entered(&mut self, event: &NSEvent) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
-        let position = LogicalPosition::new(location.x as f32, location.y as f32);
+        let window_height = self.current_window_state.size.dimensions.height;
+        let position = macos_to_azul_coords(location, window_height);
 
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
@@ -327,7 +344,8 @@ impl MacOSWindow {
     /// Process mouse exited window event.
     pub fn handle_mouse_exited(&mut self, event: &NSEvent) -> EventProcessResult {
         let location = unsafe { event.locationInWindow() };
-        let position = LogicalPosition::new(location.x as f32, location.y as f32);
+        let window_height = self.current_window_state.size.dimensions.height;
+        let position = macos_to_azul_coords(location, window_height);
 
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
@@ -374,7 +392,11 @@ impl MacOSWindow {
         let _has_precise = unsafe { event.hasPreciseScrollingDeltas() };
 
         let location = unsafe { event.locationInWindow() };
-        let position = LogicalPosition::new(location.x as f32, location.y as f32);
+        let window_height = self.current_window_state.size.dimensions.height;
+        let position = macos_to_azul_coords(location, window_height);
+
+        println!("[macOS scroll] raw location: ({}, {}), window_height: {}, azul position: ({}, {}), delta: ({}, {})",
+            location.x, location.y, window_height, position.x, position.y, delta_x, delta_y);
 
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
@@ -391,6 +413,7 @@ impl MacOSWindow {
                 use azul_layout::managers::hover::InputPointId;
 
                 let now = Instant::from(std::time::Instant::now());
+                println!("[macOS scroll] calling record_sample with delta: ({}, {})", -delta_x as f32, -delta_y as f32);
                 let _scroll_node = layout_window.scroll_manager.record_sample(
                     -delta_x as f32, // Invert for natural scrolling
                     -delta_y as f32,
@@ -398,6 +421,7 @@ impl MacOSWindow {
                     &InputPointId::Mouse,
                     now,
                 );
+                println!("[macOS scroll] record_sample returned: {:?}", _scroll_node);
 
                 // Note: We do NOT call gpu_scroll() here - it would cause double-scrolling!
                 // The scroll state will be automatically synchronized to WebRender during
@@ -1193,10 +1217,12 @@ impl MacOSWindow {
 
     /// Update hit test at given position and store in current_window_state.
     fn update_hit_test(&mut self, position: LogicalPosition) {
+        println!("[update_hit_test] checking layout_window: {:?}", self.layout_window.is_some());
         if let Some(layout_window) = self.layout_window.as_mut() {
             let cursor_position = CursorPosition::InWindow(position);
             // Get focused node from FocusManager
             let focused_node = layout_window.focus_manager.get_focused_node().copied();
+            println!("[update_hit_test] calling fullhittest_new_webrender");
             let hit_test = crate::desktop::wr_translate2::fullhittest_new_webrender(
                 &*self.hit_tester.resolve(),
                 self.document_id,
@@ -1205,10 +1231,17 @@ impl MacOSWindow {
                 &cursor_position,
                 self.current_window_state.size.get_hidpi_factor(),
             );
+            println!("[update_hit_test] position: ({}, {}), hovered_nodes: {}, scroll_hit_test total: {}",
+                position.x, position.y,
+                hit_test.hovered_nodes.len(),
+                hit_test.hovered_nodes.values().map(|h| h.scroll_hit_test_nodes.len()).sum::<usize>()
+            );
             use azul_layout::managers::hover::InputPointId;
             layout_window
                 .hover_manager
                 .push_hit_test(InputPointId::Mouse, hit_test);
+        } else {
+            println!("[update_hit_test] layout_window is None!");
         }
     }
 

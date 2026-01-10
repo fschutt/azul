@@ -325,12 +325,19 @@ impl ScrollManager {
         input_point_id: &InputPointId,
         now: Instant,
     ) -> Option<(DomId, NodeId)> {
-        let hit_test = hover_manager.get_current(input_point_id)?;
+        println!("[ScrollManager] record_sample called with delta: ({}, {})", delta_x, delta_y);
+        let hit_test = hover_manager.get_current(input_point_id);
+        println!("[ScrollManager] hover_manager.get_current returned: {:?}", hit_test.is_some());
+        let hit_test = hit_test?;
 
         // Find first scrollable node in hit test hierarchy
+        println!("[ScrollManager] searching {} hovered_nodes for scrollable node", hit_test.hovered_nodes.len());
         for (dom_id, hit_node) in &hit_test.hovered_nodes {
+            println!("[ScrollManager]   dom {:?} has {} scroll_hit_test_nodes", dom_id, hit_node.scroll_hit_test_nodes.len());
             for (node_id, _scroll_item) in &hit_node.scroll_hit_test_nodes {
-                if self.is_node_scrollable(*dom_id, *node_id) {
+                let is_scrollable = self.is_node_scrollable(*dom_id, *node_id);
+                println!("[ScrollManager]     node {:?} is_scrollable: {}", node_id, is_scrollable);
+                if is_scrollable {
                     let delta = LogicalPosition {
                         x: delta_x,
                         y: delta_y,

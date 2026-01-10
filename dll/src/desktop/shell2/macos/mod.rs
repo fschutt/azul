@@ -225,48 +225,102 @@ define_class!(
 
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
-            // Event will be handled by MacOSWindow via NSApplication event loop
-            // This method is required for the view to accept mouse events
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
+                }
+            }
         }
 
         #[unsafe(method(mouseUp:))]
         fn mouse_up(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
+                }
+            }
         }
 
         #[unsafe(method(mouseDragged:))]
         fn mouse_dragged(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_mouse_move(event);
+                }
+            }
         }
 
         #[unsafe(method(rightMouseDown:))]
         fn right_mouse_down(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
+                }
+            }
         }
 
         #[unsafe(method(rightMouseUp:))]
         fn right_mouse_up(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
+                }
+            }
         }
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for scroll handling
+            println!("[GLView scroll_wheel] received scroll event!");
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_scroll_wheel(event);
+                }
+            }
         }
 
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_key_down(event);
+                }
+            }
         }
 
         #[unsafe(method(keyUp:))]
         fn key_up(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_key_up(event);
+                }
+            }
         }
 
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_flags_changed(event);
+                }
+            }
         }
 
         // NSResponder Undo/Redo Support
@@ -675,47 +729,102 @@ define_class!(
 
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
-            // Event will be handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
+                }
+            }
         }
 
         #[unsafe(method(mouseUp:))]
         fn mouse_up(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
+                }
+            }
         }
 
         #[unsafe(method(mouseDragged:))]
         fn mouse_dragged(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_mouse_move(event);
+                }
+            }
         }
 
         #[unsafe(method(rightMouseDown:))]
         fn right_mouse_down(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
+                }
+            }
         }
 
         #[unsafe(method(rightMouseUp:))]
         fn right_mouse_up(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
+                }
+            }
         }
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for scroll handling
+            println!("[CPUView scroll_wheel] received scroll event!");
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_scroll_wheel(event);
+                }
+            }
         }
 
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_key_down(event);
+                }
+            }
         }
 
         #[unsafe(method(keyUp:))]
         fn key_up(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_key_up(event);
+                }
+            }
         }
 
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self, event: &NSEvent) {
-            // Event handled by MacOSWindow
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_flags_changed(event);
+                }
+            }
         }
 
         // NSResponder Undo/Redo Support
@@ -3635,10 +3744,13 @@ impl MacOSWindow {
     }
 
     /// Process an NSEvent and dispatch to appropriate handler
-    fn process_event(&mut self, event: &NSEvent, macos_event: &MacOSEvent) {
+    pub fn process_event(&mut self, event: &NSEvent, macos_event: &MacOSEvent) {
         use azul_core::events::MouseButton;
 
-        match event.r#type() {
+        let event_type = event.r#type();
+        println!("[process_event] received event type: {:?} (raw: {})", event_type, event_type.0);
+
+        match event_type {
             NSEventType::LeftMouseDown => {
                 let _ = self.handle_mouse_down(event, MouseButton::Left);
             }
@@ -4080,6 +4192,9 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn poll_event(&mut self) -> Option<Self::EventType> {
+        // DEBUG: Verify poll_event is being called
+        println!("[poll_event] called");
+        
         // Check if a frame is ready without blocking
         let frame_ready = {
             let &(ref lock, _) = &*self.new_frame_ready;
@@ -4259,7 +4374,7 @@ pub enum MacOSEvent {
 
 impl MacOSEvent {
     /// Convert NSEvent to MacOSEvent.
-    fn from_nsevent(event: &NSEvent) -> Self {
+    pub fn from_nsevent(event: &NSEvent) -> Self {
         match event.r#type() {
             NSEventType::LeftMouseDown => {
                 let loc = event.locationInWindow();

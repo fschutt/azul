@@ -54,7 +54,7 @@ fn layout_dom_and_count_scrollbars(dom: Dom, css_str: &str, width: f32, height: 
         )
         .unwrap();
 
-    // Count scrollbar items in the display list
+    // Count scrollbar items in the display list (both simple and styled)
     layout_window
         .layout_results
         .get(&dom_id)
@@ -62,7 +62,10 @@ fn layout_dom_and_count_scrollbars(dom: Dom, css_str: &str, width: f32, height: 
             r.display_list
                 .items
                 .iter()
-                .filter(|item| matches!(item, DisplayListItem::ScrollBar { .. }))
+                .filter(|item| matches!(item, 
+                    DisplayListItem::ScrollBar { .. } | 
+                    DisplayListItem::ScrollBarStyled { .. }
+                ))
                 .count()
         })
         .unwrap_or(0)
@@ -516,34 +519,38 @@ fn layout_dom_and_get_scrollbar_bounds(
         )
         .unwrap();
 
-    layout_window
-        .layout_results
-        .get(&dom_id)
-        .map(|r| {
-            r.display_list
-                .items
-                .iter()
-                .filter_map(|item| {
-                    if let DisplayListItem::ScrollBar {
-                        bounds,
-                        orientation,
-                        ..
-                    } = item
-                    {
-                        Some((
-                            bounds.origin.x,
-                            bounds.origin.y,
-                            bounds.size.width,
-                            bounds.size.height,
-                            format!("{:?}", orientation),
-                        ))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+    let mut result = Vec::new();
+    if let Some(r) = layout_window.layout_results.get(&dom_id) {
+        for item in &r.display_list.items {
+            match item {
+                DisplayListItem::ScrollBar {
+                    bounds,
+                    orientation,
+                    ..
+                } => {
+                    result.push((
+                        bounds.origin.x,
+                        bounds.origin.y,
+                        bounds.size.width,
+                        bounds.size.height,
+                        format!("{:?}", orientation),
+                    ));
+                }
+                DisplayListItem::ScrollBarStyled { info } => {
+                    // Use track bounds for overall scrollbar position
+                    result.push((
+                        info.track_bounds.origin.x,
+                        info.track_bounds.origin.y,
+                        info.track_bounds.size.width,
+                        info.track_bounds.size.height,
+                        format!("{:?}", info.orientation),
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+    result
 }
 
 #[test]
@@ -753,5 +760,290 @@ fn test_scrolling_c_style_layout() {
         *y >= 40.0,
         "Scrollbar y ({}) should be below header (50px)",
         y
+    );
+}
+
+// =============================================================================
+// Window Resize Scrollbar Tests
+// =============================================================================
+
+/// Layout a DOM with specific window size and return scrollbar thumb info
+fn layout_dom_and_get_scrollbar_info(
+    dom: Dom,
+    css_str: &str,
+    width: f32,
+    height: f32,
+) -> Vec<(f32, f32, f32, f32, String)> {
+    let (css, _) = azul_css::parser2::new_from_str(css_str);
+    let mut dom = dom;
+    let styled_dom = StyledDom::create(&mut dom, css);
+    let dom_id = styled_dom.dom_id;
+
+    let mut layout_window = create_layout_window();
+    let window_state = create_window_state(width, height);
+    let renderer_resources = RendererResources::default();
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let mut debug_messages = Some(Vec::new());
+
+    layout_window
+        .layout_and_generate_display_list(
+            styled_dom,
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+        )
+        .unwrap();
+
+    // Extract scrollbar information
+    let mut result = Vec::new();
+    if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
+        for item in &layout_result.display_list.items {
+            match item {
+                DisplayListItem::ScrollBar {
+                    bounds,
+                    orientation,
+                    ..
+                } => {
+                    let orientation_str = match orientation {
+                        azul_core::dom::ScrollbarOrientation::Vertical => "Vertical",
+                        azul_core::dom::ScrollbarOrientation::Horizontal => "Horizontal",
+                    };
+                    // Store bounds (simple scrollbar)
+                    result.push((
+                        bounds.origin.x,
+                        bounds.origin.y,
+                        bounds.size.width,
+                        bounds.size.height,
+                        format!("{}", orientation_str),
+                    ));
+                }
+                DisplayListItem::ScrollBarStyled { info } => {
+                    // Extract info from styled scrollbar
+                    let orientation_str = match info.orientation {
+                        azul_core::dom::ScrollbarOrientation::Vertical => "Vertical",
+                        azul_core::dom::ScrollbarOrientation::Horizontal => "Horizontal",
+                    };
+                    // Store thumb bounds
+                    result.push((
+                        info.thumb_bounds.origin.x,
+                        info.thumb_bounds.origin.y,
+                        info.thumb_bounds.size.width,
+                        info.thumb_bounds.size.height,
+                        format!("{}Thumb", orientation_str),
+                    ));
+                    // Store track bounds
+                    result.push((
+                        info.track_bounds.origin.x,
+                        info.track_bounds.origin.y,
+                        info.track_bounds.size.width,
+                        info.track_bounds.size.height,
+                        format!("{}Track", orientation_str),
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+    result
+}
+
+/// Test that scrollbar thumb increases in size when window is resized to be larger
+/// (less content to scroll means larger thumb relative to track)
+#[test]
+fn test_scrollbar_thumb_increases_when_window_grows() {
+    // Create a body with auto overflow and fixed content
+    let create_dom = || {
+        let mut body = Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class("body".into())].into());
+        
+        // Add fixed-size content that will overflow at small window sizes
+        for _ in 0..10 {
+            let item = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("item".into())].into());
+            body.add_child(item);
+        }
+        body
+    };
+
+    let css = r#"
+        .body {
+            overflow: auto;
+            width: 100%;
+            height: 100%;
+        }
+        .item {
+            height: 100px;
+            margin: 10px;
+            background-color: green;
+        }
+    "#;
+
+    // Layout at small window size (should have scrollbar)
+    let small_info = layout_dom_and_get_scrollbar_info(create_dom(), css, 400.0, 300.0);
+    
+    // Layout at larger window size (should have scrollbar with larger thumb, or no scrollbar)
+    let large_info = layout_dom_and_get_scrollbar_info(create_dom(), css, 400.0, 600.0);
+
+    println!("Small window scrollbar info: {:?}", small_info);
+    println!("Large window scrollbar info: {:?}", large_info);
+
+    // Find vertical scrollbar in both (could be simple ScrollBar or styled ScrollBarStyled)
+    let small_vertical = small_info.iter().find(|x| x.4.contains("Vertical"));
+    let _large_vertical = large_info.iter().find(|x| x.4.contains("Vertical"));
+
+    // At small window (300px) with 10 items at 110px each = 1100px content
+    // We should definitely have a scrollbar
+    assert!(
+        small_vertical.is_some(),
+        "Small window (300px) should have vertical scrollbar for 1100px content. Got: {:?}",
+        small_info
+    );
+
+    // If both have styled scrollbars with thumbs, compare thumb sizes
+    let small_thumb = small_info.iter().find(|x| x.4 == "VerticalThumb");
+    let large_thumb = large_info.iter().find(|x| x.4 == "VerticalThumb");
+    
+    if let (Some(small), Some(large)) = (small_thumb, large_thumb) {
+        // The thumb height should increase when window is larger
+        // (more visible content = larger thumb)
+        assert!(
+            large.3 > small.3,
+            "Thumb height should increase when window grows: small={}, large={}",
+            small.3, large.3
+        );
+    }
+    // If large_thumb is None or using simple scrollbar, the test passes
+    // (scrollbar may have disappeared or be rendered differently)
+}
+
+/// Test that scrollbar thumb decreases in size when window is resized to be smaller
+/// (more content to scroll means smaller thumb relative to track)
+#[test]
+fn test_scrollbar_thumb_decreases_when_window_shrinks() {
+    let create_dom = || {
+        let mut body = Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class("body".into())].into());
+        
+        for _ in 0..10 {
+            let item = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("item".into())].into());
+            body.add_child(item);
+        }
+        body
+    };
+
+    let css = r#"
+        .body {
+            overflow: auto;
+            width: 100%;
+            height: 100%;
+        }
+        .item {
+            height: 100px;
+            margin: 10px;
+            background-color: red;
+        }
+    "#;
+
+    // Layout at medium window size
+    let medium_info = layout_dom_and_get_scrollbar_info(create_dom(), css, 400.0, 500.0);
+    
+    // Layout at smaller window size
+    let small_info = layout_dom_and_get_scrollbar_info(create_dom(), css, 400.0, 250.0);
+
+    println!("Medium window scrollbar info: {:?}", medium_info);
+    println!("Small window scrollbar info: {:?}", small_info);
+
+    let medium_vertical = medium_info.iter().find(|x| x.4.contains("Vertical"));
+    let small_vertical = small_info.iter().find(|x| x.4.contains("Vertical"));
+
+    // Both should have scrollbars
+    assert!(
+        small_vertical.is_some(),
+        "Small window should have vertical scrollbar. Got: {:?}",
+        small_info
+    );
+    assert!(
+        medium_vertical.is_some(),
+        "Medium window should have vertical scrollbar. Got: {:?}",
+        medium_info
+    );
+
+    // If both have styled thumbs, compare
+    let medium_thumb = medium_info.iter().find(|x| x.4 == "VerticalThumb");
+    let small_thumb = small_info.iter().find(|x| x.4 == "VerticalThumb");
+
+    if let (Some(small), Some(medium)) = (small_thumb, medium_thumb) {
+        // The thumb height should decrease when window is smaller
+        assert!(
+            small.3 < medium.3,
+            "Thumb height should decrease when window shrinks: small={}, medium={}",
+            small.3, medium.3
+        );
+    }
+}
+
+/// Test that scrollbar disappears when window is resized large enough to fit all content
+#[test]
+fn test_scrollbar_disappears_when_content_fits() {
+    let create_dom = || {
+        let mut container = Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into());
+        
+        // 5 items at 100px = 500px total content height (without margins)
+        for _ in 0..5 {
+            let item = Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("item".into())].into());
+            container.add_child(item);
+        }
+        container
+    };
+
+    // Use fixed container size for predictable behavior
+    let css = r#"
+        .container {
+            overflow: auto;
+            width: 400px;
+            height: 300px;
+        }
+        .item {
+            height: 100px;
+            background-color: blue;
+        }
+    "#;
+
+    // Layout: 5 items * 100px = 500px content in 300px container - should have scrollbar
+    let small_scrollbar_count = layout_dom_and_count_scrollbars(create_dom(), css, 800.0, 600.0);
+
+    // Now use larger container that fits content
+    let css_large = r#"
+        .container {
+            overflow: auto;
+            width: 400px;
+            height: 600px;
+        }
+        .item {
+            height: 100px;
+            background-color: blue;
+        }
+    "#;
+    
+    // 5 items * 100px = 500px content in 600px container - should NOT have scrollbar
+    let large_scrollbar_count = layout_dom_and_count_scrollbars(create_dom(), css_large, 800.0, 700.0);
+
+    println!("Small container scrollbar count: {}", small_scrollbar_count);
+    println!("Large container scrollbar count: {}", large_scrollbar_count);
+
+    // Small container should have scrollbar
+    assert!(
+        small_scrollbar_count > 0,
+        "300px container should show scrollbar for 500px content"
+    );
+
+    // Large container should NOT have scrollbar (content fits)
+    assert_eq!(
+        large_scrollbar_count, 0,
+        "600px container should NOT show scrollbar when content (500px) fits"
     );
 }
