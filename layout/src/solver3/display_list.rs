@@ -1348,6 +1348,21 @@ where
         // is rendered in parent space (stationary), not scroll space.
         self.paint_node_background_and_border(builder, context.node_index)?;
 
+        // 1b. For scrollable containers, push the hit-test area BEFORE the scroll frame
+        // so the hit-test covers the entire container box (including visible area),
+        // not just the scrolled content. This ensures scroll wheel events hit the
+        // container regardless of scroll position.
+        if let Some(dom_id) = node.dom_node_id {
+            let styled_node_state = self.get_styled_node_state(dom_id);
+            let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
+            let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
+            if overflow_x.is_scroll() || overflow_y.is_scroll() {
+                if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
+                    builder.push_hit_test_area(node_bounds, tag_id);
+                }
+            }
+        }
+
         // 2. Push clips and scroll frames AFTER painting background
         let did_push_clip_or_scroll = self.push_node_clips(builder, context.node_index, node)?;
 
@@ -1945,8 +1960,24 @@ where
         };
 
         // Add a hit-test area for this node if it's interactive.
+        // NOTE: For scrollable containers (overflow: scroll/auto), the hit-test area
+        // was already pushed in generate_for_stacking_context BEFORE the scroll frame,
+        // so we skip it here to avoid duplicate hit-test areas.
         if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
-            builder.push_hit_test_area(paint_rect, tag_id);
+            let is_scrollable = if let Some(dom_id) = node.dom_node_id {
+                let styled_node_state = self.get_styled_node_state(dom_id);
+                let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
+                let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
+                overflow_x.is_scroll() || overflow_y.is_scroll()
+            } else {
+                false
+            };
+            
+            // Only push hit-test area if NOT a scrollable container
+            // (scrollable containers already have hit-test in parent space)
+            if !is_scrollable {
+                builder.push_hit_test_area(paint_rect, tag_id);
+            }
         }
 
         // Paint the node's visible content.

@@ -868,6 +868,28 @@ impl CssPropertyCache {
                         break;
                     }
 
+                    // check for overflow: scroll or overflow: auto - needed for scroll hit-testing
+                    // Nodes with these overflow values need hit-test tags so that
+                    // scroll wheel events can be correctly assigned to scrollable containers
+                    let node_has_overflow_scroll = {
+                        use azul_css::props::layout::LayoutOverflow;
+                        let overflow_x = self
+                            .get_overflow_x(&node_data, &node_id, &default_node_state)
+                            .and_then(|p| p.get_property_or_default());
+                        let overflow_y = self
+                            .get_overflow_y(&node_data, &node_id, &default_node_state)
+                            .and_then(|p| p.get_property_or_default());
+                        
+                        let x_scrollable = matches!(overflow_x, Some(LayoutOverflow::Scroll | LayoutOverflow::Auto));
+                        let y_scrollable = matches!(overflow_y, Some(LayoutOverflow::Scroll | LayoutOverflow::Auto));
+                        x_scrollable || y_scrollable
+                    };
+
+                    if node_has_overflow_scroll {
+                        node_should_have_tag = true;
+                        break;
+                    }
+
                     break;
                 }
 
