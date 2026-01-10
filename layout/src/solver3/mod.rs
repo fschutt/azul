@@ -536,7 +536,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         );
 
         if reflow_needed_for_scrollbars {
-            ctx.debug_log("Scrollbars changed container size, starting full reflow...");
+            ctx.debug_log(&format!("Scrollbars changed container size, starting full reflow (loop {})", loop_count));
             recon_result.layout_roots.clear();
             recon_result.layout_roots.insert(new_tree.root);
             recon_result.intrinsic_dirty = (0..new_tree.nodes.len()).collect();

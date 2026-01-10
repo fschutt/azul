@@ -91,7 +91,7 @@ use crate::{
 
 /// Default scrollbar width in pixels (CSS Overflow Module Level 3).
 /// Used when `overflow: scroll` or `overflow: auto` triggers scrollbar display.
-const SCROLLBAR_WIDTH_PX: f32 = 16.0;
+pub const SCROLLBAR_WIDTH_PX: f32 = 16.0;
 
 // Note: DEFAULT_FONT_SIZE and PT_TO_PX are imported from pixel
 
@@ -704,7 +704,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     // We use constraints.available_size directly as this already represents the
     // content-box available to this node (set by parent). For nodes with explicit
     // sizes, used_size contains the border-box which we convert to content-box.
-    let children_containing_block_size = if let Some(used_size) = node.used_size {
+    let mut children_containing_block_size = if let Some(used_size) = node.used_size {
         // Node has explicit used_size (border-box) - convert to content-box
         node.box_props.inner_size(used_size, writing_mode)
     } else {
@@ -712,6 +712,30 @@ fn layout_bfc<T: ParsedFontTrait>(
         // when coming from parent's layout constraints)
         constraints.available_size
     };
+    
+    // Proactively reserve space for vertical scrollbar if overflow-y is auto/scroll.
+    // This ensures children are laid out with the correct available width from the start,
+    // preventing the "children overlap scrollbar" layout issue.
+    let scrollbar_reservation = node.dom_node_id.map(|dom_id| {
+        let styled_node_state = ctx
+            .styled_dom
+            .styled_nodes
+            .as_container()
+            .get(dom_id)
+            .map(|s| s.styled_node_state.clone())
+            .unwrap_or_default();
+        let overflow_y = crate::solver3::getters::get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
+        use azul_css::props::layout::LayoutOverflow;
+        match overflow_y.unwrap_or_default() {
+            LayoutOverflow::Scroll | LayoutOverflow::Auto => SCROLLBAR_WIDTH_PX,
+            _ => 0.0,
+        }
+    }).unwrap_or(0.0);
+    
+    if scrollbar_reservation > 0.0 {
+        children_containing_block_size.width = 
+            (children_containing_block_size.width - scrollbar_reservation).max(0.0);
+    }
     
     // Pass 1: Size all children (floats and normal flow)
     for &child_index in &node.children {

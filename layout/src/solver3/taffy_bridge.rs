@@ -1110,10 +1110,45 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             })
             .unwrap_or(f32::INFINITY);
 
-        let available_size = LogicalSize {
+        let mut available_size = LogicalSize {
             width: available_width,
             height: available_height,
         };
+
+        // Check if this node has overflow: auto/scroll and might need a vertical scrollbar.
+        // If so, reduce available width for children to reserve space for the scrollbar.
+        // This prevents the "children overlap scrollbar" layout issue.
+        let scrollbar_reservation = self
+            .tree
+            .get(node_idx)
+            .and_then(|node| node.dom_node_id)
+            .map(|dom_id| {
+                let styled_node_state = self
+                    .ctx
+                    .styled_dom
+                    .styled_nodes
+                    .as_container()
+                    .get(dom_id)
+                    .map(|s| s.styled_node_state.clone())
+                    .unwrap_or_default();
+                let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
+                use azul_css::props::layout::LayoutOverflow;
+                let needs_scrollbar_space = matches!(
+                    overflow_y.unwrap_or_default(),
+                    LayoutOverflow::Scroll | LayoutOverflow::Auto
+                );
+                if needs_scrollbar_space {
+                    crate::solver3::fc::SCROLLBAR_WIDTH_PX
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0);
+
+        // Reduce available width by scrollbar reservation
+        if scrollbar_reservation > 0.0 && available_size.width.is_finite() {
+            available_size.width = (available_size.width - scrollbar_reservation).max(0.0);
+        }
 
         // Convert Taffy's AvailableSpace to our Text3AvailableSpace for caching
         let available_width_type = match inputs.available_space.width {

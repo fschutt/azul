@@ -743,6 +743,39 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         // Height is explicit - use inner size (after padding/border)
         node.box_props.inner_size(final_used_size, writing_mode)
     };
+    
+    // Proactively reserve space for scrollbars based on overflow properties.
+    // If overflow-y is auto/scroll, we must reduce available width for children
+    // to ensure they don't overlap with the scrollbar.
+    // This is done BEFORE layout so children are sized correctly from the start.
+    let scrollbar_reservation = match dom_id {
+        Some(id) => {
+            let styled_node_state = ctx
+                .styled_dom
+                .styled_nodes
+                .as_container()
+                .get(id)
+                .map(|s| s.styled_node_state.clone())
+                .unwrap_or_default();
+            let overflow_y = get_overflow_y(ctx.styled_dom, id, &styled_node_state);
+            use azul_css::props::layout::LayoutOverflow;
+            match overflow_y.unwrap_or_default() {
+                LayoutOverflow::Scroll | LayoutOverflow::Auto => fc::SCROLLBAR_WIDTH_PX,
+                _ => 0.0,
+            }
+        }
+        None => 0.0,
+    };
+    
+    // Reduce available width by scrollbar reservation (if any)
+    let available_size_for_children = if scrollbar_reservation > 0.0 {
+        LogicalSize {
+            width: (available_size_for_children.width - scrollbar_reservation).max(0.0),
+            height: available_size_for_children.height,
+        }
+    } else {
+        available_size_for_children
+    };
 
     let constraints = LayoutConstraints {
         available_size: available_size_for_children,
@@ -789,9 +822,11 @@ fn compute_scrollbar_info<T: ParsedFontTrait>(
     let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, styled_node_state);
     let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, styled_node_state);
 
+    let container_size = box_props.inner_size(final_used_size, writing_mode);
+    
     fc::check_scrollbar_necessity(
         content_size,
-        box_props.inner_size(final_used_size, writing_mode),
+        container_size,
         to_overflow_behavior(overflow_x),
         to_overflow_behavior(overflow_y),
     )
