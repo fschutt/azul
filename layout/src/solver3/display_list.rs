@@ -1973,11 +1973,10 @@ where
                 false
             };
             
-            // Only push hit-test area if NOT a scrollable container
-            // (scrollable containers already have hit-test in parent space)
-            if !is_scrollable {
-                builder.push_hit_test_area(paint_rect, tag_id);
-            }
+            // Push hit-test area for this node
+            // For scrollable containers, this is pushed BEFORE the scroll frame in push_node_clips
+            // to ensure the hit-test covers the entire container, not just scrolled content
+            builder.push_hit_test_area(paint_rect, tag_id);
         }
 
         // Paint the node's visible content.
