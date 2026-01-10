@@ -96,6 +96,8 @@ pub enum ResponseData {
     FindNode(FindNodeResponse),
     /// Click node result
     ClickNode(ClickNodeResponse),
+    /// Scrollbar info result
+    ScrollbarInfo(ScrollbarInfoResponse),
 }
 
 /// Screenshot response data
@@ -553,6 +555,63 @@ pub struct ScrollNodeToResponse {
     pub y: f32,
 }
 
+/// Response for GetScrollbarInfo - detailed scrollbar geometry and state
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ScrollbarInfoResponse {
+    /// Whether a scrollbar was found
+    pub found: bool,
+    /// Node ID of the scrollable element
+    pub node_id: u64,
+    /// DOM node ID (may differ from layout node ID)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dom_node_id: Option<u64>,
+    /// Requested orientation
+    pub orientation: String,
+    /// Horizontal scrollbar info (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub horizontal: Option<ScrollbarGeometry>,
+    /// Vertical scrollbar info (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vertical: Option<ScrollbarGeometry>,
+    /// Current scroll position
+    pub scroll_x: f32,
+    pub scroll_y: f32,
+    /// Maximum scroll values
+    pub max_scroll_x: f32,
+    pub max_scroll_y: f32,
+    /// Container (viewport) rect
+    pub container_rect: LogicalRectJson,
+    /// Content rect (total scrollable area)
+    pub content_rect: LogicalRectJson,
+}
+
+/// Detailed scrollbar geometry for hit-testing and automation
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct ScrollbarGeometry {
+    /// Is this scrollbar visible?
+    pub visible: bool,
+    /// The full track rect (includes buttons at each end)
+    pub track_rect: LogicalRectJson,
+    /// Center of the track (for clicking)
+    pub track_center: LogicalPositionJson,
+    /// Base size (button width/height)
+    pub button_size: f32,
+    /// Top/Left button rect
+    pub top_button_rect: LogicalRectJson,
+    /// Bottom/Right button rect  
+    pub bottom_button_rect: LogicalRectJson,
+    /// Thumb rect (the draggable part)
+    pub thumb_rect: LogicalRectJson,
+    /// Center of the thumb (for dragging)
+    pub thumb_center: LogicalPositionJson,
+    /// Thumb position ratio (0.0 = top/left, 1.0 = bottom/right)
+    pub thumb_position_ratio: f32,
+    /// Thumb size ratio (relative to track)
+    pub thumb_size_ratio: f32,
+}
+
 /// JSON-serializable LogicalSize
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
@@ -693,6 +752,20 @@ pub enum DebugEvent {
     FindNodeByText { text: String },
     /// Click on a specific node by its ID (deprecated, use Click with node_id)
     ClickNode { node_id: u64, #[serde(default)] button: MouseButton },
+    
+    /// Get detailed scrollbar information for a node (supports selector, node_id, or text)
+    /// Returns geometry for both horizontal and vertical scrollbars if present
+    GetScrollbarInfo {
+        #[serde(default)]
+        node_id: Option<u64>,
+        #[serde(default)]
+        selector: Option<String>,
+        #[serde(default)]
+        text: Option<String>,
+        /// Which scrollbar to query: "horizontal", "vertical", or "both" (default)
+        #[serde(default)]
+        orientation: Option<String>,
+    },
     
     // Control
     Relayout,
@@ -2699,6 +2772,200 @@ fn process_debug_event(
                 };
                 send_ok(request, None, Some(ResponseData::ClickNode(response)));
             }
+        }
+
+        DebugEvent::GetScrollbarInfo { node_id, selector, text, orientation } => {
+            use azul_core::dom::{DomId, ScrollbarOrientation};
+            use azul_core::id::NodeId;
+            use azul_core::geom::LogicalPosition;
+            
+            log(LogLevel::Debug, LogCategory::DebugServer, 
+                format!("Getting scrollbar info for node_id={:?}, selector={:?}, text={:?}, orientation={:?}", 
+                    node_id, selector, text, orientation), None);
+            
+            let resolved_node_id = resolve_node_target(
+                callback_info,
+                selector.as_deref(),
+                *node_id,
+                text.as_deref(),
+            );
+            
+            let nid = match resolved_node_id {
+                Some(n) => n.index() as u64,
+                None => {
+                    send_err(request, "No node found matching the specified target");
+                    return needs_update;
+                }
+            };
+            
+            let dom_id = DomId { inner: 0 };
+            let node = NodeId::new(nid as usize);
+            let layout_window = callback_info.get_layout_window();
+            
+            // Get current scroll state
+            let scroll_offset = callback_info.get_scroll_offset_for_node(dom_id, node)
+                .unwrap_or(LogicalPosition { x: 0.0, y: 0.0 });
+            
+            // Get container and content rects from scroll manager
+            let scroll_states = layout_window.scroll_manager.get_scroll_states_for_dom(dom_id);
+            let scroll_info = scroll_states.iter()
+                .find(|(n, _)| **n == node)
+                .map(|(_, s)| s);
+            
+            // Default container/content rects if not in scroll manager
+            let (container_rect, content_rect, max_scroll_x, max_scroll_y) = match scroll_info {
+                Some(state) => {
+                    let max_x = (state.children_rect.size.width - state.parent_rect.size.width).max(0.0);
+                    let max_y = (state.children_rect.size.height - state.parent_rect.size.height).max(0.0);
+                    (state.parent_rect, state.children_rect, max_x, max_y)
+                },
+                None => {
+                    // Fallback: try to get from layout
+                    let zero_rect = azul_core::geom::LogicalRect {
+                        origin: LogicalPosition { x: 0.0, y: 0.0 },
+                        size: azul_core::geom::LogicalSize { width: 0.0, height: 0.0 },
+                    };
+                    (zero_rect, zero_rect, 0.0, 0.0)
+                }
+            };
+            
+            // Helper function to build ScrollbarGeometry from ScrollbarState
+            fn build_scrollbar_geometry(state: &azul_layout::managers::scroll_state::ScrollbarState) -> ScrollbarGeometry {
+                let track = state.track_rect;
+                let button_size = state.base_size;
+                
+                // Calculate thumb rect based on orientation
+                let (thumb_rect, top_button_rect, bottom_button_rect) = match state.orientation {
+                    ScrollbarOrientation::Vertical => {
+                        let track_height_usable = track.size.height - 2.0 * button_size;
+                        let thumb_height = track_height_usable * state.thumb_size_ratio;
+                        let thumb_y_start = button_size + (track_height_usable - thumb_height) * state.thumb_position_ratio;
+                        
+                        let top_btn = azul_core::geom::LogicalRect {
+                            origin: track.origin,
+                            size: azul_core::geom::LogicalSize { width: track.size.width, height: button_size },
+                        };
+                        let bottom_btn = azul_core::geom::LogicalRect {
+                            origin: LogicalPosition { 
+                                x: track.origin.x, 
+                                y: track.origin.y + track.size.height - button_size 
+                            },
+                            size: azul_core::geom::LogicalSize { width: track.size.width, height: button_size },
+                        };
+                        let thumb = azul_core::geom::LogicalRect {
+                            origin: LogicalPosition { 
+                                x: track.origin.x, 
+                                y: track.origin.y + thumb_y_start 
+                            },
+                            size: azul_core::geom::LogicalSize { width: track.size.width, height: thumb_height },
+                        };
+                        (thumb, top_btn, bottom_btn)
+                    },
+                    ScrollbarOrientation::Horizontal => {
+                        let track_width_usable = track.size.width - 2.0 * button_size;
+                        let thumb_width = track_width_usable * state.thumb_size_ratio;
+                        let thumb_x_start = button_size + (track_width_usable - thumb_width) * state.thumb_position_ratio;
+                        
+                        let left_btn = azul_core::geom::LogicalRect {
+                            origin: track.origin,
+                            size: azul_core::geom::LogicalSize { width: button_size, height: track.size.height },
+                        };
+                        let right_btn = azul_core::geom::LogicalRect {
+                            origin: LogicalPosition { 
+                                x: track.origin.x + track.size.width - button_size, 
+                                y: track.origin.y 
+                            },
+                            size: azul_core::geom::LogicalSize { width: button_size, height: track.size.height },
+                        };
+                        let thumb = azul_core::geom::LogicalRect {
+                            origin: LogicalPosition { 
+                                x: track.origin.x + thumb_x_start, 
+                                y: track.origin.y 
+                            },
+                            size: azul_core::geom::LogicalSize { width: thumb_width, height: track.size.height },
+                        };
+                        (thumb, left_btn, right_btn)
+                    },
+                };
+                
+                ScrollbarGeometry {
+                    visible: state.visible,
+                    track_rect: LogicalRectJson {
+                        x: track.origin.x,
+                        y: track.origin.y,
+                        width: track.size.width,
+                        height: track.size.height,
+                    },
+                    track_center: LogicalPositionJson {
+                        x: track.origin.x + track.size.width / 2.0,
+                        y: track.origin.y + track.size.height / 2.0,
+                    },
+                    button_size,
+                    top_button_rect: LogicalRectJson {
+                        x: top_button_rect.origin.x,
+                        y: top_button_rect.origin.y,
+                        width: top_button_rect.size.width,
+                        height: top_button_rect.size.height,
+                    },
+                    bottom_button_rect: LogicalRectJson {
+                        x: bottom_button_rect.origin.x,
+                        y: bottom_button_rect.origin.y,
+                        width: bottom_button_rect.size.width,
+                        height: bottom_button_rect.size.height,
+                    },
+                    thumb_rect: LogicalRectJson {
+                        x: thumb_rect.origin.x,
+                        y: thumb_rect.origin.y,
+                        width: thumb_rect.size.width,
+                        height: thumb_rect.size.height,
+                    },
+                    thumb_center: LogicalPositionJson {
+                        x: thumb_rect.origin.x + thumb_rect.size.width / 2.0,
+                        y: thumb_rect.origin.y + thumb_rect.size.height / 2.0,
+                    },
+                    thumb_position_ratio: state.thumb_position_ratio,
+                    thumb_size_ratio: state.thumb_size_ratio,
+                }
+            }
+            
+            // Get scrollbar states
+            let v_state = layout_window.scroll_manager.get_scrollbar_state(
+                dom_id, node, ScrollbarOrientation::Vertical
+            );
+            let h_state = layout_window.scroll_manager.get_scrollbar_state(
+                dom_id, node, ScrollbarOrientation::Horizontal
+            );
+            
+            let vertical = v_state.map(build_scrollbar_geometry);
+            let horizontal = h_state.map(build_scrollbar_geometry);
+            
+            let has_any = vertical.is_some() || horizontal.is_some();
+            
+            let response = ScrollbarInfoResponse {
+                found: has_any,
+                node_id: nid,
+                dom_node_id: Some(nid),
+                orientation: orientation.clone().unwrap_or_else(|| "both".to_string()),
+                horizontal,
+                vertical,
+                scroll_x: scroll_offset.x,
+                scroll_y: scroll_offset.y,
+                max_scroll_x,
+                max_scroll_y,
+                container_rect: LogicalRectJson {
+                    x: container_rect.origin.x,
+                    y: container_rect.origin.y,
+                    width: container_rect.size.width,
+                    height: container_rect.size.height,
+                },
+                content_rect: LogicalRectJson {
+                    x: content_rect.origin.x,
+                    y: content_rect.origin.y,
+                    width: content_rect.size.width,
+                    height: content_rect.size.height,
+                },
+            };
+            send_ok(request, None, Some(ResponseData::ScrollbarInfo(response)));
         }
 
         _ => {

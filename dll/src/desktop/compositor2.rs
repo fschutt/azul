@@ -458,6 +458,30 @@ pub fn translate_displaylist_to_wr(
                         flags: Default::default(),
                     };
                     builder.push_rect(&track_info, track_rect, track_color);
+                    
+                    // Add hit-test for scrollbar track (for page up/down on click)
+                    // This is pushed BEFORE the thumb hit-test so thumb gets priority
+                    if let Some(scrollbar_hit_id) = &info.hit_id {
+                        use azul_core::hit_test::ScrollbarHitId;
+                        // Convert thumb hit_id to track hit_id
+                        let track_hit_id = match scrollbar_hit_id {
+                            ScrollbarHitId::VerticalThumb(dom_id, node_id) => 
+                                ScrollbarHitId::VerticalTrack(*dom_id, *node_id),
+                            ScrollbarHitId::HorizontalThumb(dom_id, node_id) => 
+                                ScrollbarHitId::HorizontalTrack(*dom_id, *node_id),
+                            other => *other, // Already a track ID
+                        };
+                        let (track_tag, _) = crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id(
+                            track_hit_id,
+                        );
+                        builder.push_hit_test(
+                            track_rect,
+                            clip_chain_id,
+                            spatial_id,
+                            Default::default(),
+                            track_tag,
+                        );
+                    }
                 }
                 
                 // Render decrement button (if present)
@@ -768,17 +792,14 @@ pub fn translate_displaylist_to_wr(
                     new_offset
                 );
 
-                // Define clip for the scroll frame in SCROLL SPACE (where content lives)
-                // The clip rect in scroll space is (0,0) to (viewport_width, viewport_height)
-                let clip_rect_in_scroll_space = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(0.0, 0.0),
-                    LayoutSize::new(adjusted_frame_rect.width(), adjusted_frame_rect.height()),
-                );
-                let scroll_clip_id = builder.define_clip_rect(scroll_spatial_id, clip_rect_in_scroll_space);
+                // Define clip for the scroll frame in PARENT SPACE (where the viewport is)
+                // CRITICAL: The clip must be in parent space so it stays stationary while content scrolls!
+                // If we define it in scroll space, the clip would scroll with the content (wrong).
+                let scroll_clip_id = builder.define_clip_rect(parent_space, adjusted_frame_rect);
 
                 log_debug!(LogCategory::DisplayList,
-                    "[CLIP DEBUG] PushScrollFrame: scroll_clip_id={:?}, scroll_spatial_id={:?}, clip_rect_in_scroll_space={:?}",
-                    scroll_clip_id, scroll_spatial_id, clip_rect_in_scroll_space
+                    "[CLIP DEBUG] PushScrollFrame: scroll_clip_id={:?}, parent_space={:?}, adjusted_frame_rect={:?}",
+                    scroll_clip_id, parent_space, adjusted_frame_rect
                 );
 
                 log_debug!(LogCategory::DisplayList, 

@@ -223,6 +223,9 @@ All scroll commands support multiple targeting methods: `node_id`, `selector` (C
 curl -X POST http://localhost:8765/ -d '{"op": "get_scroll_states"}'
 # get_scrollable_nodes - Get all scrollable nodes
 curl -X POST http://localhost:8765/ -d '{"op": "get_scrollable_nodes"}'
+# get_scrollbar_info - Get detailed scrollbar geometry for a node (track, thumb, buttons)
+curl -X POST http://localhost:8765/ -d '{"op": "get_scrollbar_info", "selector": ".scrollable"}'
+curl -X POST http://localhost:8765/ -d '{"op": "get_scrollbar_info", "node_id": 42, "orientation": "vertical"}'
 # scroll_node_by - Scroll a specific node by a delta amount
 curl -X POST http://localhost:8765/ -d '{"op": "scroll_node_by", "node_id": 42, "delta_x": 0, "delta_y": 50}'
 curl -X POST http://localhost:8765/ -d '{"op": "scroll_node_by", "selector": ".scrollable", "delta_x": 0, "delta_y": 100}'
@@ -230,6 +233,34 @@ curl -X POST http://localhost:8765/ -d '{"op": "scroll_node_by", "selector": ".s
 curl -X POST http://localhost:8765/ -d '{"op": "scroll_node_to", "node_id": 42, "x": 0, "y": 100}'
 curl -X POST http://localhost:8765/ -d '{"op": "scroll_node_to", "selector": ".content", "x": 0, "y": 500}'
 ```
+
+The `get_scrollbar_info` response includes detailed geometry for automation:
+
+| Field | Description |
+|-------|-------------|
+| `found` | Whether a scrollbar was found for the node |
+| `node_id` | The resolved node ID |
+| `orientation` | Requested orientation ("horizontal", "vertical", or "both") |
+| `horizontal` / `vertical` | Scrollbar geometry objects (if present) |
+| `scroll_x`, `scroll_y` | Current scroll position |
+| `max_scroll_x`, `max_scroll_y` | Maximum scroll values |
+| `container_rect` | The visible viewport rect |
+| `content_rect` | The total scrollable content rect |
+
+Each scrollbar geometry object contains:
+
+| Field | Description |
+|-------|-------------|
+| `visible` | Whether the scrollbar is visible |
+| `track_rect` | Full track rectangle (includes buttons) |
+| `track_center` | Center point of the track |
+| `button_size` | Size of up/down or left/right buttons |
+| `top_button_rect` | Top/left button rectangle |
+| `bottom_button_rect` | Bottom/right button rectangle |
+| `thumb_rect` | The draggable thumb rectangle |
+| `thumb_center` | Center point of the thumb |
+| `thumb_position_ratio` | Position ratio (0.0 = start, 1.0 = end) |
+| `thumb_size_ratio` | Thumb size relative to track |
 
 ### Finding / debugging nodes
 
