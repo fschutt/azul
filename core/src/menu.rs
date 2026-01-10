@@ -7,7 +7,7 @@
 //!
 //! This module uses `CoreMenuCallback` with `usize` placeholders instead of function pointers
 //! to avoid circular dependencies between `azul-core` and `azul-layout`. The actual function
-//! pointers are stored in `azul-layout` and converted via unsafe code with identical memory 
+//! pointers are stored in `azul-layout` and converted via unsafe code with identical memory
 //! layout.
 
 extern crate alloc;
@@ -130,7 +130,7 @@ impl Menu {
 /// Describes the interactive state of a menu item.
 ///
 /// Menu items can be in different states that affect their appearance and behavior:
-/// 
+///
 /// - Normal items are clickable and render normally
 /// - Greyed items are visually disabled (greyed out) and non-clickable
 /// - Disabled items are non-clickable but retain normal appearance
@@ -160,7 +160,12 @@ pub enum MenuItem {
     BreakLine,
 }
 
-impl_vec!(MenuItem, MenuItemVec, MenuItemVecDestructor, MenuItemVecDestructorType);
+impl_vec!(
+    MenuItem,
+    MenuItemVec,
+    MenuItemVecDestructor,
+    MenuItemVecDestructorType
+);
 impl_vec_clone!(MenuItem, MenuItemVec, MenuItemVecDestructor);
 impl_vec_debug!(MenuItem, MenuItemVec);
 impl_vec_partialeq!(MenuItem, MenuItemVec);
@@ -172,14 +177,14 @@ impl_vec_ord!(MenuItem, MenuItemVec);
 /// A menu item with a text label and optional features.
 ///
 /// `StringMenuItem` represents a clickable menu entry that can have:
-/// 
+///
 /// - A text label
 /// - An optional keyboard accelerator (e.g., Ctrl+C)
 /// - An optional callback function
 /// - An optional icon (checkbox or image)
 /// - A state (normal, greyed, or disabled)
 /// - Child menu items (for sub-menus)
-/// 
+///
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct StringMenuItem {
@@ -200,11 +205,10 @@ pub struct StringMenuItem {
 }
 
 impl StringMenuItem {
-
     /// Creates a new menu item with the given label and default values.
     ///
     /// Default values:
-    /// 
+    ///
     /// - No accelerator
     /// - No callback
     /// - Normal state

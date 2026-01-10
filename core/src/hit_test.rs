@@ -75,7 +75,7 @@ impl ::core::fmt::Debug for ExternalScrollId {
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 pub struct ScrolledNodes {
     pub overflowing_nodes: BTreeMap<NodeHierarchyItemId, OverflowingScrollNode>,
-    /// Nodes that need to clip their direct children (i.e. nodes 
+    /// Nodes that need to clip their direct children (i.e. nodes
     /// with overflow-x and overflow-y set to "Hidden")
     pub clip_nodes: BTreeMap<NodeId, LogicalSize>,
     pub tags_to_node_ids: BTreeMap<ScrollTagId, NodeHierarchyItemId>,
@@ -109,7 +109,7 @@ impl Default for OverflowingScrollNode {
 
 /// This type carries no valuable semantics for WR. However, it reflects the fact that
 /// clients (Servo) may generate pipelines by different semi-independent sources.
-/// 
+///
 /// These pipelines still belong to the same `IdNamespace` and the same `DocumentId`.
 /// Having this extra Id field enables them to generate `PipelineId` without collision.
 pub type PipelineSourceId = u32;
@@ -251,7 +251,7 @@ impl ScrollStates {
     }
 
     /// Updating (add to) the existing scroll amount does not update the
-    /// `entry.used_this_frame`, since that is only relevant when we are 
+    /// `entry.used_this_frame`, since that is only relevant when we are
     /// actually querying the renderer.
     pub fn scroll_node(
         &mut self,

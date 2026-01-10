@@ -3,9 +3,7 @@ use core::fmt;
 
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{
-        Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
-    },
+    dom::{Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     geom::{LogicalPosition, LogicalRect, LogicalSize, PhysicalSizeU32},
     gl::Texture,
     menu::{Menu, MenuItem, StringMenuItem},
@@ -29,11 +27,11 @@ use crate::{
     callbacks::{Callback, CallbackInfo},
     extra::coloru_from_str,
     widgets::{
-        check_box::{CheckBox, CheckBoxState, CheckBoxOnToggleCallbackType},
-        color_input::{ColorInput, ColorInputState, ColorInputOnValueChangeCallbackType},
-        file_input::{FileInput, FileInputState, FileInputOnPathChangeCallbackType},
-        number_input::{NumberInput, NumberInputState, NumberInputOnFocusLostCallbackType},
-        text_input::{TextInput, TextInputState, TextInputOnFocusLostCallbackType},
+        check_box::{CheckBox, CheckBoxOnToggleCallbackType, CheckBoxState},
+        color_input::{ColorInput, ColorInputOnValueChangeCallbackType, ColorInputState},
+        file_input::{FileInput, FileInputOnPathChangeCallbackType, FileInputState},
+        number_input::{NumberInput, NumberInputOnFocusLostCallbackType, NumberInputState},
+        text_input::{TextInput, TextInputOnFocusLostCallbackType, TextInputState},
     },
 };
 
@@ -132,7 +130,12 @@ pub struct NodeIdNodeMap {
     pub node: Node,
 }
 
-impl_vec!(NodeIdNodeMap, NodeIdNodeMapVec, NodeIdNodeMapVecDestructor, NodeIdNodeMapVecDestructorType);
+impl_vec!(
+    NodeIdNodeMap,
+    NodeIdNodeMapVec,
+    NodeIdNodeMapVecDestructor,
+    NodeIdNodeMapVecDestructorType
+);
 impl_vec_clone!(NodeIdNodeMap, NodeIdNodeMapVec, NodeIdNodeMapVecDestructor);
 impl_vec_mut!(NodeIdNodeMap, NodeIdNodeMapVec);
 impl_vec_debug!(NodeIdNodeMap, NodeIdNodeMapVec);
@@ -307,7 +310,12 @@ pub struct NodeTypeField {
     pub value: NodeTypeFieldValue,
 }
 
-impl_vec!(NodeTypeField, NodeTypeFieldVec, NodeTypeFieldVecDestructor, NodeTypeFieldVecDestructorType);
+impl_vec!(
+    NodeTypeField,
+    NodeTypeFieldVec,
+    NodeTypeFieldVecDestructor,
+    NodeTypeFieldVecDestructorType
+);
 impl_vec_clone!(NodeTypeField, NodeTypeFieldVec, NodeTypeFieldVecDestructor);
 impl_vec_debug!(NodeTypeField, NodeTypeFieldVec);
 impl_vec_mut!(NodeTypeField, NodeTypeFieldVec);
@@ -907,11 +915,13 @@ impl NodeGraph {
                                     });
 
                                 MenuItem::String(
-                                    StringMenuItem::create(node_type_info.node_type_name.clone().into())
-                                        .with_callback(
-                                            context_menu_local_dataset,
-                                            nodegraph_context_menu_click as usize,
-                                        ),
+                                    StringMenuItem::create(
+                                        node_type_info.node_type_name.clone().into(),
+                                    )
+                                    .with_callback(
+                                        context_menu_local_dataset,
+                                        nodegraph_context_menu_click as usize,
+                                    ),
                                 )
                             },
                         )
@@ -979,11 +989,9 @@ impl NodeGraph {
                                 .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                     NODEGRAPH_NODES_CONTAINER_CLASS,
                                 ))
-                                .with_css_props(
-                                    CssPropertyWithConditionsVec::from_const_slice(
-                                        NODEGRAPH_NODES_CONTAINER_PROPS,
-                                    ),
-                                ),
+                                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                                    NODEGRAPH_NODES_CONTAINER_PROPS,
+                                )),
                         ]
                         .into()
                     })]
@@ -1051,8 +1059,8 @@ fn render_node(
     scale_factor: f32,
 ) -> Dom {
     use azul_core::dom::{
-        Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, CssPropertyWithConditions,
-        CssPropertyWithConditionsVec,
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, Dom, DomVec, IdOrClass,
+        IdOrClass::Class, IdOrClassVec,
     };
     use azul_css::*;
 
@@ -3173,9 +3181,11 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
         // drag graph
         None => {
             let result = match refany.callbacks.on_node_graph_dragged.as_ref() {
-                Some(OnNodeGraphDragged { callback, refany }) => {
-                    (callback.cb)(refany.clone(), info.clone(), GraphDragAmount { x: dx, y: dy })
-                }
+                Some(OnNodeGraphDragged { callback, refany }) => (callback.cb)(
+                    refany.clone(),
+                    info.clone(),
+                    GraphDragAmount { x: dx, y: dy },
+                ),
                 None => Update::DoNothing,
             };
 
@@ -3393,9 +3403,13 @@ extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: Callbac
     let new_node_id = backref.node_graph.generate_unique_node_id();
 
     let result = match backref.callbacks.on_node_added.as_ref() {
-        Some(OnNodeAdded { callback, refany }) => {
-            (callback.cb)(refany.clone(), info, new_node_type, new_node_id, new_node_pos)
-        }
+        Some(OnNodeAdded { callback, refany }) => (callback.cb)(
+            refany.clone(),
+            info,
+            new_node_type,
+            new_node_id,
+            new_node_pos,
+        ),
         None => Update::DoNothing,
     };
 

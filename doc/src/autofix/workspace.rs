@@ -507,7 +507,12 @@ pub fn generate_patches<T: TypeLookup>(
                 crate::patch::index::TypeKind::Enum { derives, .. } => derives.clone(),
                 _ => Vec::new(),
             };
-            generate_synthetic_option_type(&class_name, &type_info.full_path, &derives, &mut all_patches);
+            generate_synthetic_option_type(
+                &class_name,
+                &type_info.full_path,
+                &derives,
+                &mut all_patches,
+            );
         }
     }
 
@@ -1034,7 +1039,13 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         // Empty derive list = don't generate any #[derive(...)] attributes
         // The impl_vec! macro provides Debug, Clone, PartialEq, PartialOrd, Drop
         derive: Some(vec![]),
-        struct_fields: Some(vec![ptr_field, len_field, cap_field, destructor_field, run_destructor_field]),
+        struct_fields: Some(vec![
+            ptr_field,
+            len_field,
+            cap_field,
+            destructor_field,
+            run_destructor_field,
+        ]),
         vec_element_type: Some(element_type.to_string()),
         ..Default::default()
     }

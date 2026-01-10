@@ -31,8 +31,8 @@ use azul_layout::{
 use super::{defines::*, dlopen::Xlib, X11Window};
 use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
 
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
 use super::super::super::common::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 // IME Support (X Input Method)
 
@@ -56,7 +56,10 @@ impl ImeManager {
                 std::ptr::null_mut(),
             );
             if xim.is_null() {
-                log_warn!(LogCategory::Input, "[X11 IME] Could not open input method. IME will not be available.");
+                log_warn!(
+                    LogCategory::Input,
+                    "[X11 IME] Could not open input method. IME will not be available."
+                );
                 return None;
             }
 
@@ -73,7 +76,10 @@ impl ImeManager {
             );
 
             if xic.is_null() {
-                log_warn!(LogCategory::Input, "[X11 IME] Could not create input context. IME will not be available.");
+                log_warn!(
+                    LogCategory::Input,
+                    "[X11 IME] Could not create input context. IME will not be available."
+                );
                 (xlib.XCloseIM)(xim);
                 return None;
             }
@@ -561,37 +567,61 @@ impl X11Window {
         // Shift
         let shift_down = (state & SHIFT_MASK) != 0;
         if shift_down {
-            keyboard_state.pressed_virtual_keycodes.insert_hm_item(VirtualKeyCode::LShift);
+            keyboard_state
+                .pressed_virtual_keycodes
+                .insert_hm_item(VirtualKeyCode::LShift);
         } else {
-            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::LShift);
-            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::RShift);
+            keyboard_state
+                .pressed_virtual_keycodes
+                .remove_hm_item(&VirtualKeyCode::LShift);
+            keyboard_state
+                .pressed_virtual_keycodes
+                .remove_hm_item(&VirtualKeyCode::RShift);
         }
 
         // Control
         let ctrl_down = (state & CONTROL_MASK) != 0;
         if ctrl_down {
-            keyboard_state.pressed_virtual_keycodes.insert_hm_item(VirtualKeyCode::LControl);
+            keyboard_state
+                .pressed_virtual_keycodes
+                .insert_hm_item(VirtualKeyCode::LControl);
         } else {
-            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::LControl);
-            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::RControl);
+            keyboard_state
+                .pressed_virtual_keycodes
+                .remove_hm_item(&VirtualKeyCode::LControl);
+            keyboard_state
+                .pressed_virtual_keycodes
+                .remove_hm_item(&VirtualKeyCode::RControl);
         }
 
         // Alt (Mod1)
         let alt_down = (state & MOD1_MASK) != 0;
         if alt_down {
-            keyboard_state.pressed_virtual_keycodes.insert_hm_item(VirtualKeyCode::LAlt);
+            keyboard_state
+                .pressed_virtual_keycodes
+                .insert_hm_item(VirtualKeyCode::LAlt);
         } else {
-            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::LAlt);
-            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::RAlt);
+            keyboard_state
+                .pressed_virtual_keycodes
+                .remove_hm_item(&VirtualKeyCode::LAlt);
+            keyboard_state
+                .pressed_virtual_keycodes
+                .remove_hm_item(&VirtualKeyCode::RAlt);
         }
 
         // Super/Windows (Mod4)
         let super_down = (state & MOD4_MASK) != 0;
         if super_down {
-            keyboard_state.pressed_virtual_keycodes.insert_hm_item(VirtualKeyCode::LWin);
+            keyboard_state
+                .pressed_virtual_keycodes
+                .insert_hm_item(VirtualKeyCode::LWin);
         } else {
-            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::LWin);
-            keyboard_state.pressed_virtual_keycodes.remove_hm_item(&VirtualKeyCode::RWin);
+            keyboard_state
+                .pressed_virtual_keycodes
+                .remove_hm_item(&VirtualKeyCode::LWin);
+            keyboard_state
+                .pressed_virtual_keycodes
+                .remove_hm_item(&VirtualKeyCode::RWin);
         }
     }
 
@@ -767,7 +797,8 @@ impl X11Window {
             None => return false,
         };
 
-        log_debug!(LogCategory::Input,
+        log_debug!(
+            LogCategory::Input,
             "[X11 Context Menu] Showing context menu at ({}, {}) for node {:?} with {} items",
             position.x,
             position.y,
@@ -805,9 +836,11 @@ impl X11Window {
             None,           // No parent menu
         );
 
-        log_debug!(LogCategory::Window,
+        log_debug!(
+            LogCategory::Window,
             "[X11] Queuing window-based context menu at screen ({}, {})",
-            position.x, position.y
+            position.x,
+            position.y
         );
         self.pending_window_creates.push(menu_options);
     }

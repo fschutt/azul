@@ -71,7 +71,7 @@ pub fn strip_fn_arg_types(arg_list: &str) -> String {
 /// Format a docstring for HTML
 pub fn format_doc(docstring: &str) -> String {
     let mut newdoc = docstring.replace('<', "&lt;").replace('>', "&gt;");
-    
+
     // Remove code block markers entirely (```rust, ```python, ```, etc.)
     // These are handled at the line level in format_doc_lines
     newdoc = newdoc
@@ -123,18 +123,18 @@ pub fn format_doc_lines(doc_lines: &[String]) -> String {
 
     for line in doc_lines {
         let trimmed = line.trim();
-        
+
         // Skip code block markers (``` or ```rust, ```python, etc.)
         if trimmed.starts_with("```") {
             in_code_block = !in_code_block;
             continue;
         }
-        
+
         // Skip lines inside code blocks
         if in_code_block {
             continue;
         }
-        
+
         // Convert empty lines to <br/> for proper spacing
         if trimmed.is_empty() {
             result.push("<br/>".to_string());

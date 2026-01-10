@@ -16,7 +16,7 @@ use azul_css::{
         basic::{ColorF, ColorU},
         style::StyleTransformVec,
     },
-    AzString, StringVec, U8Vec, OptionUsize,
+    AzString, OptionUsize, StringVec, U8Vec,
 };
 pub use gl_context_loader::{
     ctypes::*, gl, GLeglImageOES, GLsync, GLvoid, GenericGlContext, GlType as GlContextGlType,
@@ -592,7 +592,12 @@ pub struct DebugMessage {
     pub severity: GLenum,
 }
 
-impl_vec!(DebugMessage, DebugMessageVec, DebugMessageVecDestructor, DebugMessageVecDestructorType);
+impl_vec!(
+    DebugMessage,
+    DebugMessageVec,
+    DebugMessageVecDestructor,
+    DebugMessageVecDestructorType
+);
 impl_vec_debug!(DebugMessage, DebugMessageVec);
 impl_vec_partialord!(DebugMessage, DebugMessageVec);
 impl_vec_ord!(DebugMessage, DebugMessageVec);
@@ -610,7 +615,12 @@ impl_vec_partialeq!(GLint, GLintVec);
 impl_vec_eq!(GLint, GLintVec);
 impl_vec_hash!(GLint, GLintVec);
 
-impl_vec!(GLuint, GLuintVec, GLuintVecDestructor, GLuintVecDestructorType);
+impl_vec!(
+    GLuint,
+    GLuintVec,
+    GLuintVecDestructor,
+    GLuintVecDestructorType
+);
 impl_vec_debug!(GLuint, GLuintVec);
 impl_vec_partialord!(GLuint, GLuintVec);
 impl_vec_ord!(GLuint, GLuintVec);
@@ -3666,8 +3676,10 @@ impl GlShader {
                 if !uniform_locations.contains_key(&uniform.uniform_name) {
                     uniform_locations.insert(
                         uniform.uniform_name.clone(),
-                        gl_context
-                            .get_uniform_location(shader_program_id, uniform.uniform_name.as_str().into()),
+                        gl_context.get_uniform_location(
+                            shader_program_id,
+                            uniform.uniform_name.as_str().into(),
+                        ),
                     );
                 }
             }

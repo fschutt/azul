@@ -21,7 +21,10 @@
 //! - Inspection (user callbacks can see planned changes)
 
 use azul_core::{
-    dom::DomNodeId, geom::LogicalPosition, selection::{SelectionRange, OptionSelectionRange}, task::Instant,
+    dom::DomNodeId,
+    geom::LogicalPosition,
+    selection::{OptionSelectionRange, SelectionRange},
+    task::Instant,
     window::CursorPosition,
 };
 use azul_css::AzString;

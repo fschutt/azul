@@ -85,7 +85,7 @@ impl DisplayInfo {
         );
 
         Monitor {
-            monitor_id: monitor_id,
+            monitor_id,
             monitor_name: OptionString::Some(self.name.as_str().into()),
             size: LayoutSize::new(
                 self.bounds.size.width as isize,
@@ -445,23 +445,37 @@ mod macos {
     use super::*;
 
     pub fn get_displays() -> Vec<DisplayInfo> {
-        log_debug!(LogCategory::General, "[get_displays] Starting monitor enumeration...");
+        log_debug!(
+            LogCategory::General,
+            "[get_displays] Starting monitor enumeration..."
+        );
         let mtm = MainThreadMarker::new().expect("Must be called on main thread");
         log_debug!(LogCategory::General, "[get_displays] Got MainThreadMarker");
 
         let screens = NSScreen::screens(mtm);
-        log_debug!(LogCategory::General, "[get_displays] Got {} screens", screens.len());
+        log_debug!(
+            LogCategory::General,
+            "[get_displays] Got {} screens",
+            screens.len()
+        );
 
         let mut displays = Vec::new();
 
         for (i, screen) in screens.iter().enumerate() {
-            log_debug!(LogCategory::General, "[get_displays] Processing screen {}...", i);
+            log_debug!(
+                LogCategory::General,
+                "[get_displays] Processing screen {}...",
+                i
+            );
             let frame = screen.frame();
             let visible_frame = screen.visibleFrame();
             let scale = screen.backingScaleFactor();
-            log_debug!(LogCategory::General, 
+            log_debug!(
+                LogCategory::General,
                 "[get_displays] Screen {} frame: {}x{}",
-                i, frame.size.width, frame.size.height
+                i,
+                frame.size.width,
+                frame.size.height
             );
 
             // macOS uses flipped coordinates (origin at bottom-left)
@@ -481,10 +495,19 @@ mod macos {
 
             // Get refresh rate from NSScreen (macOS 10.15+)
             // maximumFramesPerSecond returns refresh rate in Hz
-            log_debug!(LogCategory::General, "[get_displays] Getting refresh rate for screen {}...", i);
+            log_debug!(
+                LogCategory::General,
+                "[get_displays] Getting refresh rate for screen {}...",
+                i
+            );
             let refresh_rate = unsafe {
                 let fps: f64 = msg_send![&**screen, maximumFramesPerSecond];
-                log_debug!(LogCategory::General, "[get_displays] Screen {} refresh rate: {} Hz", i, fps);
+                log_debug!(
+                    LogCategory::General,
+                    "[get_displays] Screen {} refresh rate: {} Hz",
+                    i,
+                    fps
+                );
                 if fps > 0.0 {
                     fps as u16
                 } else {
@@ -492,9 +515,18 @@ mod macos {
                 }
             };
 
-            log_debug!(LogCategory::General, "[get_displays] Getting localized name for screen {}...", i);
+            log_debug!(
+                LogCategory::General,
+                "[get_displays] Getting localized name for screen {}...",
+                i
+            );
             let name = screen.localizedName().to_string();
-            log_debug!(LogCategory::General, "[get_displays] Screen {} name: {}", i, name);
+            log_debug!(
+                LogCategory::General,
+                "[get_displays] Screen {} name: {}",
+                i,
+                name
+            );
 
             displays.push(DisplayInfo {
                 name,
@@ -508,10 +540,18 @@ mod macos {
                     refresh_rate,
                 }],
             });
-            log_debug!(LogCategory::General, "[get_displays] Screen {} added to displays list", i);
+            log_debug!(
+                LogCategory::General,
+                "[get_displays] Screen {} added to displays list",
+                i
+            );
         }
 
-        log_debug!(LogCategory::General, "[get_displays] Returning {} displays", displays.len());
+        log_debug!(
+            LogCategory::General,
+            "[get_displays] Returning {} displays",
+            displays.len()
+        );
         displays
     }
 }
@@ -865,7 +905,8 @@ mod linux {
         }
 
         fn fallback_display() -> Vec<DisplayInfo> {
-            log_debug!(LogCategory::General, 
+            log_debug!(
+                LogCategory::General,
                 "[display] All Wayland detection methods failed. Falling back to default display."
             );
 
@@ -977,7 +1018,8 @@ mod linux {
                 if displays.is_empty() {
                     Err(())
                 } else {
-                    log_debug!(LogCategory::General, 
+                    log_debug!(
+                        LogCategory::General,
                         "[display] Detected {} display(s) using swaymsg",
                         displays.len()
                     );
@@ -1051,7 +1093,8 @@ mod linux {
                 if displays.is_empty() {
                     Err(())
                 } else {
-                    log_debug!(LogCategory::General, 
+                    log_debug!(
+                        LogCategory::General,
                         "[display] Detected {} display(s) using hyprctl",
                         displays.len()
                     );
@@ -1141,7 +1184,8 @@ mod linux {
                 if displays.is_empty() {
                     Err(())
                 } else {
-                    log_debug!(LogCategory::General, 
+                    log_debug!(
+                        LogCategory::General,
                         "[display] Detected {} display(s) using kscreen-doctor",
                         displays.len()
                     );
@@ -1272,7 +1316,8 @@ mod linux {
                 if displays.is_empty() {
                     Err(())
                 } else {
-                    log_debug!(LogCategory::General, 
+                    log_debug!(
+                        LogCategory::General,
                         "[display] Detected {} display(s) using wlr-randr",
                         displays.len()
                     );

@@ -358,7 +358,9 @@ pub fn pseudo_selector_from_str<'a>(
                 .trim_start_matches('\'')
                 .trim_end_matches('\'')
                 .trim();
-            Ok(CssPathPseudoSelector::Lang(AzString::from(lang_value.to_string())))
+            Ok(CssPathPseudoSelector::Lang(AzString::from(
+                lang_value.to_string(),
+            )))
         }
         _ => Err(CssPseudoSelectorParseError::UnknownSelector(
             selector, value,
@@ -910,22 +912,34 @@ fn parse_media_feature(feature: &str) -> Option<DynamicSelector> {
     match key.to_lowercase().as_str() {
         "min-width" => {
             if let Some(px) = parse_px_value(value) {
-                return Some(DynamicSelector::ViewportWidth(MinMaxRange::new(Some(px), None)));
+                return Some(DynamicSelector::ViewportWidth(MinMaxRange::new(
+                    Some(px),
+                    None,
+                )));
             }
         }
         "max-width" => {
             if let Some(px) = parse_px_value(value) {
-                return Some(DynamicSelector::ViewportWidth(MinMaxRange::new(None, Some(px))));
+                return Some(DynamicSelector::ViewportWidth(MinMaxRange::new(
+                    None,
+                    Some(px),
+                )));
             }
         }
         "min-height" => {
             if let Some(px) = parse_px_value(value) {
-                return Some(DynamicSelector::ViewportHeight(MinMaxRange::new(Some(px), None)));
+                return Some(DynamicSelector::ViewportHeight(MinMaxRange::new(
+                    Some(px),
+                    None,
+                )));
             }
         }
         "max-height" => {
             if let Some(px) = parse_px_value(value) {
-                return Some(DynamicSelector::ViewportHeight(MinMaxRange::new(None, Some(px))));
+                return Some(DynamicSelector::ViewportHeight(MinMaxRange::new(
+                    None,
+                    Some(px),
+                )));
             }
         }
         "orientation" => {

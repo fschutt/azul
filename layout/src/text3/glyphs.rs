@@ -11,8 +11,8 @@ use azul_css::props::basic::ColorU;
 use azul_css::props::style::StyleBackgroundContent;
 
 use crate::text3::cache::{
-    get_item_vertical_metrics, InlineBorderInfo, LoadedFonts, ParsedFontTrait, Point, PositionedItem, ShapedGlyph,
-    ShapedItem, UnifiedLayout,
+    get_item_vertical_metrics, InlineBorderInfo, LoadedFonts, ParsedFontTrait, Point,
+    PositionedItem, ShapedGlyph, ShapedItem, UnifiedLayout,
 };
 
 /// Represents a single glyph ready for rendering, with an absolute position on the baseline.

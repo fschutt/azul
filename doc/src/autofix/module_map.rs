@@ -129,10 +129,10 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "rgb",
             "hsl",
             "hsv",
-            "cascade",      // CascadeInfo
-            "extendmode",   // ExtendMode
-            "flow",         // FlowInto, FlowFrom, FlowIntoValue, FlowFromValue
-            "arithmetic",   // ArithmeticCoefficients
+            "cascade",    // CascadeInfo
+            "extendmode", // ExtendMode
+            "flow",       // FlowInto, FlowFrom, FlowIntoValue, FlowFromValue
+            "arithmetic", // ArithmeticCoefficients
         ],
     );
 
@@ -189,19 +189,19 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "mousestate",
             "keyboardstate",
             "debugstate",
-            "hittest",       // HitTest, HitTestItem, etc.
-            "virtualkey",    // VirtualKeyCode
-            "scancode",      // ScanCode
-            "keycode",       // KeyCode
-            "drag",          // DragData, DragState, DragEffect
-            "drop",          // DropEffect
-            "clipboard",     // ClipboardContent
-            "selection",     // Selection, SelectionManager, SelectionState
-            "gesture",       // GestureAndDragManager
-            "input",         // InputSample, InputSession
-            "bidi",          // BidiDirection, BidiLevel
-            "idorclass",     // IdOrClass
-            "aria",          // SmallAriaInfo
+            "hittest",    // HitTest, HitTestItem, etc.
+            "virtualkey", // VirtualKeyCode
+            "scancode",   // ScanCode
+            "keycode",    // KeyCode
+            "drag",       // DragData, DragState, DragEffect
+            "drop",       // DropEffect
+            "clipboard",  // ClipboardContent
+            "selection",  // Selection, SelectionManager, SelectionState
+            "gesture",    // GestureAndDragManager
+            "input",      // InputSample, InputSession
+            "bidi",       // BidiDirection, BidiLevel
+            "idorclass",  // IdOrClass
+            "aria",       // SmallAriaInfo
         ],
     );
 
@@ -219,16 +219,16 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "rendercallback",
             "writebackcallback",
             "layoutcallback",
-            "refany",        // RefAny, RefCount
+            "refany", // RefAny, RefCount
             "refcount",
-            "update",        // Update enum
-            "edgetype",      // EdgeType
-            "grapheme",      // GraphemeClusterId
-            "scrollstate",   // ScrollState
-            "pentilt",       // PenTilt
-            "penstate",      // PenState
-            "changeset",     // ChangesetId
-            "undoable",      // UndoableOperation
+            "update",      // Update enum
+            "edgetype",    // EdgeType
+            "grapheme",    // GraphemeClusterId
+            "scrollstate", // ScrollState
+            "pentilt",     // PenTilt
+            "penstate",    // PenState
+            "changeset",   // ChangesetId
+            "undoable",    // UndoableOperation
         ],
     );
 
@@ -249,7 +249,7 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "framebuffer",
             "renderbuffer",
             "sync",
-            "debugmessage",  // DebugMessage
+            "debugmessage", // DebugMessage
         ],
     );
 
@@ -289,7 +289,14 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
     // Font module
     map.insert(
         "font",
-        vec!["fontref", "fontmetric", "parsedfont", "loadedfont", "glyph", "panose"],
+        vec![
+            "fontref",
+            "fontmetric",
+            "parsedfont",
+            "loadedfont",
+            "glyph",
+            "panose",
+        ],
     );
 
     // Menu module
@@ -311,7 +318,7 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
     map.insert(
         "task",
         vec![
-            "thread",       // Thread, ThreadId, ThreadInner, ThreadSender, etc.
+            "thread", // Thread, ThreadId, ThreadInner, ThreadSender, etc.
             "threadsend",
             "threadreceive",
             "threadwrite",
@@ -319,12 +326,15 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
             "sender",
             "receiver",
             "channel",
-            "timer",        // Timer types
+            "timer", // Timer types
         ],
     );
 
     // App module
-    map.insert("app", vec!["appconfig", "apploglevel", "apptermination", "renderer"]);
+    map.insert(
+        "app",
+        vec!["appconfig", "apploglevel", "apptermination", "renderer"],
+    );
 
     // Str module
     map.insert("str", vec!["string", "refstr", "azstring"]);
@@ -482,7 +492,7 @@ pub fn get_correct_module(type_name: &str, current_module: &str) -> Option<Strin
 pub const INTERNAL_ONLY_TYPES: &[&str] = &[
     // Manager types with BTreeMap/HashMap internals
     "ScrollManager",
-    "HoverManager", 
+    "HoverManager",
     "GpuStateManager",
     "GpuValueCache",
     "SelectionManager",
@@ -535,10 +545,10 @@ pub fn analyze_ffi_difficulty(type_str: &str) -> FfiDifficulty {
     if type_str.contains("dyn ") || type_str.contains("impl ") {
         return FfiDifficulty::Impossible;
     }
-    
+
     // Very hard patterns - requires redesign
-    if type_str.contains("BTreeMap") 
-        || type_str.contains("HashMap") 
+    if type_str.contains("BTreeMap")
+        || type_str.contains("HashMap")
         || type_str.contains("Arc<")
         || type_str.contains("Rc<")
         || type_str.contains("VecDeque")
@@ -548,19 +558,22 @@ pub fn analyze_ffi_difficulty(type_str: &str) -> FfiDifficulty {
     {
         return FfiDifficulty::VeryHard;
     }
-    
+
     // Note: Vec<T> and String are NOT flagged as difficult anymore
     // because the api.json system already has wrappers for these (StringVec, OptionString, etc.)
     // Only truly non-FFI-safe types are flagged
-    
+
     // Medium patterns - Option types need wrapper but are generally fine
     if type_str.starts_with("Option<") {
         // Check if the inner type is problematic
-        if type_str.contains("BTreeMap") || type_str.contains("HashMap") || type_str.contains("Arc<") {
+        if type_str.contains("BTreeMap")
+            || type_str.contains("HashMap")
+            || type_str.contains("Arc<")
+        {
             return FfiDifficulty::VeryHard;
         }
     }
-    
+
     FfiDifficulty::Easy
 }
 

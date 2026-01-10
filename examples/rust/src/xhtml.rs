@@ -5,8 +5,7 @@ static XHTML: &str = include_str!("../assets/spreadsheet.xhtml");
 
 struct AppData;
 
-extern "C" 
-fn layout(_data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(_data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     // Create fresh from XML each time to avoid clone issues
     StyledDom::from_xml(XHTML)
 }

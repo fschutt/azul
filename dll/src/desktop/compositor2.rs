@@ -40,21 +40,18 @@ use webrender::{
     Transaction,
 };
 
+use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::desktop::wr_translate2::{
     translate_image_key, wr_translate_border_radius, wr_translate_color_f,
     wr_translate_logical_size, wr_translate_pipeline_id,
 };
-use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::log_debug;
 
 /// Convert logical pixel bounds to physical pixel LayoutRect for WebRender.
 /// All display list coordinates are in logical CSS pixels and need to be scaled
 /// by the HiDPI factor for correct rendering on HiDPI displays.
 #[inline]
-fn scale_bounds_to_layout_rect(
-    bounds: &azul_core::geom::LogicalRect,
-    dpi: f32,
-) -> LayoutRect {
+fn scale_bounds_to_layout_rect(bounds: &azul_core::geom::LogicalRect, dpi: f32) -> LayoutRect {
     LayoutRect::from_origin_and_size(
         LayoutPoint::new(bounds.origin.x * dpi, bounds.origin.y * dpi),
         LayoutSize::new(bounds.size.width * dpi, bounds.size.height * dpi),
@@ -116,7 +113,10 @@ pub fn translate_displaylist_to_wr(
     let mut builder = WrDisplayListBuilder::new(pipeline_id);
 
     // CRITICAL: Begin building the display list before pushing items
-    log_debug!(LogCategory::DisplayList, "[compositor2] Calling builder.begin()");
+    log_debug!(
+        LogCategory::DisplayList,
+        "[compositor2] Calling builder.begin()"
+    );
     builder.begin();
     log_debug!(
         LogCategory::DisplayList,
@@ -180,12 +180,14 @@ pub fn translate_displaylist_to_wr(
                 log_debug!(
                     LogCategory::DisplayList,
                     "[compositor2] Rect item: bounds={:?}, color={:?}, dpi={}",
-                    bounds, color, dpi_scale
+                    bounds,
+                    color,
+                    dpi_scale
                 );
                 let raw_rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
                 let current_offset = current_offset!();
                 let rect = apply_offset(raw_rect, current_offset);
-                
+
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -195,12 +197,12 @@ pub fn translate_displaylist_to_wr(
 
                 let current_clip_chain = current_clip!();
                 let current_spatial = current_spatial!();
-                
+
                 log_debug!(LogCategory::DisplayList,
                     "[CLIP DEBUG] Rect: raw={:?}, offset={:?}, adjusted={:?}, clip_chain={:?}, spatial={:?}",
                     raw_rect, current_offset, rect, current_clip_chain, current_spatial
                 );
-                
+
                 log_debug!(
                     LogCategory::DisplayList,
                     "[compositor2] Rect push: rect={:?}, clip_chain_id={:?}, spatial_id={:?}, clip_stack.len={}, spatial_stack.len={}",
@@ -260,7 +262,11 @@ pub fn translate_displaylist_to_wr(
                     continue;
                 }
 
-                log_debug!(LogCategory::DisplayList, "[compositor2] push_rect: {:?}", rect);
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] push_rect: {:?}",
+                    rect
+                );
                 builder.push_rect(&info, rect, color_f);
             }
 
@@ -351,7 +357,7 @@ pub fn translate_displaylist_to_wr(
                 let raw_rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
                 let current_offset = current_offset!();
                 let rect = apply_offset(raw_rect, current_offset);
-                
+
                 let color_f = ColorF::new(
                     color.r as f32 / 255.0,
                     color.g as f32 / 255.0,
@@ -359,9 +365,12 @@ pub fn translate_displaylist_to_wr(
                     color.a as f32 / 255.0,
                 );
 
-                log_debug!(LogCategory::DisplayList,
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] ScrollBar: raw_rect={:?}, offset={:?}, adjusted_rect={:?}",
-                    raw_rect, current_offset, rect
+                    raw_rect,
+                    current_offset,
+                    rect
                 );
 
                 let info = CommonItemProperties {
@@ -393,54 +402,56 @@ pub fn translate_displaylist_to_wr(
                 let spatial_id = current_spatial!();
                 let base_clip_chain_id = current_clip!();
                 let current_offset = current_offset!();
-                
+
                 log_debug!(LogCategory::DisplayList,
                     "[compositor2] ScrollBarStyled: bounds={:?}, offset={:?}, track={:?}, thumb={:?}",
                     info.bounds, current_offset, info.track_bounds, info.thumb_bounds
                 );
-                
+
                 // If clip_to_container_border is enabled and container has border-radius,
                 // create a clip chain for the container's rounded corners
-                let clip_chain_id = if info.clip_to_container_border && !info.container_border_radius.is_zero() {
-                    let style_border_radius = convert_border_radius_to_style(&info.container_border_radius);
-                    let wr_border_radius = wr_translate_border_radius(
-                        style_border_radius,
-                        azul_core::geom::LogicalSize::new(
-                            scale_px(info.bounds.size.width, dpi_scale),
-                            scale_px(info.bounds.size.height, dpi_scale),
-                        ),
-                    );
-                    
-                    // Apply offset to scaled bounds for clip definition
-                    let raw_scaled_bounds = azul_core::geom::LogicalRect::new(
-                        azul_core::geom::LogicalPosition::new(
-                            scale_px(info.bounds.origin.x, dpi_scale),
-                            scale_px(info.bounds.origin.y, dpi_scale),
-                        ),
-                        azul_core::geom::LogicalSize::new(
-                            scale_px(info.bounds.size.width, dpi_scale),
-                            scale_px(info.bounds.size.height, dpi_scale),
-                        ),
-                    );
-                    let scaled_bounds = azul_core::geom::LogicalRect::new(
-                        azul_core::geom::LogicalPosition::new(
-                            raw_scaled_bounds.origin.x - current_offset.0,
-                            raw_scaled_bounds.origin.y - current_offset.1,
-                        ),
-                        raw_scaled_bounds.size,
-                    );
-                    
-                    define_border_radius_clip(
-                        &mut builder,
-                        scaled_bounds,
-                        wr_border_radius,
-                        spatial_id,
-                        base_clip_chain_id,
-                    )
-                } else {
-                    base_clip_chain_id
-                };
-                
+                let clip_chain_id =
+                    if info.clip_to_container_border && !info.container_border_radius.is_zero() {
+                        let style_border_radius =
+                            convert_border_radius_to_style(&info.container_border_radius);
+                        let wr_border_radius = wr_translate_border_radius(
+                            style_border_radius,
+                            azul_core::geom::LogicalSize::new(
+                                scale_px(info.bounds.size.width, dpi_scale),
+                                scale_px(info.bounds.size.height, dpi_scale),
+                            ),
+                        );
+
+                        // Apply offset to scaled bounds for clip definition
+                        let raw_scaled_bounds = azul_core::geom::LogicalRect::new(
+                            azul_core::geom::LogicalPosition::new(
+                                scale_px(info.bounds.origin.x, dpi_scale),
+                                scale_px(info.bounds.origin.y, dpi_scale),
+                            ),
+                            azul_core::geom::LogicalSize::new(
+                                scale_px(info.bounds.size.width, dpi_scale),
+                                scale_px(info.bounds.size.height, dpi_scale),
+                            ),
+                        );
+                        let scaled_bounds = azul_core::geom::LogicalRect::new(
+                            azul_core::geom::LogicalPosition::new(
+                                raw_scaled_bounds.origin.x - current_offset.0,
+                                raw_scaled_bounds.origin.y - current_offset.1,
+                            ),
+                            raw_scaled_bounds.size,
+                        );
+
+                        define_border_radius_clip(
+                            &mut builder,
+                            scaled_bounds,
+                            wr_border_radius,
+                            spatial_id,
+                            base_clip_chain_id,
+                        )
+                    } else {
+                        base_clip_chain_id
+                    };
+
                 // Render track (background)
                 if info.track_color.a > 0 {
                     let raw_track_rect = scale_bounds_to_layout_rect(&info.track_bounds, dpi_scale);
@@ -458,22 +469,25 @@ pub fn translate_displaylist_to_wr(
                         flags: Default::default(),
                     };
                     builder.push_rect(&track_info, track_rect, track_color);
-                    
+
                     // Add hit-test for scrollbar track (for page up/down on click)
                     // This is pushed BEFORE the thumb hit-test so thumb gets priority
                     if let Some(scrollbar_hit_id) = &info.hit_id {
                         use azul_core::hit_test::ScrollbarHitId;
                         // Convert thumb hit_id to track hit_id
                         let track_hit_id = match scrollbar_hit_id {
-                            ScrollbarHitId::VerticalThumb(dom_id, node_id) => 
-                                ScrollbarHitId::VerticalTrack(*dom_id, *node_id),
-                            ScrollbarHitId::HorizontalThumb(dom_id, node_id) => 
-                                ScrollbarHitId::HorizontalTrack(*dom_id, *node_id),
+                            ScrollbarHitId::VerticalThumb(dom_id, node_id) => {
+                                ScrollbarHitId::VerticalTrack(*dom_id, *node_id)
+                            }
+                            ScrollbarHitId::HorizontalThumb(dom_id, node_id) => {
+                                ScrollbarHitId::HorizontalTrack(*dom_id, *node_id)
+                            }
                             other => *other, // Already a track ID
                         };
-                        let (track_tag, _) = crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id(
-                            track_hit_id,
-                        );
+                        let (track_tag, _) =
+                            crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id(
+                                track_hit_id,
+                            );
                         builder.push_hit_test(
                             track_rect,
                             clip_chain_id,
@@ -483,7 +497,7 @@ pub fn translate_displaylist_to_wr(
                         );
                     }
                 }
-                
+
                 // Render decrement button (if present)
                 if let Some(btn_bounds) = &info.button_decrement_bounds {
                     if info.button_color.a > 0 {
@@ -504,7 +518,7 @@ pub fn translate_displaylist_to_wr(
                         builder.push_rect(&btn_info, btn_rect, btn_color);
                     }
                 }
-                
+
                 // Render increment button (if present)
                 if let Some(btn_bounds) = &info.button_increment_bounds {
                     if info.button_color.a > 0 {
@@ -525,7 +539,7 @@ pub fn translate_displaylist_to_wr(
                         builder.push_rect(&btn_info, btn_rect, btn_color);
                     }
                 }
-                
+
                 // Render thumb (the draggable part)
                 if info.thumb_color.a > 0 {
                     let raw_thumb_rect = scale_bounds_to_layout_rect(&info.thumb_bounds, dpi_scale);
@@ -536,7 +550,7 @@ pub fn translate_displaylist_to_wr(
                         info.thumb_color.b as f32 / 255.0,
                         info.thumb_color.a as f32 / 255.0,
                     );
-                    
+
                     // Handle rounded thumb corners
                     if !info.thumb_border_radius.is_zero() {
                         // Scale the border radius by DPI (border radius is in logical pixels)
@@ -544,9 +558,13 @@ pub fn translate_displaylist_to_wr(
                             top_left: scale_px(info.thumb_border_radius.top_left, dpi_scale),
                             top_right: scale_px(info.thumb_border_radius.top_right, dpi_scale),
                             bottom_left: scale_px(info.thumb_border_radius.bottom_left, dpi_scale),
-                            bottom_right: scale_px(info.thumb_border_radius.bottom_right, dpi_scale),
+                            bottom_right: scale_px(
+                                info.thumb_border_radius.bottom_right,
+                                dpi_scale,
+                            ),
                         };
-                        let style_border_radius = convert_border_radius_to_style(&scaled_border_radius);
+                        let style_border_radius =
+                            convert_border_radius_to_style(&scaled_border_radius);
                         let wr_border_radius = wr_translate_border_radius(
                             style_border_radius,
                             azul_core::geom::LogicalSize::new(
@@ -554,7 +572,7 @@ pub fn translate_displaylist_to_wr(
                                 scale_px(info.thumb_bounds.size.height, dpi_scale),
                             ),
                         );
-                        
+
                         // Create clip for rounded thumb (with offset applied)
                         let scaled_thumb_bounds = azul_core::geom::LogicalRect::new(
                             azul_core::geom::LogicalPosition::new(
@@ -566,7 +584,7 @@ pub fn translate_displaylist_to_wr(
                                 scale_px(info.thumb_bounds.size.height, dpi_scale),
                             ),
                         );
-                        
+
                         let thumb_clip_id = define_border_radius_clip(
                             &mut builder,
                             scaled_thumb_bounds,
@@ -574,7 +592,7 @@ pub fn translate_displaylist_to_wr(
                             spatial_id,
                             clip_chain_id,
                         );
-                        
+
                         let thumb_info = CommonItemProperties {
                             clip_rect: thumb_rect,
                             clip_chain_id: thumb_clip_id,
@@ -592,7 +610,7 @@ pub fn translate_displaylist_to_wr(
                         builder.push_rect(&thumb_info, thumb_rect, thumb_color);
                     }
                 }
-                
+
                 // Add hit-test for scrollbar thumb
                 if let Some(scrollbar_hit_id) = &info.hit_id {
                     let raw_thumb_rect = scale_bounds_to_layout_rect(&info.thumb_bounds, dpi_scale);
@@ -617,7 +635,7 @@ pub fn translate_displaylist_to_wr(
                 let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
                 let current_spatial = current_spatial!();
                 let current_clip = current_clip!();
-                
+
                 log_debug!(
                     LogCategory::DisplayList,
                     "[compositor2] PushClip: bounds={:?} -> rect={:?}, spatial_stack.len={}, clip_stack.len={}, \
@@ -657,7 +675,7 @@ pub fn translate_displaylist_to_wr(
                         current_spatial,
                         current_clip,
                     );
-                    
+
                     log_debug!(
                         LogCategory::DisplayList,
                         "[compositor2] PushClip (rounded): created new_clip_id={:?}, pushing to clip_stack",
@@ -675,16 +693,16 @@ pub fn translate_displaylist_to_wr(
                         Some(current_clip)
                     };
                     let new_clip_chain_id = builder.define_clip_chain(parent, vec![clip_id]);
-                    
+
                     log_debug!(
                         LogCategory::DisplayList,
                         "[compositor2] PushClip (rect): clip_id={:?}, parent={:?}, new_clip_chain_id={:?}, pushing to clip_stack",
                         clip_id, parent, new_clip_chain_id
                     );
-                    
+
                     clip_stack.push(new_clip_chain_id);
                 }
-                
+
                 log_debug!(
                     LogCategory::DisplayList,
                     "[compositor2] PushClip DONE: clip_stack.len now = {}",
@@ -699,7 +717,9 @@ pub fn translate_displaylist_to_wr(
                     log_debug!(
                         LogCategory::DisplayList,
                         "[compositor2] PopClip: popped {:?}, clip_stack.len {} -> {}",
-                        popped, before_len, clip_stack.len()
+                        popped,
+                        before_len,
+                        clip_stack.len()
                     );
                 } else {
                     log_debug!(
@@ -736,7 +756,7 @@ pub fn translate_displaylist_to_wr(
 
                 // Apply parent offset to frame_rect for correct positioning in parent space
                 let adjusted_frame_rect = apply_offset(frame_rect, current_offset);
-                
+
                 // The content_rect is in PARENT space (same coordinate system as frame_rect)
                 // Origin should match frame_rect.origin, size is the total scrollable content
                 // This ensures that child coordinates (which are in parent-space after offset adjustment)
@@ -749,12 +769,18 @@ pub fn translate_displaylist_to_wr(
                     ),
                 );
 
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame START: frame_rect={:?}, content_rect={:?}, \
                      scroll_id={}, parent_space={:?}, current_clip={:?}, \
                      spatial_stack.len={}, clip_stack.len={}",
-                    frame_rect, content_rect, scroll_id, parent_space, current_clip,
-                    spatial_stack.len(), clip_stack.len()
+                    frame_rect,
+                    content_rect,
+                    scroll_id,
+                    parent_space,
+                    current_clip,
+                    spatial_stack.len(),
+                    clip_stack.len()
                 );
 
                 log_debug!(LogCategory::DisplayList,
@@ -773,7 +799,8 @@ pub fn translate_displaylist_to_wr(
                     SpatialTreeItemKey::new(*scroll_id, 0),
                 );
 
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame: defined scroll_spatial_id={:?}",
                     scroll_spatial_id
                 );
@@ -784,14 +811,14 @@ pub fn translate_displaylist_to_wr(
                 // DO NOT push a new offset for scroll frames!
                 // WebRender expects primitives to keep their absolute coordinates (relative to window origin).
                 // The scroll_spatial_id handles the scroll offset transformation internally.
-                // Previously we subtracted frame_rect.origin here, which caused children to be 
+                // Previously we subtracted frame_rect.origin here, which caused children to be
                 // positioned incorrectly (too far top-left) by the frame origin amount.
-                // 
+                //
                 // Keep the current offset on the stack unchanged - just push the same value
                 // so push/pop remain balanced.
                 let current = current_offset;
                 offset_stack.push(current);
-                
+
                 log_debug!(LogCategory::DisplayList,
                     "[CLIP DEBUG] PushScrollFrame: keeping offset={:?} (not offsetting for scroll frame)",
                     current
@@ -807,7 +834,7 @@ pub fn translate_displaylist_to_wr(
                     scroll_clip_id, parent_space, adjusted_frame_rect
                 );
 
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame: defined scroll_clip_id={:?} on parent_space={:?} with frame_rect={:?}",
                     scroll_clip_id, parent_space, frame_rect
                 );
@@ -819,22 +846,26 @@ pub fn translate_displaylist_to_wr(
                     Some(current_clip)
                 };
                 let scroll_clip_chain = builder.define_clip_chain(parent_clip, [scroll_clip_id]);
-                
-                log_debug!(LogCategory::DisplayList,
+
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[CLIP DEBUG] PushScrollFrame: scroll_clip_chain={:?}, parent_clip={:?}",
-                    scroll_clip_chain, parent_clip
+                    scroll_clip_chain,
+                    parent_clip
                 );
-                
-                log_debug!(LogCategory::DisplayList, 
+
+                log_debug!(LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame: defined scroll_clip_chain={:?} with parent={:?}",
                     scroll_clip_chain, parent_clip
                 );
-                
+
                 clip_stack.push(scroll_clip_chain);
 
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame DONE: spatial_stack.len={}, clip_stack.len={}",
-                    spatial_stack.len(), clip_stack.len()
+                    spatial_stack.len(),
+                    clip_stack.len()
                 );
             }
 
@@ -842,28 +873,32 @@ pub fn translate_displaylist_to_wr(
                 let spatial_before = spatial_stack.len();
                 let clip_before = clip_stack.len();
                 let offset_before = offset_stack.len();
-                
+
                 // Pop spatial, clip, and offset stacks
                 let popped_clip = clip_stack.pop();
                 let popped_spatial = spatial_stack.pop();
                 let popped_offset = offset_stack.pop();
-                
-                log_debug!(LogCategory::DisplayList,
+
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[CLIP DEBUG] PopScrollFrame: popped_offset={:?}",
                     popped_offset
                 );
-                
-                log_debug!(LogCategory::DisplayList, 
+
+                log_debug!(LogCategory::DisplayList,
                     "[compositor2] PopScrollFrame: popped_clip={:?}, popped_spatial={:?}, popped_offset={:?}, \
                      spatial_stack {} -> {}, clip_stack {} -> {}, offset_stack {} -> {}",
-                    popped_clip, popped_spatial, popped_offset, 
+                    popped_clip, popped_spatial, popped_offset,
                     spatial_before, spatial_stack.len(),
                     clip_before, clip_stack.len(),
                     offset_before, offset_stack.len()
                 );
 
                 if spatial_stack.is_empty() || clip_stack.is_empty() || offset_stack.is_empty() {
-                    log_debug!(LogCategory::DisplayList, "[compositor2] ERROR: PopScrollFrame caused stack underflow");
+                    log_debug!(
+                        LogCategory::DisplayList,
+                        "[compositor2] ERROR: PopScrollFrame caused stack underflow"
+                    );
                     return Err("Scroll frame stack underflow".to_string());
                 }
             }
@@ -887,9 +922,11 @@ pub fn translate_displaylist_to_wr(
                     item_tag,
                 );
 
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] HitTestArea: bounds={:?}, tag={:?}",
-                    bounds, tag
+                    bounds,
+                    tag
                 );
             }
 
@@ -996,7 +1033,7 @@ pub fn translate_displaylist_to_wr(
                 color,
                 clip_rect,
             } => {
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(LogCategory::DisplayList,
                     "[compositor2] Text item: {} glyphs, font_size={}, color={:?}, clip_rect={:?}, dpi={}",
                     glyphs.len(),
                     font_size_px,
@@ -1007,11 +1044,18 @@ pub fn translate_displaylist_to_wr(
 
                 // Log first few glyph positions for debugging
                 if !glyphs.is_empty() {
-                    log_debug!(LogCategory::DisplayList, "[compositor2] First 3 glyphs (before scaling):");
+                    log_debug!(
+                        LogCategory::DisplayList,
+                        "[compositor2] First 3 glyphs (before scaling):"
+                    );
                     for (i, g) in glyphs.iter().take(3).enumerate() {
-                        log_debug!(LogCategory::DisplayList, 
+                        log_debug!(
+                            LogCategory::DisplayList,
                             "  [{}] index={}, pos=({}, {})",
-                            i, g.index, g.point.x, g.point.y
+                            i,
+                            g.index,
+                            g.point.x,
+                            g.point.y
                         );
                     }
                 }
@@ -1039,13 +1083,13 @@ pub fn translate_displaylist_to_wr(
                 // NOTE: font_size_px is logical, Au conversion and DPI scaling happens in
                 // translate_add_font_instance
                 let font_size_au = azul_core::resources::Au::from_px(*font_size_px);
-                
+
                 // Scale container origin for glyph positioning
                 let scaled_origin = azul_core::geom::LogicalPosition::new(
                     scale_px(clip_rect.origin.x, dpi_scale),
                     scale_px(clip_rect.origin.y, dpi_scale),
                 );
-                
+
                 push_text(
                     &mut builder,
                     &info,
@@ -1061,7 +1105,9 @@ pub fn translate_displaylist_to_wr(
 
             DisplayListItem::Image { bounds, key } => {
                 // Look up the ImageKey in renderer_resources
-                let image_ref_hash = ImageRefHash { inner: key.key as usize };
+                let image_ref_hash = ImageRefHash {
+                    inner: key.key as usize,
+                };
 
                 if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
                     let wr_image_key = translate_image_key(resolved_image.key);
@@ -1075,9 +1121,11 @@ pub fn translate_displaylist_to_wr(
                         flags: Default::default(),
                     };
 
-                    log_debug!(LogCategory::DisplayList, 
+                    log_debug!(
+                        LogCategory::DisplayList,
                         "[compositor2] >>>>> push_image: bounds={:?}, key={:?} <<<<<",
-                        bounds, wr_image_key
+                        bounds,
+                        wr_image_key
                     );
 
                     // Use push_image from WebRender
@@ -1093,7 +1141,8 @@ pub fn translate_displaylist_to_wr(
                         ColorF::WHITE, // No tint by default
                     );
                 } else {
-                    log_debug!(LogCategory::DisplayList, 
+                    log_debug!(
+                        LogCategory::DisplayList,
                         "[compositor2] WARNING: Image key {:?} not found in renderer_resources",
                         key
                     );
@@ -1101,9 +1150,12 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::PushStackingContext { z_index, bounds } => {
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] PushStackingContext: z_index={}, bounds={:?}, dpi={}",
-                    z_index, bounds, dpi_scale
+                    z_index,
+                    bounds,
+                    dpi_scale
                 );
 
                 // Just push a simple stacking context at the bounds origin
@@ -1113,23 +1165,34 @@ pub fn translate_displaylist_to_wr(
                     scale_px(bounds.origin.x, dpi_scale),
                     scale_px(bounds.origin.y, dpi_scale),
                 );
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] >>>>> push_simple_stacking_context at ({}, {}) <<<<<",
-                    scaled_origin.x, scaled_origin.y
+                    scaled_origin.x,
+                    scaled_origin.y
                 );
                 builder.push_simple_stacking_context(
                     scaled_origin,
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                 );
-                log_debug!(LogCategory::DisplayList, "[compositor2] >>>>> push_simple_stacking_context RETURNED <<<<<");
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] >>>>> push_simple_stacking_context RETURNED <<<<<"
+                );
             }
 
             DisplayListItem::PopStackingContext => {
                 log_debug!(LogCategory::DisplayList, "[compositor2] PopStackingContext");
-                log_debug!(LogCategory::DisplayList, "[compositor2] >>>>> pop_stacking_context <<<<<");
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] >>>>> pop_stacking_context <<<<<"
+                );
                 builder.pop_stacking_context();
-                log_debug!(LogCategory::DisplayList, "[compositor2] >>>>> pop_stacking_context RETURNED <<<<<");
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] >>>>> pop_stacking_context RETURNED <<<<<"
+                );
             }
 
             DisplayListItem::IFrame {
@@ -1149,15 +1212,20 @@ pub fn translate_displaylist_to_wr(
                     document_id,
                 ));
 
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] IFrame: child_dom_id={:?}, child_pipeline_id={:?}, \
                      bounds={:?}, clip_rect={:?}",
-                    child_dom_id, child_pipeline_id, bounds, clip_rect
+                    child_dom_id,
+                    child_pipeline_id,
+                    bounds,
+                    clip_rect
                 );
 
                 // Look up child layout result
                 if let Some(child_layout_result) = layout_results.get(child_dom_id) {
-                    log_debug!(LogCategory::DisplayList, 
+                    log_debug!(
+                        LogCategory::DisplayList,
                         "[compositor2] Found child layout result with {} display list items",
                         child_layout_result.display_list.items.len()
                     );
@@ -1174,7 +1242,8 @@ pub fn translate_displaylist_to_wr(
                         document_id,
                     ) {
                         Ok((_, child_dl, mut child_nested)) => {
-                            log_debug!(LogCategory::DisplayList, 
+                            log_debug!(
+                                LogCategory::DisplayList,
                                 "[compositor2] Successfully translated child display list with {} \
                                  nested pipelines",
                                 child_nested.len()
@@ -1203,21 +1272,25 @@ pub fn translate_displaylist_to_wr(
                                 false, // ignore_missing_pipeline
                             );
 
-                            log_debug!(LogCategory::DisplayList, 
+                            log_debug!(
+                                LogCategory::DisplayList,
                                 "[compositor2] Pushed iframe for pipeline {:?}",
                                 child_pipeline_id
                             );
                         }
                         Err(e) => {
-                            log_debug!(LogCategory::DisplayList, 
+                            log_debug!(
+                                LogCategory::DisplayList,
                                 "[compositor2] Error translating child display list for \
                                  dom_id={:?}: {}",
-                                child_dom_id, e
+                                child_dom_id,
+                                e
                             );
                         }
                     }
                 } else {
-                    log_debug!(LogCategory::DisplayList, 
+                    log_debug!(
+                        LogCategory::DisplayList,
                         "[compositor2] WARNING: Child DOM {:?} not found in layout_results",
                         child_dom_id
                     );
@@ -1226,7 +1299,10 @@ pub fn translate_displaylist_to_wr(
 
             DisplayListItem::TextLayout { .. } => {
                 // TextLayout items are handled elsewhere (via PushCachedTextRuns)
-                log_debug!(LogCategory::DisplayList, "[compositor2] TextLayout item (handled via cached text runs)");
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] TextLayout item (handled via cached text runs)"
+                );
             }
 
             // gradient rendering
@@ -1235,7 +1311,11 @@ pub fn translate_displaylist_to_wr(
                 gradient,
                 border_radius,
             } => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] LinearGradient: bounds={:?}", bounds);
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] LinearGradient: bounds={:?}",
+                    bounds
+                );
 
                 // Convert CSS gradient to WebRender gradient
                 let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
@@ -1309,7 +1389,11 @@ pub fn translate_displaylist_to_wr(
                 gradient,
                 border_radius,
             } => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] RadialGradient: bounds={:?}", bounds);
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] RadialGradient: bounds={:?}",
+                    bounds
+                );
 
                 let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
                 let scaled_width = scale_px(bounds.size.width, dpi_scale);
@@ -1461,7 +1545,11 @@ pub fn translate_displaylist_to_wr(
                 gradient,
                 border_radius,
             } => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] ConicGradient: bounds={:?}", bounds);
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] ConicGradient: bounds={:?}",
+                    bounds
+                );
 
                 let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
                 let scaled_width = scale_px(bounds.size.width, dpi_scale);
@@ -1544,14 +1632,22 @@ pub fn translate_displaylist_to_wr(
                 shadow,
                 border_radius,
             } => {
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] BoxShadow: bounds={:?}, shadow={:?}",
-                    bounds, shadow
+                    bounds,
+                    shadow
                 );
                 // TODO: Implement proper WebRender box shadow using builder.push_box_shadow()
                 // For now, render a simplified shadow as an offset rectangle
-                let offset_x = scale_px(shadow.offset_x.inner.to_pixels_internal(0.0, 16.0), dpi_scale);
-                let offset_y = scale_px(shadow.offset_y.inner.to_pixels_internal(0.0, 16.0), dpi_scale);
+                let offset_x = scale_px(
+                    shadow.offset_x.inner.to_pixels_internal(0.0, 16.0),
+                    dpi_scale,
+                );
+                let offset_y = scale_px(
+                    shadow.offset_y.inner.to_pixels_internal(0.0, 16.0),
+                    dpi_scale,
+                );
                 let rect = LayoutRect::from_origin_and_size(
                     LayoutPoint::new(
                         scale_px(bounds.origin.x, dpi_scale) + offset_x,
@@ -1575,7 +1671,8 @@ pub fn translate_displaylist_to_wr(
 
             // filter effects
             DisplayListItem::PushFilter { bounds, filters } => {
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] PushFilter: bounds={:?}, {} filters",
                     bounds,
                     filters.len()
@@ -1598,7 +1695,8 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::PushBackdropFilter { bounds, filters } => {
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] PushBackdropFilter: bounds={:?}, {} filters",
                     bounds,
                     filters.len()
@@ -1621,9 +1719,11 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::PushOpacity { bounds, opacity } => {
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[compositor2] PushOpacity: bounds={:?}, opacity={}",
-                    bounds, opacity
+                    bounds,
+                    opacity
                 );
                 // TODO: Implement proper WebRender opacity stacking context
                 let current_spatial_id = current_spatial!();
@@ -1647,14 +1747,19 @@ pub fn translate_displaylist_to_wr(
     // The display list now includes PopStackingContext items that match the Push items.
 
     // Finalize and return display list
-    log_debug!(LogCategory::DisplayList, "[compositor2] >>>>> CALLING builder.end() <<<<<");
+    log_debug!(
+        LogCategory::DisplayList,
+        "[compositor2] >>>>> CALLING builder.end() <<<<<"
+    );
     let (_, dl) = builder.end();
-    log_debug!(LogCategory::DisplayList, 
+    log_debug!(
+        LogCategory::DisplayList,
         "[compositor2] >>>>> builder.end() RETURNED, dl.size_in_bytes()={} <<<<<",
         dl.size_in_bytes()
     );
 
-    log_debug!(LogCategory::DisplayList, 
+    log_debug!(
+        LogCategory::DisplayList,
         "[compositor2] Builder finished, returning ({} resources, display_list, {} nested \
          pipelines)",
         wr_resources.len(),
@@ -1665,7 +1770,11 @@ pub fn translate_displaylist_to_wr(
     log_debug!(LogCategory::DisplayList, "Display List Summary:");
     log_debug!(LogCategory::DisplayList, "  Pipeline: {:?}", pipeline_id);
     log_debug!(LogCategory::DisplayList, "  Viewport: {:?}", viewport_size);
-    log_debug!(LogCategory::DisplayList, "  Total items in source: {}", display_list.items.len());
+    log_debug!(
+        LogCategory::DisplayList,
+        "  Total items in source: {}",
+        display_list.items.len()
+    );
     for (idx, item) in display_list.items.iter().enumerate() {
         log_debug!(LogCategory::DisplayList, "    Item {}: {:?}", idx + 1, item);
     }
@@ -1736,13 +1845,17 @@ fn push_text(
     container_origin: azul_core::geom::LogicalPosition, // Container origin (already scaled)
 ) {
     let dpi_scale = dpi.inner.get();
-    
+
     // Look up FontKey from the font_hash (which comes from the GlyphRun)
     // The font_hash is the hash of FontRef computed during layout
     let font_key = match renderer_resources.font_hash_map.get(&font_hash) {
         Some(k) => k,
         None => {
-            log_debug!(LogCategory::DisplayList, "[push_text] FontKey not found for font_hash: {}", font_hash);
+            log_debug!(
+                LogCategory::DisplayList,
+                "[push_text] FontKey not found for font_hash: {}",
+                font_hash
+            );
             return;
         }
     };
@@ -1752,15 +1865,20 @@ fn push_text(
         Some((_, instances)) => match instances.get(&(font_size, dpi)) {
             Some(k) => *k,
             None => {
-                log_debug!(LogCategory::DisplayList, 
+                log_debug!(
+                    LogCategory::DisplayList,
                     "[push_text] FontInstanceKey not found for size {:?} @ dpi {:?}",
-                    font_size, dpi
+                    font_size,
+                    dpi
                 );
                 return;
             }
         },
         None => {
-            log_debug!(LogCategory::DisplayList, "[push_text] Font instances not found for FontKey");
+            log_debug!(
+                LogCategory::DisplayList,
+                "[push_text] Font instances not found for FontKey"
+            );
             return;
         }
     };
@@ -1785,7 +1903,7 @@ fn push_text(
         crate::desktop::wr_translate2::wr_translate_font_instance_key(font_instance_key);
     let wr_color = azul_css::props::basic::color::ColorF::from(color);
 
-    log_debug!(LogCategory::DisplayList, 
+    log_debug!(LogCategory::DisplayList,
         "[push_text] ✓ Pushing {} glyphs with FontInstanceKey {:?}, color={:?}, container_origin=({}, {}), dpi={}",
         wr_glyphs.len(),
         wr_font_instance_key,

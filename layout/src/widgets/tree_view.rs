@@ -1,8 +1,6 @@
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{
-        Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex,
-    },
+    dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
 };
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},

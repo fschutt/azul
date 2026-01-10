@@ -13,8 +13,8 @@
 //! - WebRender: Rendering and display lists
 //! - Common shell2 modules: Compositor, error handling
 
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
 use crate::desktop::shell2::common::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 pub mod accessibility;
 pub mod clipboard;
@@ -192,7 +192,7 @@ impl Win32Window {
     ) -> Result<Self, WindowError> {
         let total_start = std::time::Instant::now();
         let mut step_start = std::time::Instant::now();
-        
+
         macro_rules! timing_log {
             ($step:expr) => {{
                 let elapsed = step_start.elapsed();
@@ -200,11 +200,15 @@ impl Win32Window {
                 step_start = std::time::Instant::now();
             }};
         }
-        
+
         log_trace!(LogCategory::Window, "[Win32] Win32Window::new() called");
         // Load Win32 libraries
         let win32 = dlopen::Win32Libraries::load().map_err(|e| {
-            log_error!(LogCategory::Platform, "[Win32] Failed to load Win32 libraries: {}", e);
+            log_error!(
+                LogCategory::Platform,
+                "[Win32] Failed to load Win32 libraries: {}",
+                e
+            );
             WindowError::PlatformError(format!("Failed to load Win32 libraries: {}", e))
         })?;
         timing_log!("Load Win32 libraries");
@@ -271,7 +275,7 @@ impl Win32Window {
 
         // We need to keep the HDC alive for the GL context - store it for later
         let mut active_hdc: *mut std::ffi::c_void = ptr::null_mut();
-        
+
         if should_use_hardware {
             let vsync = options.window_state.renderer_options.vsync;
             match wcreate::create_gl_context(hwnd, hinstance, &win32, vsync) {
@@ -279,7 +283,10 @@ impl Win32Window {
                     gl_context = Some(hglrc);
                     let hdc = unsafe { (win32.user32.GetDC)(hwnd) };
                     if !hdc.is_null() {
-                        log_trace!(LogCategory::Rendering, "[Win32] activating GL context for WebRender init");
+                        log_trace!(
+                            LogCategory::Rendering,
+                            "[Win32] activating GL context for WebRender init"
+                        );
                         #[cfg(target_os = "windows")]
                         unsafe {
                             use winapi::um::wingdi::wglMakeCurrent;
@@ -302,7 +309,11 @@ impl Win32Window {
                 }
                 Err(e) => {
                     // Fall back to software rendering
-                    log_warn!(LogCategory::Rendering, "[Win32] GL context creation failed: {:?}, falling back to software", e);
+                    log_warn!(
+                        LogCategory::Rendering,
+                        "[Win32] GL context creation failed: {:?}, falling back to software",
+                        e
+                    );
                     gl_context_ptr = OptionGlContextPtr::None;
                 }
             }
@@ -414,12 +425,16 @@ impl Win32Window {
         }
         */
 
-        // IMPORTANT: Do NOT show window yet! 
+        // IMPORTANT: Do NOT show window yet!
         // AccessKit's SubclassingAdapter requires the window to be invisible when initialized.
         // We'll show the window AFTER a11y is set up.
         let should_show_window = layout_window.current_window_state.flags.is_visible;
         let window_frame = layout_window.current_window_state.flags.frame;
-        log_trace!(LogCategory::Window, "[Win32] deferring show_window until after a11y init (is_visible: {})", should_show_window);
+        log_trace!(
+            LogCategory::Window,
+            "[Win32] deferring show_window until after a11y init (is_visible: {})",
+            should_show_window
+        );
 
         // Position window on requested monitor (or center on primary)
         // This can be done before showing
@@ -448,7 +463,8 @@ impl Win32Window {
         let initial_viewport_height = current_window_state.size.dimensions.height;
         let dynamic_selector_context = {
             let sys = azul_css::system::SystemStyle::new();
-            let mut ctx = azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
+            let mut ctx =
+                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
             ctx.viewport_width = initial_viewport_width;
             ctx.viewport_height = initial_viewport_height;
             ctx.orientation = if initial_viewport_width > initial_viewport_height {
@@ -508,7 +524,11 @@ impl Win32Window {
         {
             if let Err(e) = result.accessibility_adapter.initialize(hwnd) {
                 // Don't fail window creation if a11y fails, just log and continue
-                log_warn!(LogCategory::Platform, "[Win32] a11y adapter init failed: {}, continuing without a11y", e);
+                log_warn!(
+                    LogCategory::Platform,
+                    "[Win32] a11y adapter init failed: {}, continuing without a11y",
+                    e
+                );
             }
         }
         timing_log!("Initialize accessibility adapter");
@@ -532,20 +552,22 @@ impl Win32Window {
         // This runs AFTER GL context is ready but BEFORE any layout is done
         if let Some(mut callback) = create_callback.into_option() {
             use azul_core::window::RawWindowHandle;
-            
+
             let raw_handle = RawWindowHandle::Windows(azul_core::window::WindowsHandle {
                 hwnd: hwnd as *mut _,
                 hinstance: hinstance as *mut _,
             });
-            
+
             // Get mutable references needed for invoke_single_callback
-            let layout_window = result.layout_window.as_mut()
+            let layout_window = result
+                .layout_window
+                .as_mut()
                 .expect("LayoutWindow should exist at this point");
             let mut fc_cache_clone = (*result.fc_cache).clone();
-            
+
             // Get app_data for callback
             let mut app_data_ref = result.app_data.borrow_mut();
-            
+
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
                 &mut *app_data_ref,
@@ -559,7 +581,7 @@ impl Win32Window {
                 &result.current_window_state,
                 &result.renderer_resources,
             );
-            
+
             // Process callback result (timers, threads, etc.)
             drop(app_data_ref); // Release borrow before process_callback_result_v2
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
@@ -571,28 +593,39 @@ impl Win32Window {
         if crate::desktop::shell2::common::debug_server::is_debug_enabled() {
             use azul_core::task::TimerId;
             use azul_layout::callbacks::ExternalSystemCallbacks;
-            
+
             let timer_id: usize = 0xDEBE; // Special debug timer ID
             let debug_timer = crate::desktop::shell2::common::debug_server::create_debug_timer(
-                ExternalSystemCallbacks::rust_internal().get_system_time_fn
+                ExternalSystemCallbacks::rust_internal().get_system_time_fn,
             );
-            
+
             // Insert into layout_window
             if let Some(layout_window) = result.layout_window.as_mut() {
-                layout_window.timers.insert(TimerId { id: timer_id }, debug_timer.clone());
+                layout_window
+                    .timers
+                    .insert(TimerId { id: timer_id }, debug_timer.clone());
             }
-            
+
             // Also create native Win32 timer
             let interval_ms = debug_timer.tick_millis().min(u32::MAX as u64) as u32;
-            let native_timer_id = unsafe { 
-                (result.win32.user32.SetTimer)(result.hwnd, timer_id, interval_ms, ptr::null()) 
+            let native_timer_id = unsafe {
+                (result.win32.user32.SetTimer)(result.hwnd, timer_id, interval_ms, ptr::null())
             };
             result.timers.insert(timer_id, native_timer_id);
-            log_debug!(LogCategory::Timer, "Debug timer registered with ID 0x{:X}, interval {}ms", timer_id, interval_ms);
+            log_debug!(
+                LogCategory::Timer,
+                "Debug timer registered with ID 0x{:X}, interval {}ms",
+                timer_id,
+                interval_ms
+            );
         }
         timing_log!("Final setup (callback + debug timer)");
 
-        log_debug!(LogCategory::Window, "[Win32] ===== TOTAL Win32Window::new() took {:?} =====", total_start.elapsed());
+        log_debug!(
+            LogCategory::Window,
+            "[Win32] ===== TOTAL Win32Window::new() took {:?} =====",
+            total_start.elapsed()
+        );
         Ok(result)
     }
 
@@ -695,7 +728,7 @@ impl Win32Window {
                     if let Some(gl) = self.gl_context_ptr.as_ref() {
                         gl.finish();
                     }
-                    
+
                     use winapi::um::wingdi::SwapBuffers;
                     SwapBuffers(hdc as winapi::shared::windef::HDC);
                 }
@@ -707,19 +740,25 @@ impl Win32Window {
             if !self.first_frame_shown {
                 // Check if user wants the window visible
                 if self.current_window_state.flags.is_visible {
-                    log_trace!(LogCategory::Rendering, "[Win32] First frame rendered + SwapBuffers done - showing window NOW");
-                    
+                    log_trace!(
+                        LogCategory::Rendering,
+                        "[Win32] First frame rendered + SwapBuffers done - showing window NOW"
+                    );
+
                     // Force DWM to latch the new frame buffer before making the window visible.
                     // This prevents the "Black Frame" flash by blocking until DWM composition is done.
                     if let Some(ref dwmapi) = self.win32.dwmapi_funcs {
                         (dwmapi.DwmFlush)();
                         log_trace!(LogCategory::Rendering, "[Win32] DwmFlush completed");
                     }
-                    
+
                     use dlopen::constants::SW_SHOW;
                     (self.win32.user32.ShowWindow)(self.hwnd, SW_SHOW);
                     (self.win32.user32.UpdateWindow)(self.hwnd);
-                    log_trace!(LogCategory::Rendering, "[Win32] Window shown after first real frame");
+                    log_trace!(
+                        LogCategory::Rendering,
+                        "[Win32] Window shown after first real frame"
+                    );
                 }
                 self.first_frame_shown = true;
             }
@@ -732,7 +771,10 @@ impl Win32Window {
 
             // CI testing: Exit successfully after first frame render if env var is set
             if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
-                log_info!(LogCategory::General, "AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success");
+                log_info!(
+                    LogCategory::General,
+                    "AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success"
+                );
                 std::process::exit(0);
             }
 
@@ -746,7 +788,11 @@ impl Win32Window {
 
         // Collect debug messages if debug server is enabled
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
-        let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
+        let mut debug_messages = if debug_enabled {
+            Some(Vec::new())
+        } else {
+            None
+        };
 
         // Call unified regenerate_layout from common module
         crate::desktop::shell2::common::layout_v2::regenerate_layout(
@@ -920,7 +966,11 @@ impl Win32Window {
         // prevent_system_sleep flag changed?
         if previous.flags.prevent_system_sleep != current.flags.prevent_system_sleep {
             if let Err(e) = self.set_prevent_system_sleep(current.flags.prevent_system_sleep) {
-                log_error!(LogCategory::Window, "Failed to set prevent_system_sleep: {}", e);
+                log_error!(
+                    LogCategory::Window,
+                    "Failed to set prevent_system_sleep: {}",
+                    e
+                );
             }
         }
 
@@ -995,14 +1045,18 @@ impl Win32Window {
     /// and the window will remain opaque.
     fn apply_background_material(&mut self, material: azul_core::window::WindowBackgroundMaterial) {
         use azul_core::window::WindowBackgroundMaterial;
-        use dlopen::{DWM_SYSTEMBACKDROP_TYPE, DWMWA_SYSTEMBACKDROP_TYPE, MARGINS, 
-                     DWM_BLURBEHIND, DWM_BB_ENABLE, DWM_BB_BLURREGION};
+        use dlopen::{
+            DWMWA_SYSTEMBACKDROP_TYPE, DWM_BB_BLURREGION, DWM_BB_ENABLE, DWM_BLURBEHIND,
+            DWM_SYSTEMBACKDROP_TYPE, MARGINS,
+        };
 
         let dwmapi = match self.win32.dwmapi_funcs.as_ref() {
             Some(d) => d,
             None => {
-                log_debug!(LogCategory::Platform, 
-                    "[Windows] dwmapi not available, skipping background material");
+                log_debug!(
+                    LogCategory::Platform,
+                    "[Windows] dwmapi not available, skipping background material"
+                );
                 return;
             }
         };
@@ -1017,29 +1071,32 @@ impl Win32Window {
                 // Create a minimal region (0, 0, -1, -1) which effectively disables blur
                 // but enables the transparent background compositing
                 let hrgn = (self.win32.gdi32.CreateRectRgn)(0, 0, -1, -1);
-                
+
                 let bb = DWM_BLURBEHIND {
                     dwFlags: DWM_BB_ENABLE | DWM_BB_BLURREGION,
                     fEnable: 1, // TRUE
                     hRgnBlur: hrgn as *mut core::ffi::c_void,
                     fTransitionOnMaximized: 0,
                 };
-                
+
                 let result = (dwmapi.DwmEnableBlurBehindWindow)(self.hwnd, &bb);
-                
+
                 // Clean up the region handle
                 if !hrgn.is_null() {
                     (self.win32.gdi32.DeleteObject)(hrgn as *mut core::ffi::c_void);
                 }
-                
+
                 if result != 0 {
-                    log_debug!(LogCategory::Platform,
+                    log_debug!(
+                        LogCategory::Platform,
                         "[Windows] DwmEnableBlurBehindWindow failed with HRESULT 0x{:08X}",
                         result as u32
                     );
                 } else {
-                    log_debug!(LogCategory::Platform,
-                        "[Windows] Enabled transparent background via DwmEnableBlurBehindWindow");
+                    log_debug!(
+                        LogCategory::Platform,
+                        "[Windows] Enabled transparent background via DwmEnableBlurBehindWindow"
+                    );
                 }
                 return;
             }
@@ -1053,7 +1110,7 @@ impl Win32Window {
                     fTransitionOnMaximized: 0,
                 };
                 let _ = (dwmapi.DwmEnableBlurBehindWindow)(self.hwnd, &bb);
-                
+
                 // Also reset backdrop type
                 let value = DWM_SYSTEMBACKDROP_TYPE::DWMSBT_NONE as i32;
                 let _ = (dwmapi.DwmSetWindowAttribute)(
@@ -1062,17 +1119,20 @@ impl Win32Window {
                     &value as *const _ as *const core::ffi::c_void,
                     std::mem::size_of::<i32>() as u32,
                 );
-                
-                log_debug!(LogCategory::Platform, "[Windows] Disabled transparency effects");
+
+                log_debug!(
+                    LogCategory::Platform,
+                    "[Windows] Disabled transparency effects"
+                );
                 return;
             }
 
             // Map remaining WindowBackgroundMaterial values to DWM backdrop type
             // These are Windows 11 22H2+ Mica/Acrylic effects
             let backdrop_type = match material {
-                WindowBackgroundMaterial::Sidebar |
-                WindowBackgroundMaterial::Menu |
-                WindowBackgroundMaterial::HUD => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_TRANSIENTWINDOW, // Acrylic
+                WindowBackgroundMaterial::Sidebar
+                | WindowBackgroundMaterial::Menu
+                | WindowBackgroundMaterial::HUD => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_TRANSIENTWINDOW, // Acrylic
                 WindowBackgroundMaterial::Titlebar => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_MAINWINDOW, // Mica
                 WindowBackgroundMaterial::MicaAlt => DWM_SYSTEMBACKDROP_TYPE::DWMSBT_TABBEDWINDOW,
                 _ => return, // Already handled above
@@ -1089,7 +1149,8 @@ impl Win32Window {
 
             if result != 0 {
                 // HRESULT != S_OK - this is expected on Windows 10 or older Windows 11 versions
-                log_debug!(LogCategory::Platform,
+                log_debug!(
+                    LogCategory::Platform,
                     "[Windows] DwmSetWindowAttribute failed with HRESULT 0x{:08X} - \
                      likely Windows 10 or pre-22H2 Windows 11",
                     result as u32
@@ -1102,15 +1163,18 @@ impl Win32Window {
             let margins = MARGINS::full_window();
             let extend_result = (dwmapi.DwmExtendFrameIntoClientArea)(self.hwnd, &margins);
             if extend_result != 0 {
-                log_warn!(LogCategory::Platform,
+                log_warn!(
+                    LogCategory::Platform,
                     "[Windows] DwmExtendFrameIntoClientArea failed: 0x{:08X}",
                     extend_result as u32
                 );
             }
 
-            log_debug!(LogCategory::Platform,
+            log_debug!(
+                LogCategory::Platform,
                 "[Windows] Applied background material {:?} (backdrop type {:?})",
-                material, backdrop_type
+                material,
+                backdrop_type
             );
         }
     }
@@ -1596,16 +1660,20 @@ unsafe extern "system" fn window_proc(
                 // Update dynamic selector context with new viewport dimensions
                 window.dynamic_selector_context.viewport_width = logical_size.width;
                 window.dynamic_selector_context.viewport_height = logical_size.height;
-                window.dynamic_selector_context.orientation = if logical_size.width > logical_size.height {
-                    azul_css::dynamic_selector::OrientationType::Landscape
-                } else {
-                    azul_css::dynamic_selector::OrientationType::Portrait
-                };
+                window.dynamic_selector_context.orientation =
+                    if logical_size.width > logical_size.height {
+                        azul_css::dynamic_selector::OrientationType::Landscape
+                    } else {
+                        azul_css::dynamic_selector::OrientationType::Portrait
+                    };
 
                 // Check if any CSS breakpoints were crossed
                 let breakpoints = [320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
-                if old_context.viewport_breakpoint_changed(&window.dynamic_selector_context, &breakpoints) {
-                    log_debug!(LogCategory::Layout,
+                if old_context
+                    .viewport_breakpoint_changed(&window.dynamic_selector_context, &breakpoints)
+                {
+                    log_debug!(
+                        LogCategory::Layout,
                         "[WM_SIZE] Breakpoint crossed: {}x{} -> {}x{}",
                         old_context.viewport_width,
                         old_context.viewport_height,
@@ -2336,7 +2404,11 @@ unsafe extern "system" fn window_proc(
                                 if result > 0 {
                                     // Convert to String and store
                                     window.ime_composition = String::from_utf16(&buffer).ok();
-                                    log_trace!(LogCategory::Input, "IME Composition: {:?}", window.ime_composition);
+                                    log_trace!(
+                                        LogCategory::Input,
+                                        "IME Composition: {:?}",
+                                        window.ime_composition
+                                    );
                                 }
                             }
 
@@ -2430,15 +2502,17 @@ unsafe extern "system" fn window_proc(
                 // User timer from LayoutWindow - invoke expired timer callbacks
                 use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
                 use azul_core::callbacks::Update;
-                
+
                 let timer_results = window.invoke_expired_timers();
-                
+
                 // Process each callback result to handle window state modifications
                 let mut needs_redraw = false;
                 for result in &timer_results {
                     // Apply window state changes from callback result
                     // Also process queued_window_states (for debug server click simulation)
-                    if result.modified_window_state.is_some() || !result.queued_window_states.is_empty() {
+                    if result.modified_window_state.is_some()
+                        || !result.queued_window_states.is_empty()
+                    {
                         // Save previous state BEFORE applying changes (for sync_window_state diff)
                         window.previous_window_state = Some(window.current_window_state.clone());
                         let _ = window.process_callback_result_v2(result);
@@ -2446,13 +2520,20 @@ unsafe extern "system" fn window_proc(
                         window.sync_window_state();
                     }
                     // Check if redraw needed
-                    if matches!(result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                    if matches!(
+                        result.callbacks_update_screen,
+                        Update::RefreshDom | Update::RefreshDomAllWindows
+                    ) {
                         needs_redraw = true;
                     }
                 }
-                
+
                 if needs_redraw {
-                    log_trace!(LogCategory::Timer, "Invoked {} timer callbacks", timer_results.len());
+                    log_trace!(
+                        LogCategory::Timer,
+                        "Invoked {} timer callbacks",
+                        timer_results.len()
+                    );
                     window.frame_needs_regeneration = true;
                     (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                 }
@@ -2465,7 +2546,11 @@ unsafe extern "system" fn window_proc(
             // Menu command
             let command_id = (wparam & 0xFFFF) as u16;
 
-            log_trace!(LogCategory::EventLoop, "WM_COMMAND received, command_id: {}", command_id);
+            log_trace!(
+                LogCategory::EventLoop,
+                "WM_COMMAND received, command_id: {}",
+                command_id
+            );
 
             // Look up menu callback and invoke it
             let callback_opt = if let Some(menu_bar) = &window.menu_bar {
@@ -2544,10 +2629,17 @@ unsafe extern "system" fn window_proc(
                         }
                     }
                 } else {
-                    log_warn!(LogCategory::Callbacks, "No layout window available for menu callback");
+                    log_warn!(
+                        LogCategory::Callbacks,
+                        "No layout window available for menu callback"
+                    );
                 }
             } else {
-                log_debug!(LogCategory::Callbacks, "No callback found for command_id: {}", command_id);
+                log_debug!(
+                    LogCategory::Callbacks,
+                    "No callback found for command_id: {}",
+                    command_id
+                );
             }
 
             (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam)
@@ -3342,7 +3434,8 @@ impl Win32Window {
         log_debug!(
             LogCategory::Window,
             "Native menu at ({}, {}) - not yet implemented, using fallback",
-            position.x, position.y
+            position.x,
+            position.y
         );
         self.show_fallback_menu(menu, position);
     }
@@ -3375,7 +3468,8 @@ impl Win32Window {
         log_debug!(
             LogCategory::Window,
             "Queuing fallback menu window at ({}, {}) - will be created in event loop",
-            position.x, position.y
+            position.x,
+            position.y
         );
 
         self.pending_window_creates.push(menu_options);

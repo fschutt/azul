@@ -54,6 +54,7 @@ use super::{
     common::gl::GlFunctions,
     x11::{accessibility::LinuxAccessibilityAdapter, dlopen::Gtk3Im},
 };
+use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::desktop::{
     shell2::common::{
         event_v2::{self, PlatformWindowV2},
@@ -61,8 +62,7 @@ use crate::desktop::{
     },
     wr_translate2::{self, AsyncHitTester, Notifier},
 };
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
-use crate::desktop::shell2::common::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 /// Tracks the current rendering mode of the window.
 enum RenderMode {
@@ -565,7 +565,10 @@ impl PlatformWindow for WaylandWindow {
 
         // CI testing: Exit successfully after first frame render if env var is set
         if result.is_ok() && std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
-            log_info!(LogCategory::Platform, "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success");
+            log_info!(
+                LogCategory::Platform,
+                "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success"
+            );
             std::process::exit(0);
         }
 
@@ -749,7 +752,7 @@ impl PlatformWindowV2 for WaylandWindow {
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         // Get interval in milliseconds
         let interval_ms = timer.tick_millis();
-        
+
         // Store timer in layout_window for callback invocation
         if let Some(layout_window) = self.layout_window.as_mut() {
             layout_window
@@ -760,26 +763,48 @@ impl PlatformWindowV2 for WaylandWindow {
         // Create timerfd for native timer support
         // This allows the timer to fire even without window events
         unsafe {
-            let fd = libc::timerfd_create(libc::CLOCK_MONOTONIC, libc::TFD_NONBLOCK | libc::TFD_CLOEXEC);
+            let fd = libc::timerfd_create(
+                libc::CLOCK_MONOTONIC,
+                libc::TFD_NONBLOCK | libc::TFD_CLOEXEC,
+            );
             if fd >= 0 {
                 // Convert milliseconds to timespec
                 let secs = (interval_ms / 1000) as i64;
                 let nsecs = ((interval_ms % 1000) * 1_000_000) as i64;
-                
+
                 let spec = libc::itimerspec {
-                    it_interval: libc::timespec { tv_sec: secs, tv_nsec: nsecs },
-                    it_value: libc::timespec { tv_sec: secs, tv_nsec: nsecs },
+                    it_interval: libc::timespec {
+                        tv_sec: secs,
+                        tv_nsec: nsecs,
+                    },
+                    it_value: libc::timespec {
+                        tv_sec: secs,
+                        tv_nsec: nsecs,
+                    },
                 };
-                
+
                 if libc::timerfd_settime(fd, 0, &spec, std::ptr::null_mut()) == 0 {
                     self.timer_fds.insert(timer_id, fd);
-                    log_debug!(LogCategory::Timer, "[Wayland] Created timerfd {} for timer {} (interval {}ms)", fd, timer_id, interval_ms);
+                    log_debug!(
+                        LogCategory::Timer,
+                        "[Wayland] Created timerfd {} for timer {} (interval {}ms)",
+                        fd,
+                        timer_id,
+                        interval_ms
+                    );
                 } else {
                     libc::close(fd);
-                    log_error!(LogCategory::Timer, "[Wayland] Failed to set timerfd interval");
+                    log_error!(
+                        LogCategory::Timer,
+                        "[Wayland] Failed to set timerfd interval"
+                    );
                 }
             } else {
-                log_error!(LogCategory::Timer, "[Wayland] Failed to create timerfd: errno={}", *libc::__errno_location());
+                log_error!(
+                    LogCategory::Timer,
+                    "[Wayland] Failed to create timerfd: errno={}",
+                    *libc::__errno_location()
+                );
             }
         }
     }
@@ -791,11 +816,18 @@ impl PlatformWindowV2 for WaylandWindow {
                 .timers
                 .remove(&azul_core::task::TimerId { id: timer_id });
         }
-        
+
         // Close timerfd
         if let Some(fd) = self.timer_fds.remove(&timer_id) {
-            unsafe { libc::close(fd); }
-            log_debug!(LogCategory::Timer, "[Wayland] Closed timerfd {} for timer {}", fd, timer_id);
+            unsafe {
+                libc::close(fd);
+            }
+            log_debug!(
+                LogCategory::Timer,
+                "[Wayland] Closed timerfd {} for timer {}",
+                fd,
+                timer_id
+            );
         }
     }
 
@@ -851,7 +883,8 @@ impl PlatformWindowV2 for WaylandWindow {
             log_debug!(
                 LogCategory::Platform,
                 "[Wayland] Native xdg_popup menu at ({}, {}) - not yet implemented, using fallback",
-                position.x, position.y
+                position.x,
+                position.y
             );
             self.show_fallback_menu(menu, position);
         } else {
@@ -909,7 +942,8 @@ impl WaylandWindow {
         log_debug!(
             LogCategory::Window,
             "[Wayland] Queuing fallback menu window at ({}, {}) - will be created in event loop",
-            position.x, position.y
+            position.x,
+            position.y
         );
 
         self.pending_window_creates.push(menu_options);
@@ -921,7 +955,7 @@ impl WaylandWindow {
     ) -> Result<Self, WindowError> {
         // Extract create_callback before consuming options
         let create_callback = options.create_callback.clone();
-        
+
         let wayland = Wayland::new().map_err(|e| {
             WindowError::PlatformError(format!("Failed to load libwayland-client: {:?}", e))
         })?;
@@ -932,12 +966,18 @@ impl WaylandWindow {
         // Try to load GTK3 IM context for IME support (optional, fail silently)
         let (gtk_im, gtk_im_context) = match Gtk3Im::new() {
             Ok(gtk) => {
-                log_debug!(LogCategory::Platform, "[Wayland] GTK3 IM context loaded for IME support");
+                log_debug!(
+                    LogCategory::Platform,
+                    "[Wayland] GTK3 IM context loaded for IME support"
+                );
                 let ctx = unsafe { (gtk.gtk_im_context_simple_new)() };
                 if !ctx.is_null() {
                     (Some(gtk), Some(ctx))
                 } else {
-                    log_warn!(LogCategory::Platform, "[Wayland] Failed to create GTK IM context instance");
+                    log_warn!(
+                        LogCategory::Platform,
+                        "[Wayland] Failed to create GTK IM context instance"
+                    );
                     (None, None)
                 }
             }
@@ -1043,7 +1083,8 @@ impl WaylandWindow {
             app_data: resources.app_data.clone(),
             dynamic_selector_context: {
                 let sys = azul_css::system::SystemStyle::new();
-                let mut ctx = azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
+                let mut ctx =
+                    azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
                 ctx.viewport_width = options.window_state.size.dimensions.width;
                 ctx.viewport_height = options.window_state.size.dimensions.height;
                 ctx.orientation = if ctx.viewport_width > ctx.viewport_height {
@@ -1168,7 +1209,9 @@ impl WaylandWindow {
         window.position_window_on_monitor(&options);
 
         // Initialize GNOME menu integration V2 (dlopen-based, no compile-time dependency)
-        if options.window_state.flags.use_native_menus && super::gnome_menu::should_use_gnome_menus() {
+        if options.window_state.flags.use_native_menus
+            && super::gnome_menu::should_use_gnome_menus()
+        {
             // Get shared DBus library instance (loaded once, shared across all windows)
             if let Some(dbus_lib) = super::gnome_menu::get_shared_dbus_lib() {
                 let app_name = &options.window_state.title;
@@ -1214,20 +1257,23 @@ impl WaylandWindow {
         // This runs AFTER GL context is ready but BEFORE any layout is done
         if let Some(mut callback) = create_callback.into_option() {
             use azul_core::window::RawWindowHandle;
-            
+
             let raw_handle = RawWindowHandle::Wayland(azul_core::window::WaylandHandle {
                 surface: window.surface as *mut _,
                 display: window.display as *mut _,
             });
-            
+
             // Initialize LayoutWindow if not already done
             if window.layout_window.is_none() {
-                let mut layout_window = azul_layout::window::LayoutWindow::new(
-                    (*window.resources.fc_cache).clone()
-                ).map_err(|e| {
-                    WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
-                })?;
-                
+                let mut layout_window =
+                    azul_layout::window::LayoutWindow::new((*window.resources.fc_cache).clone())
+                        .map_err(|e| {
+                            WindowError::PlatformError(format!(
+                                "Failed to create LayoutWindow: {:?}",
+                                e
+                            ))
+                        })?;
+
                 if let Some(doc_id) = window.document_id {
                     layout_window.document_id = doc_id;
                 }
@@ -1238,15 +1284,17 @@ impl WaylandWindow {
                 layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                 window.layout_window = Some(layout_window);
             }
-            
+
             // Get mutable references needed for invoke_single_callback
-            let layout_window = window.layout_window.as_mut()
+            let layout_window = window
+                .layout_window
+                .as_mut()
                 .expect("LayoutWindow should exist at this point");
             let mut fc_cache_clone = (*window.resources.fc_cache).clone();
-            
+
             // Get app_data for callback
             let mut app_data_ref = window.resources.app_data.borrow_mut();
-            
+
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
                 &mut *app_data_ref,
@@ -1260,7 +1308,7 @@ impl WaylandWindow {
                 &window.current_window_state,
                 &window.renderer_resources,
             );
-            
+
             // Process callback result (timers, threads, etc.)
             drop(app_data_ref); // Release borrow before process_callback_result_v2
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
@@ -1272,9 +1320,9 @@ impl WaylandWindow {
         if crate::desktop::shell2::common::debug_server::is_debug_enabled() {
             // Initialize LayoutWindow if not already done
             if window.layout_window.is_none() {
-                if let Ok(mut layout_window) = azul_layout::window::LayoutWindow::new(
-                    (*window.resources.fc_cache).clone()
-                ) {
+                if let Ok(mut layout_window) =
+                    azul_layout::window::LayoutWindow::new((*window.resources.fc_cache).clone())
+                {
                     if let Some(doc_id) = window.document_id {
                         layout_window.document_id = doc_id;
                     }
@@ -1286,14 +1334,14 @@ impl WaylandWindow {
                     window.layout_window = Some(layout_window);
                 }
             }
-            
+
             if let Some(layout_window) = window.layout_window.as_mut() {
                 use azul_core::task::TimerId;
                 use azul_layout::callbacks::ExternalSystemCallbacks;
-                
+
                 let timer_id = TimerId { id: 0xDEBE }; // Special debug timer ID
                 let debug_timer = crate::desktop::shell2::common::debug_server::create_debug_timer(
-                    ExternalSystemCallbacks::rust_internal().get_system_time_fn
+                    ExternalSystemCallbacks::rust_internal().get_system_time_fn,
                 );
                 layout_window.timers.insert(timer_id, debug_timer);
             }
@@ -1361,32 +1409,32 @@ impl WaylandWindow {
 
     pub fn wait_for_events(&mut self) -> Result<(), WindowError> {
         use super::super::common::event_v2::PlatformWindowV2;
-        
+
         // First, dispatch any pending events without blocking
-        let pending = unsafe { 
-            (self.wayland.wl_display_dispatch_queue_pending)(self.display, self.event_queue) 
+        let pending = unsafe {
+            (self.wayland.wl_display_dispatch_queue_pending)(self.display, self.event_queue)
         };
         if pending > 0 {
             return Ok(()); // Events were processed
         }
-        
+
         // Get the display fd
         let display_fd = unsafe { (self.wayland.wl_display_get_fd)(self.display) };
-        
+
         unsafe {
             // Flush outgoing requests
             (self.wayland.wl_display_flush)(self.display);
-            
+
             // Build pollfd array: Wayland connection + all timer fds
             let mut pollfds: Vec<libc::pollfd> = Vec::with_capacity(1 + self.timer_fds.len());
-            
+
             // Add Wayland display fd
             pollfds.push(libc::pollfd {
                 fd: display_fd,
                 events: libc::POLLIN,
                 revents: 0,
             });
-            
+
             // Add all timerfd's
             let timer_ids: Vec<usize> = self.timer_fds.keys().copied().collect();
             for &timer_id in &timer_ids {
@@ -1398,23 +1446,28 @@ impl WaylandWindow {
                     });
                 }
             }
-            
+
             // If no timers, block indefinitely (-1), otherwise block until something fires
             let timeout_ms = if self.timer_fds.is_empty() { -1 } else { -1 };
-            
-            let result = libc::poll(pollfds.as_mut_ptr(), pollfds.len() as libc::nfds_t, timeout_ms);
-            
+
+            let result = libc::poll(
+                pollfds.as_mut_ptr(),
+                pollfds.len() as libc::nfds_t,
+                timeout_ms,
+            );
+
             if result > 0 {
                 // Check Wayland display fd
                 if pollfds[0].revents & libc::POLLIN != 0 {
                     (self.wayland.wl_display_dispatch_queue)(self.display, self.event_queue);
                 }
-                
+
                 // Check timerfd's - if any fired, invoke timer callbacks
                 let mut any_timer_fired = false;
                 for (i, &timer_id) in timer_ids.iter().enumerate() {
                     let pollfd_idx = i + 1; // +1 because display fd is at index 0
-                    if pollfd_idx < pollfds.len() && pollfds[pollfd_idx].revents & libc::POLLIN != 0 {
+                    if pollfd_idx < pollfds.len() && pollfds[pollfd_idx].revents & libc::POLLIN != 0
+                    {
                         // Read from timerfd to acknowledge the timer
                         if let Some(&fd) = self.timer_fds.get(&timer_id) {
                             let mut expirations: u64 = 0;
@@ -1423,19 +1476,21 @@ impl WaylandWindow {
                         }
                     }
                 }
-                
+
                 // Invoke all expired timer callbacks
                 if any_timer_fired {
                     use azul_core::callbacks::Update;
-                    
+
                     let timer_results = self.invoke_expired_timers();
-                    
+
                     // Process each callback result to handle window state modifications
                     let mut needs_redraw = false;
                     for result in &timer_results {
                         // Apply window state changes from callback result
                         // Also process queued_window_states (for debug server click simulation)
-                        if result.modified_window_state.is_some() || !result.queued_window_states.is_empty() {
+                        if result.modified_window_state.is_some()
+                            || !result.queued_window_states.is_empty()
+                        {
                             // Save previous state BEFORE applying changes (for sync_window_state diff)
                             self.previous_window_state = Some(self.current_window_state.clone());
                             let _ = self.process_callback_result_v2(result);
@@ -1443,11 +1498,14 @@ impl WaylandWindow {
                             self.sync_window_state();
                         }
                         // Check if redraw needed
-                        if matches!(result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                        if matches!(
+                            result.callbacks_update_screen,
+                            Update::RefreshDom | Update::RefreshDomAllWindows
+                        ) {
                             needs_redraw = true;
                         }
                     }
-                    
+
                     if needs_redraw {
                         self.frame_needs_regeneration = true;
                     }
@@ -1456,7 +1514,7 @@ impl WaylandWindow {
             // result == 0: timeout (shouldn't happen with -1)
             // result < 0: error or EINTR - ignore and continue
         }
-        
+
         Ok(())
     }
 
@@ -1507,7 +1565,10 @@ impl WaylandWindow {
             let layout_window = match self.layout_window.as_mut() {
                 Some(lw) => lw,
                 None => {
-                    log_warn!(LogCategory::Callbacks, "[WaylandWindow] No layout window available for menu callback");
+                    log_warn!(
+                        LogCategory::Callbacks,
+                        "[WaylandWindow] No layout window available for menu callback"
+                    );
                     continue;
                 }
             };
@@ -1659,7 +1720,11 @@ impl WaylandWindow {
         match result {
             ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
                 if let Err(e) = self.regenerate_layout() {
-                    log_error!(LogCategory::Layout, "[Wayland] Layout regeneration error: {}", e);
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Wayland] Layout regeneration error: {}",
+                        e
+                    );
                 }
             }
             ProcessEventResult::ShouldReRenderCurrentWindow => {
@@ -1733,7 +1798,11 @@ impl WaylandWindow {
         match result {
             ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
                 if let Err(e) = self.regenerate_layout() {
-                    log_error!(LogCategory::Layout, "[Wayland] Layout regeneration error: {}", e);
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Wayland] Layout regeneration error: {}",
+                        e
+                    );
                 }
             }
             ProcessEventResult::ShouldReRenderCurrentWindow => {
@@ -1828,7 +1897,11 @@ impl WaylandWindow {
         match result {
             ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
                 if let Err(e) = self.regenerate_layout() {
-                    log_error!(LogCategory::Layout, "[Wayland] Layout regeneration error: {}", e);
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Wayland] Layout regeneration error: {}",
+                        e
+                    );
                 }
             }
             ProcessEventResult::ShouldReRenderCurrentWindow => {
@@ -1886,7 +1959,11 @@ impl WaylandWindow {
         match result {
             ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
                 if let Err(e) = self.regenerate_layout() {
-                    log_error!(LogCategory::Layout, "[Wayland] Layout regeneration error: {}", e);
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Wayland] Layout regeneration error: {}",
+                        e
+                    );
                 }
             }
             ProcessEventResult::ShouldReRenderCurrentWindow => {
@@ -2041,7 +2118,8 @@ impl WaylandWindow {
         log_debug!(
             LogCategory::Window,
             "[Wayland] Queuing window-based context menu at screen ({}, {})",
-            position.x, position.y
+            position.x,
+            position.y
         );
         self.pending_window_creates.push(menu_options);
     }
@@ -2060,7 +2138,11 @@ impl WaylandWindow {
 
         // Collect debug messages if debug server is enabled
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
-        let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
+        let mut debug_messages = if debug_enabled {
+            Some(Vec::new())
+        } else {
+            None
+        };
 
         // Call unified regenerate_layout from common module
         crate::desktop::shell2::common::layout_v2::regenerate_layout(
@@ -2178,18 +2260,31 @@ impl WaylandWindow {
                 prev.flags.is_top_level != self.current_window_state.flags.is_top_level;
             let prevent_sleep_changed = prev.flags.prevent_system_sleep
                 != self.current_window_state.flags.prevent_system_sleep;
-            let background_material_changed = 
-                prev.flags.background_material != self.current_window_state.flags.background_material;
+            let background_material_changed = prev.flags.background_material
+                != self.current_window_state.flags.background_material;
             let new_is_top_level = self.current_window_state.flags.is_top_level;
             let new_prevent_sleep = self.current_window_state.flags.prevent_system_sleep;
             let new_background_material = self.current_window_state.flags.background_material;
 
-            (is_top_level_changed, new_is_top_level, prevent_sleep_changed, new_prevent_sleep, 
-             background_material_changed, new_background_material)
+            (
+                is_top_level_changed,
+                new_is_top_level,
+                prevent_sleep_changed,
+                new_prevent_sleep,
+                background_material_changed,
+                new_background_material,
+            )
         });
 
-        if let Some((is_top_level_changed, new_is_top_level, prevent_sleep_changed, new_prevent_sleep,
-                     background_material_changed, new_background_material)) = flag_changes {
+        if let Some((
+            is_top_level_changed,
+            new_is_top_level,
+            prevent_sleep_changed,
+            new_prevent_sleep,
+            background_material_changed,
+            new_background_material,
+        )) = flag_changes
+        {
             if is_top_level_changed {
                 self.set_is_top_level(new_is_top_level);
             }
@@ -2243,7 +2338,7 @@ impl WaylandWindow {
 
         // First, handle the opaque region based on material type
         let needs_transparency = !matches!(material, WindowBackgroundMaterial::Opaque);
-        
+
         if needs_transparency {
             // Set opaque region to NULL to enable transparency
             // This tells the compositor the surface may have transparent areas
@@ -2261,7 +2356,7 @@ impl WaylandWindow {
                 self.current_window_state.size.dimensions.width as i32,
                 self.current_window_state.size.dimensions.height as i32,
             );
-            
+
             if width > 0 && height > 0 {
                 unsafe {
                     let region = (self.wayland.wl_compositor_create_region)(self.compositor);
@@ -2272,7 +2367,8 @@ impl WaylandWindow {
                         log_debug!(
                             LogCategory::Platform,
                             "[Wayland] Set opaque region to {}x{} for opaque window",
-                            width, height
+                            width,
+                            height
                         );
                     }
                 }
@@ -2333,7 +2429,7 @@ impl WaylandWindow {
     }
 
     /// Apply KDE blur effect to the surface
-    /// 
+    ///
     /// Uses the org.kde.kwin.blur protocol available on KDE Plasma.
     /// The blur effect will cover the entire window.
     fn apply_kde_blur(&mut self) {
@@ -2351,13 +2447,18 @@ impl WaylandWindow {
         unsafe {
             // Transmute to specific signature for this call
             type CreateBlurFn = unsafe extern "C" fn(
-                *mut defines::wl_proxy, u32, *const defines::wl_interface, *const std::ffi::c_void, *mut defines::wl_surface
+                *mut defines::wl_proxy,
+                u32,
+                *const defines::wl_interface,
+                *const std::ffi::c_void,
+                *mut defines::wl_surface,
             ) -> *mut defines::wl_proxy;
-            let create_fn: CreateBlurFn = std::mem::transmute(self.wayland.wl_proxy_marshal_constructor);
-            
+            let create_fn: CreateBlurFn =
+                std::mem::transmute(self.wayland.wl_proxy_marshal_constructor);
+
             let blur = create_fn(
                 blur_manager as *mut defines::wl_proxy,
-                0, // create opcode
+                0,                                    // create opcode
                 std::ptr::null(), // org_kde_kwin_blur has no interface constant, use null
                 std::ptr::null::<std::ffi::c_void>(), // new_id placeholder
                 self.surface,
@@ -2376,11 +2477,12 @@ impl WaylandWindow {
             // Set blur region to cover entire surface (NULL = entire surface)
             // org_kde_kwin_blur.set_region opcode is 1
             // Signature: set_region(region: object<wl_region>)
-            type SetRegionFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32, *const defines::wl_region);
+            type SetRegionFn =
+                unsafe extern "C" fn(*mut defines::wl_proxy, u32, *const defines::wl_region);
             let set_region_fn: SetRegionFn = std::mem::transmute(self.wayland.wl_proxy_marshal);
             set_region_fn(
                 blur as *mut defines::wl_proxy,
-                1, // set_region opcode
+                1,                                      // set_region opcode
                 std::ptr::null::<defines::wl_region>(), // NULL = entire surface
             );
 
@@ -2449,13 +2551,21 @@ impl WaylandWindow {
                         physical_size.height as i32,
                     );
                     if let Err(e) = renderer.render(device_size, 0) {
-                        log_error!(LogCategory::Rendering, "[Wayland] WebRender render failed: {:?}", e);
+                        log_error!(
+                            LogCategory::Rendering,
+                            "[Wayland] WebRender render failed: {:?}",
+                            e
+                        );
                         return;
                     }
 
                     // 3. Swap buffers
                     if let Err(e) = gl_context.swap_buffers() {
-                        log_error!(LogCategory::Rendering, "[Wayland] Swap buffers failed: {:?}", e);
+                        log_error!(
+                            LogCategory::Rendering,
+                            "[Wayland] Swap buffers failed: {:?}",
+                            e
+                        );
                         return;
                     }
                 }
@@ -2482,10 +2592,19 @@ impl WaylandWindow {
                     match CpuFallbackState::new(&self.wayland, self.shm, width, height) {
                         Ok(cpu_state) => {
                             self.render_mode = RenderMode::Cpu(Some(cpu_state));
-                            log_info!(LogCategory::Rendering, "[Wayland] CPU fallback initialized: {}x{}", width, height);
+                            log_info!(
+                                LogCategory::Rendering,
+                                "[Wayland] CPU fallback initialized: {}x{}",
+                                width,
+                                height
+                            );
                         }
                         Err(e) => {
-                            log_error!(LogCategory::Rendering, "[Wayland] Failed to initialize CPU fallback: {:?}", e);
+                            log_error!(
+                                LogCategory::Rendering,
+                                "[Wayland] Failed to initialize CPU fallback: {:?}",
+                                e
+                            );
                         }
                     }
                 }
@@ -2673,9 +2792,11 @@ impl Drop for WaylandWindow {
     fn drop(&mut self) {
         // Close all timerfd's
         for (_timer_id, fd) in std::mem::take(&mut self.timer_fds) {
-            unsafe { libc::close(fd); }
+            unsafe {
+                libc::close(fd);
+            }
         }
-        
+
         unsafe {
             // Clean up KDE blur resources
             if let Some(blur) = self.current_blur.take() {
@@ -2869,11 +2990,15 @@ impl WaylandWindow {
     /// This is called on every poll_event() to simulate timer ticks
     fn check_timers_and_threads(&mut self) {
         use super::super::common::event_v2::PlatformWindowV2;
-        
+
         // Invoke expired timer callbacks
         let timer_results = self.invoke_expired_timers();
         if !timer_results.is_empty() {
-            log_debug!(LogCategory::Timer, "[Wayland] Invoked {} timer callbacks", timer_results.len());
+            log_debug!(
+                LogCategory::Timer,
+                "[Wayland] Invoked {} timer callbacks",
+                timer_results.len()
+            );
             self.frame_needs_regeneration = true;
         }
 
@@ -3327,7 +3452,10 @@ extern "C" fn popup_xdg_surface_configure(
     serial: u32,
 ) {
     if data.is_null() {
-        log_error!(LogCategory::Platform, "[xdg_popup] configure: null data pointer!");
+        log_error!(
+            LogCategory::Platform,
+            "[xdg_popup] configure: null data pointer!"
+        );
         return;
     }
 
@@ -3352,7 +3480,10 @@ impl WaylandWindow {
                 // zwp_text_input_v3_set_cursor_rectangle would be called here
                 // However, this requires proper protocol bindings which are complex
                 // For now, we note that this is where native Wayland IME would go
-                log_debug!(LogCategory::Platform, "[Wayland] text-input v3 available but not yet implemented");
+                log_debug!(
+                    LogCategory::Platform,
+                    "[Wayland] text-input v3 available but not yet implemented"
+                );
 
                 // The proper implementation would be:
                 // zwp_text_input_v3_set_cursor_rectangle(
@@ -3388,7 +3519,10 @@ impl WaylandWindow {
             let subcompositor = match self.subcompositor {
                 Some(sc) => sc,
                 None => {
-                    log_warn!(LogCategory::Platform, "[Wayland] Subcompositor not available for tooltips");
+                    log_warn!(
+                        LogCategory::Platform,
+                        "[Wayland] Subcompositor not available for tooltips"
+                    );
                     return;
                 }
             };
@@ -3405,7 +3539,11 @@ impl WaylandWindow {
                     self.tooltip = Some(tooltip_window);
                 }
                 Err(e) => {
-                    log_error!(LogCategory::Platform, "[Wayland] Failed to create tooltip: {}", e);
+                    log_error!(
+                        LogCategory::Platform,
+                        "[Wayland] Failed to create tooltip: {}",
+                        e
+                    );
                     return;
                 }
             }
@@ -3461,8 +3599,15 @@ impl WaylandWindow {
             let dbus_lib = match dbus::DBusLib::new() {
                 Ok(lib) => lib,
                 Err(e) => {
-                    log_warn!(LogCategory::Platform, "[Wayland] Failed to load D-Bus library: {}", e);
-                    log_warn!(LogCategory::Platform, "[Wayland] System sleep prevention not available");
+                    log_warn!(
+                        LogCategory::Platform,
+                        "[Wayland] Failed to load D-Bus library: {}",
+                        e
+                    );
+                    log_warn!(
+                        LogCategory::Platform,
+                        "[Wayland] System sleep prevention not available"
+                    );
                     return;
                 }
             };
@@ -3475,7 +3620,10 @@ impl WaylandWindow {
 
                     let conn = (dbus_lib.dbus_bus_get)(dbus::DBUS_BUS_SESSION, &mut error);
                     if (dbus_lib.dbus_error_is_set)(&error) != 0 {
-                        log_error!(LogCategory::Platform, "[Wayland] Failed to connect to D-Bus session bus");
+                        log_error!(
+                            LogCategory::Platform,
+                            "[Wayland] Failed to connect to D-Bus session bus"
+                        );
                         (dbus_lib.dbus_error_free)(&mut error);
                         return;
                     }
@@ -3505,7 +3653,10 @@ impl WaylandWindow {
                 );
 
                 if msg.is_null() {
-                    log_error!(LogCategory::Platform, "[Wayland] Failed to create D-Bus method call");
+                    log_error!(
+                        LogCategory::Platform,
+                        "[Wayland] Failed to create D-Bus method call"
+                    );
                     return;
                 }
 
@@ -3542,27 +3693,39 @@ impl WaylandWindow {
                 (dbus_lib.dbus_message_unref)(msg);
 
                 if (dbus_lib.dbus_error_is_set)(&error) != 0 {
-                    log_error!(LogCategory::Platform, "[Wayland] D-Bus ScreenSaver.Inhibit failed");
+                    log_error!(
+                        LogCategory::Platform,
+                        "[Wayland] D-Bus ScreenSaver.Inhibit failed"
+                    );
                     (dbus_lib.dbus_error_free)(&mut error);
                     return;
                 }
 
                 if reply.is_null() {
-                    log_error!(LogCategory::Platform, "[Wayland] D-Bus ScreenSaver.Inhibit returned no reply");
+                    log_error!(
+                        LogCategory::Platform,
+                        "[Wayland] D-Bus ScreenSaver.Inhibit returned no reply"
+                    );
                     return;
                 }
 
                 // Parse reply to get the cookie (uint32)
                 let mut reply_iter: dbus::DBusMessageIter = std::mem::zeroed();
                 if (dbus_lib.dbus_message_iter_init)(reply, &mut reply_iter) == 0 {
-                    log_error!(LogCategory::Platform, "[Wayland] D-Bus reply has no arguments");
+                    log_error!(
+                        LogCategory::Platform,
+                        "[Wayland] D-Bus reply has no arguments"
+                    );
                     (dbus_lib.dbus_message_unref)(reply);
                     return;
                 }
 
                 let arg_type = (dbus_lib.dbus_message_iter_get_arg_type)(&mut reply_iter);
                 if arg_type != dbus::DBUS_TYPE_UINT32 {
-                    log_error!(LogCategory::Platform, "[Wayland] D-Bus reply has wrong type: expected uint32");
+                    log_error!(
+                        LogCategory::Platform,
+                        "[Wayland] D-Bus reply has wrong type: expected uint32"
+                    );
                     (dbus_lib.dbus_message_unref)(reply);
                     return;
                 }
@@ -3576,7 +3739,11 @@ impl WaylandWindow {
                 self.screensaver_inhibit_cookie = Some(cookie);
                 (dbus_lib.dbus_message_unref)(reply);
 
-                log_info!(LogCategory::Platform, "[Wayland] System sleep prevented (cookie: {})", cookie);
+                log_info!(
+                    LogCategory::Platform,
+                    "[Wayland] System sleep prevented (cookie: {})",
+                    cookie
+                );
             }
         } else {
             // Remove inhibit
@@ -3594,7 +3761,11 @@ impl WaylandWindow {
             let dbus_lib = match dbus::DBusLib::new() {
                 Ok(lib) => lib,
                 Err(e) => {
-                    log_warn!(LogCategory::Platform, "[Wayland] Failed to load D-Bus library: {}", e);
+                    log_warn!(
+                        LogCategory::Platform,
+                        "[Wayland] Failed to load D-Bus library: {}",
+                        e
+                    );
                     return;
                 }
             };
@@ -3614,7 +3785,10 @@ impl WaylandWindow {
                 );
 
                 if msg.is_null() {
-                    log_error!(LogCategory::Platform, "[Wayland] Failed to create D-Bus method call");
+                    log_error!(
+                        LogCategory::Platform,
+                        "[Wayland] Failed to create D-Bus method call"
+                    );
                     return;
                 }
 
@@ -3639,7 +3813,10 @@ impl WaylandWindow {
                 (dbus_lib.dbus_message_unref)(msg);
 
                 if (dbus_lib.dbus_error_is_set)(&error) != 0 {
-                    log_error!(LogCategory::Platform, "[Wayland] D-Bus ScreenSaver.UnInhibit failed");
+                    log_error!(
+                        LogCategory::Platform,
+                        "[Wayland] D-Bus ScreenSaver.UnInhibit failed"
+                    );
                     (dbus_lib.dbus_error_free)(&mut error);
                     return;
                 }
@@ -3648,7 +3825,11 @@ impl WaylandWindow {
                     (dbus_lib.dbus_message_unref)(reply);
                 }
 
-                log_info!(LogCategory::Platform, "[Wayland] System sleep allowed (cookie: {})", cookie);
+                log_info!(
+                    LogCategory::Platform,
+                    "[Wayland] System sleep allowed (cookie: {})",
+                    cookie
+                );
             }
         }
     }
@@ -3664,14 +3845,20 @@ extern "C" fn popup_configure(
     height: i32,
 ) {
     if data.is_null() {
-        log_error!(LogCategory::Platform, "[xdg_popup] configure: null data pointer!");
+        log_error!(
+            LogCategory::Platform,
+            "[xdg_popup] configure: null data pointer!"
+        );
         return;
     }
 
     log_debug!(
         LogCategory::Platform,
         "[xdg_popup] configure: x={}, y={}, width={}, height={}",
-        x, y, width, height
+        x,
+        y,
+        width,
+        height
     );
     // Compositor has positioned the popup
     // We could resize the popup here if needed
@@ -3680,11 +3867,17 @@ extern "C" fn popup_configure(
 /// xdg_popup done callback - popup was dismissed by compositor
 extern "C" fn popup_done(data: *mut c_void, xdg_popup: *mut defines::xdg_popup) {
     if data.is_null() {
-        log_error!(LogCategory::Platform, "[xdg_popup] popup_done: null data pointer!");
+        log_error!(
+            LogCategory::Platform,
+            "[xdg_popup] popup_done: null data pointer!"
+        );
         return;
     }
 
-    log_debug!(LogCategory::Platform, "[xdg_popup] popup_done: compositor dismissed popup");
+    log_debug!(
+        LogCategory::Platform,
+        "[xdg_popup] popup_done: compositor dismissed popup"
+    );
 
     unsafe {
         let ctx = &*(data as *const PopupListenerContext);

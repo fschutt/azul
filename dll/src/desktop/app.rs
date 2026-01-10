@@ -123,7 +123,10 @@ impl AppInternal {
         debug_server::log(
             debug_server::LogLevel::Debug,
             debug_server::LogCategory::General,
-            format!("initial_data._internal_ptr: {:?}", initial_data._internal_ptr),
+            format!(
+                "initial_data._internal_ptr: {:?}",
+                initial_data._internal_ptr
+            ),
             None,
         );
 

@@ -5,8 +5,8 @@ use azul_layout::solver3::display_list::DisplayList;
 
 use super::error::CompositorError;
 
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
 use super::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 /// Compositor mode selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -167,7 +167,10 @@ pub fn select_compositor_mode(
             if capabilities.has_any_gpu() {
                 CompositorMode::GPU
             } else {
-                log_warn!(LogCategory::Rendering, "Warning: GPU requested but not available, using CPU fallback");
+                log_warn!(
+                    LogCategory::Rendering,
+                    "Warning: GPU requested but not available, using CPU fallback"
+                );
                 CompositorMode::CPU
             }
         }

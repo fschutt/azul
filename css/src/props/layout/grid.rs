@@ -454,14 +454,18 @@ pub fn parse_grid_placement<'a>(input: &'a str) -> Result<GridPlacement, GridPar
     // Split by "/"
     let parts: Vec<&str> = input.split('/').map(|s| s.trim()).collect();
 
-    let grid_start = parse_grid_line_owned(parts[0]).map_err(|_| GridParseError::InvalidValue(input))?;
+    let grid_start =
+        parse_grid_line_owned(parts[0]).map_err(|_| GridParseError::InvalidValue(input))?;
     let grid_end = if parts.len() > 1 {
         parse_grid_line_owned(parts[1]).map_err(|_| GridParseError::InvalidValue(input))?
     } else {
         GridLine::Auto
     };
 
-    Ok(GridPlacement { grid_start, grid_end })
+    Ok(GridPlacement {
+        grid_start,
+        grid_end,
+    })
 }
 
 // --- grid-auto-flow ---

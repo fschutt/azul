@@ -459,7 +459,10 @@ impl ClipTreeBuilder {
                 valid_clips.push(*handle);
             }
         }
-        self.clip_chains.push(ClipChain { parent, clips: valid_clips });
+        self.clip_chains.push(ClipChain {
+            parent,
+            clips: valid_clips,
+        });
         self.clip_chain_map.insert(id, index);
     }
 
@@ -1399,7 +1402,7 @@ impl ClipStore {
         };
 
         let local_bounding_rect = local_prim_rect.intersection(&local_clip_rect)?;
-        
+
         let mut pic_coverage_rect = prim_to_pic_mapper.map(&local_bounding_rect)?;
         let world_clip_rect = pic_to_world_mapper.map(&pic_coverage_rect)?;
 

@@ -69,7 +69,7 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
                         Donate via {}
                     </a>
                 </div>"#,
-                service, service, url, button_class, service
+                service, url, button_class, service
             ));
         }
     }

@@ -645,16 +645,29 @@ pub struct LogicalRectJson {
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum DebugEvent {
     // Mouse Events
-    MouseMove { x: f32, y: f32 },
-    MouseDown { x: f32, y: f32, #[serde(default)] button: MouseButton },
-    MouseUp { x: f32, y: f32, #[serde(default)] button: MouseButton },
-    Click { 
+    MouseMove {
+        x: f32,
+        y: f32,
+    },
+    MouseDown {
+        x: f32,
+        y: f32,
+        #[serde(default)]
+        button: MouseButton,
+    },
+    MouseUp {
+        x: f32,
+        y: f32,
+        #[serde(default)]
+        button: MouseButton,
+    },
+    Click {
         /// X position (used if no selector/node_id provided)
         #[serde(default)]
-        x: Option<f32>, 
+        x: Option<f32>,
         /// Y position (used if no selector/node_id provided)
         #[serde(default)]
-        y: Option<f32>, 
+        y: Option<f32>,
         /// CSS selector (e.g. ".button", "#my-id", "div")
         #[serde(default)]
         selector: Option<String>,
@@ -664,37 +677,71 @@ pub enum DebugEvent {
         /// Text content to find and click
         #[serde(default)]
         text: Option<String>,
-        #[serde(default)] 
-        button: MouseButton 
+        #[serde(default)]
+        button: MouseButton,
     },
-    DoubleClick { x: f32, y: f32, #[serde(default)] button: MouseButton },
-    Scroll { x: f32, y: f32, delta_x: f32, delta_y: f32 },
-    
+    DoubleClick {
+        x: f32,
+        y: f32,
+        #[serde(default)]
+        button: MouseButton,
+    },
+    Scroll {
+        x: f32,
+        y: f32,
+        delta_x: f32,
+        delta_y: f32,
+    },
+
     // Keyboard Events
-    KeyDown { key: String, #[serde(default)] modifiers: Modifiers },
-    KeyUp { key: String, #[serde(default)] modifiers: Modifiers },
-    TextInput { text: String },
-    
+    KeyDown {
+        key: String,
+        #[serde(default)]
+        modifiers: Modifiers,
+    },
+    KeyUp {
+        key: String,
+        #[serde(default)]
+        modifiers: Modifiers,
+    },
+    TextInput {
+        text: String,
+    },
+
     // Window Events
-    Resize { width: f32, height: f32 },
-    Move { x: i32, y: i32 },
+    Resize {
+        width: f32,
+        height: f32,
+    },
+    Move {
+        x: i32,
+        y: i32,
+    },
     Focus,
     Blur,
     Close,
-    DpiChanged { dpi: u32 },
-    
+    DpiChanged {
+        dpi: u32,
+    },
+
     // Queries
     GetState,
     GetDom,
-    HitTest { x: f32, y: f32 },
-    GetLogs { #[serde(default)] since_request_id: Option<u64> },
-    
+    HitTest {
+        x: f32,
+        y: f32,
+    },
+    GetLogs {
+        #[serde(default)]
+        since_request_id: Option<u64>,
+    },
+
     // DOM Inspection
     /// Get the HTML representation of the DOM
     GetHtmlString,
     /// Get all computed CSS properties for a node (supports selector, node_id, or text)
-    GetNodeCssProperties { 
-        #[serde(default)] 
+    GetNodeCssProperties {
+        #[serde(default)]
         node_id: Option<u64>,
         #[serde(default)]
         selector: Option<String>,
@@ -702,8 +749,8 @@ pub enum DebugEvent {
         text: Option<String>,
     },
     /// Get node layout information (position, size) - supports selector, node_id, or text
-    GetNodeLayout { 
-        #[serde(default)] 
+    GetNodeLayout {
+        #[serde(default)]
         node_id: Option<u64>,
         #[serde(default)]
         selector: Option<String>,
@@ -725,34 +772,40 @@ pub enum DebugEvent {
     /// Get all scrollable nodes (nodes with overflow that can be scrolled)
     GetScrollableNodes,
     /// Scroll a specific node by a delta amount (supports selector, node_id, or text)
-    ScrollNodeBy { 
+    ScrollNodeBy {
         #[serde(default)]
-        node_id: Option<u64>, 
+        node_id: Option<u64>,
         #[serde(default)]
         selector: Option<String>,
         #[serde(default)]
         text: Option<String>,
-        delta_x: f32, 
+        delta_x: f32,
         delta_y: f32,
     },
     /// Scroll a specific node to an absolute position (supports selector, node_id, or text)
-    ScrollNodeTo { 
+    ScrollNodeTo {
         #[serde(default)]
-        node_id: Option<u64>, 
+        node_id: Option<u64>,
         #[serde(default)]
         selector: Option<String>,
         #[serde(default)]
         text: Option<String>,
-        x: f32, 
+        x: f32,
         y: f32,
     },
-    
+
     // Node Finding
     /// Find a node by text content (returns node_id and bounds)
-    FindNodeByText { text: String },
+    FindNodeByText {
+        text: String,
+    },
     /// Click on a specific node by its ID (deprecated, use Click with node_id)
-    ClickNode { node_id: u64, #[serde(default)] button: MouseButton },
-    
+    ClickNode {
+        node_id: u64,
+        #[serde(default)]
+        button: MouseButton,
+    },
+
     /// Get detailed scrollbar information for a node (supports selector, node_id, or text)
     /// Returns geometry for both horizontal and vertical scrollbars if present
     GetScrollbarInfo {
@@ -766,15 +819,17 @@ pub enum DebugEvent {
         #[serde(default)]
         orientation: Option<String>,
     },
-    
+
     // Control
     Relayout,
     Redraw,
-    
+
     // Testing
     WaitFrame,
-    Wait { ms: u64 },
-    
+    Wait {
+        ms: u64,
+    },
+
     // Screenshots
     TakeScreenshot,
     TakeNativeScreenshot,
@@ -793,19 +848,19 @@ fn resolve_node_target(
 ) -> Option<azul_core::id::NodeId> {
     use azul_core::dom::DomId;
     use azul_core::id::NodeId;
-    
+
     let dom_id = DomId { inner: 0 };
-    
+
     // Direct node ID
     if let Some(nid) = node_id {
         return Some(NodeId::new(nid as usize));
     }
-    
+
     // CSS selector
     if let Some(sel) = selector {
-        use azul_css::parser2::parse_css_path;
         use azul_core::style::matches_html_element;
-        
+        use azul_css::parser2::parse_css_path;
+
         let layout_window = callback_info.get_layout_window();
         if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
             if let Ok(css_path) = parse_css_path(sel) {
@@ -813,7 +868,7 @@ fn resolve_node_target(
                 let node_hierarchy = styled_dom.node_hierarchy.as_container();
                 let node_data = styled_dom.node_data.as_container();
                 let cascade_info = styled_dom.cascade_info.as_container();
-                
+
                 for i in 0..node_data.len() {
                     let node_id = NodeId::new(i);
                     if matches_html_element(
@@ -830,14 +885,14 @@ fn resolve_node_target(
             }
         }
     }
-    
+
     // Text content
     if let Some(txt) = text {
         let layout_window = callback_info.get_layout_window();
         if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
             let styled_dom = &layout_result.styled_dom;
             let node_data = styled_dom.node_data.as_container();
-            
+
             for i in 0..node_data.len() {
                 let data = &node_data[NodeId::new(i)];
                 if let azul_core::dom::NodeType::Text(t) = data.get_node_type() {
@@ -848,7 +903,7 @@ fn resolve_node_target(
             }
         }
     }
-    
+
     None
 }
 
@@ -862,9 +917,9 @@ fn resolve_node_center(
 ) -> Option<(f32, f32)> {
     use azul_core::dom::{DomId, DomNodeId};
     use azul_core::id::NodeId;
-    
+
     let dom_id = DomId { inner: 0 };
-    
+
     if let Some(nid) = resolve_node_target(callback_info, selector, node_id, text) {
         let dom_node_id = DomNodeId {
             dom: dom_id,
@@ -877,7 +932,7 @@ fn resolve_node_center(
             ));
         }
     }
-    
+
     None
 }
 
@@ -973,7 +1028,7 @@ pub fn is_debug_enabled() -> bool {
 }
 
 /// Get debug server port from environment
-/// 
+///
 /// The `AZUL_DEBUG` environment variable should be set to a port number (e.g., `AZUL_DEBUG=8765`).
 /// Ports below 1024 require root/administrator privileges.
 /// Returns `None` if not set or not a valid port number.
@@ -985,13 +1040,13 @@ pub fn get_debug_port() -> Option<u16> {
 }
 
 /// Initialize and start the debug server.
-/// 
+///
 /// This function:
 /// 1. Binds to the port (exits process if port is taken)
 /// 2. Starts the HTTP server thread
 /// 3. Blocks until the server is ready to accept connections
 /// 4. Returns a handle for clean shutdown
-/// 
+///
 /// Should be called from App::create().
 #[cfg(feature = "std")]
 pub fn start_debug_server(port: u16) -> DebugServerHandle {
@@ -1116,7 +1171,12 @@ pub fn start_debug_server(port: u16) -> DebugServerHandle {
 /// Log a message (thread-safe, lock-free when debug is disabled)
 #[cfg(feature = "std")]
 #[track_caller]
-pub fn log(level: LogLevel, category: LogCategory, message: impl Into<String>, window_id: Option<&str>) {
+pub fn log(
+    level: LogLevel,
+    category: LogCategory,
+    message: impl Into<String>,
+    window_id: Option<&str>,
+) {
     if !is_debug_enabled() {
         return;
     }
@@ -1125,7 +1185,12 @@ pub fn log(level: LogLevel, category: LogCategory, message: impl Into<String>, w
 
 #[cfg(feature = "std")]
 #[track_caller]
-fn log_internal(level: LogLevel, category: LogCategory, message: impl Into<String>, window_id: Option<&str>) {
+fn log_internal(
+    level: LogLevel,
+    category: LogCategory,
+    message: impl Into<String>,
+    window_id: Option<&str>,
+) {
     let location = core::panic::Location::caller();
     let timestamp_us = SERVER_START_TIME
         .get()
@@ -1176,7 +1241,10 @@ pub fn send_ok(
     let _ = take_logs();
     let response = DebugResponseData::Ok { window_state, data };
     if let Err(e) = request.response_tx.send(response) {
-        eprintln!("[DEBUG] ERROR sending response {}: {:?}", request.request_id, e);
+        eprintln!(
+            "[DEBUG] ERROR sending response {}: {:?}",
+            request.request_id, e
+        );
     }
 }
 
@@ -1187,14 +1255,18 @@ pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
     let _ = take_logs();
     let response = DebugResponseData::Err(message.into());
     if let Err(e) = request.response_tx.send(response) {
-        eprintln!("[DEBUG] ERROR sending response {}: {:?}", request.request_id, e);
+        eprintln!(
+            "[DEBUG] ERROR sending response {}: {:?}",
+            request.request_id, e
+        );
     }
 }
 
 /// Helper function for serializing HttpResponse
 #[cfg(feature = "std")]
 fn serialize_http_response(response: &HttpResponse) -> String {
-    serde_json::to_string_pretty(response).unwrap_or_else(|_| r#"{"status":"error","message":"Serialization failed"}"#.to_string())
+    serde_json::to_string_pretty(response)
+        .unwrap_or_else(|_| r#"{"status":"error","message":"Serialization failed"}"#.to_string())
 }
 
 // ==================== HTTP Server ====================
@@ -1233,12 +1305,15 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
             let health = HealthResponse {
                 port: DEBUG_PORT.get().copied().unwrap_or(0),
                 pending_logs: logs.len(),
-                logs: logs.iter().map(|l| LogMessageJson {
-                    timestamp_us: l.timestamp_us,
-                    level: format!("{:?}", l.level),
-                    category: format!("{:?}", l.category),
-                    message: l.message.clone(),
-                }).collect(),
+                logs: logs
+                    .iter()
+                    .map(|l| LogMessageJson {
+                        timestamp_us: l.timestamp_us,
+                        level: format!("{:?}", l.level),
+                        category: format!("{:?}", l.category),
+                        message: l.message.clone(),
+                    })
+                    .collect(),
             };
             serialize_http_response(&HttpResponse::Ok(HttpResponseOk {
                 request_id: 0,
@@ -1266,12 +1341,10 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
             }
         }
 
-        _ => {
-            serialize_http_response(&HttpResponse::Error(HttpResponseError {
-                request_id: None,
-                message: "Use GET / for status or POST / with JSON body".to_string(),
-            }))
-        }
+        _ => serialize_http_response(&HttpResponse::Error(HttpResponseError {
+            request_id: None,
+            message: "Use GET / for status or POST / with JSON body".to_string(),
+        })),
     };
 
     // Calculate length for Content-Length header
@@ -1297,13 +1370,17 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
                 bytes_written += chunk.len();
             }
             Err(e) => {
-                eprintln!("[DebugServer] Error writing chunk to stream after {} of {} bytes: {:?}", 
-                    bytes_written, body_bytes.len(), e);
+                eprintln!(
+                    "[DebugServer] Error writing chunk to stream after {} of {} bytes: {:?}",
+                    bytes_written,
+                    body_bytes.len(),
+                    e
+                );
                 return;
             }
         }
     }
-    
+
     // 3. Flush ensures data is in the kernel buffer
     if stream.flush().is_err() {
         return;
@@ -1320,7 +1397,9 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
     //    from destroying the socket while data is still in flight (RST).
     let mut buffer = [0u8; 512];
     while let Ok(n) = stream.read(&mut buffer) {
-        if n == 0 { break; } // EOF received, client closed connection
+        if n == 0 {
+            break;
+        } // EOF received, client closed connection
     }
 }
 
@@ -1373,12 +1452,10 @@ fn handle_event_request(body: &str) -> String {
                                 data,
                             })
                         }
-                        DebugResponseData::Err(message) => {
-                            HttpResponse::Error(HttpResponseError {
-                                request_id: Some(request_id),
-                                message,
-                            })
-                        }
+                        DebugResponseData::Err(message) => HttpResponse::Error(HttpResponseError {
+                            request_id: Some(request_id),
+                            message,
+                        }),
                     };
                     serialize_http_response(&http_response)
                 }
@@ -1396,12 +1473,10 @@ fn handle_event_request(body: &str) -> String {
                 }
             }
         }
-        Err(e) => {
-            serialize_http_response(&HttpResponse::Error(HttpResponseError {
-                request_id: None,
-                message: format!("Invalid JSON: {}", e),
-            }))
-        }
+        Err(e) => serialize_http_response(&HttpResponse::Error(HttpResponseError {
+            request_id: None,
+            message: format!("Invalid JSON: {}", e),
+        })),
     }
 }
 
@@ -1418,12 +1493,11 @@ pub extern "C" fn debug_timer_callback(
     use azul_core::task::TerminateTimer;
 
     // Check queue length first (without popping)
-    let queue_len = REQUEST_QUEUE.get()
+    let queue_len = REQUEST_QUEUE
+        .get()
         .and_then(|q| q.lock().ok())
         .map(|q| q.len())
         .unwrap_or(0);
-    
-
 
     // Process all pending requests (no debug output unless there's work to do)
     let mut needs_update = false;
@@ -1441,8 +1515,6 @@ pub extern "C" fn debug_timer_callback(
         needs_update = needs_update || result;
         processed_count += 1;
     }
-    
-
 
     TimerCallbackReturn {
         should_update: if needs_update {
@@ -1456,14 +1528,16 @@ pub extern "C" fn debug_timer_callback(
 
 /// Process a single debug event
 #[cfg(feature = "std")]
-fn build_clip_analysis(items: &[azul_layout::solver3::display_list::DisplayListItem]) -> ClipChainAnalysis {
+fn build_clip_analysis(
+    items: &[azul_layout::solver3::display_list::DisplayListItem],
+) -> ClipChainAnalysis {
     use azul_layout::solver3::display_list::DisplayListItem;
-    
+
     let mut clip_depth = 0i32;
     let mut scroll_depth = 0i32;
     let mut stacking_depth = 0i32;
     let mut operations = Vec::new();
-    
+
     for (idx, item) in items.iter().enumerate() {
         let op_info = match item {
             DisplayListItem::PushClip { bounds, .. } => {
@@ -1498,7 +1572,11 @@ fn build_clip_analysis(items: &[azul_layout::solver3::display_list::DisplayListI
                 clip_depth -= 1;
                 Some(op)
             }
-            DisplayListItem::PushScrollFrame { clip_bounds, content_size, scroll_id } => {
+            DisplayListItem::PushScrollFrame {
+                clip_bounds,
+                content_size,
+                scroll_id,
+            } => {
                 scroll_depth += 1;
                 Some(ClipOperation {
                     index: idx,
@@ -1567,12 +1645,12 @@ fn build_clip_analysis(items: &[azul_layout::solver3::display_list::DisplayListI
             }
             _ => None,
         };
-        
+
         if let Some(op) = op_info {
             operations.push(op);
         }
     }
-    
+
     ClipChainAnalysis {
         final_clip_depth: clip_depth,
         final_scroll_depth: scroll_depth,
@@ -1640,9 +1718,8 @@ fn process_debug_event(
             );
 
             let mut new_state = callback_info.get_current_window_state().clone();
-            new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
-                LogicalPosition { x: *x, y: *y }
-            );
+            new_state.mouse_state.cursor_position =
+                azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
             callback_info.modify_window_state(new_state);
             needs_update = true;
 
@@ -1658,9 +1735,8 @@ fn process_debug_event(
             );
 
             let mut new_state = callback_info.get_current_window_state().clone();
-            new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
-                LogicalPosition { x: *x, y: *y }
-            );
+            new_state.mouse_state.cursor_position =
+                azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
             match button {
                 MouseButton::Left => new_state.mouse_state.left_down = true,
                 MouseButton::Right => new_state.mouse_state.right_down = true,
@@ -1681,9 +1757,8 @@ fn process_debug_event(
             );
 
             let mut new_state = callback_info.get_current_window_state().clone();
-            new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
-                LogicalPosition { x: *x, y: *y }
-            );
+            new_state.mouse_state.cursor_position =
+                azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
             match button {
                 MouseButton::Left => new_state.mouse_state.left_down = false,
                 MouseButton::Right => new_state.mouse_state.right_down = false,
@@ -1695,10 +1770,17 @@ fn process_debug_event(
             send_ok(request, None, None);
         }
 
-        DebugEvent::Click { x, y, button, selector, node_id, text } => {
+        DebugEvent::Click {
+            x,
+            y,
+            button,
+            selector,
+            node_id,
+            text,
+        } => {
             use azul_core::dom::{DomId, DomNodeId};
             use azul_core::id::NodeId;
-            
+
             // Resolve the click target position
             let click_pos: Option<(f32, f32)> = if let (Some(x), Some(y)) = (x, y) {
                 // Direct position provided
@@ -1711,19 +1793,22 @@ fn process_debug_event(
                     node: Some(NodeId::new(*nid as usize)).into(),
                 };
                 if let Some(rect) = callback_info.get_node_hit_test_bounds(dom_node_id) {
-                    Some((rect.origin.x + rect.size.width / 2.0, rect.origin.y + rect.size.height / 2.0))
+                    Some((
+                        rect.origin.x + rect.size.width / 2.0,
+                        rect.origin.y + rect.size.height / 2.0,
+                    ))
                 } else {
                     None
                 }
             } else if let Some(sel) = selector {
                 // Click by CSS selector using matches_html_element
-                use azul_css::parser2::parse_css_path;
                 use azul_core::style::matches_html_element;
-                
+                use azul_css::parser2::parse_css_path;
+
                 let dom_id = DomId { inner: 0 };
                 let layout_window = callback_info.get_layout_window();
                 let mut found = None;
-                
+
                 if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                     // Parse the CSS selector string into a CssPath
                     if let Ok(css_path) = parse_css_path(sel.as_str()) {
@@ -1732,7 +1817,7 @@ fn process_debug_event(
                         let node_data = styled_dom.node_data.as_container();
                         let cascade_info = styled_dom.cascade_info.as_container();
                         let node_count = node_data.len();
-                        
+
                         // Iterate through all nodes and find the first match
                         for i in 0..node_count {
                             let node_id = NodeId::new(i);
@@ -1749,8 +1834,13 @@ fn process_debug_event(
                                     node: Some(NodeId::new(i)).into(),
                                 };
                                 // Use get_node_hit_test_bounds for reliable positions from display list
-                                if let Some(rect) = callback_info.get_node_hit_test_bounds(dom_node_id) {
-                                    found = Some((rect.origin.x + rect.size.width / 2.0, rect.origin.y + rect.size.height / 2.0));
+                                if let Some(rect) =
+                                    callback_info.get_node_hit_test_bounds(dom_node_id)
+                                {
+                                    found = Some((
+                                        rect.origin.x + rect.size.width / 2.0,
+                                        rect.origin.y + rect.size.height / 2.0,
+                                    ));
                                     break;
                                 }
                             }
@@ -1763,12 +1853,12 @@ fn process_debug_event(
                 let dom_id = DomId { inner: 0 };
                 let layout_window = callback_info.get_layout_window();
                 let mut found = None;
-                
+
                 if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                     let styled_dom = &layout_result.styled_dom;
                     let node_data = styled_dom.node_data.as_container();
                     let node_count = node_data.len();
-                    
+
                     for i in 0..node_count {
                         let data = &node_data[NodeId::new(i)];
                         if let azul_core::dom::NodeType::Text(t) = data.get_node_type() {
@@ -1781,17 +1871,31 @@ fn process_debug_event(
                                 // Try parent first (text nodes might not have rects)
                                 let hierarchy = styled_dom.node_hierarchy.as_container();
                                 let node_hier = &hierarchy[NodeId::new(i)];
-                                let parent_idx = if node_hier.parent > 0 { node_hier.parent - 1 } else { i };
+                                let parent_idx = if node_hier.parent > 0 {
+                                    node_hier.parent - 1
+                                } else {
+                                    i
+                                };
                                 let parent_dom_node_id = DomNodeId {
                                     dom: dom_id.clone(),
                                     node: Some(NodeId::new(parent_idx)).into(),
                                 };
                                 // Use get_node_hit_test_bounds for reliable positions from display list
-                                if let Some(rect) = callback_info.get_node_hit_test_bounds(parent_dom_node_id) {
-                                    found = Some((rect.origin.x + rect.size.width / 2.0, rect.origin.y + rect.size.height / 2.0));
+                                if let Some(rect) =
+                                    callback_info.get_node_hit_test_bounds(parent_dom_node_id)
+                                {
+                                    found = Some((
+                                        rect.origin.x + rect.size.width / 2.0,
+                                        rect.origin.y + rect.size.height / 2.0,
+                                    ));
                                     break;
-                                } else if let Some(rect) = callback_info.get_node_hit_test_bounds(dom_node_id) {
-                                    found = Some((rect.origin.x + rect.size.width / 2.0, rect.origin.y + rect.size.height / 2.0));
+                                } else if let Some(rect) =
+                                    callback_info.get_node_hit_test_bounds(dom_node_id)
+                                {
+                                    found = Some((
+                                        rect.origin.x + rect.size.width / 2.0,
+                                        rect.origin.y + rect.size.height / 2.0,
+                                    ));
                                     break;
                                 }
                             }
@@ -1802,7 +1906,7 @@ fn process_debug_event(
             } else {
                 None
             };
-            
+
             match click_pos {
                 Some((cx, cy)) => {
                     log(
@@ -1817,13 +1921,15 @@ fn process_debug_event(
                     // is processed separately, allowing the event system to detect
                     // the transitions (down→up) and trigger the appropriate callbacks.
                     let base_state = callback_info.get_current_window_state().clone();
-                    
+
                     // State 1: Move cursor to position
                     let mut move_state = base_state.clone();
-                    move_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
-                        LogicalPosition { x: cx, y: cy }
-                    );
-                    
+                    move_state.mouse_state.cursor_position =
+                        azul_core::window::CursorPosition::InWindow(LogicalPosition {
+                            x: cx,
+                            y: cy,
+                        });
+
                     // State 2: Mouse button down
                     let mut down_state = move_state.clone();
                     match button {
@@ -1831,7 +1937,7 @@ fn process_debug_event(
                         MouseButton::Right => down_state.mouse_state.right_down = true,
                         MouseButton::Middle => down_state.mouse_state.middle_down = true,
                     }
-                    
+
                     // State 3: Mouse button up (this triggers MouseUp event)
                     let mut up_state = down_state.clone();
                     match button {
@@ -1839,9 +1945,10 @@ fn process_debug_event(
                         MouseButton::Right => up_state.mouse_state.right_down = false,
                         MouseButton::Middle => up_state.mouse_state.middle_down = false,
                     }
-                    
+
                     // Queue all states to be applied in sequence across frames
-                    callback_info.queue_window_state_sequence(vec![move_state, down_state, up_state]);
+                    callback_info
+                        .queue_window_state_sequence(vec![move_state, down_state, up_state]);
                     needs_update = true;
 
                     let response = ClickNodeResponse {
@@ -1853,7 +1960,8 @@ fn process_debug_event(
                 None => {
                     let response = ClickNodeResponse {
                         success: false,
-                        message: "Could not resolve click target (no matching node or position)".to_string(),
+                        message: "Could not resolve click target (no matching node or position)"
+                            .to_string(),
                     };
                     send_ok(request, None, Some(ResponseData::ClickNode(response)));
                 }
@@ -1871,9 +1979,8 @@ fn process_debug_event(
             // For double click, we set the position and rely on timing
             // In practice, we just do a click for now
             let mut new_state = callback_info.get_current_window_state().clone();
-            new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
-                LogicalPosition { x: *x, y: *y }
-            );
+            new_state.mouse_state.cursor_position =
+                azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
             match button {
                 MouseButton::Left => {
                     new_state.mouse_state.left_down = true;
@@ -1897,20 +2004,27 @@ fn process_debug_event(
             send_ok(request, None, None);
         }
 
-        DebugEvent::Scroll { x, y, delta_x, delta_y } => {
+        DebugEvent::Scroll {
+            x,
+            y,
+            delta_x,
+            delta_y,
+        } => {
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
-                format!("Debug scroll at ({}, {}) delta ({}, {})", x, y, delta_x, delta_y),
+                format!(
+                    "Debug scroll at ({}, {}) delta ({}, {})",
+                    x, y, delta_x, delta_y
+                ),
                 None,
             );
 
             // Scroll events are handled differently - just move cursor and log for now
             // TODO: Implement scroll state modification when available
             let mut new_state = callback_info.get_current_window_state().clone();
-            new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
-                LogicalPosition { x: *x, y: *y }
-            );
+            new_state.mouse_state.cursor_position =
+                azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
             callback_info.modify_window_state(new_state);
             needs_update = true;
 
@@ -1918,19 +2032,34 @@ fn process_debug_event(
         }
 
         DebugEvent::Relayout => {
-            log(LogLevel::Info, LogCategory::Layout, "Forcing relayout", None);
+            log(
+                LogLevel::Info,
+                LogCategory::Layout,
+                "Forcing relayout",
+                None,
+            );
             needs_update = true;
             send_ok(request, None, None);
         }
 
         DebugEvent::Redraw => {
-            log(LogLevel::Info, LogCategory::Rendering, "Requesting redraw", None);
+            log(
+                LogLevel::Info,
+                LogCategory::Rendering,
+                "Requesting redraw",
+                None,
+            );
             needs_update = true;
             send_ok(request, None, None);
         }
 
         DebugEvent::Close => {
-            log(LogLevel::Info, LogCategory::EventLoop, "Close via close_window()", None);
+            log(
+                LogLevel::Info,
+                LogCategory::EventLoop,
+                "Close via close_window()",
+                None,
+            );
             callback_info.close_window();
             needs_update = true;
             send_ok(request, None, None);
@@ -1949,7 +2078,11 @@ fn process_debug_event(
 
         DebugEvent::GetLogs { .. } => {
             let logs = take_logs();
-            send_ok(request, None, Some(ResponseData::Logs(LogsResponse { logs })));
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::Logs(LogsResponse { logs })),
+            );
         }
 
         DebugEvent::WaitFrame => {
@@ -1962,12 +2095,19 @@ fn process_debug_event(
         }
 
         DebugEvent::TakeScreenshot => {
-            log(LogLevel::Info, LogCategory::Rendering, "Taking CPU screenshot via debug API", None);
+            log(
+                LogLevel::Info,
+                LogCategory::Rendering,
+                "Taking CPU screenshot via debug API",
+                None,
+            );
             // Use DomId(0) as default - first DOM in the window
             let dom_id = azul_core::dom::DomId { inner: 0 };
             match callback_info.take_screenshot_base64(dom_id) {
                 Ok(data_uri) => {
-                    let data = ScreenshotData { data: data_uri.as_str().to_string() };
+                    let data = ScreenshotData {
+                        data: data_uri.as_str().to_string(),
+                    };
                     send_ok(request, None, Some(ResponseData::Screenshot(data)));
                 }
                 Err(e) => {
@@ -1977,11 +2117,18 @@ fn process_debug_event(
         }
 
         DebugEvent::TakeNativeScreenshot => {
-            log(LogLevel::Info, LogCategory::Rendering, "Taking native screenshot via debug API", None);
+            log(
+                LogLevel::Info,
+                LogCategory::Rendering,
+                "Taking native screenshot via debug API",
+                None,
+            );
             // Use the NativeScreenshotExt trait method explicitly (not the stubbed inherent method)
             match NativeScreenshotExt::take_native_screenshot_base64(callback_info) {
                 Ok(data_uri) => {
-                    let data = ScreenshotData { data: data_uri.as_str().to_string() };
+                    let data = ScreenshotData {
+                        data: data_uri.as_str().to_string(),
+                    };
                     send_ok(request, None, Some(ResponseData::Screenshot(data)));
                 }
                 Err(e) => {
@@ -1991,29 +2138,42 @@ fn process_debug_event(
         }
 
         DebugEvent::GetHtmlString => {
-            log(LogLevel::Debug, LogCategory::DebugServer, "Getting HTML string", None);
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                "Getting HTML string",
+                None,
+            );
             let dom_id = azul_core::dom::DomId { inner: 0 };
             let layout_window = callback_info.get_layout_window();
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 let html = layout_result.styled_dom.get_html_string("", "", true);
-                send_ok(request, None, Some(ResponseData::HtmlString(HtmlStringResponse { html })));
+                send_ok(
+                    request,
+                    None,
+                    Some(ResponseData::HtmlString(HtmlStringResponse { html })),
+                );
             } else {
                 send_err(request, "No layout result for DOM 0");
             }
         }
 
-        DebugEvent::GetNodeCssProperties { node_id, selector, text } => {
-            use azul_css::props::property::CssPropertyType;
+        DebugEvent::GetNodeCssProperties {
+            node_id,
+            selector,
+            text,
+        } => {
             use azul_core::dom::{DomId, DomNodeId, NodeId};
+            use azul_css::props::property::CssPropertyType;
             use strum::IntoEnumIterator;
-            
+
             let resolved_node_id = resolve_node_target(
                 callback_info,
                 selector.as_deref(),
                 *node_id,
                 text.as_deref(),
             );
-            
+
             let nid = match resolved_node_id {
                 Some(n) => n.index() as u64,
                 None => {
@@ -2021,42 +2181,56 @@ fn process_debug_event(
                     return needs_update;
                 }
             };
-            
-            log(LogLevel::Debug, LogCategory::DebugServer, format!("Getting CSS properties for node {}", nid), None);
-            
+
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                format!("Getting CSS properties for node {}", nid),
+                None,
+            );
+
             let dom_node_id = DomNodeId {
                 dom: DomId { inner: 0 },
                 node: Some(NodeId::new(nid as usize)).into(),
             };
-            
+
             // Collect all CSS properties that are set on this node
             let mut props = Vec::new();
-            
+
             // Iterate over all CSS property types
             for prop_type in CssPropertyType::iter() {
-                if let Some(prop) = callback_info.get_computed_css_property(dom_node_id, prop_type) {
+                if let Some(prop) = callback_info.get_computed_css_property(dom_node_id, prop_type)
+                {
                     props.push(format!("{}: {:?}", prop_type.to_str(), prop));
                 }
             }
-            
+
             let response = NodeCssPropertiesResponse {
                 node_id: nid,
                 property_count: props.len(),
                 properties: props,
             };
-            send_ok(request, None, Some(ResponseData::NodeCssProperties(response)));
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::NodeCssProperties(response)),
+            );
         }
 
-        DebugEvent::GetNodeLayout { node_id, selector, text } => {
+        DebugEvent::GetNodeLayout {
+            node_id,
+            selector,
+            text,
+        } => {
             use azul_core::dom::{DomId, DomNodeId, NodeId};
-            
+
             let resolved_node_id = resolve_node_target(
                 callback_info,
                 selector.as_deref(),
                 *node_id,
                 text.as_deref(),
             );
-            
+
             let nid = match resolved_node_id {
                 Some(n) => n.index() as u64,
                 None => {
@@ -2064,34 +2238,52 @@ fn process_debug_event(
                     return needs_update;
                 }
             };
-            
-            log(LogLevel::Debug, LogCategory::DebugServer, format!("Getting layout for node {}", nid), None);
-            
+
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                format!("Getting layout for node {}", nid),
+                None,
+            );
+
             let dom_node_id = DomNodeId {
                 dom: DomId { inner: 0 },
                 node: Some(NodeId::new(nid as usize)).into(),
             };
-            
+
             let size = callback_info.get_node_size(dom_node_id);
             let pos = callback_info.get_node_position(dom_node_id);
             let rect = callback_info.get_node_rect(dom_node_id);
-            
+
             let response = NodeLayoutResponse {
                 node_id: nid,
-                size: size.map(|s| LogicalSizeJson { width: s.width, height: s.height }),
+                size: size.map(|s| LogicalSizeJson {
+                    width: s.width,
+                    height: s.height,
+                }),
                 position: pos.map(|p| LogicalPositionJson { x: p.x, y: p.y }),
-                rect: rect.map(|r| LogicalRectJson { x: r.origin.x, y: r.origin.y, width: r.size.width, height: r.size.height }),
+                rect: rect.map(|r| LogicalRectJson {
+                    x: r.origin.x,
+                    y: r.origin.y,
+                    width: r.size.width,
+                    height: r.size.height,
+                }),
             };
             send_ok(request, None, Some(ResponseData::NodeLayout(response)));
         }
 
         DebugEvent::GetAllNodesLayout => {
-            log(LogLevel::Debug, LogCategory::DebugServer, "Getting all nodes layout", None);
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                "Getting all nodes layout",
+                None,
+            );
             use azul_core::dom::{DomId, DomNodeId, NodeId};
-            
+
             let dom_id = DomId { inner: 0 };
             let layout_window = callback_info.get_layout_window();
-            
+
             let mut nodes = Vec::new();
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 let node_count = layout_result.styled_dom.node_data.len();
@@ -2100,27 +2292,31 @@ fn process_debug_event(
                         dom: dom_id.clone(),
                         node: Some(NodeId::new(i)).into(),
                     };
-                    
+
                     let rect = callback_info.get_node_rect(dom_node_id);
                     let tag = callback_info.get_node_tag_name(dom_node_id);
                     let id_attr = callback_info.get_node_id(dom_node_id);
                     let classes = callback_info.get_node_classes(dom_node_id);
-                    
+
                     nodes.push(NodeLayoutInfo {
                         node_id: i,
                         tag: tag.map(|s| s.as_str().to_string()),
                         id: id_attr.map(|s| s.as_str().to_string()),
-                        classes: classes.as_ref().iter().map(|s| s.as_str().to_string()).collect(),
-                        rect: rect.map(|r| LogicalRectJson { 
-                            x: r.origin.x, 
-                            y: r.origin.y, 
-                            width: r.size.width, 
-                            height: r.size.height 
+                        classes: classes
+                            .as_ref()
+                            .iter()
+                            .map(|s| s.as_str().to_string())
+                            .collect(),
+                        rect: rect.map(|r| LogicalRectJson {
+                            x: r.origin.x,
+                            y: r.origin.y,
+                            width: r.size.width,
+                            height: r.size.height,
                         }),
                     });
                 }
             }
-            
+
             let response = AllNodesLayoutResponse {
                 dom_id: 0,
                 node_count: nodes.len(),
@@ -2130,21 +2326,26 @@ fn process_debug_event(
         }
 
         DebugEvent::GetDomTree => {
-            log(LogLevel::Debug, LogCategory::DebugServer, "Getting DOM tree", None);
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                "Getting DOM tree",
+                None,
+            );
             use azul_core::dom::DomId;
-            
+
             let dom_id = DomId { inner: 0 };
             let layout_window = callback_info.get_layout_window();
-            
+
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 let styled_dom = &layout_result.styled_dom;
                 let window_state = callback_info.get_current_window_state();
-                
+
                 let node_count = styled_dom.node_data.len();
                 let dpi = window_state.size.dpi;
                 let hidpi = window_state.size.get_hidpi_factor().inner.get();
                 let logical_size = &window_state.size.dimensions;
-                
+
                 let response = DomTreeResponse {
                     dom_id: 0,
                     node_count,
@@ -2160,44 +2361,72 @@ fn process_debug_event(
         }
 
         DebugEvent::GetNodeHierarchy => {
-            log(LogLevel::Debug, LogCategory::DebugServer, "Getting node hierarchy", None);
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                "Getting node hierarchy",
+                None,
+            );
             use azul_core::dom::DomId;
             use azul_core::id::NodeId;
-            
+
             let dom_id = DomId { inner: 0 };
             let layout_window = callback_info.get_layout_window();
-            
+
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 let styled_dom = &layout_result.styled_dom;
                 let hierarchy = styled_dom.node_hierarchy.as_container();
                 let node_data = styled_dom.node_data.as_container();
-                
-                let root_decoded = styled_dom.root.into_crate_internal()
+
+                let root_decoded = styled_dom
+                    .root
+                    .into_crate_internal()
                     .map(|n| n.index() as i64)
                     .unwrap_or(-1);
-                
+
                 let mut nodes = Vec::new();
                 for i in 0..hierarchy.len() {
                     let node_id = NodeId::new(i);
                     let hier = &hierarchy[node_id];
                     let data = &node_data[node_id];
-                    
+
                     let node_type = data.get_node_type().get_path().to_string();
-                    
+
                     let text_content = match data.get_node_type() {
                         azul_core::dom::NodeType::Text(t) => {
                             let s = t.as_str();
-                            if s.len() > 50 { Some(format!("{}...", &s[..47])) } else { Some(s.to_string()) }
+                            if s.len() > 50 {
+                                Some(format!("{}...", &s[..47]))
+                            } else {
+                                Some(s.to_string())
+                            }
                         }
                         _ => None,
                     };
-                    
-                    let parent_decoded = if hier.parent == 0 { -1i64 } else { (hier.parent - 1) as i64 };
-                    let prev_sib_decoded = if hier.previous_sibling == 0 { -1i64 } else { (hier.previous_sibling - 1) as i64 };
-                    let next_sib_decoded = if hier.next_sibling == 0 { -1i64 } else { (hier.next_sibling - 1) as i64 };
-                    let last_child_decoded = if hier.last_child == 0 { -1i64 } else { (hier.last_child - 1) as i64 };
-                    let children: Vec<usize> = node_id.az_children(&hierarchy).map(|c| c.index()).collect();
-                    
+
+                    let parent_decoded = if hier.parent == 0 {
+                        -1i64
+                    } else {
+                        (hier.parent - 1) as i64
+                    };
+                    let prev_sib_decoded = if hier.previous_sibling == 0 {
+                        -1i64
+                    } else {
+                        (hier.previous_sibling - 1) as i64
+                    };
+                    let next_sib_decoded = if hier.next_sibling == 0 {
+                        -1i64
+                    } else {
+                        (hier.next_sibling - 1) as i64
+                    };
+                    let last_child_decoded = if hier.last_child == 0 {
+                        -1i64
+                    } else {
+                        (hier.last_child - 1) as i64
+                    };
+                    let children: Vec<usize> =
+                        node_id.az_children(&hierarchy).map(|c| c.index()).collect();
+
                     nodes.push(HierarchyNodeInfo {
                         index: i,
                         node_type: node_type.to_string(),
@@ -2209,7 +2438,7 @@ fn process_debug_event(
                         children,
                     });
                 }
-                
+
                 let response = NodeHierarchyResponse {
                     root: root_decoded,
                     node_count: nodes.len(),
@@ -2222,15 +2451,20 @@ fn process_debug_event(
         }
 
         DebugEvent::GetLayoutTree => {
-            log(LogLevel::Debug, LogCategory::DebugServer, "Getting layout tree", None);
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                "Getting layout tree",
+                None,
+            );
             use azul_core::dom::DomId;
-            
+
             let dom_id = DomId { inner: 0 };
             let layout_window = callback_info.get_layout_window();
-            
+
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 let layout_tree = &layout_result.layout_tree;
-                
+
                 let mut nodes = Vec::new();
                 for (idx, node) in layout_tree.nodes.iter().enumerate() {
                     let (node_type, dom_idx) = if let Some(dom_id) = node.dom_node_id {
@@ -2249,7 +2483,7 @@ fn process_debug_event(
                     } else {
                         ("Anonymous", -1i64)
                     };
-                    
+
                     nodes.push(LayoutNodeInfo {
                         layout_idx: idx,
                         dom_idx,
@@ -2261,7 +2495,7 @@ fn process_debug_event(
                         children: node.children.clone(),
                     });
                 }
-                
+
                 let response = LayoutTreeResponse {
                     root: layout_tree.root,
                     node_count: nodes.len(),
@@ -2274,39 +2508,48 @@ fn process_debug_event(
         }
 
         DebugEvent::GetDisplayList => {
-            log(LogLevel::Debug, LogCategory::DebugServer, "Getting display list", None);
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                "Getting display list",
+                None,
+            );
             use azul_core::dom::DomId;
-            
+
             let dom_id = DomId { inner: 0 };
             let layout_window = callback_info.get_layout_window();
-            
+
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 let display_list = &layout_result.display_list;
                 let items_list = &display_list.items;
-                
+
                 // Count item types
                 let mut rect_count = 0;
                 let mut text_count = 0;
                 let mut border_count = 0;
                 let mut image_count = 0;
                 let mut other_count = 0;
-                
+
                 // Track clip/scroll depths for each item
                 let mut clip_depth = 0i32;
                 let mut scroll_depth = 0i32;
-                
+
                 let mut items = Vec::new();
-                
+
                 for (idx, item) in items_list.iter().enumerate() {
                     // Track depth changes BEFORE creating item info
                     match item {
-                        azul_layout::solver3::display_list::DisplayListItem::PushClip { .. } => {
+                        azul_layout::solver3::display_list::DisplayListItem::PushClip {
+                            ..
+                        } => {
                             clip_depth += 1;
                         }
                         azul_layout::solver3::display_list::DisplayListItem::PopClip => {
                             clip_depth -= 1;
                         }
-                        azul_layout::solver3::display_list::DisplayListItem::PushScrollFrame { .. } => {
+                        azul_layout::solver3::display_list::DisplayListItem::PushScrollFrame {
+                            ..
+                        } => {
                             scroll_depth += 1;
                         }
                         azul_layout::solver3::display_list::DisplayListItem::PopScrollFrame => {
@@ -2479,10 +2722,10 @@ fn process_debug_event(
                     };
                     items.push(info);
                 }
-                
+
                 // Build clip chain analysis
                 let clip_analysis = build_clip_analysis(items_list);
-                
+
                 let response = DisplayListResponse {
                     total_items: items_list.len(),
                     rect_count,
@@ -2500,16 +2743,23 @@ fn process_debug_event(
         }
 
         DebugEvent::GetScrollStates => {
-            log(LogLevel::Debug, LogCategory::DebugServer, "Getting scroll states", None);
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                "Getting scroll states",
+                None,
+            );
             use azul_core::dom::DomId;
-            
+
             let dom_id = DomId { inner: 0 };
             let layout_window = callback_info.get_layout_window();
-            
+
             // Get scroll states from the scroll manager
-            let scroll_states = layout_window.scroll_manager.get_scroll_states_for_dom(dom_id);
+            let scroll_states = layout_window
+                .scroll_manager
+                .get_scroll_states_for_dom(dom_id);
             let mut states = Vec::new();
-            
+
             for (node_id, scroll_position) in scroll_states.iter() {
                 let scroll_x = scroll_position.children_rect.origin.x;
                 let scroll_y = scroll_position.children_rect.origin.y;
@@ -2517,7 +2767,7 @@ fn process_debug_event(
                 let content_height = scroll_position.children_rect.size.height;
                 let container_width = scroll_position.parent_rect.size.width;
                 let container_height = scroll_position.parent_rect.size.height;
-                
+
                 states.push(ScrollStateInfo {
                     node_id: node_id.index(),
                     scroll_x,
@@ -2530,7 +2780,7 @@ fn process_debug_event(
                     max_scroll_y: (content_height - container_height).max(0.0),
                 });
             }
-            
+
             let response = ScrollStatesResponse {
                 scroll_node_count: states.len(),
                 scroll_states: states,
@@ -2539,15 +2789,20 @@ fn process_debug_event(
         }
 
         DebugEvent::GetScrollableNodes => {
-            log(LogLevel::Debug, LogCategory::DebugServer, "Getting scrollable nodes", None);
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                "Getting scrollable nodes",
+                None,
+            );
             use azul_core::dom::DomId;
-            
+
             let dom_id = DomId { inner: 0 };
             let layout_window = callback_info.get_layout_window();
-            
+
             // Get scrollable nodes from layout tree
             let mut scrollable_nodes = Vec::new();
-            
+
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 // Check each node in the layout tree to see if it has scrollbar_info
                 for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
@@ -2566,7 +2821,7 @@ fn process_debug_event(
                     }
                 }
             }
-            
+
             let response = ScrollableNodesResponse {
                 scrollable_node_count: scrollable_nodes.len(),
                 scrollable_nodes,
@@ -2574,19 +2829,25 @@ fn process_debug_event(
             send_ok(request, None, Some(ResponseData::ScrollableNodes(response)));
         }
 
-        DebugEvent::ScrollNodeBy { node_id, selector, text, delta_x, delta_y } => {
+        DebugEvent::ScrollNodeBy {
+            node_id,
+            selector,
+            text,
+            delta_x,
+            delta_y,
+        } => {
             use azul_core::dom::DomId;
+            use azul_core::geom::LogicalPosition;
             use azul_core::id::NodeId;
             use azul_core::styled_dom::NodeHierarchyItemId;
-            use azul_core::geom::LogicalPosition;
-            
+
             let resolved_node_id = resolve_node_target(
                 callback_info,
                 selector.as_deref(),
                 *node_id,
                 text.as_deref(),
             );
-            
+
             let nid = match resolved_node_id {
                 Some(n) => n.index() as u64,
                 None => {
@@ -2594,23 +2855,29 @@ fn process_debug_event(
                     return needs_update;
                 }
             };
-            
-            log(LogLevel::Debug, LogCategory::DebugServer, format!("Scrolling node {} by ({}, {})", nid, delta_x, delta_y), None);
-            
+
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                format!("Scrolling node {} by ({}, {})", nid, delta_x, delta_y),
+                None,
+            );
+
             let dom_id = DomId { inner: 0 };
             let node = NodeId::new(nid as usize);
             let hierarchy_id = NodeHierarchyItemId::from(Some(node));
-            
+
             // Get current scroll position and add delta
-            let current = callback_info.get_scroll_offset_for_node(dom_id, node)
+            let current = callback_info
+                .get_scroll_offset_for_node(dom_id, node)
                 .unwrap_or(LogicalPosition { x: 0.0, y: 0.0 });
-            let new_pos = LogicalPosition { 
-                x: current.x + *delta_x, 
-                y: current.y + *delta_y 
+            let new_pos = LogicalPosition {
+                x: current.x + *delta_x,
+                y: current.y + *delta_y,
             };
             callback_info.scroll_to(dom_id, hierarchy_id, new_pos);
             needs_update = true;
-            
+
             let response = ScrollNodeByResponse {
                 scrolled: true,
                 node_id: nid,
@@ -2620,19 +2887,25 @@ fn process_debug_event(
             send_ok(request, None, Some(ResponseData::ScrollNodeBy(response)));
         }
 
-        DebugEvent::ScrollNodeTo { node_id, selector, text, x, y } => {
+        DebugEvent::ScrollNodeTo {
+            node_id,
+            selector,
+            text,
+            x,
+            y,
+        } => {
             use azul_core::dom::DomId;
+            use azul_core::geom::LogicalPosition;
             use azul_core::id::NodeId;
             use azul_core::styled_dom::NodeHierarchyItemId;
-            use azul_core::geom::LogicalPosition;
-            
+
             let resolved_node_id = resolve_node_target(
                 callback_info,
                 selector.as_deref(),
                 *node_id,
                 text.as_deref(),
             );
-            
+
             let nid = match resolved_node_id {
                 Some(n) => n.index() as u64,
                 None => {
@@ -2640,16 +2913,21 @@ fn process_debug_event(
                     return needs_update;
                 }
             };
-            
-            log(LogLevel::Debug, LogCategory::DebugServer, format!("Scrolling node {} to position ({}, {})", nid, x, y), None);
-            
+
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                format!("Scrolling node {} to position ({}, {})", nid, x, y),
+                None,
+            );
+
             let dom_id = DomId { inner: 0 };
             let node = NodeId::new(nid as usize);
             let hierarchy_id = NodeHierarchyItemId::from(Some(node));
-            
+
             callback_info.scroll_to(dom_id, hierarchy_id, LogicalPosition { x: *x, y: *y });
             needs_update = true;
-            
+
             let response = ScrollNodeToResponse {
                 scrolled: true,
                 node_id: nid,
@@ -2660,18 +2938,23 @@ fn process_debug_event(
         }
 
         DebugEvent::FindNodeByText { text } => {
-            log(LogLevel::Debug, LogCategory::DebugServer, format!("Finding node by text: {}", text), None);
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                format!("Finding node by text: {}", text),
+                None,
+            );
             use azul_core::dom::{DomId, DomNodeId};
             use azul_core::id::NodeId;
-            
+
             let dom_id = DomId { inner: 0 };
             let layout_window = callback_info.get_layout_window();
-            
+
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 let styled_dom = &layout_result.styled_dom;
                 let node_data = styled_dom.node_data.as_container();
                 let node_count = node_data.len();
-                
+
                 let mut found_node = None;
                 for i in 0..node_count {
                     let data = &node_data[NodeId::new(i)];
@@ -2686,12 +2969,12 @@ fn process_debug_event(
                         }
                     }
                 }
-                
+
                 if let Some((node_idx, dom_node_id)) = found_node {
                     let rect = callback_info.get_node_rect(dom_node_id);
                     let tag = callback_info.get_node_tag_name(dom_node_id);
                     let classes = callback_info.get_node_classes(dom_node_id);
-                    
+
                     let response = FindNodeResponse {
                         found: true,
                         node_id: Some(node_idx as u64),
@@ -2700,7 +2983,13 @@ fn process_debug_event(
                         width: rect.as_ref().map(|r| r.size.width),
                         height: rect.as_ref().map(|r| r.size.height),
                         tag: tag.map(|s| s.as_str().to_string()),
-                        classes: Some(classes.as_ref().iter().map(|s| s.as_str().to_string()).collect()),
+                        classes: Some(
+                            classes
+                                .as_ref()
+                                .iter()
+                                .map(|s| s.as_str().to_string())
+                                .collect(),
+                        ),
                     };
                     send_ok(request, None, Some(ResponseData::FindNode(response)));
                 } else {
@@ -2722,27 +3011,34 @@ fn process_debug_event(
         }
 
         DebugEvent::ClickNode { node_id, button } => {
-            log(LogLevel::Debug, LogCategory::DebugServer, format!("Clicking node {} with button {:?}", node_id, button), None);
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                format!("Clicking node {} with button {:?}", node_id, button),
+                None,
+            );
             use azul_core::dom::{DomId, DomNodeId};
             use azul_core::id::NodeId;
-            
+
             let dom_id = DomId { inner: 0 };
             let dom_node_id = DomNodeId {
                 dom: dom_id.clone(),
                 node: Some(NodeId::new(*node_id as usize)).into(),
             };
-            
+
             // Get the node's rect to find the center position
             if let Some(rect) = callback_info.get_node_rect(dom_node_id) {
                 let center_x = rect.origin.x + rect.size.width / 2.0;
                 let center_y = rect.origin.y + rect.size.height / 2.0;
-                
+
                 // Simulate click at the center of the node
                 let mut new_state = callback_info.get_current_window_state().clone();
-                new_state.mouse_state.cursor_position = azul_core::window::CursorPosition::InWindow(
-                    LogicalPosition { x: center_x, y: center_y }
-                );
-                
+                new_state.mouse_state.cursor_position =
+                    azul_core::window::CursorPosition::InWindow(LogicalPosition {
+                        x: center_x,
+                        y: center_y,
+                    });
+
                 // Mouse down
                 match button {
                     MouseButton::Left => new_state.mouse_state.left_down = true,
@@ -2750,7 +3046,7 @@ fn process_debug_event(
                     MouseButton::Middle => new_state.mouse_state.middle_down = true,
                 }
                 callback_info.modify_window_state(new_state.clone());
-                
+
                 // Mouse up
                 match button {
                     MouseButton::Left => new_state.mouse_state.left_down = false,
@@ -2759,7 +3055,7 @@ fn process_debug_event(
                 }
                 callback_info.modify_window_state(new_state);
                 needs_update = true;
-                
+
                 let response = ClickNodeResponse {
                     success: true,
                     message: format!("Clicked node {} at ({}, {})", node_id, center_x, center_y),
@@ -2774,22 +3070,27 @@ fn process_debug_event(
             }
         }
 
-        DebugEvent::GetScrollbarInfo { node_id, selector, text, orientation } => {
+        DebugEvent::GetScrollbarInfo {
+            node_id,
+            selector,
+            text,
+            orientation,
+        } => {
             use azul_core::dom::{DomId, ScrollbarOrientation};
-            use azul_core::id::NodeId;
             use azul_core::geom::LogicalPosition;
-            
-            log(LogLevel::Debug, LogCategory::DebugServer, 
+            use azul_core::id::NodeId;
+
+            log(LogLevel::Debug, LogCategory::DebugServer,
                 format!("Getting scrollbar info for node_id={:?}, selector={:?}, text={:?}, orientation={:?}", 
                     node_id, selector, text, orientation), None);
-            
+
             let resolved_node_id = resolve_node_target(
                 callback_info,
                 selector.as_deref(),
                 *node_id,
                 text.as_deref(),
             );
-            
+
             let nid = match resolved_node_id {
                 Some(n) => n.index() as u64,
                 None => {
@@ -2797,97 +3098,128 @@ fn process_debug_event(
                     return needs_update;
                 }
             };
-            
+
             let dom_id = DomId { inner: 0 };
             let node = NodeId::new(nid as usize);
             let layout_window = callback_info.get_layout_window();
-            
+
             // Get current scroll state
-            let scroll_offset = callback_info.get_scroll_offset_for_node(dom_id, node)
+            let scroll_offset = callback_info
+                .get_scroll_offset_for_node(dom_id, node)
                 .unwrap_or(LogicalPosition { x: 0.0, y: 0.0 });
-            
+
             // Get container and content rects from scroll manager
-            let scroll_states = layout_window.scroll_manager.get_scroll_states_for_dom(dom_id);
-            let scroll_info = scroll_states.iter()
+            let scroll_states = layout_window
+                .scroll_manager
+                .get_scroll_states_for_dom(dom_id);
+            let scroll_info = scroll_states
+                .iter()
                 .find(|(n, _)| **n == node)
                 .map(|(_, s)| s);
-            
+
             // Default container/content rects if not in scroll manager
             let (container_rect, content_rect, max_scroll_x, max_scroll_y) = match scroll_info {
                 Some(state) => {
-                    let max_x = (state.children_rect.size.width - state.parent_rect.size.width).max(0.0);
-                    let max_y = (state.children_rect.size.height - state.parent_rect.size.height).max(0.0);
+                    let max_x =
+                        (state.children_rect.size.width - state.parent_rect.size.width).max(0.0);
+                    let max_y =
+                        (state.children_rect.size.height - state.parent_rect.size.height).max(0.0);
                     (state.parent_rect, state.children_rect, max_x, max_y)
-                },
+                }
                 None => {
                     // Fallback: try to get from layout
                     let zero_rect = azul_core::geom::LogicalRect {
                         origin: LogicalPosition { x: 0.0, y: 0.0 },
-                        size: azul_core::geom::LogicalSize { width: 0.0, height: 0.0 },
+                        size: azul_core::geom::LogicalSize {
+                            width: 0.0,
+                            height: 0.0,
+                        },
                     };
                     (zero_rect, zero_rect, 0.0, 0.0)
                 }
             };
-            
+
             // Helper function to build ScrollbarGeometry from ScrollbarState
-            fn build_scrollbar_geometry(state: &azul_layout::managers::scroll_state::ScrollbarState) -> ScrollbarGeometry {
+            fn build_scrollbar_geometry(
+                state: &azul_layout::managers::scroll_state::ScrollbarState,
+            ) -> ScrollbarGeometry {
                 let track = state.track_rect;
                 let button_size = state.base_size;
-                
+
                 // Calculate thumb rect based on orientation
                 let (thumb_rect, top_button_rect, bottom_button_rect) = match state.orientation {
                     ScrollbarOrientation::Vertical => {
                         let track_height_usable = track.size.height - 2.0 * button_size;
                         let thumb_height = track_height_usable * state.thumb_size_ratio;
-                        let thumb_y_start = button_size + (track_height_usable - thumb_height) * state.thumb_position_ratio;
-                        
+                        let thumb_y_start = button_size
+                            + (track_height_usable - thumb_height) * state.thumb_position_ratio;
+
                         let top_btn = azul_core::geom::LogicalRect {
                             origin: track.origin,
-                            size: azul_core::geom::LogicalSize { width: track.size.width, height: button_size },
+                            size: azul_core::geom::LogicalSize {
+                                width: track.size.width,
+                                height: button_size,
+                            },
                         };
                         let bottom_btn = azul_core::geom::LogicalRect {
-                            origin: LogicalPosition { 
-                                x: track.origin.x, 
-                                y: track.origin.y + track.size.height - button_size 
+                            origin: LogicalPosition {
+                                x: track.origin.x,
+                                y: track.origin.y + track.size.height - button_size,
                             },
-                            size: azul_core::geom::LogicalSize { width: track.size.width, height: button_size },
+                            size: azul_core::geom::LogicalSize {
+                                width: track.size.width,
+                                height: button_size,
+                            },
                         };
                         let thumb = azul_core::geom::LogicalRect {
-                            origin: LogicalPosition { 
-                                x: track.origin.x, 
-                                y: track.origin.y + thumb_y_start 
+                            origin: LogicalPosition {
+                                x: track.origin.x,
+                                y: track.origin.y + thumb_y_start,
                             },
-                            size: azul_core::geom::LogicalSize { width: track.size.width, height: thumb_height },
+                            size: azul_core::geom::LogicalSize {
+                                width: track.size.width,
+                                height: thumb_height,
+                            },
                         };
                         (thumb, top_btn, bottom_btn)
-                    },
+                    }
                     ScrollbarOrientation::Horizontal => {
                         let track_width_usable = track.size.width - 2.0 * button_size;
                         let thumb_width = track_width_usable * state.thumb_size_ratio;
-                        let thumb_x_start = button_size + (track_width_usable - thumb_width) * state.thumb_position_ratio;
-                        
+                        let thumb_x_start = button_size
+                            + (track_width_usable - thumb_width) * state.thumb_position_ratio;
+
                         let left_btn = azul_core::geom::LogicalRect {
                             origin: track.origin,
-                            size: azul_core::geom::LogicalSize { width: button_size, height: track.size.height },
+                            size: azul_core::geom::LogicalSize {
+                                width: button_size,
+                                height: track.size.height,
+                            },
                         };
                         let right_btn = azul_core::geom::LogicalRect {
-                            origin: LogicalPosition { 
-                                x: track.origin.x + track.size.width - button_size, 
-                                y: track.origin.y 
+                            origin: LogicalPosition {
+                                x: track.origin.x + track.size.width - button_size,
+                                y: track.origin.y,
                             },
-                            size: azul_core::geom::LogicalSize { width: button_size, height: track.size.height },
+                            size: azul_core::geom::LogicalSize {
+                                width: button_size,
+                                height: track.size.height,
+                            },
                         };
                         let thumb = azul_core::geom::LogicalRect {
-                            origin: LogicalPosition { 
-                                x: track.origin.x + thumb_x_start, 
-                                y: track.origin.y 
+                            origin: LogicalPosition {
+                                x: track.origin.x + thumb_x_start,
+                                y: track.origin.y,
                             },
-                            size: azul_core::geom::LogicalSize { width: thumb_width, height: track.size.height },
+                            size: azul_core::geom::LogicalSize {
+                                width: thumb_width,
+                                height: track.size.height,
+                            },
                         };
                         (thumb, left_btn, right_btn)
-                    },
+                    }
                 };
-                
+
                 ScrollbarGeometry {
                     visible: state.visible,
                     track_rect: LogicalRectJson {
@@ -2927,20 +3259,24 @@ fn process_debug_event(
                     thumb_size_ratio: state.thumb_size_ratio,
                 }
             }
-            
+
             // Get scrollbar states
             let v_state = layout_window.scroll_manager.get_scrollbar_state(
-                dom_id, node, ScrollbarOrientation::Vertical
+                dom_id,
+                node,
+                ScrollbarOrientation::Vertical,
             );
             let h_state = layout_window.scroll_manager.get_scrollbar_state(
-                dom_id, node, ScrollbarOrientation::Horizontal
+                dom_id,
+                node,
+                ScrollbarOrientation::Horizontal,
             );
-            
+
             let vertical = v_state.map(build_scrollbar_geometry);
             let horizontal = h_state.map(build_scrollbar_geometry);
-            
+
             let has_any = vertical.is_some() || horizontal.is_some();
-            
+
             let response = ScrollbarInfoResponse {
                 found: has_any,
                 node_id: nid,
@@ -2998,7 +3334,9 @@ pub fn create_debug_timer(
         TimerCallback::create(debug_timer_callback),
         get_system_time_fn,
     )
-    .with_interval(Duration::System(azul_core::task::SystemTimeDiff::from_millis(16)))
+    .with_interval(Duration::System(
+        azul_core::task::SystemTimeDiff::from_millis(16),
+    ))
 }
 
 // ==================== Logging Macros ====================

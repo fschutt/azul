@@ -783,12 +783,8 @@ impl RenderBackend {
 
         while let RenderBackendStatus::Continue = status {
             status = match self.api_rx.recv() {
-                Ok(msg) => {
-                    self.process_api_msg(msg, &mut frame_counter)
-                }
-                Err(_e) => {
-                    RenderBackendStatus::ShutDown(None)
-                }
+                Ok(msg) => self.process_api_msg(msg, &mut frame_counter),
+                Err(_e) => RenderBackendStatus::ShutDown(None),
             };
         }
 

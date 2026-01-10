@@ -19,7 +19,9 @@ use std::{
 use azul_core::{
     animation::UpdateImageType,
     callbacks::{FocusTarget, HidpiAdjustedBounds, IFrameCallbackReason, Update},
-    dom::{AccessibilityAction, AttributeType, Dom, DomId, DomIdVec, DomNodeId, NodeId, NodeType, On},
+    dom::{
+        AccessibilityAction, AttributeType, Dom, DomId, DomIdVec, DomNodeId, NodeId, NodeType, On,
+    },
     events::{EasingFunction, EventFilter, FocusEventFilter, HoverEventFilter},
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
@@ -34,7 +36,10 @@ use azul_core::{
         CursorAffinity, GraphemeClusterId, Selection, SelectionRange, SelectionState, TextCursor,
     },
     styled_dom::{NodeHierarchyItemId, StyledDom},
-    task::{Duration, Instant, SystemTickDiff, SystemTimeDiff, TerminateTimer, ThreadId, ThreadIdVec, ThreadSendMsg, TimerId, TimerIdVec},
+    task::{
+        Duration, Instant, SystemTickDiff, SystemTimeDiff, TerminateTimer, ThreadId, ThreadIdVec,
+        ThreadSendMsg, TimerId, TimerIdVec,
+    },
     window::{CursorPosition, RawWindowHandle, RendererType},
     FastBTreeSet, FastHashMap,
 };
@@ -234,7 +239,7 @@ pub struct CallbackChangeResult {
 
 /// A window-level layout manager that encapsulates all layout state and caching.
 ///
-/// This struct owns the layout and text caches, and provides methods dir_to: 
+/// This struct owns the layout and text caches, and provides methods dir_to:
 /// - Perform initial layout
 /// - Incrementally update layout on DOM changes
 /// - Generate display lists for rendering
@@ -544,7 +549,7 @@ impl LayoutWindow {
                     self.current_window_state.size.dimensions,
                 )
             }));
-            
+
             match a11y_result {
                 Ok(tree_update) => {
                     // Store the tree_update for platform adapter to consume
@@ -594,33 +599,47 @@ impl LayoutWindow {
             };
 
             if let Some(msgs) = debug_messages.as_mut() {
-                msgs.push(LayoutDebugMessage::info("[FontLoading] Starting font resolution for DOM".to_string()));
+                msgs.push(LayoutDebugMessage::info(
+                    "[FontLoading] Starting font resolution for DOM".to_string(),
+                ));
             }
 
             // Step 1: Resolve font chains (cached by FontChainKey)
             let chains = collect_and_resolve_font_chains(&styled_dom, &self.font_manager.fc_cache);
             if let Some(msgs) = debug_messages.as_mut() {
-                msgs.push(LayoutDebugMessage::info(format!("[FontLoading] Resolved {} font chains", chains.len())));
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[FontLoading] Resolved {} font chains",
+                    chains.len()
+                )));
             }
 
             // Step 2: Get required font IDs from chains
             let required_fonts = collect_font_ids_from_chains(&chains);
             if let Some(msgs) = debug_messages.as_mut() {
-                msgs.push(LayoutDebugMessage::info(format!("[FontLoading] Required fonts: {} unique fonts", required_fonts.len())));
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[FontLoading] Required fonts: {} unique fonts",
+                    required_fonts.len()
+                )));
             }
 
             // Step 3: Compute which fonts need to be loaded (diff with already loaded)
             let already_loaded = self.font_manager.get_loaded_font_ids();
             let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
             if let Some(msgs) = debug_messages.as_mut() {
-                msgs.push(LayoutDebugMessage::info(format!("[FontLoading] Already loaded: {}, need to load: {}", 
-                    already_loaded.len(), fonts_to_load.len())));
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[FontLoading] Already loaded: {}, need to load: {}",
+                    already_loaded.len(),
+                    fonts_to_load.len()
+                )));
             }
 
             // Step 4: Load missing fonts
             if !fonts_to_load.is_empty() {
                 if let Some(msgs) = debug_messages.as_mut() {
-                    msgs.push(LayoutDebugMessage::info(format!("[FontLoading] Loading {} fonts from disk...", fonts_to_load.len())));
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[FontLoading] Loading {} fonts from disk...",
+                        fonts_to_load.len()
+                    )));
                 }
                 let loader = PathLoader::new();
                 let load_result = load_fonts_from_disk(
@@ -630,8 +649,11 @@ impl LayoutWindow {
                 );
 
                 if let Some(msgs) = debug_messages.as_mut() {
-                    msgs.push(LayoutDebugMessage::info(format!("[FontLoading] Loaded {} fonts, {} failed", 
-                        load_result.loaded.len(), load_result.failed.len())));
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[FontLoading] Loaded {} fonts, {} failed",
+                        load_result.loaded.len(),
+                        load_result.failed.len()
+                    )));
                 }
 
                 // Insert loaded fonts into the font manager
@@ -1077,20 +1099,20 @@ impl LayoutWindow {
     }
 
     /// Get the hit test bounds of a node from the display list
-    /// 
+    ///
     /// This is more reliable than get_node_position + get_node_size because
     /// the display list always contains the correct final rendered positions,
     /// including for nodes that may not have entries in calculated_positions.
     pub fn get_node_hit_test_bounds(&self, node_id: DomNodeId) -> Option<LogicalRect> {
         use crate::solver3::display_list::DisplayListItem;
-        
+
         let layout_result = self.layout_results.get(&node_id.dom)?;
         let nid = node_id.node.into_crate_internal()?;
-        
+
         // Get the actual tag_id from styled_nodes (matches what get_tag_id in display_list.rs uses)
         let styled_nodes = layout_result.styled_dom.styled_nodes.as_container();
         let tag_id = styled_nodes.get(nid)?.tag_id.into_option()?.inner;
-        
+
         // Search the display list for a HitTestArea with matching tag
         for item in &layout_result.display_list.items {
             if let DisplayListItem::HitTestArea { bounds, tag } = item {
@@ -1261,11 +1283,11 @@ impl LayoutWindow {
     }
 
     /// Calculate milliseconds until the next timer needs to fire.
-    /// 
+    ///
     /// Returns `None` if there are no timers, meaning the caller can block indefinitely.
     /// Returns `Some(0)` if a timer is already overdue.
     /// Otherwise returns the minimum time in milliseconds until any timer fires.
-    /// 
+    ///
     /// This is used by Linux (X11/Wayland) to set an efficient poll/select timeout
     /// instead of always polling every 16ms.
     pub fn time_until_next_timer_ms(
@@ -1281,7 +1303,7 @@ impl LayoutWindow {
 
         for timer in self.timers.values() {
             let next_run = timer.instant_of_next_run();
-            
+
             // Calculate time difference in milliseconds
             let ms_until = if next_run < now {
                 0 // Timer is overdue
@@ -1879,7 +1901,11 @@ impl LayoutWindow {
 
     /// Get all DOM IDs that have layout results
     pub fn get_dom_ids(&self) -> DomIdVec {
-        self.layout_results.keys().copied().collect::<Vec<_>>().into()
+        self.layout_results
+            .keys()
+            .copied()
+            .collect::<Vec<_>>()
+            .into()
     }
 
     // Hit-Test Computation
@@ -2792,16 +2818,18 @@ impl LayoutWindow {
             let cursor_in_viewport = OptionLogicalPosition::None;
 
             // Create changes container for callback transaction system
-            // Uses Arc<Mutex> so that cloned CallbackInfo (e.g., in timer callbacks) 
+            // Uses Arc<Mutex> so that cloned CallbackInfo (e.g., in timer callbacks)
             // still push to the same collection
             let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
             // Create reference data container (syntax sugar to reduce parameter count)
             // First get the ctx from the timer's callback before we borrow timer again
-            let timer_ctx = self.timers.get(&TimerId { id: timer_id })
+            let timer_ctx = self
+                .timers
+                .get(&TimerId { id: timer_id })
                 .map(|t| t.callback.ctx.clone())
                 .unwrap_or(OptionRefAny::None);
-            
+
             let ref_data = crate::callbacks::CallbackInfoRefData {
                 layout_window: self,
                 renderer_resources,
@@ -2830,7 +2858,8 @@ impl LayoutWindow {
 
             // Extract changes from the Arc<Mutex> - they may have been pushed by
             // cloned CallbackInfo instances (e.g., in timer callbacks)
-            let collected_changes = callback_changes.lock()
+            let collected_changes = callback_changes
+                .lock()
                 .map(|mut guard| core::mem::take(&mut *guard))
                 .unwrap_or_default();
 
@@ -2886,12 +2915,12 @@ impl LayoutWindow {
             if !change_result.nodes_scrolled.is_empty() {
                 ret.nodes_scrolled_in_callbacks = Some(change_result.nodes_scrolled);
             }
-            
+
             // Forward hit test update request to shell layer
             if change_result.hit_test_update_requested.is_some() {
                 ret.hit_test_update_requested = change_result.hit_test_update_requested;
             }
-            
+
             // Forward queued window states to shell layer for sequential processing
             if !change_result.queued_window_states.is_empty() {
                 ret.queued_window_states = change_result.queued_window_states;
@@ -3025,7 +3054,10 @@ impl LayoutWindow {
                 // MutexGuard is dropped here
             };
 
-            let ThreadWriteBackMsg { refany: mut data, callback } = match msg {
+            let ThreadWriteBackMsg {
+                refany: mut data,
+                callback,
+            } = match msg {
                 ThreadReceiveMsg::Update(update_screen) => {
                     ret.callbacks_update_screen.max_self(update_screen);
                     continue;
@@ -3065,7 +3097,8 @@ impl LayoutWindow {
             ret.callbacks_update_screen.max_self(callback_update);
 
             // Extract changes from the Arc<Mutex>
-            let collected_changes = callback_changes.lock()
+            let collected_changes = callback_changes
+                .lock()
                 .map(|mut guard| core::mem::take(&mut *guard))
                 .unwrap_or_default();
 
@@ -3084,7 +3117,7 @@ impl LayoutWindow {
             ret.prevent_default = ret.prevent_default || change_result.prevent_default;
             ret.tooltips_to_show.extend(change_result.tooltips_to_show);
             ret.hide_tooltip = ret.hide_tooltip || change_result.hide_tooltip;
-            
+
             // Forward hit test update request
             if change_result.hit_test_update_requested.is_some() {
                 ret.hit_test_update_requested = change_result.hit_test_update_requested;
@@ -3283,7 +3316,8 @@ impl LayoutWindow {
         ret.callbacks_update_screen = (callback.cb)(data.clone(), callback_info);
 
         // Extract changes from the Arc<Mutex>
-        let collected_changes = callback_changes.lock()
+        let collected_changes = callback_changes
+            .lock()
             .map(|mut guard| core::mem::take(&mut *guard))
             .unwrap_or_default();
 
@@ -3302,7 +3336,7 @@ impl LayoutWindow {
         ret.prevent_default = change_result.prevent_default;
         ret.tooltips_to_show = change_result.tooltips_to_show;
         ret.hide_tooltip = change_result.hide_tooltip;
-        
+
         // Forward hit test update request (invoke_single_callback)
         if change_result.hit_test_update_requested.is_some() {
             ret.hit_test_update_requested = change_result.hit_test_update_requested;
@@ -3461,7 +3495,8 @@ impl LayoutWindow {
             (menu_callback.callback.cb)(menu_callback.refany.clone(), callback_info);
 
         // Extract changes from the Arc<Mutex>
-        let collected_changes = callback_changes.lock()
+        let collected_changes = callback_changes
+            .lock()
             .map(|mut guard| core::mem::take(&mut *guard))
             .unwrap_or_default();
 
@@ -3480,7 +3515,7 @@ impl LayoutWindow {
         ret.prevent_default = change_result.prevent_default;
         ret.tooltips_to_show = change_result.tooltips_to_show;
         ret.hide_tooltip = change_result.hide_tooltip;
-        
+
         // Forward hit test update request (invoke_menu_callback)
         if change_result.hit_test_update_requested.is_some() {
             ret.hit_test_update_requested = change_result.hit_test_update_requested;
@@ -4416,10 +4451,14 @@ impl LayoutWindow {
 
                 if let Some(inline_layout) = text_layout {
                     // Convert byte offsets to TextCursor positions
-                    let start_cursor =
-                        self.byte_offset_to_cursor(inline_layout.as_ref(), selection.selection_start as u32);
-                    let end_cursor =
-                        self.byte_offset_to_cursor(inline_layout.as_ref(), selection.selection_end as u32);
+                    let start_cursor = self.byte_offset_to_cursor(
+                        inline_layout.as_ref(),
+                        selection.selection_start as u32,
+                    );
+                    let end_cursor = self.byte_offset_to_cursor(
+                        inline_layout.as_ref(),
+                        selection.selection_end as u32,
+                    );
 
                     if let (Some(start), Some(end)) = (start_cursor, end_cursor) {
                         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
@@ -4657,7 +4696,7 @@ impl LayoutWindow {
 
         // Record this operation to the undo/redo manager AFTER successful mutation
 
-        use crate::managers::changeset::{TextChangeset, TextOperation, TextOpInsertText};
+        use crate::managers::changeset::{TextChangeset, TextOpInsertText, TextOperation};
 
         // Get the new cursor position after edit
         let new_cursor = new_selections
@@ -5509,7 +5548,8 @@ impl LayoutWindow {
                 selections: vec![Selection::Range(SelectionRange {
                     start: cursor.clone(),
                     end: cursor,
-                })].into(),
+                })]
+                .into(),
                 node_id: target,
             };
             self.selection_manager.set_selection(dom_id, state);
@@ -5586,7 +5626,8 @@ impl LayoutWindow {
                                     let default_font = FontSelector::default();
                                     let first_font =
                                         style.font_stack.first().unwrap_or(&default_font);
-                                    let font_family: OptionString = Some(AzString::from(first_font.family.as_str())).into();
+                                    let font_family: OptionString =
+                                        Some(AzString::from(first_font.family.as_str())).into();
 
                                     // Check if bold/italic from font selector
                                     use rust_fontconfig::FcWeight;
@@ -5736,7 +5777,10 @@ impl LayoutWindow {
                                         // RenderImageCallback (cb: fn pointer)
                                         let callback =
                                             RenderImageCallback::from_core(&core_callback.callback);
-                                        (callback.cb)(core_callback.refany.clone(), gl_callback_info)
+                                        (callback.cb)(
+                                            core_callback.refany.clone(),
+                                            gl_callback_info,
+                                        )
                                     })
                                 }
                                 _ => None,

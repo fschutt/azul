@@ -3,7 +3,7 @@
 //! This module provides the default CSS styling that browsers apply to HTML elements
 //! before any author stylesheets are processed. It ensures consistent baseline behavior
 //! across all applications.
-//! 
+//!
 //! The user-agent stylesheet serves several critical functions:
 //!
 //! 1. **Prevents Layout Collapse**: Ensures root elements (`<html>`, `<body>`) have default
@@ -438,13 +438,13 @@ static BREAK_BEFORE_AVOID: CssProperty = CssProperty::break_before(PageBreak::Av
 static BREAK_AFTER_AVOID: CssProperty = CssProperty::break_after(PageBreak::Avoid);
 
 /// padding-inline-start: 40px (default for <li>)
-/// 
+///
 /// Creates space for list markers in the inline-start direction (left in LTR, right in RTL)
 /// padding-inline-start: 40px for list items per CSS Lists Module Level 3
 /// Applied to <li> items to create gutter space for ::marker pseudo-elements
-/// 
+///
 /// NOTE: This should be on the list items, not the container, because:
-/// 
+///
 /// 1. ::marker pseudo-elements are children of <li>, not <ul>/<ol>
 /// 2. The marker needs to be positioned relative to the list item's content box
 /// 3. Padding on <li> creates space between the marker and the text content

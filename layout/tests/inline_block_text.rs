@@ -1,6 +1,5 @@
 /// Test inline-block text rendering
 /// Verifies that text inside inline-block elements generates TextLayout / Text items
-
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -11,8 +10,8 @@ use azul_layout::solver3::display_list::DisplayListItem;
 use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
 use azul_layout::solver3::pagination::FakePageConfig;
 use azul_layout::text3::default::PathLoader;
-use azul_layout::Solver3LayoutCache;
 use azul_layout::xml::DomXmlExt;
+use azul_layout::Solver3LayoutCache;
 use std::collections::BTreeMap;
 
 #[test]
@@ -125,9 +124,9 @@ fn test_inline_block_text_generates_text_items() {
 #[test]
 fn test_inline_block_css_width_is_applied() {
     use azul_core::dom::NodeType;
-    use azul_css::props::layout::{LayoutDisplay, LayoutWidth, LayoutHeight};
+    use azul_css::props::layout::{LayoutDisplay, LayoutHeight, LayoutWidth};
     use azul_layout::solver3::getters::MultiValue;
-    
+
     // This test verifies that explicit CSS width on inline-block is correctly parsed and applied
     let html = r#"
     <html>
@@ -149,10 +148,10 @@ fn test_inline_block_css_width_is_applied() {
     "#;
 
     let styled_dom = Dom::from_xml_string(html);
-    
+
     let node_data = styled_dom.node_data.as_container();
     let styled_nodes = styled_dom.styled_nodes.as_container();
-    
+
     // Find the div.box node (not a text node and has display: inline-block)
     let mut box_node_id = None;
     for (idx, nd) in node_data.iter().enumerate() {
@@ -160,39 +159,38 @@ fn test_inline_block_css_width_is_applied() {
         if matches!(nd.node_type, NodeType::Text(_)) {
             continue;
         }
-        
+
         let node_id = azul_core::dom::NodeId::new(idx);
-        let display = azul_layout::solver3::getters::get_display_property(&styled_dom, Some(node_id));
+        let display =
+            azul_layout::solver3::getters::get_display_property(&styled_dom, Some(node_id));
         if display == MultiValue::Exact(LayoutDisplay::InlineBlock) {
             box_node_id = Some(node_id);
             break;
         }
     }
-    
+
     let box_id = box_node_id.expect("Should find a node with display: inline-block");
     let node_state = &styled_nodes[box_id].styled_node_state;
-    
+
     // Now check the CSS width
     let css_width = azul_layout::solver3::getters::get_css_width(&styled_dom, box_id, node_state);
-    
+
     println!("box_id = {:?}", box_id);
     println!("css_width = {:?}", css_width);
-    
+
     // The width should be Exact(150px), not Auto!
     match css_width {
-        MultiValue::Exact(w) => {
-            match w {
-                LayoutWidth::Px(px) => {
-                    let px_value = px.number.get();
-                    assert!(
-                        (px_value - 150.0).abs() < 0.01,
-                        "Width should be 150px, got {}px",
-                        px_value
-                    );
-                }
-                other => panic!("Width should be Px(150), got {:?}", other),
+        MultiValue::Exact(w) => match w {
+            LayoutWidth::Px(px) => {
+                let px_value = px.number.get();
+                assert!(
+                    (px_value - 150.0).abs() < 0.01,
+                    "Width should be 150px, got {}px",
+                    px_value
+                );
             }
-        }
+            other => panic!("Width should be Px(150), got {:?}", other),
+        },
         MultiValue::Auto => {
             panic!("Width should be Exact(150px), but got Auto! CSS width is not being parsed correctly.");
         }
@@ -200,25 +198,23 @@ fn test_inline_block_css_width_is_applied() {
             panic!("Width should be Exact(150px), but got {:?}!", other);
         }
     }
-    
+
     // Also check height
     let css_height = azul_layout::solver3::getters::get_css_height(&styled_dom, box_id, node_state);
     println!("css_height = {:?}", css_height);
-    
+
     match css_height {
-        MultiValue::Exact(h) => {
-            match h {
-                LayoutHeight::Px(px) => {
-                    let px_value = px.number.get();
-                    assert!(
-                        (px_value - 80.0).abs() < 0.01,
-                        "Height should be 80px, got {}px",
-                        px_value
-                    );
-                }
-                other => panic!("Height should be Px(80), got {:?}", other),
+        MultiValue::Exact(h) => match h {
+            LayoutHeight::Px(px) => {
+                let px_value = px.number.get();
+                assert!(
+                    (px_value - 80.0).abs() < 0.01,
+                    "Height should be 80px, got {}px",
+                    px_value
+                );
             }
-        }
+            other => panic!("Height should be Px(80), got {:?}", other),
+        },
         MultiValue::Auto => {
             panic!("Height should be Exact(80px), but got Auto! CSS height is not being parsed correctly.");
         }
@@ -317,16 +313,19 @@ fn test_text_wraps_at_constrained_width() {
             }
         })
         .collect();
-    
+
     println!("Found {} TextLayout items", text_layouts.len());
     for (i, bounds) in text_layouts.iter().enumerate() {
-        println!("TextLayout[{}]: {}x{} @ ({}, {})", i, bounds.size.width, bounds.size.height, bounds.origin.x, bounds.origin.y);
+        println!(
+            "TextLayout[{}]: {}x{} @ ({}, {})",
+            i, bounds.size.width, bounds.size.height, bounds.origin.x, bounds.origin.y
+        );
     }
-    
+
     // The text "Box 1 with text inside" has intrinsic width ~153.77px
     // When constrained to 150px width, text should wrap, making height > 1 line height (~16-18px)
     // Expected: multiple lines, so height should be > 20px (at least 2 lines)
-    
+
     // Find Rect items (for the background)
     let rectangles: Vec<_> = display_lists
         .iter()
@@ -344,24 +343,30 @@ fn test_text_wraps_at_constrained_width() {
             }
         })
         .collect();
-    
+
     println!("Found {} red Rectangle items", rectangles.len());
     for (i, rect) in rectangles.iter().enumerate() {
-        println!("Rectangle[{}]: {}x{} @ ({}, {})", i, rect.size.width, rect.size.height, rect.origin.x, rect.origin.y);
+        println!(
+            "Rectangle[{}]: {}x{} @ ({}, {})",
+            i, rect.size.width, rect.size.height, rect.origin.x, rect.origin.y
+        );
     }
-    
+
     // The rectangle should have width close to 150px
-    assert!(!rectangles.is_empty(), "Should have at least one red rectangle for .box");
-    
+    assert!(
+        !rectangles.is_empty(),
+        "Should have at least one red rectangle for .box"
+    );
+
     let box_rect = rectangles[0];
-    
+
     // Width should be exactly 150px (CSS specified)
     assert!(
         (box_rect.size.width - 150.0).abs() < 1.0,
         "Box width should be 150px, got {}",
         box_rect.size.width
     );
-    
+
     // Height should be > 1 line height (~16px) because text should wrap
     // If text doesn't wrap, height would be around 16-18px (1 line)
     // If text wraps, height should be at least 32px (2 lines)
@@ -371,7 +376,10 @@ fn test_text_wraps_at_constrained_width() {
         "Box height should be >= {}px (text should wrap to 2 lines), got {}px. Text is NOT wrapping!",
         min_expected_height, box_rect.size.height
     );
-    
-    println!("SUCCESS: Box size = {}x{}", box_rect.size.width, box_rect.size.height);
+
+    println!(
+        "SUCCESS: Box size = {}x{}",
+        box_rect.size.width, box_rect.size.height
+    );
     println!("Text appears to wrap correctly (height indicates multiple lines)");
 }

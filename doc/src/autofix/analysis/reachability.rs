@@ -21,7 +21,7 @@ pub struct ReachabilityAnalysis {
 /// Find all unused types in the API
 ///
 /// A type is "used" if:
-/// 
+///
 /// 1. It appears in a public function signature (parameter or return type)
 /// 2. It's a field type of a used struct
 /// 3. It's a variant type of a used enum
@@ -50,10 +50,7 @@ pub fn find_unused_types(api: &serde_json::Value) -> ReachabilityAnalysis {
     let reachable = bfs_reachability(&entry_points, &type_deps);
 
     // Step 4: Unreachable = All - Reachable
-    let unreachable: BTreeSet<String> = all_types
-        .difference(&reachable)
-        .cloned()
-        .collect();
+    let unreachable: BTreeSet<String> = all_types.difference(&reachable).cloned().collect();
 
     ReachabilityAnalysis {
         reachable,

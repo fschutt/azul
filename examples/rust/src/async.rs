@@ -52,16 +52,14 @@ impl Default for ConnectionStatus {
 }
 
 // Main function that renders the UI
-extern "C" 
-fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     use self::ConnectionStatus::*;
 
-    let mut body = Dom::create_body()
-    .with_inline_style(
+    let mut body = Dom::create_body().with_inline_style(
         "font-family: sans-serif;
         align-items: center;
         justify-content: center;
-        flex-direction: row;"
+        flex-direction: row;",
     );
 
     let data_clone = data.clone();
@@ -78,10 +76,10 @@ fn render_ui(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
                 justify-content: center;",
             )
             .with_child(
-                downcasted.connection_status.dom(data_clone)
-                .with_inline_style(
-                    "max-width: 350px; display:block;"
-                )
+                downcasted
+                    .connection_status
+                    .dom(data_clone)
+                    .with_inline_style("max-width: 350px; display:block;"),
             ),
     );
 
@@ -93,13 +91,17 @@ impl ConnectionStatus {
         match self {
             NotConnected { database } => Dom::create_div()
                 .with_child(Dom::create_text("Enter database to connect to:"))
-                .with_child(TextInput::create()
-                    .with_text(database.clone())
-                    .with_on_text_input(data_clone.clone(), edit_database_input)
-                    .dom())
-                .with_child(Button::create("Connect")
-                    .with_on_click(data_clone.clone(), start_background_thread)
-                    .dom()),
+                .with_child(
+                    TextInput::create()
+                        .with_text(database.clone())
+                        .with_on_text_input(data_clone.clone(), edit_database_input)
+                        .dom(),
+                )
+                .with_child(
+                    Button::create("Connect")
+                        .with_on_click(data_clone.clone(), start_background_thread)
+                        .dom(),
+                ),
             InProgress {
                 stage,
 
@@ -171,8 +173,7 @@ enum ConnectionStage {
 }
 
 // Runs when "connect to database" button is clicked
-extern "C" 
-fn edit_database_input(
+extern "C" fn edit_database_input(
     mut data: RefAny,
     _event: CallbackInfo,
     textinputstate: TextInputState,
@@ -197,8 +198,7 @@ fn edit_database_input(
     ret
 }
 
-extern "C" 
-fn start_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
+extern "C" fn start_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
     // Copy the string of what database to connect to and
     // use it to initialize a new background thread
     let data_clone = data.clone();
@@ -233,8 +233,7 @@ fn start_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update 
 }
 
 // Runs when "cancel" button is clicked while background thread is running
-extern "C" 
-fn stop_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
+extern "C" fn stop_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
     let mut data_mut = match data.downcast_mut::<MyDataModel>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -256,8 +255,7 @@ fn stop_background_thread(mut data: RefAny, mut event: CallbackInfo) -> Update {
 }
 
 // Runs when "reset" is clicked (resets the data)
-extern "C"
-fn reset(mut data: RefAny, event: CallbackInfo) -> Update {
+extern "C" fn reset(mut data: RefAny, event: CallbackInfo) -> Update {
     let mut data_mut = match data.downcast_mut::<MyDataModel>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -288,10 +286,9 @@ enum BackgroundThreadReturn {
 }
 
 // Callback that "writes data back" from the background thread to the main thread
-// 
+//
 // This function runs on the main thread, so that there can't be any data races
-extern "C" 
-fn writeback_callback(
+extern "C" fn writeback_callback(
     mut app_data: RefAny,
     mut incoming_data: RefAny,
     _: CallbackInfo,
@@ -335,8 +332,7 @@ fn writeback_callback(
 }
 
 // Function that executes in a non-main thread (main "background thread" logic)
-extern "C" 
-fn background_thread(
+extern "C" fn background_thread(
     mut initial_data: RefAny,
     mut sender: ThreadSender,
     mut recv: ThreadReceiver,
@@ -401,9 +397,7 @@ fn background_thread(
             // Calculate and update the percentage count
             sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
                 refany: RefAny::new(StatusUpdated {
-                    new: ConnectionStage::LoadingData {
-                        percent_done,
-                    },
+                    new: ConnectionStage::LoadingData { percent_done },
                 }),
                 callback: WriteBackCallback {
                     cb: writeback_callback,
@@ -469,9 +463,6 @@ mod postgres {
 }
 
 fn main() {
-    let app = App::create(
-        RefAny::new(MyDataModel::default()),
-        AppConfig::create(),
-    );
+    let app = App::create(RefAny::new(MyDataModel::default()), AppConfig::create());
     app.run(WindowCreateOptions::create(render_ui));
 }

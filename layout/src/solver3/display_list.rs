@@ -123,7 +123,7 @@ pub struct PhysicalSizeImport {
 }
 
 /// Complete drawing information for a scrollbar with all visual components.
-/// 
+///
 /// This contains the resolved geometry and colors for all scrollbar parts:
 /// - Track: The background area where the thumb slides
 /// - Thumb: The draggable indicator showing current scroll position
@@ -135,13 +135,13 @@ pub struct ScrollbarDrawInfo {
     pub bounds: LogicalRect,
     /// Scrollbar orientation (horizontal or vertical)
     pub orientation: ScrollbarOrientation,
-    
+
     // Track area (the background rail)
     /// Bounds of the track area
     pub track_bounds: LogicalRect,
     /// Color of the track background
     pub track_color: ColorU,
-    
+
     // Thumb (the draggable part)
     /// Bounds of the thumb
     pub thumb_bounds: LogicalRect,
@@ -149,7 +149,7 @@ pub struct ScrollbarDrawInfo {
     pub thumb_color: ColorU,
     /// Border radius for rounded thumb corners
     pub thumb_border_radius: BorderRadius,
-    
+
     // Optional buttons (arrows at ends)
     /// Optional decrement button bounds (up/left arrow)
     pub button_decrement_bounds: Option<LogicalRect>,
@@ -157,7 +157,7 @@ pub struct ScrollbarDrawInfo {
     pub button_increment_bounds: Option<LogicalRect>,
     /// Color for buttons
     pub button_color: ColorU,
-    
+
     /// Optional opacity key for GPU-side fading animation.
     pub opacity_key: Option<OpacityKey>,
     /// Optional hit-test ID for WebRender hit-testing.
@@ -236,17 +236,20 @@ impl DisplayList {
         writeln!(json, "{{").unwrap();
         writeln!(json, "  \"total_items\": {},", self.items.len()).unwrap();
         writeln!(json, "  \"items\": [").unwrap();
-        
+
         let mut clip_depth = 0i32;
         let mut scroll_depth = 0i32;
         let mut stacking_depth = 0i32;
-        
+
         for (i, item) in self.items.iter().enumerate() {
             let comma = if i < self.items.len() - 1 { "," } else { "" };
             let node_id = self.node_mapping.get(i).and_then(|n| *n);
-            
+
             match item {
-                DisplayListItem::PushClip { bounds, border_radius } => {
+                DisplayListItem::PushClip {
+                    bounds,
+                    border_radius,
+                } => {
                     clip_depth += 1;
                     writeln!(json, "    {{").unwrap();
                     writeln!(json, "      \"index\": {},", i).unwrap();
@@ -256,7 +259,7 @@ impl DisplayList {
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},", 
                         bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height).unwrap();
                     writeln!(json, "      \"border_radius\": {{ \"tl\": {:.1}, \"tr\": {:.1}, \"bl\": {:.1}, \"br\": {:.1} }},",
-                        border_radius.top_left, border_radius.top_right, 
+                        border_radius.top_left, border_radius.top_right,
                         border_radius.bottom_left, border_radius.bottom_right).unwrap();
                     writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
                     writeln!(json, "    }}{}", comma).unwrap();
@@ -270,7 +273,11 @@ impl DisplayList {
                     writeln!(json, "    }}{}", comma).unwrap();
                     clip_depth -= 1;
                 }
-                DisplayListItem::PushScrollFrame { clip_bounds, content_size, scroll_id } => {
+                DisplayListItem::PushScrollFrame {
+                    clip_bounds,
+                    content_size,
+                    scroll_id,
+                } => {
                     scroll_depth += 1;
                     writeln!(json, "    {{").unwrap();
                     writeln!(json, "      \"index\": {},", i).unwrap();
@@ -278,10 +285,14 @@ impl DisplayList {
                     writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
                     writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
                     writeln!(json, "      \"clip_bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
-                        clip_bounds.origin.x, clip_bounds.origin.y, 
+                        clip_bounds.origin.x, clip_bounds.origin.y,
                         clip_bounds.size.width, clip_bounds.size.height).unwrap();
-                    writeln!(json, "      \"content_size\": {{ \"w\": {:.1}, \"h\": {:.1} }},",
-                        content_size.width, content_size.height).unwrap();
+                    writeln!(
+                        json,
+                        "      \"content_size\": {{ \"w\": {:.1}, \"h\": {:.1} }},",
+                        content_size.width, content_size.height
+                    )
+                    .unwrap();
                     writeln!(json, "      \"scroll_id\": {},", scroll_id).unwrap();
                     writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
                     writeln!(json, "    }}{}", comma).unwrap();
@@ -311,11 +322,20 @@ impl DisplayList {
                     writeln!(json, "      \"index\": {},", i).unwrap();
                     writeln!(json, "      \"type\": \"PopStackingContext\",").unwrap();
                     writeln!(json, "      \"stacking_depth_before\": {},", stacking_depth).unwrap();
-                    writeln!(json, "      \"stacking_depth_after\": {}", stacking_depth - 1).unwrap();
+                    writeln!(
+                        json,
+                        "      \"stacking_depth_after\": {}",
+                        stacking_depth - 1
+                    )
+                    .unwrap();
                     writeln!(json, "    }}{}", comma).unwrap();
                     stacking_depth -= 1;
                 }
-                DisplayListItem::Rect { bounds, color, border_radius } => {
+                DisplayListItem::Rect {
+                    bounds,
+                    color,
+                    border_radius,
+                } => {
                     writeln!(json, "    {{").unwrap();
                     writeln!(json, "      \"index\": {},", i).unwrap();
                     writeln!(json, "      \"type\": \"Rect\",").unwrap();
@@ -323,8 +343,12 @@ impl DisplayList {
                     writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
                         bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height).unwrap();
-                    writeln!(json, "      \"color\": \"rgba({},{},{},{})\",", 
-                        color.r, color.g, color.b, color.a).unwrap();
+                    writeln!(
+                        json,
+                        "      \"color\": \"rgba({},{},{},{})\",",
+                        color.r, color.g, color.b, color.a
+                    )
+                    .unwrap();
                     writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
                     writeln!(json, "    }}{}", comma).unwrap();
                 }
@@ -347,14 +371,19 @@ impl DisplayList {
                     writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
                     writeln!(json, "      \"orientation\": \"{:?}\",", info.orientation).unwrap();
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }}",
-                        info.bounds.origin.x, info.bounds.origin.y, 
+                        info.bounds.origin.x, info.bounds.origin.y,
                         info.bounds.size.width, info.bounds.size.height).unwrap();
                     writeln!(json, "    }}{}", comma).unwrap();
                 }
                 _ => {
                     writeln!(json, "    {{").unwrap();
                     writeln!(json, "      \"index\": {},", i).unwrap();
-                    writeln!(json, "      \"type\": \"{:?}\",", std::mem::discriminant(item)).unwrap();
+                    writeln!(
+                        json,
+                        "      \"type\": \"{:?}\",",
+                        std::mem::discriminant(item)
+                    )
+                    .unwrap();
                     writeln!(json, "      \"clip_depth\": {},", clip_depth).unwrap();
                     writeln!(json, "      \"scroll_depth\": {},", scroll_depth).unwrap();
                     writeln!(json, "      \"node_id\": {:?}", node_id).unwrap();
@@ -362,14 +391,19 @@ impl DisplayList {
                 }
             }
         }
-        
+
         writeln!(json, "  ],").unwrap();
         writeln!(json, "  \"final_clip_depth\": {},", clip_depth).unwrap();
         writeln!(json, "  \"final_scroll_depth\": {},", scroll_depth).unwrap();
         writeln!(json, "  \"final_stacking_depth\": {},", stacking_depth).unwrap();
-        writeln!(json, "  \"balanced\": {}", clip_depth == 0 && scroll_depth == 0 && stacking_depth == 0).unwrap();
+        writeln!(
+            json,
+            "  \"balanced\": {}",
+            clip_depth == 0 && scroll_depth == 0 && stacking_depth == 0
+        )
+        .unwrap();
         writeln!(json, "}}").unwrap();
-        
+
         json
     }
 }
@@ -627,7 +661,7 @@ impl DisplayListBuilder {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     pub fn with_debug(debug_enabled: bool) -> Self {
         Self {
             items: Vec::new(),
@@ -637,16 +671,19 @@ impl DisplayListBuilder {
             debug_enabled,
         }
     }
-    
+
     /// Log a debug message if debug is enabled
     fn debug_log(&mut self, message: String) {
         if self.debug_enabled {
             self.debug_messages.push(LayoutDebugMessage::info(message));
         }
     }
-    
+
     /// Build the display list and transfer debug messages to the provided option
-    pub fn build_with_debug(mut self, debug_messages: &mut Option<Vec<LayoutDebugMessage>>) -> DisplayList {
+    pub fn build_with_debug(
+        mut self,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> DisplayList {
         // Transfer collected debug messages to the context
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.append(&mut self.debug_messages);
@@ -678,7 +715,7 @@ impl DisplayListBuilder {
     pub fn push_hit_test_area(&mut self, bounds: LogicalRect, tag: DisplayListTagId) {
         self.push_item(DisplayListItem::HitTestArea { bounds, tag });
     }
-    
+
     /// Push a simple single-color scrollbar (legacy method).
     pub fn push_scrollbar(
         &mut self,
@@ -699,7 +736,7 @@ impl DisplayListBuilder {
             });
         }
     }
-    
+
     /// Push a fully styled scrollbar with track, thumb, and optional buttons.
     pub fn push_scrollbar_styled(&mut self, info: ScrollbarDrawInfo) {
         // Only push if at least the thumb or track is visible
@@ -709,7 +746,7 @@ impl DisplayListBuilder {
             });
         }
     }
-    
+
     pub fn push_rect(&mut self, bounds: LogicalRect, color: ColorU, border_radius: BorderRadius) {
         if color.a > 0 {
             // Optimization: Don't draw fully transparent items.
@@ -722,7 +759,7 @@ impl DisplayListBuilder {
     }
 
     /// Unified method to paint all background layers and border for an element.
-    /// 
+    ///
     /// This consolidates the background/border painting logic that was previously
     /// duplicated across:
     /// - paint_node_background_and_border() for block elements
@@ -739,7 +776,7 @@ impl DisplayListBuilder {
         style_border_radius: StyleBorderRadius,
     ) {
         use azul_css::props::style::StyleBackgroundContent;
-        
+
         // Paint all background layers in order (CSS paints backgrounds back to front)
         for bg in background_contents {
             match bg {
@@ -772,7 +809,7 @@ impl DisplayListBuilder {
     }
 
     /// Paint backgrounds and border for inline text elements.
-    /// 
+    ///
     /// Similar to push_backgrounds_and_border but uses InlineBorderInfo which stores
     /// pre-resolved pixel values instead of CSS property values. This is used for
     /// inline (display: inline) elements where the border info is computed during
@@ -785,12 +822,12 @@ impl DisplayListBuilder {
         border: Option<&crate::text3::cache::InlineBorderInfo>,
     ) {
         use azul_css::props::style::StyleBackgroundContent;
-        
+
         // Paint solid background color if present
         if let Some(bg_color) = background_color {
             self.push_rect(bounds, bg_color, BorderRadius::default());
         }
-        
+
         // Paint all background layers in order (CSS paints backgrounds back to front)
         for bg in background_contents {
             match bg {
@@ -816,22 +853,46 @@ impl DisplayListBuilder {
         if let Some(border) = border {
             if border.top > 0.0 || border.right > 0.0 || border.bottom > 0.0 || border.left > 0.0 {
                 let border_widths = StyleBorderWidths {
-                    top: Some(CssPropertyValue::Exact(LayoutBorderTopWidth { inner: PixelValue::px(border.top) })),
-                    right: Some(CssPropertyValue::Exact(LayoutBorderRightWidth { inner: PixelValue::px(border.right) })),
-                    bottom: Some(CssPropertyValue::Exact(LayoutBorderBottomWidth { inner: PixelValue::px(border.bottom) })),
-                    left: Some(CssPropertyValue::Exact(LayoutBorderLeftWidth { inner: PixelValue::px(border.left) })),
+                    top: Some(CssPropertyValue::Exact(LayoutBorderTopWidth {
+                        inner: PixelValue::px(border.top),
+                    })),
+                    right: Some(CssPropertyValue::Exact(LayoutBorderRightWidth {
+                        inner: PixelValue::px(border.right),
+                    })),
+                    bottom: Some(CssPropertyValue::Exact(LayoutBorderBottomWidth {
+                        inner: PixelValue::px(border.bottom),
+                    })),
+                    left: Some(CssPropertyValue::Exact(LayoutBorderLeftWidth {
+                        inner: PixelValue::px(border.left),
+                    })),
                 };
                 let border_colors = StyleBorderColors {
-                    top: Some(CssPropertyValue::Exact(StyleBorderTopColor { inner: border.top_color })),
-                    right: Some(CssPropertyValue::Exact(StyleBorderRightColor { inner: border.right_color })),
-                    bottom: Some(CssPropertyValue::Exact(StyleBorderBottomColor { inner: border.bottom_color })),
-                    left: Some(CssPropertyValue::Exact(StyleBorderLeftColor { inner: border.left_color })),
+                    top: Some(CssPropertyValue::Exact(StyleBorderTopColor {
+                        inner: border.top_color,
+                    })),
+                    right: Some(CssPropertyValue::Exact(StyleBorderRightColor {
+                        inner: border.right_color,
+                    })),
+                    bottom: Some(CssPropertyValue::Exact(StyleBorderBottomColor {
+                        inner: border.bottom_color,
+                    })),
+                    left: Some(CssPropertyValue::Exact(StyleBorderLeftColor {
+                        inner: border.left_color,
+                    })),
                 };
                 let border_styles = StyleBorderStyles {
-                    top: Some(CssPropertyValue::Exact(StyleBorderTopStyle { inner: BorderStyle::Solid })),
-                    right: Some(CssPropertyValue::Exact(StyleBorderRightStyle { inner: BorderStyle::Solid })),
-                    bottom: Some(CssPropertyValue::Exact(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-                    left: Some(CssPropertyValue::Exact(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
+                    top: Some(CssPropertyValue::Exact(StyleBorderTopStyle {
+                        inner: BorderStyle::Solid,
+                    })),
+                    right: Some(CssPropertyValue::Exact(StyleBorderRightStyle {
+                        inner: BorderStyle::Solid,
+                    })),
+                    bottom: Some(CssPropertyValue::Exact(StyleBorderBottomStyle {
+                        inner: BorderStyle::Solid,
+                    })),
+                    left: Some(CssPropertyValue::Exact(StyleBorderLeftStyle {
+                        inner: BorderStyle::Solid,
+                    })),
                 };
                 let radius_px = PixelValue::px(border.radius.unwrap_or(0.0));
                 let border_radius = StyleBorderRadius {
@@ -840,7 +901,7 @@ impl DisplayListBuilder {
                     bottom_left: radius_px,
                     bottom_right: radius_px,
                 };
-                
+
                 self.push_border(
                     bounds,
                     border_widths,
@@ -986,9 +1047,17 @@ impl DisplayListBuilder {
         color: ColorU,
         clip_rect: LogicalRect,
     ) {
-        self.debug_log(format!("[push_text_run] {} glyphs, font_size={}px, color=({},{},{},{}), clip={:?}",
-            glyphs.len(), font_size_px, color.r, color.g, color.b, color.a, clip_rect));
-        
+        self.debug_log(format!(
+            "[push_text_run] {} glyphs, font_size={}px, color=({},{},{},{}), clip={:?}",
+            glyphs.len(),
+            font_size_px,
+            color.r,
+            color.g,
+            color.b,
+            color.a,
+            clip_rect
+        ));
+
         if !glyphs.is_empty() && color.a > 0 {
             self.push_item(DisplayListItem::Text {
                 glyphs,
@@ -998,8 +1067,11 @@ impl DisplayListBuilder {
                 clip_rect,
             });
         } else {
-            self.debug_log(format!("[push_text_run] SKIPPED: glyphs.is_empty()={}, color.a={}",
-                glyphs.is_empty(), color.a));
+            self.debug_log(format!(
+                "[push_text_run] SKIPPED: glyphs.is_empty()={}, color.a={}",
+                glyphs.is_empty(),
+                color.a
+            ));
         }
     }
 
@@ -1069,9 +1141,13 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     id_namespace: IdNamespace,
     dom_id: DomId,
 ) -> Result<DisplayList> {
-    debug_info!(ctx, "[DisplayList] generate_display_list: tree has {} nodes, {} positions calculated",
-        tree.nodes.len(), calculated_positions.len());
-    
+    debug_info!(
+        ctx,
+        "[DisplayList] generate_display_list: tree has {} nodes, {} positions calculated",
+        tree.nodes.len(),
+        calculated_positions.len()
+    );
+
     debug_info!(ctx, "Starting display list generation");
     debug_info!(
         ctx,
@@ -1093,7 +1169,7 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
         id_namespace,
         dom_id,
     );
-    
+
     // Create builder with debug enabled if ctx has debug messages
     let debug_enabled = generator.ctx.debug_messages.is_some();
     let mut builder = DisplayListBuilder::with_debug(debug_enabled);
@@ -1344,7 +1420,7 @@ where
         builder.push_stacking_context(context.z_index, node_bounds);
 
         // 1. Paint background and borders for the context's root element.
-        // This must be BEFORE push_node_clips so the container background 
+        // This must be BEFORE push_node_clips so the container background
         // is rendered in parent space (stationary), not scroll space.
         self.paint_node_background_and_border(builder, context.node_index)?;
 
@@ -1490,7 +1566,7 @@ where
             if did_push_clip {
                 self.pop_node_clips(builder, child_node)?;
             }
-            
+
             // Paint scrollbars AFTER popping clips so they appear on top of content
             self.paint_scrollbars(builder, child_index)?;
         }
@@ -1511,7 +1587,7 @@ where
             if did_push_clip {
                 self.pop_node_clips(builder, child_node)?;
             }
-            
+
             // Paint scrollbars AFTER popping clips so they appear on top of content
             self.paint_scrollbars(builder, child_index)?;
         }
@@ -1558,10 +1634,10 @@ where
         let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
 
         let border = &node.box_props.border;
-        
+
         // Get scrollbar info to adjust clip rect for content area
         let scrollbar_info = get_scrollbar_info_from_layout(node);
-        
+
         // The clip rect for content should exclude the scrollbar area
         // Scrollbars are drawn inside the border-box, on the right/bottom edges
         let clip_rect = LogicalRect {
@@ -1571,8 +1647,16 @@ where
             },
             size: LogicalSize {
                 // Reduce width/height by scrollbar dimensions so content doesn't overlap scrollbar
-                width: (paint_rect.size.width - border.left - border.right - scrollbar_info.scrollbar_width).max(0.0),
-                height: (paint_rect.size.height - border.top - border.bottom - scrollbar_info.scrollbar_height).max(0.0),
+                width: (paint_rect.size.width
+                    - border.left
+                    - border.right
+                    - scrollbar_info.scrollbar_width)
+                    .max(0.0),
+                height: (paint_rect.size.height
+                    - border.top
+                    - border.bottom
+                    - scrollbar_info.scrollbar_height)
+                    .max(0.0),
             },
         };
 
@@ -1625,9 +1709,8 @@ where
             self.ctx.viewport_size,
         );
 
-        let needs_clip = overflow_x.is_clipped()
-            || overflow_y.is_clipped()
-            || !border_radius.is_zero();
+        let needs_clip =
+            overflow_x.is_clipped() || overflow_y.is_clipped() || !border_radius.is_zero();
 
         if needs_clip {
             if overflow_x.is_scroll() || overflow_y.is_scroll() {
@@ -1705,7 +1788,7 @@ where
                 .unwrap_or(LayoutDisplay::Inline);
 
             if display == LayoutDisplay::InlineBlock || display == LayoutDisplay::Inline {
-                // text3 will handle this via InlineShape (for inline-block) 
+                // text3 will handle this via InlineShape (for inline-block)
                 // or glyph runs with background_color (for inline)
                 return Ok(());
             }
@@ -1972,7 +2055,7 @@ where
             } else {
                 false
             };
-            
+
             // Push hit-test area for this node
             // For scrollable containers, this is pushed BEFORE the scroll frame in push_node_clips
             // to ensure the hit-test covers the entire container, not just scrolled content
@@ -1982,9 +2065,13 @@ where
         // Paint the node's visible content.
         if let Some(cached_layout) = &node.inline_layout_result {
             let inline_layout = &cached_layout.layout;
-            debug_info!(self.ctx, "[paint_node] node {} has inline_layout with {} items",
-                node_index, inline_layout.items.len());
-            
+            debug_info!(
+                self.ctx,
+                "[paint_node] node {} has inline_layout with {} items",
+                node_index,
+                inline_layout.items.len()
+            );
+
             if let Some(dom_id) = node.dom_node_id {
                 let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];
                 debug_info!(
@@ -2025,11 +2112,7 @@ where
 
     /// Emits drawing commands for scrollbars. This is called AFTER popping the scroll frame
     /// clip so scrollbars appear on top of content and are not clipped.
-    fn paint_scrollbars(
-        &self,
-        builder: &mut DisplayListBuilder,
-        node_index: usize,
-    ) -> Result<()> {
+    fn paint_scrollbars(&self, builder: &mut DisplayListBuilder, node_index: usize) -> Result<()> {
         let node = self
             .positioned_tree
             .tree
@@ -2045,39 +2128,48 @@ where
 
         // Get node_id for GPU cache lookup and CSS style lookup
         let node_id = node.dom_node_id;
-        
+
         // Get CSS scrollbar style for this node
         let scrollbar_style = node_id
             .map(|nid| {
-                let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
+                let node_state =
+                    &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
                 get_scrollbar_style(self.ctx.styled_dom, nid, node_state)
             })
             .unwrap_or_default();
-        
+
         // Skip if scrollbar-width: none
-        if matches!(scrollbar_style.width_mode, azul_css::props::style::scrollbar::LayoutScrollbarWidth::None) {
+        if matches!(
+            scrollbar_style.width_mode,
+            azul_css::props::style::scrollbar::LayoutScrollbarWidth::None
+        ) {
             return Ok(());
         }
-        
+
         // Get border dimensions to position scrollbar inside the border-box
         let border = &node.box_props.border;
-        
+
         // Get border-radius for potential clipping
         let container_border_radius = node_id
             .map(|nid| {
-                let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
+                let node_state =
+                    &self.ctx.styled_dom.styled_nodes.as_container()[nid].styled_node_state;
                 let element_size = PhysicalSizeImport {
                     width: paint_rect.size.width,
                     height: paint_rect.size.height,
                 };
-                let viewport_size = LogicalSize::new(
-                    self.ctx.viewport_size.width,
-                    self.ctx.viewport_size.height,
-                );
-                get_border_radius(self.ctx.styled_dom, nid, node_state, element_size, viewport_size)
+                let viewport_size =
+                    LogicalSize::new(self.ctx.viewport_size.width, self.ctx.viewport_size.height);
+                get_border_radius(
+                    self.ctx.styled_dom,
+                    nid,
+                    node_state,
+                    element_size,
+                    viewport_size,
+                )
             })
             .unwrap_or_default();
-        
+
         // Calculate the inner rect (content-box) where scrollbars should be placed
         // Scrollbars are positioned inside the border, at the right/bottom edges
         let inner_rect = LogicalRect {
@@ -2090,19 +2182,21 @@ where
                 (paint_rect.size.height - border.top - border.bottom).max(0.0),
             ),
         };
-        
+
         // Get scroll position for thumb calculation
         // ScrollPosition contains parent_rect and children_rect
         // The scroll offset is the difference between children_rect.origin and parent_rect.origin
-        let (scroll_offset_x, scroll_offset_y) = node_id.and_then(|nid| {
-            self.scroll_offsets.get(&nid).map(|pos| {
-                (
-                    pos.children_rect.origin.x - pos.parent_rect.origin.x,
-                    pos.children_rect.origin.y - pos.parent_rect.origin.y,
-                )
+        let (scroll_offset_x, scroll_offset_y) = node_id
+            .and_then(|nid| {
+                self.scroll_offsets.get(&nid).map(|pos| {
+                    (
+                        pos.children_rect.origin.x - pos.parent_rect.origin.x,
+                        pos.children_rect.origin.y - pos.parent_rect.origin.y,
+                    )
+                })
             })
-        }).unwrap_or((0.0, 0.0));
-        
+            .unwrap_or((0.0, 0.0));
+
         // Get content size for thumb proportional sizing
         let content_size = if let Some(ref inline_layout) = node.inline_layout_result {
             let bounds = inline_layout.layout.bounds();
@@ -2111,11 +2205,19 @@ where
             // Fallback: estimate from scrollbar requirements
             let container = node.used_size.unwrap_or_default();
             LogicalSize::new(
-                if scrollbar_info.needs_horizontal { container.width * 2.0 } else { container.width },
-                if scrollbar_info.needs_vertical { container.height * 2.0 } else { container.height },
+                if scrollbar_info.needs_horizontal {
+                    container.width * 2.0
+                } else {
+                    container.width
+                },
+                if scrollbar_info.needs_vertical {
+                    container.height * 2.0
+                } else {
+                    container.height
+                },
             )
         };
-        
+
         // Calculate thumb border-radius (half the scrollbar width for pill-shaped thumb)
         let thumb_radius = scrollbar_style.width_px / 2.0;
         let thumb_border_radius = BorderRadius {
@@ -2124,7 +2226,7 @@ where
             bottom_left: thumb_radius,
             bottom_right: thumb_radius,
         };
-        
+
         if scrollbar_info.needs_vertical {
             // Look up opacity key from GPU cache
             let opacity_key = node_id.and_then(|nid| {
@@ -2142,7 +2244,7 @@ where
             } else {
                 inner_rect.size.height
             };
-            
+
             let track_bounds = LogicalRect {
                 origin: LogicalPosition::new(
                     inner_rect.origin.x + inner_rect.size.width - scrollbar_style.width_px,
@@ -2150,16 +2252,21 @@ where
                 ),
                 size: LogicalSize::new(scrollbar_style.width_px, track_height),
             };
-            
+
             // Calculate thumb size and position
             let viewport_height = inner_rect.size.height;
             let thumb_ratio = (viewport_height / content_size.height).min(1.0);
             let thumb_height = (track_height * thumb_ratio).max(scrollbar_style.width_px * 2.0);
-            
+
             let max_scroll = (content_size.height - viewport_height).max(0.0);
-            let scroll_ratio = if max_scroll > 0.0 { scroll_offset_y.abs() / max_scroll } else { 0.0 };
-            let thumb_y = track_bounds.origin.y + (track_height - thumb_height) * scroll_ratio.clamp(0.0, 1.0);
-            
+            let scroll_ratio = if max_scroll > 0.0 {
+                scroll_offset_y.abs() / max_scroll
+            } else {
+                0.0
+            };
+            let thumb_y = track_bounds.origin.y
+                + (track_height - thumb_height) * scroll_ratio.clamp(0.0, 1.0);
+
             let thumb_bounds = LogicalRect {
                 origin: LogicalPosition::new(track_bounds.origin.x, thumb_y),
                 size: LogicalSize::new(scrollbar_style.width_px, thumb_height),
@@ -2186,7 +2293,7 @@ where
                 container_border_radius,
             });
         }
-        
+
         if scrollbar_info.needs_horizontal {
             // Look up opacity key from GPU cache
             let opacity_key = node_id.and_then(|nid| {
@@ -2204,7 +2311,7 @@ where
             } else {
                 inner_rect.size.width
             };
-            
+
             let track_bounds = LogicalRect {
                 origin: LogicalPosition::new(
                     inner_rect.origin.x,
@@ -2212,16 +2319,21 @@ where
                 ),
                 size: LogicalSize::new(track_width, scrollbar_style.width_px),
             };
-            
+
             // Calculate thumb size and position
             let viewport_width = inner_rect.size.width;
             let thumb_ratio = (viewport_width / content_size.width).min(1.0);
             let thumb_width = (track_width * thumb_ratio).max(scrollbar_style.width_px * 2.0);
-            
+
             let max_scroll = (content_size.width - viewport_width).max(0.0);
-            let scroll_ratio = if max_scroll > 0.0 { scroll_offset_x.abs() / max_scroll } else { 0.0 };
-            let thumb_x = track_bounds.origin.x + (track_width - thumb_width) * scroll_ratio.clamp(0.0, 1.0);
-            
+            let scroll_ratio = if max_scroll > 0.0 {
+                scroll_offset_x.abs() / max_scroll
+            } else {
+                0.0
+            };
+            let thumb_x =
+                track_bounds.origin.x + (track_width - thumb_width) * scroll_ratio.clamp(0.0, 1.0);
+
             let thumb_bounds = LogicalRect {
                 origin: LogicalPosition::new(thumb_x, track_bounds.origin.y),
                 size: LogicalSize::new(thumb_width, scrollbar_style.width_px),
@@ -2293,17 +2405,17 @@ where
                 let run_start_x = container_rect.origin.x + first_glyph.point.x;
                 let run_end_x = container_rect.origin.x + last_glyph.point.x;
                 let run_width = (run_end_x - run_start_x).max(0.0);
-                
+
                 // Skip if run has no width
                 if run_width <= 0.0 {
                     continue;
                 }
-                
+
                 // Approximate height based on font size (baseline is at glyph.point.y)
                 let baseline_y = container_rect.origin.y + first_glyph.point.y;
                 let font_size = glyph_run.font_size_px;
                 let ascent = font_size * 0.8; // Approximate ascent
-                
+
                 let run_bounds = LogicalRect::new(
                     LogicalPosition::new(run_start_x, baseline_y - ascent),
                     LogicalSize::new(run_width, font_size),
@@ -2456,11 +2568,13 @@ where
             return Ok(());
         };
 
-        let styled_node_state = &self.ctx.styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
-        
+        let styled_node_state =
+            &self.ctx.styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
+
         // Get all background layers (colors, gradients, images)
-        let background_contents = get_background_contents(self.ctx.styled_dom, node_id, styled_node_state);
-        
+        let background_contents =
+            get_background_contents(self.ctx.styled_dom, node_id, styled_node_state);
+
         // Get border information
         let border_info = get_border_info(self.ctx.styled_dom, node_id, styled_node_state);
 
@@ -2468,7 +2582,7 @@ where
             width: bounds.width,
             height: bounds.height,
         };
-        
+
         // Get border radius for background clipping
         let simple_border_radius = get_border_radius(
             self.ctx.styled_dom,
@@ -2477,9 +2591,10 @@ where
             element_size,
             self.ctx.viewport_size,
         );
-        
+
         // Get style border radius for border rendering
-        let style_border_radius = get_style_border_radius(self.ctx.styled_dom, node_id, styled_node_state);
+        let style_border_radius =
+            get_style_border_radius(self.ctx.styled_dom, node_id, styled_node_state);
 
         // Use unified background/border painting
         builder.push_backgrounds_and_border(
@@ -2514,7 +2629,8 @@ where
 
         if let Some(styled_node) = self.ctx.styled_dom.styled_nodes.as_container().get(dom_id) {
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+            let node_state =
+                &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
             // Opacity < 1
             let opacity = self

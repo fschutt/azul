@@ -22,8 +22,11 @@ use azul_layout::{
 use rust_fontconfig::FcFontCache;
 use webrender::{RenderApi as WrRenderApi, Transaction as WrTransaction};
 
-use crate::{desktop::{csd, wr_translate2}, log_debug};
 use super::debug_server::{self, LogCategory};
+use crate::{
+    desktop::{csd, wr_translate2},
+    log_debug,
+};
 use azul_css::LayoutDebugMessage;
 
 /// Regenerate layout after DOM changes.
@@ -65,7 +68,10 @@ pub fn regenerate_layout(
     layout_window.font_manager.fc_cache = fc_cache.clone();
 
     // 1. Call user's layout callback to get new DOM
-    log_debug!(LogCategory::Layout, "[regenerate_layout] Calling layout_callback");
+    log_debug!(
+        LogCategory::Layout,
+        "[regenerate_layout] Calling layout_callback"
+    );
 
     // Create reference data container (syntax sugar to reduce parameter count)
     let layout_ref_data = LayoutCallbackInfoRefData {
@@ -93,7 +99,10 @@ pub fn regenerate_layout(
         current_window_state.flags.has_decorations,
         current_window_state.flags.decorations,
     ) {
-        log_debug!(LogCategory::Layout, "[regenerate_layout] Injecting CSD decorations");
+        log_debug!(
+            LogCategory::Layout,
+            "[regenerate_layout] Injecting CSD decorations"
+        );
         csd::wrap_user_dom_with_decorations(
             user_styled_dom,
             &current_window_state.title,
@@ -106,10 +115,18 @@ pub fn regenerate_layout(
         user_styled_dom
     };
 
-    log_debug!(LogCategory::Layout, "[regenerate_layout] StyledDom: {} nodes, {} hierarchy", styled_dom.styled_nodes.len(), styled_dom.node_hierarchy.len());
+    log_debug!(
+        LogCategory::Layout,
+        "[regenerate_layout] StyledDom: {} nodes, {} hierarchy",
+        styled_dom.styled_nodes.len(),
+        styled_dom.node_hierarchy.len()
+    );
 
     // 3. Perform layout with solver3
-    log_debug!(LogCategory::Layout, "[regenerate_layout] Calling layout_and_generate_display_list");
+    log_debug!(
+        LogCategory::Layout,
+        "[regenerate_layout] Calling layout_and_generate_display_list"
+    );
     layout_window
         .layout_and_generate_display_list(
             styled_dom,
@@ -120,7 +137,11 @@ pub fn regenerate_layout(
         )
         .map_err(|e| format!("Layout error: {:?}", e))?;
 
-    log_debug!(LogCategory::Layout, "[regenerate_layout] Layout completed, {} DOMs", layout_window.layout_results.len());
+    log_debug!(
+        LogCategory::Layout,
+        "[regenerate_layout] Layout completed, {} DOMs",
+        layout_window.layout_results.len()
+    );
 
     // 4. Register scrollable nodes with scroll_manager
     // This must happen AFTER layout but BEFORE calculate_scrollbar_states
@@ -137,10 +158,10 @@ pub fn regenerate_layout(
                             origin: azul_core::geom::LogicalPosition::zero(),
                             size: container_size,
                         };
-                        
+
                         // Get content size using the node's method
                         let content_size = node.get_content_size();
-                        
+
                         layout_window.scroll_manager.register_or_update_scroll_node(
                             *dom_id,
                             dom_node_id,
@@ -148,8 +169,8 @@ pub fn regenerate_layout(
                             content_size,
                             now.clone(),
                         );
-                        
-                        log_debug!(LogCategory::Layout, 
+
+                        log_debug!(LogCategory::Layout,
                             "[regenerate_layout] Registered scroll node: dom={:?} node={:?} container={:?} content={:?}",
                             dom_id, dom_node_id, container_size, content_size);
                     }

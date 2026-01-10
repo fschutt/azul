@@ -147,7 +147,7 @@ impl A11yManager {
 
                 while parent_node_index != usize::MAX && iterations < max_hierarchy_depth {
                     iterations += 1;
-                    
+
                     if let Some(parent_a11y_id) =
                         node_id_map.get(&(dom_id.inner as u32, parent_node_index as u32))
                     {

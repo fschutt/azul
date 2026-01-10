@@ -1,13 +1,12 @@
+use azul::css::StyledDom;
 use azul::prelude::*;
 use azul::widgets::Button;
-use azul::css::StyledDom;
 
 struct DataModel {
     counter: usize,
 }
 
-extern "C" 
-fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     let counter = match data.downcast_ref::<DataModel>() {
         Some(d) => format!("{}", d.counter),
         None => return StyledDom::default(),
@@ -27,8 +26,7 @@ fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
         .style(Css::empty())
 }
 
-extern "C" 
-fn my_on_click(mut data: RefAny, _: CallbackInfo) -> Update {
+extern "C" fn my_on_click(mut data: RefAny, _: CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<DataModel>() {
         Some(s) => s,
         None => return Update::DoNothing, // error

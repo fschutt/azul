@@ -15,13 +15,13 @@ use azul_css::{
             ContentValue, CounterIncrementValue, CounterResetValue, CssProperty, CssPropertyType,
             FlowFromValue, FlowIntoValue, LayoutAlignContentValue, LayoutAlignItemsValue,
             LayoutAlignSelfValue, LayoutBorderBottomWidthValue, LayoutBorderLeftWidthValue,
-            LayoutBorderRightWidthValue, LayoutBorderTopWidthValue, LayoutInsetBottomValue,
-            LayoutBoxSizingValue, LayoutClearValue, LayoutColumnGapValue, LayoutDisplayValue,
-            LayoutFlexBasisValue, LayoutFlexDirectionValue, LayoutFlexGrowValue,
-            LayoutFlexShrinkValue, LayoutFlexWrapValue, LayoutFloatValue, LayoutGapValue,
-            LayoutGridAutoColumnsValue, LayoutGridAutoFlowValue, LayoutGridAutoRowsValue,
-            LayoutGridColumnValue, LayoutGridRowValue, LayoutGridTemplateColumnsValue,
-            LayoutGridTemplateRowsValue, LayoutHeightValue, LayoutJustifyContentValue,
+            LayoutBorderRightWidthValue, LayoutBorderTopWidthValue, LayoutBoxSizingValue,
+            LayoutClearValue, LayoutColumnGapValue, LayoutDisplayValue, LayoutFlexBasisValue,
+            LayoutFlexDirectionValue, LayoutFlexGrowValue, LayoutFlexShrinkValue,
+            LayoutFlexWrapValue, LayoutFloatValue, LayoutGapValue, LayoutGridAutoColumnsValue,
+            LayoutGridAutoFlowValue, LayoutGridAutoRowsValue, LayoutGridColumnValue,
+            LayoutGridRowValue, LayoutGridTemplateColumnsValue, LayoutGridTemplateRowsValue,
+            LayoutHeightValue, LayoutInsetBottomValue, LayoutJustifyContentValue,
             LayoutJustifyItemsValue, LayoutJustifySelfValue, LayoutLeftValue,
             LayoutMarginBottomValue, LayoutMarginLeftValue, LayoutMarginRightValue,
             LayoutMarginTopValue, LayoutMaxHeightValue, LayoutMaxWidthValue, LayoutMinHeightValue,
@@ -54,10 +54,7 @@ use azul_css::{
 
 use crate::{
     callbacks::Update,
-    dom::{
-        Dom, DomId, NodeData, NodeDataVec, OptionTabIndex, OptionTagId,
-        TabIndex, TagId,
-    },
+    dom::{Dom, DomId, NodeData, NodeDataVec, OptionTabIndex, OptionTagId, TabIndex, TagId},
     id::{
         Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeHierarchy,
         NodeId,
@@ -189,8 +186,13 @@ impl StyledNodeState {
 
     /// Returns true if no special state is active (just normal)
     pub fn is_normal(&self) -> bool {
-        !self.hover && !self.active && !self.focused && !self.disabled 
-            && !self.checked && !self.focus_within && !self.visited
+        !self.hover
+            && !self.active
+            && !self.focused
+            && !self.disabled
+            && !self.checked
+            && !self.focus_within
+            && !self.visited
     }
 
     /// Convert to PseudoStateFlags for use with dynamic selectors
@@ -232,7 +234,12 @@ pub struct StyledNode {
     pub tag_id: OptionTagId,
 }
 
-impl_vec!(StyledNode, StyledNodeVec, StyledNodeVecDestructor, StyledNodeVecDestructorType);
+impl_vec!(
+    StyledNode,
+    StyledNodeVec,
+    StyledNodeVecDestructor,
+    StyledNodeVecDestructorType
+);
 impl_vec_mut!(StyledNode, StyledNodeVec);
 impl_vec_debug!(StyledNode, StyledNodeVec);
 impl_vec_partialord!(StyledNode, StyledNodeVec);
@@ -398,7 +405,7 @@ impl fmt::Display for NodeHierarchyItemId {
 impl NodeHierarchyItemId {
     /// Represents `None` (no node). Encoded as `inner = 0`.
     pub const NONE: NodeHierarchyItemId = NodeHierarchyItemId { inner: 0 };
-    
+
     /// Creates an `NodeHierarchyItemId` from a raw 1-based encoded value.
     ///
     /// # Warning
@@ -409,7 +416,7 @@ impl NodeHierarchyItemId {
     pub const fn from_raw(value: usize) -> Self {
         Self { inner: value }
     }
-    
+
     /// Returns the raw 1-based encoded value.
     ///
     /// # Warning
@@ -427,7 +434,12 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(NodeHierarchyItemId, NodeIdVec, NodeIdVecDestructor, NodeIdVecDestructorType);
+impl_vec!(
+    NodeHierarchyItemId,
+    NodeIdVec,
+    NodeIdVecDestructor,
+    NodeIdVecDestructorType
+);
 impl_vec_mut!(NodeHierarchyItemId, NodeIdVec);
 impl_vec_debug!(NodeHierarchyItemId, NodeIdVec);
 impl_vec_ord!(NodeHierarchyItemId, NodeIdVec);
@@ -639,7 +651,12 @@ pub struct ContentGroup {
     pub children: ContentGroupVec,
 }
 
-impl_vec!(ContentGroup, ContentGroupVec, ContentGroupVecDestructor, ContentGroupVecDestructorType);
+impl_vec!(
+    ContentGroup,
+    ContentGroupVec,
+    ContentGroupVecDestructor,
+    ContentGroupVecDestructorType
+);
 impl_vec_mut!(ContentGroup, ContentGroupVec);
 impl_vec_debug!(ContentGroup, ContentGroupVec);
 impl_vec_partialord!(ContentGroup, ContentGroupVec);
@@ -1084,7 +1101,9 @@ impl StyledDom {
     /// Returns the current state (hover, active, focus) of a styled node.
     #[inline]
     pub fn get_styled_node_state(&self, node_id: &NodeId) -> StyledNodeState {
-        self.styled_nodes.as_container()[*node_id].styled_node_state.clone()
+        self.styled_nodes.as_container()[*node_id]
+            .styled_node_state
+            .clone()
     }
 
     /// Scans the display list for all image keys
@@ -1177,11 +1196,17 @@ impl StyledDom {
         // save the old node state
         let old_node_states = nodes
             .iter()
-            .map(|nid| self.styled_nodes.as_container()[*nid].styled_node_state.clone())
+            .map(|nid| {
+                self.styled_nodes.as_container()[*nid]
+                    .styled_node_state
+                    .clone()
+            })
             .collect::<Vec<_>>();
 
         for nid in nodes.iter() {
-            self.styled_nodes.as_container_mut()[*nid].styled_node_state.hover = new_hover_state;
+            self.styled_nodes.as_container_mut()[*nid]
+                .styled_node_state
+                .hover = new_hover_state;
         }
 
         let css_property_cache = self.get_css_property_cache();
@@ -1216,7 +1241,11 @@ impl StyledDom {
                             let is_hover = prop.apply_if.as_slice().iter().any(|c| {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover))
                             });
-                            if is_hover { Some(prop.property.get_type()) } else { None }
+                            if is_hover {
+                                Some(prop.property.get_type())
+                            } else {
+                                None
+                            }
                         })
                         .collect()
                 };
@@ -1290,11 +1319,17 @@ impl StyledDom {
         // save the old node state
         let old_node_states = nodes
             .iter()
-            .map(|nid| self.styled_nodes.as_container()[*nid].styled_node_state.clone())
+            .map(|nid| {
+                self.styled_nodes.as_container()[*nid]
+                    .styled_node_state
+                    .clone()
+            })
             .collect::<Vec<_>>();
 
         for nid in nodes.iter() {
-            self.styled_nodes.as_container_mut()[*nid].styled_node_state.active = new_active_state;
+            self.styled_nodes.as_container_mut()[*nid]
+                .styled_node_state
+                .active = new_active_state;
         }
 
         let css_property_cache = self.get_css_property_cache();
@@ -1331,7 +1366,11 @@ impl StyledDom {
                             let is_active = prop.apply_if.as_slice().iter().any(|c| {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::Active))
                             });
-                            if is_active { Some(prop.property.get_type()) } else { None }
+                            if is_active {
+                                Some(prop.property.get_type())
+                            } else {
+                                None
+                            }
                         })
                         .collect()
                 };
@@ -1405,11 +1444,17 @@ impl StyledDom {
         // save the old node state
         let old_node_states = nodes
             .iter()
-            .map(|nid| self.styled_nodes.as_container()[*nid].styled_node_state.clone())
+            .map(|nid| {
+                self.styled_nodes.as_container()[*nid]
+                    .styled_node_state
+                    .clone()
+            })
             .collect::<Vec<_>>();
 
         for nid in nodes.iter() {
-            self.styled_nodes.as_container_mut()[*nid].styled_node_state.focused = new_focus_state;
+            self.styled_nodes.as_container_mut()[*nid]
+                .styled_node_state
+                .focused = new_focus_state;
         }
 
         let css_property_cache = self.get_css_property_cache();
@@ -1446,7 +1491,11 @@ impl StyledDom {
                             let is_focus = prop.apply_if.as_slice().iter().any(|c| {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::Focus))
                             });
-                            if is_focus { Some(prop.property.get_type()) } else { None }
+                            if is_focus {
+                                Some(prop.property.get_type())
+                            } else {
+                                None
+                            }
                         })
                         .collect()
                 };
@@ -2002,7 +2051,11 @@ fn sort_children_by_position<'a>(
         .az_children(node_hierarchy)
         .map(|nid| {
             let position = css_property_cache
-                .get_position(&node_data_container[nid], &nid, &rectangles[nid].styled_node_state)
+                .get_position(
+                    &node_data_container[nid],
+                    &nid,
+                    &rectangles[nid].styled_node_state,
+                )
                 .and_then(|p| p.clone().get_property_or_default())
                 .unwrap_or_default();
             let id = NodeHierarchyItemId::from_crate_internal(Some(nid));

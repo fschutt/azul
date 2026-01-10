@@ -1,6 +1,5 @@
 /// Test inline and inline-block elements with gradient backgrounds and borders
 /// Verifies that gradient backgrounds and borders are correctly generated in the display list
-
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -11,8 +10,8 @@ use azul_layout::solver3::display_list::DisplayListItem;
 use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
 use azul_layout::solver3::pagination::FakePageConfig;
 use azul_layout::text3::default::PathLoader;
-use azul_layout::Solver3LayoutCache;
 use azul_layout::xml::DomXmlExt;
+use azul_layout::Solver3LayoutCache;
 use std::collections::BTreeMap;
 
 /// Helper function to run layout and return display list items
@@ -113,13 +112,23 @@ fn test_inline_block_with_gradient_background() {
         println!("  [{}] {:?}", i, std::mem::discriminant(item));
         match item {
             DisplayListItem::LinearGradient { bounds, .. } => {
-                println!("      LinearGradient bounds: {}x{} @ ({}, {})", 
-                    bounds.size.width, bounds.size.height, bounds.origin.x, bounds.origin.y);
+                println!(
+                    "      LinearGradient bounds: {}x{} @ ({}, {})",
+                    bounds.size.width, bounds.size.height, bounds.origin.x, bounds.origin.y
+                );
             }
             DisplayListItem::Rect { bounds, color, .. } => {
-                println!("      Rect bounds: {}x{} @ ({}, {}), color: rgba({},{},{},{})", 
-                    bounds.size.width, bounds.size.height, bounds.origin.x, bounds.origin.y,
-                    color.r, color.g, color.b, color.a);
+                println!(
+                    "      Rect bounds: {}x{} @ ({}, {}), color: rgba({},{},{},{})",
+                    bounds.size.width,
+                    bounds.size.height,
+                    bounds.origin.x,
+                    bounds.origin.y,
+                    color.r,
+                    color.g,
+                    color.b,
+                    color.a
+                );
             }
             _ => {}
         }
@@ -165,9 +174,16 @@ fn test_inline_block_with_border() {
     for (i, item) in items.iter().enumerate() {
         println!("  [{}] {:?}", i, std::mem::discriminant(item));
         match item {
-            DisplayListItem::Border { bounds, widths, colors, .. } => {
-                println!("      Border bounds: {}x{} @ ({}, {})", 
-                    bounds.size.width, bounds.size.height, bounds.origin.x, bounds.origin.y);
+            DisplayListItem::Border {
+                bounds,
+                widths,
+                colors,
+                ..
+            } => {
+                println!(
+                    "      Border bounds: {}x{} @ ({}, {})",
+                    bounds.size.width, bounds.size.height, bounds.origin.x, bounds.origin.y
+                );
                 println!("      Border widths: {:?}", widths);
                 println!("      Border colors: {:?}", colors);
             }
@@ -282,8 +298,10 @@ fn test_inline_element_with_gradient_background() {
         println!("  [{}] {:?}", i, std::mem::discriminant(item));
         match item {
             DisplayListItem::LinearGradient { bounds, .. } => {
-                println!("      LinearGradient bounds: {}x{} @ ({}, {})", 
-                    bounds.size.width, bounds.size.height, bounds.origin.x, bounds.origin.y);
+                println!(
+                    "      LinearGradient bounds: {}x{} @ ({}, {})",
+                    bounds.size.width, bounds.size.height, bounds.origin.x, bounds.origin.y
+                );
             }
             _ => {}
         }
@@ -326,9 +344,16 @@ fn test_inline_element_with_border() {
     for (i, item) in items.iter().enumerate() {
         println!("  [{}] {:?}", i, std::mem::discriminant(item));
         match item {
-            DisplayListItem::Border { bounds, widths, styles, .. } => {
-                println!("      Border bounds: {}x{} @ ({}, {})", 
-                    bounds.size.width, bounds.size.height, bounds.origin.x, bounds.origin.y);
+            DisplayListItem::Border {
+                bounds,
+                widths,
+                styles,
+                ..
+            } => {
+                println!(
+                    "      Border bounds: {}x{} @ ({}, {})",
+                    bounds.size.width, bounds.size.height, bounds.origin.x, bounds.origin.y
+                );
                 println!("      Border widths: {:?}", widths);
                 println!("      Border styles: {:?}", styles);
             }
@@ -444,11 +469,24 @@ fn test_multiple_inline_blocks_with_different_borders() {
     println!("Display list items for multiple bordered boxes:");
     for (i, item) in items.iter().enumerate() {
         match item {
-            DisplayListItem::Border { bounds, widths, colors, styles, .. } => {
-                println!("  [{}] Border: {}x{} @ ({}, {}), widths={:?}, styles={:?}, colors={:?}", 
+            DisplayListItem::Border {
+                bounds,
+                widths,
+                colors,
+                styles,
+                ..
+            } => {
+                println!(
+                    "  [{}] Border: {}x{} @ ({}, {}), widths={:?}, styles={:?}, colors={:?}",
                     i,
-                    bounds.size.width, bounds.size.height, bounds.origin.x, bounds.origin.y,
-                    widths, styles, colors);
+                    bounds.size.width,
+                    bounds.size.height,
+                    bounds.origin.x,
+                    bounds.origin.y,
+                    widths,
+                    styles,
+                    colors
+                );
             }
             _ => {}
         }
@@ -498,10 +536,16 @@ fn test_inline_block_gradient_bounds_match_element_size() {
         println!("  [{}] {:?}", i, std::mem::discriminant(item));
         match item {
             DisplayListItem::LinearGradient { bounds, .. } => {
-                println!("      LinearGradient bounds: {}x{}", bounds.size.width, bounds.size.height);
+                println!(
+                    "      LinearGradient bounds: {}x{}",
+                    bounds.size.width, bounds.size.height
+                );
             }
             DisplayListItem::Rect { bounds, .. } => {
-                println!("      Rect bounds: {}x{}", bounds.size.width, bounds.size.height);
+                println!(
+                    "      Rect bounds: {}x{}",
+                    bounds.size.width, bounds.size.height
+                );
             }
             _ => {}
         }
@@ -519,7 +563,10 @@ fn test_inline_block_gradient_bounds_match_element_size() {
             "Gradient height should be 120px, got {}",
             bounds.size.height
         );
-        println!("SUCCESS: Gradient bounds match element size: {}x{}", bounds.size.width, bounds.size.height);
+        println!(
+            "SUCCESS: Gradient bounds match element size: {}x{}",
+            bounds.size.width, bounds.size.height
+        );
     } else {
         panic!("Should have a gradient item in the display list");
     }

@@ -523,9 +523,7 @@ impl TextureResolver {
         device: &mut Device,
     ) -> Swizzle {
         match *texture_id {
-            TextureSource::Invalid => {
-                Swizzle::default()
-            }
+            TextureSource::Invalid => Swizzle::default(),
             TextureSource::Dummy => {
                 let swizzle = Swizzle::default();
                 device.bind_texture(sampler, &self.dummy_cache_texture, swizzle);

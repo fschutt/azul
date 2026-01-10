@@ -8,8 +8,8 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 use azul_css::{
-    css::CssPropertyValue,
     css::Css,
+    css::CssPropertyValue,
     props::{
         basic::{font::StyleFontSize, length::SizeMetric, pixel::PixelValue},
         property::{CssProperty, CssPropertyType},
@@ -36,7 +36,8 @@ macro_rules! setup_styled_dom {
 
 #[test]
 fn test_computed_values_exist_for_all_nodes() {
-    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Text")));
+    let dom = Dom::create_div()
+        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Text")));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -94,7 +95,8 @@ fn test_inline_css_takes_precedence() {
 
 #[test]
 fn test_css_stylesheet_applies() {
-    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Text")));
+    let dom = Dom::create_div()
+        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Text")));
 
     let css = "p { font-size: 18px; }";
     let (_styled_dom, cache) = setup_styled_dom!(dom, css);
@@ -260,9 +262,9 @@ fn test_deeply_nested_inheritance() {
             ))]
             .into(),
         )
-        .with_child(
-            Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_text("Deep")))),
-        );
+        .with_child(Dom::create_div().with_child(
+            Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_text("Deep"))),
+        ));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -429,7 +431,8 @@ fn test_color_inheritance() {
 fn test_non_inheritable_property_not_inherited() {
     // display is not inheritable
     let css = "div { display: flex; }";
-    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Text")));
+    let dom = Dom::create_div()
+        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text("Text")));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom, css);
 

@@ -395,7 +395,12 @@ impl SvgMultiPolygon {
     }
 }
 
-impl_vec!(SvgPath, SvgPathVec, SvgPathVecDestructor, SvgPathVecDestructorType);
+impl_vec!(
+    SvgPath,
+    SvgPathVec,
+    SvgPathVecDestructor,
+    SvgPathVecDestructorType
+);
 impl_vec_debug!(SvgPath, SvgPathVec);
 impl_vec_clone!(SvgPath, SvgPathVec, SvgPathVecDestructor);
 impl_vec_partialeq!(SvgPath, SvgPathVec);
@@ -440,7 +445,12 @@ pub enum SvgSimpleNode {
     RectHole(SvgRect),
 }
 
-impl_vec!(SvgSimpleNode, SvgSimpleNodeVec, SvgSimpleNodeVecDestructor, SvgSimpleNodeVecDestructorType);
+impl_vec!(
+    SvgSimpleNode,
+    SvgSimpleNodeVec,
+    SvgSimpleNodeVecDestructor,
+    SvgSimpleNodeVecDestructorType
+);
 impl_vec_debug!(SvgSimpleNode, SvgSimpleNodeVec);
 impl_vec_clone!(SvgSimpleNode, SvgSimpleNodeVec, SvgSimpleNodeVecDestructor);
 impl_vec_partialeq!(SvgSimpleNode, SvgSimpleNodeVec);
@@ -778,7 +788,12 @@ impl TessellatedColoredSvgNodeVecRef {
     }
 }
 
-impl_vec!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor, SvgVertexVecDestructorType);
+impl_vec!(
+    SvgVertex,
+    SvgVertexVec,
+    SvgVertexVecDestructor,
+    SvgVertexVecDestructorType
+);
 impl_vec_debug!(SvgVertex, SvgVertexVec);
 impl_vec_partialord!(SvgVertex, SvgVertexVec);
 impl_vec_clone!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor);

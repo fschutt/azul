@@ -121,7 +121,7 @@ pub fn generate_transmuted_fn_body(
 ) -> String {
     let self_var = class_name.to_lowercase();
     let parsed_args = parse_fn_args(fn_args);
-    
+
     // For PyO3 bindings (keep_self_name=true), we need to use "_self" as the transmuted variable
     // because Rust doesn't allow shadowing "self"
     let transmuted_self_var = if keep_self_name { "_self" } else { &self_var };
@@ -155,13 +155,16 @@ pub fn generate_transmuted_fn_body(
             true
         } else {
             // Check for "Self::" preceded by non-identifier char (space, (, {, etc.)
-            fn_body.contains(" Self::") || fn_body.contains("(Self::") || fn_body.contains("{Self::")
+            fn_body.contains(" Self::")
+                || fn_body.contains("(Self::")
+                || fn_body.contains("{Self::")
         };
-        
+
         // Also check for "Self {" (struct literal)
-        let should_replace_self_brace = fn_body.starts_with("Self {") || 
-            fn_body.contains(" Self {") || fn_body.contains("(Self {");
-        
+        let should_replace_self_brace = fn_body.starts_with("Self {")
+            || fn_body.contains(" Self {")
+            || fn_body.contains("(Self {");
+
         if should_replace_self_colon || should_replace_self_brace {
             let prefixed_class = format!("{}{}", prefix, class_name);
             if let Some(external_path) = type_to_external.get(&prefixed_class) {
@@ -180,7 +183,7 @@ pub fn generate_transmuted_fn_body(
                     fn_body = fn_body.replace("(Self::", &format!("({}", replacement));
                     fn_body = fn_body.replace("{Self::", &format!("{{{}", replacement));
                 }
-                
+
                 // For "Self {" patterns (struct literals)
                 if should_replace_self_brace {
                     let replacement = if is_for_dll {
@@ -192,7 +195,7 @@ pub fn generate_transmuted_fn_body(
                 }
             }
         }
-        
+
         // Also handle unqualified type name (e.g., "TypeName::" -> "external::path::TypeName::")
         // Check if fn_body starts with a type name (uppercase letter followed by ::)
         if let Some(colon_pos) = fn_body.find("::") {
@@ -221,7 +224,7 @@ pub fn generate_transmuted_fn_body(
     }
 
     let mut lines = Vec::new();
-    
+
     // Track if self is a reference - needed for PyO3 bindings where we need to clone
     // for consuming methods (builder pattern)
     let mut self_is_ref = false;
@@ -232,9 +235,9 @@ pub fn generate_transmuted_fn_body(
         if skip_args.contains(arg_name) {
             continue;
         }
-        
+
         let (is_ref, is_mut, is_pointer, base_type) = parse_arg_type(arg_type);
-        
+
         // Track if self is a reference
         if arg_name == "self" {
             self_is_ref = is_ref || is_mut;
@@ -321,7 +324,7 @@ pub fn generate_transmuted_fn_body(
             || fn_body.contains(&format!("{}.add_", self_var))
             || fn_body.contains("object.with_")
             || fn_body.contains("_self.with_");
-        
+
         if force_clone_self || (self_is_ref && uses_builder_pattern) {
             // Clone for consuming methods - the fn_body calls methods like .with_node_type()
             // that take self by value, OR the API expects self by value but PyO3 gives us &self
@@ -333,7 +336,7 @@ pub fn generate_transmuted_fn_body(
             lines.push(format!("    let {} = _self;", self_var));
         }
     }
-    
+
     // If we cloned, replace _self with __cloned in fn_body
     if keep_self_name && !is_constructor {
         let uses_builder_pattern = fn_body.contains(&format!("{}.with_", self_var))

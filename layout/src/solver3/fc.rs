@@ -696,7 +696,6 @@ fn layout_bfc<T: ParsedFontTrait>(
     // so that subsequent layout passes (for auto-sizing) have access to the positioned floats
     let mut float_context = FloatingContext::default();
 
-
     // Calculate this node's content-box size for use as containing block for children
     // CSS 2.2 § 10.1: The containing block for in-flow children is formed by the
     // content edge of the parent's content box.
@@ -712,31 +711,35 @@ fn layout_bfc<T: ParsedFontTrait>(
         // when coming from parent's layout constraints)
         constraints.available_size
     };
-    
+
     // Proactively reserve space for vertical scrollbar if overflow-y is auto/scroll.
     // This ensures children are laid out with the correct available width from the start,
     // preventing the "children overlap scrollbar" layout issue.
-    let scrollbar_reservation = node.dom_node_id.map(|dom_id| {
-        let styled_node_state = ctx
-            .styled_dom
-            .styled_nodes
-            .as_container()
-            .get(dom_id)
-            .map(|s| s.styled_node_state.clone())
-            .unwrap_or_default();
-        let overflow_y = crate::solver3::getters::get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
-        use azul_css::props::layout::LayoutOverflow;
-        match overflow_y.unwrap_or_default() {
-            LayoutOverflow::Scroll | LayoutOverflow::Auto => SCROLLBAR_WIDTH_PX,
-            _ => 0.0,
-        }
-    }).unwrap_or(0.0);
-    
+    let scrollbar_reservation = node
+        .dom_node_id
+        .map(|dom_id| {
+            let styled_node_state = ctx
+                .styled_dom
+                .styled_nodes
+                .as_container()
+                .get(dom_id)
+                .map(|s| s.styled_node_state.clone())
+                .unwrap_or_default();
+            let overflow_y =
+                crate::solver3::getters::get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
+            use azul_css::props::layout::LayoutOverflow;
+            match overflow_y.unwrap_or_default() {
+                LayoutOverflow::Scroll | LayoutOverflow::Auto => SCROLLBAR_WIDTH_PX,
+                _ => 0.0,
+            }
+        })
+        .unwrap_or(0.0);
+
     if scrollbar_reservation > 0.0 {
-        children_containing_block_size.width = 
+        children_containing_block_size.width =
             (children_containing_block_size.width - scrollbar_reservation).max(0.0);
     }
-    
+
     // Pass 1: Size all children (floats and normal flow)
     for &child_index in &node.children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
@@ -756,7 +759,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             text_cache,
             child_index,
             LogicalPosition::zero(),
-            children_containing_block_size,  // Use this node's content-box as containing block
+            children_containing_block_size, // Use this node's content-box as containing block
             &mut temp_positions,
             &mut bool::default(),
             float_cache,
@@ -1452,7 +1455,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             // Get the IFC child's content-box size (after padding/border)
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
             let child_dom_id = child_node.dom_node_id;
-            
+
             // For inline elements (display: inline), use containing block width as available
             // width. Inline elements flow within the containing block and wrap at its width.
             // CSS 2.2 § 10.3.1: For inline elements, available width = containing block width.
@@ -1848,15 +1851,17 @@ fn layout_ifc<T: ParsedFontTrait>(
         Some(id) => id,
         None => {
             // Anonymous box - get DOM ID from parent or first child with DOM ID
-            let parent_dom_id = node.parent
+            let parent_dom_id = node
+                .parent
                 .and_then(|p| tree.get(p))
                 .and_then(|n| n.dom_node_id);
-            
+
             if let Some(id) = parent_dom_id {
                 id
             } else {
                 // Try to find DOM ID from first child
-                node.children.iter()
+                node.children
+                    .iter()
                     .filter_map(|&child_idx| tree.get(child_idx))
                     .filter_map(|n| n.dom_node_id)
                     .next()
@@ -4680,15 +4685,18 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
         Some(id) => id,
         None => {
             // Anonymous box - get DOM ID from parent or first child with DOM ID
-            let parent_dom_id = ifc_root_node.parent
+            let parent_dom_id = ifc_root_node
+                .parent
                 .and_then(|p| tree.get(p))
                 .and_then(|n| n.dom_node_id);
-            
+
             if let Some(id) = parent_dom_id {
                 id
             } else {
                 // Try to find DOM ID from first child
-                match ifc_root_node.children.iter()
+                match ifc_root_node
+                    .children
+                    .iter()
                     .filter_map(|&child_idx| tree.get(child_idx))
                     .filter_map(|n| n.dom_node_id)
                     .next()
@@ -4724,15 +4732,19 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 run_index: ifc_root_index as u32,
                 item_index: item_idx as u32,
             };
-            
+
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
             let Some(dom_id) = child_node.dom_node_id else {
-                debug_warning!(ctx, "Anonymous IFC child at index {} has no DOM ID", child_index);
+                debug_warning!(
+                    ctx,
+                    "Anonymous IFC child at index {} has no DOM ID",
+                    child_index
+                );
                 continue;
             };
-            
+
             let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
-            
+
             // Check if this is a text node
             if let NodeType::Text(ref text_content) = node_data.get_node_type() {
                 debug_info!(
@@ -4751,7 +4763,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 child_map.insert(content_index, child_index);
                 continue;
             }
-            
+
             // Non-text inline child - add as shape for inline-block
             let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
             if display != LayoutDisplay::Inline {
@@ -4779,8 +4791,8 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                     &box_props,
                 )?;
 
-                let writing_mode =
-                    get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+                let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state)
+                    .unwrap_or_default();
 
                 // Determine content-box size for laying out children
                 let content_box_size = box_props.inner_size(tentative_size, writing_mode);
@@ -4798,7 +4810,6 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 // Drop the immutable borrow before calling layout_formatting_context
                 drop(child_node);
 
-                
                 // Recursively lay out the inline-block to get its final height and baseline.
                 let mut empty_float_cache = std::collections::BTreeMap::new();
                 let layout_result = layout_formatting_context(
@@ -4867,7 +4878,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 )?;
             }
         }
-        
+
         return Ok((content, child_map));
     }
 
@@ -5046,7 +5057,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
         .collect();
 
     let ifc_root_node_data = &ctx.styled_dom.node_data.as_container()[ifc_root_dom_id];
-    
+
     // SPECIAL CASE: If the IFC root itself is a text node (leaf node),
     // add its text content directly instead of iterating over children
     if let NodeType::Text(ref text_content) = ifc_root_node_data.get_node_type() {
@@ -5057,14 +5068,14 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
         }));
         return Ok((content, child_map));
     }
-    
+
     let ifc_root_node_type = match ifc_root_node_data.get_node_type() {
         NodeType::Div => "Div",
         NodeType::Text(_) => "Text",
         NodeType::Body => "Body",
         _ => "Other",
     };
-    
+
     debug_info!(
         ctx,
         "[collect_and_measure_inline_content] IFC root has {} DOM children",
@@ -5123,9 +5134,8 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
         let dom_id = child_node.dom_node_id.unwrap();
 
         let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
-        
-        if display != LayoutDisplay::Inline
-        {
+
+        if display != LayoutDisplay::Inline {
             // This is an atomic inline-level box (e.g., inline-block, image).
             // We must determine its size and baseline before passing it to text3.
 
@@ -5181,7 +5191,6 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
             // Drop the immutable borrow before calling layout_formatting_context
             drop(child_node);
 
-            
             // Recursively lay out the inline-block to get its final height and baseline.
             // Note: This does not affect its final position, only its dimensions.
             let mut empty_float_cache = std::collections::BTreeMap::new();
@@ -5225,7 +5234,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
             tree.get_mut(child_index).unwrap().used_size = Some(final_size);
 
             let baseline_offset = layout_result.output.baseline.unwrap_or(final_height);
-            
+
             // Get margins for inline-block positioning
             // For inline-blocks, we need to include margins in the shape size
             // so that text3 positions them correctly with spacing

@@ -712,11 +712,7 @@ pub fn generate_remove_functions_patch(
 }
 
 /// Generate a patch to remove an entire type from api.json
-pub fn generate_remove_type_patch(
-    type_name: &str,
-    module_name: &str,
-    version: &str,
-) -> ApiPatch {
+pub fn generate_remove_type_patch(type_name: &str, module_name: &str, version: &str) -> ApiPatch {
     let mut class_patch = ClassPatch::default();
     // Set remove to signal that the entire class should be removed
     class_patch.remove = Some(true);

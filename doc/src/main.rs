@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
         }
         ["normalize"] => {
             println!("[REFRESH] Normalizing api.json...\n");
-            
+
             // Read original content first
             let original_content = fs::read_to_string(&api_path)?;
             let mut api_data = load_api_json(&api_path)?;
@@ -56,7 +56,7 @@ fn main() -> anyhow::Result<()> {
             }
 
             let api_json = serde_json::to_string_pretty(&api_data)?;
-            
+
             // Only write if content actually changed
             if api_json != original_content {
                 fs::write(&api_path, api_json)?;
@@ -90,10 +90,10 @@ fn main() -> anyhow::Result<()> {
             // Discover all public functions in the workspace index
             // Prints one line per function: TypeName.method_name
             let index = autofix::type_index::TypeIndex::build(&project_root, false)?;
-            
+
             let mut all_types: Vec<_> = index.iter_all().collect();
             all_types.sort_by_key(|(name, _)| *name);
-            
+
             for (type_name, type_defs) in all_types {
                 for type_def in type_defs {
                     for method in &type_def.methods {
@@ -105,7 +105,10 @@ fn main() -> anyhow::Result<()> {
                                 Some(autofix::type_index::SelfKind::RefMut) => "&mut self",
                             };
                             let ret_str = method.return_type.as_deref().unwrap_or("()");
-                            println!("{}.{} ({}) -> {}", type_name, method.name, self_str, ret_str);
+                            println!(
+                                "{}.{} ({}) -> {}",
+                                type_name, method.name, self_str, ret_str
+                            );
                         }
                     }
                 }
@@ -115,18 +118,19 @@ fn main() -> anyhow::Result<()> {
         ["discover", pattern] => {
             // Discover functions matching a pattern (e.g., "Dom" or "Callback")
             let index = autofix::type_index::TypeIndex::build(&project_root, false)?;
-            
+
             let pattern_lower = pattern.to_lowercase();
-            let mut all_types: Vec<_> = index.iter_all()
+            let mut all_types: Vec<_> = index
+                .iter_all()
                 .filter(|(name, _)| name.to_lowercase().contains(&pattern_lower))
                 .collect();
             all_types.sort_by_key(|(name, _)| *name);
-            
+
             if all_types.is_empty() {
                 println!("No types found matching '{}'", pattern);
                 return Ok(());
             }
-            
+
             for (type_name, type_defs) in all_types {
                 for type_def in type_defs {
                     for method in &type_def.methods {
@@ -138,7 +142,10 @@ fn main() -> anyhow::Result<()> {
                                 Some(autofix::type_index::SelfKind::RefMut) => "&mut self",
                             };
                             let ret_str = method.return_type.as_deref().unwrap_or("()");
-                            println!("{}.{} ({}) -> {}", type_name, method.name, self_str, ret_str);
+                            println!(
+                                "{}.{} ({}) -> {}",
+                                type_name, method.name, self_str, ret_str
+                            );
                         }
                     }
                 }
@@ -184,7 +191,7 @@ fn main() -> anyhow::Result<()> {
         ["autofix", "difficult", "remove", items @ ..] if !items.is_empty() => {
             // Remove multiple functions/types from api.json
             // Usage: autofix difficult remove ImageRef.get_data ImageRef.into_inner DecodedImage
-            
+
             // Clear the patches folder to avoid stale patches
             let patches_dir = project_root.join("target").join("autofix").join("patches");
             if patches_dir.exists() {
@@ -204,7 +211,10 @@ fn main() -> anyhow::Result<()> {
                 .get_version(&version)
                 .ok_or_else(|| anyhow::anyhow!("Version not found"))?;
 
-            println!("[REMOVE] Generating patches to remove {} items...\n", items.len());
+            println!(
+                "[REMOVE] Generating patches to remove {} items...\n",
+                items.len()
+            );
 
             let mut patch_count = 0;
 
@@ -218,9 +228,14 @@ fn main() -> anyhow::Result<()> {
                         (parts[parts.len() - 2], parts[parts.len() - 1])
                     };
 
-                    if let Some(module_name) = autofix::function_diff::find_type_module(type_name, version_data) {
-                        println!("  - {}.{} (from {} module)", type_name, method_name, module_name);
-                        
+                    if let Some(module_name) =
+                        autofix::function_diff::find_type_module(type_name, version_data)
+                    {
+                        println!(
+                            "  - {}.{} (from {} module)",
+                            type_name, method_name, module_name
+                        );
+
                         let patch = autofix::function_diff::generate_remove_functions_patch(
                             type_name,
                             &[method_name],
@@ -242,9 +257,11 @@ fn main() -> anyhow::Result<()> {
                     }
                 } else {
                     // It's a type name - remove the entire type
-                    if let Some(module_name) = autofix::function_diff::find_type_module(item, version_data) {
+                    if let Some(module_name) =
+                        autofix::function_diff::find_type_module(item, version_data)
+                    {
                         println!("  - {} (entire type from {} module)", item, module_name);
-                        
+
                         let patch = autofix::function_diff::generate_remove_type_patch(
                             item,
                             module_name,
@@ -263,9 +280,16 @@ fn main() -> anyhow::Result<()> {
             }
 
             if patch_count > 0 {
-                println!("\n[OK] {} patches written to: {}", patch_count, patches_dir.display());
+                println!(
+                    "\n[OK] {} patches written to: {}",
+                    patch_count,
+                    patches_dir.display()
+                );
                 println!("\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:");
-                println!("  cargo run --bin azul-doc -- autofix apply {}", patches_dir.display());
+                println!(
+                    "  cargo run --bin azul-doc -- autofix apply {}",
+                    patches_dir.display()
+                );
                 println!("\nTo preview changes without applying:");
                 println!("  cargo run --bin azul-doc -- autofix explain");
             } else {
@@ -512,7 +536,10 @@ fn main() -> anyhow::Result<()> {
                             patches_dir.display()
                         );
                         println!("\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:");
-                        println!("  cargo run --bin azul-doc -- autofix apply {}", patches_dir.display());
+                        println!(
+                            "  cargo run --bin azul-doc -- autofix apply {}",
+                            patches_dir.display()
+                        );
                         println!("\nTo preview changes without applying:");
                         println!("  cargo run --bin azul-doc -- autofix explain");
                     }
@@ -597,8 +624,13 @@ fn main() -> anyhow::Result<()> {
             fs::write(&patch_path, &json)?;
 
             println!("\n[OK] Patch written to: {}", patch_path.display());
-            println!("\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:");
-            println!("  cargo run --bin azul-doc -- autofix apply {}", patches_dir.display());
+            println!(
+                "\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:"
+            );
+            println!(
+                "  cargo run --bin azul-doc -- autofix apply {}",
+                patches_dir.display()
+            );
             println!("\nTo preview changes without applying:");
             println!("  cargo run --bin azul-doc -- autofix explain");
 
@@ -669,8 +701,13 @@ fn main() -> anyhow::Result<()> {
             fs::write(&patch_path, &json)?;
 
             println!("[OK] Patch written to: {}", patch_path.display());
-            println!("\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:");
-            println!("  cargo run --bin azul-doc -- autofix apply {}", patches_dir.display());
+            println!(
+                "\n\x1b[1;33mIMPORTANT\x1b[0m: Apply patches immediately or they may become stale:"
+            );
+            println!(
+                "  cargo run --bin azul-doc -- autofix apply {}",
+                patches_dir.display()
+            );
             println!("\nTo preview changes without applying:");
             println!("  cargo run --bin azul-doc -- autofix explain");
 
@@ -822,7 +859,7 @@ fn main() -> anyhow::Result<()> {
         ["autofix", "apply"] => {
             // Default to target/autofix/patches - intelligently discover it
             let patches_dir = find_patches_dir(&project_root)?;
-            
+
             println!("[FIX] Applying patches from {}...\n", patches_dir.display());
 
             // Load API data (need mutable copy for patching)
@@ -1019,7 +1056,12 @@ fn main() -> anyhow::Result<()> {
         // Memory layout tests are now included in dll/src/lib.rs via include!()
         // Run them with: cd dll && cargo test
         // V2 commands are now the default - use "codegen <target>" instead
-        ["v2", "dll"] | ["v2", "python"] | ["v2", "memtest"] | ["v2", "c"] | ["v2", "cpp"] | ["v2", "all"] => {
+        ["v2", "dll"]
+        | ["v2", "python"]
+        | ["v2", "memtest"]
+        | ["v2", "c"]
+        | ["v2", "cpp"]
+        | ["v2", "all"] => {
             println!("Note: 'v2' prefix is deprecated - v2 is now the default.\n");
             println!("Use 'codegen all' or 'codegen <target>' instead.\n");
             let api_data = load_api_json(&api_path)?;
@@ -1069,7 +1111,7 @@ fn main() -> anyhow::Result<()> {
             let mut dry_run = false;
             let mut no_screenshots = false;
             let mut question_parts: Vec<&str> = Vec::new();
-            
+
             for arg in rest.iter() {
                 match *arg {
                     "--add-working-diff" => add_working_diff = true,
@@ -1078,13 +1120,13 @@ fn main() -> anyhow::Result<()> {
                     other => question_parts.push(other),
                 }
             }
-            
+
             let question = if question_parts.is_empty() {
                 None
             } else {
                 Some(question_parts.join(" "))
             };
-            
+
             let config = reftest::debug::DebugConfig {
                 test_name: test_name.to_string(),
                 question,
@@ -1166,13 +1208,17 @@ fn main() -> anyhow::Result<()> {
             let api_data = load_api_json(&api_path)?;
             println!("[CODEGEN] Generating Rust library code...\n");
 
-            // Generate azul.rs using the v2 generator  
+            // Generate azul.rs using the v2 generator
             let code = codegen::v2::generate_rust_public_api(&api_data)?;
             let output_path = project_root.join("target").join("codegen").join("azul.rs");
             fs::create_dir_all(output_path.parent().unwrap())?;
             fs::write(&output_path, &code)?;
-            println!("[OK] Generated: {} ({} bytes)", output_path.display(), code.len());
-            
+            println!(
+                "[OK] Generated: {} ({} bytes)",
+                output_path.display(),
+                code.len()
+            );
+
             println!("\nRust code generation complete.");
             return Ok(());
         }
@@ -1184,7 +1230,11 @@ fn main() -> anyhow::Result<()> {
             let output_path = project_root.join("target").join("codegen").join("azul.h");
             fs::create_dir_all(output_path.parent().unwrap())?;
             fs::write(&output_path, &code)?;
-            println!("[OK] Generated: {} ({} bytes)", output_path.display(), code.len());
+            println!(
+                "[OK] Generated: {} ({} bytes)",
+                output_path.display(),
+                code.len()
+            );
 
             println!("\nC header generation complete.");
             return Ok(());
@@ -1197,10 +1247,15 @@ fn main() -> anyhow::Result<()> {
             fs::create_dir_all(&cpp_dir)?;
 
             // Generate C++11 header (main header)
-            let code = codegen::v2::generate_cpp_header(&api_data, codegen::v2::CppStandard::Cpp11)?;
+            let code =
+                codegen::v2::generate_cpp_header(&api_data, codegen::v2::CppStandard::Cpp11)?;
             let output_path = cpp_dir.join("azul.hpp");
             fs::write(&output_path, &code)?;
-            println!("[OK] Generated: {} ({} bytes)", output_path.display(), code.len());
+            println!(
+                "[OK] Generated: {} ({} bytes)",
+                output_path.display(),
+                code.len()
+            );
 
             println!("\nC++ header generation complete.");
             return Ok(());
@@ -1226,26 +1281,26 @@ fn main() -> anyhow::Result<()> {
         ["deploy"] | ["deploy", ..] => {
             // Check for debug mode: "deploy debug" uses external CSS, "deploy" inlines CSS
             let is_debug = args.len() > 2 && args[2] == "debug";
-            
+
             if is_debug {
                 println!("Starting Azul Fast Deploy (debug mode - external CSS)...");
             } else {
                 println!("Starting Azul Build and Deploy System (production - inline CSS)...");
             }
-            
+
             let api_data = load_api_json(&api_path)?;
             let config = Config::from_args();
             println!("CONFIG={}", config.print());
 
             // Create output directory structure
             let output_dir = project_root.join("doc").join("target").join("deploy");
-            
+
             // Remove stale deploy folder before generating new content
             if output_dir.exists() {
                 println!("Removing stale deploy folder...");
                 fs::remove_dir_all(&output_dir)?;
             }
-            
+
             let image_path = output_dir.join("images");
             let releases_dir = output_dir.join("release");
 
@@ -1256,7 +1311,11 @@ fn main() -> anyhow::Result<()> {
             // Generate documentation (API docs, guide, etc.)
             // In debug mode, use external stylesheet and relative paths. In production, inline CSS and absolute URLs.
             let inline_css = !is_debug;
-            let image_url = if is_debug { "./images" } else { "https://azul.rs/images" };
+            let image_url = if is_debug {
+                "./images"
+            } else {
+                "https://azul.rs/images"
+            };
             println!("Generating documentation (inline_css={})...", inline_css);
             for (path, html) in
                 docgen::generate_docs(&api_data, &image_path, image_url, inline_css)?
@@ -1335,13 +1394,13 @@ fn main() -> anyhow::Result<()> {
 
             // Create output directory structure
             let output_dir = project_root.join("doc").join("target").join("deploy");
-            
+
             // Remove stale deploy folder before generating new content
             if output_dir.exists() {
                 println!("Removing stale deploy folder...");
                 fs::remove_dir_all(&output_dir)?;
             }
-            
+
             let image_path = output_dir.join("images");
             let releases_dir = output_dir.join("release");
 
@@ -1352,9 +1411,7 @@ fn main() -> anyhow::Result<()> {
             // Generate documentation (API docs, guide, etc.)
             // Fast deploy uses external stylesheet (no inline CSS) and relative image paths
             println!("Generating documentation (external CSS for fast deploy)...");
-            for (path, html) in
-                docgen::generate_docs(&api_data, &image_path, "./images", false)?
-            {
+            for (path, html) in docgen::generate_docs(&api_data, &image_path, "./images", false)? {
                 let path_real = output_dir.join(&path);
                 if let Some(parent) = path_real.parent() {
                     let _ = fs::create_dir_all(parent);
@@ -1602,11 +1659,14 @@ fn find_patches_dir(project_root: &PathBuf) -> anyhow::Result<PathBuf> {
         // 2. Current working directory's target/autofix/patches
         PathBuf::from("target").join("autofix").join("patches"),
         // 3. If we're in doc/, go up one level
-        PathBuf::from("..").join("target").join("autofix").join("patches"),
+        PathBuf::from("..")
+            .join("target")
+            .join("autofix")
+            .join("patches"),
         // 4. If we're in target/, look in autofix/patches
         PathBuf::from("autofix").join("patches"),
     ];
-    
+
     for candidate in &candidates {
         if candidate.exists() && candidate.is_dir() {
             // Check if it has any .patch.json files
@@ -1620,7 +1680,7 @@ fn find_patches_dir(project_root: &PathBuf) -> anyhow::Result<PathBuf> {
             }
         }
     }
-    
+
     // Default to the standard location even if it doesn't exist yet
     let default = project_root.join("target").join("autofix").join("patches");
     if default.exists() {
@@ -1630,7 +1690,7 @@ fn find_patches_dir(project_root: &PathBuf) -> anyhow::Result<PathBuf> {
             "No patches directory found. Generate patches first with:\n  \
              azul-doc autofix difficult remove <items...>\n  \
              azul-doc autofix remove <Type.method>\n\n\
-             Expected location: {}", 
+             Expected location: {}",
             default.display()
         )
     }
@@ -1665,7 +1725,9 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autofix difficult             - Rank types by FFI difficulty");
     println!("    autofix internal              - Show types that should be internal-only");
     println!("    autofix modules               - Show types in wrong modules");
-    println!("    autofix deps                  - Analyze function dependencies on difficult types");
+    println!(
+        "    autofix deps                  - Analyze function dependencies on difficult types"
+    );
     println!();
     println!("  API MANAGEMENT:");
     println!("    normalize                     - Normalize/reformat api.json");

@@ -38,7 +38,9 @@ const BLACKLISTED_DERIVES: &[&str] = &[
 
 /// Check if a derive should be ignored in diff generation
 fn is_derive_blacklisted(derive_name: &str) -> bool {
-    BLACKLISTED_DERIVES.iter().any(|&b| b == derive_name || derive_name.contains(b))
+    BLACKLISTED_DERIVES
+        .iter()
+        .any(|&b| b == derive_name || derive_name.contains(b))
 }
 
 // data structures
@@ -1258,7 +1260,8 @@ fn compare_derives_and_impls(
         .iter()
         .filter(|d| !is_derive_blacklisted(d))
         .collect();
-    let api_derive_set: BTreeSet<_> = api_info.derives
+    let api_derive_set: BTreeSet<_> = api_info
+        .derives
         .iter()
         .filter(|d| !is_derive_blacklisted(d))
         .collect();

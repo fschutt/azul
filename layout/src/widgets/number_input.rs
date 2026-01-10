@@ -21,11 +21,10 @@ use azul_css::{
 use crate::{
     callbacks::{Callback, CallbackInfo},
     widgets::text_input::{
-        OnTextInputReturn, TextInput, 
-        TextInputOnTextInputCallback, TextInputOnTextInputCallbackType,
-        TextInputOnVirtualKeyDownCallback, TextInputOnVirtualKeyDownCallbackType, 
-        TextInputOnFocusLostCallback, TextInputOnFocusLostCallbackType,
-        TextInputState, TextInputValid,
+        OnTextInputReturn, TextInput, TextInputOnFocusLostCallback,
+        TextInputOnFocusLostCallbackType, TextInputOnTextInputCallback,
+        TextInputOnTextInputCallbackType, TextInputOnVirtualKeyDownCallback,
+        TextInputOnVirtualKeyDownCallbackType, TextInputState, TextInputValid,
     },
 };
 
@@ -97,7 +96,11 @@ impl NumberInput {
         }
     }
 
-    pub fn set_on_text_input<C: Into<TextInputOnTextInputCallback>>(&mut self, refany: RefAny, callback: C) {
+    pub fn set_on_text_input<C: Into<TextInputOnTextInputCallback>>(
+        &mut self,
+        refany: RefAny,
+        callback: C,
+    ) {
         self.text_input.set_on_text_input(refany, callback);
     }
 
@@ -213,9 +216,12 @@ impl NumberInput {
 
         let state = RefAny::new(self.number_input_state);
 
+        self.text_input.set_on_text_input(
+            state.clone(),
+            validate_text_input as TextInputOnTextInputCallbackType,
+        );
         self.text_input
-            .set_on_text_input(state.clone(), validate_text_input as TextInputOnTextInputCallbackType);
-        self.text_input.set_on_focus_lost(state, on_focus_lost as TextInputOnFocusLostCallbackType);
+            .set_on_focus_lost(state, on_focus_lost as TextInputOnFocusLostCallbackType);
         self.text_input.dom()
     }
 }

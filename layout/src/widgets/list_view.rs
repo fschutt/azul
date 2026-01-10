@@ -2,9 +2,7 @@ use alloc::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{
-        Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex,
-    },
+    dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     geom::{LogicalPosition, LogicalSize},
     menu::{Menu, OptionMenu},
     refany::RefAny,
@@ -1511,7 +1509,12 @@ pub struct ListViewRow {
     pub height: OptionPixelValueNoPercent,
 }
 
-impl_vec!(ListViewRow, ListViewRowVec, ListViewRowVecDestructor, ListViewRowVecDestructorType);
+impl_vec!(
+    ListViewRow,
+    ListViewRowVec,
+    ListViewRowVecDestructor,
+    ListViewRowVecDestructorType
+);
 impl_vec_clone!(ListViewRow, ListViewRowVec, ListViewRowVecDestructor);
 impl_vec_mut!(ListViewRow, ListViewRowVec);
 impl_vec_debug!(ListViewRow, ListViewRowVec);
@@ -1614,7 +1617,11 @@ impl ListView {
         self
     }
 
-    pub fn set_on_row_click<C: Into<ListViewOnRowClickCallback>>(&mut self, refany: RefAny, on_row_click: C) {
+    pub fn set_on_row_click<C: Into<ListViewOnRowClickCallback>>(
+        &mut self,
+        refany: RefAny,
+        on_row_click: C,
+    ) {
         self.on_row_click = Some(ListViewOnRowClick {
             refany,
             callback: on_row_click.into(),
@@ -1665,9 +1672,7 @@ impl ListView {
                                             .iter()
                                             .map(|cell| {
                                                 Dom::create_div()
-                                                    .with_css_props(
-                                                        CSS_MATCH_12980082330151137475,
-                                                    )
+                                                    .with_css_props(CSS_MATCH_12980082330151137475)
                                                     .with_ids_and_classes(CELL_CLASS)
                                                     .with_child(cell.clone())
                                             })

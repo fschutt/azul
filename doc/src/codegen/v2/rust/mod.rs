@@ -6,9 +6,9 @@
 //!
 //! Both generators share common code for type generation via the `shared` module.
 
+pub mod dynamic_binding;
 pub mod shared;
 pub mod static_binding;
-pub mod dynamic_binding;
 
-pub use static_binding::RustStaticGenerator;
 pub use dynamic_binding::RustDynamicGenerator;
+pub use static_binding::RustStaticGenerator;

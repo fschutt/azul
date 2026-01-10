@@ -1,6 +1,6 @@
+use azul::css::ColorU;
 use azul::prelude::*;
 use azul::widgets::*;
-use azul::css::ColorU;
 
 #[derive(Default, Clone)]
 struct WidgetShowcase {
@@ -8,9 +8,7 @@ struct WidgetShowcase {
     progress: f32,
 }
 
-extern "C" 
-fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
-
+extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
     let showcase = match data.downcast_ref::<WidgetShowcase>() {
         Some(s) => (*s).clone(),
         None => return StyledDom::default(),
@@ -50,9 +48,7 @@ fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
         .with_inline_style(margin);
 
     // Number Input
-    let number_input = NumberInput::create(42.0)
-        .dom()
-        .with_inline_style(margin);
+    let number_input = NumberInput::create(42.0).dom().with_inline_style(margin);
 
     // Color Input
     let color_input = ColorInput::create(ColorU::from_str("#FF5733"))
@@ -83,8 +79,7 @@ fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> StyledDom {
         .style(Css::empty())
 }
 
-extern "C" 
-fn toggle_padding(mut data: RefAny, _: CallbackInfo) -> Update {
+extern "C" fn toggle_padding(mut data: RefAny, _: CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<WidgetShowcase>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -94,8 +89,7 @@ fn toggle_padding(mut data: RefAny, _: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-extern "C" 
-fn toggle_padding_checkbox(
+extern "C" fn toggle_padding_checkbox(
     mut data: RefAny,
     _: CallbackInfo,
     state: CheckBoxState,
@@ -109,8 +103,7 @@ fn toggle_padding_checkbox(
     Update::RefreshDom
 }
 
-extern "C" 
-fn increase_progress(mut data: RefAny, _: CallbackInfo) -> Update {
+extern "C" fn increase_progress(mut data: RefAny, _: CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<WidgetShowcase>() {
         Some(s) => s,
         None => return Update::DoNothing,

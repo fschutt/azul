@@ -32,7 +32,6 @@ pub use crate::events::{
     NotEventFilter, WindowEventFilter,
 };
 pub use crate::id::{Node, NodeHierarchy, NodeId};
-pub use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use crate::{
     callbacks::{
         CoreCallback, CoreCallbackData, CoreCallbackDataVec, CoreCallbackType, IFrameCallback,
@@ -52,6 +51,7 @@ use crate::{
     },
     window::OptionVirtualKeyCodeCombo,
 };
+pub use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -955,7 +955,12 @@ pub enum IdOrClass {
     Class(AzString),
 }
 
-impl_vec!(IdOrClass, IdOrClassVec, IdOrClassVecDestructor, IdOrClassVecDestructorType);
+impl_vec!(
+    IdOrClass,
+    IdOrClassVec,
+    IdOrClassVecDestructor,
+    IdOrClassVecDestructorType
+);
 impl_vec_debug!(IdOrClass, IdOrClassVec);
 impl_vec_partialord!(IdOrClass, IdOrClassVec);
 impl_vec_ord!(IdOrClass, IdOrClassVec);
@@ -1089,7 +1094,12 @@ pub enum AttributeType {
     Custom(AttributeNameValue),
 }
 
-impl_vec!(AttributeType, AttributeVec, AttributeVecDestructor, AttributeVecDestructorType);
+impl_vec!(
+    AttributeType,
+    AttributeVec,
+    AttributeVecDestructor,
+    AttributeVecDestructorType
+);
 impl_vec_debug!(AttributeType, AttributeVec);
 impl_vec_partialord!(AttributeType, AttributeVec);
 impl_vec_ord!(AttributeType, AttributeVec);
@@ -2126,7 +2136,12 @@ impl Clone for NodeData {
 }
 
 // Clone, PartialEq, Eq, Hash, PartialOrd, Ord
-impl_vec!(NodeData, NodeDataVec, NodeDataVecDestructor, NodeDataVecDestructorType);
+impl_vec!(
+    NodeData,
+    NodeDataVec,
+    NodeDataVecDestructor,
+    NodeDataVecDestructorType
+);
 impl_vec_clone!(NodeData, NodeDataVec, NodeDataVecDestructor);
 impl_vec_mut!(NodeData, NodeDataVec);
 impl_vec_debug!(NodeData, NodeDataVec);
@@ -2476,7 +2491,12 @@ impl NodeData {
     }
 
     #[inline]
-    pub fn add_callback<C: Into<CoreCallback>>(&mut self, event: EventFilter, data: RefAny, callback: C) {
+    pub fn add_callback<C: Into<CoreCallback>>(
+        &mut self,
+        event: EventFilter,
+        data: RefAny,
+        callback: C,
+    ) {
         let callback = callback.into();
         let mut v: CoreCallbackDataVec = Vec::new().into();
         mem::swap(&mut v, &mut self.callbacks);
@@ -2505,7 +2525,7 @@ impl NodeData {
         v.push(IdOrClass::Class(s));
         self.ids_and_classes = v.into();
     }
-    
+
     /// Add an unconditional CSS property (always applies)
     #[inline]
     pub fn add_css_property(&mut self, p: CssProperty) {
@@ -2516,37 +2536,52 @@ impl NodeData {
         v.push(CssPropertyWithConditions::simple(p));
         self.css_props = v.into();
     }
-    
+
     /// Add a CSS property that applies only on hover
     #[inline]
     pub fn add_hover_css_property(&mut self, p: CssProperty) {
-        use azul_css::dynamic_selector::{CssPropertyWithConditions, DynamicSelector, PseudoStateType};
+        use azul_css::dynamic_selector::{
+            CssPropertyWithConditions, DynamicSelector, PseudoStateType,
+        };
         let mut v: CssPropertyWithConditionsVec = Vec::new().into();
         mem::swap(&mut v, &mut self.css_props);
         let mut v = v.into_library_owned_vec();
-        v.push(CssPropertyWithConditions::with_condition(p, DynamicSelector::PseudoState(PseudoStateType::Hover)));
+        v.push(CssPropertyWithConditions::with_condition(
+            p,
+            DynamicSelector::PseudoState(PseudoStateType::Hover),
+        ));
         self.css_props = v.into();
     }
-    
+
     /// Add a CSS property that applies only when active (clicked)
     #[inline]
     pub fn add_active_css_property(&mut self, p: CssProperty) {
-        use azul_css::dynamic_selector::{CssPropertyWithConditions, DynamicSelector, PseudoStateType};
+        use azul_css::dynamic_selector::{
+            CssPropertyWithConditions, DynamicSelector, PseudoStateType,
+        };
         let mut v: CssPropertyWithConditionsVec = Vec::new().into();
         mem::swap(&mut v, &mut self.css_props);
         let mut v = v.into_library_owned_vec();
-        v.push(CssPropertyWithConditions::with_condition(p, DynamicSelector::PseudoState(PseudoStateType::Active)));
+        v.push(CssPropertyWithConditions::with_condition(
+            p,
+            DynamicSelector::PseudoState(PseudoStateType::Active),
+        ));
         self.css_props = v.into();
     }
-    
+
     /// Add a CSS property that applies only when focused
     #[inline]
     pub fn add_focus_css_property(&mut self, p: CssProperty) {
-        use azul_css::dynamic_selector::{CssPropertyWithConditions, DynamicSelector, PseudoStateType};
+        use azul_css::dynamic_selector::{
+            CssPropertyWithConditions, DynamicSelector, PseudoStateType,
+        };
         let mut v: CssPropertyWithConditionsVec = Vec::new().into();
         mem::swap(&mut v, &mut self.css_props);
         let mut v = v.into_library_owned_vec();
-        v.push(CssPropertyWithConditions::with_condition(p, DynamicSelector::PseudoState(PseudoStateType::Focus)));
+        v.push(CssPropertyWithConditions::with_condition(
+            p,
+            DynamicSelector::PseudoState(PseudoStateType::Focus),
+        ));
         self.css_props = v.into();
     }
 
@@ -4241,7 +4276,8 @@ impl Dom {
     /// - `aria`: Accessibility information describing table purpose
     #[inline]
     pub fn table_with_aria<S: Into<AzString>>(caption: S, aria: SmallAriaInfo) -> Self {
-        let mut table = Self::create_table().with_child(Self::create_caption().with_child(Self::create_text(caption)));
+        let mut table = Self::create_table()
+            .with_child(Self::create_caption().with_child(Self::create_text(caption)));
         table.root.set_accessibility_info(aria.to_full_info());
         table
     }

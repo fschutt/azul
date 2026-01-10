@@ -12,7 +12,7 @@
 //!
 //! The cache is organized per-node and per-property-type. Each property has a dedicated
 //! getter method that:
-//! 
+//!
 //! 1. Checks if the property is cached
 //! 2. If not, resolves it from CSS rules + inline styles
 //! 3. Caches the result for subsequent frames
@@ -194,39 +194,40 @@ use azul_css::{
             CssPropertyType, FlowFromValue, FlowIntoValue, LayoutAlignContentValue,
             LayoutAlignItemsValue, LayoutAlignSelfValue, LayoutBorderBottomWidthValue,
             LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue, LayoutBorderSpacingValue,
-            LayoutBorderTopWidthValue, LayoutInsetBottomValue, LayoutBoxSizingValue, LayoutClearValue,
+            LayoutBorderTopWidthValue, LayoutBoxSizingValue, LayoutClearValue,
             LayoutColumnGapValue, LayoutDisplayValue, LayoutFlexBasisValue,
             LayoutFlexDirectionValue, LayoutFlexGrowValue, LayoutFlexShrinkValue,
             LayoutFlexWrapValue, LayoutFloatValue, LayoutGapValue, LayoutGridAutoColumnsValue,
             LayoutGridAutoFlowValue, LayoutGridAutoRowsValue, LayoutGridColumnValue,
             LayoutGridRowValue, LayoutGridTemplateColumnsValue, LayoutGridTemplateRowsValue,
-            LayoutHeightValue, LayoutJustifyContentValue, LayoutJustifyItemsValue,
-            LayoutJustifySelfValue, LayoutLeftValue, LayoutMarginBottomValue,
-            LayoutMarginLeftValue, LayoutMarginRightValue, LayoutMarginTopValue,
-            LayoutMaxHeightValue, LayoutMaxWidthValue, LayoutMinHeightValue, LayoutMinWidthValue,
-            LayoutOverflowValue, LayoutPaddingBottomValue, LayoutPaddingLeftValue,
-            LayoutPaddingRightValue, LayoutPaddingTopValue, LayoutPositionValue, LayoutRightValue,
-            LayoutRowGapValue, LayoutScrollbarWidthValue, LayoutTableLayoutValue,
-            LayoutTextJustifyValue, LayoutTopValue, LayoutWidthValue, LayoutWritingModeValue,
-            LayoutZIndexValue, OrphansValue, PageBreakValue, ScrollbarStyleValue,
-            SelectionBackgroundColorValue, SelectionColorValue, SelectionRadiusValue,
-            ShapeImageThresholdValue, ShapeInsideValue, ShapeMarginValue, ShapeOutsideValue,
-            StringSetValue, StyleBackfaceVisibilityValue, StyleBackgroundContentVecValue,
-            StyleBackgroundPositionVecValue, StyleBackgroundRepeatVecValue,
-            StyleBackgroundSizeVecValue, StyleBorderBottomColorValue,
-            StyleBorderBottomLeftRadiusValue, StyleBorderBottomRightRadiusValue,
-            StyleBorderBottomStyleValue, StyleBorderCollapseValue, StyleBorderLeftColorValue,
-            StyleBorderLeftStyleValue, StyleBorderRightColorValue, StyleBorderRightStyleValue,
-            StyleBorderTopColorValue, StyleBorderTopLeftRadiusValue,
-            StyleBorderTopRightRadiusValue, StyleBorderTopStyleValue, StyleBoxShadowValue,
-            StyleCaptionSideValue, StyleCursorValue, StyleDirectionValue, StyleEmptyCellsValue,
-            StyleExclusionMarginValue, StyleFilterVecValue, StyleFontFamilyVecValue,
-            StyleFontSizeValue, StyleFontStyleValue, StyleFontValue, StyleFontWeightValue,
-            StyleHangingPunctuationValue, StyleHyphenationLanguageValue, StyleHyphensValue,
-            StyleInitialLetterValue, StyleLetterSpacingValue, StyleLineClampValue,
-            StyleLineHeightValue, StyleListStylePositionValue, StyleListStyleTypeValue,
-            StyleMixBlendModeValue, StyleOpacityValue, StylePerspectiveOriginValue,
-            StyleScrollbarColorValue, StyleTabWidthValue, StyleTextAlignValue, StyleTextColorValue,
+            LayoutHeightValue, LayoutInsetBottomValue, LayoutJustifyContentValue,
+            LayoutJustifyItemsValue, LayoutJustifySelfValue, LayoutLeftValue,
+            LayoutMarginBottomValue, LayoutMarginLeftValue, LayoutMarginRightValue,
+            LayoutMarginTopValue, LayoutMaxHeightValue, LayoutMaxWidthValue, LayoutMinHeightValue,
+            LayoutMinWidthValue, LayoutOverflowValue, LayoutPaddingBottomValue,
+            LayoutPaddingLeftValue, LayoutPaddingRightValue, LayoutPaddingTopValue,
+            LayoutPositionValue, LayoutRightValue, LayoutRowGapValue, LayoutScrollbarWidthValue,
+            LayoutTableLayoutValue, LayoutTextJustifyValue, LayoutTopValue, LayoutWidthValue,
+            LayoutWritingModeValue, LayoutZIndexValue, OrphansValue, PageBreakValue,
+            ScrollbarStyleValue, SelectionBackgroundColorValue, SelectionColorValue,
+            SelectionRadiusValue, ShapeImageThresholdValue, ShapeInsideValue, ShapeMarginValue,
+            ShapeOutsideValue, StringSetValue, StyleBackfaceVisibilityValue,
+            StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
+            StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue,
+            StyleBorderBottomColorValue, StyleBorderBottomLeftRadiusValue,
+            StyleBorderBottomRightRadiusValue, StyleBorderBottomStyleValue,
+            StyleBorderCollapseValue, StyleBorderLeftColorValue, StyleBorderLeftStyleValue,
+            StyleBorderRightColorValue, StyleBorderRightStyleValue, StyleBorderTopColorValue,
+            StyleBorderTopLeftRadiusValue, StyleBorderTopRightRadiusValue,
+            StyleBorderTopStyleValue, StyleBoxShadowValue, StyleCaptionSideValue, StyleCursorValue,
+            StyleDirectionValue, StyleEmptyCellsValue, StyleExclusionMarginValue,
+            StyleFilterVecValue, StyleFontFamilyVecValue, StyleFontSizeValue, StyleFontStyleValue,
+            StyleFontValue, StyleFontWeightValue, StyleHangingPunctuationValue,
+            StyleHyphenationLanguageValue, StyleHyphensValue, StyleInitialLetterValue,
+            StyleLetterSpacingValue, StyleLineClampValue, StyleLineHeightValue,
+            StyleListStylePositionValue, StyleListStyleTypeValue, StyleMixBlendModeValue,
+            StyleOpacityValue, StylePerspectiveOriginValue, StyleScrollbarColorValue,
+            StyleTabWidthValue, StyleTextAlignValue, StyleTextColorValue,
             StyleTextCombineUprightValue, StyleTextDecorationValue, StyleTextIndentValue,
             StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
             StyleVerticalAlignValue, StyleVisibilityValue, StyleWhiteSpaceValue,
@@ -807,7 +808,7 @@ impl CssPropertyCache {
                             })
                         })
                     } || self.css_hover_props.get(&node_id).is_some()
-                            || self.cascaded_hover_props.get(&node_id).is_some();
+                        || self.cascaded_hover_props.get(&node_id).is_some();
 
                     if node_has_hover_props {
                         node_should_have_tag = true;
@@ -823,7 +824,7 @@ impl CssPropertyCache {
                             })
                         })
                     } || self.css_active_props.get(&node_id).is_some()
-                            || self.cascaded_active_props.get(&node_id).is_some();
+                        || self.cascaded_active_props.get(&node_id).is_some();
 
                     if node_has_active_props {
                         node_should_have_tag = true;
@@ -839,7 +840,7 @@ impl CssPropertyCache {
                             })
                         })
                     } || self.css_focus_props.get(&node_id).is_some()
-                            || self.cascaded_focus_props.get(&node_id).is_some();
+                        || self.cascaded_focus_props.get(&node_id).is_some();
 
                     if node_has_focus_props {
                         node_should_have_tag = true;
@@ -879,9 +880,15 @@ impl CssPropertyCache {
                         let overflow_y = self
                             .get_overflow_y(&node_data, &node_id, &default_node_state)
                             .and_then(|p| p.get_property_or_default());
-                        
-                        let x_scrollable = matches!(overflow_x, Some(LayoutOverflow::Scroll | LayoutOverflow::Auto));
-                        let y_scrollable = matches!(overflow_y, Some(LayoutOverflow::Scroll | LayoutOverflow::Auto));
+
+                        let x_scrollable = matches!(
+                            overflow_x,
+                            Some(LayoutOverflow::Scroll | LayoutOverflow::Auto)
+                        );
+                        let y_scrollable = matches!(
+                            overflow_y,
+                            Some(LayoutOverflow::Scroll | LayoutOverflow::Auto)
+                        );
                         x_scrollable || y_scrollable
                     };
 
@@ -1399,7 +1406,7 @@ impl CssPropertyCache {
     ) -> Option<&CssProperty> {
         // NOTE: This function is slow, but it is going to be called on every
         // node in parallel, so it should be rather fast in the end
-        
+
         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
         // First test if there is some user-defined override for the property
@@ -1412,12 +1419,17 @@ impl CssPropertyCache {
         }
 
         // Helper to check if property matches a specific pseudo state
-        fn matches_pseudo_state(prop: &azul_css::dynamic_selector::CssPropertyWithConditions, state: PseudoStateType) -> bool {
+        fn matches_pseudo_state(
+            prop: &azul_css::dynamic_selector::CssPropertyWithConditions,
+            state: PseudoStateType,
+        ) -> bool {
             let conditions = prop.apply_if.as_slice();
             if conditions.is_empty() {
                 state == PseudoStateType::Normal
             } else {
-                conditions.iter().all(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state))
+                conditions
+                    .iter()
+                    .all(|c| matches!(c, DynamicSelector::PseudoState(s) if *s == state))
             }
         }
 
@@ -1425,18 +1437,15 @@ impl CssPropertyCache {
         // :focus > :active > :hover > normal (fallback)
         if node_state.focused {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = node_data
-                .css_props
-                .as_ref()
-                .iter()
-                .find_map(|css_prop| {
-                    if matches_pseudo_state(css_prop, PseudoStateType::Focus) && css_prop.property.get_type() == *css_property_type {
-                        Some(&css_prop.property)
-                    } else {
-                        None
-                    }
-                })
-            {
+            if let Some(p) = node_data.css_props.as_ref().iter().find_map(|css_prop| {
+                if matches_pseudo_state(css_prop, PseudoStateType::Focus)
+                    && css_prop.property.get_type() == *css_property_type
+                {
+                    Some(&css_prop.property)
+                } else {
+                    None
+                }
+            }) {
                 return Some(p);
             }
 
@@ -1461,18 +1470,15 @@ impl CssPropertyCache {
 
         if node_state.active {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = node_data
-                .css_props
-                .as_ref()
-                .iter()
-                .find_map(|css_prop| {
-                    if matches_pseudo_state(css_prop, PseudoStateType::Active) && css_prop.property.get_type() == *css_property_type {
-                        Some(&css_prop.property)
-                    } else {
-                        None
-                    }
-                })
-            {
+            if let Some(p) = node_data.css_props.as_ref().iter().find_map(|css_prop| {
+                if matches_pseudo_state(css_prop, PseudoStateType::Active)
+                    && css_prop.property.get_type() == *css_property_type
+                {
+                    Some(&css_prop.property)
+                } else {
+                    None
+                }
+            }) {
                 return Some(p);
             }
 
@@ -1497,18 +1503,15 @@ impl CssPropertyCache {
 
         if node_state.hover {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = node_data
-                .css_props
-                .as_ref()
-                .iter()
-                .find_map(|css_prop| {
-                    if matches_pseudo_state(css_prop, PseudoStateType::Hover) && css_prop.property.get_type() == *css_property_type {
-                        Some(&css_prop.property)
-                    } else {
-                        None
-                    }
-                })
-            {
+            if let Some(p) = node_data.css_props.as_ref().iter().find_map(|css_prop| {
+                if matches_pseudo_state(css_prop, PseudoStateType::Hover)
+                    && css_prop.property.get_type() == *css_property_type
+                {
+                    Some(&css_prop.property)
+                } else {
+                    None
+                }
+            }) {
                 return Some(p);
             }
 
@@ -1533,18 +1536,15 @@ impl CssPropertyCache {
 
         // Normal/fallback properties - always apply as base layer
         // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-        if let Some(p) = node_data
-            .css_props
-            .as_ref()
-            .iter()
-            .find_map(|css_prop| {
-                if matches_pseudo_state(css_prop, PseudoStateType::Normal) && css_prop.property.get_type() == *css_property_type {
-                    Some(&css_prop.property)
-                } else {
-                    None
-                }
-            })
-        {
+        if let Some(p) = node_data.css_props.as_ref().iter().find_map(|css_prop| {
+            if matches_pseudo_state(css_prop, PseudoStateType::Normal)
+                && css_prop.property.get_type() == *css_property_type
+            {
+                Some(&css_prop.property)
+            } else {
+                None
+            }
+        }) {
             return Some(p);
         }
 
@@ -1610,12 +1610,8 @@ impl CssPropertyCache {
         // Check inline CSS properties with DynamicSelectorContext evaluation.
         // Iterate in REVERSE order - "last found wins" semantics.
         // This replaces the old Focus > Active > Hover > Normal priority chain.
-        if let Some(prop_with_conditions) = node_data
-            .css_props
-            .as_ref()
-            .iter()
-            .rev()
-            .find(|prop| {
+        if let Some(prop_with_conditions) =
+            node_data.css_props.as_ref().iter().rev().find(|prop| {
                 prop.property.get_type() == *css_property_type && prop.matches(context)
             })
         {
@@ -4110,14 +4106,14 @@ impl CssPropertyCache {
     ///
     /// This analyzes the property value and creates a chain of dependencies that can be
     /// resolved later during layout. For example:
-    /// 
+    ///
     /// - `font-size: 16px` → Absolute chain with 16.0 pixels
     /// - `font-size: 1.5em` → Em chain depending on parent's font-size
     /// - `font-size: 150%` → Percent chain depending on parent's font-size
     /// - `padding: 2em` → Em chain depending on current node's font-size
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `node_id` - The node this property belongs to
     /// * `parent_id` - The parent node (for inheritance)
     /// * `property` - The CSS property to analyze
@@ -4280,7 +4276,8 @@ impl CssPropertyCache {
             .filter_map(|(node_index, hierarchy_item)| {
                 let node_id = NodeId::new(node_index);
                 let parent_id = hierarchy_item.parent_id();
-                let parent_computed = parent_id.and_then(|pid| self.computed_values.get(&pid).cloned());
+                let parent_computed =
+                    parent_id.and_then(|pid| self.computed_values.get(&pid).cloned());
 
                 let mut ctx = InheritanceContext {
                     node_id,
@@ -4295,7 +4292,13 @@ impl CssPropertyCache {
                 }
 
                 // Steps 2-5: Apply cascade in priority order
-                self.apply_cascade_properties(&mut ctx, node_id, &parent_computed, node_data, node_index);
+                self.apply_cascade_properties(
+                    &mut ctx,
+                    node_id,
+                    &parent_computed,
+                    node_data,
+                    node_index,
+                );
 
                 // Check for changes and store
                 let changed = self.store_if_changed(&ctx);
@@ -4310,7 +4313,9 @@ impl CssPropertyCache {
         ctx: &mut InheritanceContext,
         parent_values: &BTreeMap<CssPropertyType, CssPropertyWithOrigin>,
     ) {
-        for (prop_type, prop_with_origin) in parent_values.iter().filter(|(pt, _)| pt.is_inheritable()) {
+        for (prop_type, prop_with_origin) in
+            parent_values.iter().filter(|(pt, _)| pt.is_inheritable())
+        {
             ctx.computed_values.insert(
                 *prop_type,
                 CssPropertyWithOrigin {
@@ -4324,7 +4329,8 @@ impl CssPropertyCache {
                 continue;
             }
 
-            if let Some(chain) = ctx.parent_id
+            if let Some(chain) = ctx
+                .parent_id
                 .and_then(|pid| self.dependency_chains.get(&pid))
                 .and_then(|chains| chains.get(prop_type))
             {
@@ -4384,7 +4390,9 @@ impl CssPropertyCache {
         // Skip relative font-size if we already have inherited resolved value
         if prop_type == CssPropertyType::FontSize {
             if let Some(existing) = computed.get(&prop_type) {
-                if existing.origin == CssPropertyOrigin::Inherited && Self::has_relative_font_size_unit(prop) {
+                if existing.origin == CssPropertyOrigin::Inherited
+                    && Self::has_relative_font_size_unit(prop)
+                {
                     return false;
                 }
             }
@@ -4501,7 +4509,12 @@ impl CssPropertyCache {
 
         css_val
             .get_property()
-            .map(|fs| matches!(fs.inner.metric, SizeMetric::Em | SizeMetric::Rem | SizeMetric::Percent))
+            .map(|fs| {
+                matches!(
+                    fs.inner.metric,
+                    SizeMetric::Em | SizeMetric::Rem | SizeMetric::Percent
+                )
+            })
             .unwrap_or(false)
     }
 
@@ -4521,9 +4534,11 @@ impl CssPropertyCache {
 
         let changed = values_changed || chains_changed;
 
-        self.computed_values.insert(ctx.node_id, ctx.computed_values.clone());
+        self.computed_values
+            .insert(ctx.node_id, ctx.computed_values.clone());
         if !ctx.dependency_chains.is_empty() {
-            self.dependency_chains.insert(ctx.node_id, ctx.dependency_chains.clone());
+            self.dependency_chains
+                .insert(ctx.node_id, ctx.dependency_chains.clone());
         }
 
         changed
@@ -4566,17 +4581,17 @@ impl CssPropertyCache {
             return Some(cached);
         }
 
-        chain
-            .steps
-            .clone()
-            .iter()
-            .try_fold(None, |_, step| {
-                Some(self.resolve_step(step, property_type, root_font_size))
-            })?
+        chain.steps.clone().iter().try_fold(None, |_, step| {
+            Some(self.resolve_step(step, property_type, root_font_size))
+        })?
     }
 
     /// Get a dependency chain for a node/property pair
-    fn get_chain(&self, node_id: NodeId, property_type: CssPropertyType) -> Option<&CssDependencyChain> {
+    fn get_chain(
+        &self,
+        node_id: NodeId,
+        property_type: CssPropertyType,
+    ) -> Option<&CssDependencyChain> {
         self.dependency_chains
             .get(&node_id)
             .and_then(|chains| chains.get(&property_type))
@@ -4591,11 +4606,17 @@ impl CssPropertyCache {
     ) -> Option<f32> {
         match step {
             CssDependencyChainStep::Absolute { pixels } => Some(*pixels),
-            CssDependencyChainStep::Percent { source_node, factor } => {
+            CssDependencyChainStep::Percent {
+                source_node,
+                factor,
+            } => {
                 let source_val = self.get_cached_pixels(*source_node, property_type)?;
                 Some(source_val * factor)
             }
-            CssDependencyChainStep::Em { source_node, factor } => {
+            CssDependencyChainStep::Em {
+                source_node,
+                factor,
+            } => {
                 let font_size = self.get_cached_pixels(*source_node, CssPropertyType::FontSize)?;
                 Some(font_size * factor)
             }

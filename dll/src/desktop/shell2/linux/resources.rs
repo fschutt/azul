@@ -9,8 +9,8 @@ use azul_core::{refany::RefAny, resources::AppConfig};
 use azul_css::system::SystemStyle;
 use rust_fontconfig::FcFontCache;
 
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
 use super::super::common::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 /// Shared resources for all windows in a Linux application
 ///
@@ -44,11 +44,26 @@ impl AppResources {
         // Detect system style once at startup
         let system_style = Arc::new(SystemStyle::new());
 
-        log_debug!(LogCategory::Resources, "[AppResources] System style detected:");
-        log_debug!(LogCategory::Resources, "  Platform: {:?}", system_style.platform);
+        log_debug!(
+            LogCategory::Resources,
+            "[AppResources] System style detected:"
+        );
+        log_debug!(
+            LogCategory::Resources,
+            "  Platform: {:?}",
+            system_style.platform
+        );
         log_debug!(LogCategory::Resources, "  Theme: {:?}", system_style.theme);
-        log_debug!(LogCategory::Resources, "  UI Font: {:?}", system_style.fonts.ui_font);
-        log_debug!(LogCategory::Resources, "  Accent Color: {:?}", system_style.colors.accent);
+        log_debug!(
+            LogCategory::Resources,
+            "  UI Font: {:?}",
+            system_style.fonts.ui_font
+        );
+        log_debug!(
+            LogCategory::Resources,
+            "  Accent Color: {:?}",
+            system_style.colors.accent
+        );
 
         Self {
             config,

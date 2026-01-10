@@ -1,8 +1,6 @@
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{
-        Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex,
-    },
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
@@ -209,7 +207,11 @@ impl CheckBox {
     }
 
     #[inline]
-    pub fn with_on_toggle<C: Into<CheckBoxOnToggleCallback>>(mut self, data: RefAny, on_toggle: C) -> Self {
+    pub fn with_on_toggle<C: Into<CheckBoxOnToggleCallback>>(
+        mut self,
+        data: RefAny,
+        on_toggle: C,
+    ) -> Self {
         self.set_on_toggle(data, on_toggle);
         self
     }
@@ -277,9 +279,10 @@ mod input {
             let inner = check_box.inner.clone();
 
             match ontoggle.as_mut() {
-                Some(CheckBoxOnToggle { callback, refany: data }) => {
-                    (callback.cb)(data.clone(), info.clone(), inner)
-                }
+                Some(CheckBoxOnToggle {
+                    callback,
+                    refany: data,
+                }) => (callback.cb)(data.clone(), info.clone(), inner),
                 None => Update::DoNothing,
             }
         };

@@ -890,9 +890,7 @@ impl<'a> SceneBuilder<'a> {
         'outer: while let Some(bc) = stack.pop() {
             loop {
                 let item = match traversal.next() {
-                    Some(item) => {
-                        item
-                    }
+                    Some(item) => item,
                     None => {
                         break;
                     }

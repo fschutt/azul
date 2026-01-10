@@ -60,8 +60,8 @@ use objc2_foundation::{
 };
 use rust_fontconfig::FcFontCache;
 
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
 use super::common::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 use crate::desktop::{
     shell2::common::{
@@ -386,29 +386,29 @@ define_class!(
         fn tick_timers(&self, _sender: Option<&NSObject>) {
             use azul_core::callbacks::Update;
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-            
+
             // Only log every ~60 frames to avoid spam, but always log if there's work
             static TICK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
             let tick = TICK_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            
+
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    
+
                     // Invoke all expired timer callbacks
                     let timer_results = macos_window.invoke_expired_timers();
-                    
+
                     // Process each callback result to handle window state modifications
                     let mut needs_redraw = false;
                     for result in &timer_results {
                         // Apply window state changes from callback result
                         // Also process queued_window_states (for debug server click simulation)
                         // Also process nodes_scrolled_in_callbacks (for scroll_node_by API)
-                        let has_window_changes = result.modified_window_state.is_some() 
+                        let has_window_changes = result.modified_window_state.is_some()
                             || !result.queued_window_states.is_empty();
                         let has_scroll_changes = result.nodes_scrolled_in_callbacks.as_ref()
                             .map(|s| !s.is_empty()).unwrap_or(false);
-                        
+
                         if has_window_changes || has_scroll_changes {
                             // Save previous state BEFORE applying changes (for sync_window_state diff)
                             macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
@@ -422,7 +422,7 @@ define_class!(
                             needs_redraw = true;
                         }
                     }
-                    
+
                     if needs_redraw {
                         macos_window.frame_needs_regeneration = true;
                         let _: () = msg_send![self, setNeedsDisplay: true];
@@ -856,25 +856,25 @@ define_class!(
         fn tick_timers(&self, _sender: Option<&NSObject>) {
             use azul_core::callbacks::Update;
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-            
+
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    
+
                     // Invoke all expired timer callbacks
                     let timer_results = macos_window.invoke_expired_timers();
-                    
+
                     // Process each callback result to handle window state modifications
                     let mut needs_redraw = false;
                     for result in &timer_results {
                         // Apply window state changes from callback result
                         // Also process queued_window_states (for debug server click simulation)
                         // Also process nodes_scrolled_in_callbacks (for scroll_node_by API)
-                        let has_window_changes = result.modified_window_state.is_some() 
+                        let has_window_changes = result.modified_window_state.is_some()
                             || !result.queued_window_states.is_empty();
                         let has_scroll_changes = result.nodes_scrolled_in_callbacks.as_ref()
                             .map(|s| !s.is_empty()).unwrap_or(false);
-                        
+
                         if has_window_changes || has_scroll_changes {
                             // Save previous state BEFORE applying changes (for sync_window_state diff)
                             macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
@@ -888,7 +888,7 @@ define_class!(
                             needs_redraw = true;
                         }
                     }
-                    
+
                     if needs_redraw {
                         macos_window.frame_needs_regeneration = true;
                         let _: () = msg_send![self, setNeedsDisplay: true];
@@ -1125,7 +1125,7 @@ impl GLView {
     /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the view
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
         *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
-        
+
         // Start the timer tick loop - this will invoke timer callbacks every 16ms
         // and reschedule itself via performSelector:withObject:afterDelay:
         use objc2::sel;
@@ -1146,7 +1146,7 @@ impl CPUView {
     /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the view
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
         *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
-        
+
         // Start the timer tick loop - this will invoke timer callbacks every 16ms
         // and reschedule itself via performSelector:withObject:afterDelay:
         use objc2::sel;
@@ -1287,40 +1287,40 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    
+
                     // Get new logical size from content view
                     if let Some(content_view) = macos_window.window.contentView() {
                         let bounds = content_view.bounds();
                         let new_logical_width = bounds.size.width as f32;
                         let new_logical_height = bounds.size.height as f32;
-                        
+
                         // Update dimensions if changed
                         let old_dims = macos_window.current_window_state.size.dimensions;
-                        if (old_dims.width - new_logical_width).abs() > 0.5 
-                            || (old_dims.height - new_logical_height).abs() > 0.5 
+                        if (old_dims.width - new_logical_width).abs() > 0.5
+                            || (old_dims.height - new_logical_height).abs() > 0.5
                         {
-                            macos_window.current_window_state.size.dimensions = 
+                            macos_window.current_window_state.size.dimensions =
                                 azul_core::geom::LogicalSize {
                                     width: new_logical_width,
                                     height: new_logical_height,
                                 };
-                            
+
                             log_debug!(LogCategory::Window,
                                 "[WindowDelegate] Window resized: {}x{} -> {}x{}",
                                 old_dims.width, old_dims.height,
                                 new_logical_width, new_logical_height
                             );
-                            
+
                             // Mark frame for regeneration with new size
                             // Window state sync happens in build_atomic_txn before WebRender transaction
                             macos_window.frame_needs_regeneration = true;
-                            
+
                             // Trigger re-layout and request redraw
                             // Must call request_redraw() to trigger drawRect: with new size
                             macos_window.request_redraw();
                         }
                     }
-                    
+
                     // Only check for maximized state if not in fullscreen
                     let frame = macos_window.current_window_state.flags.frame;
                     if frame != WindowFrame::Fullscreen {
@@ -1816,13 +1816,21 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         position: azul_core::geom::LogicalPosition,
     ) {
         if let Err(e) = self.show_tooltip(text, position) {
-            log_error!(LogCategory::Platform, "[macOS] Failed to show tooltip: {}", e);
+            log_error!(
+                LogCategory::Platform,
+                "[macOS] Failed to show tooltip: {}",
+                e
+            );
         }
     }
 
     fn hide_tooltip_from_callback(&mut self) {
         if let Err(e) = self.hide_tooltip() {
-            log_error!(LogCategory::Platform, "[macOS] Failed to hide tooltip: {}", e);
+            log_error!(
+                LogCategory::Platform,
+                "[macOS] Failed to hide tooltip: {}",
+                e
+            );
         }
     }
 }
@@ -1927,7 +1935,8 @@ impl MacOSWindow {
             Vsync::DontCare => 1,
         };
 
-        log_debug!(LogCategory::Rendering,
+        log_debug!(
+            LogCategory::Rendering,
             "[MacOSWindow::configure_vsync] VSync {} requested (swap interval: {}), using \
              CVDisplayLink instead",
             if swap_interval == 1 {
@@ -1969,17 +1978,26 @@ impl MacOSWindow {
 
                 self.current_window_state.monitor_id = OptionU32::Some(monitor_id.index as u32);
 
-                log_debug!(LogCategory::Window,
+                log_debug!(
+                    LogCategory::Window,
                     "[MacOSWindow] Monitor detected: display_id={}, index={}, hash={:x}",
-                    display_id, monitor_id.index, hash
+                    display_id,
+                    monitor_id.index,
+                    hash
                 );
             } else {
-                log_warn!(LogCategory::Window, "[MacOSWindow] Failed to get CGDirectDisplayID from screen");
+                log_warn!(
+                    LogCategory::Window,
+                    "[MacOSWindow] Failed to get CGDirectDisplayID from screen"
+                );
                 // Fallback: Use index 0 (main display)
                 self.current_window_state.monitor_id = OptionU32::Some(0);
             }
         } else {
-            log_warn!(LogCategory::Window, "[MacOSWindow] No screen associated with window");
+            log_warn!(
+                LogCategory::Window,
+                "[MacOSWindow] No screen associated with window"
+            );
             // Fallback: Use index 0 (main display)
             self.current_window_state.monitor_id = OptionU32::Some(0);
         }
@@ -1995,7 +2013,10 @@ impl MacOSWindow {
         // Check if VSYNC is enabled
         let vsync = self.current_window_state.renderer_options.vsync;
         if vsync == Vsync::Disabled {
-            log_debug!(LogCategory::Rendering, "[CVDisplayLink] VSYNC disabled, skipping CVDisplayLink");
+            log_debug!(
+                LogCategory::Rendering,
+                "[CVDisplayLink] VSYNC disabled, skipping CVDisplayLink"
+            );
             return Ok(());
         }
 
@@ -2003,7 +2024,10 @@ impl MacOSWindow {
         let cv_functions = match &self.cv_functions {
             Some(funcs) => funcs.clone(),
             None => {
-                log_debug!(LogCategory::Rendering, "[CVDisplayLink] CoreVideo not available, using fallback VSync");
+                log_debug!(
+                    LogCategory::Rendering,
+                    "[CVDisplayLink] CoreVideo not available, using fallback VSync"
+                );
                 // Try traditional VSync as fallback
                 if let Some(ref gl_context) = self.gl_context {
                     Self::configure_vsync(gl_context, vsync);
@@ -2022,7 +2046,8 @@ impl MacOSWindow {
             }
         });
 
-        log_debug!(LogCategory::Rendering,
+        log_debug!(
+            LogCategory::Rendering,
             "[CVDisplayLink] Creating display link for display {}",
             display_id
         );
@@ -2068,7 +2093,10 @@ impl MacOSWindow {
             return Err(format!("CVDisplayLinkStart failed: {}", result));
         }
 
-        log_info!(LogCategory::Rendering, "[CVDisplayLink] Display link started successfully");
+        log_info!(
+            LogCategory::Rendering,
+            "[CVDisplayLink] Display link started successfully"
+        );
         self.display_link = Some(display_link);
 
         Ok(())
@@ -2100,23 +2128,37 @@ impl MacOSWindow {
         fc_cache_opt: Option<Arc<rust_fontconfig::FcFontCache>>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        log_debug!(LogCategory::Window, "[MacOSWindow::new] Starting window creation");
+        log_debug!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Starting window creation"
+        );
 
         // Initialize NSApplication if needed
-        log_trace!(LogCategory::Window, "[MacOSWindow::new] Getting NSApplication...");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Getting NSApplication..."
+        );
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
-        log_trace!(LogCategory::Window, "[MacOSWindow::new] NSApplication configured");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::new] NSApplication configured"
+        );
 
         // Get screen dimensions for window positioning
-        log_trace!(LogCategory::Window, "[MacOSWindow::new] Getting main screen...");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Getting main screen..."
+        );
         let screen = NSScreen::mainScreen(mtm)
             .ok_or_else(|| WindowError::PlatformError("No main screen".into()))?;
 
         let screen_frame = screen.frame();
-        log_trace!(LogCategory::Window,
+        log_trace!(
+            LogCategory::Window,
             "[MacOSWindow::new] Screen frame: {}x{}",
-            screen_frame.size.width, screen_frame.size.height
+            screen_frame.size.width,
+            screen_frame.size.height
         );
 
         // Determine window size from options
@@ -2131,20 +2173,39 @@ impl MacOSWindow {
         let content_rect = NSRect::new(NSPoint::new(x, y), NSSize::new(width, height));
 
         // Determine rendering backend
-        log_trace!(LogCategory::Window, "[MacOSWindow::new] Determining rendering backend...");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Determining rendering backend..."
+        );
         let requested_backend = Self::determine_backend(&options);
-        log_debug!(LogCategory::Window, "[MacOSWindow::new] Backend: {:?}", requested_backend);
+        log_debug!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Backend: {:?}",
+            requested_backend
+        );
 
         // Create content view based on backend
-        log_trace!(LogCategory::Window, "[MacOSWindow::new] Creating content view...");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Creating content view..."
+        );
         let (backend, gl_view, gl_context, gl_functions, cpu_view) = match requested_backend {
             RenderBackend::OpenGL => match Self::create_gl_view(content_rect, mtm) {
                 Ok((view, ctx, funcs)) => {
-                    log_debug!(LogCategory::Rendering, "[MacOSWindow::new] OpenGL view created successfully");
-                    log_trace!(LogCategory::Rendering, "[MacOSWindow::new] Configuring VSync...");
+                    log_debug!(
+                        LogCategory::Rendering,
+                        "[MacOSWindow::new] OpenGL view created successfully"
+                    );
+                    log_trace!(
+                        LogCategory::Rendering,
+                        "[MacOSWindow::new] Configuring VSync..."
+                    );
                     let vsync = options.window_state.renderer_options.vsync;
                     Self::configure_vsync(&ctx, vsync);
-                    log_trace!(LogCategory::Rendering, "[MacOSWindow::new] VSync configured, returning from match...");
+                    log_trace!(
+                        LogCategory::Rendering,
+                        "[MacOSWindow::new] VSync configured, returning from match..."
+                    );
                     (
                         RenderBackend::OpenGL,
                         Some(view),
@@ -2154,7 +2215,11 @@ impl MacOSWindow {
                     )
                 }
                 Err(e) => {
-                    log_warn!(LogCategory::Rendering, "OpenGL initialization failed: {}, falling back to CPU", e);
+                    log_warn!(
+                        LogCategory::Rendering,
+                        "OpenGL initialization failed: {}, falling back to CPU",
+                        e
+                    );
                     let view = Self::create_cpu_view(content_rect, mtm);
                     (RenderBackend::CPU, None, None, None, Some(view))
                 }
@@ -2164,20 +2229,27 @@ impl MacOSWindow {
                 (RenderBackend::CPU, None, None, None, Some(view))
             }
         };
-        log_debug!(LogCategory::Window,
+        log_debug!(
+            LogCategory::Window,
             "[MacOSWindow::new] Content view created, backend: {:?}",
             backend
         );
 
         // Create window style mask
-        log_trace!(LogCategory::Window, "[MacOSWindow::new] Creating window with style mask...");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Creating window with style mask..."
+        );
         let style_mask = NSWindowStyleMask::Titled
             | NSWindowStyleMask::Closable
             | NSWindowStyleMask::Miniaturizable
             | NSWindowStyleMask::Resizable;
 
         // Create the window
-        log_trace!(LogCategory::Window, "[MacOSWindow::new] Allocating NSWindow...");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Allocating NSWindow..."
+        );
         let window = unsafe {
             NSWindow::initWithContentRect_styleMask_backing_defer(
                 mtm.alloc(),
@@ -2190,16 +2262,25 @@ impl MacOSWindow {
         log_trace!(LogCategory::Window, "[MacOSWindow::new] NSWindow created");
 
         // Set window title
-        log_trace!(LogCategory::Window, "[MacOSWindow::new] Setting window title...");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Setting window title..."
+        );
         let title = NSString::from_str(&options.window_state.title);
         window.setTitle(&title);
         log_trace!(LogCategory::Window, "[MacOSWindow::new] Window title set");
 
         // Set content view (either GL or CPU)
         // SAFE: Both GLView and CPUView inherit from NSView, so we can upcast safely
-        log_trace!(LogCategory::Window, "[MacOSWindow::new] Setting content view...");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Setting content view..."
+        );
         if let Some(ref gl) = gl_view {
-            log_trace!(LogCategory::Rendering, "[MacOSWindow::new] Setting GL view as content view...");
+            log_trace!(
+                LogCategory::Rendering,
+                "[MacOSWindow::new] Setting GL view as content view..."
+            );
             unsafe {
                 // GLView is a subclass of NSView, so we can use it as NSView
                 let view_ptr = Retained::as_ptr(gl) as *const NSView;
@@ -2208,7 +2289,10 @@ impl MacOSWindow {
             }
             log_trace!(LogCategory::Rendering, "[MacOSWindow::new] GL view set");
         } else if let Some(ref cpu) = cpu_view {
-            log_trace!(LogCategory::Rendering, "[MacOSWindow::new] Setting CPU view as content view...");
+            log_trace!(
+                LogCategory::Rendering,
+                "[MacOSWindow::new] Setting CPU view as content view..."
+            );
             unsafe {
                 // CPUView is a subclass of NSView, so we can use it as NSView
                 let view_ptr = Retained::as_ptr(cpu) as *const NSView;
@@ -2218,11 +2302,17 @@ impl MacOSWindow {
         } else {
             return Err(WindowError::PlatformError("No content view created".into()));
         }
-        log_trace!(LogCategory::Window, "[MacOSWindow::new] Content view configured");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Content view configured"
+        );
 
         // DO NOT show the window yet - we will show it after the first frame
         // is ready to prevent white flash
-        log_trace!(LogCategory::Window, "[MacOSWindow::new] Positioning window...");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Positioning window..."
+        );
         unsafe {
             // Simplified positioning: just center the window
             // Complex monitor enumeration can hang before event loop starts
@@ -2237,7 +2327,10 @@ impl MacOSWindow {
 
         // Apply initial window state based on options.window_state.flags.frame
         // Note: These will be applied before window is visible
-        log_trace!(LogCategory::Window, "[MacOSWindow::new] Applying window frame state...");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Applying window frame state..."
+        );
         unsafe {
             match options.window_state.flags.frame {
                 WindowFrame::Fullscreen => {
@@ -2283,13 +2376,23 @@ impl MacOSWindow {
             RenderBackend::CPU => RendererType::Software,
         };
 
-        log_debug!(LogCategory::Rendering, "[Window Init] Renderer type: {:?}", renderer_type);
+        log_debug!(
+            LogCategory::Rendering,
+            "[Window Init] Renderer type: {:?}",
+            renderer_type
+        );
 
         let gl_funcs = if let Some(ref f) = gl_functions {
-            log_trace!(LogCategory::Rendering, "[Window Init] Using GL functions from context");
+            log_trace!(
+                LogCategory::Rendering,
+                "[Window Init] Using GL functions from context"
+            );
             f.functions.clone()
         } else {
-            log_trace!(LogCategory::Rendering, "[Window Init] Loading GL functions for CPU fallback");
+            log_trace!(
+                LogCategory::Rendering,
+                "[Window Init] Loading GL functions for CPU fallback"
+            );
             // Fallback for CPU backend - initialize GL functions or fail gracefully
             match gl::GlFunctions::initialize() {
                 Ok(f) => f.functions.clone(),
@@ -2302,7 +2405,10 @@ impl MacOSWindow {
             }
         };
 
-        log_debug!(LogCategory::Rendering, "[Window Init] Creating WebRender instance");
+        log_debug!(
+            LogCategory::Rendering,
+            "[Window Init] Creating WebRender instance"
+        );
 
         // Create synchronization primitives for frame readiness
         let new_frame_ready = Arc::new((Mutex::new(false), Condvar::new()));
@@ -2396,7 +2502,8 @@ impl MacOSWindow {
         layout_window.current_window_state = current_window_state.clone();
         layout_window.renderer_type = Some(renderer_type);
 
-        log_debug!(LogCategory::Layout,
+        log_debug!(
+            LogCategory::Layout,
             "[Window Init] LayoutWindow configured with document_id: {:?}",
             document_id
         );
@@ -2411,10 +2518,17 @@ impl MacOSWindow {
         // because current_window_state will be moved into the struct, invalidating any pointer
         // we create now.
 
-        log_info!(LogCategory::Window, "[Window Init] Window created successfully");
+        log_info!(
+            LogCategory::Window,
+            "[Window Init] Window created successfully"
+        );
         log_debug!(LogCategory::Window, "[Window Init] Backend: {:?}", backend);
-        log_debug!(LogCategory::Rendering, "[Window Init] Renderer initialized: true");
-        log_debug!(LogCategory::Rendering,
+        log_debug!(
+            LogCategory::Rendering,
+            "[Window Init] Renderer initialized: true"
+        );
+        log_debug!(
+            LogCategory::Rendering,
             "[Window Init] GL Context: {}",
             if gl_context.is_some() { "Some" } else { "None" }
         );
@@ -2422,11 +2536,15 @@ impl MacOSWindow {
         // Load CoreVideo and Core Graphics functions for VSYNC and monitor detection
         let cv_functions = match CoreVideoFunctions::load() {
             Ok(funcs) => {
-                log_debug!(LogCategory::Platform, "[Window Init] CoreVideo loaded successfully");
+                log_debug!(
+                    LogCategory::Platform,
+                    "[Window Init] CoreVideo loaded successfully"
+                );
                 Some(funcs)
             }
             Err(e) => {
-                log_debug!(LogCategory::Platform,
+                log_debug!(
+                    LogCategory::Platform,
                     "[Window Init] CoreVideo not available: {} - VSYNC will use fallback",
                     e
                 );
@@ -2436,11 +2554,15 @@ impl MacOSWindow {
 
         let cg_functions = match CoreGraphicsFunctions::load() {
             Ok(funcs) => {
-                log_debug!(LogCategory::Platform, "[Window Init] Core Graphics loaded successfully");
+                log_debug!(
+                    LogCategory::Platform,
+                    "[Window Init] Core Graphics loaded successfully"
+                );
                 Some(funcs)
             }
             Err(e) => {
-                log_debug!(LogCategory::Platform,
+                log_debug!(
+                    LogCategory::Platform,
                     "[Window Init] Core Graphics not available: {} - monitor detection will use \
                      fallback",
                     e
@@ -2454,7 +2576,8 @@ impl MacOSWindow {
         let initial_viewport_height = current_window_state.size.dimensions.height;
         let dynamic_selector_context = {
             let sys = azul_css::system::SystemStyle::new();
-            let mut ctx = azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
+            let mut ctx =
+                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
             ctx.viewport_width = initial_viewport_width;
             ctx.viewport_height = initial_viewport_height;
             ctx.orientation = if initial_viewport_width > initial_viewport_height {
@@ -2523,24 +2646,29 @@ impl MacOSWindow {
         // Invoke create_callback if provided (for GL resource upload, config loading, etc.)
         // This runs AFTER GL context is ready but BEFORE any layout is done
         if let Some(mut callback) = options.create_callback.into_option() {
-            log_debug!(LogCategory::Callbacks, "[Window Init] Invoking create_callback...");
-            
+            log_debug!(
+                LogCategory::Callbacks,
+                "[Window Init] Invoking create_callback..."
+            );
+
             use azul_core::window::RawWindowHandle;
             use std::ptr;
-            
+
             let raw_handle = RawWindowHandle::MacOS(azul_core::window::MacOSHandle {
                 ns_window: Retained::as_ptr(&window.window) as *mut _,
                 ns_view: ptr::null_mut(),
             });
-            
+
             // Get mutable references needed for invoke_single_callback
-            let layout_window = window.layout_window.as_mut()
+            let layout_window = window
+                .layout_window
+                .as_mut()
                 .expect("LayoutWindow should exist at this point");
             let mut fc_cache_clone = (*window.fc_cache).clone();
-            
+
             // Get app_data for callback
             let mut app_data_ref = window.app_data.borrow_mut();
-            
+
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
                 &mut *app_data_ref,
@@ -2554,7 +2682,7 @@ impl MacOSWindow {
                 &window.current_window_state,
                 &window.renderer_resources,
             );
-            
+
             // Process callback result (timers, threads, etc.)
             drop(app_data_ref); // Release borrow before process_callback_result_v2
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
@@ -2562,37 +2690,57 @@ impl MacOSWindow {
             let _ = window.process_callback_result_v2(&callback_result);
             // Sync window state to OS (handles close_requested, title, size, etc.)
             window.sync_window_state();
-            
-            log_debug!(LogCategory::Callbacks, "[Window Init] create_callback completed");
+
+            log_debug!(
+                LogCategory::Callbacks,
+                "[Window Init] create_callback completed"
+            );
         }
 
         // Register debug timer if AZUL_DEBUG is enabled
         #[cfg(feature = "std")]
         if crate::desktop::shell2::common::debug_server::is_debug_enabled() {
-            log_debug!(LogCategory::DebugServer, "[Window Init] Registering debug timer (AZUL_DEBUG is set)");
-            
-            use azul_layout::callbacks::ExternalSystemCallbacks;
+            log_debug!(
+                LogCategory::DebugServer,
+                "[Window Init] Registering debug timer (AZUL_DEBUG is set)"
+            );
+
             use super::common::event_v2::PlatformWindowV2;
-            
+            use azul_layout::callbacks::ExternalSystemCallbacks;
+
             let timer_id: usize = 0xDEBE; // Special debug timer ID
             let debug_timer = crate::desktop::shell2::common::debug_server::create_debug_timer(
-                ExternalSystemCallbacks::rust_internal().get_system_time_fn
+                ExternalSystemCallbacks::rust_internal().get_system_time_fn,
             );
             // Use start_timer to register both in layout_window AND create native NSTimer
             window.start_timer(timer_id, debug_timer);
-            log_debug!(LogCategory::DebugServer, "[Window Init] Debug timer registered with ID 0x{:X}", timer_id);
+            log_debug!(
+                LogCategory::DebugServer,
+                "[Window Init] Debug timer registered with ID 0x{:X}",
+                timer_id
+            );
         }
 
         // Perform initial layout
-        log_debug!(LogCategory::Layout, "[Window Init] Performing initial layout");
+        log_debug!(
+            LogCategory::Layout,
+            "[Window Init] Performing initial layout"
+        );
         if let Err(e) = window.regenerate_layout() {
-            log_warn!(LogCategory::Layout, "[Window Init] WARNING: Initial layout failed: {}", e);
+            log_warn!(
+                LogCategory::Layout,
+                "[Window Init] WARNING: Initial layout failed: {}",
+                e
+            );
         }
 
         // Initialize accessibility adapter after first layout
         #[cfg(feature = "a11y")]
         {
-            log_debug!(LogCategory::Platform, "[Window Init] Initializing accessibility support");
+            log_debug!(
+                LogCategory::Platform,
+                "[Window Init] Initializing accessibility support"
+            );
             window.init_accessibility();
         }
 
@@ -2604,19 +2752,27 @@ impl MacOSWindow {
 
         // Initialize CVDisplayLink for VSYNC (if enabled and available)
         if let Err(e) = window.initialize_display_link() {
-            log_warn!(LogCategory::Rendering, "[Window Init] CVDisplayLink initialization failed: {}", e);
+            log_warn!(
+                LogCategory::Rendering,
+                "[Window Init] CVDisplayLink initialization failed: {}",
+                e
+            );
             // Not a fatal error - window will still work, just without VSYNC
         }
 
         // Show window immediately - drawRect will handle the first frame rendering
-        log_debug!(LogCategory::Window,
+        log_debug!(
+            LogCategory::Window,
             "[Window Init] Making window visible (first frame will be rendered in drawRect)..."
         );
         unsafe {
             window.window.makeKeyAndOrderFront(None);
         }
 
-        log_info!(LogCategory::Window, "[Window Init] Window initialization complete");
+        log_info!(
+            LogCategory::Window,
+            "[Window Init] Window initialization complete"
+        );
         Ok(window)
     }
 
@@ -2632,7 +2788,11 @@ impl MacOSWindow {
 
         // Collect debug messages if debug server is enabled
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
-        let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
+        let mut debug_messages = if debug_enabled {
+            Some(Vec::new())
+        } else {
+            None
+        };
 
         // Call unified regenerate_layout from common module
         crate::desktop::shell2::common::layout_v2::regenerate_layout(
@@ -2700,12 +2860,13 @@ impl MacOSWindow {
                 &mut self.render_api,
                 self.document_id,
             );
-            
+
             // After sending display list, request new hit tester
             // (will be resolved on next hit test)
             let doc_id = crate::desktop::wr_translate2::wr_translate_document_id(self.document_id);
             let hit_tester_request = self.render_api.request_hit_tester(doc_id);
-            self.hit_tester = crate::desktop::wr_translate2::AsyncHitTester::Requested(hit_tester_request);
+            self.hit_tester =
+                crate::desktop::wr_translate2::AsyncHitTester::Requested(hit_tester_request);
         }
 
         self.frame_needs_regeneration = false;
@@ -2759,9 +2920,11 @@ impl MacOSWindow {
 
         // If display changed, we may need to recreate CVDisplayLink
         if old_display_id != new_display_id {
-            log_debug!(LogCategory::Window,
+            log_debug!(
+                LogCategory::Window,
                 "[DPI Change] Display changed: {:?} -> {:?}",
-                old_display_id, new_display_id
+                old_display_id,
+                new_display_id
             );
 
             // Stop old display link
@@ -2774,7 +2937,11 @@ impl MacOSWindow {
 
             // Recreate display link for new display
             if let Err(e) = self.initialize_display_link() {
-                log_warn!(LogCategory::Rendering, "[DPI Change] Failed to recreate CVDisplayLink: {}", e);
+                log_warn!(
+                    LogCategory::Rendering,
+                    "[DPI Change] Failed to recreate CVDisplayLink: {}",
+                    e
+                );
                 // Not fatal - continue without display link
             }
         }
@@ -2784,7 +2951,8 @@ impl MacOSWindow {
             return Ok(());
         }
 
-        log_debug!(LogCategory::Window,
+        log_debug!(
+            LogCategory::Window,
             "[DPI Change] {} -> {}",
             old_hidpi.inner.get(),
             new_hidpi.inner.get()
@@ -2948,14 +3116,22 @@ impl MacOSWindow {
         // is_top_level flag changed?
         if previous.flags.is_top_level != current.flags.is_top_level {
             if let Err(e) = self.set_is_top_level(current.flags.is_top_level) {
-                log_error!(LogCategory::Platform, "[macOS] Failed to set is_top_level: {}", e);
+                log_error!(
+                    LogCategory::Platform,
+                    "[macOS] Failed to set is_top_level: {}",
+                    e
+                );
             }
         }
 
         // prevent_system_sleep flag changed?
         if previous.flags.prevent_system_sleep != current.flags.prevent_system_sleep {
             if let Err(e) = self.set_prevent_system_sleep(current.flags.prevent_system_sleep) {
-                log_error!(LogCategory::Platform, "[macOS] Failed to set prevent_system_sleep: {}", e);
+                log_error!(
+                    LogCategory::Platform,
+                    "[macOS] Failed to set prevent_system_sleep: {}",
+                    e
+                );
             }
         }
 
@@ -3048,9 +3224,13 @@ impl MacOSWindow {
         // Process the result - regenerate layout if callback modified DOM
         match result {
             azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
-                log_debug!(LogCategory::Callbacks, "[handle_window_should_close] Callback requested DOM regeneration");
+                log_debug!(
+                    LogCategory::Callbacks,
+                    "[handle_window_should_close] Callback requested DOM regeneration"
+                );
                 if let Err(e) = self.regenerate_layout() {
-                    log_warn!(LogCategory::Layout,
+                    log_warn!(
+                        LogCategory::Layout,
                         "[handle_window_should_close] Layout regeneration failed: {}",
                         e
                     );
@@ -3058,7 +3238,10 @@ impl MacOSWindow {
                 }
             }
             azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
-                log_debug!(LogCategory::Callbacks, "[handle_window_should_close] Callback requested re-render");
+                log_debug!(
+                    LogCategory::Callbacks,
+                    "[handle_window_should_close] Callback requested re-render"
+                );
                 self.frame_needs_regeneration = true;
             }
             _ => {}
@@ -3068,11 +3251,17 @@ impl MacOSWindow {
         let should_close = self.current_window_state.flags.close_requested;
 
         if should_close {
-            log_debug!(LogCategory::Window, "[handle_window_should_close] Close confirmed");
+            log_debug!(
+                LogCategory::Window,
+                "[handle_window_should_close] Close confirmed"
+            );
             // Mark window as closed so is_open() returns false
             self.is_open = false;
         } else {
-            log_debug!(LogCategory::Window, "[handle_window_should_close] Close prevented by callback");
+            log_debug!(
+                LogCategory::Window,
+                "[handle_window_should_close] Close prevented by callback"
+            );
         }
 
         Ok(should_close)
@@ -3080,7 +3269,10 @@ impl MacOSWindow {
 
     /// Handle close request from WindowDelegate
     fn handle_close_request(&mut self) {
-        log_debug!(LogCategory::Window, "[MacOSWindow] Processing close request");
+        log_debug!(
+            LogCategory::Window,
+            "[MacOSWindow] Processing close request"
+        );
 
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
@@ -3096,7 +3288,8 @@ impl MacOSWindow {
         match result {
             azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
                 if let Err(e) = self.regenerate_layout() {
-                    log_warn!(LogCategory::Layout,
+                    log_warn!(
+                        LogCategory::Layout,
                         "[MacOSWindow] Layout regeneration failed after close callback: {}",
                         e
                     );
@@ -3110,10 +3303,16 @@ impl MacOSWindow {
 
         // Check if callback cleared the flag (preventing close)
         if self.current_window_state.flags.close_requested {
-            log_debug!(LogCategory::Window, "[MacOSWindow] Close confirmed, closing window");
+            log_debug!(
+                LogCategory::Window,
+                "[MacOSWindow] Close confirmed, closing window"
+            );
             self.close_window();
         } else {
-            log_debug!(LogCategory::Window, "[MacOSWindow] Close cancelled by callback");
+            log_debug!(
+                LogCategory::Window,
+                "[MacOSWindow] Close cancelled by callback"
+            );
         }
     }
 
@@ -3351,18 +3550,30 @@ impl MacOSWindow {
 
     /// Handle a menu action from a menu item click
     fn handle_menu_action(&mut self, tag: isize) {
-        log_trace!(LogCategory::Callbacks, "[MacOSWindow] Handling menu action for tag: {}", tag);
+        log_trace!(
+            LogCategory::Callbacks,
+            "[MacOSWindow] Handling menu action for tag: {}",
+            tag
+        );
 
         // Look up callback from tag
         let callback = match self.menu_state.get_callback_for_tag(tag as i64) {
             Some(cb) => cb.clone(),
             None => {
-                log_warn!(LogCategory::Callbacks, "[MacOSWindow] No callback found for tag: {}", tag);
+                log_warn!(
+                    LogCategory::Callbacks,
+                    "[MacOSWindow] No callback found for tag: {}",
+                    tag
+                );
                 return;
             }
         };
 
-        log_debug!(LogCategory::Callbacks, "[MacOSWindow] Menu item clicked (tag {})", tag);
+        log_debug!(
+            LogCategory::Callbacks,
+            "[MacOSWindow] Menu item clicked (tag {})",
+            tag
+        );
 
         // Convert CoreMenuCallback to layout MenuCallback
         use azul_layout::callbacks::{Callback, MenuCallback};
@@ -3377,7 +3588,10 @@ impl MacOSWindow {
         let layout_window = match self.layout_window.as_mut() {
             Some(lw) => lw,
             None => {
-                log_warn!(LogCategory::Callbacks, "[MacOSWindow] No layout window available");
+                log_warn!(
+                    LogCategory::Callbacks,
+                    "[MacOSWindow] No layout window available"
+                );
                 return;
             }
         };
@@ -3450,16 +3664,16 @@ impl MacOSWindow {
         let new_logical_height = bounds.size.height as f32;
 
         let old_dims = self.current_window_state.size.dimensions;
-        
+
         // Only update if dimensions actually changed (with small tolerance for float comparison)
-        if (old_dims.width - new_logical_width).abs() > 0.5 
-            || (old_dims.height - new_logical_height).abs() > 0.5 
+        if (old_dims.width - new_logical_width).abs() > 0.5
+            || (old_dims.height - new_logical_height).abs() > 0.5
         {
             self.current_window_state.size.dimensions = azul_core::geom::LogicalSize {
                 width: new_logical_width,
                 height: new_logical_height,
             };
-            
+
             // Also update the DPI in case it changed (e.g., window moved to different display)
             let scale_factor = unsafe {
                 self.window
@@ -3468,14 +3682,17 @@ impl MacOSWindow {
                     .unwrap_or(1.0)
             };
             self.current_window_state.size.dpi = (scale_factor * 96.0) as u32;
-            
+
             // Mark frame as needing regeneration
             self.frame_needs_regeneration = true;
-            
-            log_debug!(LogCategory::Window,
+
+            log_debug!(
+                LogCategory::Window,
                 "[sync_window_size_from_content_view] Size updated: {}x{} -> {}x{} (dpi={})",
-                old_dims.width, old_dims.height,
-                new_logical_width, new_logical_height,
+                old_dims.width,
+                old_dims.height,
+                new_logical_width,
+                new_logical_height,
                 self.current_window_state.size.dpi
             );
         }
@@ -3519,7 +3736,11 @@ impl MacOSWindow {
 
         if new_frame != self.current_window_state.flags.frame {
             self.current_window_state.flags.frame = new_frame;
-            log_debug!(LogCategory::Window, "[MacOSWindow] Window frame changed to: {:?}", new_frame);
+            log_debug!(
+                LogCategory::Window,
+                "[MacOSWindow] Window frame changed to: {:?}",
+                new_frame
+            );
         }
     }
 
@@ -3529,7 +3750,10 @@ impl MacOSWindow {
     /// Uses hash-based diffing to avoid unnecessary menu recreation.
     pub fn set_application_menu(&mut self, menu: &azul_core::menu::Menu) {
         if self.menu_state.update_if_changed(menu, self.mtm) {
-            log_debug!(LogCategory::Platform, "[MacOSWindow] Application menu updated");
+            log_debug!(
+                LogCategory::Platform,
+                "[MacOSWindow] Application menu updated"
+            );
             if let Some(ns_menu) = self.menu_state.get_nsmenu() {
                 let app = NSApplication::sharedApplication(self.mtm);
                 app.setMainMenu(Some(ns_menu));
@@ -3613,7 +3837,8 @@ impl MacOSWindow {
 
                 if result == kIOReturnSuccess {
                     self.pm_assertion_id = Some(assertion_id);
-                    log_debug!(LogCategory::Platform,
+                    log_debug!(
+                        LogCategory::Platform,
                         "[macOS] System sleep prevented (assertion: {})",
                         assertion_id
                     );
@@ -3626,7 +3851,11 @@ impl MacOSWindow {
                 if let Some(assertion_id) = self.pm_assertion_id.take() {
                     let result = IOPMAssertionRelease(assertion_id);
                     if result == kIOReturnSuccess {
-                        log_debug!(LogCategory::Platform, "[macOS] System sleep allowed (assertion: {})", assertion_id);
+                        log_debug!(
+                            LogCategory::Platform,
+                            "[macOS] System sleep allowed (assertion: {})",
+                            assertion_id
+                        );
                         Ok(())
                     } else {
                         Err(format!("IOPMAssertionRelease failed: {}", result))
@@ -3654,7 +3883,10 @@ impl MacOSWindow {
         let mtm = match MainThreadMarker::new() {
             Some(m) => m,
             None => {
-                log_warn!(LogCategory::Platform, "[Menu] Not on main thread, cannot show menu");
+                log_warn!(
+                    LogCategory::Platform,
+                    "[Menu] Not on main thread, cannot show menu"
+                );
                 return;
             }
         };
@@ -3685,7 +3917,8 @@ impl MacOSWindow {
         };
 
         if let Some(view) = view {
-            log_debug!(LogCategory::Platform,
+            log_debug!(
+                LogCategory::Platform,
                 "[Menu] Showing native menu at position ({}, {}) with {} items",
                 position.x,
                 position.y,
@@ -3732,10 +3965,12 @@ impl MacOSWindow {
         );
 
         // Queue window creation request
-        log_debug!(LogCategory::Platform,
+        log_debug!(
+            LogCategory::Platform,
             "[macOS] Queuing fallback menu window at screen ({}, {}) - will be created in event \
              loop",
-            position.x, position.y
+            position.x,
+            position.y
         );
 
         self.pending_window_creates.push(menu_options);
@@ -3797,7 +4032,10 @@ impl MacOSWindow {
         // After processing event, just request a redraw if needed
         // The atomic transaction will be built in drawRect
         if self.frame_needs_regeneration {
-            log_trace!(LogCategory::EventLoop, "[handle_event] Frame needs regeneration, requesting redraw");
+            log_trace!(
+                LogCategory::EventLoop,
+                "[handle_event] Frame needs regeneration, requesting redraw"
+            );
             self.request_redraw();
             self.frame_needs_regeneration = false;
         }
@@ -3875,7 +4113,10 @@ impl MacOSWindow {
 
         if let Some(ref gl_view) = self.gl_view {
             gl_view.set_window_ptr(window_ptr);
-            log_trace!(LogCategory::Platform, "[setup_gl_view_back_pointer] GLView back pointer set");
+            log_trace!(
+                LogCategory::Platform,
+                "[setup_gl_view_back_pointer] GLView back pointer set"
+            );
         }
     }
 
@@ -3891,7 +4132,10 @@ impl MacOSWindow {
         let window_ptr = self as *mut MacOSWindow as *mut std::ffi::c_void;
         let delegate_ptr = &*self.window_delegate as *const WindowDelegate;
         (*delegate_ptr).set_window_ptr(window_ptr);
-        log_trace!(LogCategory::Platform, "[finalize_delegate_pointer] WindowDelegate back pointer set");
+        log_trace!(
+            LogCategory::Platform,
+            "[finalize_delegate_pointer] WindowDelegate back pointer set"
+        );
     }
 
     /// This is the MAIN rendering entry point, called ONLY from GLView::drawRect:
@@ -3908,19 +4152,24 @@ impl MacOSWindow {
     pub fn render_and_present_in_draw_rect(&mut self) -> Result<(), WindowError> {
         use super::common::event_v2::PlatformWindowV2;
         use azul_core::callbacks::Update;
-        
+
         log_trace!(LogCategory::Rendering, "[render_and_present] START");
 
         // CRITICAL: Invoke expired timer callbacks FIRST, before any rendering
         // This allows timer callbacks (like the debug server timer) to run
         let timer_results = self.invoke_expired_timers();
         if !timer_results.is_empty() {
-            log_trace!(LogCategory::Timer, "[render_and_present] Invoked {} timer callbacks", timer_results.len());
-            
+            log_trace!(
+                LogCategory::Timer,
+                "[render_and_present] Invoked {} timer callbacks",
+                timer_results.len()
+            );
+
             // Process each callback result to handle window state modifications
             // and queued_window_states (for debug server click simulation)
             for result in &timer_results {
-                if result.modified_window_state.is_some() || !result.queued_window_states.is_empty() {
+                if result.modified_window_state.is_some() || !result.queued_window_states.is_empty()
+                {
                     // Save previous state BEFORE applying changes (for sync_window_state diff)
                     self.previous_window_state = Some(self.current_window_state.clone());
                     let _ = self.process_callback_result_v2(result);
@@ -3928,7 +4177,10 @@ impl MacOSWindow {
                     self.sync_window_state();
                 }
                 // Check if redraw needed
-                if matches!(result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                if matches!(
+                    result.callbacks_update_screen,
+                    Update::RefreshDom | Update::RefreshDomAllWindows
+                ) {
                     self.frame_needs_regeneration = true;
                 }
             }
@@ -3962,7 +4214,12 @@ impl MacOSWindow {
 
                 // CRITICAL: Set the viewport to the physical size of the window
                 let physical_size = self.current_window_state.size.get_physical_size();
-                log_trace!(LogCategory::Rendering, "[GL] glViewport(0, 0, {}, {})", physical_size.width, physical_size.height);
+                log_trace!(
+                    LogCategory::Rendering,
+                    "[GL] glViewport(0, 0, {}, {})",
+                    physical_size.width,
+                    physical_size.height
+                );
                 gl_fns.functions.viewport(
                     0,
                     0,
@@ -3975,7 +4232,10 @@ impl MacOSWindow {
         // Step 1.5: CRITICAL - Create, build, and send WebRender transaction ATOMICALLY
         // This is the ONLY place where Transaction::new() should be called!
         // This matches the working WebRender example pattern: ONE transaction per frame
-        log_trace!(LogCategory::Rendering, "[WebRender] Creating atomic transaction");
+        log_trace!(
+            LogCategory::Rendering,
+            "[WebRender] Creating atomic transaction"
+        );
 
         let mut txn = WrTransaction::new();
 
@@ -3989,9 +4249,16 @@ impl MacOSWindow {
         // CRITICAL: Regenerate layout FIRST if needed
         // Layout must be current before building display lists
         if self.frame_needs_regeneration {
-            log_trace!(LogCategory::Layout, "[build_atomic_txn] Regenerating layout");
+            log_trace!(
+                LogCategory::Layout,
+                "[build_atomic_txn] Regenerating layout"
+            );
             if let Err(e) = self.regenerate_layout() {
-                log_error!(LogCategory::Layout, "[build_atomic_txn] Layout failed: {}", e);
+                log_error!(
+                    LogCategory::Layout,
+                    "[build_atomic_txn] Layout failed: {}",
+                    e
+                );
                 return Err(WindowError::PlatformError(
                     format!("Layout failed: {}", e).into(),
                 ));
@@ -4009,7 +4276,10 @@ impl MacOSWindow {
         // This ensures WebRender gets the current window size after resize
         layout_window.current_window_state = self.current_window_state.clone();
 
-        log_trace!(LogCategory::Rendering, "[build_atomic_txn] Building transaction");
+        log_trace!(
+            LogCategory::Rendering,
+            "[build_atomic_txn] Building transaction"
+        );
         // Build everything into this transaction using helper functions
         crate::desktop::wr_translate2::build_webrender_transaction(
             &mut txn,
@@ -4026,7 +4296,11 @@ impl MacOSWindow {
         // Send the complete atomic transaction
         if let Some(layout_window) = self.layout_window.as_ref() {
             let doc_id = wr_translate_document_id(layout_window.document_id);
-            log_trace!(LogCategory::Rendering, "[WebRender] send_transaction({:?})", doc_id);
+            log_trace!(
+                LogCategory::Rendering,
+                "[WebRender] send_transaction({:?})",
+                doc_id
+            );
             self.render_api.send_transaction(doc_id, txn);
             self.render_api.flush_scene_builder();
         }
@@ -4043,29 +4317,48 @@ impl MacOSWindow {
                 physical_size.height as i32,
             );
 
-            log_trace!(LogCategory::Rendering, "[WebRender] renderer.render({:?})", device_size);
+            log_trace!(
+                LogCategory::Rendering,
+                "[WebRender] renderer.render({:?})",
+                device_size
+            );
 
             match renderer.render(device_size, 0) {
                 Ok(results) => {
-                    log_trace!(LogCategory::Rendering, "[WebRender] Render successful: {:?}", results.stats);
-                    
+                    log_trace!(
+                        LogCategory::Rendering,
+                        "[WebRender] Render successful: {:?}",
+                        results.stats
+                    );
+
                     // Update hit tester after render - WebRender now has valid scene data
                     if let Some(layout_window) = self.layout_window.as_ref() {
                         let doc_id = wr_translate_document_id(layout_window.document_id);
                         let new_hit_tester = self.render_api.request_hit_tester(doc_id).resolve();
-                        self.hit_tester = crate::desktop::wr_translate2::AsyncHitTester::Resolved(new_hit_tester);
-                        log_trace!(LogCategory::Rendering, "[WebRender] Hit tester updated after render");
+                        self.hit_tester =
+                            crate::desktop::wr_translate2::AsyncHitTester::Resolved(new_hit_tester);
+                        log_trace!(
+                            LogCategory::Rendering,
+                            "[WebRender] Hit tester updated after render"
+                        );
                     }
                 }
                 Err(errors) => {
-                    log_error!(LogCategory::Rendering, "[WebRender] Render errors: {:?}", errors);
+                    log_error!(
+                        LogCategory::Rendering,
+                        "[WebRender] Render errors: {:?}",
+                        errors
+                    );
                     return Err(WindowError::PlatformError(
                         format!("WebRender render failed: {:?}", errors).into(),
                     ));
                 }
             }
         } else {
-            log_warn!(LogCategory::Rendering, "[render_and_present] No renderer available!");
+            log_warn!(
+                LogCategory::Rendering,
+                "[render_and_present] No renderer available!"
+            );
             return Ok(());
         }
 
@@ -4085,11 +4378,17 @@ impl MacOSWindow {
             }
         }
 
-        log_trace!(LogCategory::Rendering, "[render_and_present] FRAME COMPLETE");
+        log_trace!(
+            LogCategory::Rendering,
+            "[render_and_present] FRAME COMPLETE"
+        );
 
         // CI testing: Exit successfully after first frame render if env var is set
         if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
-            log_info!(LogCategory::General, "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting");
+            log_info!(
+                LogCategory::General,
+                "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
+            );
             std::process::exit(0);
         }
 
@@ -4099,12 +4398,18 @@ impl MacOSWindow {
 
 impl Drop for MacOSWindow {
     fn drop(&mut self) {
-        log_trace!(LogCategory::Window, "[MacOSWindow::drop] Cleaning up window resources");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::drop] Cleaning up window resources"
+        );
 
         // Stop and release CVDisplayLink if active
         if let Some(ref display_link) = self.display_link {
             if display_link.is_running() {
-                log_trace!(LogCategory::Window, "[MacOSWindow::drop] Stopping CVDisplayLink");
+                log_trace!(
+                    LogCategory::Window,
+                    "[MacOSWindow::drop] Stopping CVDisplayLink"
+                );
                 display_link.stop();
             }
             // DisplayLink will be dropped automatically, calling release
@@ -4112,7 +4417,10 @@ impl Drop for MacOSWindow {
 
         // Release power management assertion if active
         if let Some(assertion_id) = self.pm_assertion_id.take() {
-            log_trace!(LogCategory::Window, "[MacOSWindow::drop] Releasing IOPMAssertion");
+            log_trace!(
+                LogCategory::Window,
+                "[MacOSWindow::drop] Releasing IOPMAssertion"
+            );
             unsafe {
                 IOPMAssertionRelease(assertion_id);
             }
@@ -4132,7 +4440,10 @@ impl Drop for MacOSWindow {
             }
         }
 
-        log_trace!(LogCategory::Window, "[MacOSWindow::drop] Window cleanup complete");
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::drop] Window cleanup complete"
+        );
     }
 }
 
@@ -4202,7 +4513,10 @@ impl PlatformWindow for MacOSWindow {
         };
 
         if frame_ready {
-            log_trace!(LogCategory::Rendering, "[poll_event] Frame ready signal - requesting redraw");
+            log_trace!(
+                LogCategory::Rendering,
+                "[poll_event] Frame ready signal - requesting redraw"
+            );
             // A frame is ready in WebRender's backbuffer.
             // Tell macOS to schedule a drawRect: call, which will display it.
             self.request_redraw();
@@ -4309,7 +4623,10 @@ impl PlatformWindow for MacOSWindow {
             unsafe {
                 IOPMAssertionRelease(assertion_id);
             }
-            log_trace!(LogCategory::Platform, "[macOS] Released power assertion on window close");
+            log_trace!(
+                LogCategory::Platform,
+                "[macOS] Released power assertion on window close"
+            );
         }
 
         self.window.close();
@@ -4325,7 +4642,10 @@ impl PlatformWindow for MacOSWindow {
     /// This decouples our asynchronous rendering backend (WebRender) from the synchronous
     /// OS drawing model.
     fn request_redraw(&mut self) {
-        log_trace!(LogCategory::Rendering, "[request_redraw] Marking view as needing display");
+        log_trace!(
+            LogCategory::Rendering,
+            "[request_redraw] Marking view as needing display"
+        );
 
         // Tell macOS to schedule a drawRect: call
         if let Some(view) = unsafe { self.window.contentView() } {
@@ -4583,7 +4903,10 @@ impl MacOSWindow {
         let layout_window = match self.layout_window.as_ref() {
             Some(lw) => lw,
             None => {
-                log_warn!(LogCategory::Platform, "[a11y] Cannot initialize: no layout window");
+                log_warn!(
+                    LogCategory::Platform,
+                    "[a11y] Cannot initialize: no layout window"
+                );
                 return;
             }
         };
@@ -4594,7 +4917,10 @@ impl MacOSWindow {
         } else if let Some(cpu_view) = self.cpu_view.as_ref() {
             Retained::<CPUView>::as_ptr(cpu_view) as *mut std::ffi::c_void
         } else {
-            log_warn!(LogCategory::Platform, "[a11y] Cannot initialize: no view available");
+            log_warn!(
+                LogCategory::Platform,
+                "[a11y] Cannot initialize: no view available"
+            );
             return;
         };
 
@@ -4605,7 +4931,10 @@ impl MacOSWindow {
         // Update with initial tree
         self.update_accessibility();
 
-        log_debug!(LogCategory::Platform, "[a11y] Accessibility adapter initialized");
+        log_debug!(
+            LogCategory::Platform,
+            "[a11y] Accessibility adapter initialized"
+        );
     }
 
     /// Update accessibility tree after layout changes
@@ -4675,7 +5004,10 @@ impl MacOSWindow {
     pub fn inject_menu_bar(&mut self) -> Result<(), String> {
         // Native macOS menu integration is fully implemented via set_application_menu()
         // See menu.rs for AzulMenuTarget bridge and MenuState implementation
-        log_debug!(LogCategory::Window, "[inject_menu_bar] Use set_application_menu() for native macOS menus");
+        log_debug!(
+            LogCategory::Window,
+            "[inject_menu_bar] Use set_application_menu() for native macOS menus"
+        );
         Ok(())
     }
 

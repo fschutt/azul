@@ -1121,11 +1121,7 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
 ///
 /// # Returns
 /// The path to the generated nfpm.yaml file, or an error if package config is missing
-pub fn generate_nfpm_yaml(
-    version: &str,
-    api_data: &ApiData,
-    output_dir: &Path,
-) -> Result<PathBuf> {
+pub fn generate_nfpm_yaml(version: &str, api_data: &ApiData, output_dir: &Path) -> Result<PathBuf> {
     let version_data = api_data
         .get_version(version)
         .ok_or_else(|| anyhow::anyhow!("Version {} not found in api.json", version))?;

@@ -804,7 +804,10 @@ pub fn svg_multi_polygon_intersection(a: &SvgMultiPolygon, b: &SvgMultiPolygon) 
 }
 
 /// By-value wrapper for svg_multi_polygon_intersection (for FFI)
-pub fn svg_multi_polygon_intersection_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
+pub fn svg_multi_polygon_intersection_byval(
+    a: &SvgMultiPolygon,
+    b: SvgMultiPolygon,
+) -> SvgMultiPolygon {
     svg_multi_polygon_intersection(a, &b)
 }
 
@@ -820,7 +823,10 @@ pub fn svg_multi_polygon_difference(a: &SvgMultiPolygon, b: &SvgMultiPolygon) ->
 }
 
 /// By-value wrapper for svg_multi_polygon_difference (for FFI)
-pub fn svg_multi_polygon_difference_byval(a: &SvgMultiPolygon, b: SvgMultiPolygon) -> SvgMultiPolygon {
+pub fn svg_multi_polygon_difference_byval(
+    a: &SvgMultiPolygon,
+    b: SvgMultiPolygon,
+) -> SvgMultiPolygon {
     svg_multi_polygon_difference(a, &b)
 }
 

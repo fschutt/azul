@@ -10,8 +10,8 @@ use objc2::{define_class, msg_send_id, rc::Retained, MainThreadMarker, MainThrea
 use objc2_app_kit::{NSMenu, NSMenuItem};
 use objc2_foundation::{NSObject, NSString};
 
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
 use super::super::common::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 /// Global queue for pending menu actions
 /// When a menu item is clicked, its tag is pushed here and can be retrieved by the event loop

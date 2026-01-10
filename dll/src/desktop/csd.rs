@@ -27,7 +27,10 @@ extern "C" fn csd_minimize_callback(_data: &mut RefAny, info: &mut CallbackInfo)
     let mut state = info.get_current_window_state().clone();
     state.flags.frame = WindowFrame::Minimized;
     info.modify_window_state(state);
-    log_debug!(LogCategory::General, "[CSD Callback] Minimize button clicked - minimizing window");
+    log_debug!(
+        LogCategory::General,
+        "[CSD Callback] Minimize button clicked - minimizing window"
+    );
     Update::DoNothing
 }
 
@@ -40,7 +43,10 @@ extern "C" fn csd_maximize_callback(_data: &mut RefAny, info: &mut CallbackInfo)
         WindowFrame::Maximized
     };
     info.modify_window_state(state);
-    log_debug!(LogCategory::General, "[CSD Callback] Maximize button clicked - toggling maximize state");
+    log_debug!(
+        LogCategory::General,
+        "[CSD Callback] Maximize button clicked - toggling maximize state"
+    );
     Update::DoNothing
 }
 
@@ -49,7 +55,10 @@ extern "C" fn csd_close_callback(_data: &mut RefAny, info: &mut CallbackInfo) ->
     let mut state = info.get_current_window_state().clone();
     state.flags.close_requested = true;
     info.modify_window_state(state);
-    log_debug!(LogCategory::General, "[CSD Callback] Close button clicked - requesting window close");
+    log_debug!(
+        LogCategory::General,
+        "[CSD Callback] Close button clicked - requesting window close"
+    );
     Update::DoNothing
 }
 
@@ -63,12 +72,18 @@ extern "C" fn csd_menubar_item_callback(data: &mut RefAny, info: &mut CallbackIn
     let menu = match data.downcast_ref::<Menu>() {
         Some(m) => m.clone(),
         None => {
-            log_debug!(LogCategory::General, "[CSD Menu] Failed to downcast menu data");
+            log_debug!(
+                LogCategory::General,
+                "[CSD Menu] Failed to downcast menu data"
+            );
             return Update::DoNothing;
         }
     };
 
-    log_debug!(LogCategory::General, "[CSD Menu] Menu bar item clicked, creating popup menu");
+    log_debug!(
+        LogCategory::General,
+        "[CSD Menu] Menu bar item clicked, creating popup menu"
+    );
 
     // Get system style Arc from CallbackInfo (safe clone)
     let system_style = info.get_system_style();
@@ -86,7 +101,10 @@ extern "C" fn csd_menubar_item_callback(data: &mut RefAny, info: &mut CallbackIn
     let trigger_rect = match info.get_hit_node_rect() {
         Some(rect) => rect,
         None => {
-            log_debug!(LogCategory::General, "[CSD Menu] No hit node rect available");
+            log_debug!(
+                LogCategory::General,
+                "[CSD Menu] No hit node rect available"
+            );
             return Update::DoNothing;
         }
     };
@@ -123,7 +141,10 @@ extern "C" fn csd_titlebar_drag_start_callback(
     // Signal that window drag should be activated by returning special flag
     // The actual activation happens in the event processing loop where we have mutable access
 
-    log_debug!(LogCategory::General, "[CSD Callback] DragStart on titlebar - requesting window drag activation");
+    log_debug!(
+        LogCategory::General,
+        "[CSD Callback] DragStart on titlebar - requesting window drag activation"
+    );
 
     // We use a special Update variant to signal window drag activation
     // For now, just DoNothing - the auto-activation logic will handle it
@@ -167,7 +188,10 @@ extern "C" fn csd_titlebar_doubleclick_callback(
         WindowFrame::Maximized
     };
     info.modify_window_state(state);
-    log_debug!(LogCategory::General, "[CSD Callback] Titlebar double-click - toggling maximize state");
+    log_debug!(
+        LogCategory::General,
+        "[CSD Callback] Titlebar double-click - toggling maximize state"
+    );
     Update::DoNothing
 }
 

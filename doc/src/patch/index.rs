@@ -16,7 +16,6 @@ use syn::{File, Item, UseTree};
 
 use crate::api::{EnumVariantData, FieldData};
 
-
 /// Information discovered about a type from source code parsing
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OracleTypeInfo {
@@ -26,7 +25,6 @@ pub struct OracleTypeInfo {
     pub repr: Option<String>,
     pub is_enum: bool,
 }
-
 
 /// Check if a type name is imported via a `use` statement in the given source.
 /// If so, this file is NOT the definition site for that type.
@@ -1814,9 +1812,14 @@ mod tests {
         // Test: css/src/props/layout/position.rs + LayoutInsetBottom
         // Should be: azul_css::props::layout::position::LayoutInsetBottom
         let file_path = PathBuf::from("/project/css/src/props/layout/position.rs");
-        let result = index.deduce_full_path(&file_path, "LayoutInsetBottom").unwrap();
+        let result = index
+            .deduce_full_path(&file_path, "LayoutInsetBottom")
+            .unwrap();
 
-        assert_eq!(result, "azul_css::props::layout::position::LayoutInsetBottom");
+        assert_eq!(
+            result,
+            "azul_css::props::layout::position::LayoutInsetBottom"
+        );
     }
 
     #[test]

@@ -23,8 +23,8 @@ use azul_layout::window_state::WindowCreateOptions;
 
 use super::WaylandWindow;
 
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
 use super::super::super::common::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 /// Data passed to the menu layout callback
 #[derive(Debug, Clone)]
@@ -48,7 +48,10 @@ extern "C" fn menu_layout_callback(mut data: RefAny, _info: LayoutCallbackInfo) 
     let menu_data = match data.downcast_ref::<MenuLayoutData>() {
         Some(d) => d,
         None => {
-            log_error!(LogCategory::Layout, "[Menu Layout] Failed to downcast menu data");
+            log_error!(
+                LogCategory::Layout,
+                "[Menu Layout] Failed to downcast menu data"
+            );
             return StyledDom::default();
         }
     };
@@ -143,7 +146,8 @@ mod tests {
                 MenuItem::String(StringMenuItem::create("Item 1".to_string().into())),
                 MenuItem::String(StringMenuItem::create("Item 2".to_string().into())),
                 MenuItem::String(StringMenuItem::create("Item 3".to_string().into())),
-            ].into(),
+            ]
+            .into(),
             position: azul_core::menu::MenuPopupPosition::AutoCursor,
             context_mouse_btn: azul_core::window::ContextMenuMouseButton::Left,
         };

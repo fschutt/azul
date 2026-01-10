@@ -4,7 +4,9 @@ use std::collections::BTreeMap;
 
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
-    selection::{CursorAffinity, GraphemeClusterId, Selection, SelectionState, SelectionVec, TextCursor},
+    selection::{
+        CursorAffinity, GraphemeClusterId, Selection, SelectionState, SelectionVec, TextCursor,
+    },
     styled_dom::NodeHierarchyItemId,
 };
 use azul_layout::{
@@ -115,7 +117,8 @@ fn test_selection_manager_clear_all() {
                 start_byte_in_run: 0,
             },
             affinity: CursorAffinity::Leading,
-        })].into(),
+        })]
+        .into(),
         node_id: node1.clone(),
     };
 
@@ -126,7 +129,8 @@ fn test_selection_manager_clear_all() {
                 start_byte_in_run: 5,
             },
             affinity: CursorAffinity::Trailing,
-        })].into(),
+        })]
+        .into(),
         node_id: node2.clone(),
     };
 
@@ -170,7 +174,8 @@ fn test_focus_change_clears_selections() {
                 start_byte_in_run: 0,
             },
             affinity: CursorAffinity::Leading,
-        })].into(),
+        })]
+        .into(),
         node_id: node1.clone(),
     };
     selection_manager.set_selection(DomId::ROOT_ID, sel_state);
@@ -323,7 +328,8 @@ fn test_focus_change_cascade_with_selection_clearing() {
                 start_byte_in_run: 0,
             },
             affinity: CursorAffinity::Leading,
-        })].into(),
+        })]
+        .into(),
         node_id: nodes[0].clone(),
     };
     selection_manager.set_selection(dom_id, sel_state);
@@ -350,7 +356,8 @@ fn test_focus_change_cascade_with_selection_clearing() {
                 start_byte_in_run: 5,
             },
             affinity: CursorAffinity::Leading,
-        })].into(),
+        })]
+        .into(),
         node_id: nodes[1].clone(),
     };
     selection_manager.set_selection(dom_id, sel_state);
@@ -423,7 +430,8 @@ fn test_multiple_selection_clear_operations() {
                     start_byte_in_run: (i * 5) as u32,
                 },
                 affinity: CursorAffinity::Leading,
-            })].into(),
+            })]
+            .into(),
             node_id: node,
         };
         selection_manager.set_selection(*dom_id, sel_state);
@@ -457,7 +465,8 @@ fn test_multiple_selection_clear_operations() {
                     start_byte_in_run: (i * 10) as u32,
                 },
                 affinity: CursorAffinity::Trailing,
-            })].into(),
+            })]
+            .into(),
             node_id: node,
         };
         selection_manager.set_selection(*dom_id, sel_state);
@@ -526,7 +535,8 @@ fn test_focus_manager_integration_with_all_managers() {
                 start_byte_in_run: 0,
             },
             affinity: CursorAffinity::Leading,
-        })].into(),
+        })]
+        .into(),
         node_id: node1.clone(),
     };
     layout_window
@@ -635,7 +645,8 @@ fn test_selection_persistence_without_focus_change() {
                 start_byte_in_run: 5,
             },
             affinity: CursorAffinity::Leading,
-        })].into(),
+        })]
+        .into(),
         node_id: node.clone(),
     };
     selection_manager.set_selection(dom_id, sel_state.clone());

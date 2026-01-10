@@ -8,9 +8,9 @@ pub mod window;
 
 // V2 unified cross-platform modules
 pub mod callback_processing;
+pub mod debug_server;
 pub mod event_v2;
 pub mod layout_v2;
-pub mod debug_server;
 
 // Re-exports for convenience
 pub use compositor::{

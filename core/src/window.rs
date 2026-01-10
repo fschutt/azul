@@ -386,7 +386,12 @@ impl_vec_hash!(VirtualKeyCode, VirtualKeyCodeVec);
 
 impl_vec_as_hashmap!(VirtualKeyCode, VirtualKeyCodeVec);
 
-impl_vec!(ScanCode, ScanCodeVec, ScanCodeVecDestructor, ScanCodeVecDestructorType);
+impl_vec!(
+    ScanCode,
+    ScanCodeVec,
+    ScanCodeVecDestructor,
+    ScanCodeVecDestructorType
+);
 impl_vec_debug!(ScanCode, ScanCodeVec);
 impl_vec_partialord!(ScanCode, ScanCodeVec);
 impl_vec_ord!(ScanCode, ScanCodeVec);
@@ -608,7 +613,12 @@ pub struct TouchPoint {
     pub force: f32,
 }
 
-impl_vec!(TouchPoint, TouchPointVec, TouchPointVecDestructor, TouchPointVecDestructorType);
+impl_vec!(
+    TouchPoint,
+    TouchPointVec,
+    TouchPointVecDestructor,
+    TouchPointVecDestructorType
+);
 impl_vec_debug!(TouchPoint, TouchPointVec);
 impl_vec_clone!(TouchPoint, TouchPointVec, TouchPointVecDestructor);
 impl_vec_partialeq!(TouchPoint, TouchPointVec);
@@ -741,7 +751,12 @@ pub struct Monitor {
     pub is_primary_monitor: bool,
 }
 
-impl_vec!(Monitor, MonitorVec, MonitorVecDestructor, MonitorVecDestructorType);
+impl_vec!(
+    Monitor,
+    MonitorVec,
+    MonitorVecDestructor,
+    MonitorVecDestructorType
+);
 impl_vec_debug!(Monitor, MonitorVec);
 impl_vec_clone!(Monitor, MonitorVec, MonitorVecDestructor);
 impl_vec_partialeq!(Monitor, MonitorVec);
@@ -778,7 +793,12 @@ pub struct VideoMode {
     pub refresh_rate: u16,
 }
 
-impl_vec!(VideoMode, VideoModeVec, VideoModeVecDestructor, VideoModeVecDestructorType);
+impl_vec!(
+    VideoMode,
+    VideoModeVec,
+    VideoModeVecDestructor,
+    VideoModeVecDestructorType
+);
 impl_vec_clone!(VideoMode, VideoModeVec, VideoModeVecDestructor);
 impl_vec_debug!(VideoMode, VideoModeVec);
 impl_vec_partialeq!(VideoMode, VideoModeVec);
@@ -1197,7 +1217,12 @@ pub struct AzStringPair {
     pub value: AzString,
 }
 
-impl_vec!(AzStringPair, StringPairVec, StringPairVecDestructor, StringPairVecDestructorType);
+impl_vec!(
+    AzStringPair,
+    StringPairVec,
+    StringPairVecDestructor,
+    StringPairVecDestructorType
+);
 impl_vec_mut!(AzStringPair, StringPairVec);
 impl_vec_debug!(AzStringPair, StringPairVec);
 impl_vec_partialord!(AzStringPair, StringPairVec);
@@ -1243,7 +1268,12 @@ impl StringPairVec {
     }
 }
 
-impl_vec!(XWindowType, XWindowTypeVec, XWindowTypeVecDestructor, XWindowTypeVecDestructorType);
+impl_vec!(
+    XWindowType,
+    XWindowTypeVec,
+    XWindowTypeVecDestructor,
+    XWindowTypeVecDestructorType
+);
 impl_vec_debug!(XWindowType, XWindowTypeVec);
 impl_vec_partialord!(XWindowType, XWindowTypeVec);
 impl_vec_ord!(XWindowType, XWindowTypeVec);

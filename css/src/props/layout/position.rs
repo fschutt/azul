@@ -257,7 +257,9 @@ impl LayoutInsetBottomParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_layout_bottom<'a>(input: &'a str) -> Result<LayoutInsetBottom, LayoutInsetBottomParseError<'a>> {
+pub fn parse_layout_bottom<'a>(
+    input: &'a str,
+) -> Result<LayoutInsetBottom, LayoutInsetBottomParseError<'a>> {
     parse_pixel_value(input)
         .map(|v| LayoutInsetBottom { inner: v })
         .map_err(Into::into)

@@ -397,7 +397,7 @@ pub fn create_menu_window(
     };
 
     WindowCreateOptions {
-        window_state: window_state,
+        window_state,
         size_to_content: true.into(), // Auto-size to menu content
         renderer: None.into(),
         theme: None.into(),
@@ -417,7 +417,7 @@ extern "C" fn menu_layout_callback(mut data: RefAny, info: LayoutCallbackInfo) -
         Some(d) => d,
         None => {
             crate::log_debug!(
-                LogCategory::Callbacks, 
+                LogCategory::Callbacks,
                 "[menu_layout_callback] Failed to downcast MenuWindowData"
             );
             return StyledDom::default();

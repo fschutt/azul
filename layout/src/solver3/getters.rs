@@ -18,9 +18,9 @@ use azul_css::{
             ColorU, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,
         },
         layout::{
-            BoxDecorationBreak, BreakInside, LayoutBoxSizing, LayoutClear, LayoutDisplay, LayoutFlexWrap,
-            LayoutFloat, LayoutHeight, LayoutJustifyContent, LayoutOverflow, LayoutPosition,
-            LayoutWidth, LayoutWritingMode, Orphans, PageBreak, Widows,
+            BoxDecorationBreak, BreakInside, LayoutBoxSizing, LayoutClear, LayoutDisplay,
+            LayoutFlexWrap, LayoutFloat, LayoutHeight, LayoutJustifyContent, LayoutOverflow,
+            LayoutPosition, LayoutWidth, LayoutWritingMode, Orphans, PageBreak, Widows,
         },
         property::{CssProperty, CssPropertyType},
         style::{
@@ -1012,7 +1012,7 @@ pub fn get_border_info(
 }
 
 /// Convert BorderInfo to InlineBorderInfo for inline elements
-/// 
+///
 /// This resolves the CSS property values to concrete pixel values and colors
 /// that can be used during text rendering.
 pub fn get_inline_border_info(
@@ -1022,65 +1022,107 @@ pub fn get_inline_border_info(
     border_info: &BorderInfo,
 ) -> Option<crate::text3::cache::InlineBorderInfo> {
     use crate::text3::cache::InlineBorderInfo;
-    
+
     // Helper to extract pixel value from border width
-    fn get_border_width_px(width: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderTopWidth>>) -> f32 {
-        width.as_ref()
+    fn get_border_width_px(
+        width: &Option<
+            azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderTopWidth>,
+        >,
+    ) -> f32 {
+        width
+            .as_ref()
             .and_then(|v| v.get_property())
             .map(|w| w.inner.number.get())
             .unwrap_or(0.0)
     }
-    
-    fn get_border_width_px_right(width: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderRightWidth>>) -> f32 {
-        width.as_ref()
+
+    fn get_border_width_px_right(
+        width: &Option<
+            azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderRightWidth>,
+        >,
+    ) -> f32 {
+        width
+            .as_ref()
             .and_then(|v| v.get_property())
             .map(|w| w.inner.number.get())
             .unwrap_or(0.0)
     }
-    
-    fn get_border_width_px_bottom(width: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderBottomWidth>>) -> f32 {
-        width.as_ref()
+
+    fn get_border_width_px_bottom(
+        width: &Option<
+            azul_css::css::CssPropertyValue<
+                azul_css::props::style::border::LayoutBorderBottomWidth,
+            >,
+        >,
+    ) -> f32 {
+        width
+            .as_ref()
             .and_then(|v| v.get_property())
             .map(|w| w.inner.number.get())
             .unwrap_or(0.0)
     }
-    
-    fn get_border_width_px_left(width: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderLeftWidth>>) -> f32 {
-        width.as_ref()
+
+    fn get_border_width_px_left(
+        width: &Option<
+            azul_css::css::CssPropertyValue<azul_css::props::style::border::LayoutBorderLeftWidth>,
+        >,
+    ) -> f32 {
+        width
+            .as_ref()
             .and_then(|v| v.get_property())
             .map(|w| w.inner.number.get())
             .unwrap_or(0.0)
     }
-    
+
     // Helper to extract color from border color
-    fn get_border_color_top(color: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderTopColor>>) -> ColorU {
-        color.as_ref()
+    fn get_border_color_top(
+        color: &Option<
+            azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderTopColor>,
+        >,
+    ) -> ColorU {
+        color
+            .as_ref()
             .and_then(|v| v.get_property())
             .map(|c| c.inner)
             .unwrap_or(ColorU::BLACK)
     }
-    
-    fn get_border_color_right(color: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderRightColor>>) -> ColorU {
-        color.as_ref()
+
+    fn get_border_color_right(
+        color: &Option<
+            azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderRightColor>,
+        >,
+    ) -> ColorU {
+        color
+            .as_ref()
             .and_then(|v| v.get_property())
             .map(|c| c.inner)
             .unwrap_or(ColorU::BLACK)
     }
-    
-    fn get_border_color_bottom(color: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderBottomColor>>) -> ColorU {
-        color.as_ref()
+
+    fn get_border_color_bottom(
+        color: &Option<
+            azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderBottomColor>,
+        >,
+    ) -> ColorU {
+        color
+            .as_ref()
             .and_then(|v| v.get_property())
             .map(|c| c.inner)
             .unwrap_or(ColorU::BLACK)
     }
-    
-    fn get_border_color_left(color: &Option<azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderLeftColor>>) -> ColorU {
-        color.as_ref()
+
+    fn get_border_color_left(
+        color: &Option<
+            azul_css::css::CssPropertyValue<azul_css::props::style::border::StyleBorderLeftColor>,
+        >,
+    ) -> ColorU {
+        color
+            .as_ref()
             .and_then(|v| v.get_property())
             .map(|c| c.inner)
             .unwrap_or(ColorU::BLACK)
     }
-    
+
     // Extract border-radius (simplified - uses the average of all corners if uniform)
     fn get_border_radius_px(
         styled_dom: &StyledDom,
@@ -1088,58 +1130,58 @@ pub fn get_inline_border_info(
         node_state: &StyledNodeState,
     ) -> Option<f32> {
         let node_data = &styled_dom.node_data.as_container()[node_id];
-        
+
         let top_left = styled_dom
             .css_property_cache
             .ptr
             .get_border_top_left_radius(node_data, &node_id, node_state)
             .and_then(|br| br.get_property().cloned())
             .map(|v| v.inner.number.get());
-        
+
         let top_right = styled_dom
             .css_property_cache
             .ptr
             .get_border_top_right_radius(node_data, &node_id, node_state)
             .and_then(|br| br.get_property().cloned())
             .map(|v| v.inner.number.get());
-        
+
         let bottom_left = styled_dom
             .css_property_cache
             .ptr
             .get_border_bottom_left_radius(node_data, &node_id, node_state)
             .and_then(|br| br.get_property().cloned())
             .map(|v| v.inner.number.get());
-        
+
         let bottom_right = styled_dom
             .css_property_cache
             .ptr
             .get_border_bottom_right_radius(node_data, &node_id, node_state)
             .and_then(|br| br.get_property().cloned())
             .map(|v| v.inner.number.get());
-        
+
         // If any radius is defined, use the maximum (for inline, uniform radius is most common)
         let radii: Vec<f32> = [top_left, top_right, bottom_left, bottom_right]
             .into_iter()
             .filter_map(|r| r)
             .collect();
-        
+
         if radii.is_empty() {
             None
         } else {
             Some(radii.into_iter().fold(0.0f32, |a, b| a.max(b)))
         }
     }
-    
+
     let top = get_border_width_px(&border_info.widths.top);
     let right = get_border_width_px_right(&border_info.widths.right);
     let bottom = get_border_width_px_bottom(&border_info.widths.bottom);
     let left = get_border_width_px_left(&border_info.widths.left);
-    
+
     // Only return Some if there's actually a border
     if top == 0.0 && right == 0.0 && bottom == 0.0 && left == 0.0 {
         return None;
     }
-    
+
     Some(InlineBorderInfo {
         top,
         right,
@@ -1244,7 +1286,7 @@ pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirement
 
     // Fallback: Calculate based on content vs container size
     let container_size = node.used_size.unwrap_or_default();
-    
+
     // Get content size - check both inline layout and block children
     let content_size = if let Some(ref inline_layout) = node.inline_layout_result {
         // Has inline layout - use its bounds
@@ -1256,13 +1298,13 @@ pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirement
         // For a proper implementation, we'd need the actual positioned children
         let mut max_bottom: f32 = 0.0;
         let mut max_right: f32 = 0.0;
-        
-        // Note: This is a simplified calculation. In reality we'd need the 
+
+        // Note: This is a simplified calculation. In reality we'd need the
         // calculated positions of children, but we don't have access to the
         // positioned_tree here. For now, estimate based on number of children
         // and typical item sizes.
         // TODO: Pass content bounds through from layout phase
-        
+
         // For overflow: auto/scroll containers, we know content overflows if
         // scrollbar_info was supposed to be set during layout. Since it wasn't,
         // check if we have many children as a heuristic.
@@ -1292,7 +1334,11 @@ pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirement
         needs_vertical,
         needs_horizontal,
         scrollbar_width: if needs_vertical { SCROLLBAR_SIZE } else { 0.0 },
-        scrollbar_height: if needs_horizontal { SCROLLBAR_SIZE } else { 0.0 },
+        scrollbar_height: if needs_horizontal {
+            SCROLLBAR_SIZE
+        } else {
+            0.0
+        },
     }
 }
 
@@ -1383,7 +1429,7 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .get_text_color(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
         .map(|v| v.inner);
-    
+
     let color = color_from_cache.unwrap_or_default();
 
     let line_height = cache
@@ -1405,18 +1451,19 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
 
     // For inline and inline-block elements, get background content and border info
     // Block elements have their backgrounds/borders painted by display_list.rs
-    let (background_color, background_content, border) = 
+    let (background_color, background_content, border) =
         if matches!(display, LayoutDisplay::Inline | LayoutDisplay::InlineBlock) {
             let bg = get_background_color(styled_dom, dom_id, node_state);
             let bg_color = if bg.a > 0 { Some(bg) } else { None };
-            
+
             // Get full background contents (including gradients)
             let bg_contents = get_background_contents(styled_dom, dom_id, node_state);
-            
+
             // Get border info for inline elements
             let border_info = get_border_info(styled_dom, dom_id, node_state);
-            let inline_border = get_inline_border_info(styled_dom, dom_id, node_state, &border_info);
-            
+            let inline_border =
+                get_inline_border_info(styled_dom, dom_id, node_state, &border_info);
+
             (bg_color, bg_contents, inline_border)
         } else {
             // Block-level elements: background/border is painted by display_list.rs
@@ -2209,10 +2256,10 @@ impl Default for ComputedScrollbarStyle {
             width_mode: LayoutScrollbarWidth::Auto,
             width_px: 16.0, // Standard scrollbar width
             // Debug colors - bright magenta thumb, orange track
-            thumb_color: ColorU::new(255, 0, 255, 255),   // Magenta
-            track_color: ColorU::new(255, 165, 0, 255),   // Orange  
-            button_color: ColorU::new(0, 255, 0, 255),    // Green
-            corner_color: ColorU::new(0, 0, 255, 255),    // Blue
+            thumb_color: ColorU::new(255, 0, 255, 255), // Magenta
+            track_color: ColorU::new(255, 165, 0, 255), // Orange
+            button_color: ColorU::new(0, 255, 0, 255),  // Green
+            corner_color: ColorU::new(0, 0, 255, 255),  // Blue
             clip_to_container_border: false,
         }
     }
@@ -2322,4 +2369,3 @@ pub fn get_scrollbar_width_px(
     let style = get_scrollbar_style(styled_dom, node_id, node_state);
     style.width_px
 }
-

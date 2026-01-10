@@ -312,12 +312,8 @@ pub struct xdg_toplevel_listener {
         states: *mut wl_array,
     ),
     pub close: extern "C" fn(data: *mut c_void, xdg_toplevel: *mut xdg_toplevel),
-    pub configure_bounds: extern "C" fn(
-        data: *mut c_void,
-        xdg_toplevel: *mut xdg_toplevel,
-        width: i32,
-        height: i32,
-    ),
+    pub configure_bounds:
+        extern "C" fn(data: *mut c_void, xdg_toplevel: *mut xdg_toplevel, width: i32, height: i32),
     pub wm_capabilities: extern "C" fn(
         data: *mut c_void,
         xdg_toplevel: *mut xdg_toplevel,

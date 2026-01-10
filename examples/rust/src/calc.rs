@@ -9,12 +9,11 @@ struct Calculator {
     clear_on_next_input: bool,
 }
 
-extern "C" 
-fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
-
-    let display_text = data.downcast_ref::<Calculator>()
-    .map(|calc| calc.get_display())
-    .unwrap_or_else(|| "0".to_string());
+extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> StyledDom {
+    let display_text = data
+        .downcast_ref::<Calculator>()
+        .map(|calc| calc.get_display())
+        .unwrap_or_else(|| "0".to_string());
 
     // Build the calculator DOM using CSS Grid
     let display = Dom::create_div()
@@ -124,9 +123,7 @@ enum Operation {
     Divide,
 }
 
-extern "C" 
-fn on_button_click(mut data: RefAny, _info: CallbackInfo) -> Update {
-
+extern "C" fn on_button_click(mut data: RefAny, _info: CallbackInfo) -> Update {
     let mut button_data = match data.downcast_mut::<ButtonData>() {
         Some(d) => d,
         None => return Update::DoNothing,
@@ -134,7 +131,7 @@ fn on_button_click(mut data: RefAny, _info: CallbackInfo) -> Update {
 
     // Clone the event before borrowing calc mutably
     let event = button_data.event.clone();
-    
+
     let mut calc = match button_data.calc.downcast_mut::<Calculator>() {
         Some(c) => c,
         None => return Update::DoNothing,

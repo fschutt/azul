@@ -28,8 +28,10 @@ use crate::{
 };
 
 /// Callback type for timers
-pub type TimerCallbackType =
-    extern "C" fn(/* timer internal refany */ RefAny, TimerCallbackInfo) -> TimerCallbackReturn;
+pub type TimerCallbackType = extern "C" fn(
+    /* timer internal refany */ RefAny,
+    TimerCallbackInfo,
+) -> TimerCallbackReturn;
 
 /// Callback that runs on every frame on the main thread
 #[repr(C)]
@@ -42,7 +44,10 @@ pub struct TimerCallback {
 
 impl TimerCallback {
     pub fn create(cb: TimerCallbackType) -> Self {
-        Self { cb, ctx: OptionRefAny::None }
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
     }
 }
 
@@ -54,13 +59,19 @@ impl core::fmt::Debug for TimerCallback {
 
 impl Clone for TimerCallback {
     fn clone(&self) -> Self {
-        Self { cb: self.cb, ctx: self.ctx.clone() }
+        Self {
+            cb: self.cb,
+            ctx: self.ctx.clone(),
+        }
     }
 }
 
 impl From<TimerCallbackType> for TimerCallback {
     fn from(cb: TimerCallbackType) -> Self {
-        Self { cb, ctx: OptionRefAny::None }
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
     }
 }
 
@@ -173,7 +184,7 @@ impl Timer {
     }
 
     /// Invoke the timer callback and update internal state
-    /// 
+    ///
     /// Returns `DoNothing` + `Continue` if the timer is not ready to run yet
     /// (delay not elapsed for first run, or interval not elapsed for subsequent runs).
     pub fn invoke(
@@ -503,10 +514,7 @@ pub fn invoke_timer(
         Some(last_run) => {
             // Timer has run before - check interval
             if let OptionDuration::Some(interval) = timer.interval {
-                if instant_now
-                    .duration_since(last_run)
-                    .smaller_than(&interval)
-                {
+                if instant_now.duration_since(last_run).smaller_than(&interval) {
                     return TimerCallbackReturn {
                         should_update: Update::DoNothing,
                         should_terminate: TerminateTimer::Continue,

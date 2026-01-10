@@ -604,7 +604,11 @@ impl PrintAsCssValue for StyleBackgroundSize {
             Self::Contain => "contain".to_string(),
             Self::Cover => "cover".to_string(),
             Self::ExactSize(size) => {
-                format!("{} {}", size.width.print_as_css_value(), size.height.print_as_css_value())
+                format!(
+                    "{} {}",
+                    size.width.print_as_css_value(),
+                    size.height.print_as_css_value()
+                )
             }
         }
     }
@@ -1151,7 +1155,10 @@ mod parser {
                     Some(y_val) => parse_pixel_value(y_val).map_err(|_| InvalidValueErr(input))?,
                     None => x_pos, // If only one value, it applies to both width and height
                 };
-                Ok(StyleBackgroundSize::ExactSize(PixelValueSize { width: x_pos, height: y_pos }))
+                Ok(StyleBackgroundSize::ExactSize(PixelValueSize {
+                    width: x_pos,
+                    height: y_pos,
+                }))
             }
         }
     }
@@ -1811,11 +1818,17 @@ mod tests {
         );
         assert_eq!(
             parse_style_background_size("50%").unwrap(),
-            StyleBackgroundSize::ExactSize(PixelValueSize { width: PixelValue::percent(50.0), height: PixelValue::percent(50.0) })
+            StyleBackgroundSize::ExactSize(PixelValueSize {
+                width: PixelValue::percent(50.0),
+                height: PixelValue::percent(50.0)
+            })
         );
         assert_eq!(
             parse_style_background_size("100px 20em").unwrap(),
-            StyleBackgroundSize::ExactSize(PixelValueSize { width: PixelValue::px(100.0), height: PixelValue::em(20.0) })
+            StyleBackgroundSize::ExactSize(PixelValueSize {
+                width: PixelValue::px(100.0),
+                height: PixelValue::em(20.0)
+            })
         );
         assert!(parse_style_background_size("auto").is_err());
     }

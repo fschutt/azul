@@ -357,11 +357,16 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     dom_id: azul_core::dom::DomId,
 ) -> Result<DisplayList> {
     if let Some(msgs) = debug_messages.as_mut() {
-        msgs.push(LayoutDebugMessage::info(format!("[Layout] layout_document called - viewport: ({:.1}, {:.1}) size ({:.1}x{:.1})",
-            viewport.origin.x, viewport.origin.y, viewport.size.width, viewport.size.height)));
-        msgs.push(LayoutDebugMessage::info(format!("[Layout] DOM has {} nodes", new_dom.node_data.len())));
+        msgs.push(LayoutDebugMessage::info(format!(
+            "[Layout] layout_document called - viewport: ({:.1}, {:.1}) size ({:.1}x{:.1})",
+            viewport.origin.x, viewport.origin.y, viewport.size.width, viewport.size.height
+        )));
+        msgs.push(LayoutDebugMessage::info(format!(
+            "[Layout] DOM has {} nodes",
+            new_dom.node_data.len()
+        )));
     }
-    
+
     // Create temporary context without counters for tree generation
     let mut counter_values = BTreeMap::new();
     let mut ctx_temp = LayoutContext {
@@ -536,7 +541,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         );
 
         if reflow_needed_for_scrollbars {
-            ctx.debug_log(&format!("Scrollbars changed container size, starting full reflow (loop {})", loop_count));
+            ctx.debug_log(&format!(
+                "Scrollbars changed container size, starting full reflow (loop {})",
+                loop_count
+            ));
             recon_result.layout_roots.clear();
             recon_result.layout_roots.insert(new_tree.root);
             recon_result.intrinsic_dirty = (0..new_tree.nodes.len()).collect();

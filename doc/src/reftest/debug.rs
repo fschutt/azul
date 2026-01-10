@@ -246,7 +246,7 @@ pub fn run_debug_analysis(config: DebugConfig) -> anyhow::Result<()> {
     println!("  - Prompt file: {:?}", prompt_path);
     println!("  - Total tokens: {} / {}", total_tokens, MAX_TOKENS);
     println!("  - Source files included: {}", source_files.len());
-    
+
     // If dry_run, skip the API call
     if config.dry_run {
         println!("\n[DRY-RUN] Skipping Gemini API call.");
@@ -530,26 +530,26 @@ fn generate_azul_with_debug(
 /// Collect git diff of current working changes
 fn collect_git_diff(azul_root: &Path) -> Option<String> {
     use std::process::Command;
-    
+
     // Run git diff to get all unstaged changes
     let output = Command::new("git")
         .args(["diff", "HEAD"])
         .current_dir(azul_root)
         .output()
         .ok()?;
-    
+
     if !output.status.success() {
         eprintln!("[DEBUG] git diff failed");
         return None;
     }
-    
+
     let diff = String::from_utf8_lossy(&output.stdout).to_string();
-    
+
     if diff.is_empty() {
         println!("[DEBUG] No working changes found");
         return None;
     }
-    
+
     println!("[DEBUG] Collected {} bytes of git diff", diff.len());
     Some(diff)
 }
@@ -762,7 +762,9 @@ fn build_prompt(
     if let Some(ref diff) = debug_data.working_diff {
         prompt.push_str("## Current Working Changes (Git Diff)\n\n");
         prompt.push_str("These are the changes I've been making to fix this issue. ");
-        prompt.push_str("Please analyze if they are on the right track and what's still missing.\n\n");
+        prompt.push_str(
+            "Please analyze if they are on the right track and what's still missing.\n\n",
+        );
         prompt.push_str("```diff\n");
         // Truncate if too long
         if diff.len() > 100000 {

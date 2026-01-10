@@ -16,12 +16,12 @@ use azul_css::{
             StyleFontSize,
         },
         layout::{
-            LayoutInsetBottom, LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutFloat,
-            LayoutHeight, LayoutJustifyContent, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft,
-            LayoutMarginRight, LayoutMarginTop, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight,
-            LayoutMinWidth, LayoutOverflow, LayoutPaddingBottom, LayoutPaddingLeft,
-            LayoutPaddingRight, LayoutPaddingTop, LayoutPosition, LayoutRight, LayoutTop,
-            LayoutWidth,
+            LayoutBoxSizing, LayoutDisplay, LayoutFlexDirection, LayoutFloat, LayoutHeight,
+            LayoutInsetBottom, LayoutJustifyContent, LayoutLeft, LayoutMarginBottom,
+            LayoutMarginLeft, LayoutMarginRight, LayoutMarginTop, LayoutMaxHeight, LayoutMaxWidth,
+            LayoutMinHeight, LayoutMinWidth, LayoutOverflow, LayoutPaddingBottom,
+            LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPosition, LayoutRight,
+            LayoutTop, LayoutWidth,
         },
         style::{
             LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,

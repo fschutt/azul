@@ -545,8 +545,7 @@ impl Installation {
     /// Get the list of top-level languages (excluding dialect variants shown separately)
     pub fn get_top_level_languages(&self) -> Vec<&str> {
         let mut langs: Vec<&str> = Vec::new();
-        let dialect_keys: BTreeSet<&str> =
-            self.dialects.keys().map(|s| s.as_str()).collect();
+        let dialect_keys: BTreeSet<&str> = self.dialects.keys().map(|s| s.as_str()).collect();
 
         for (key, config) in &self.languages {
             // Skip if this is a dialect variant (has dialectOf set)
@@ -822,7 +821,10 @@ impl Example {
         let load_screenshot = |path: &str| -> Vec<u8> {
             std::fs::read(img_path.join(path))
                 .or_else(|_| {
-                    eprintln!("  [WARN] Screenshot '{}' not found, using fallback '{}'", path, fallback_screenshot);
+                    eprintln!(
+                        "  [WARN] Screenshot '{}' not found, using fallback '{}'",
+                        path, fallback_screenshot
+                    );
                     std::fs::read(img_path.join(fallback_screenshot))
                 })
                 .unwrap_or_default()
@@ -830,10 +832,10 @@ impl Example {
 
         Ok(LoadedExample {
             name: self.name.clone(),
-            title: if self.title.is_empty() { 
-                vec![self.name.replace('-', " ")] 
-            } else { 
-                self.title.clone() 
+            title: if self.title.is_empty() {
+                vec![self.name.replace('-', " ")]
+            } else {
+                self.title.clone()
             },
             alt: self.alt.clone(),
             show_on_index: self.show_on_index,

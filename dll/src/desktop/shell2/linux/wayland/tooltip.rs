@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use super::{defines::*, dlopen::Wayland};
 
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
 use super::super::super::common::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 /// Tooltip window using Wayland wl_subsurface
 ///
@@ -128,7 +128,10 @@ impl TooltipWindow {
                 );
 
                 if fd < 0 {
-                    log_error!(LogCategory::Resources, "[Wayland] Failed to create shared memory");
+                    log_error!(
+                        LogCategory::Resources,
+                        "[Wayland] Failed to create shared memory"
+                    );
                     return;
                 }
 
@@ -136,7 +139,10 @@ impl TooltipWindow {
 
                 if libc::ftruncate(fd, size as i64) < 0 {
                     libc::close(fd);
-                    log_error!(LogCategory::Resources, "[Wayland] Failed to resize shared memory");
+                    log_error!(
+                        LogCategory::Resources,
+                        "[Wayland] Failed to resize shared memory"
+                    );
                     return;
                 }
 
@@ -151,7 +157,10 @@ impl TooltipWindow {
 
                 if data == libc::MAP_FAILED as *mut u8 {
                     libc::close(fd);
-                    log_error!(LogCategory::Resources, "[Wayland] Failed to mmap shared memory");
+                    log_error!(
+                        LogCategory::Resources,
+                        "[Wayland] Failed to mmap shared memory"
+                    );
                     return;
                 }
 
@@ -161,7 +170,10 @@ impl TooltipWindow {
 
                 if pool.is_null() {
                     libc::munmap(data as *mut libc::c_void, size as usize);
-                    log_error!(LogCategory::Resources, "[Wayland] Failed to create shm pool");
+                    log_error!(
+                        LogCategory::Resources,
+                        "[Wayland] Failed to create shm pool"
+                    );
                     return;
                 }
 

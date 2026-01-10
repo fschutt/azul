@@ -31,7 +31,7 @@ impl LanguageGenerator for RustGenerator {
         // Check if this is a "simple" config (no module wrapper, no prefix)
         // Used for rust_public_api which generates flat type definitions
         let is_simple_mode = config.module_wrapper.is_none() && config.type_prefix.is_empty();
-        
+
         if is_simple_mode {
             // Simple mode: just generate types directly, no nested modules
             return self.generate_simple_rust_api(ir, config);
@@ -184,7 +184,7 @@ impl LanguageGenerator for RustGenerator {
                 builder.line(&format!("#[link(name = \"{}\")]", link_library));
                 builder.line("extern \"C\" {");
                 builder.indent();
-                
+
                 for func in &ir.functions {
                     if !config.should_include_type(&func.class_name) {
                         continue;
@@ -194,7 +194,7 @@ impl LanguageGenerator for RustGenerator {
                     }
                     self.generate_function_declaration(&mut builder, func, config);
                 }
-                
+
                 builder.dedent();
                 builder.line("}");
             }
@@ -217,13 +217,23 @@ impl LanguageGenerator for RustGenerator {
                     if !config.should_include_type(&struct_def.name) {
                         continue;
                     }
-                    self.generate_transmute_trait_impls(&mut builder, struct_def, config, external_crate);
+                    self.generate_transmute_trait_impls(
+                        &mut builder,
+                        struct_def,
+                        config,
+                        external_crate,
+                    );
                 }
                 for enum_def in &ir.enums {
                     if !config.should_include_type(&enum_def.name) {
                         continue;
                     }
-                    self.generate_transmute_trait_impls_enum(&mut builder, enum_def, config, external_crate);
+                    self.generate_transmute_trait_impls_enum(
+                        &mut builder,
+                        enum_def,
+                        config,
+                        external_crate,
+                    );
                 }
             }
             TraitImplMode::UsingCAPI => {
@@ -253,26 +263,26 @@ impl LanguageGenerator for RustGenerator {
 
 impl RustGenerator {
     /// Generate Rust-only generic methods that can't be exposed via C-ABI
-    /// 
+    ///
     /// These include:
     /// - RefAny::new<T>() - construct RefAny from any Rust type
     /// - RefAny::downcast_ref<T>() / downcast_mut<T>() - get typed references
-    /// 
+    ///
     /// For internal bindings (build-dll/link-static): implemented via transmute to core type.
     /// For external bindings (link-dynamic): these methods are NOT available because
     /// they require access to internal types that aren't exposed through the C-ABI.
     fn generate_rust_only_impls(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         let mut builder = CodeBuilder::new(&config.indent);
-        
+
         let prefix = &config.type_prefix;
-        
+
         // Check if we're using external bindings (link-dynamic)
         // In that case, we can't use transmute because we don't have azul_core
         let is_external_bindings = matches!(
             &config.cabi_functions,
             CAbiFunctionMode::ExternalBindings { .. }
         );
-        
+
         if is_external_bindings {
             // For link-dynamic: RefAny::new and downcast are NOT available
             // Users must use the pre-built DLL which doesn't support generic Rust types
@@ -280,11 +290,11 @@ impl RustGenerator {
             builder.blank();
         } else {
             // For internal bindings (build-dll/link-static): use transmute to azul_core
-            
+
             // RefAny generic methods - implemented via transmute to core type
             builder.line(&format!("impl {}RefAny {{", prefix));
             builder.indent();
-            
+
             // new<T>
             builder.line("/// Creates a new type-erased RefAny containing the given value.");
             builder.line("pub fn new<T: 'static>(value: T) -> Self {");
@@ -298,7 +308,7 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // downcast_ref<T> - using guards, must return wrapped type
             builder.line("/// Returns a RAII guard to the inner value if types match.");
             builder.line("/// ");
@@ -315,9 +325,10 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // downcast_mut<T> - using guards, must return wrapped type
-            builder.line("/// Returns a RAII guard to mutably borrow the inner value if types match.");
+            builder
+                .line("/// Returns a RAII guard to mutably borrow the inner value if types match.");
             builder.line("/// ");
             builder.line("/// The guard holds an exclusive borrow; drop it when done.");
             builder.line(&format!("pub fn downcast_mut<T: 'static>(&mut self) -> Option<azul_core::refany::RefMut<'_, T>> {{"));
@@ -331,43 +342,52 @@ impl RustGenerator {
             builder.line("}");
             builder.dedent();
             builder.line("}");
-            
+
             builder.dedent();
             builder.line("}");
             builder.blank();
         }
-        
+
         // String conversions - implement From<&str> and From<String> for AzString
         // Generate for ALL builds - always use AzString_copyFromBytes to avoid leaking struct details
-        
+
         // From<&str> for AzString
         builder.line(&format!("impl From<&str> for {}String {{", prefix));
         builder.indent();
         builder.line("fn from(s: &str) -> Self {");
         builder.indent();
-        builder.line(&format!("unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}", prefix));
+        builder.line(&format!(
+            "unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}",
+            prefix
+        ));
         builder.dedent();
         builder.line("}");
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // From<String> for AzString
-        builder.line(&format!("impl From<alloc::string::String> for {}String {{", prefix));
+        builder.line(&format!(
+            "impl From<alloc::string::String> for {}String {{",
+            prefix
+        ));
         builder.indent();
         builder.line("fn from(s: alloc::string::String) -> Self {");
         builder.indent();
-        builder.line(&format!("unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}", prefix));
+        builder.line(&format!(
+            "unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}",
+            prefix
+        ));
         builder.dedent();
         builder.line("}");
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // AzString convenience methods for ergonomic API - generate for ALL builds
         builder.line(&format!("impl {}String {{", prefix));
         builder.indent();
-        
+
         // as_str() - returns &str by reinterpreting the bytes
         builder.line("/// Returns the string as a `&str` slice.");
         builder.line("#[inline]");
@@ -381,7 +401,7 @@ impl RustGenerator {
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // into_string() - converts to owned String
         builder.line("/// Converts the AzString into an owned `String`.");
         builder.line("/// ");
@@ -394,7 +414,7 @@ impl RustGenerator {
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // as_bytes() - returns byte slice
         builder.line("/// Returns the raw bytes of the string.");
         builder.line("#[inline]");
@@ -404,7 +424,7 @@ impl RustGenerator {
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // len() - returns length
         builder.line("/// Returns the length of the string in bytes.");
         builder.line("#[inline]");
@@ -414,7 +434,7 @@ impl RustGenerator {
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // is_empty() - checks if empty
         builder.line("/// Returns true if the string is empty.");
         builder.line("#[inline]");
@@ -423,11 +443,11 @@ impl RustGenerator {
         builder.line("self.vec.len == 0");
         builder.dedent();
         builder.line("}");
-        
+
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // AsRef<str> implementation
         builder.line(&format!("impl AsRef<str> for {}String {{", prefix));
         builder.indent();
@@ -439,7 +459,7 @@ impl RustGenerator {
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // Display implementation
         builder.line(&format!("impl core::fmt::Display for {}String {{", prefix));
         builder.indent();
@@ -451,9 +471,12 @@ impl RustGenerator {
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // Into<String> implementation
-        builder.line(&format!("impl Into<alloc::string::String> for {}String {{", prefix));
+        builder.line(&format!(
+            "impl Into<alloc::string::String> for {}String {{",
+            prefix
+        ));
         builder.indent();
         builder.line("fn into(self) -> alloc::string::String {");
         builder.indent();
@@ -463,7 +486,7 @@ impl RustGenerator {
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // AsRef<[u8]> implementation
         builder.line(&format!("impl AsRef<[u8]> for {}String {{", prefix));
         builder.indent();
@@ -475,7 +498,7 @@ impl RustGenerator {
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // PartialEq<str> implementation
         builder.line(&format!("impl PartialEq<str> for {}String {{", prefix));
         builder.indent();
@@ -487,7 +510,7 @@ impl RustGenerator {
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // PartialEq<&str> implementation
         builder.line(&format!("impl PartialEq<&str> for {}String {{", prefix));
         builder.indent();
@@ -499,9 +522,12 @@ impl RustGenerator {
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // PartialEq<String> implementation
-        builder.line(&format!("impl PartialEq<alloc::string::String> for {}String {{", prefix));
+        builder.line(&format!(
+            "impl PartialEq<alloc::string::String> for {}String {{",
+            prefix
+        ));
         builder.indent();
         builder.line("fn eq(&self, other: &alloc::string::String) -> bool {");
         builder.indent();
@@ -511,7 +537,7 @@ impl RustGenerator {
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // Deref to str implementation
         builder.line(&format!("impl core::ops::Deref for {}String {{", prefix));
         builder.indent();
@@ -524,22 +550,22 @@ impl RustGenerator {
         builder.dedent();
         builder.line("}");
         builder.blank();
-        
+
         // Generate automatic From<A> for B when A::method(self) -> B exists
         self.generate_auto_from_impls(&mut builder, ir, config);
-        
+
         // Generate Option<T> convenience methods (into_option)
         self.generate_option_convenience_methods(&mut builder, ir, config);
-        
+
         // Generate Vec<T> convenience methods
         self.generate_vec_convenience_methods(&mut builder, ir, config);
-        
+
         // Generate VecRef<T> convenience methods (From<&[T]>, From<&Vec<T>>)
         self.generate_vec_ref_convenience_methods(&mut builder, ir, config);
-        
+
         Ok(builder.finish())
     }
-    
+
     /// Generate automatic From<A> for B implementations when A::method(self) -> B exists
     ///
     /// This finds all methods that:
@@ -556,71 +582,84 @@ impl RustGenerator {
     /// ```
     ///
     /// This allows ergonomic conversions like: `let dom: Dom = button.into();`
-    fn generate_auto_from_impls(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
-        use std::collections::{HashSet, HashMap};
-        
+    fn generate_auto_from_impls(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        use std::collections::{HashMap, HashSet};
+
         let prefix = &config.type_prefix;
-        
+
         // Track which From impls we've already generated to avoid duplicates
         // Key: (from_type, to_type)
         let mut generated_from_impls: HashSet<(String, String)> = HashSet::new();
-        
+
         // For each conversion pair, track which method to use
         // If multiple methods exist for the same conversion, we use the first one found
         let mut conversion_methods: HashMap<(String, String), &str> = HashMap::new();
-        
+
         // Find all methods that take owned self and return a different type
         for func in &ir.functions {
             // Skip constructors, static methods, and trait functions
-            if matches!(func.kind, 
-                FunctionKind::Constructor | 
-                FunctionKind::StaticMethod |
-                FunctionKind::EnumVariantConstructor
-            ) || func.kind.is_trait_function() {
+            if matches!(
+                func.kind,
+                FunctionKind::Constructor
+                    | FunctionKind::StaticMethod
+                    | FunctionKind::EnumVariantConstructor
+            ) || func.kind.is_trait_function()
+            {
                 continue;
             }
-            
+
             // Check if this function takes owned self
             let takes_owned_self = func.args.iter().any(|arg| {
-                let is_self = arg.name == "self" || 
-                    (arg.name == func.class_name.to_lowercase() && arg.type_name == func.class_name) ||
-                    (arg.name == "object" && arg.type_name == func.class_name);
+                let is_self = arg.name == "self"
+                    || (arg.name == func.class_name.to_lowercase()
+                        && arg.type_name == func.class_name)
+                    || (arg.name == "object" && arg.type_name == func.class_name);
                 is_self && matches!(arg.ref_kind, ArgRefKind::Owned)
             });
-            
+
             if !takes_owned_self {
                 continue;
             }
-            
+
             // Check if there are any other arguments besides self
-            let other_args_count = func.args.iter().filter(|arg| {
-                let is_self = arg.name == "self" || 
-                    (arg.name == func.class_name.to_lowercase() && arg.type_name == func.class_name) ||
-                    (arg.name == "object" && arg.type_name == func.class_name);
-                !is_self
-            }).count();
-            
+            let other_args_count = func
+                .args
+                .iter()
+                .filter(|arg| {
+                    let is_self = arg.name == "self"
+                        || (arg.name == func.class_name.to_lowercase()
+                            && arg.type_name == func.class_name)
+                        || (arg.name == "object" && arg.type_name == func.class_name);
+                    !is_self
+                })
+                .count();
+
             // Only generate From if there are no other arguments
             // (methods like `fn dom(self, extra_arg: X) -> Dom` shouldn't become From impls)
             if other_args_count != 0 {
                 continue;
             }
-            
+
             // Check if return type exists and is different from class_name
             let return_type = match &func.return_type {
                 Some(rt) if rt != &func.class_name => rt.clone(),
                 _ => continue,
             };
-            
+
             let from_type = func.class_name.clone();
             let key = (from_type.clone(), return_type.clone());
-            
+
             // Only use the first method for each conversion pair
             if !conversion_methods.contains_key(&key) {
                 conversion_methods.insert(key, &func.method_name);
             }
         }
-        
+
         // Generate the From impls
         for ((from_type, to_type), method_name) in &conversion_methods {
             let key = (from_type.clone(), to_type.clone());
@@ -628,14 +667,20 @@ impl RustGenerator {
                 continue;
             }
             generated_from_impls.insert(key);
-            
+
             let prefixed_from = config.apply_prefix(from_type);
             let prefixed_to = config.apply_prefix(to_type);
             let method = to_snake_case(method_name);
-            
-            builder.line(&format!("impl From<{}> for {} {{", prefixed_from, prefixed_to));
+
+            builder.line(&format!(
+                "impl From<{}> for {} {{",
+                prefixed_from, prefixed_to
+            ));
             builder.indent();
-            builder.line(&format!("fn from(v: {}) -> {} {{", prefixed_from, prefixed_to));
+            builder.line(&format!(
+                "fn from(v: {}) -> {} {{",
+                prefixed_from, prefixed_to
+            ));
             builder.indent();
             builder.line(&format!("v.{}()", method));
             builder.dedent();
@@ -645,40 +690,49 @@ impl RustGenerator {
             builder.blank();
         }
     }
-    
+
     /// Generate convenience methods for Option types (into_option, is_some, is_none, etc.)
-    fn generate_option_convenience_methods(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+    fn generate_option_convenience_methods(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
         let prefix = &config.type_prefix;
-        
+
         // Find all Option types in the IR
         for enum_def in &ir.enums {
             // Check if this is an Option type (has Some and None variants)
             let has_some = enum_def.variants.iter().any(|v| v.name == "Some");
             let has_none = enum_def.variants.iter().any(|v| v.name == "None");
-            
+
             if !has_some || !has_none {
                 continue;
             }
-            
+
             // Get the inner type from the Some variant
             let some_variant = enum_def.variants.iter().find(|v| v.name == "Some").unwrap();
             let inner_type = match &some_variant.kind {
-                EnumVariantKind::Tuple(types) if types.len() == 1 => {
-                    &types[0]
-                }
+                EnumVariantKind::Tuple(types) if types.len() == 1 => &types[0],
                 _ => continue, // Skip if Some doesn't have exactly one field
             };
-            
+
             let prefixed_name = config.apply_prefix(&enum_def.name);
             let prefixed_inner = config.apply_prefix(inner_type);
-            
+
             builder.line(&format!("impl {} {{", prefixed_name));
             builder.indent();
-            
+
             // into_option() - converts to std Option<T>
-            builder.line(&format!("/// Converts to a Rust `Option<{}>`.", prefixed_inner));
+            builder.line(&format!(
+                "/// Converts to a Rust `Option<{}>`.",
+                prefixed_inner
+            ));
             builder.line("#[inline]");
-            builder.line(&format!("pub fn into_option(self) -> Option<{}> {{", prefixed_inner));
+            builder.line(&format!(
+                "pub fn into_option(self) -> Option<{}> {{",
+                prefixed_inner
+            ));
             builder.indent();
             builder.line("match self {");
             builder.indent();
@@ -689,7 +743,7 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // is_some()
             builder.line("/// Returns `true` if the option is a `Some` value.");
             builder.line("#[inline]");
@@ -699,7 +753,7 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // is_none()
             builder.line("/// Returns `true` if the option is a `None` value.");
             builder.line("#[inline]");
@@ -708,15 +762,21 @@ impl RustGenerator {
             builder.line(&format!("matches!(self, {}::None)", prefixed_name));
             builder.dedent();
             builder.line("}");
-            
+
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // From<Option<T>> for OptionT
-            builder.line(&format!("impl From<Option<{}>> for {} {{", prefixed_inner, prefixed_name));
+            builder.line(&format!(
+                "impl From<Option<{}>> for {} {{",
+                prefixed_inner, prefixed_name
+            ));
             builder.indent();
-            builder.line(&format!("fn from(o: Option<{}>) -> Self {{", prefixed_inner));
+            builder.line(&format!(
+                "fn from(o: Option<{}>) -> Self {{",
+                prefixed_inner
+            ));
             builder.indent();
             builder.line("match o {");
             builder.indent();
@@ -729,9 +789,12 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // Into<Option<T>> for OptionT
-            builder.line(&format!("impl Into<Option<{}>> for {} {{", prefixed_inner, prefixed_name));
+            builder.line(&format!(
+                "impl Into<Option<{}>> for {} {{",
+                prefixed_inner, prefixed_name
+            ));
             builder.indent();
             builder.line(&format!("fn into(self) -> Option<{}> {{", prefixed_inner));
             builder.indent();
@@ -741,7 +804,7 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // Default implementation (returns None)
             builder.line(&format!("impl Default for {} {{", prefixed_name));
             builder.indent();
@@ -755,64 +818,83 @@ impl RustGenerator {
             builder.blank();
         }
     }
-    
+
     /// Generate convenience methods for Vec types (into_vec, as_slice, len, is_empty, iter, etc.)
-    fn generate_vec_convenience_methods(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+    fn generate_vec_convenience_methods(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
         let _prefix = &config.type_prefix;
-        
+
         // Find all Vec types in the IR (structs ending with "Vec" that have ptr, len, cap fields)
         for struct_def in &ir.structs {
             // Check if this looks like a Vec type
             if !struct_def.name.ends_with("Vec") {
                 continue;
             }
-            
+
             // Check for ptr, len, cap fields
             let has_ptr = struct_def.fields.iter().any(|f| f.name == "ptr");
             let has_len = struct_def.fields.iter().any(|f| f.name == "len");
             let has_cap = struct_def.fields.iter().any(|f| f.name == "cap");
-            
+
             if !has_ptr || !has_len || !has_cap {
                 continue;
             }
-            
+
             // Get the inner type from the ptr field
             // The type_name contains the base type, and ref_kind tells us if it's a pointer
             let ptr_field = struct_def.fields.iter().find(|f| f.name == "ptr").unwrap();
-            
+
             // Only process if it's actually a pointer type
-            if ptr_field.ref_kind != FieldRefKind::Ptr && ptr_field.ref_kind != FieldRefKind::PtrMut {
+            if ptr_field.ref_kind != FieldRefKind::Ptr && ptr_field.ref_kind != FieldRefKind::PtrMut
+            {
                 continue;
             }
-            
+
             let inner_type = &ptr_field.type_name;
-            
+
             let prefixed_name = config.apply_prefix(&struct_def.name);
             let prefixed_inner = config.apply_prefix(inner_type);
-            
+
             builder.line(&format!("impl {} {{", prefixed_name));
             builder.indent();
-            
+
             // as_slice() - returns &[T]
-            builder.line(&format!("/// Returns the vec as a `&[{}]` slice.", prefixed_inner));
+            builder.line(&format!(
+                "/// Returns the vec as a `&[{}]` slice.",
+                prefixed_inner
+            ));
             builder.line("#[inline]");
-            builder.line(&format!("pub fn as_slice(&self) -> &[{}] {{", prefixed_inner));
+            builder.line(&format!(
+                "pub fn as_slice(&self) -> &[{}] {{",
+                prefixed_inner
+            ));
             builder.indent();
             builder.line("unsafe { core::slice::from_raw_parts(self.ptr, self.len) }");
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // as_slice_mut() - returns &mut [T]
-            builder.line(&format!("/// Returns the vec as a `&mut [{}]` slice.", prefixed_inner));
+            builder.line(&format!(
+                "/// Returns the vec as a `&mut [{}]` slice.",
+                prefixed_inner
+            ));
             builder.line("#[inline]");
-            builder.line(&format!("pub fn as_slice_mut(&mut self) -> &mut [{}] {{", prefixed_inner));
+            builder.line(&format!(
+                "pub fn as_slice_mut(&mut self) -> &mut [{}] {{",
+                prefixed_inner
+            ));
             builder.indent();
-            builder.line("unsafe { core::slice::from_raw_parts_mut(self.ptr as *mut _, self.len) }");
+            builder
+                .line("unsafe { core::slice::from_raw_parts_mut(self.ptr as *mut _, self.len) }");
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // len()
             builder.line("/// Returns the number of elements in the vec.");
             builder.line("#[inline]");
@@ -822,7 +904,7 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // capacity()
             builder.line("/// Returns the capacity of the vec.");
             builder.line("#[inline]");
@@ -832,7 +914,7 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // is_empty()
             builder.line("/// Returns `true` if the vec is empty.");
             builder.line("#[inline]");
@@ -842,52 +924,69 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // get()
             builder.line(&format!("/// Returns a reference to an element at the given index, or `None` if out of bounds."));
             builder.line("#[inline]");
-            builder.line(&format!("pub fn get(&self, index: usize) -> Option<&{}> {{", prefixed_inner));
+            builder.line(&format!(
+                "pub fn get(&self, index: usize) -> Option<&{}> {{",
+                prefixed_inner
+            ));
             builder.indent();
             builder.line("self.as_slice().get(index)");
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // get_mut()
             builder.line(&format!("/// Returns a mutable reference to an element at the given index, or `None` if out of bounds."));
             builder.line("#[inline]");
-            builder.line(&format!("pub fn get_mut(&mut self, index: usize) -> Option<&mut {}> {{", prefixed_inner));
+            builder.line(&format!(
+                "pub fn get_mut(&mut self, index: usize) -> Option<&mut {}> {{",
+                prefixed_inner
+            ));
             builder.indent();
             builder.line("self.as_slice_mut().get_mut(index)");
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // iter()
             builder.line(&format!("/// Returns an iterator over the elements."));
             builder.line("#[inline]");
-            builder.line(&format!("pub fn iter(&self) -> core::slice::Iter<'_, {}> {{", prefixed_inner));
+            builder.line(&format!(
+                "pub fn iter(&self) -> core::slice::Iter<'_, {}> {{",
+                prefixed_inner
+            ));
             builder.indent();
             builder.line("self.as_slice().iter()");
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // iter_mut()
-            builder.line(&format!("/// Returns a mutable iterator over the elements."));
+            builder.line(&format!(
+                "/// Returns a mutable iterator over the elements."
+            ));
             builder.line("#[inline]");
-            builder.line(&format!("pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, {}> {{", prefixed_inner));
+            builder.line(&format!(
+                "pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, {}> {{",
+                prefixed_inner
+            ));
             builder.indent();
             builder.line("self.as_slice_mut().iter_mut()");
             builder.dedent();
             builder.line("}");
-            
+
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // AsRef<[T]> implementation
-            builder.line(&format!("impl AsRef<[{}]> for {} {{", prefixed_inner, prefixed_name));
+            builder.line(&format!(
+                "impl AsRef<[{}]> for {} {{",
+                prefixed_inner, prefixed_name
+            ));
             builder.indent();
             builder.line(&format!("fn as_ref(&self) -> &[{}] {{", prefixed_inner));
             builder.indent();
@@ -897,7 +996,7 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // Deref to [T] implementation
             builder.line(&format!("impl core::ops::Deref for {} {{", prefixed_name));
             builder.indent();
@@ -910,9 +1009,12 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // DerefMut implementation
-            builder.line(&format!("impl core::ops::DerefMut for {} {{", prefixed_name));
+            builder.line(&format!(
+                "impl core::ops::DerefMut for {} {{",
+                prefixed_name
+            ));
             builder.indent();
             builder.line("fn deref_mut(&mut self) -> &mut Self::Target {");
             builder.indent();
@@ -922,9 +1024,12 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // Index implementation
-            builder.line(&format!("impl core::ops::Index<usize> for {} {{", prefixed_name));
+            builder.line(&format!(
+                "impl core::ops::Index<usize> for {} {{",
+                prefixed_name
+            ));
             builder.indent();
             builder.line(&format!("type Output = {};", prefixed_inner));
             builder.line("fn index(&self, index: usize) -> &Self::Output {");
@@ -935,9 +1040,12 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // IndexMut implementation
-            builder.line(&format!("impl core::ops::IndexMut<usize> for {} {{", prefixed_name));
+            builder.line(&format!(
+                "impl core::ops::IndexMut<usize> for {} {{",
+                prefixed_name
+            ));
             builder.indent();
             builder.line("fn index_mut(&mut self, index: usize) -> &mut Self::Output {");
             builder.indent();
@@ -947,12 +1055,18 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // IntoIterator for &Vec
-            builder.line(&format!("impl<'a> IntoIterator for &'a {} {{", prefixed_name));
+            builder.line(&format!(
+                "impl<'a> IntoIterator for &'a {} {{",
+                prefixed_name
+            ));
             builder.indent();
             builder.line(&format!("type Item = &'a {};", prefixed_inner));
-            builder.line(&format!("type IntoIter = core::slice::Iter<'a, {}>;", prefixed_inner));
+            builder.line(&format!(
+                "type IntoIter = core::slice::Iter<'a, {}>;",
+                prefixed_inner
+            ));
             builder.line("fn into_iter(self) -> Self::IntoIter {");
             builder.indent();
             builder.line("self.as_slice().iter()");
@@ -961,12 +1075,18 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // IntoIterator for &mut Vec
-            builder.line(&format!("impl<'a> IntoIterator for &'a mut {} {{", prefixed_name));
+            builder.line(&format!(
+                "impl<'a> IntoIterator for &'a mut {} {{",
+                prefixed_name
+            ));
             builder.indent();
             builder.line(&format!("type Item = &'a mut {};", prefixed_inner));
-            builder.line(&format!("type IntoIter = core::slice::IterMut<'a, {}>;", prefixed_inner));
+            builder.line(&format!(
+                "type IntoIter = core::slice::IterMut<'a, {}>;",
+                prefixed_inner
+            ));
             builder.line("fn into_iter(self) -> Self::IntoIter {");
             builder.indent();
             builder.line("self.as_slice_mut().iter_mut()");
@@ -975,7 +1095,7 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // From<Vec<T>> for AzVec<T> - allows easy conversion from std Vec
             // This requires the Vec type to have a destructor field
             //
@@ -993,12 +1113,15 @@ impl RustGenerator {
                     // The destructor type should be VecDestructorType (function pointer type)
                     // e.g., DomVecDestructor -> DomVecDestructorType
                     let destructor_fn_type = format!("{}Type", prefixed_destructor);
-                    
+
                     // Generate the drop function that will be called to free the Vec
                     // This function runs in the BINARY context, using the BINARY allocator
                     // Note: We use *mut T (raw pointer) to match the C-ABI destructor signature
                     let drop_fn_name = format!("{}_external_drop", prefixed_name.to_lowercase());
-                    builder.line(&format!("extern \"C\" fn {}(v: *mut {}) {{", drop_fn_name, prefixed_name));
+                    builder.line(&format!(
+                        "extern \"C\" fn {}(v: *mut {}) {{",
+                        drop_fn_name, prefixed_name
+                    ));
                     builder.indent();
                     builder.line("let v = unsafe { &mut *v };");
                     builder.line("if !v.run_destructor { return; }");
@@ -1006,7 +1129,10 @@ impl RustGenerator {
                     builder.line("if v.ptr.is_null() || v.cap == 0 { return; }");
                     builder.line("unsafe {");
                     builder.indent();
-                    builder.line(&format!("let _ = alloc::vec::Vec::from_raw_parts(v.ptr as *mut {}, v.len, v.cap);", prefixed_inner));
+                    builder.line(&format!(
+                        "let _ = alloc::vec::Vec::from_raw_parts(v.ptr as *mut {}, v.len, v.cap);",
+                        prefixed_inner
+                    ));
                     builder.dedent();
                     builder.line("}");
                     builder.line("v.ptr = core::ptr::null();");
@@ -1015,10 +1141,16 @@ impl RustGenerator {
                     builder.dedent();
                     builder.line("}");
                     builder.blank();
-                    
-                    builder.line(&format!("impl From<alloc::vec::Vec<{}>> for {} {{", prefixed_inner, prefixed_name));
+
+                    builder.line(&format!(
+                        "impl From<alloc::vec::Vec<{}>> for {} {{",
+                        prefixed_inner, prefixed_name
+                    ));
                     builder.indent();
-                    builder.line(&format!("fn from(v: alloc::vec::Vec<{}>) -> Self {{", prefixed_inner));
+                    builder.line(&format!(
+                        "fn from(v: alloc::vec::Vec<{}>) -> Self {{",
+                        prefixed_inner
+                    ));
                     builder.indent();
                     builder.line("let ptr = v.as_ptr();");
                     builder.line("let len = v.len();");
@@ -1029,7 +1161,10 @@ impl RustGenerator {
                     builder.line("ptr,");
                     builder.line("len,");
                     builder.line("cap,");
-                    builder.line(&format!("destructor: {}::External({} as {}),", prefixed_destructor, drop_fn_name, destructor_fn_type));
+                    builder.line(&format!(
+                        "destructor: {}::External({} as {}),",
+                        prefixed_destructor, drop_fn_name, destructor_fn_type
+                    ));
                     builder.line("run_destructor: true,");
                     builder.dedent();
                     builder.line("}");
@@ -1045,36 +1180,41 @@ impl RustGenerator {
 
     /// Generate convenience methods for VecRef types (From<&[T]>, From<&Vec<T>>, as_slice)
     /// VecRef types are used for passing slices across the C-ABI boundary.
-    fn generate_vec_ref_convenience_methods(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+    fn generate_vec_ref_convenience_methods(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
         let _prefix = &config.type_prefix;
-        
+
         // Find all VecRef types in the IR (structs ending with "VecRef" that have ptr, len fields but NO cap)
         for struct_def in &ir.structs {
             // Check if this looks like a VecRef type
             if !struct_def.name.ends_with("VecRef") {
                 continue;
             }
-            
+
             // Check for ptr, len fields (but NOT cap - that's a Vec, not a VecRef)
             let has_ptr = struct_def.fields.iter().any(|f| f.name == "ptr");
             let has_len = struct_def.fields.iter().any(|f| f.name == "len");
             let has_cap = struct_def.fields.iter().any(|f| f.name == "cap");
-            
+
             if !has_ptr || !has_len || has_cap {
                 continue;
             }
-            
+
             // Derive the inner type from the VecRef name
             // e.g., "TessellatedSvgNodeVecRef" -> "TessellatedSvgNode"
             let inner_type = match struct_def.name.strip_suffix("VecRef") {
                 Some(inner) => inner.to_string(),
                 None => continue,
             };
-            
+
             // Check if the inner type actually exists in the IR
-            let inner_type_exists = ir.structs.iter().any(|s| s.name == inner_type) 
+            let inner_type_exists = ir.structs.iter().any(|s| s.name == inner_type)
                 || ir.enums.iter().any(|e| e.name == inner_type);
-            
+
             // Map primitive VecRef names to Rust primitive types
             let rust_inner_type = match inner_type.as_str() {
                 "U8" => Some("u8"),
@@ -1094,11 +1234,11 @@ impl RustGenerator {
                 "GLfloat" => Some("GLfloat"),
                 _ => None,
             };
-            
+
             if !inner_type_exists && rust_inner_type.is_none() {
                 continue;
             }
-            
+
             // Use the Rust primitive type if available, otherwise use the prefixed inner type
             let prefixed_name = config.apply_prefix(&struct_def.name);
             let prefixed_inner = if let Some(primitive) = rust_inner_type {
@@ -1106,18 +1246,24 @@ impl RustGenerator {
             } else {
                 config.apply_prefix(&inner_type)
             };
-            
+
             // Derive the corresponding Vec type name (remove "Ref" suffix)
             let vec_type_name = format!("{}Vec", inner_type);
             let prefixed_vec = config.apply_prefix(&vec_type_name);
-            
+
             // as_slice() method
             builder.line(&format!("impl {} {{", prefixed_name));
             builder.indent();
-            
-            builder.line(&format!("/// Returns the vec ref as a `&[{}]` slice.", prefixed_inner));
+
+            builder.line(&format!(
+                "/// Returns the vec ref as a `&[{}]` slice.",
+                prefixed_inner
+            ));
             builder.line("#[inline]");
-            builder.line(&format!("pub fn as_slice(&self) -> &[{}] {{", prefixed_inner));
+            builder.line(&format!(
+                "pub fn as_slice(&self) -> &[{}] {{",
+                prefixed_inner
+            ));
             builder.indent();
             builder.line("if self.ptr.is_null() || self.len == 0 {");
             builder.indent();
@@ -1125,13 +1271,16 @@ impl RustGenerator {
             builder.dedent();
             builder.line("} else {");
             builder.indent();
-            builder.line(&format!("unsafe {{ core::slice::from_raw_parts(self.ptr as *const {}, self.len) }}", prefixed_inner));
+            builder.line(&format!(
+                "unsafe {{ core::slice::from_raw_parts(self.ptr as *const {}, self.len) }}",
+                prefixed_inner
+            ));
             builder.dedent();
             builder.line("}");
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             builder.line("/// Returns the number of elements.");
             builder.line("#[inline]");
             builder.line("pub fn len(&self) -> usize {");
@@ -1140,7 +1289,7 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             builder.line("/// Returns `true` if empty.");
             builder.line("#[inline]");
             builder.line("pub fn is_empty(&self) -> bool {");
@@ -1148,15 +1297,21 @@ impl RustGenerator {
             builder.line("self.len == 0");
             builder.dedent();
             builder.line("}");
-            
+
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // From<&[T]> for VecRef
-            builder.line(&format!("impl<'a> From<&'a [{}]> for {} {{", prefixed_inner, prefixed_name));
+            builder.line(&format!(
+                "impl<'a> From<&'a [{}]> for {} {{",
+                prefixed_inner, prefixed_name
+            ));
             builder.indent();
-            builder.line(&format!("fn from(slice: &'a [{}]) -> Self {{", prefixed_inner));
+            builder.line(&format!(
+                "fn from(slice: &'a [{}]) -> Self {{",
+                prefixed_inner
+            ));
             builder.indent();
             builder.line("Self {");
             builder.indent();
@@ -1169,12 +1324,15 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            
+
             // From<&Vec<T>> for VecRef (if a corresponding Vec type exists)
             // Check if the Vec type exists in the IR
             let vec_exists = ir.structs.iter().any(|s| s.name == vec_type_name);
             if vec_exists {
-                builder.line(&format!("impl<'a> From<&'a {}> for {} {{", prefixed_vec, prefixed_name));
+                builder.line(&format!(
+                    "impl<'a> From<&'a {}> for {} {{",
+                    prefixed_vec, prefixed_name
+                ));
                 builder.indent();
                 builder.line(&format!("fn from(vec: &'a {}) -> Self {{", prefixed_vec));
                 builder.indent();
@@ -1190,9 +1348,12 @@ impl RustGenerator {
                 builder.line("}");
                 builder.blank();
             }
-            
+
             // AsRef<[T]> implementation
-            builder.line(&format!("impl AsRef<[{}]> for {} {{", prefixed_inner, prefixed_name));
+            builder.line(&format!(
+                "impl AsRef<[{}]> for {} {{",
+                prefixed_inner, prefixed_name
+            ));
             builder.indent();
             builder.line(&format!("fn as_ref(&self) -> &[{}] {{", prefixed_inner));
             builder.indent();
@@ -1208,41 +1369,42 @@ impl RustGenerator {
     /// Generate impl blocks with methods for each type
     fn generate_impl_blocks(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         use std::collections::BTreeSet;
-        
+
         let mut builder = CodeBuilder::new(&config.indent);
-        
+
         // Collect all unique class names
         let class_names: BTreeSet<&str> = ir.functions.iter()
             .filter(|f| !f.kind.is_trait_function()) // Skip trait functions
             .map(|f| f.class_name.as_str())
             .collect();
-        
+
         for class_name in class_names {
             if !config.should_include_type(class_name) {
                 continue;
             }
-            
+
             let prefixed_name = config.apply_prefix(class_name);
-            let methods: Vec<_> = ir.functions_for_class(class_name)
+            let methods: Vec<_> = ir
+                .functions_for_class(class_name)
                 .filter(|f| !f.kind.is_trait_function())
                 .collect();
-            
+
             if methods.is_empty() {
                 continue;
             }
-            
+
             builder.line(&format!("impl {} {{", prefixed_name));
             builder.indent();
-            
+
             for func in methods {
                 self.generate_method(&mut builder, func, ir, config);
             }
-            
+
             builder.dedent();
             builder.line("}");
             builder.blank();
         }
-        
+
         Ok(builder.finish())
     }
 
@@ -1255,45 +1417,52 @@ impl RustGenerator {
         config: &CodegenConfig,
     ) {
         let method_name = escape_rust_keyword(&to_snake_case(&func.method_name));
-        
+
         // Build a map of callback wrapper types for quick lookup
         // Maps: "IFrameCallback" -> ("IFrameCallbackType", "cb", "ctx")
-        let callback_wrappers: std::collections::HashMap<&str, (&str, &str, &str)> = ir.structs.iter()
+        let callback_wrappers: std::collections::HashMap<&str, (&str, &str, &str)> = ir
+            .structs
+            .iter()
             .filter_map(|s| {
                 s.callback_wrapper_info.as_ref().map(|info| {
-                    (s.name.as_str(), (
-                        info.callback_typedef_name.as_str(), 
-                        info.callback_field_name.as_str(),
-                        info.context_field_name.as_str(),
-                    ))
+                    (
+                        s.name.as_str(),
+                        (
+                            info.callback_typedef_name.as_str(),
+                            info.callback_field_name.as_str(),
+                            info.context_field_name.as_str(),
+                        ),
+                    )
                 })
             })
             .collect();
-        
+
         // Build a set of callback typedef names (function pointer types) to exclude from Into generics
-        let callback_typedefs: std::collections::HashSet<&str> = ir.callback_typedefs.iter()
+        let callback_typedefs: std::collections::HashSet<&str> = ir
+            .callback_typedefs
+            .iter()
             .map(|cb| cb.name.as_str())
             .collect();
-        
+
         // Build argument list
         let mut args = Vec::new();
         let mut call_args = Vec::new();
         let mut self_arg: Option<String> = None;
         let mut generic_params: Vec<String> = Vec::new();
         let mut generic_counter = 0u8;
-        
+
         // The lowercase class name is used as the self parameter name in C-ABI
         let self_param_name = func.class_name.to_lowercase();
-        
+
         for arg in &func.args {
             // An argument is "self" if:
             // 1. Its name is "self", OR
             // 2. Its name is the lowercase class name AND its type matches the class name, OR
             // 3. Its name is "object" AND its type matches the class name
-            let is_self = arg.name == "self" || 
-                         (arg.name == self_param_name && arg.type_name == func.class_name) ||
-                         (arg.name == "object" && arg.type_name == func.class_name);
-            
+            let is_self = arg.name == "self"
+                || (arg.name == self_param_name && arg.type_name == func.class_name)
+                || (arg.name == "object" && arg.type_name == func.class_name);
+
             if is_self {
                 // Store self argument to insert at the beginning
                 let self_str = match arg.ref_kind {
@@ -1305,7 +1474,7 @@ impl RustGenerator {
                 call_args.push("self".to_string());
             } else {
                 let arg_type = config.apply_prefix(&arg.type_name);
-                
+
                 // Check if this type is a callback wrapper
                 // If so, accept the CallbackType (fn pointer) and pass it directly
                 // (The C-ABI function now accepts CallbackType directly, not the wrapper struct)
@@ -1314,10 +1483,13 @@ impl RustGenerator {
                 // ALSO: Don't apply for EnumVariantConstructor - enum variants need exact types
                 // (e.g., OptionCallback::Some needs Callback, not CallbackType)
                 let is_method_of_this_callback = arg.type_name == func.class_name;
-                let is_enum_variant_constructor = matches!(func.kind, FunctionKind::EnumVariantConstructor);
-                
+                let is_enum_variant_constructor =
+                    matches!(func.kind, FunctionKind::EnumVariantConstructor);
+
                 if !is_method_of_this_callback && !is_enum_variant_constructor {
-                    if let Some((callback_type_name, _callback_field_name, _context_field_name)) = callback_wrappers.get(arg.type_name.as_str()) {
+                    if let Some((callback_type_name, _callback_field_name, _context_field_name)) =
+                        callback_wrappers.get(arg.type_name.as_str())
+                    {
                         let fn_ptr_type = config.apply_prefix(callback_type_name);
                         args.push(format!("{}: {}", arg.name, fn_ptr_type));
                         // Pass the callback type directly to the C-ABI function
@@ -1325,13 +1497,13 @@ impl RustGenerator {
                         continue;
                     }
                 }
-                
+
                 // Check if this type should use Into<T>
                 // Use Into for all non-primitive types that are passed by value
                 // EXCEPT:
                 // - callback typedefs (function pointers) and callback wrappers
                 // - Ref types (e.g. U8VecRef) - slice references shouldn't use Into
-                // 
+                //
                 // Vec types (e.g. StyleTransformVec) DO support Into:
                 //   fn append_children(children: impl Into<DomVec>) allows vec![...] directly
                 //
@@ -1339,14 +1511,13 @@ impl RustGenerator {
                 //   Dom::create_text("hello")  where &str: Into<AzString>
                 //   Dom::append(button)  where button: Button (if Button: Into<Dom>)
                 //   Dom::append_children(vec![child1, child2])  where Vec<Dom>: Into<DomVec>
-                let is_callback_type = callback_typedefs.contains(arg.type_name.as_str()) 
+                let is_callback_type = callback_typedefs.contains(arg.type_name.as_str())
                     || callback_wrappers.contains_key(arg.type_name.as_str());
-                let is_ref_type = arg.type_name.ends_with("Ref")
-                    || arg.type_name.ends_with("RefMut");
-                let use_into = !is_primitive_type(&arg.type_name) 
-                    && !is_callback_type 
-                    && !is_ref_type;
-                
+                let is_ref_type =
+                    arg.type_name.ends_with("Ref") || arg.type_name.ends_with("RefMut");
+                let use_into =
+                    !is_primitive_type(&arg.type_name) && !is_callback_type && !is_ref_type;
+
                 if use_into && matches!(arg.ref_kind, ArgRefKind::Owned) {
                     // Use a generic parameter like I0, I1, I2...
                     let generic_name = format!("I{}", generic_counter);
@@ -1358,32 +1529,36 @@ impl RustGenerator {
                     let arg_str = match arg.ref_kind {
                         ArgRefKind::Owned => format!("{}: {}", arg.name, arg_type),
                         ArgRefKind::Ref | ArgRefKind::Ptr => format!("{}: &{}", arg.name, arg_type),
-                        ArgRefKind::RefMut | ArgRefKind::PtrMut => format!("{}: &mut {}", arg.name, arg_type),
+                        ArgRefKind::RefMut | ArgRefKind::PtrMut => {
+                            format!("{}: &mut {}", arg.name, arg_type)
+                        }
                     };
                     args.push(arg_str);
                     call_args.push(arg.name.clone());
                 }
             }
         }
-        
+
         // Insert self at the beginning if present
         if let Some(self_str) = self_arg {
             args.insert(0, self_str);
         }
-        
-        let return_type = func.return_type.as_ref()
+
+        let return_type = func
+            .return_type
+            .as_ref()
             .map(|r| format!(" -> {}", config.apply_prefix(r)))
             .unwrap_or_default();
-        
+
         let c_func_name = &func.c_name;
-        
+
         // Build generics string if we have any generic parameters
         let generics = if generic_params.is_empty() {
             String::new()
         } else {
             format!("<{}>", generic_params.join(", "))
         };
-        
+
         // Generate the method
         builder.line(&format!(
             "pub fn {}{}({}){} {{ unsafe {{ {}({}) }} }}",
@@ -1496,20 +1671,23 @@ impl RustGenerator {
         config: &CodegenConfig,
     ) {
         let name = config.apply_prefix(&type_alias.name);
-        
+
         // Target types should also be prefixed if they're not primitives
-        let target_base = if is_primitive_type(&type_alias.target) || type_alias.target.contains("::") {
-            type_alias.target.clone()
-        } else {
-            config.apply_prefix(&type_alias.target)
-        };
-        
+        let target_base =
+            if is_primitive_type(&type_alias.target) || type_alias.target.contains("::") {
+                type_alias.target.clone()
+            } else {
+                config.apply_prefix(&type_alias.target)
+            };
+
         // Build the full target type including generic arguments
         let target = if type_alias.generic_args.is_empty() {
             target_base
         } else {
             // Apply prefix to each generic argument
-            let prefixed_args: Vec<String> = type_alias.generic_args.iter()
+            let prefixed_args: Vec<String> = type_alias
+                .generic_args
+                .iter()
                 .map(|arg| {
                     if is_primitive_type(arg) || arg.contains("::") {
                         arg.clone()
@@ -1520,7 +1698,7 @@ impl RustGenerator {
                 .collect();
             format!("{}<{}>", target_base, prefixed_args.join(", "))
         };
-        
+
         builder.line(&format!("pub type {} = {};", name, target));
         builder.blank();
     }
@@ -1543,19 +1721,25 @@ impl RustGenerator {
 
         // Generate function pointer signature
         // Note: For type aliases, we only need types, not names: fn(Type1, Type2) -> Return
-        let args: Vec<String> = callback.args.iter().map(|arg| {
-            let type_name = config.apply_prefix(&arg.type_name);
-            let ref_prefix = match arg.ref_kind {
-                ArgRefKind::Owned => "",
-                ArgRefKind::Ref => "&",
-                ArgRefKind::RefMut => "&mut ",
-                ArgRefKind::Ptr => "*const ",
-                ArgRefKind::PtrMut => "*mut ",
-            };
-            format!("{}{}", ref_prefix, type_name)
-        }).collect();
-        
-        let return_str = callback.return_type.as_ref()
+        let args: Vec<String> = callback
+            .args
+            .iter()
+            .map(|arg| {
+                let type_name = config.apply_prefix(&arg.type_name);
+                let ref_prefix = match arg.ref_kind {
+                    ArgRefKind::Owned => "",
+                    ArgRefKind::Ref => "&",
+                    ArgRefKind::RefMut => "&mut ",
+                    ArgRefKind::Ptr => "*const ",
+                    ArgRefKind::PtrMut => "*mut ",
+                };
+                format!("{}{}", ref_prefix, type_name)
+            })
+            .collect();
+
+        let return_str = callback
+            .return_type
+            .as_ref()
             .map(|r| format!(" -> {}", config.apply_prefix(r)))
             .unwrap_or_default();
 
@@ -1576,7 +1760,7 @@ impl RustGenerator {
         config: &CodegenConfig,
     ) {
         let name = config.apply_prefix(&struct_def.name);
-        
+
         // Add generic parameters if present
         let generics = if struct_def.generic_params.is_empty() {
             String::new()
@@ -1619,7 +1803,11 @@ impl RustGenerator {
             builder.indent();
             for field in &struct_def.fields {
                 let field_type = self.format_field_type(&field.type_name, &field.ref_kind, config);
-                let visibility = if field.is_public { "pub " } else { "pub(crate) " };
+                let visibility = if field.is_public {
+                    "pub "
+                } else {
+                    "pub(crate) "
+                };
                 builder.line(&format!("{}{}: {},", visibility, field.name, field_type));
             }
             builder.dedent();
@@ -1636,7 +1824,7 @@ impl RustGenerator {
         config: &CodegenConfig,
     ) {
         let name = config.apply_prefix(&enum_def.name);
-        
+
         // Add generic parameters if present
         let generics = if enum_def.generic_params.is_empty() {
             String::new()
@@ -1682,9 +1870,8 @@ impl RustGenerator {
                     builder.line(&format!("{},", variant.name));
                 }
                 EnumVariantKind::Tuple(types) => {
-                    let types_str: Vec<String> = types.iter()
-                        .map(|t| config.apply_prefix(t))
-                        .collect();
+                    let types_str: Vec<String> =
+                        types.iter().map(|t| config.apply_prefix(t)).collect();
                     builder.line(&format!("{}({}),", variant.name, types_str.join(", ")));
                 }
                 EnumVariantKind::Struct(fields) => {
@@ -1704,7 +1891,12 @@ impl RustGenerator {
         builder.blank();
     }
 
-    fn format_field_type(&self, type_name: &str, ref_kind: &FieldRefKind, config: &CodegenConfig) -> String {
+    fn format_field_type(
+        &self,
+        type_name: &str,
+        ref_kind: &FieldRefKind,
+        config: &CodegenConfig,
+    ) -> String {
         let prefixed = config.apply_prefix(type_name);
         match ref_kind {
             FieldRefKind::Owned => prefixed,
@@ -1731,31 +1923,36 @@ impl RustGenerator {
         _external_crate: &str,
     ) {
         let name = config.apply_prefix(&struct_def.name);
-        
+
         // Build generics string: "<T>" or "<T, U>" etc.
         let generics = if struct_def.generic_params.is_empty() {
             String::new()
         } else {
             format!("<{}>", struct_def.generic_params.join(", "))
         };
-        
+
         // Build impl generics: "impl<T>" or "impl<T: Clone>"
         let impl_generics = if struct_def.generic_params.is_empty() {
             String::new()
         } else {
             format!("<{}>", struct_def.generic_params.join(", "))
         };
-        
+
         let full_name = format!("{}{}", name, generics);
-        
-        let external_path = struct_def.external_path.as_ref()
+
+        let external_path = struct_def
+            .external_path
+            .as_ref()
             .map(|p| config.transform_external_path(p))
             .unwrap_or_else(|| format!("crate::{}", struct_def.name));
 
         // Clone impl - generate via transmute only if Clone is in custom_impls (not derived)
         // Types with clone_is_derived get Clone via #[derive(Clone)] in generate_struct
         // Skip for generic types (can't transmute dependent-sized types)
-        if struct_def.traits.is_clone && !struct_def.traits.clone_is_derived && struct_def.generic_params.is_empty() {
+        if struct_def.traits.is_clone
+            && !struct_def.traits.clone_is_derived
+            && struct_def.generic_params.is_empty()
+        {
             builder.line(&format!("impl Clone for {} {{", full_name));
             builder.indent();
             builder.line("fn clone(&self) -> Self {");
@@ -1881,11 +2078,13 @@ impl RustGenerator {
         if !enum_def.generic_params.is_empty() {
             return;
         }
-        
+
         let name = config.apply_prefix(&enum_def.name);
         let full_name = name.clone(); // No generics since we skip generic enums
-        
-        let external_path = enum_def.external_path.as_ref()
+
+        let external_path = enum_def
+            .external_path
+            .as_ref()
             .map(|p| config.transform_external_path(p))
             .unwrap_or_else(|| format!("crate::{}", enum_def.name));
 
@@ -2094,28 +2293,29 @@ impl RustGenerator {
         // OptionCallback::Some needs Callback, not CallbackType)
         let should_substitute_callbacks = matches!(
             func.kind,
-            FunctionKind::Constructor | FunctionKind::StaticMethod |
-            FunctionKind::Method | FunctionKind::MethodMut
+            FunctionKind::Constructor
+                | FunctionKind::StaticMethod
+                | FunctionKind::Method
+                | FunctionKind::MethodMut
         );
-        
+
         let args = if should_substitute_callbacks {
             self.format_function_args_for_cabi(func, ir, config)
         } else {
             self.format_function_args(func, config)
         };
-        let return_str = func.return_type.as_ref()
+        let return_str = func
+            .return_type
+            .as_ref()
             .map(|r| format!(" -> {}", config.apply_prefix(r)))
             .unwrap_or_default();
 
         let body = self.generate_function_body(func, ir, config);
-        
+
         // Single-line or multi-line based on body
         builder.line(&format!(
             "pub unsafe extern \"C\" fn {}({}){} {}",
-            func.c_name,
-            args,
-            return_str,
-            body
+            func.c_name, args, return_str, body
         ));
     }
 
@@ -2126,9 +2326,11 @@ impl RustGenerator {
         config: &CodegenConfig,
     ) -> String {
         let prefixed_name = config.apply_prefix(&func.class_name);
-        
+
         // Get external path for this type, transforming if needed
-        let external_path = ir.type_to_external.get(&func.class_name)
+        let external_path = ir
+            .type_to_external
+            .get(&func.class_name)
             .map(|p| config.transform_external_path(p))
             .unwrap_or_else(|| format!("crate::{}", func.class_name));
 
@@ -2138,12 +2340,22 @@ impl RustGenerator {
                 // For delete, we call drop_in_place to run the destructor.
                 // The type is passed by pointer, so we need to dereference and drop it.
                 // This works for both stack-allocated (repr(C)) and heap-allocated types.
-                let arg_name = func.args.first().map(|a| a.name.as_str()).unwrap_or("instance");
-                format!("{{ core::ptr::drop_in_place({} as *mut {} as *mut {}); }}", 
-                    arg_name, prefixed_name, external_path)
+                let arg_name = func
+                    .args
+                    .first()
+                    .map(|a| a.name.as_str())
+                    .unwrap_or("instance");
+                format!(
+                    "{{ core::ptr::drop_in_place({} as *mut {} as *mut {}); }}",
+                    arg_name, prefixed_name, external_path
+                )
             }
             FunctionKind::DeepCopy => {
-                let arg_name = func.args.first().map(|a| a.name.as_str()).unwrap_or("object");
+                let arg_name = func
+                    .args
+                    .first()
+                    .map(|a| a.name.as_str())
+                    .unwrap_or("object");
                 format!(
                     "{{ core::mem::transmute::<{}, {}>((*({}  as *const {} as *const {})).clone()) }}",
                     external_path, prefixed_name, arg_name, prefixed_name, external_path
@@ -2177,7 +2389,11 @@ impl RustGenerator {
                 )
             }
             FunctionKind::Hash => {
-                let arg_name = func.args.first().map(|a| a.name.as_str()).unwrap_or("object");
+                let arg_name = func
+                    .args
+                    .first()
+                    .map(|a| a.name.as_str())
+                    .unwrap_or("object");
                 format!(
                     "{{ {{
         use core::hash::{{Hash, Hasher}};
@@ -2194,18 +2410,21 @@ impl RustGenerator {
                     external_path, prefixed_name, external_path
                 )
             }
-            FunctionKind::Constructor | FunctionKind::StaticMethod |
-            FunctionKind::Method | FunctionKind::MethodMut |
-            FunctionKind::EnumVariantConstructor => {
-                // For regular API functions, use the fn_body from api.json 
+            FunctionKind::Constructor
+            | FunctionKind::StaticMethod
+            | FunctionKind::Method
+            | FunctionKind::MethodMut
+            | FunctionKind::EnumVariantConstructor => {
+                // For regular API functions, use the fn_body from api.json
                 // and transform it using generate_transmuted_fn_body
                 if let Some(ref body) = func.fn_body {
                     // Build the type_to_external map for this function
-                    let type_to_external: std::collections::BTreeMap<String, String> = 
-                        ir.type_to_external.iter()
-                            .map(|(k, v)| (config.apply_prefix(k), v.clone()))
-                            .collect();
-                    
+                    let type_to_external: std::collections::BTreeMap<String, String> = ir
+                        .type_to_external
+                        .iter()
+                        .map(|(k, v)| (config.apply_prefix(k), v.clone()))
+                        .collect();
+
                     // Format fn_args - for EnumVariantConstructor, use the regular version
                     // (no callback wrapper substitution) because enum variants need exact types.
                     // For other functions, use the CABI version which replaces callback wrappers
@@ -2215,17 +2434,21 @@ impl RustGenerator {
                     } else {
                         self.format_function_args_for_cabi(func, ir, config)
                     };
-                    
+
                     // Determine return type with prefix
-                    let return_type = func.return_type.as_ref()
+                    let return_type = func
+                        .return_type
+                        .as_ref()
                         .map(|r| config.apply_prefix(r))
                         .unwrap_or_default();
-                    
+
                     // Use the existing transmuted fn_body generator
                     // EnumVariantConstructor counts as a constructor for fn_body transformation
                     let is_constructor = matches!(
                         func.kind,
-                        FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::EnumVariantConstructor
+                        FunctionKind::Constructor
+                            | FunctionKind::StaticMethod
+                            | FunctionKind::EnumVariantConstructor
                     );
                     generate_transmuted_fn_body(
                         body,
@@ -2235,14 +2458,17 @@ impl RustGenerator {
                         &config.type_prefix,
                         &type_to_external,
                         &fn_args,
-                        true, // is_for_dll
-                        false, // keep_self_name
-                        false, // force_clone_self
+                        true,             // is_for_dll
+                        false,            // keep_self_name
+                        false,            // force_clone_self
                         &BTreeSet::new(), // skip_args - empty, we want to transmute all args
                     )
                 } else {
                     // No fn_body - generate error or stub
-                    format!("{{ /* ERROR: No fn_body for {} */ unimplemented!() }}", func.c_name)
+                    format!(
+                        "{{ /* ERROR: No fn_body for {} */ unimplemented!() }}",
+                        func.c_name
+                    )
                 }
             }
         }
@@ -2270,7 +2496,9 @@ impl RustGenerator {
 
         // Transmute each argument
         for arg in &func.args {
-            let ext_type = ir.type_to_external.get(&arg.type_name)
+            let ext_type = ir
+                .type_to_external
+                .get(&arg.type_name)
                 .cloned()
                 .unwrap_or_else(|| {
                     // For primitive types, just use the type directly
@@ -2309,25 +2537,39 @@ impl RustGenerator {
         }
 
         // Generate the call
-        let args_for_call: Vec<String> = func.args.iter()
+        let args_for_call: Vec<String> = func
+            .args
+            .iter()
             .skip(if self_arg_name.is_some() { 1 } else { 0 })
             .map(|a| a.name.clone())
             .collect();
 
         let call = if let Some(ref self_name) = self_arg_name {
             // Instance method call
-            format!("    let __result = {}.{}({});", self_name, func.method_name, args_for_call.join(", "))
+            format!(
+                "    let __result = {}.{}({});",
+                self_name,
+                func.method_name,
+                args_for_call.join(", ")
+            )
         } else {
             // Static method or constructor
-            format!("    let __result: {} = {}::{}({});", 
-                external_path, external_path, func.method_name, args_for_call.join(", "))
+            format!(
+                "    let __result: {} = {}::{}({});",
+                external_path,
+                external_path,
+                func.method_name,
+                args_for_call.join(", ")
+            )
         };
         lines.push(call);
 
         // Transmute result back if needed
         if let Some(ref ret_type) = func.return_type {
             let ret_prefixed = config.apply_prefix(ret_type);
-            let ret_external = ir.type_to_external.get(ret_type)
+            let ret_external = ir
+                .type_to_external
+                .get(ret_type)
                 .cloned()
                 .unwrap_or_else(|| {
                     if is_primitive_type(ret_type) {
@@ -2339,7 +2581,10 @@ impl RustGenerator {
             if is_primitive_type(ret_type) {
                 lines.push("    __result".to_string());
             } else {
-                lines.push(format!("    core::mem::transmute::<{}, {}>(__result)", ret_external, ret_prefixed));
+                lines.push(format!(
+                    "    core::mem::transmute::<{}, {}>(__result)",
+                    ret_external, ret_prefixed
+                ));
             }
         } else {
             // No return, discard result
@@ -2357,7 +2602,9 @@ impl RustGenerator {
         config: &CodegenConfig,
     ) {
         let args = self.format_function_args(func, config);
-        let return_str = func.return_type.as_ref()
+        let return_str = func
+            .return_type
+            .as_ref()
             .map(|r| format!(" -> {}", config.apply_prefix(r)))
             .unwrap_or_default();
 
@@ -2365,17 +2612,21 @@ impl RustGenerator {
     }
 
     fn format_function_args(&self, func: &FunctionDef, config: &CodegenConfig) -> String {
-        func.args.iter().map(|arg| {
-            let type_name = config.apply_prefix(&arg.type_name);
-            let formatted = match arg.ref_kind {
-                ArgRefKind::Owned => type_name,
-                ArgRefKind::Ref => format!("&{}", type_name),
-                ArgRefKind::RefMut => format!("&mut {}", type_name),
-                ArgRefKind::Ptr => format!("*const {}", type_name),
-                ArgRefKind::PtrMut => format!("*mut {}", type_name),
-            };
-            format!("{}: {}", arg.name, formatted)
-        }).collect::<Vec<_>>().join(", ")
+        func.args
+            .iter()
+            .map(|arg| {
+                let type_name = config.apply_prefix(&arg.type_name);
+                let formatted = match arg.ref_kind {
+                    ArgRefKind::Owned => type_name,
+                    ArgRefKind::Ref => format!("&{}", type_name),
+                    ArgRefKind::RefMut => format!("&mut {}", type_name),
+                    ArgRefKind::Ptr => format!("*const {}", type_name),
+                    ArgRefKind::PtrMut => format!("*mut {}", type_name),
+                };
+                format!("{}: {}", arg.name, formatted)
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     /// Format function arguments for C-ABI functions.
@@ -2392,42 +2643,48 @@ impl RustGenerator {
     ) -> String {
         // Build a map of callback wrapper types for quick lookup
         // Maps: "IFrameCallback" -> "IFrameCallbackType"
-        let callback_wrappers: std::collections::HashMap<&str, &str> = ir.structs.iter()
+        let callback_wrappers: std::collections::HashMap<&str, &str> = ir
+            .structs
+            .iter()
             .filter_map(|s| {
-                s.callback_wrapper_info.as_ref().map(|info| {
-                    (s.name.as_str(), info.callback_typedef_name.as_str())
-                })
+                s.callback_wrapper_info
+                    .as_ref()
+                    .map(|info| (s.name.as_str(), info.callback_typedef_name.as_str()))
             })
             .collect();
 
-        func.args.iter().map(|arg| {
-            // Don't substitute callback wrappers for 'self' parameter or for the class's own type
-            // (e.g., Callback::to_core takes self which IS a Callback, not a CallbackType)
-            let is_self_or_own_type = arg.name == "self" || 
-                                       arg.name == "instance" ||
-                                       arg.type_name == func.class_name;
-            
-            // Check if this type is a callback wrapper - if so, use the raw fn pointer type
-            let base_type = if !is_self_or_own_type {
-                if let Some(callback_type) = callback_wrappers.get(arg.type_name.as_str()) {
-                    (*callback_type).to_string()
+        func.args
+            .iter()
+            .map(|arg| {
+                // Don't substitute callback wrappers for 'self' parameter or for the class's own type
+                // (e.g., Callback::to_core takes self which IS a Callback, not a CallbackType)
+                let is_self_or_own_type = arg.name == "self"
+                    || arg.name == "instance"
+                    || arg.type_name == func.class_name;
+
+                // Check if this type is a callback wrapper - if so, use the raw fn pointer type
+                let base_type = if !is_self_or_own_type {
+                    if let Some(callback_type) = callback_wrappers.get(arg.type_name.as_str()) {
+                        (*callback_type).to_string()
+                    } else {
+                        arg.type_name.clone()
+                    }
                 } else {
                     arg.type_name.clone()
-                }
-            } else {
-                arg.type_name.clone()
-            };
-            
-            let type_name = config.apply_prefix(&base_type);
-            let formatted = match arg.ref_kind {
-                ArgRefKind::Owned => type_name,
-                ArgRefKind::Ref => format!("&{}", type_name),
-                ArgRefKind::RefMut => format!("&mut {}", type_name),
-                ArgRefKind::Ptr => format!("*const {}", type_name),
-                ArgRefKind::PtrMut => format!("*mut {}", type_name),
-            };
-            format!("{}: {}", arg.name, formatted)
-        }).collect::<Vec<_>>().join(", ")
+                };
+
+                let type_name = config.apply_prefix(&base_type);
+                let formatted = match arg.ref_kind {
+                    ArgRefKind::Owned => type_name,
+                    ArgRefKind::Ref => format!("&{}", type_name),
+                    ArgRefKind::RefMut => format!("&mut {}", type_name),
+                    ArgRefKind::Ptr => format!("*const {}", type_name),
+                    ArgRefKind::PtrMut => format!("*mut {}", type_name),
+                };
+                format!("{}: {}", arg.name, formatted)
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     /// Generate test module with size/alignment verification tests
@@ -2455,12 +2712,12 @@ impl RustGenerator {
             let Some(external_path) = &struct_def.external_path else {
                 continue;
             };
-            
+
             // Skip if external path contains generic parameters (like <T>)
             if external_path.contains('<') {
                 continue;
             }
-            
+
             let external_path = config.transform_external_path(external_path);
             let generated_type = format!("dll::Az{}", struct_def.name);
             let test_name = format!("test_size_align_{}", struct_def.name.to_lowercase());
@@ -2468,12 +2725,30 @@ impl RustGenerator {
             builder.line("#[test]");
             builder.line(&format!("fn {}() {{", test_name));
             builder.indent();
-            builder.line(&format!("let gen_size = mem::size_of::<{}>();", generated_type));
-            builder.line(&format!("let ext_size = mem::size_of::<{}>();", external_path));
-            builder.line(&format!("let gen_align = mem::align_of::<{}>();", generated_type));
-            builder.line(&format!("let ext_align = mem::align_of::<{}>();", external_path));
-            builder.line(&format!("assert_eq!(gen_size, ext_size, \"Size mismatch for {}\");", struct_def.name));
-            builder.line(&format!("assert_eq!(gen_align, ext_align, \"Align mismatch for {}\");", struct_def.name));
+            builder.line(&format!(
+                "let gen_size = mem::size_of::<{}>();",
+                generated_type
+            ));
+            builder.line(&format!(
+                "let ext_size = mem::size_of::<{}>();",
+                external_path
+            ));
+            builder.line(&format!(
+                "let gen_align = mem::align_of::<{}>();",
+                generated_type
+            ));
+            builder.line(&format!(
+                "let ext_align = mem::align_of::<{}>();",
+                external_path
+            ));
+            builder.line(&format!(
+                "assert_eq!(gen_size, ext_size, \"Size mismatch for {}\");",
+                struct_def.name
+            ));
+            builder.line(&format!(
+                "assert_eq!(gen_align, ext_align, \"Align mismatch for {}\");",
+                struct_def.name
+            ));
             builder.dedent();
             builder.line("}");
             builder.blank();
@@ -2492,12 +2767,12 @@ impl RustGenerator {
             let Some(external_path) = &enum_def.external_path else {
                 continue;
             };
-            
+
             // Skip if external path contains generic parameters (like <T>)
             if external_path.contains('<') {
                 continue;
             }
-            
+
             let external_path = config.transform_external_path(external_path);
             let generated_type = format!("dll::Az{}", enum_def.name);
             let test_name = format!("test_size_align_{}", enum_def.name.to_lowercase());
@@ -2505,12 +2780,30 @@ impl RustGenerator {
             builder.line("#[test]");
             builder.line(&format!("fn {}() {{", test_name));
             builder.indent();
-            builder.line(&format!("let gen_size = mem::size_of::<{}>();", generated_type));
-            builder.line(&format!("let ext_size = mem::size_of::<{}>();", external_path));
-            builder.line(&format!("let gen_align = mem::align_of::<{}>();", generated_type));
-            builder.line(&format!("let ext_align = mem::align_of::<{}>();", external_path));
-            builder.line(&format!("assert_eq!(gen_size, ext_size, \"Size mismatch for {}\");", enum_def.name));
-            builder.line(&format!("assert_eq!(gen_align, ext_align, \"Align mismatch for {}\");", enum_def.name));
+            builder.line(&format!(
+                "let gen_size = mem::size_of::<{}>();",
+                generated_type
+            ));
+            builder.line(&format!(
+                "let ext_size = mem::size_of::<{}>();",
+                external_path
+            ));
+            builder.line(&format!(
+                "let gen_align = mem::align_of::<{}>();",
+                generated_type
+            ));
+            builder.line(&format!(
+                "let ext_align = mem::align_of::<{}>();",
+                external_path
+            ));
+            builder.line(&format!(
+                "assert_eq!(gen_size, ext_size, \"Size mismatch for {}\");",
+                enum_def.name
+            ));
+            builder.line(&format!(
+                "assert_eq!(gen_align, ext_align, \"Align mismatch for {}\");",
+                enum_def.name
+            ));
             builder.dedent();
             builder.line("}");
             builder.blank();
@@ -2528,12 +2821,31 @@ impl RustGenerator {
 // ============================================================================
 
 fn is_primitive_type(type_name: &str) -> bool {
-    matches!(type_name, 
-        "bool" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
-        "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
-        "f32" | "f64" | "char" | "()" |
-        "c_void" | "c_int" | "c_uint" | "c_long" | "c_ulong" | "c_char"
-        // NOTE: "String" is NOT a primitive - it's AzString in Azul, not std::string::String
+    matches!(
+        type_name,
+        "bool"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+            | "char"
+            | "()"
+            | "c_void"
+            | "c_int"
+            | "c_uint"
+            | "c_long"
+            | "c_ulong"
+            | "c_char" // NOTE: "String" is NOT a primitive - it's AzString in Azul, not std::string::String
     )
 }
 
@@ -2555,15 +2867,13 @@ fn to_snake_case(s: &str) -> String {
 /// Escape Rust keywords by prepending r#
 fn escape_rust_keyword(s: &str) -> String {
     const RUST_KEYWORDS: &[&str] = &[
-        "as", "async", "await", "break", "const", "continue", "crate", "dyn",
-        "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in",
-        "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
-        "self", "Self", "static", "struct", "super", "trait", "true", "type",
-        "unsafe", "use", "where", "while", "abstract", "become", "box", "do",
-        "final", "macro", "override", "priv", "typeof", "unsized", "virtual",
-        "yield", "try",
+        "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
+        "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
+        "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait",
+        "true", "type", "unsafe", "use", "where", "while", "abstract", "become", "box", "do",
+        "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "yield", "try",
     ];
-    
+
     if RUST_KEYWORDS.contains(&s) {
         format!("r#{}", s)
     } else {

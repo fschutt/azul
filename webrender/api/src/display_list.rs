@@ -652,7 +652,9 @@ impl BuiltDisplayList {
                     Debug::ClipChain(v, item.iter.cur_clip_chain_items.iter().copied().collect())
                 }
                 Real::Text(v) => Debug::Text(v, item.iter.cur_glyphs.iter().cloned().collect()),
-                Real::SetFilterOps => Debug::SetFilterOps(item.iter.cur_filters.iter().cloned().collect()),
+                Real::SetFilterOps => {
+                    Debug::SetFilterOps(item.iter.cur_filters.iter().cloned().collect())
+                }
                 Real::SetFilterData => {
                     debug_assert!(
                         !item.iter.cur_filter_data.is_empty(),
@@ -673,9 +675,9 @@ impl BuiltDisplayList {
                         a_values: filter_data.a_values.clone(),
                     })
                 }
-                Real::SetFilterPrimitives => {
-                    Debug::SetFilterPrimitives(item.iter.cur_filter_primitives.iter().cloned().collect())
-                }
+                Real::SetFilterPrimitives => Debug::SetFilterPrimitives(
+                    item.iter.cur_filter_primitives.iter().cloned().collect(),
+                ),
                 Real::SetGradientStops => {
                     Debug::SetGradientStops(item.iter.cur_stops.iter().cloned().collect())
                 }
@@ -892,8 +894,10 @@ impl<'a> BuiltDisplayListIter<'a> {
             ClipChain(ref chain_item) => {
                 // Use clip_count to know how many clip items belong to this chain
                 let count = chain_item.clip_count;
-                let end = (self.clip_chain_item_index + count).min(self.payload.clip_chain_items.len());
-                self.cur_clip_chain_items = &self.payload.clip_chain_items[self.clip_chain_item_index..end];
+                let end =
+                    (self.clip_chain_item_index + count).min(self.payload.clip_chain_items.len());
+                self.cur_clip_chain_items =
+                    &self.payload.clip_chain_items[self.clip_chain_item_index..end];
                 self.clip_chain_item_index = end;
             }
             Text(ref text_item) => {

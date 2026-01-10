@@ -18,14 +18,17 @@ pub struct BlogPost {
 fn blog_post_from_md(md_filename: &str, content: &'static str) -> BlogPost {
     // Expected format: YYYY-MM-DD-title.md
     let file_name = md_filename.trim_end_matches(".md").to_string();
-    
+
     // Extract date from filename (first 10 chars: YYYY-MM-DD)
-    let date = if file_name.len() >= 10 && file_name.chars().nth(4) == Some('-') && file_name.chars().nth(7) == Some('-') {
+    let date = if file_name.len() >= 10
+        && file_name.chars().nth(4) == Some('-')
+        && file_name.chars().nth(7) == Some('-')
+    {
         file_name[0..10].to_string()
     } else {
         "Unknown".to_string()
     };
-    
+
     // Extract title from first H1 header in content
     let title = content
         .lines()
@@ -63,7 +66,7 @@ fn preprocess_markdown_content(content: &str) -> String {
             removed_first_h1 = true;
             continue;
         }
-        
+
         // Remove mermaid code blocks
         if line.trim().starts_with("```mermaid") {
             in_mermaid_block = true;
@@ -83,15 +86,13 @@ fn preprocess_markdown_content(content: &str) -> String {
 
 /// Get a list of all blog posts
 pub fn get_blog_list() -> Vec<BlogPost> {
-    vec![
-        blog_post_from_md(
-            "2025-12-13-hello-world",
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/blog/2025-12-13-hello-world.md"
-            )),
-        ),
-    ]
+    vec![blog_post_from_md(
+        "2025-12-13-hello-world",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/blog/2025-12-13-hello-world.md"
+        )),
+    )]
 }
 
 /// Generate HTML for a specific blog post

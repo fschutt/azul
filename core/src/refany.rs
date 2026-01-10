@@ -46,7 +46,7 @@ pub type RefAnyDestructorType = extern "C" fn(*mut c_void);
 /// Internal reference counting metadata for `RefAny`.
 ///
 /// This struct tracks:
-/// 
+///
 /// - How many `RefAny` clones exist (`num_copies`)
 /// - How many shared borrows are active (`num_refs`)
 /// - How many mutable borrows are active (`num_mutable_refs`)
@@ -758,7 +758,7 @@ impl RefAny {
     /// # Safety
     ///
     /// The `unsafe` cast is safe because:
-    /// 
+    ///
     /// - Type ID check ensures `U` matches the stored type
     /// - Memory was allocated with correct alignment for `U`
     /// - Borrow check ensures no other references exist
@@ -882,7 +882,7 @@ impl Clone for RefAny {
     /// # Safety
     ///
     /// Safe because:
-    /// 
+    ///
     /// - Atomic operations prevent data races
     /// - The heap allocation remains valid (only freed when count reaches 0)
     /// - `run_destructor` is set to `true` for all clones
@@ -930,7 +930,7 @@ impl Drop for RefAny {
     /// # Memory Ordering: SeqCst Prevents Races
     ///
     /// Example race without proper ordering:
-    /// 
+    ///
     /// ```no_run,ignore
     /// Thread A: fetch_sub(1) -> sees 2, returns
     /// Thread B: fetch_sub(1) -> sees 1, starts cleanup
@@ -938,7 +938,7 @@ impl Drop for RefAny {
     /// ```
     ///
     /// With `SeqCst`, this cannot happen:
-    /// 
+    ///
     /// - Both threads see a globally consistent order
     /// - If Thread B sees `1`, Thread A's decrement has already happened
     /// - Exactly one thread will see `1` and run cleanup

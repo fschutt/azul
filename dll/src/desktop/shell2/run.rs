@@ -45,13 +45,13 @@ pub fn run(
     fc_cache: Arc<FcFontCache>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
+    use super::common::debug_server;
     use azul_core::resources::AppTerminationBehavior;
     use objc2::{rc::autoreleasepool, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventMask};
-    use super::common::debug_server;
 
     // Note: Debug server is already started in App::create()
-    
+
     debug_server::log(
         debug_server::LogLevel::Info,
         debug_server::LogCategory::EventLoop,
@@ -63,17 +63,29 @@ pub fn run(
         let mtm = MainThreadMarker::new()
             .ok_or_else(|| WindowError::PlatformError("Not on main thread".into()))?;
 
-        debug_server::log(debug_server::LogLevel::Debug, debug_server::LogCategory::EventLoop,
-            "Got MainThreadMarker", None);
+        debug_server::log(
+            debug_server::LogLevel::Debug,
+            debug_server::LogCategory::EventLoop,
+            "Got MainThreadMarker",
+            None,
+        );
 
         // Create the root window with fc_cache and app_data
         // The window is automatically made visible after the first frame is ready
-        debug_server::log(debug_server::LogLevel::Info, debug_server::LogCategory::Window,
-            "Creating MacOSWindow...", None);
+        debug_server::log(
+            debug_server::LogLevel::Info,
+            debug_server::LogCategory::Window,
+            "Creating MacOSWindow...",
+            None,
+        );
         let window =
             MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), fc_cache.clone(), mtm)?;
-        debug_server::log(debug_server::LogLevel::Info, debug_server::LogCategory::Window,
-            "MacOSWindow created successfully", None);
+        debug_server::log(
+            debug_server::LogLevel::Info,
+            debug_server::LogCategory::Window,
+            "MacOSWindow created successfully",
+            None,
+        );
 
         // Box and leak the window to get a stable pointer for the registry
         // SAFETY: We manage the lifetime through the registry
@@ -111,8 +123,12 @@ pub fn run(
             AppTerminationBehavior::RunForever => {
                 // Standard macOS behavior: Use NSApplication.run()
                 // This blocks until the app is explicitly terminated (Cmd+Q or quit menu)
-                debug_server::log(debug_server::LogLevel::Info, debug_server::LogCategory::EventLoop,
-                    "Using NSApplication.run() - app will stay in dock when windows close", None);
+                debug_server::log(
+                    debug_server::LogLevel::Info,
+                    debug_server::LogCategory::EventLoop,
+                    "Using NSApplication.run() - app will stay in dock when windows close",
+                    None,
+                );
                 unsafe {
                     app.run();
                 }
@@ -122,18 +138,25 @@ pub fn run(
                 // Checks if all windows are closed and takes appropriate action
                 let action = if config.termination_behavior == AppTerminationBehavior::ReturnToMain
                 {
-                    debug_server::log(debug_server::LogLevel::Info, debug_server::LogCategory::EventLoop,
-                        "Using manual event loop - will return to main() when all windows close", None);
+                    debug_server::log(
+                        debug_server::LogLevel::Info,
+                        debug_server::LogCategory::EventLoop,
+                        "Using manual event loop - will return to main() when all windows close",
+                        None,
+                    );
                     "return to main()"
                 } else {
-                    debug_server::log(debug_server::LogLevel::Info, debug_server::LogCategory::EventLoop,
-                        "Using manual event loop - will exit process when all windows close", None);
+                    debug_server::log(
+                        debug_server::LogLevel::Info,
+                        debug_server::LogCategory::EventLoop,
+                        "Using manual event loop - will exit process when all windows close",
+                        None,
+                    );
                     "exit process"
                 };
 
                 loop {
                     autoreleasepool(|_| {
-
                         // PHASE 1: Process all pending native events (non-blocking)
                         // We need to dispatch events BOTH to the system (sendEvent) and to our handlers
                         loop {
@@ -154,11 +177,12 @@ pub fn run(
                                     unsafe {
                                         let window = &mut **wptr;
                                         // Create MacOSEvent and dispatch to our handler
-                                        let macos_event = super::macos::MacOSEvent::from_nsevent(&event);
+                                        let macos_event =
+                                            super::macos::MacOSEvent::from_nsevent(&event);
                                         window.process_event(&event, &macos_event);
                                     }
                                 }
-                                
+
                                 // Then forward to system for default handling
                                 unsafe {
                                     app.sendEvent(&event);
@@ -173,11 +197,17 @@ pub fn run(
                         if super::macos::registry::is_empty() {
                             match config.termination_behavior {
                                 AppTerminationBehavior::ReturnToMain => {
-                                    log_info!(debug_server::LogCategory::EventLoop, "[macOS] All windows closed, returning to main()");
+                                    log_info!(
+                                        debug_server::LogCategory::EventLoop,
+                                        "[macOS] All windows closed, returning to main()"
+                                    );
                                     return;
                                 }
                                 AppTerminationBehavior::EndProcess => {
-                                    log_info!(debug_server::LogCategory::EventLoop, "[macOS] All windows closed, terminating process");
+                                    log_info!(
+                                        debug_server::LogCategory::EventLoop,
+                                        "[macOS] All windows closed, terminating process"
+                                    );
                                     std::process::exit(0);
                                 }
                                 AppTerminationBehavior::RunForever => unreachable!(),
@@ -201,7 +231,11 @@ pub fn run(
                                 // Process pending window creates (for popup menus, dialogs, etc.)
                                 while let Some(pending_create) = window.pending_window_creates.pop()
                                 {
-                                    log_debug!(debug_server::LogCategory::Window, "[macOS] Creating new window from queue (type: {:?})", pending_create.window_state.flags.window_type);
+                                    log_debug!(
+                                        debug_server::LogCategory::Window,
+                                        "[macOS] Creating new window from queue (type: {:?})",
+                                        pending_create.window_state.flags.window_type
+                                    );
 
                                     match MacOSWindow::new_with_fc_cache(
                                         pending_create,
@@ -232,7 +266,11 @@ pub fn run(
                                             log_debug!(debug_server::LogCategory::Window, "[macOS] Successfully created and registered new window");
                                         }
                                         Err(e) => {
-                                            log_error!(debug_server::LogCategory::Window, "[macOS] Failed to create window: {:?}", e);
+                                            log_error!(
+                                                debug_server::LogCategory::Window,
+                                                "[macOS] Failed to create window: {:?}",
+                                                e
+                                            );
                                         }
                                     }
                                 }
@@ -304,14 +342,23 @@ pub fn run(
 
     log_trace!(LogCategory::Window, "[shell2::run] imports done");
     // Wrap app_data in Arc<RefCell<>> for shared access
-    log_trace!(LogCategory::Window, "[shell2::run] wrapping app_data in Arc<RefCell<>>");
+    log_trace!(
+        LogCategory::Window,
+        "[shell2::run] wrapping app_data in Arc<RefCell<>>"
+    );
     let app_data_arc = Arc::new(RefCell::new(app_data));
     log_trace!(LogCategory::Window, "[shell2::run] app_data wrapped");
 
     // Create the root window
-    log_trace!(LogCategory::Window, "[shell2::run] calling Win32Window::new");
+    log_trace!(
+        LogCategory::Window,
+        "[shell2::run] calling Win32Window::new"
+    );
     let window = Win32Window::new(root_window, fc_cache.clone(), app_data_arc.clone())?;
-    log_trace!(LogCategory::Window, "[shell2::run] Win32Window::new returned successfully");
+    log_trace!(
+        LogCategory::Window,
+        "[shell2::run] Win32Window::new returned successfully"
+    );
 
     // Store the window pointer in the user data field for the window procedure
     // and register in global registry for multi-window support
@@ -325,22 +372,34 @@ pub fn run(
 
     unsafe {
         use super::windows::dlopen::constants::GWLP_USERDATA;
-        log_trace!(LogCategory::Window, "[shell2::run] calling SetWindowLongPtrW");
+        log_trace!(
+            LogCategory::Window,
+            "[shell2::run] calling SetWindowLongPtrW"
+        );
         ((*window_ptr).win32.user32.SetWindowLongPtrW)(hwnd, GWLP_USERDATA, window_ptr as isize);
         log_trace!(LogCategory::Window, "[shell2::run] SetWindowLongPtrW done");
 
         // Register in global window registry
-        log_trace!(LogCategory::Window, "[shell2::run] registering window in global registry");
+        log_trace!(
+            LogCategory::Window,
+            "[shell2::run] registering window in global registry"
+        );
         registry::register_window(hwnd, window_ptr);
         log_trace!(LogCategory::Window, "[shell2::run] window registered");
-        
+
         // NOTE: Window is NOT shown here! It will be shown automatically by
         // render_and_present() after the first SwapBuffers completes.
         // This ensures the window appears with content, not a black/white flash.
-        log_trace!(LogCategory::Window, "[shell2::run] window will be shown after first frame renders");
+        log_trace!(
+            LogCategory::Window,
+            "[shell2::run] window will be shown after first frame renders"
+        );
     }
 
-    log_trace!(LogCategory::Window, "[shell2::run] entering main event loop");
+    log_trace!(
+        LogCategory::Window,
+        "[shell2::run] entering main event loop"
+    );
     // Main event loop with multi-window support and V2 state diffing
     // Uses WaitMessage() to block efficiently when idle (no busy-waiting)
     // Architecture:
@@ -404,7 +463,11 @@ pub fn run(
 
                     // Process pending window creates (for popup menus, dialogs, etc.)
                     while let Some(pending_create) = window.pending_window_creates.pop() {
-                        log_debug!(debug_server::LogCategory::Window, "[Windows] Creating new window from queue (type: {:?})", pending_create.window_state.flags.window_type);
+                        log_debug!(
+                            debug_server::LogCategory::Window,
+                            "[Windows] Creating new window from queue (type: {:?})",
+                            pending_create.window_state.flags.window_type
+                        );
 
                         match Win32Window::new(
                             pending_create,
@@ -427,10 +490,17 @@ pub fn run(
                                 // Register in global registry
                                 registry::register_window(new_hwnd, new_window_ptr);
 
-                                log_debug!(debug_server::LogCategory::Window, "[Windows] Successfully created and registered new window");
+                                log_debug!(
+                                    debug_server::LogCategory::Window,
+                                    "[Windows] Successfully created and registered new window"
+                                );
                             }
                             Err(e) => {
-                                log_error!(debug_server::LogCategory::Window, "[Windows] Failed to create window: {:?}", e);
+                                log_error!(
+                                    debug_server::LogCategory::Window,
+                                    "[Windows] Failed to create window: {:?}",
+                                    e
+                                );
                             }
                         }
                     }
@@ -446,7 +516,11 @@ pub fn run(
 
                     if window.frame_needs_regeneration {
                         if let Err(e) = window.regenerate_layout() {
-                            log_error!(debug_server::LogCategory::Layout, "[Windows] Layout regeneration error: {}", e);
+                            log_error!(
+                                debug_server::LogCategory::Layout,
+                                "[Windows] Layout regeneration error: {}",
+                                e
+                            );
                         }
                         window.frame_needs_regeneration = false;
 
@@ -521,7 +595,10 @@ pub fn run(
     // Initialize shared resources once at startup
     let resources = Arc::new(AppResources::new(config.clone(), fc_cache));
 
-    log_debug!(debug_server::LogCategory::EventLoop, "[Linux] Creating root window with shared resources");
+    log_debug!(
+        debug_server::LogCategory::EventLoop,
+        "[Linux] Creating root window with shared resources"
+    );
 
     // Wrap app_data in Arc<RefCell<>> for shared access
     let app_data_arc = Arc::new(RefCell::new(app_data));
@@ -552,7 +629,11 @@ pub fn run(
         registry::register_x11_window(window_id, window_ptr as *mut _);
     }
 
-    log_debug!(debug_server::LogCategory::EventLoop, "[Linux] Window registered (ID: {}), entering event loop", window_id);
+    log_debug!(
+        debug_server::LogCategory::EventLoop,
+        "[Linux] Window registered (ID: {}), entering event loop",
+        window_id
+    );
 
     // Main event loop with multi-window support
     loop {
@@ -560,7 +641,10 @@ pub fn run(
         let window_ids = registry::get_all_x11_window_ids();
 
         if window_ids.is_empty() {
-            log_info!(debug_server::LogCategory::EventLoop, "[Linux] All windows closed, exiting event loop");
+            log_info!(
+                debug_server::LogCategory::EventLoop,
+                "[Linux] All windows closed, exiting event loop"
+            );
             break;
         }
 
@@ -584,7 +668,11 @@ pub fn run(
                 let window = unsafe { &mut *(win_ptr as *mut LinuxWindow) };
 
                 if !window.is_open() {
-                    log_info!(debug_server::LogCategory::Window, "[Linux] Window {} closed, unregistering", wid);
+                    log_info!(
+                        debug_server::LogCategory::Window,
+                        "[Linux] Window {} closed, unregistering",
+                        wid
+                    );
                     // Unregister and drop the window
                     if let Some(win_ptr) = registry::unregister_x11_window(*wid) {
                         unsafe {
@@ -604,7 +692,11 @@ pub fn run(
                 match window {
                     LinuxWindow::X11(x11_window) => {
                         while let Some(pending_create) = x11_window.pending_window_creates.pop() {
-                            log_debug!(debug_server::LogCategory::Window, "[Linux] Creating new X11 window from queue (type: {:?})", pending_create.window_state.flags.window_type);
+                            log_debug!(
+                                debug_server::LogCategory::Window,
+                                "[Linux] Creating new X11 window from queue (type: {:?})",
+                                pending_create.window_state.flags.window_type
+                            );
 
                             match super::linux::x11::X11Window::new_with_resources(
                                 pending_create,
@@ -641,7 +733,11 @@ pub fn run(
                                     }
                                 }
                                 Err(e) => {
-                                    log_error!(debug_server::LogCategory::Window, "[Linux] Failed to create X11 window: {:?}", e);
+                                    log_error!(
+                                        debug_server::LogCategory::Window,
+                                        "[Linux] Failed to create X11 window: {:?}",
+                                        e
+                                    );
                                 }
                             }
                         }
@@ -649,7 +745,11 @@ pub fn run(
                     LinuxWindow::Wayland(wayland_window) => {
                         while let Some(pending_create) = wayland_window.pending_window_creates.pop()
                         {
-                            log_debug!(debug_server::LogCategory::Window, "[Linux] Creating new Wayland window from queue (type: {:?})", pending_create.window_state.flags.window_type);
+                            log_debug!(
+                                debug_server::LogCategory::Window,
+                                "[Linux] Creating new Wayland window from queue (type: {:?})",
+                                pending_create.window_state.flags.window_type
+                            );
 
                             match super::linux::wayland::WaylandWindow::new(
                                 pending_create,
@@ -687,7 +787,11 @@ pub fn run(
                                     }
                                 }
                                 Err(e) => {
-                                    log_error!(debug_server::LogCategory::Window, "[Linux] Failed to create Wayland window: {:?}", e);
+                                    log_error!(
+                                        debug_server::LogCategory::Window,
+                                        "[Linux] Failed to create Wayland window: {:?}",
+                                        e
+                                    );
                                 }
                             }
                         }
@@ -711,7 +815,10 @@ pub fn run(
     }
 
     // Clean up: Unregister and drop all windows
-    log_debug!(debug_server::LogCategory::EventLoop, "[Linux] Cleaning up windows");
+    log_debug!(
+        debug_server::LogCategory::EventLoop,
+        "[Linux] Cleaning up windows"
+    );
     let window_ids = registry::get_all_x11_window_ids();
     for wid in window_ids {
         if let Some(win_ptr) = registry::unregister_x11_window(wid) {
@@ -724,15 +831,24 @@ pub fn run(
     // Handle termination behavior
     match config.termination_behavior {
         AppTerminationBehavior::EndProcess => {
-            log_info!(debug_server::LogCategory::EventLoop, "[Linux] Terminating process");
+            log_info!(
+                debug_server::LogCategory::EventLoop,
+                "[Linux] Terminating process"
+            );
             std::process::exit(0);
         }
         AppTerminationBehavior::ReturnToMain => {
-            log_info!(debug_server::LogCategory::EventLoop, "[Linux] Returning to main()");
+            log_info!(
+                debug_server::LogCategory::EventLoop,
+                "[Linux] Returning to main()"
+            );
             // Return normally
         }
         AppTerminationBehavior::RunForever => {
-            log_debug!(debug_server::LogCategory::EventLoop, "[Linux] RunForever mode - but all windows closed");
+            log_debug!(
+                debug_server::LogCategory::EventLoop,
+                "[Linux] RunForever mode - but all windows closed"
+            );
             // Should not exit, but all windows are closed
         }
     }
@@ -782,9 +898,10 @@ fn wait_for_x11_connection_activity(display: *mut std::ffi::c_void) -> Result<()
             let errno = *libc::__errno_location();
             // EINTR is okay - just means a signal interrupted us
             if errno != libc::EINTR {
-                return Err(WindowError::PlatformError(
-                    format!("select() failed while waiting for X11 events: errno={}", errno),
-                ));
+                return Err(WindowError::PlatformError(format!(
+                    "select() failed while waiting for X11 events: errno={}",
+                    errno
+                )));
             }
         }
         // result == 0 means timeout - that's fine, we'll check timers

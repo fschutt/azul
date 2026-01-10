@@ -264,7 +264,7 @@ impl LayoutNode {
         if let Some(content_size) = self.overflow_content_size {
             return content_size;
         }
-        
+
         // Fall back to computing from used_size and text layout
         let mut content_size = self.used_size.unwrap_or_default();
 
@@ -535,11 +535,14 @@ impl LayoutTreeBuilder {
             msgs.push(LayoutDebugMessage::info(format!(
                 "[process_block_children] has_block_child={}, children display types: {:?}",
                 has_block_child,
-                children.iter().map(|c| {
-                    let dt = get_display_type(styled_dom, *c);
-                    let is_block = is_block_level(styled_dom, *c);
-                    format!("{}:{:?}(block={})", c.index(), dt, is_block)
-                }).collect::<Vec<_>>()
+                children
+                    .iter()
+                    .map(|c| {
+                        let dt = get_display_type(styled_dom, *c);
+                        let is_block = is_block_level(styled_dom, *c);
+                        format!("{}:{:?}(block={})", c.index(), dt, is_block)
+                    })
+                    .collect::<Vec<_>>()
             )));
         }
 
@@ -567,7 +570,10 @@ impl LayoutTreeBuilder {
                     if let Some(msgs) = debug_messages.as_mut() {
                         msgs.push(LayoutDebugMessage::info(format!(
                             "[process_block_children] Creating anon wrapper for inline run: {:?}",
-                            inline_run.iter().map(|c: &NodeId| c.index()).collect::<Vec<_>>()
+                            inline_run
+                                .iter()
+                                .map(|c: &NodeId| c.index())
+                                .collect::<Vec<_>>()
                         )));
                     }
                     let anon_idx = self.create_anonymous_node(

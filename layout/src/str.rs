@@ -90,7 +90,12 @@ pub struct FmtArg {
     pub value: FmtValue,
 }
 
-azul_css::impl_vec!(FmtArg, FmtArgVec, FmtArgVecDestructor, FmtArgVecDestructorType);
+azul_css::impl_vec!(
+    FmtArg,
+    FmtArgVec,
+    FmtArgVecDestructor,
+    FmtArgVecDestructorType
+);
 azul_css::impl_vec_clone!(FmtArg, FmtArgVec, FmtArgVecDestructor);
 azul_css::impl_vec_debug!(FmtArg, FmtArgVec);
 azul_css::impl_vec_partialeq!(FmtArg, FmtArgVec);

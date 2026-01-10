@@ -132,9 +132,14 @@ impl ColorInput {
         };
 
         let mut style = self.style.into_library_owned_vec();
-        style.push(CssPropertyWithConditions::simple(CssProperty::const_background_content(
-            vec![StyleBackgroundContent::Color(self.color_input_state.inner.color)].into(),
-        )));
+        style.push(CssPropertyWithConditions::simple(
+            CssProperty::const_background_content(
+                vec![StyleBackgroundContent::Color(
+                    self.color_input_state.inner.color,
+                )]
+                .into(),
+            ),
+        ));
 
         Dom::create_div()
             .with_ids_and_classes(vec![Class("__azul_native_color_input".into())].into())
@@ -168,9 +173,10 @@ extern "C" fn on_color_input_clicked(mut data: RefAny, mut info: CallbackInfo) -
         let inner = color_input.inner.clone();
 
         match onvaluechange.as_mut() {
-            Some(ColorInputOnValueChange { callback, refany: data }) => {
-                (callback.cb)(data.clone(), info.clone(), inner)
-            }
+            Some(ColorInputOnValueChange {
+                callback,
+                refany: data,
+            }) => (callback.cb)(data.clone(), info.clone(), inner),
             None => Update::DoNothing,
         }
     };

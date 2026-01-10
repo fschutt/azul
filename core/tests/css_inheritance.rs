@@ -394,14 +394,13 @@ fn test_deeply_nested_inheritance() {
             ))]
             .into(),
         )
-        .with_child(
-            Dom::create_node(NodeType::Section).with_child(
-                Dom::create_node(NodeType::Article).with_child(
-                    Dom::create_node(NodeType::P)
-                        .with_child(Dom::create_node(NodeType::Span).with_child(Dom::create_text("Deep text"))),
+        .with_child(Dom::create_node(NodeType::Section).with_child(
+            Dom::create_node(NodeType::Article).with_child(
+                Dom::create_node(NodeType::P).with_child(
+                    Dom::create_node(NodeType::Span).with_child(Dom::create_text("Deep text")),
                 ),
             ),
-        );
+        ));
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = &styled_dom.node_hierarchy.as_container().internal[..];

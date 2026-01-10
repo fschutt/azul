@@ -37,7 +37,9 @@ fn test_margin_blocked_no_double_count() {
 
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("parent".into())].into())
-        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()));
+        .with_child(
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()),
+        );
 
     let css_str = r#"
         .parent {
@@ -114,7 +116,9 @@ fn test_margin_escape_excludes_from_parent_height() {
 
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("parent".into())].into())
-        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()));
+        .with_child(
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()),
+        );
 
     let css_str = r#"
         .parent {
@@ -195,7 +199,9 @@ fn test_sibling_margins_included_in_parent_height() {
 
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("parent".into())].into())
-        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child1".into())].into()))
+        .with_child(
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child1".into())].into()),
+        )
         .with_child(
             Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child2".into())].into()),
         );
@@ -283,7 +289,8 @@ fn test_nested_margin_escape() {
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
                 .with_child(
-                    Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("inner".into())].into()),
+                    Dom::create_div()
+                        .with_ids_and_classes(vec![IdOrClass::Class("inner".into())].into()),
                 ),
         )
         .with_child(
@@ -394,7 +401,9 @@ fn test_coordinate_system_separation() {
 
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("parent".into())].into())
-        .with_child(Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()));
+        .with_child(
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()),
+        );
 
     let css_str = r#"
         .parent {

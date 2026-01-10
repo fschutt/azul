@@ -256,14 +256,14 @@ mod tests {
     fn test_cache_operations_without_gl() {
         // Test that cache functions don't panic with empty cache
         clear_all();
-        
+
         let doc_id = create_test_document_id(1);
         let epoch = Epoch::new();
-        
+
         // Remove from empty cache should not panic
         remove_old_epochs(&doc_id, epoch);
         remove_document(&doc_id);
-        
+
         // Get from empty cache should return None
         let fake_ext_id = ExternalImageId { inner: 999 };
         assert!(get_texture(&fake_ext_id).is_none());

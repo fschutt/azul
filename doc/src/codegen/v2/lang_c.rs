@@ -13,20 +13,100 @@ use super::ir::*;
 
 /// C++ reserved keywords that need to be escaped in C headers for C++ compatibility
 const CPP_RESERVED_KEYWORDS: &[&str] = &[
-    "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor",
-    "bool", "break", "case", "catch", "char", "char8_t", "char16_t", "char32_t",
-    "class", "compl", "concept", "const", "consteval", "constexpr", "constinit",
-    "const_cast", "continue", "co_await", "co_return", "co_yield", "decltype",
-    "default", "delete", "do", "double", "dynamic_cast", "else", "enum",
-    "explicit", "export", "extern", "false", "float", "for", "friend", "goto",
-    "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept",
-    "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private",
-    "protected", "public", "reflexpr", "register", "reinterpret_cast",
-    "requires", "return", "short", "signed", "sizeof", "static",
-    "static_assert", "static_cast", "struct", "switch", "synchronized",
-    "template", "this", "thread_local", "throw", "true", "try", "typedef",
-    "typeid", "typename", "union", "unsigned", "using", "virtual", "void",
-    "volatile", "wchar_t", "while", "xor", "xor_eq",
+    "alignas",
+    "alignof",
+    "and",
+    "and_eq",
+    "asm",
+    "auto",
+    "bitand",
+    "bitor",
+    "bool",
+    "break",
+    "case",
+    "catch",
+    "char",
+    "char8_t",
+    "char16_t",
+    "char32_t",
+    "class",
+    "compl",
+    "concept",
+    "const",
+    "consteval",
+    "constexpr",
+    "constinit",
+    "const_cast",
+    "continue",
+    "co_await",
+    "co_return",
+    "co_yield",
+    "decltype",
+    "default",
+    "delete",
+    "do",
+    "double",
+    "dynamic_cast",
+    "else",
+    "enum",
+    "explicit",
+    "export",
+    "extern",
+    "false",
+    "float",
+    "for",
+    "friend",
+    "goto",
+    "if",
+    "inline",
+    "int",
+    "long",
+    "mutable",
+    "namespace",
+    "new",
+    "noexcept",
+    "not",
+    "not_eq",
+    "nullptr",
+    "operator",
+    "or",
+    "or_eq",
+    "private",
+    "protected",
+    "public",
+    "reflexpr",
+    "register",
+    "reinterpret_cast",
+    "requires",
+    "return",
+    "short",
+    "signed",
+    "sizeof",
+    "static",
+    "static_assert",
+    "static_cast",
+    "struct",
+    "switch",
+    "synchronized",
+    "template",
+    "this",
+    "thread_local",
+    "throw",
+    "true",
+    "try",
+    "typedef",
+    "typeid",
+    "typename",
+    "union",
+    "unsigned",
+    "using",
+    "virtual",
+    "void",
+    "volatile",
+    "wchar_t",
+    "while",
+    "xor",
+    "xor_eq",
 ];
 
 /// Escape C++ reserved keywords by appending an underscore
@@ -120,9 +200,9 @@ impl LanguageGenerator for CGenerator {
             Callback(&'a CallbackTypedefDef),
             TypeAlias(&'a TypeAliasDef),
         }
-        
+
         let mut all_types: Vec<SortedType> = Vec::new();
-        
+
         for s in &ir.structs {
             // Skip generic types
             if !s.generic_params.is_empty() {
@@ -132,7 +212,7 @@ impl LanguageGenerator for CGenerator {
                 all_types.push(SortedType::Struct(s));
             }
         }
-        
+
         for e in &ir.enums {
             // Skip generic types
             if !e.generic_params.is_empty() {
@@ -142,20 +222,20 @@ impl LanguageGenerator for CGenerator {
                 all_types.push(SortedType::Enum(e));
             }
         }
-        
+
         for c in &ir.callback_typedefs {
             if config.should_include_type(&c.name) {
                 all_types.push(SortedType::Callback(c));
             }
         }
-        
+
         // Add type aliases (both simple and monomorphized)
         for t in &ir.type_aliases {
             if config.should_include_type(&t.name) {
                 all_types.push(SortedType::TypeAlias(t));
             }
         }
-        
+
         // Sort by the sort_order computed in IR builder
         all_types.sort_by_key(|t| match t {
             SortedType::Struct(s) => s.sort_order,
@@ -163,7 +243,7 @@ impl LanguageGenerator for CGenerator {
             SortedType::Callback(c) => c.sort_order,
             SortedType::TypeAlias(t) => t.sort_order,
         });
-        
+
         builder.line("/* Types (topologically sorted by dependencies) */");
         for sorted_type in &all_types {
             match sorted_type {
@@ -194,11 +274,13 @@ impl LanguageGenerator for CGenerator {
 
         // Build a map of callback wrapper types for quick lookup
         // Maps: "IFrameCallback" -> "IFrameCallbackType"
-        let callback_wrappers: std::collections::HashMap<&str, &str> = ir.structs.iter()
+        let callback_wrappers: std::collections::HashMap<&str, &str> = ir
+            .structs
+            .iter()
             .filter_map(|s| {
-                s.callback_wrapper_info.as_ref().map(|info| {
-                    (s.name.as_str(), info.callback_typedef_name.as_str())
-                })
+                s.callback_wrapper_info
+                    .as_ref()
+                    .map(|info| (s.name.as_str(), info.callback_typedef_name.as_str()))
             })
             .collect();
 
@@ -334,7 +416,7 @@ impl CGenerator {
                 builder.line(&format!("typedef union {} {};", name, name));
             }
         }
-        
+
         // Phase 3: Forward declarations for monomorphized type aliases (tagged unions)
         for type_alias in &ir.type_aliases {
             if !config.should_include_type(&type_alias.name) {
@@ -361,20 +443,20 @@ impl CGenerator {
         config: &CodegenConfig,
     ) {
         let name = config.apply_prefix(&type_alias.name);
-        
+
         // If this type alias has a monomorphized definition, generate it as a full type
         if let Some(ref mono_def) = type_alias.monomorphized_def {
             self.generate_monomorphized_type(builder, &name, mono_def, config);
             return;
         }
-        
+
         let target = &type_alias.target;
-        
+
         // Skip generic type aliases without monomorphized def
         if target.contains('<') || target.contains('>') {
             return;
         }
-        
+
         // Handle pointer types (*const T, *mut T)
         if target.starts_with("*const ") {
             let inner_type = target.strip_prefix("*const ").unwrap().trim();
@@ -388,12 +470,12 @@ impl CGenerator {
             builder.line(&format!("typedef {}* {};", c_inner, name));
             return;
         }
-        
+
         // Regular type alias
         let c_type = self.rust_type_to_c_with_prefix(target, config);
         builder.line(&format!("typedef {} {};", c_type, name));
     }
-    
+
     /// Generate a monomorphized type definition
     /// This handles generic type aliases that have been instantiated with concrete types
     fn generate_monomorphized_type(
@@ -406,7 +488,7 @@ impl CGenerator {
         match &mono_def.kind {
             MonomorphizedKind::TaggedUnion { repr, variants } => {
                 let is_u8_repr = repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
-                
+
                 // Generate tag enum
                 builder.line(&format!("enum {}_Tag {{", name));
                 builder.indent();
@@ -420,18 +502,18 @@ impl CGenerator {
                 builder.line("};");
                 builder.line(&format!("typedef enum {}_Tag {}_Tag;", name, name));
                 builder.blank();
-                
+
                 // Generate variant structs
                 for variant in variants {
                     builder.line(&format!("struct {}Variant_{} {{", name, variant.name));
                     builder.indent();
                     builder.line(&format!("{}_Tag tag;", name));
-                    
+
                     if let Some(ref payload_type) = variant.payload_type {
                         let c_type = self.rust_type_to_c_with_prefix(payload_type, config);
                         builder.line(&format!("{} payload;", c_type));
                     }
-                    
+
                     builder.dedent();
                     builder.line("};");
                     builder.line(&format!(
@@ -440,21 +522,24 @@ impl CGenerator {
                     ));
                     builder.blank();
                 }
-                
+
                 // Generate union
                 builder.line(&format!("union {} {{", name));
                 builder.indent();
                 for variant in variants {
-                    builder.line(&format!("{}Variant_{} {};", name, variant.name, variant.name));
+                    builder.line(&format!(
+                        "{}Variant_{} {};",
+                        name, variant.name, variant.name
+                    ));
                 }
                 builder.dedent();
                 builder.line("};");
                 builder.blank();
             }
-            
+
             MonomorphizedKind::SimpleEnum { repr, variants } => {
                 let is_u8_repr = repr.as_ref().map(|r| r.contains("u8")).unwrap_or(false);
-                
+
                 builder.line(&format!("enum {} {{", name));
                 builder.indent();
                 for variant in variants {
@@ -468,14 +553,17 @@ impl CGenerator {
                 builder.line(&format!("typedef enum {} {};", name, name));
                 builder.blank();
             }
-            
+
             MonomorphizedKind::Struct { fields } => {
                 builder.line(&format!("struct {} {{", name));
                 builder.indent();
                 for field in fields {
                     let c_type = self.rust_type_to_c_with_prefix(&field.type_name, config);
                     let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(&field.ref_kind);
-                    builder.line(&format!("{}{}{} {};", ptr_prefix, c_type, ptr_suffix, field.name));
+                    builder.line(&format!(
+                        "{}{}{} {};",
+                        ptr_prefix, c_type, ptr_suffix, field.name
+                    ));
                 }
                 builder.dedent();
                 builder.line("};");
@@ -492,20 +580,26 @@ impl CGenerator {
         config: &CodegenConfig,
     ) {
         let name = config.apply_prefix(&callback.name);
-        
-        let args: Vec<String> = callback.args.iter().map(|arg| {
-            let c_type = self.rust_type_to_c_with_prefix(&arg.type_name, config);
-            // Apply ref_kind for pointer types
-            let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
-                ArgRefKind::Owned => ("", ""),
-                ArgRefKind::Ref => ("const ", "*"),
-                ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "* restrict"),
-                ArgRefKind::Ptr => ("const ", "*"),
-            };
-            format!("{}{}{}", ptr_prefix, c_type, ptr_suffix)
-        }).collect();
-        
-        let return_type = callback.return_type.as_ref()
+
+        let args: Vec<String> = callback
+            .args
+            .iter()
+            .map(|arg| {
+                let c_type = self.rust_type_to_c_with_prefix(&arg.type_name, config);
+                // Apply ref_kind for pointer types
+                let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
+                    ArgRefKind::Owned => ("", ""),
+                    ArgRefKind::Ref => ("const ", "*"),
+                    ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "* restrict"),
+                    ArgRefKind::Ptr => ("const ", "*"),
+                };
+                format!("{}{}{}", ptr_prefix, c_type, ptr_suffix)
+            })
+            .collect();
+
+        let return_type = callback
+            .return_type
+            .as_ref()
             .map(|r| self.rust_type_to_c_with_prefix(r, config))
             .unwrap_or_else(|| "void".to_string());
 
@@ -513,7 +607,11 @@ impl CGenerator {
             "typedef {} (*{})({});",
             return_type,
             name,
-            if args.is_empty() { "void".to_string() } else { args.join(", ") }
+            if args.is_empty() {
+                "void".to_string()
+            } else {
+                args.join(", ")
+            }
         ));
     }
 
@@ -542,33 +640,28 @@ impl CGenerator {
         } else {
             builder.line(&format!("struct {} {{", name));
             builder.indent();
-            
+
             for field in &struct_def.fields {
                 // Extract array info from type (e.g., "[u8; 4]" -> "u8" + "[4]")
                 let (base_type, array_suffix) = self.extract_array_from_type(&field.type_name);
                 let c_type = self.rust_type_to_c_with_prefix(&base_type, config);
-                
+
                 // Apply ref_kind for pointer types
                 let (ptr_prefix, ptr_suffix) = self.ref_kind_to_c_syntax(&field.ref_kind);
-                
+
                 builder.line(&format!(
                     "{}{}{} {}{};",
                     ptr_prefix, c_type, ptr_suffix, field.name, array_suffix
                 ));
             }
-            
+
             builder.dedent();
             builder.line("};");
         }
         builder.blank();
     }
 
-    fn generate_enum(
-        &self,
-        builder: &mut CodeBuilder,
-        enum_def: &EnumDef,
-        config: &CodegenConfig,
-    ) {
+    fn generate_enum(&self, builder: &mut CodeBuilder, enum_def: &EnumDef, config: &CodegenConfig) {
         let name = config.apply_prefix(&enum_def.name);
 
         // Doc comment
@@ -586,26 +679,28 @@ impl CGenerator {
         } else {
             // Simple enum
             // Check if this enum has a u8 repr (for size enforcement)
-            let is_u8_repr = enum_def.repr.as_ref()
+            let is_u8_repr = enum_def
+                .repr
+                .as_ref()
                 .map(|r| r.contains("u8"))
                 .unwrap_or(false);
 
             builder.line(&format!("enum {} {{", name));
             builder.indent();
-            
+
             for variant in &enum_def.variants {
                 let variant_name = format!("{}_{}", name, variant.name);
                 builder.line(&format!("{},", variant_name));
             }
-            
+
             // Add sentinel value to force enum size for u8 repr
             if is_u8_repr {
                 builder.line(&format!("{}_Force8Bit = 0xFF,", name));
             }
-            
+
             builder.dedent();
             builder.line("};");
-            
+
             // Add typedef so we can use "AzFoo" instead of "enum AzFoo"
             builder.line(&format!("typedef enum {} {};", name, name));
         }
@@ -622,14 +717,16 @@ impl CGenerator {
         // 1. Tag enum with _Tag suffix
         // 2. Variant structs with tag + payload
         // 3. Main union type
-        
+
         let name = config.apply_prefix(&enum_def.name);
-        
+
         // Check if this enum has a u8 repr
-        let is_u8_repr = enum_def.repr.as_ref()
+        let is_u8_repr = enum_def
+            .repr
+            .as_ref()
             .map(|r| r.contains("u8"))
             .unwrap_or(false);
-        
+
         // Tag enum with _Tag suffix
         builder.line(&format!("enum {}_Tag {{", name));
         builder.indent();
@@ -652,11 +749,11 @@ impl CGenerator {
                 EnumVariantKind::Struct(fields) => !fields.is_empty(),
                 EnumVariantKind::Unit => false,
             };
-            
+
             builder.line(&format!("struct {}Variant_{} {{", name, variant.name));
             builder.indent();
             builder.line(&format!("{}_Tag tag;", name));
-            
+
             match &variant.kind {
                 EnumVariantKind::Tuple(types) if !types.is_empty() => {
                     // Single payload field (Rust enum tuple variants typically have one element)
@@ -677,7 +774,7 @@ impl CGenerator {
                 }
                 _ => {}
             }
-            
+
             builder.dedent();
             builder.line("};");
             builder.line(&format!(
@@ -715,42 +812,50 @@ impl CGenerator {
         // OptionCallback::Some needs Callback, not CallbackType)
         let should_substitute_callbacks = matches!(
             func.kind,
-            FunctionKind::Constructor | FunctionKind::StaticMethod |
-            FunctionKind::Method | FunctionKind::MethodMut
+            FunctionKind::Constructor
+                | FunctionKind::StaticMethod
+                | FunctionKind::Method
+                | FunctionKind::MethodMut
         );
-        
-        let args: Vec<String> = func.args.iter().map(|arg| {
-            // Don't substitute callback wrappers for 'self' parameter or for the class's own type
-            // (e.g., Callback::to_core takes self which IS a Callback, not a CallbackType)
-            let is_self_or_own_type = arg.name == "self" || 
-                                       arg.name == "instance" ||
-                                       arg.type_name == func.class_name;
-            
-            // Check if this type is a callback wrapper - if so, use the raw fn pointer type instead
-            // This allows C users to pass function pointers directly without wrapping in a struct
-            let type_name = if should_substitute_callbacks && !is_self_or_own_type {
-                if let Some(callback_type) = callback_wrappers.get(arg.type_name.as_str()) {
-                    (*callback_type).to_string()
+
+        let args: Vec<String> = func
+            .args
+            .iter()
+            .map(|arg| {
+                // Don't substitute callback wrappers for 'self' parameter or for the class's own type
+                // (e.g., Callback::to_core takes self which IS a Callback, not a CallbackType)
+                let is_self_or_own_type = arg.name == "self"
+                    || arg.name == "instance"
+                    || arg.type_name == func.class_name;
+
+                // Check if this type is a callback wrapper - if so, use the raw fn pointer type instead
+                // This allows C users to pass function pointers directly without wrapping in a struct
+                let type_name = if should_substitute_callbacks && !is_self_or_own_type {
+                    if let Some(callback_type) = callback_wrappers.get(arg.type_name.as_str()) {
+                        (*callback_type).to_string()
+                    } else {
+                        arg.type_name.clone()
+                    }
                 } else {
                     arg.type_name.clone()
-                }
-            } else {
-                arg.type_name.clone()
-            };
-            
-            let c_type = self.rust_type_to_c_with_prefix(&type_name, config);
-            let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
-                ArgRefKind::Owned => ("", ""),
-                ArgRefKind::Ref => ("const ", "*"),
-                ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "*"),
-                ArgRefKind::Ptr => ("const ", "*"),
-            };
-            // Escape C++ keywords in parameter names
-            let escaped_name = escape_cpp_keyword_for_c(&arg.name);
-            format!("{}{}{} {}", ptr_prefix, c_type, ptr_suffix, escaped_name)
-        }).collect();
+                };
 
-        let return_type = func.return_type.as_ref()
+                let c_type = self.rust_type_to_c_with_prefix(&type_name, config);
+                let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
+                    ArgRefKind::Owned => ("", ""),
+                    ArgRefKind::Ref => ("const ", "*"),
+                    ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "*"),
+                    ArgRefKind::Ptr => ("const ", "*"),
+                };
+                // Escape C++ keywords in parameter names
+                let escaped_name = escape_cpp_keyword_for_c(&arg.name);
+                format!("{}{}{} {}", ptr_prefix, c_type, ptr_suffix, escaped_name)
+            })
+            .collect();
+
+        let return_type = func
+            .return_type
+            .as_ref()
             .map(|r| self.rust_type_to_c_with_prefix(r, config))
             .unwrap_or_else(|| "void".to_string());
 
@@ -758,14 +863,18 @@ impl CGenerator {
             "extern DLLIMPORT {} {}({});",
             return_type,
             func.c_name,
-            if args.is_empty() { "void".to_string() } else { args.join(", ") }
+            if args.is_empty() {
+                "void".to_string()
+            } else {
+                args.join(", ")
+            }
         ));
     }
 
     /// Convert Rust type to C type
     fn rust_type_to_c(&self, rust_type: &str) -> String {
         let trimmed = rust_type.trim();
-        
+
         // Handle pointer types first
         if trimmed.starts_with("*const ") {
             let inner = trimmed.strip_prefix("*const ").unwrap().trim();
@@ -777,7 +886,7 @@ impl CGenerator {
             let c_inner = self.rust_type_to_c(inner);
             return format!("{}*", c_inner);
         }
-        
+
         // Handle basic type mappings
         match trimmed {
             "bool" => "bool".to_string(),
@@ -814,7 +923,7 @@ impl CGenerator {
     /// Convert Rust type to C type with prefix
     fn rust_type_to_c_with_prefix(&self, rust_type: &str, config: &CodegenConfig) -> String {
         let trimmed = rust_type.trim();
-        
+
         // Handle pointer types - only add prefix to the base type
         if trimmed.starts_with("*const ") {
             let inner = trimmed.strip_prefix("*const ").unwrap().trim();
@@ -826,24 +935,51 @@ impl CGenerator {
             let c_inner = self.rust_type_to_c_with_prefix(inner, config);
             return format!("{}*", c_inner);
         }
-        
+
         let c_type = self.rust_type_to_c(rust_type);
-        
+
         // If it's a primitive, don't add prefix
         let primitives = [
-            "bool", "uint8_t", "uint16_t", "uint32_t", "uint64_t",
-            "int8_t", "int16_t", "int32_t", "int64_t",
-            "size_t", "ssize_t", "float", "double", "void",
-            "c_void",  // Also check original Rust name
+            "bool",
+            "uint8_t",
+            "uint16_t",
+            "uint32_t",
+            "uint64_t",
+            "int8_t",
+            "int16_t",
+            "int32_t",
+            "int64_t",
+            "size_t",
+            "ssize_t",
+            "float",
+            "double",
+            "void",
+            "c_void", // Also check original Rust name
             // C FFI types
-            "char", "unsigned char", "short", "unsigned short",
-            "int", "unsigned int", "long", "unsigned long",
-            "long long", "unsigned long long",
-            "c_char", "c_uchar", "c_short", "c_ushort",
-            "c_int", "c_uint", "c_long", "c_ulong",
-            "c_longlong", "c_ulonglong", "c_float", "c_double",
+            "char",
+            "unsigned char",
+            "short",
+            "unsigned short",
+            "int",
+            "unsigned int",
+            "long",
+            "unsigned long",
+            "long long",
+            "unsigned long long",
+            "c_char",
+            "c_uchar",
+            "c_short",
+            "c_ushort",
+            "c_int",
+            "c_uint",
+            "c_long",
+            "c_ulong",
+            "c_longlong",
+            "c_ulonglong",
+            "c_float",
+            "c_double",
         ];
-        
+
         if primitives.contains(&c_type.as_str()) || primitives.contains(&trimmed) {
             c_type
         } else {
@@ -939,7 +1075,7 @@ impl CGenerator {
                 let payload_types: Vec<String> = match &variant.kind {
                     EnumVariantKind::Tuple(types) => types.clone(),
                     EnumVariantKind::Struct(_) => continue, // Skip struct variants for now
-                    EnumVariantKind::Unit => continue, // Skip unit variants
+                    EnumVariantKind::Unit => continue,      // Skip unit variants
                 };
 
                 if payload_types.is_empty() {
@@ -952,7 +1088,7 @@ impl CGenerator {
                 }
 
                 let payload_type = &payload_types[0];
-                
+
                 // Skip array types - they require different handling
                 if payload_type.starts_with('[') {
                     continue;
@@ -1086,7 +1222,8 @@ impl CGenerator {
         builder.line(" * - struct fooRefMut(): mutable reference to a RefAny<foo>");
         builder.line(" *");
         builder.line(" * functions:");
-        builder.line(" * - AzRefAny foo_upcast(myStructInstance): upcasts a #structName to a RefAny");
+        builder
+            .line(" * - AzRefAny foo_upcast(myStructInstance): upcasts a #structName to a RefAny");
         builder.line(" *");
         builder.line(" * - fooRef_create(AzRefAny): creates a new fooRef, but does not yet downcast it (.ptr is set to nullptr)");
         builder.line(" * - fooRefMut_create(AzRefAny): creates a new fooRefMut, but does not yet downcast it (.ptr is set to nullptr)");
@@ -1102,7 +1239,9 @@ impl CGenerator {
         builder.line(" *");
         builder.line(" *     typedef struct { } foo;");
         builder.line(" *");
-        builder.line(" *     // -- destructor of foo, azul will call this function once the refcount hits 0");
+        builder.line(
+            " *     // -- destructor of foo, azul will call this function once the refcount hits 0",
+        );
         builder.line(" *     // note: the function expects a void*, but you can just use a foo*");
         builder.line(" *     void fooDestructor(foo* restrict destructorPtr) { }");
         builder.line(" *");
@@ -1130,7 +1269,8 @@ impl CGenerator {
         builder.line("        return val;    \\");
         builder.line("    } \\");
         builder.line("    \\");
-        builder.line("    structName##RefMut structName##RefMut_create(AzRefAny* const refany) { \\");
+        builder
+            .line("    structName##RefMut structName##RefMut_create(AzRefAny* const refany) { \\");
         builder.line("        structName##RefMut val = { .ptr = 0, .sharing_info = AzRefCount_clone(&refany->sharing_info), };    \\");
         builder.line("        return val;    \\");
         builder.line("    } \\");
@@ -1140,7 +1280,8 @@ impl CGenerator {
         builder.line("        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } else { \\");
         builder.line("            if (!AzRefCount_canBeShared(&refany->sharing_info)) { return false; } else {\\");
         builder.line("                AzRefCount_increaseRef(&refany->sharing_info); \\");
-        builder.line("                result->ptr = (structName* const)(refany->_internal_ptr); \\");
+        builder
+            .line("                result->ptr = (structName* const)(refany->_internal_ptr); \\");
         builder.line("                return true; \\");
         builder.line("            } \\");
         builder.line("        } \\");
@@ -1151,7 +1292,9 @@ impl CGenerator {
         builder.line("        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } else { \\");
         builder.line("            if (!AzRefCount_canBeSharedMut(&refany->sharing_info)) { return false; }  else {\\");
         builder.line("                AzRefCount_increaseRefmut(&refany->sharing_info); \\");
-        builder.line("                result->ptr = (structName* restrict)(refany->_internal_ptr); \\");
+        builder.line(
+            "                result->ptr = (structName* restrict)(refany->_internal_ptr); \\",
+        );
         builder.line("                return true; \\");
         builder.line("            } \\");
         builder.line("        } \\");
@@ -1168,7 +1311,9 @@ impl CGenerator {
         builder.line("    }\\");
         builder.line("    /* releases a structNameRefAny (checks if the RefCount is 0 and calls the destructor) */ \\");
         builder.line("    bool structName##RefAny_delete(AzRefAny* restrict refany) { \\");
-        builder.line("        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } \\");
+        builder.line(
+            "        if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } \\",
+        );
         builder.line("        AzRefAny_delete(refany); \\");
         builder.line("        return true; \\");
         builder.line("    }");

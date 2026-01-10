@@ -91,7 +91,8 @@ fn test_font_family_parsing_quoted() {
     let (css, _errors) = azul_css::parser2::new_from_str(css_str);
 
     // Create DOM with a div that has the "heading" class
-    let mut dom = Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("heading".into())].into());
+    let mut dom =
+        Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("heading".into())].into());
 
     let styled_dom = StyledDom::create(&mut dom, css);
 

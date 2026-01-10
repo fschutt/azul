@@ -181,7 +181,7 @@ impl DebugLogger {
         if level < self.min_level {
             return;
         }
-        
+
         // Check category filter
         if let Some(ref allowed) = self.category_filter {
             if !allowed.contains(&category) {

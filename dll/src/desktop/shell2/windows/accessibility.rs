@@ -85,7 +85,7 @@ impl WindowsAccessibilityAdapter {
         let Ok(mut guard) = self.adapter.try_lock() else {
             return; // Skip update if lock not available
         };
-        
+
         if let Some(adapter) = guard.as_mut() {
             // Wrap in catch_unwind to prevent panics from crashing the app
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

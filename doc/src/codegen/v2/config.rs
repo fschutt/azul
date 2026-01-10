@@ -139,11 +139,11 @@ impl CppStandard {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CAbiFunctionMode {
     /// Generate function definitions with bodies (for DLL compilation)
-    /// 
+    ///
     /// ```rust,ignore
-    /// #[no_mangle] 
-    /// pub extern "C" fn AzDom_new() -> AzDom { 
-    ///     unsafe { transmute(Dom::create_node()) } 
+    /// #[no_mangle]
+    /// pub extern "C" fn AzDom_new() -> AzDom {
+    ///     unsafe { transmute(Dom::create_node()) }
     /// }
     /// ```
     InternalBindings {
@@ -152,11 +152,11 @@ pub enum CAbiFunctionMode {
     },
 
     /// Generate extern "C" declarations for dynamic linking
-    /// 
+    ///
     /// ```rust,ignore
     /// #[link(name = "azul_dll")]
-    /// extern "C" { 
-    ///     fn AzDom_new() -> AzDom; 
+    /// extern "C" {
+    ///     fn AzDom_new() -> AzDom;
     /// }
     /// ```
     ExternalBindings {
@@ -183,7 +183,7 @@ pub enum StructMode {
     Unprefixed,
 
     /// Generate prefixed internally, re-export unprefixed
-    /// 
+    ///
     /// ```rust,ignore
     /// mod inner { pub struct AzDom { ... } }
     /// pub use inner::AzDom as Dom;
@@ -203,7 +203,7 @@ pub enum StructMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TraitImplMode {
     /// Use #[derive(...)] macros
-    /// 
+    ///
     /// ```rust,ignore
     /// #[derive(Clone, PartialEq, Hash)]
     /// pub struct AzDom { ... }
@@ -211,7 +211,7 @@ pub enum TraitImplMode {
     UsingDerive,
 
     /// Implement by transmuting to external type
-    /// 
+    ///
     /// ```rust,ignore
     /// impl Clone for AzDom {
     ///     fn clone(&self) -> Self {
@@ -225,7 +225,7 @@ pub enum TraitImplMode {
     },
 
     /// Implement by calling C-ABI functions
-    /// 
+    ///
     /// ```rust,ignore
     /// impl Clone for AzDom {
     ///     fn clone(&self) -> Self { AzDom_deepCopy(self) }
@@ -242,7 +242,7 @@ pub enum TraitImplMode {
 // ============================================================================
 
 /// Configuration for code generation output
-/// 
+///
 /// This structure controls all aspects of code generation.
 /// Different configurations produce different output files.
 #[derive(Debug, Clone)]
@@ -305,7 +305,7 @@ impl CodegenConfig {
         }
         path.to_string()
     }
-    
+
     /// Check if a type should be included based on filters
     pub fn should_include_type(&self, type_name: &str) -> bool {
         // Check exclusion list first
@@ -321,7 +321,7 @@ impl CodegenConfig {
     }
 
     /// Apply the type prefix to a name
-    /// 
+    ///
     /// Does NOT prefix:
     /// - Primitive types (bool, u8, usize, etc.)
     /// - Types that already have the prefix
@@ -333,7 +333,7 @@ impl CodegenConfig {
 }
 
 /// Apply prefix to a potentially complex type string
-/// 
+///
 /// Handles:
 /// - Simple types: `Foo` → `AzFoo`
 /// - Pointers: `*const Foo` → `*const AzFoo`
@@ -343,17 +343,17 @@ impl CodegenConfig {
 /// - Primitives: `*const u8` → `*const u8` (not prefixed)
 fn apply_prefix_to_type(name: &str, prefix: &str) -> String {
     let name = name.trim();
-    
+
     // Empty prefix means no prefixing
     if prefix.is_empty() {
         return name.to_string();
     }
-    
+
     // Don't prefix if already prefixed
     if name.starts_with(prefix) {
         return name.to_string();
     }
-    
+
     // Handle pointer types: *const T, *mut T
     if let Some(rest) = name.strip_prefix("*const ") {
         let inner = apply_prefix_to_type(rest.trim(), prefix);
@@ -363,7 +363,7 @@ fn apply_prefix_to_type(name: &str, prefix: &str) -> String {
         let inner = apply_prefix_to_type(rest.trim(), prefix);
         return format!("*mut {}", inner);
     }
-    
+
     // Handle reference types: &T, &mut T
     if let Some(rest) = name.strip_prefix("&mut ") {
         let inner = apply_prefix_to_type(rest.trim(), prefix);
@@ -373,23 +373,23 @@ fn apply_prefix_to_type(name: &str, prefix: &str) -> String {
         let inner = apply_prefix_to_type(rest.trim(), prefix);
         return format!("&{}", inner);
     }
-    
+
     // Handle array types: [T;N]
     if name.starts_with('[') && name.ends_with(']') {
-        let inner = &name[1..name.len()-1];
+        let inner = &name[1..name.len() - 1];
         if let Some(semi_pos) = inner.rfind(';') {
             let element_type = inner[..semi_pos].trim();
-            let size = inner[semi_pos+1..].trim();
+            let size = inner[semi_pos + 1..].trim();
             let prefixed_element = apply_prefix_to_type(element_type, prefix);
             return format!("[{};{}]", prefixed_element, size);
         }
     }
-    
+
     // Handle Option<T>, Vec<T>, etc.
     if let Some(angle_pos) = name.find('<') {
         if name.ends_with('>') {
             let outer = &name[..angle_pos];
-            let inner = &name[angle_pos+1..name.len()-1];
+            let inner = &name[angle_pos + 1..name.len() - 1];
             let prefixed_outer = if is_primitive_or_builtin(outer) {
                 outer.to_string()
             } else {
@@ -399,17 +399,17 @@ fn apply_prefix_to_type(name: &str, prefix: &str) -> String {
             return format!("{}<{}>", prefixed_outer, prefixed_inner);
         }
     }
-    
+
     // Don't prefix primitives or fully qualified paths
     if is_primitive_or_builtin(name) {
         return name.to_string();
     }
-    
+
     // Don't prefix fully qualified paths
     if name.contains("::") {
         return name.to_string();
     }
-    
+
     // Simple type - apply prefix
     format!("{}{}", prefix, name)
 }
@@ -417,11 +417,18 @@ fn apply_prefix_to_type(name: &str, prefix: &str) -> String {
 /// Check if a type name is a Rust primitive or built-in that shouldn't be prefixed
 fn is_primitive_or_builtin(name: &str) -> bool {
     // Single letter types are generics (T, U, V, etc.)
-    if name.len() == 1 && name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false) {
+    if name.len() == 1
+        && name
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_uppercase())
+            .unwrap_or(false)
+    {
         return true;
     }
-    
-    matches!(name, 
+
+    matches!(
+        name,
         // Integer primitives
         "bool" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
         "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
@@ -440,7 +447,7 @@ fn is_primitive_or_builtin(name: &str) -> bool {
 
 impl CodegenConfig {
     /// DLL static linking API
-    /// 
+    ///
     /// This is used when statically linking Azul into your application.
     /// Generates types + C-API functions (without #[no_mangle]) + trait impls via transmute.
     /// The C-API functions are internal (not exported) but still used by impl blocks.
@@ -472,7 +479,7 @@ impl CodegenConfig {
     }
 
     /// DLL build API (for building libazul.dylib/so/dll)
-    /// 
+    ///
     /// This is used when compiling the azul-dll crate itself to produce
     /// the shared library. Generates types + C-API functions with #[no_mangle].
     pub fn dll_build() -> Self {
@@ -503,7 +510,7 @@ impl CodegenConfig {
     }
 
     /// DLL types only (for Python extension embedding)
-    /// 
+    ///
     /// This generates ONLY type definitions, no C-API functions.
     /// Used by Python extension which needs the types but not the functions
     /// (functions are provided by dll_api.rs).
@@ -532,7 +539,7 @@ impl CodegenConfig {
     }
 
     /// DLL dynamic linking API
-    /// 
+    ///
     /// This is used when linking against a pre-compiled .dylib/.so/.dll.
     /// Functions are extern declarations, traits call C-ABI functions.
     pub fn dll_dynamic() -> Self {
@@ -609,17 +616,30 @@ impl CodegenConfig {
     }
 
     /// Public Rust API (unprefixed, ergonomic)
-    /// 
+    ///
     /// This generates a clean public API without Az prefixes.
-    /// Note: This API re-exports from crate::dll, so it doesn't need 
+    /// Note: This API re-exports from crate::dll, so it doesn't need
     /// duplicate GL type aliases (those come from dll module).
     pub fn rust_public_api() -> Self {
         // Skip GL type aliases as they're already in the dll module
         let mut type_exclude = BTreeSet::new();
-        for gl_type in &["GLuint", "GLint", "GLenum", "GLint64", "GLuint64", "GLsizei", "GLfloat", "GLboolean", "GLbitfield", "GLclampf", "GLsizeiptr", "GLintptr"] {
+        for gl_type in &[
+            "GLuint",
+            "GLint",
+            "GLenum",
+            "GLint64",
+            "GLuint64",
+            "GLsizei",
+            "GLfloat",
+            "GLboolean",
+            "GLbitfield",
+            "GLclampf",
+            "GLsizeiptr",
+            "GLintptr",
+        ] {
             type_exclude.insert(gl_type.to_string());
         }
-        
+
         Self {
             target_lang: TargetLang::Rust,
             cabi_functions: CAbiFunctionMode::None,
@@ -627,9 +647,7 @@ impl CodegenConfig {
             trait_impl_mode: TraitImplMode::UsingDerive,
             type_prefix: "".into(),
             module_wrapper: None,
-            imports: vec![
-                "use core::ffi::c_void;".into(),
-            ],
+            imports: vec!["use core::ffi::c_void;".into()],
             type_filter: None,
             type_exclude,
             indent: "    ".into(),
@@ -641,7 +659,7 @@ impl CodegenConfig {
     }
 
     /// Memtest configuration (for testing the generated API)
-    /// 
+    ///
     /// Similar to dll_static but with generate_tests: true.
     /// Generates #[test] functions for type size/layout verification.
     /// Included via include!() in dll/src/lib.rs.
@@ -677,14 +695,14 @@ impl CodegenConfig {
 // ============================================================================
 
 /// Extended configuration for Python code generation
-/// 
+///
 /// Python requires additional configuration beyond the base CodegenConfig
 /// because it has unique requirements:
 /// - PyO3 attributes (#[pyclass], #[pymethods])
 /// - Callback trampolines for Python→Rust calls
 /// - Type exclusions (recursive types, VecRef types)
 /// - Wrapper types for RefAny
-/// 
+///
 /// **Important**: Python structs are generated SEPARATELY from C-API structs.
 /// They do not share the same generated file.
 #[derive(Debug, Clone)]
@@ -716,9 +734,9 @@ impl Default for PythonConfig {
 
 impl PythonConfig {
     /// Python extension structs
-    /// 
+    ///
     /// Output: target/codegen/python_structs.rs (SEPARATE from C-API)
-    /// 
+    ///
     /// These structs are used by the Python extension module.
     /// They have:
     /// - #[pyclass] attributes
@@ -728,11 +746,14 @@ impl PythonConfig {
         // Types that cause "infinite size" errors in PyO3
         let skip_types: BTreeSet<String> = [
             "XmlNode",
-            "XmlNodeChild", 
+            "XmlNodeChild",
             "XmlNodeChildVec",
             "Xml",
             "ResultXmlXmlError",
-        ].iter().map(|s| s.to_string()).collect();
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
         // VecRef types that need special handling
         let vecref_types: BTreeSet<String> = [
@@ -759,7 +780,10 @@ impl PythonConfig {
             "GLfloatVecRefMut",
             "U8VecRefMut",
             "F32VecRefMut",
-        ].iter().map(|s| s.to_string()).collect();
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
         Self {
             base: CodegenConfig {

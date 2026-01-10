@@ -553,7 +553,13 @@ impl_enum_fmt!(
     Outset
 );
 
-impl_enum_fmt!(StyleBackgroundRepeat, NoRepeat, PatternRepeat, RepeatX, RepeatY);
+impl_enum_fmt!(
+    StyleBackgroundRepeat,
+    NoRepeat,
+    PatternRepeat,
+    RepeatX,
+    RepeatY
+);
 
 impl_enum_fmt!(
     LayoutDisplay,

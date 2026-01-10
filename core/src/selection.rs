@@ -87,7 +87,11 @@ pub struct TextCursor {
     pub affinity: CursorAffinity,
 }
 
-impl_option!(TextCursor, OptionTextCursor,  [Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd]);
+impl_option!(
+    TextCursor,
+    OptionTextCursor,
+    [Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd]
+);
 
 /// Represents a range of selected text. The direction is implicit (start can be
 /// logically after end if selecting backwards).
@@ -98,11 +102,24 @@ pub struct SelectionRange {
     pub end: TextCursor,
 }
 
-impl_option!(SelectionRange, OptionSelectionRange, [Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd]);
+impl_option!(
+    SelectionRange,
+    OptionSelectionRange,
+    [Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd]
+);
 
-impl_vec!(SelectionRange, SelectionRangeVec, SelectionRangeVecDestructor, SelectionRangeVecDestructorType);
+impl_vec!(
+    SelectionRange,
+    SelectionRangeVec,
+    SelectionRangeVecDestructor,
+    SelectionRangeVecDestructorType
+);
 impl_vec_debug!(SelectionRange, SelectionRangeVec);
-impl_vec_clone!(SelectionRange, SelectionRangeVec, SelectionRangeVecDestructor);
+impl_vec_clone!(
+    SelectionRange,
+    SelectionRangeVec,
+    SelectionRangeVecDestructor
+);
 impl_vec_partialeq!(SelectionRange, SelectionRangeVec);
 impl_vec_partialord!(SelectionRange, SelectionRangeVec);
 
@@ -114,7 +131,12 @@ pub enum Selection {
     Range(SelectionRange),
 }
 
-impl_vec!(Selection, SelectionVec, SelectionVecDestructor, SelectionVecDestructorType);
+impl_vec!(
+    Selection,
+    SelectionVec,
+    SelectionVecDestructor,
+    SelectionVecDestructorType
+);
 impl_vec_debug!(Selection, SelectionVec);
 impl_vec_clone!(Selection, SelectionVec, SelectionVecDestructor);
 impl_vec_partialeq!(Selection, SelectionVec);
@@ -148,4 +170,10 @@ impl SelectionState {
     }
 }
 
-impl_option!(SelectionState, OptionSelectionState, copy = false, clone = false, [Debug, Clone, PartialEq]);
+impl_option!(
+    SelectionState,
+    OptionSelectionState,
+    copy = false,
+    clone = false,
+    [Debug, Clone, PartialEq]
+);

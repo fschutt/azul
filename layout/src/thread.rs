@@ -21,10 +21,9 @@ use azul_core::{
     callbacks::Update,
     refany::{OptionRefAny, RefAny},
     task::{
-        CheckThreadFinishedCallback, CheckThreadFinishedCallbackType,
-        LibrarySendThreadMsgCallback, LibrarySendThreadMsgCallbackType,
-        OptionThreadSendMsg, ThreadId, ThreadReceiver, ThreadReceiverDestructorCallback,
-        ThreadReceiverInner, ThreadRecvCallback, ThreadSendMsg,
+        CheckThreadFinishedCallback, CheckThreadFinishedCallbackType, LibrarySendThreadMsgCallback,
+        LibrarySendThreadMsgCallbackType, OptionThreadSendMsg, ThreadId, ThreadReceiver,
+        ThreadReceiverDestructorCallback, ThreadReceiverInner, ThreadRecvCallback, ThreadSendMsg,
     },
 };
 
@@ -258,7 +257,7 @@ impl Clone for ThreadSenderDestructorCallback {
 
 /// Callback that runs when a thread receives a `WriteBack` message
 ///
-/// This callback runs on the main UI thread and has access dir_to: 
+/// This callback runs on the main UI thread and has access dir_to:
 /// - The thread's original data
 /// - Data sent back from the background thread
 /// - Full CallbackInfo for DOM queries and UI updates
@@ -280,7 +279,10 @@ pub struct WriteBackCallback {
 impl WriteBackCallback {
     /// Create a new WriteBackCallback
     pub fn new(cb: WriteBackCallbackType) -> Self {
-        Self { cb, ctx: OptionRefAny::None }
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
     }
 
     /// Invoke the callback
@@ -302,13 +304,19 @@ impl core::fmt::Debug for WriteBackCallback {
 
 impl Clone for WriteBackCallback {
     fn clone(&self) -> Self {
-        Self { cb: self.cb, ctx: self.ctx.clone() }
+        Self {
+            cb: self.cb,
+            ctx: self.ctx.clone(),
+        }
     }
 }
 
 impl From<WriteBackCallbackType> for WriteBackCallback {
     fn from(cb: WriteBackCallbackType) -> Self {
-        Self { cb, ctx: OptionRefAny::None }
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
     }
 }
 
@@ -352,7 +360,10 @@ pub struct ThreadCallback {
 impl ThreadCallback {
     /// Create a new ThreadCallback
     pub fn new(cb: ThreadCallbackType) -> Self {
-        Self { cb, ctx: OptionRefAny::None }
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
     }
 }
 
@@ -364,13 +375,19 @@ impl core::fmt::Debug for ThreadCallback {
 
 impl Clone for ThreadCallback {
     fn clone(&self) -> Self {
-        Self { cb: self.cb, ctx: self.ctx.clone() }
+        Self {
+            cb: self.cb,
+            ctx: self.ctx.clone(),
+        }
     }
 }
 
 impl From<ThreadCallbackType> for ThreadCallback {
     fn from(cb: ThreadCallbackType) -> Self {
-        Self { cb, ctx: OptionRefAny::None }
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
     }
 }
 
@@ -504,11 +521,7 @@ impl Thread {
         writeback_data: RefAny,
         callback: C,
     ) -> Self {
-        create_thread_libstd(
-            thread_initialize_data,
-            writeback_data,
-            callback.into(),
-        )
+        create_thread_libstd(thread_initialize_data, writeback_data, callback.into())
     }
 }
 

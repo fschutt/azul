@@ -202,7 +202,10 @@ impl<'a> TypeResolver<'a> {
                 chain_str
             };
             // Use parent_context as origin if ctx.origin is not set
-            let origin = ctx.origin.clone().or_else(|| parent_context.map(|s| s.to_string()));
+            let origin = ctx
+                .origin
+                .clone()
+                .or_else(|| parent_context.map(|s| s.to_string()));
             self.result.warnings.push(TypeWarning {
                 type_expr: type_name.to_string(),
                 context,

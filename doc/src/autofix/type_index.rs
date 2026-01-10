@@ -257,10 +257,10 @@ impl TypeDefinition {
                             fields,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: if macro_derives.is_empty() { 
-                                vec!["Debug".to_string()] 
-                            } else { 
-                                macro_derives.clone() 
+                            derives: if macro_derives.is_empty() {
+                                vec!["Debug".to_string()]
+                            } else {
+                                macro_derives.clone()
                             },
                             custom_impls: implemented_traits.clone(),
                             is_tuple_struct: false,
@@ -299,10 +299,10 @@ impl TypeDefinition {
                             variants,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: if macro_derives.is_empty() { 
-                                vec!["Debug".to_string()] 
-                            } else { 
-                                macro_derives.clone() 
+                            derives: if macro_derives.is_empty() {
+                                vec!["Debug".to_string()]
+                            } else {
+                                macro_derives.clone()
                             },
                             custom_impls: implemented_traits.clone(),
                         }
@@ -343,10 +343,10 @@ impl TypeDefinition {
                             variants,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: if macro_derives.is_empty() { 
-                                vec!["Debug".to_string(), "Clone".to_string()] 
-                            } else { 
-                                macro_derives.clone() 
+                            derives: if macro_derives.is_empty() {
+                                vec!["Debug".to_string(), "Clone".to_string()]
+                            } else {
+                                macro_derives.clone()
                             },
                             custom_impls: implemented_traits.clone(),
                         }
@@ -377,10 +377,10 @@ impl TypeDefinition {
                             fields,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: if macro_derives.is_empty() { 
-                                vec!["Debug".to_string(), "Clone".to_string()] 
-                            } else { 
-                                macro_derives.clone() 
+                            derives: if macro_derives.is_empty() {
+                                vec!["Debug".to_string(), "Clone".to_string()]
+                            } else {
+                                macro_derives.clone()
                             },
                             custom_impls: implemented_traits.clone(),
                             is_tuple_struct: false,
@@ -412,10 +412,10 @@ impl TypeDefinition {
                             variants,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: if macro_derives.is_empty() { 
-                                vec!["Debug".to_string(), "Clone".to_string()] 
-                            } else { 
-                                macro_derives.clone() 
+                            derives: if macro_derives.is_empty() {
+                                vec!["Debug".to_string(), "Clone".to_string()]
+                            } else {
+                                macro_derives.clone()
                             },
                             custom_impls: implemented_traits.clone(),
                         }
@@ -447,10 +447,10 @@ impl TypeDefinition {
                             fields,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: if macro_derives.is_empty() { 
-                                vec!["Debug".to_string()] 
-                            } else { 
-                                macro_derives.clone() 
+                            derives: if macro_derives.is_empty() {
+                                vec!["Debug".to_string()]
+                            } else {
+                                macro_derives.clone()
                             },
                             custom_impls: implemented_traits.clone(),
                             is_tuple_struct: false,
@@ -481,10 +481,10 @@ impl TypeDefinition {
                             fields,
                             repr: Some("C".to_string()),
                             generic_params: vec![],
-                            derives: if macro_derives.is_empty() { 
-                                vec!["Debug".to_string()] 
-                            } else { 
-                                macro_derives.clone() 
+                            derives: if macro_derives.is_empty() {
+                                vec!["Debug".to_string()]
+                            } else {
+                                macro_derives.clone()
                             },
                             custom_impls: implemented_traits.clone(),
                             is_tuple_struct: false,
@@ -1123,7 +1123,9 @@ fn parse_file_for_types(crate_name: &str, file_path: &Path) -> Result<Vec<TypeDe
 /// Parse a file to extract impl blocks for cross-file method attachment.
 /// This extracts both inherent impl blocks (`impl Type`) and trait impl blocks
 /// (`impl Trait for Type`) where we want to expose the trait methods as type methods.
-fn parse_file_for_cross_file_methods(file_path: &Path) -> Result<BTreeMap<String, Vec<MethodDef>>, String> {
+fn parse_file_for_cross_file_methods(
+    file_path: &Path,
+) -> Result<BTreeMap<String, Vec<MethodDef>>, String> {
     let content = fs::read_to_string(file_path)
         .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
 
@@ -1767,10 +1769,10 @@ fn extract_generic_args_from_type(ty: &syn::Type) -> (Option<String>, Vec<String
 /// Uses syn to properly parse the token stream
 fn extract_derives_from_tokens(tokens: &proc_macro2::TokenStream) -> Vec<String> {
     use proc_macro2::TokenTree;
-    
+
     let mut derives = Vec::new();
     let mut in_bracket = false;
-    
+
     for token in tokens.clone().into_iter() {
         match token {
             TokenTree::Group(group) => {
@@ -1787,23 +1789,25 @@ fn extract_derives_from_tokens(tokens: &proc_macro2::TokenStream) -> Vec<String>
             _ => {}
         }
     }
-    
+
     derives
 }
 
 /// Parse macro arguments from a token stream
 /// Returns (base_type, generated_type, optional_wrapper_type, derives)
-fn parse_impl_option_args(tokens: &proc_macro2::TokenStream) -> Option<(String, String, Option<String>, Vec<String>)> {
+fn parse_impl_option_args(
+    tokens: &proc_macro2::TokenStream,
+) -> Option<(String, String, Option<String>, Vec<String>)> {
     use proc_macro2::TokenTree;
-    
+
     let mut idents = Vec::new();
     let mut derives = Vec::new();
     let mut has_copy_false = false;
     let mut has_clone_false = false;
-    
+
     let token_vec: Vec<_> = tokens.clone().into_iter().collect();
     let mut i = 0;
-    
+
     while i < token_vec.len() {
         match &token_vec[i] {
             TokenTree::Ident(ident) => {
@@ -1842,15 +1846,19 @@ fn parse_impl_option_args(tokens: &proc_macro2::TokenStream) -> Option<(String, 
         }
         i += 1;
     }
-    
+
     if idents.len() < 2 {
         return None;
     }
-    
+
     let base_type = idents[0].clone();
     let option_type = idents[1].clone();
-    let wrapper_type = if idents.len() >= 3 { Some(idents[2].clone()) } else { None };
-    
+    let wrapper_type = if idents.len() >= 3 {
+        Some(idents[2].clone())
+    } else {
+        None
+    };
+
     Some((base_type, option_type, wrapper_type, derives))
 }
 
@@ -1952,9 +1960,11 @@ fn extract_macro_generated_types(
             // impl_option!(BaseType, OptionType, EnumWrapperType, [derives...])
             // impl_option!(BaseType, OptionType, copy = false, [derives...])
             // impl_option!(BaseType, OptionType, copy = false, clone = false, [derives...])
-            
+
             // Use syn to properly parse the token stream
-            if let Some((base_type, option_type, wrapper_type, derives)) = parse_impl_option_args(&m.mac.tokens) {
+            if let Some((base_type, option_type, wrapper_type, derives)) =
+                parse_impl_option_args(&m.mac.tokens)
+            {
                 // OptionType (always generated)
                 types.push(TypeDefinition {
                     full_path: build_full_path(crate_name, module_path, &option_type),
@@ -1985,7 +1995,7 @@ fn extract_macro_generated_types(
                             source_macro: macro_name,
                             base_type,
                             kind: MacroGeneratedKind::OptionEnumWrapper,
-                            derives: derives,
+                            derives,
                             implemented_traits: Vec::new(),
                         },
                         source_code: m.to_token_stream().to_string(),
@@ -2027,9 +2037,9 @@ fn extract_macro_generated_types(
             // impl_widget_callback!(CallbackWrapper, OptionCallbackWrapper, CallbackValue, CallbackType)
             // Generates: CallbackWrapper (struct), OptionCallbackWrapper (option), CallbackValue (struct)
             //
-            // Note: impl_callback!(CallbackValue, CallbackType) is handled separately in 
+            // Note: impl_callback!(CallbackValue, CallbackType) is handled separately in
             // extract_custom_impls_from_items() - it only adds trait impls, not new types.
-            
+
             if args.len() >= 4 {
                 let callback_wrapper = args[0].to_string();
                 let option_callback_wrapper = args[1].to_string();
@@ -2430,7 +2440,7 @@ fn extract_custom_impls_from_items(items: &[Item]) -> BTreeMap<String, Vec<Strin
                 }
             }
         }
-        
+
         // Handle impl_vec_*! macros that generate trait implementations
         // These macros expand to `impl Trait for Type` but aren't visible to syn
         if let Item::Macro(m) = item {
@@ -2441,7 +2451,7 @@ fn extract_custom_impls_from_items(items: &[Item]) -> BTreeMap<String, Vec<Strin
                 .last()
                 .map(|s| s.ident.to_string())
                 .unwrap_or_default();
-            
+
             // Handle impl_callback! macro (2-parameter version only)
             // impl_callback!(CallbackValue, CallbackType) - adds traits to CallbackValue
             // Note: 4-parameter version is now impl_widget_callback! and handled in extract_macro_generated_types
@@ -2449,21 +2459,30 @@ fn extract_custom_impls_from_items(items: &[Item]) -> BTreeMap<String, Vec<Strin
             if macro_name == "impl_callback" {
                 let tokens = m.mac.tokens.to_string();
                 let args: Vec<&str> = tokens.split(',').map(|s| s.trim()).collect();
-                
+
                 // 2-parameter version adds traits to the first argument
                 if args.len() == 2 {
                     let type_name = args[0].to_string();
                     if !type_name.is_empty() {
                         let callback_traits = vec![
-                            "Clone", "Debug", "Hash", "PartialEq", "Eq", "PartialOrd", "Ord"
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
                         ];
                         for trait_name in callback_traits {
-                            custom_impls.entry(type_name.clone()).or_default().push(trait_name.to_string());
+                            custom_impls
+                                .entry(type_name.clone())
+                                .or_default()
+                                .push(trait_name.to_string());
                         }
                     }
                 }
             }
-            
+
             // Handle impl_callback_simple! macro (1-parameter version)
             // impl_callback_simple!(CallbackValue) - adds traits to CallbackValue
             // Used for simple callbacks that only have a cb field (no ctx)
@@ -2472,14 +2491,23 @@ fn extract_custom_impls_from_items(items: &[Item]) -> BTreeMap<String, Vec<Strin
                 let type_name = tokens.trim().to_string();
                 if !type_name.is_empty() {
                     let callback_traits = vec![
-                        "Clone", "Debug", "Hash", "PartialEq", "Eq", "PartialOrd", "Ord"
+                        "Clone",
+                        "Debug",
+                        "Hash",
+                        "PartialEq",
+                        "Eq",
+                        "PartialOrd",
+                        "Ord",
                     ];
                     for trait_name in callback_traits {
-                        custom_impls.entry(type_name.clone()).or_default().push(trait_name.to_string());
+                        custom_impls
+                            .entry(type_name.clone())
+                            .or_default()
+                            .push(trait_name.to_string());
                     }
                 }
             }
-            
+
             // Handle impl_widget_callback! macro (4-parameter version for widgets)
             // impl_widget_callback!(Wrapper, OptionWrapper, CallbackValue, CallbackType)
             // Adds traits to CallbackValue (generated type)
@@ -2487,20 +2515,29 @@ fn extract_custom_impls_from_items(items: &[Item]) -> BTreeMap<String, Vec<Strin
             if macro_name == "impl_widget_callback" {
                 let tokens = m.mac.tokens.to_string();
                 let args: Vec<&str> = tokens.split(',').map(|s| s.trim()).collect();
-                
+
                 if args.len() >= 4 {
                     let callback_value = args[2].to_string();
                     if !callback_value.is_empty() {
                         let callback_traits = vec![
-                            "Clone", "Debug", "Hash", "PartialEq", "Eq", "PartialOrd", "Ord"
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
                         ];
                         for trait_name in callback_traits {
-                            custom_impls.entry(callback_value.clone()).or_default().push(trait_name.to_string());
+                            custom_impls
+                                .entry(callback_value.clone())
+                                .or_default()
+                                .push(trait_name.to_string());
                         }
                     }
                 }
             }
-            
+
             // Map from macro name to the trait it implements
             let macro_to_trait: &[(&str, &str)] = &[
                 ("impl_vec_clone", "Clone"),
@@ -2511,18 +2548,21 @@ fn extract_custom_impls_from_items(items: &[Item]) -> BTreeMap<String, Vec<Strin
                 ("impl_vec_ord", "Ord"),
                 ("impl_vec_hash", "Hash"),
             ];
-            
+
             for (trait_macro, trait_name) in macro_to_trait {
                 if macro_name == *trait_macro {
                     // Parse macro arguments: impl_vec_clone!(ElementType, VecType, Destructor)
                     let tokens = m.mac.tokens.to_string();
                     let args: Vec<&str> = tokens.split(',').map(|s| s.trim()).collect();
-                    
+
                     // The second argument is the Vec type name
                     if args.len() >= 2 {
                         let type_name = args[1].to_string();
                         if !type_name.is_empty() {
-                            custom_impls.entry(type_name).or_default().push(trait_name.to_string());
+                            custom_impls
+                                .entry(type_name)
+                                .or_default()
+                                .push(trait_name.to_string());
                         }
                     }
                     break;
@@ -2547,7 +2587,9 @@ fn attach_custom_impls(typedef: &mut TypeDefinition, impls: Vec<String>) {
             custom_impls.sort();
             custom_impls.dedup();
         }
-        TypeDefKind::MacroGenerated { implemented_traits, .. } => {
+        TypeDefKind::MacroGenerated {
+            implemented_traits, ..
+        } => {
             implemented_traits.extend(impls);
             implemented_traits.sort();
             implemented_traits.dedup();
@@ -2613,16 +2655,16 @@ fn extract_inherent_methods_from_items(items: &[Item]) -> BTreeMap<String, Vec<M
 }
 
 /// Extract Into<T> bounds from method generics and build a map of type parameter -> concrete type
-/// 
+///
 /// For example, `fn foo<C: Into<Callback>>(callback: C)` would return {"C" -> "Callback"}
 /// This allows us to "desugar" generic callback parameters back to concrete types for api.json.
 fn extract_into_bounds(sig: &syn::Signature) -> BTreeMap<String, String> {
     let mut into_map = BTreeMap::new();
-    
+
     for param in &sig.generics.params {
         if let syn::GenericParam::Type(type_param) = param {
             let param_name = type_param.ident.to_string();
-            
+
             // Check bounds on the type parameter itself (e.g., <C: Into<Callback>>)
             for bound in &type_param.bounds {
                 if let Some(concrete_type) = extract_into_inner_type(bound) {
@@ -2632,13 +2674,13 @@ fn extract_into_bounds(sig: &syn::Signature) -> BTreeMap<String, String> {
             }
         }
     }
-    
+
     // Also check where clause (e.g., where C: Into<Callback>)
     if let Some(where_clause) = &sig.generics.where_clause {
         for predicate in &where_clause.predicates {
             if let syn::WherePredicate::Type(pred_type) = predicate {
                 let param_name = extract_type_name(&pred_type.bounded_ty);
-                
+
                 for bound in &pred_type.bounds {
                     if let Some(concrete_type) = extract_into_inner_type(bound) {
                         into_map.insert(param_name.clone(), concrete_type);
@@ -2648,7 +2690,7 @@ fn extract_into_bounds(sig: &syn::Signature) -> BTreeMap<String, String> {
             }
         }
     }
-    
+
     into_map
 }
 
@@ -2657,7 +2699,7 @@ fn extract_into_bounds(sig: &syn::Signature) -> BTreeMap<String, String> {
 fn extract_into_inner_type(bound: &syn::TypeParamBound) -> Option<String> {
     if let syn::TypeParamBound::Trait(trait_bound) = bound {
         let path = &trait_bound.path;
-        
+
         // Check if this is Into<T> (last segment is "Into" with one generic arg)
         if let Some(last_segment) = path.segments.last() {
             if last_segment.ident == "Into" {
@@ -2678,15 +2720,19 @@ fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<Metho
 
     // Check visibility (pub or not) - vis is on the method, not the sig
     let is_public = matches!(&method.vis, syn::Visibility::Public(_));
-    
+
     // Build map of generic type parameters with Into<T> bounds
     // This allows us to rewrite "C" -> "Callback" when C: Into<Callback>
     let into_bounds = extract_into_bounds(&method.sig);
-    
+
     // Skip methods with generic type parameters that are NOT just Into<T> bounds
     // These methods cannot be exported to C API (e.g., fn new<T: 'static>(value: T))
     // We allow generic params if they ALL have Into<T> bounds (callback pattern)
-    let generic_type_params: Vec<_> = method.sig.generics.params.iter()
+    let generic_type_params: Vec<_> = method
+        .sig
+        .generics
+        .params
+        .iter()
         .filter_map(|p| {
             if let syn::GenericParam::Type(tp) = p {
                 Some(tp.ident.to_string())
@@ -2695,7 +2741,7 @@ fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<Metho
             }
         })
         .collect();
-    
+
     // If there are generic type params that are NOT in into_bounds, skip this method
     for param in &generic_type_params {
         if !into_bounds.contains_key(param) {
@@ -2760,14 +2806,14 @@ fn extract_method_def(method: &syn::ImplItemFn, type_name: &str) -> Option<Metho
 
             // Get type and ref kind
             let (mut ty, ref_kind) = extract_ref_kind_from_syn_type(&pat_type.ty);
-            
+
             // If this type is a generic parameter with an Into<T> bound,
             // rewrite it to the concrete type T
             // e.g., for fn foo<C: Into<Callback>>(callback: C), rewrite "C" -> "Callback"
             if let Some(concrete_type) = into_bounds.get(&ty) {
                 ty = concrete_type.clone();
             }
-            
+
             // Replace "Self" with the actual type name
             // This handles cases like fn with_child(child: Self) -> Dom
             if ty == "Self" {
@@ -3821,19 +3867,24 @@ pub struct OnTextInputReturn {
                 }
             }
         "#;
-        
+
         let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");
-        
+
         // Find the impl block and extract methods
         for item in &syntax_tree.items {
             if let Item::Impl(impl_block) = item {
                 for impl_item in &impl_block.items {
                     if let syn::ImplItem::Fn(method) = impl_item {
-                        let method_def = extract_method_def(method, "TestType").expect("Should extract method");
-                        
+                        let method_def =
+                            extract_method_def(method, "TestType").expect("Should extract method");
+
                         assert_eq!(method_def.name, "with_callback");
-                        assert_eq!(method_def.args.len(), 3, "Should have 3 args: event, data, callback");
-                        
+                        assert_eq!(
+                            method_def.args.len(),
+                            3,
+                            "Should have 3 args: event, data, callback"
+                        );
+
                         // The callback arg should have type "Callback", not "C"
                         let callback_arg = &method_def.args[2];
                         assert_eq!(callback_arg.name, "callback");
@@ -3842,9 +3893,12 @@ pub struct OnTextInputReturn {
                             "Generic C: Into<Callback> should be rewritten to 'Callback', got '{}'",
                             callback_arg.ty
                         );
-                        
+
                         eprintln!("✓ Generic Into<T> bound correctly rewritten:");
-                        eprintln!("  callback arg: type={}, ref_kind={:?}", callback_arg.ty, callback_arg.ref_kind);
+                        eprintln!(
+                            "  callback arg: type={}, ref_kind={:?}",
+                            callback_arg.ty, callback_arg.ref_kind
+                        );
                     }
                 }
             }
@@ -3862,18 +3916,19 @@ pub struct OnTextInputReturn {
                 }
             }
         "#;
-        
+
         let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");
-        
+
         for item in &syntax_tree.items {
             if let Item::Impl(impl_block) = item {
                 for impl_item in &impl_block.items {
                     if let syn::ImplItem::Fn(method) = impl_item {
-                        let method_def = extract_method_def(method, "TestType").expect("Should extract method");
-                        
+                        let method_def =
+                            extract_method_def(method, "TestType").expect("Should extract method");
+
                         assert_eq!(method_def.name, "add_callback");
                         assert_eq!(method_def.args.len(), 1);
-                        
+
                         let callback_arg = &method_def.args[0];
                         assert_eq!(callback_arg.name, "callback");
                         assert_eq!(
@@ -3881,7 +3936,7 @@ pub struct OnTextInputReturn {
                             "Where clause C: Into<CoreCallback> should be rewritten to 'CoreCallback', got '{}'",
                             callback_arg.ty
                         );
-                        
+
                         eprintln!("✓ Where clause Into<T> correctly rewritten:");
                         eprintln!("  callback arg: type={}", callback_arg.ty);
                     }
@@ -3902,18 +3957,19 @@ pub struct OnTextInputReturn {
                 }
             }
         "#;
-        
+
         let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");
-        
+
         for item in &syntax_tree.items {
             if let Item::Impl(impl_block) = item {
                 for impl_item in &impl_block.items {
                     if let syn::ImplItem::Fn(method) = impl_item {
-                        let method_def = extract_method_def(method, "TestType").expect("Should extract method");
-                        
+                        let method_def =
+                            extract_method_def(method, "TestType").expect("Should extract method");
+
                         assert_eq!(method_def.name, "clone_item");
                         assert_eq!(method_def.args.len(), 1);
-                        
+
                         let item_arg = &method_def.args[0];
                         assert_eq!(item_arg.name, "item");
                         // Should stay as "T" because Clone is not Into<T>
@@ -3922,7 +3978,7 @@ pub struct OnTextInputReturn {
                             "Generic T: Clone should NOT be rewritten, got '{}'",
                             item_arg.ty
                         );
-                        
+
                         eprintln!("✓ Non-Into generic correctly preserved as 'T'");
                     }
                 }
@@ -3942,15 +3998,16 @@ pub struct OnTextInputReturn {
                 }
             }
         "#;
-        
+
         let syntax_tree: File = syn::parse_file(source).expect("Failed to parse");
-        
+
         for item in &syntax_tree.items {
             if let Item::Impl(impl_block) = item {
                 for impl_item in &impl_block.items {
                     if let syn::ImplItem::Fn(method) = impl_item {
-                        let method_def = extract_method_def(method, "TestType").expect("Should extract method");
-                        
+                        let method_def =
+                            extract_method_def(method, "TestType").expect("Should extract method");
+
                         assert_eq!(method_def.name, "with_callback");
                         let callback_arg = &method_def.args[0];
                         assert_eq!(callback_arg.name, "callback");
@@ -3959,7 +4016,7 @@ pub struct OnTextInputReturn {
                             "Concrete Callback should remain 'Callback', got '{}'",
                             callback_arg.ty
                         );
-                        
+
                         eprintln!("✓ Concrete Callback type preserved");
                     }
                 }

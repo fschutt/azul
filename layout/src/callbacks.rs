@@ -86,11 +86,18 @@ pub struct PenTilt {
 
 impl From<(f32, f32)> for PenTilt {
     fn from((x, y): (f32, f32)) -> Self {
-        Self { x_tilt: x, y_tilt: y }
+        Self {
+            x_tilt: x,
+            y_tilt: y,
+        }
     }
 }
 
-impl_option!(PenTilt, OptionPenTilt, [Debug, Clone, Copy, PartialEq, PartialOrd]);
+impl_option!(
+    PenTilt,
+    OptionPenTilt,
+    [Debug, Clone, Copy, PartialEq, PartialOrd]
+);
 
 /// FFI-safe wrapper for select-all result (full_text, selected_range)
 #[derive(Debug, Clone, PartialEq)]
@@ -111,7 +118,12 @@ impl From<(alloc::string::String, SelectionRange)> for SelectAllResult {
     }
 }
 
-impl_option!(SelectAllResult, OptionSelectAllResult, copy = false, [Debug, Clone, PartialEq]);
+impl_option!(
+    SelectAllResult,
+    OptionSelectAllResult,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 /// FFI-safe wrapper for delete inspection result (range_to_delete, deleted_text)
 #[derive(Debug, Clone, PartialEq)]
@@ -132,7 +144,12 @@ impl From<(SelectionRange, alloc::string::String)> for DeleteResult {
     }
 }
 
-impl_option!(DeleteResult, OptionDeleteResult, copy = false, [Debug, Clone, PartialEq]);
+impl_option!(
+    DeleteResult,
+    OptionDeleteResult,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 /// Represents a change made by a callback that will be applied after the callback returns
 ///
@@ -344,13 +361,11 @@ pub enum CallbackChange {
 
     // Hit Test Request (for Debug API)
     /// Request a hit test update at a specific position
-    /// 
+    ///
     /// This is used by the Debug API to update the hover manager's hit test
     /// data after modifying the mouse position, ensuring that callbacks
     /// can find the correct nodes under the cursor.
-    RequestHitTestUpdate {
-        position: LogicalPosition,
-    },
+    RequestHitTestUpdate { position: LogicalPosition },
 }
 
 /// Main callback type for UI event handling
@@ -407,7 +422,7 @@ impl From<Callback> for CoreCallback {
 }
 
 /// Convert a raw function pointer to CoreCallback
-/// 
+///
 /// This is a helper function that wraps the function pointer cast.
 /// Cannot use From trait due to orphan rules (extern "C" fn is not a local type).
 #[inline]
@@ -536,7 +551,7 @@ pub struct CallbackInfoRefData<'a> {
 /// data lives on the stack and outlives the callback invocation.
 /// This allows callbacks to "consume" CallbackInfo by value while the caller
 /// retains access to the same underlying data.
-/// 
+///
 /// The `changes` field uses a pointer to Arc<Mutex<...>> so that cloned CallbackInfo instances
 /// (e.g., passed to timer callbacks) still push changes to the original collection,
 /// while keeping CallbackInfo as Copy.
@@ -588,7 +603,7 @@ impl CallbackInfo {
             changes: changes as *const Arc<Mutex<Vec<CallbackChange>>>,
         }
     }
-    
+
     #[cfg(not(feature = "std"))]
     pub fn new<'a>(
         ref_data: &'a CallbackInfoRefData<'a>,
@@ -632,18 +647,18 @@ impl CallbackInfo {
             }
         }
     }
-    
+
     #[cfg(not(feature = "std"))]
     pub fn push_change(&mut self, change: CallbackChange) {
         unsafe { (*self.changes).push(change) }
     }
-    
+
     /// Debug helper to get the changes pointer for debugging
     #[cfg(feature = "std")]
     pub fn get_changes_ptr(&self) -> *const () {
         self.changes as *const ()
     }
-    
+
     /// Get the collected changes (consumes them from the Arc<Mutex>)
     #[cfg(feature = "std")]
     pub fn take_changes(&self) -> Vec<CallbackChange> {
@@ -656,7 +671,7 @@ impl CallbackInfo {
             }
         }
     }
-    
+
     #[cfg(not(feature = "std"))]
     pub fn take_changes(&self) -> Vec<CallbackChange> {
         unsafe { core::mem::take(&mut *self.changes) }
@@ -862,28 +877,31 @@ impl CallbackInfo {
             Some(h) => h,
             None => return NodeIdVec::from_const_slice(&[]),
         };
-        
+
         // Get first child - if none, return empty
         let first_child = match hier_item.first_child_id(node_id) {
             Some(fc) => fc,
             None => return NodeIdVec::from_const_slice(&[]),
         };
-        
+
         // Collect children by walking the sibling chain
         let mut children: Vec<NodeHierarchyItemId> = Vec::new();
         children.push(NodeHierarchyItemId::from_crate_internal(Some(first_child)));
-        
+
         let mut current = first_child;
-        while let Some(next_sibling) = node_hierarchy.get(current).and_then(|h| h.next_sibling_id()) {
+        while let Some(next_sibling) = node_hierarchy
+            .get(current)
+            .and_then(|h| h.next_sibling_id())
+        {
             children.push(NodeHierarchyItemId::from_crate_internal(Some(next_sibling)));
             current = next_sibling;
         }
-        
+
         NodeIdVec::from(children)
     }
 
     /// Get the number of direct children of the given node
-    /// 
+    ///
     /// Uses the contiguous node layout for efficient counting.
     pub fn get_children_count(&self, dom_id: DomId, node_id: NodeId) -> usize {
         let layout_window = self.get_layout_window();
@@ -896,21 +914,24 @@ impl CallbackInfo {
             Some(h) => h,
             None => return 0,
         };
-        
+
         // Get first child - if none, return 0
         let first_child = match hier_item.first_child_id(node_id) {
             Some(fc) => fc,
             None => return 0,
         };
-        
+
         // Count children by walking the sibling chain
         let mut count = 1;
         let mut current = first_child;
-        while let Some(next_sibling) = node_hierarchy.get(current).and_then(|h| h.next_sibling_id()) {
+        while let Some(next_sibling) = node_hierarchy
+            .get(current)
+            .and_then(|h| h.next_sibling_id())
+        {
             count += 1;
             current = next_sibling;
         }
-        
+
         count
     }
 
@@ -947,7 +968,9 @@ impl CallbackInfo {
     /// * `property` - The CSS property to set
     pub fn set_css_property(&mut self, node_id: DomNodeId, property: CssProperty) {
         let dom_id = node_id.dom;
-        let internal_node_id = node_id.node.into_crate_internal()
+        let internal_node_id = node_id
+            .node
+            .into_crate_internal()
             .expect("DomNodeId node should not be None");
         self.change_node_css_properties(dom_id, internal_node_id, vec![property].into());
     }
@@ -1226,7 +1249,7 @@ impl CallbackInfo {
     }
 
     /// Get the hit test bounds of a node from the display list
-    /// 
+    ///
     /// This is more reliable than get_node_rect because the display list
     /// always contains the correct final rendered positions.
     pub fn get_node_hit_test_bounds(&self, node_id: DomNodeId) -> Option<LogicalRect> {
@@ -1459,7 +1482,9 @@ impl CallbackInfo {
                     if dataset.get_type_id() == search_type_id {
                         let node_id = DomNodeId {
                             dom: dom_id,
-                            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_idx))),
+                            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(
+                                node_idx,
+                            ))),
                         };
                         let instance_id = dataset.instance_id;
 
@@ -1518,7 +1543,7 @@ impl CallbackInfo {
     /// This searches the strongly-typed AttributeVec on the node.
     pub fn get_node_attribute(&self, node_id: DomNodeId, attr_name: &str) -> Option<AzString> {
         use azul_core::dom::AttributeType;
-        
+
         let layout_window = self.get_layout_window();
         let layout_result = layout_window.get_layout_result(&node_id.dom)?;
         let node_id_internal = node_id.node.into_crate_internal()?;
@@ -1564,17 +1589,25 @@ impl CallbackInfo {
                 ("colspan", AttributeType::ColSpan(v)) => return Some(v.to_string().into()),
                 ("rowspan", AttributeType::RowSpan(v)) => return Some(v.to_string().into()),
                 ("tabindex", AttributeType::TabIndex(v)) => return Some(v.to_string().into()),
-                ("contenteditable", AttributeType::ContentEditable(v)) => return Some(v.to_string().into()),
+                ("contenteditable", AttributeType::ContentEditable(v)) => {
+                    return Some(v.to_string().into())
+                }
                 ("draggable", AttributeType::Draggable(v)) => return Some(v.to_string().into()),
                 // Handle data-* attributes
-                (name, AttributeType::Data(nv)) if name.starts_with("data-") && nv.attr_name.as_str() == &name[5..] => {
+                (name, AttributeType::Data(nv))
+                    if name.starts_with("data-") && nv.attr_name.as_str() == &name[5..] =>
+                {
                     return Some(nv.value.clone());
                 }
                 // Handle aria-* state/property attributes
-                (name, AttributeType::AriaState(nv)) if name == format!("aria-{}", nv.attr_name.as_str()) => {
+                (name, AttributeType::AriaState(nv))
+                    if name == format!("aria-{}", nv.attr_name.as_str()) =>
+                {
                     return Some(nv.value.clone());
                 }
-                (name, AttributeType::AriaProperty(nv)) if name == format!("aria-{}", nv.attr_name.as_str()) => {
+                (name, AttributeType::AriaProperty(nv))
+                    if name == format!("aria-{}", nv.attr_name.as_str()) =>
+                {
                     return Some(nv.value.clone());
                 }
                 // Handle custom attributes
@@ -1595,7 +1628,9 @@ impl CallbackInfo {
         }
 
         if attr_name == "class" {
-            let classes: Vec<&str> = node_data.ids_and_classes.as_ref()
+            let classes: Vec<&str> = node_data
+                .ids_and_classes
+                .as_ref()
                 .iter()
                 .filter_map(|ioc| {
                     if let IdOrClass::Class(class) = ioc {
@@ -1629,7 +1664,9 @@ impl CallbackInfo {
             None => return StringVec::from_const_slice(&[]),
         };
 
-        let classes: Vec<AzString> = node_data.ids_and_classes.as_ref()
+        let classes: Vec<AzString> = node_data
+            .ids_and_classes
+            .as_ref()
             .iter()
             .filter_map(|ioc| {
                 if let IdOrClass::Class(class) = ioc {
@@ -1639,7 +1676,7 @@ impl CallbackInfo {
                 }
             })
             .collect();
-        
+
         StringVec::from(classes)
     }
 
@@ -1904,47 +1941,51 @@ impl CallbackInfo {
     /// ```
     pub fn take_screenshot(&self, dom_id: DomId) -> Result<alloc::vec::Vec<u8>, AzString> {
         use crate::cpurender::{render, RenderOptions};
-        
+
         let layout_window = self.get_layout_window();
         let renderer_resources = self.get_renderer_resources();
-        
+
         // Get the layout result for this DOM
-        let layout_result = layout_window.layout_results.get(&dom_id)
+        let layout_result = layout_window
+            .layout_results
+            .get(&dom_id)
             .ok_or_else(|| AzString::from("DOM not found in layout results"))?;
-        
+
         // Get viewport dimensions
         let viewport = &layout_result.viewport;
         let width = viewport.size.width;
         let height = viewport.size.height;
-        
+
         if width <= 0.0 || height <= 0.0 {
             return Err(AzString::from("Invalid viewport dimensions"));
         }
-        
+
         // Get the display list
         let display_list = &layout_result.display_list;
-        
+
         // Get DPI factor from window state
-        let dpi_factor = self.get_current_window_state()
+        let dpi_factor = self
+            .get_current_window_state()
             .size
             .get_hidpi_factor()
             .inner
             .get();
-        
+
         // Render to pixmap
         let opts = RenderOptions {
             width,
             height,
             dpi_factor,
         };
-        
-        let pixmap = render(display_list, renderer_resources, opts)
-            .map_err(|e| AzString::from(e))?;
-        
+
+        let pixmap =
+            render(display_list, renderer_resources, opts).map_err(|e| AzString::from(e))?;
+
         // Encode to PNG
-        let png_data = pixmap.encode_png()
+        let png_data = pixmap
+            .encode_png()
             .map_err(|e| AzString::from(alloc::format!("PNG encoding failed: {}", e)))?;
-        
+
         Ok(png_data)
     }
 
@@ -1979,7 +2020,7 @@ impl CallbackInfo {
     pub fn take_native_screenshot(&self, _path: &str) -> Result<(), AzString> {
         Err(AzString::from(
             "Native screenshot requires the NativeScreenshotExt trait from azul-dll crate. \
-             Import it with: use azul::desktop::NativeScreenshotExt;"
+             Import it with: use azul::desktop::NativeScreenshotExt;",
         ))
     }
 
@@ -1996,14 +2037,14 @@ impl CallbackInfo {
         // Create a temporary file, take screenshot, read bytes, delete file
         let temp_path = std::env::temp_dir().join("azul_screenshot_temp.png");
         let temp_path_str = temp_path.to_string_lossy().to_string();
-        
+
         self.take_native_screenshot(&temp_path_str)?;
-        
+
         let bytes = std::fs::read(&temp_path)
             .map_err(|e| AzString::from(alloc::format!("Failed to read screenshot: {}", e)))?;
-        
+
         let _ = std::fs::remove_file(&temp_path);
-        
+
         Ok(bytes)
     }
 
@@ -2020,7 +2061,10 @@ impl CallbackInfo {
     pub fn take_native_screenshot_base64(&self) -> Result<AzString, AzString> {
         let png_bytes = self.take_native_screenshot_bytes()?;
         let base64_str = base64_encode(&png_bytes);
-        Ok(AzString::from(alloc::format!("data:image/png;base64,{}", base64_str)))
+        Ok(AzString::from(alloc::format!(
+            "data:image/png;base64,{}",
+            base64_str
+        )))
     }
 
     /// Take a CPU-rendered screenshot and return as a Base64 data URI
@@ -2034,7 +2078,10 @@ impl CallbackInfo {
     pub fn take_screenshot_base64(&self, dom_id: DomId) -> Result<AzString, AzString> {
         let png_bytes = self.take_screenshot(dom_id)?;
         let base64_str = base64_encode(&png_bytes);
-        Ok(AzString::from(alloc::format!("data:image/png;base64,{}", base64_str)))
+        Ok(AzString::from(alloc::format!(
+            "data:image/png;base64,{}",
+            base64_str
+        )))
     }
 
     // Manager Access (Read-Only)
@@ -2350,15 +2397,22 @@ impl CallbackInfo {
     // Scroll Manager Query Methods
 
     /// Get the current scroll offset for the hit node (if it's scrollable)
-    /// 
+    ///
     /// Convenience method that uses the `hit_dom_node` from this callback.
     /// Use `get_scroll_offset_for_node` if you need to query a specific node.
     pub fn get_scroll_offset(&self) -> Option<LogicalPosition> {
-        self.get_scroll_offset_for_node(self.hit_dom_node.dom, self.hit_dom_node.node.into_crate_internal().unwrap())
+        self.get_scroll_offset_for_node(
+            self.hit_dom_node.dom,
+            self.hit_dom_node.node.into_crate_internal().unwrap(),
+        )
     }
 
     /// Get the current scroll offset for a specific node (if it's scrollable)
-    pub fn get_scroll_offset_for_node(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
+    pub fn get_scroll_offset_for_node(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<LogicalPosition> {
         self.get_scroll_manager()
             .get_current_offset(dom_id, node_id)
     }
@@ -2432,10 +2486,7 @@ impl CallbackInfo {
     /// Inspect what text would be selected by Select All operation
     ///
     /// Returns the full text content and the range that would be selected.
-    pub fn inspect_select_all_changeset(
-        &self,
-        target: DomNodeId,
-    ) -> Option<SelectAllResult> {
+    pub fn inspect_select_all_changeset(&self, target: DomNodeId) -> Option<SelectAllResult> {
         use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
 
         let layout_window = self.get_layout_window();
@@ -2504,11 +2555,12 @@ impl CallbackInfo {
             };
 
         // Use text3::edit::inspect_delete to determine what would be deleted
-        crate::text3::edit::inspect_delete(&content, &selection, forward)
-            .map(|(range, text)| DeleteResult {
+        crate::text3::edit::inspect_delete(&content, &selection, forward).map(|(range, text)| {
+            DeleteResult {
                 range_to_delete: range,
                 deleted_text: text.into(),
-            })
+            }
+        })
     }
 
     /// Inspect a pending undo operation
@@ -3237,7 +3289,10 @@ impl_callback!(RenderImageCallback, RenderImageCallbackType);
 impl RenderImageCallback {
     /// Create a new callback with just a function pointer (for native Rust code)
     pub fn create(cb: RenderImageCallbackType) -> Self {
-        Self { cb, ctx: OptionRefAny::None }
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
     }
 
     /// Convert from the core crate's `CoreRenderImageCallback` (which stores cb as usize)
@@ -3423,34 +3478,35 @@ impl From<Result<AzString, AzString>> for ResultStringString {
 // Base64 encoding helper
 // ============================================================================
 
-const BASE64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// Encode bytes to Base64 string
 fn base64_encode(input: &[u8]) -> alloc::string::String {
     let mut output = alloc::string::String::with_capacity((input.len() + 2) / 3 * 4);
-    
+
     for chunk in input.chunks(3) {
         let b0 = chunk[0] as usize;
         let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
         let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
-        
+
         let n = (b0 << 16) | (b1 << 8) | b2;
-        
+
         output.push(BASE64_ALPHABET[(n >> 18) & 0x3F] as char);
         output.push(BASE64_ALPHABET[(n >> 12) & 0x3F] as char);
-        
+
         if chunk.len() > 1 {
             output.push(BASE64_ALPHABET[(n >> 6) & 0x3F] as char);
         } else {
             output.push('=');
         }
-        
+
         if chunk.len() > 2 {
             output.push(BASE64_ALPHABET[n & 0x3F] as char);
         } else {
             output.push('=');
         }
     }
-    
+
     output
 }

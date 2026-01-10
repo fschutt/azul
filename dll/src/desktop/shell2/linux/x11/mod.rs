@@ -46,6 +46,7 @@ use self::{
     dlopen::{Egl, Gtk3Im, Library, Xkb, Xlib},
 };
 use super::common::gl::GlFunctions;
+use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::desktop::{
     shell2::common::{
         event_v2::{self, PlatformWindowV2},
@@ -53,8 +54,7 @@ use crate::desktop::{
     },
     wr_translate2::{self, AsyncHitTester, Notifier},
 };
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
-use crate::desktop::shell2::common::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 /// X11 error handler to prevent application crashes
 ///
@@ -65,7 +65,10 @@ extern "C" fn x11_error_handler(_display: *mut Display, event: *mut XErrorEvent)
     log_error!(
         LogCategory::Platform,
         "[X11 Error] Opcode: {}, Resource ID: {:#x}, Serial: {}, Error Code: {}",
-        error.request_code, error.resourceid, error.serial, error.error_code
+        error.request_code,
+        error.resourceid,
+        error.serial,
+        error.error_code
     );
     // Return 0 to indicate the error has been handled (don't terminate)
     0
@@ -95,65 +98,76 @@ fn try_create_argb_window(
     attributes: &mut XSetWindowAttributes,
     event_mask: std::ffi::c_long,
 ) -> Option<(Window, bool, Option<Colormap>)> {
-    use defines::{XVisualInfo, AllocNone, TrueColor, CWColormap, CWBorderPixel, CWBackPixmap, CWEventMask, InputOutput};
-    
+    use defines::{
+        AllocNone, CWBackPixmap, CWBorderPixel, CWColormap, CWEventMask, InputOutput, TrueColor,
+        XVisualInfo,
+    };
+
     let xrender = xrender?;
-    
+
     // Try to find a 32-bit TrueColor visual with alpha channel
     let mut visual_info: XVisualInfo = unsafe { std::mem::zeroed() };
-    let found = unsafe {
-        (xlib.XMatchVisualInfo)(display, screen, 32, TrueColor, &mut visual_info)
-    };
-    
+    let found =
+        unsafe { (xlib.XMatchVisualInfo)(display, screen, 32, TrueColor, &mut visual_info) };
+
     if found == 0 {
-        log_debug!(LogCategory::Platform, "[X11] No 32-bit TrueColor visual found");
+        log_debug!(
+            LogCategory::Platform,
+            "[X11] No 32-bit TrueColor visual found"
+        );
         return None;
     }
-    
+
     // Check with XRender if this visual has an alpha mask
-    let pict_format = unsafe {
-        (xrender.XRenderFindVisualFormat)(display, visual_info.visual)
-    };
-    
+    let pict_format = unsafe { (xrender.XRenderFindVisualFormat)(display, visual_info.visual) };
+
     if pict_format.is_null() {
-        log_debug!(LogCategory::Platform, "[X11] XRenderFindVisualFormat returned null");
+        log_debug!(
+            LogCategory::Platform,
+            "[X11] XRenderFindVisualFormat returned null"
+        );
         return None;
     }
-    
+
     let alpha_mask = unsafe { (*pict_format).direct.alpha_mask };
     if alpha_mask == 0 {
-        log_debug!(LogCategory::Platform, "[X11] Visual has no alpha mask (alphaMask=0)");
+        log_debug!(
+            LogCategory::Platform,
+            "[X11] Visual has no alpha mask (alphaMask=0)"
+        );
         return None;
     }
-    
-    log_info!(LogCategory::Platform, 
-        "[X11] Found ARGB visual: depth={}, alphaMask={}", 
-        visual_info.depth, alpha_mask);
-    
+
+    log_info!(
+        LogCategory::Platform,
+        "[X11] Found ARGB visual: depth={}, alphaMask={}",
+        visual_info.depth,
+        alpha_mask
+    );
+
     // Create a colormap for this visual
-    let colormap = unsafe {
-        (xlib.XCreateColormap)(display, root, visual_info.visual, AllocNone)
-    };
-    
+    let colormap = unsafe { (xlib.XCreateColormap)(display, root, visual_info.visual, AllocNone) };
+
     if colormap == 0 {
         log_debug!(LogCategory::Platform, "[X11] XCreateColormap failed");
         return None;
     }
-    
+
     // Set up window attributes for ARGB window
     attributes.colormap = colormap;
     attributes.background_pixmap = 0; // None
     attributes.border_pixel = 0;
     attributes.event_mask = event_mask;
-    
+
     let attr_mask = CWColormap | CWBackPixmap | CWBorderPixel | CWEventMask;
-    
+
     // Create window with ARGB visual
     let window = unsafe {
         (xlib.XCreateWindow)(
             display,
             root,
-            0, 0,
+            0,
+            0,
             size.dimensions.width as u32,
             size.dimensions.height as u32,
             0, // border_width
@@ -164,16 +178,22 @@ fn try_create_argb_window(
             attributes,
         )
     };
-    
+
     if window == 0 {
-        log_debug!(LogCategory::Platform, "[X11] XCreateWindow with ARGB visual failed");
+        log_debug!(
+            LogCategory::Platform,
+            "[X11] XCreateWindow with ARGB visual failed"
+        );
         // Clean up colormap
         unsafe { (xlib.XFreeColormap)(display, colormap) };
         return None;
     }
-    
-    log_info!(LogCategory::Platform, "[X11] Created window with ARGB visual for background transparency");
-    
+
+    log_info!(
+        LogCategory::Platform,
+        "[X11] Created window with ARGB visual for background transparency"
+    );
+
     Some((window, true, Some(colormap)))
 }
 
@@ -182,7 +202,7 @@ pub struct X11Window {
     pub egl: Rc<Egl>,
     pub xkb: Rc<Xkb>,
     pub xrender: Option<Rc<dlopen::Xrender>>, // Optional XRender for ARGB visual detection
-    pub gtk_im: Option<Rc<Gtk3Im>>, // Optional GTK IM context for IME
+    pub gtk_im: Option<Rc<Gtk3Im>>,           // Optional GTK IM context for IME
     pub gtk_im_context: Option<*mut dlopen::GtkIMContext>, // GTK IM context instance
     pub display: *mut Display,
     pub window: Window,
@@ -196,7 +216,7 @@ pub struct X11Window {
 
     // ARGB visual support for true background transparency
     // See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
-    pub has_argb_visual: bool,       // True if window was created with 32-bit ARGB visual
+    pub has_argb_visual: bool, // True if window was created with 32-bit ARGB visual
     pub argb_colormap: Option<Colormap>, // Custom colormap for ARGB visual (needs cleanup)
 
     // Shell2 state
@@ -300,7 +320,11 @@ impl PlatformWindow for X11Window {
                 defines::Expose => {
                     // Actually render and present the frame instead of just requesting another redraw
                     if let Err(e) = self.render_and_present() {
-                        log_warn!(LogCategory::Rendering, "[X11] render_and_present failed: {:?}", e);
+                        log_warn!(
+                            LogCategory::Rendering,
+                            "[X11] render_and_present failed: {:?}",
+                            e
+                        );
                     }
                     ProcessEventResult::DoNothing
                 }
@@ -352,9 +376,14 @@ impl PlatformWindow for X11Window {
                         };
 
                         // Check if any CSS breakpoints were crossed
-                        let breakpoints = [320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
-                        if old_context.viewport_breakpoint_changed(&self.dynamic_selector_context, &breakpoints) {
-                            log_debug!(LogCategory::Layout,
+                        let breakpoints =
+                            [320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
+                        if old_context.viewport_breakpoint_changed(
+                            &self.dynamic_selector_context,
+                            &breakpoints,
+                        ) {
+                            log_debug!(
+                                LogCategory::Layout,
                                 "[X11 Resize] Breakpoint crossed: {}x{} -> {}x{}",
                                 old_context.viewport_width,
                                 old_context.viewport_height,
@@ -392,7 +421,8 @@ impl PlatformWindow for X11Window {
                                 log_debug!(
                                     LogCategory::Window,
                                     "[X11 DPI Change] {} -> {} (moved to different monitor)",
-                                    old_dpi, new_dpi
+                                    old_dpi,
+                                    new_dpi
                                 );
                                 self.current_window_state.size.dpi = new_dpi;
                                 self.regenerate_layout().ok();
@@ -404,10 +434,17 @@ impl PlatformWindow for X11Window {
                 }
                 defines::ClientMessage => {
                     let msg_atom = unsafe { event.client_message.data.l[0] } as Atom;
-                    log_debug!(LogCategory::Window, "[X11] ClientMessage received: msg_atom={}, wm_delete_atom={}", 
-                        msg_atom, self.wm_delete_window_atom);
+                    log_debug!(
+                        LogCategory::Window,
+                        "[X11] ClientMessage received: msg_atom={}, wm_delete_atom={}",
+                        msg_atom,
+                        self.wm_delete_window_atom
+                    );
                     if msg_atom == self.wm_delete_window_atom {
-                        log_info!(LogCategory::Window, "[X11] WM_DELETE_WINDOW matched - closing window");
+                        log_info!(
+                            LogCategory::Window,
+                            "[X11] WM_DELETE_WINDOW matched - closing window"
+                        );
                         self.is_open = false;
                         return Some(X11Event::Close);
                     }
@@ -461,7 +498,10 @@ impl PlatformWindow for X11Window {
 
         // CI testing: Exit successfully after first frame render if env var is set
         if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
-            log_info!(LogCategory::General, "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success");
+            log_info!(
+                LogCategory::General,
+                "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting with success"
+            );
             std::process::exit(0);
         }
 
@@ -526,7 +566,7 @@ impl X11Window {
     ) -> Result<Self, WindowError> {
         // Extract create_callback before consuming options
         let create_callback = options.create_callback.clone();
-        
+
         let xlib = Xlib::new()
             .map_err(|e| WindowError::PlatformError(format!("Failed to load libX11: {:?}", e)))?;
         let egl = Egl::new()
@@ -544,12 +584,18 @@ impl X11Window {
         // Try to load GTK3 IM context for IME support (optional, fail silently)
         let (gtk_im, gtk_im_context) = match Gtk3Im::new() {
             Ok(gtk) => {
-                log_info!(LogCategory::Platform, "[X11] GTK3 IM context loaded for IME support");
+                log_info!(
+                    LogCategory::Platform,
+                    "[X11] GTK3 IM context loaded for IME support"
+                );
                 let ctx = unsafe { (gtk.gtk_im_context_simple_new)() };
                 if !ctx.is_null() {
                     (Some(gtk), Some(ctx))
                 } else {
-                    log_warn!(LogCategory::Platform, "[X11] Failed to create GTK IM context instance");
+                    log_warn!(
+                        LogCategory::Platform,
+                        "[X11] Failed to create GTK IM context instance"
+                    );
                     (None, None)
                 }
             }
@@ -604,26 +650,34 @@ impl X11Window {
         // Try to create window with ARGB visual for true background transparency
         // This allows background-only transparency where the background is transparent
         // but rendered content stays opaque (using glClearColor with alpha=0)
-        let (window_handle, has_argb_visual, argb_colormap) = 
-            try_create_argb_window(&xlib, xrender.as_ref(), display, screen, root, &size, &mut attributes, event_mask)
-                .unwrap_or_else(|| {
-                    // Fallback to simple window without ARGB visual
-                    let window = unsafe {
-                        (xlib.XCreateSimpleWindow)(
-                            display,
-                            root,
-                            0,
-                            0,
-                            size.dimensions.width as u32,
-                            size.dimensions.height as u32,
-                            1,
-                            0,
-                            0,
-                        )
-                    };
-                    (window, false, None)
-                });
-        
+        let (window_handle, has_argb_visual, argb_colormap) = try_create_argb_window(
+            &xlib,
+            xrender.as_ref(),
+            display,
+            screen,
+            root,
+            &size,
+            &mut attributes,
+            event_mask,
+        )
+        .unwrap_or_else(|| {
+            // Fallback to simple window without ARGB visual
+            let window = unsafe {
+                (xlib.XCreateSimpleWindow)(
+                    display,
+                    root,
+                    0,
+                    0,
+                    size.dimensions.width as u32,
+                    size.dimensions.height as u32,
+                    1,
+                    0,
+                    0,
+                )
+            };
+            (window, false, None)
+        });
+
         unsafe { (xlib.XSelectInput)(display, window_handle, event_mask) };
 
         let wm_delete_window_atom =
@@ -680,8 +734,12 @@ impl X11Window {
                     RendererType::Hardware,
                     gl_functions.functions.clone(),
                 ));
-                log_debug!(LogCategory::Platform, "[X11] GPU rendering initialized ({}x{})", 
-                    framebuffer_size.width, framebuffer_size.height);
+                log_debug!(
+                    LogCategory::Platform,
+                    "[X11] GPU rendering initialized ({}x{})",
+                    framebuffer_size.width,
+                    framebuffer_size.height
+                );
 
                 (
                     RenderMode::Gpu(gl_context, gl_functions),
@@ -694,7 +752,11 @@ impl X11Window {
                 )
             }
             Err(e) => {
-                log_warn!(LogCategory::Platform, "[X11] GL context creation failed: {:?}, falling back to CPU rendering", e);
+                log_warn!(
+                    LogCategory::Platform,
+                    "[X11] GL context creation failed: {:?}, falling back to CPU rendering",
+                    e
+                );
                 let gc =
                     unsafe { (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut()) };
                 (
@@ -767,7 +829,8 @@ impl X11Window {
             resources: resources.clone(),
             dynamic_selector_context: {
                 let sys = azul_css::system::SystemStyle::new();
-                let mut ctx = azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
+                let mut ctx =
+                    azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
                 ctx.viewport_width = options.window_state.size.dimensions.width;
                 ctx.viewport_height = options.window_state.size.dimensions.height;
                 ctx.orientation = if ctx.viewport_width > ctx.viewport_height {
@@ -806,7 +869,9 @@ impl X11Window {
 
         // Initialize GNOME native menus V2 (dlopen-based)
         // Only attempt if use_native_menus is true and GNOME is available
-        if options.window_state.flags.use_native_menus && super::gnome_menu::should_use_gnome_menus() {
+        if options.window_state.flags.use_native_menus
+            && super::gnome_menu::should_use_gnome_menus()
+        {
             // Get shared DBus library (loaded once, shared across all windows)
             if let Some(dbus_lib) = super::gnome_menu::get_shared_dbus_lib() {
                 let app_name = &options.window_state.title;
@@ -856,20 +921,23 @@ impl X11Window {
         // This runs AFTER GL context is ready but BEFORE any layout is done
         if let Some(mut callback) = create_callback.into_option() {
             use azul_core::window::RawWindowHandle;
-            
+
             let raw_handle = RawWindowHandle::Xlib(azul_core::window::XlibHandle {
                 window: window.window as u64,
                 display: window.display as *mut _,
             });
-            
+
             // Initialize LayoutWindow if not already done
             if window.layout_window.is_none() {
-                let mut layout_window = azul_layout::window::LayoutWindow::new(
-                    (*window.resources.fc_cache).clone()
-                ).map_err(|e| {
-                    WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
-                })?;
-                
+                let mut layout_window =
+                    azul_layout::window::LayoutWindow::new((*window.resources.fc_cache).clone())
+                        .map_err(|e| {
+                            WindowError::PlatformError(format!(
+                                "Failed to create LayoutWindow: {:?}",
+                                e
+                            ))
+                        })?;
+
                 if let Some(doc_id) = window.document_id {
                     layout_window.document_id = doc_id;
                 }
@@ -880,15 +948,17 @@ impl X11Window {
                 layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                 window.layout_window = Some(layout_window);
             }
-            
+
             // Get mutable references needed for invoke_single_callback
-            let layout_window = window.layout_window.as_mut()
+            let layout_window = window
+                .layout_window
+                .as_mut()
                 .expect("LayoutWindow should exist at this point");
             let mut fc_cache_clone = (*window.resources.fc_cache).clone();
-            
+
             // Get app_data for callback
             let mut app_data_ref = window.resources.app_data.borrow_mut();
-            
+
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
                 &mut *app_data_ref,
@@ -902,7 +972,7 @@ impl X11Window {
                 &window.current_window_state,
                 &window.renderer_resources,
             );
-            
+
             // Process callback result (timers, threads, etc.)
             drop(app_data_ref); // Release borrow before process_callback_result_v2
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
@@ -912,12 +982,15 @@ impl X11Window {
         // CRITICAL: Always initialize LayoutWindow if not already done
         // This is needed for rendering even without callbacks or debug mode
         if window.layout_window.is_none() {
-            let mut layout_window = azul_layout::window::LayoutWindow::new(
-                (*window.resources.fc_cache).clone()
-            ).map_err(|e| {
-                WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
-            })?;
-            
+            let mut layout_window =
+                azul_layout::window::LayoutWindow::new((*window.resources.fc_cache).clone())
+                    .map_err(|e| {
+                        WindowError::PlatformError(format!(
+                            "Failed to create LayoutWindow: {:?}",
+                            e
+                        ))
+                    })?;
+
             if let Some(doc_id) = window.document_id {
                 layout_window.document_id = doc_id;
             }
@@ -935,10 +1008,10 @@ impl X11Window {
             if let Some(layout_window) = window.layout_window.as_mut() {
                 use azul_core::task::TimerId;
                 use azul_layout::callbacks::ExternalSystemCallbacks;
-                
+
                 let timer_id = TimerId { id: 0xDEBE }; // Special debug timer ID
                 let debug_timer = crate::desktop::shell2::common::debug_server::create_debug_timer(
-                    ExternalSystemCallbacks::rust_internal().get_system_time_fn
+                    ExternalSystemCallbacks::rust_internal().get_system_time_fn,
                 );
                 layout_window.timers.insert(timer_id, debug_timer);
             }
@@ -1055,7 +1128,10 @@ impl X11Window {
             let layout_window = match self.layout_window.as_mut() {
                 Some(lw) => lw,
                 None => {
-                    log_warn!(LogCategory::Callbacks, "[X11Window] No layout window available for menu callback");
+                    log_warn!(
+                        LogCategory::Callbacks,
+                        "[X11Window] No layout window available for menu callback"
+                    );
                     continue;
                 }
             };
@@ -1108,15 +1184,15 @@ impl X11Window {
     }
 
     pub fn wait_for_events(&mut self) -> Result<(), WindowError> {
-        use std::mem;
         use super::super::common::event_v2::PlatformWindowV2;
-        
+        use std::mem;
+
         let connection_fd = unsafe { (self.xlib.XConnectionNumber)(self.display) };
-        
+
         unsafe {
             // Flush pending requests first
             (self.xlib.XFlush)(self.display);
-            
+
             // Check if there are already pending events
             if (self.xlib.XPending)(self.display) > 0 {
                 let mut event: XEvent = mem::zeroed();
@@ -1124,17 +1200,17 @@ impl X11Window {
                 self.handle_event(&mut event);
                 return Ok(());
             }
-            
+
             // Build pollfd array: X11 connection + all timer fds
             let mut pollfds: Vec<libc::pollfd> = Vec::with_capacity(1 + self.timer_fds.len());
-            
+
             // Add X11 connection fd
             pollfds.push(libc::pollfd {
                 fd: connection_fd,
                 events: libc::POLLIN,
                 revents: 0,
             });
-            
+
             // Add all timerfd's
             let timer_ids: Vec<usize> = self.timer_fds.keys().copied().collect();
             for &timer_id in &timer_ids {
@@ -1146,12 +1222,16 @@ impl X11Window {
                     });
                 }
             }
-            
+
             // If no timers, use -1 (block indefinitely), otherwise block until something fires
             let timeout_ms = if self.timer_fds.is_empty() { -1 } else { -1 };
-            
-            let result = libc::poll(pollfds.as_mut_ptr(), pollfds.len() as libc::nfds_t, timeout_ms);
-            
+
+            let result = libc::poll(
+                pollfds.as_mut_ptr(),
+                pollfds.len() as libc::nfds_t,
+                timeout_ms,
+            );
+
             if result > 0 {
                 // Check X11 connection
                 if pollfds[0].revents & libc::POLLIN != 0 {
@@ -1161,12 +1241,13 @@ impl X11Window {
                         self.handle_event(&mut event);
                     }
                 }
-                
+
                 // Check timerfd's - if any fired, invoke timer callbacks
                 let mut any_timer_fired = false;
                 for (i, &timer_id) in timer_ids.iter().enumerate() {
                     let pollfd_idx = i + 1; // +1 because X11 fd is at index 0
-                    if pollfd_idx < pollfds.len() && pollfds[pollfd_idx].revents & libc::POLLIN != 0 {
+                    if pollfd_idx < pollfds.len() && pollfds[pollfd_idx].revents & libc::POLLIN != 0
+                    {
                         // Read from timerfd to acknowledge the timer
                         if let Some(&fd) = self.timer_fds.get(&timer_id) {
                             let mut expirations: u64 = 0;
@@ -1175,19 +1256,21 @@ impl X11Window {
                         }
                     }
                 }
-                
+
                 // Invoke all expired timer callbacks
                 if any_timer_fired {
                     use azul_core::callbacks::Update;
-                    
+
                     let timer_results = self.invoke_expired_timers();
-                    
+
                     // Process each callback result to handle window state modifications
                     let mut needs_redraw = false;
                     for result in &timer_results {
                         // Apply window state changes from callback result
                         // Also process queued_window_states (for debug server click simulation)
-                        if result.modified_window_state.is_some() || !result.queued_window_states.is_empty() {
+                        if result.modified_window_state.is_some()
+                            || !result.queued_window_states.is_empty()
+                        {
                             // Save previous state BEFORE applying changes (for sync_window_state diff)
                             self.previous_window_state = Some(self.current_window_state.clone());
                             let _ = self.process_callback_result_v2(result);
@@ -1195,11 +1278,14 @@ impl X11Window {
                             self.sync_window_state();
                         }
                         // Check if redraw needed
-                        if matches!(result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                        if matches!(
+                            result.callbacks_update_screen,
+                            Update::RefreshDom | Update::RefreshDomAllWindows
+                        ) {
                             needs_redraw = true;
                         }
                     }
-                    
+
                     if needs_redraw {
                         self.frame_needs_regeneration = true;
                     }
@@ -1208,7 +1294,7 @@ impl X11Window {
             // result == 0: timeout (shouldn't happen with -1)
             // result < 0: error or EINTR - ignore and continue
         }
-        
+
         Ok(())
     }
 
@@ -1227,10 +1313,17 @@ impl X11Window {
             }
             defines::ClientMessage => {
                 let msg_atom = unsafe { event.client_message.data.l[0] } as Atom;
-                log_debug!(LogCategory::Window, "[X11] handle_event: ClientMessage msg_atom={}, wm_delete_atom={}", 
-                    msg_atom, self.wm_delete_window_atom);
+                log_debug!(
+                    LogCategory::Window,
+                    "[X11] handle_event: ClientMessage msg_atom={}, wm_delete_atom={}",
+                    msg_atom,
+                    self.wm_delete_window_atom
+                );
                 if msg_atom == self.wm_delete_window_atom {
-                    log_info!(LogCategory::Window, "[X11] handle_event: WM_DELETE_WINDOW - closing window");
+                    log_info!(
+                        LogCategory::Window,
+                        "[X11] handle_event: WM_DELETE_WINDOW - closing window"
+                    );
                     self.is_open = false;
                 }
                 ProcessEventResult::DoNothing
@@ -1259,7 +1352,11 @@ impl X11Window {
 
         // Collect debug messages if debug server is enabled
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
-        let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
+        let mut debug_messages = if debug_enabled {
+            Some(Vec::new())
+        } else {
+            None
+        };
 
         // Call unified regenerate_layout from common module
         crate::desktop::shell2::common::layout_v2::regenerate_layout(
@@ -1349,7 +1446,7 @@ impl X11Window {
     }
 
     /// Render and present a frame using WebRender
-    /// 
+    ///
     /// This is called on Expose events to actually draw content to the window.
     /// The flow is:
     /// 1. Regenerate layout if needed
@@ -1387,12 +1484,15 @@ impl X11Window {
             physical_size.width as i32,
             physical_size.height as i32,
         );
-        
+
         match renderer.render(framebuffer_size, 0) {
             Ok(_results) => {}
             Err(errors) => {
                 log_warn!(LogCategory::Rendering, "[X11] Render errors: {:?}", errors);
-                return Err(WindowError::PlatformError(format!("Render failed: {:?}", errors)));
+                return Err(WindowError::PlatformError(format!(
+                    "Render failed: {:?}",
+                    errors
+                )));
             }
         }
 
@@ -1424,7 +1524,10 @@ impl X11Window {
 
         // CI testing: Exit successfully after first frame render if env var is set
         if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
-            log_debug!(LogCategory::General, "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting");
+            log_debug!(
+                LogCategory::General,
+                "[CI] AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
+            );
             std::process::exit(0);
         }
 
@@ -1611,8 +1714,10 @@ impl X11Window {
             // Here we just log the state - the actual glClearColor call happens in the renderer
             match material {
                 WindowBackgroundMaterial::Opaque => {
-                    log_debug!(LogCategory::Platform,
-                        "[X11/ARGB] Background material: Opaque (renderer should use alpha=1.0)");
+                    log_debug!(
+                        LogCategory::Platform,
+                        "[X11/ARGB] Background material: Opaque (renderer should use alpha=1.0)"
+                    );
                 }
                 WindowBackgroundMaterial::Transparent => {
                     log_debug!(LogCategory::Platform,
@@ -1651,11 +1756,8 @@ impl X11Window {
                 0, // create if doesn't exist
             );
 
-            let cardinal_atom = (self.xlib.XInternAtom)(
-                self.display,
-                b"CARDINAL\0".as_ptr() as *const i8,
-                0,
-            );
+            let cardinal_atom =
+                (self.xlib.XInternAtom)(self.display, b"CARDINAL\0".as_ptr() as *const i8, 0);
 
             // Set the opacity property
             (self.xlib.XChangeProperty)(
@@ -1666,7 +1768,7 @@ impl X11Window {
                 32, // format (32-bit)
                 0,  // PropModeReplace
                 &opacity as *const u32 as *const u8,
-                1,  // nelements
+                1, // nelements
             );
 
             log_debug!(
@@ -1955,7 +2057,7 @@ impl PlatformWindowV2 for X11Window {
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         // Get interval in milliseconds
         let interval_ms = timer.tick_millis();
-        
+
         // Store timer in layout_window for callback invocation
         if let Some(layout_window) = self.layout_window.as_mut() {
             layout_window
@@ -1966,26 +2068,45 @@ impl PlatformWindowV2 for X11Window {
         // Create timerfd for native timer support
         // This allows the timer to fire even without window events
         unsafe {
-            let fd = libc::timerfd_create(libc::CLOCK_MONOTONIC, libc::TFD_NONBLOCK | libc::TFD_CLOEXEC);
+            let fd = libc::timerfd_create(
+                libc::CLOCK_MONOTONIC,
+                libc::TFD_NONBLOCK | libc::TFD_CLOEXEC,
+            );
             if fd >= 0 {
                 // Convert milliseconds to timespec
                 let secs = (interval_ms / 1000) as i64;
                 let nsecs = ((interval_ms % 1000) * 1_000_000) as i64;
-                
+
                 let spec = libc::itimerspec {
-                    it_interval: libc::timespec { tv_sec: secs, tv_nsec: nsecs },
-                    it_value: libc::timespec { tv_sec: secs, tv_nsec: nsecs },
+                    it_interval: libc::timespec {
+                        tv_sec: secs,
+                        tv_nsec: nsecs,
+                    },
+                    it_value: libc::timespec {
+                        tv_sec: secs,
+                        tv_nsec: nsecs,
+                    },
                 };
-                
+
                 if libc::timerfd_settime(fd, 0, &spec, std::ptr::null_mut()) == 0 {
                     self.timer_fds.insert(timer_id, fd);
-                    log_debug!(LogCategory::Timer, "[X11] Created timerfd {} for timer {} (interval {}ms)", fd, timer_id, interval_ms);
+                    log_debug!(
+                        LogCategory::Timer,
+                        "[X11] Created timerfd {} for timer {} (interval {}ms)",
+                        fd,
+                        timer_id,
+                        interval_ms
+                    );
                 } else {
                     libc::close(fd);
                     log_error!(LogCategory::Timer, "[X11] Failed to set timerfd interval");
                 }
             } else {
-                log_error!(LogCategory::Timer, "[X11] Failed to create timerfd: errno={}", *libc::__errno_location());
+                log_error!(
+                    LogCategory::Timer,
+                    "[X11] Failed to create timerfd: errno={}",
+                    *libc::__errno_location()
+                );
             }
         }
     }
@@ -1997,11 +2118,18 @@ impl PlatformWindowV2 for X11Window {
                 .timers
                 .remove(&azul_core::task::TimerId { id: timer_id });
         }
-        
+
         // Close timerfd
         if let Some(fd) = self.timer_fds.remove(&timer_id) {
-            unsafe { libc::close(fd); }
-            log_debug!(LogCategory::Timer, "[X11] Closed timerfd {} for timer {}", fd, timer_id);
+            unsafe {
+                libc::close(fd);
+            }
+            log_debug!(
+                LogCategory::Timer,
+                "[X11] Closed timerfd {} for timer {}",
+                fd,
+                timer_id
+            );
         }
     }
 
@@ -2057,7 +2185,8 @@ impl PlatformWindowV2 for X11Window {
             log_debug!(
                 LogCategory::Window,
                 "[X11] Native GNOME menu at ({}, {}) - not yet implemented, using fallback",
-                position.x, position.y
+                position.x,
+                position.y
             );
             self.show_fallback_menu(menu, position);
         } else {
@@ -2119,7 +2248,8 @@ impl X11Window {
         log_debug!(
             LogCategory::Window,
             "[X11] Queuing fallback menu window at ({}, {}) - will be created in event loop",
-            position.x, position.y
+            position.x,
+            position.y
         );
 
         self.pending_window_creates.push(menu_options);
@@ -2137,7 +2267,11 @@ impl X11Window {
                     self.tooltip = Some(tooltip_window);
                 }
                 Err(e) => {
-                    log_error!(LogCategory::Window, "[X11] Failed to create tooltip window: {}", e);
+                    log_error!(
+                        LogCategory::Window,
+                        "[X11] Failed to create tooltip window: {}",
+                        e
+                    );
                     return;
                 }
             }
@@ -2169,9 +2303,11 @@ impl Drop for X11Window {
     fn drop(&mut self) {
         // Close all timerfd's
         for (_timer_id, fd) in std::mem::take(&mut self.timer_fds) {
-            unsafe { libc::close(fd); }
+            unsafe {
+                libc::close(fd);
+            }
         }
-        
+
         // Unregister from global registry before closing
         super::registry::unregister_x11_window(self.window);
         self.close();
@@ -2243,11 +2379,15 @@ impl X11Window {
     /// This is called on every poll_event() to simulate timer ticks
     fn check_timers_and_threads(&mut self) {
         use super::super::common::event_v2::PlatformWindowV2;
-        
+
         // Invoke expired timer callbacks
         let timer_results = self.invoke_expired_timers();
         if !timer_results.is_empty() {
-            log_debug!(LogCategory::Timer, "[X11] Invoked {} timer callbacks", timer_results.len());
+            log_debug!(
+                LogCategory::Timer,
+                "[X11] Invoked {} timer callbacks",
+                timer_results.len()
+            );
             self.frame_needs_regeneration = true;
         }
 
@@ -2362,8 +2502,15 @@ impl X11Window {
             let dbus_lib = match dbus::DBusLib::new() {
                 Ok(lib) => lib,
                 Err(e) => {
-                    log_warn!(LogCategory::Platform, "[X11] Failed to load D-Bus library: {}", e);
-                    log_warn!(LogCategory::Platform, "[X11] System sleep prevention not available");
+                    log_warn!(
+                        LogCategory::Platform,
+                        "[X11] Failed to load D-Bus library: {}",
+                        e
+                    );
+                    log_warn!(
+                        LogCategory::Platform,
+                        "[X11] System sleep prevention not available"
+                    );
                     return;
                 }
             };
@@ -2376,7 +2523,10 @@ impl X11Window {
 
                     let conn = (dbus_lib.dbus_bus_get)(dbus::DBUS_BUS_SESSION, &mut error);
                     if (dbus_lib.dbus_error_is_set)(&error) != 0 {
-                        log_error!(LogCategory::Platform, "[X11] Failed to connect to D-Bus session bus");
+                        log_error!(
+                            LogCategory::Platform,
+                            "[X11] Failed to connect to D-Bus session bus"
+                        );
                         (dbus_lib.dbus_error_free)(&mut error);
                         return;
                     }
@@ -2405,7 +2555,10 @@ impl X11Window {
                 );
 
                 if msg.is_null() {
-                    log_error!(LogCategory::Platform, "[X11] Failed to create D-Bus method call");
+                    log_error!(
+                        LogCategory::Platform,
+                        "[X11] Failed to create D-Bus method call"
+                    );
                     return;
                 }
 
@@ -2442,13 +2595,19 @@ impl X11Window {
                 (dbus_lib.dbus_message_unref)(msg);
 
                 if (dbus_lib.dbus_error_is_set)(&error) != 0 {
-                    log_error!(LogCategory::Platform, "[X11] D-Bus ScreenSaver.Inhibit failed");
+                    log_error!(
+                        LogCategory::Platform,
+                        "[X11] D-Bus ScreenSaver.Inhibit failed"
+                    );
                     (dbus_lib.dbus_error_free)(&mut error);
                     return;
                 }
 
                 if reply.is_null() {
-                    log_error!(LogCategory::Platform, "[X11] D-Bus ScreenSaver.Inhibit returned no reply");
+                    log_error!(
+                        LogCategory::Platform,
+                        "[X11] D-Bus ScreenSaver.Inhibit returned no reply"
+                    );
                     return;
                 }
 
@@ -2462,7 +2621,10 @@ impl X11Window {
 
                 let arg_type = (dbus_lib.dbus_message_iter_get_arg_type)(&mut reply_iter);
                 if arg_type != dbus::DBUS_TYPE_UINT32 {
-                    log_error!(LogCategory::Platform, "[X11] D-Bus reply has wrong type: expected uint32");
+                    log_error!(
+                        LogCategory::Platform,
+                        "[X11] D-Bus reply has wrong type: expected uint32"
+                    );
                     (dbus_lib.dbus_message_unref)(reply);
                     return;
                 }
@@ -2476,7 +2638,11 @@ impl X11Window {
                 self.screensaver_inhibit_cookie = Some(cookie);
                 (dbus_lib.dbus_message_unref)(reply);
 
-                log_info!(LogCategory::Platform, "[X11] System sleep prevented (cookie: {})", cookie);
+                log_info!(
+                    LogCategory::Platform,
+                    "[X11] System sleep prevented (cookie: {})",
+                    cookie
+                );
             }
         } else {
             // Remove inhibit
@@ -2494,7 +2660,11 @@ impl X11Window {
             let dbus_lib = match dbus::DBusLib::new() {
                 Ok(lib) => lib,
                 Err(e) => {
-                    log_warn!(LogCategory::Platform, "[X11] Failed to load D-Bus library: {}", e);
+                    log_warn!(
+                        LogCategory::Platform,
+                        "[X11] Failed to load D-Bus library: {}",
+                        e
+                    );
                     return;
                 }
             };
@@ -2514,7 +2684,10 @@ impl X11Window {
                 );
 
                 if msg.is_null() {
-                    log_error!(LogCategory::Platform, "[X11] Failed to create D-Bus method call");
+                    log_error!(
+                        LogCategory::Platform,
+                        "[X11] Failed to create D-Bus method call"
+                    );
                     return;
                 }
 
@@ -2539,7 +2712,10 @@ impl X11Window {
                 (dbus_lib.dbus_message_unref)(msg);
 
                 if (dbus_lib.dbus_error_is_set)(&error) != 0 {
-                    log_error!(LogCategory::Platform, "[X11] D-Bus ScreenSaver.UnInhibit failed");
+                    log_error!(
+                        LogCategory::Platform,
+                        "[X11] D-Bus ScreenSaver.UnInhibit failed"
+                    );
                     (dbus_lib.dbus_error_free)(&mut error);
                     return;
                 }
@@ -2548,7 +2724,11 @@ impl X11Window {
                     (dbus_lib.dbus_message_unref)(reply);
                 }
 
-                log_info!(LogCategory::Platform, "[X11] System sleep allowed (cookie: {})", cookie);
+                log_info!(
+                    LogCategory::Platform,
+                    "[X11] System sleep allowed (cookie: {})",
+                    cookie
+                );
             }
         }
     }

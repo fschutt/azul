@@ -36,8 +36,8 @@ use crate::{
     solver3::{
         geometry::{BoxProps, BoxSizing, IntrinsicSizes},
         getters::{
-            get_css_box_sizing, get_css_height, get_css_width, get_display_property, get_style_properties,
-            get_writing_mode, MultiValue,
+            get_css_box_sizing, get_css_height, get_css_width, get_display_property,
+            get_style_properties, get_writing_mode, MultiValue,
         },
         layout_tree::{AnonymousBoxType, LayoutNode, LayoutTree},
         positioning::get_position_type,
@@ -223,7 +223,8 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
     ) -> Result<IntrinsicSizes> {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
         let writing_mode = if let Some(dom_id) = node.dom_node_id {
-            let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+            let node_state =
+                &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
             get_writing_mode(self.ctx.styled_dom, dom_id, node_state).unwrap_or_default()
         } else {
             LayoutWritingMode::default()
@@ -545,9 +546,9 @@ fn process_layout_children<T: ParsedFontTrait>(
     node: &LayoutNode,
     content: &mut Vec<InlineContent>,
 ) -> Result<()> {
-    use azul_css::props::layout::{LayoutWidth, LayoutHeight};
     use azul_css::props::basic::SizeMetric;
-    
+    use azul_css::props::layout::{LayoutHeight, LayoutWidth};
+
     // Process layout tree children (these are elements with layout properties)
     for &child_index in &node.children {
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
@@ -571,13 +572,14 @@ fn process_layout_children<T: ParsedFontTrait>(
             // (e.g., inline-block, images, floats)
             // Their intrinsic size must have been calculated in the bottom-up pass
             let intrinsic_sizes = child_node.intrinsic_sizes.unwrap_or_default();
-            
+
             // CSS 2.2 § 10.3.9: For inline-block elements with explicit CSS width/height,
             // use the CSS-defined values instead of intrinsic sizes.
-            let node_state = &ctx.styled_dom.styled_nodes.as_container()[child_dom_id].styled_node_state;
+            let node_state =
+                &ctx.styled_dom.styled_nodes.as_container()[child_dom_id].styled_node_state;
             let css_width = get_css_width(ctx.styled_dom, child_dom_id, node_state);
             let css_height = get_css_height(ctx.styled_dom, child_dom_id, node_state);
-            
+
             // Resolve CSS width - use explicit value if set, otherwise fall back to intrinsic
             let used_width = match css_width {
                 MultiValue::Exact(LayoutWidth::Px(px)) => {
@@ -599,7 +601,7 @@ fn process_layout_children<T: ParsedFontTrait>(
                 // For Auto or other values, use intrinsic size
                 _ => intrinsic_sizes.max_content_width,
             };
-            
+
             // Resolve CSS height - use explicit value if set, otherwise fall back to intrinsic
             let used_height = match css_height {
                 MultiValue::Exact(LayoutHeight::Px(px)) => {
@@ -738,7 +740,7 @@ pub fn calculate_used_size_for_node(
     _box_props: &BoxProps,
 ) -> Result<LogicalSize> {
     let Some(id) = dom_id else {
-        // Anonymous boxes: 
+        // Anonymous boxes:
         // - Width fills the containing block (like block-level elements)
         // - Height is auto (content-based)
         // CSS 2.2 § 9.2.1.1: Anonymous boxes inherit from their enclosing box
@@ -765,13 +767,16 @@ pub fn calculate_used_size_for_node(
         LayoutWidth::Auto => {
             // 'auto' width resolution depends on the display type.
             match display.unwrap_or_default() {
-                LayoutDisplay::Block | LayoutDisplay::FlowRoot | LayoutDisplay::ListItem
-                | LayoutDisplay::Flex | LayoutDisplay::Grid => {
+                LayoutDisplay::Block
+                | LayoutDisplay::FlowRoot
+                | LayoutDisplay::ListItem
+                | LayoutDisplay::Flex
+                | LayoutDisplay::Grid => {
                     // For block-level elements (including flex and grid containers),
                     // 'auto' width fills the containing block (minus margins, borders, padding).
                     // CSS 2.1 Section 10.3.3: width = containing_block_width - margin_left -
                     // margin_right - border_left - border_right - padding_left - padding_right
-                    // 
+                    //
                     // Note: Flex/Grid CONTAINERS behave like blocks for sizing purposes.
                     // Flex/Grid ITEMS have different sizing, but that's handled by Taffy
                     // during the formatting context layout, not here.
@@ -921,7 +926,7 @@ pub fn calculate_used_size_for_node(
             (constrained_width, constrained_height)
         }
         azul_css::props::layout::LayoutBoxSizing::ContentBox => {
-            // content-box: The width/height values set the content size, 
+            // content-box: The width/height values set the content size,
             // border and padding are added outside
             // CSS 2.2 § 8.4: "The properties that apply to and affect box dimensions are:
             // margin, border, padding, width, and height."

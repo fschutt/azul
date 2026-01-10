@@ -3,7 +3,8 @@
 use alloc::vec::Vec;
 
 use azul_css::css::{
-    CssContentGroup, CssNthChildSelector, CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector,
+    CssContentGroup, CssNthChildSelector, CssNthChildSelector::*, CssPath, CssPathPseudoSelector,
+    CssPathSelector,
 };
 
 use crate::{
@@ -20,7 +21,12 @@ pub struct CascadeInfo {
     pub is_last_child: bool,
 }
 
-impl_vec!(CascadeInfo, CascadeInfoVec, CascadeInfoVecDestructor, CascadeInfoVecDestructorType);
+impl_vec!(
+    CascadeInfo,
+    CascadeInfoVec,
+    CascadeInfoVecDestructor,
+    CascadeInfoVecDestructorType
+);
 impl_vec_mut!(CascadeInfo, CascadeInfoVec);
 impl_vec_debug!(CascadeInfo, CascadeInfoVec);
 impl_vec_partialord!(CascadeInfo, CascadeInfoVec);
@@ -288,7 +294,7 @@ pub fn construct_html_cascade_tree(
 
         let parent_html_matcher = CascadeInfo {
             index_in_parent: (index_in_parent - 1) as u32,
-            // Necessary for :last selectors 
+            // Necessary for :last selectors
             is_last_child: node_hierarchy[*parent_id].next_sibling.is_none(),
         };
 
@@ -353,7 +359,13 @@ pub fn selector_group_matches(
     is_last_content_group: bool,
 ) -> bool {
     selectors.iter().all(|selector| {
-        match_single_selector(selector, html_node, node_data, expected_path_ending.clone(), is_last_content_group)
+        match_single_selector(
+            selector,
+            html_node,
+            node_data,
+            expected_path_ending.clone(),
+            is_last_content_group,
+        )
     })
 }
 
@@ -372,7 +384,9 @@ fn match_single_selector(
         Type(t) => node_data.get_node_type().get_path() == *t,
         Class(c) => match_class(node_data, c.as_str()),
         Id(id) => match_id(node_data, id.as_str()),
-        PseudoSelector(p) => match_pseudo_selector(p, html_node, expected_path_ending, is_last_content_group),
+        PseudoSelector(p) => {
+            match_pseudo_selector(p, html_node, expected_path_ending, is_last_content_group)
+        }
         DirectChildren | Children | AdjacentSibling | GeneralSibling => false,
     }
 }
@@ -406,9 +420,21 @@ fn match_pseudo_selector(
         CssPathPseudoSelector::First => match_first_child(html_node),
         CssPathPseudoSelector::Last => match_last_child(html_node),
         CssPathPseudoSelector::NthChild(pattern) => match_nth_child(html_node, pattern),
-        CssPathPseudoSelector::Hover => match_interactive_pseudo(CssPathPseudoSelector::Hover, expected_path_ending, is_last_content_group),
-        CssPathPseudoSelector::Active => match_interactive_pseudo(CssPathPseudoSelector::Active, expected_path_ending, is_last_content_group),
-        CssPathPseudoSelector::Focus => match_interactive_pseudo(CssPathPseudoSelector::Focus, expected_path_ending, is_last_content_group),
+        CssPathPseudoSelector::Hover => match_interactive_pseudo(
+            CssPathPseudoSelector::Hover,
+            expected_path_ending,
+            is_last_content_group,
+        ),
+        CssPathPseudoSelector::Active => match_interactive_pseudo(
+            CssPathPseudoSelector::Active,
+            expected_path_ending,
+            is_last_content_group,
+        ),
+        CssPathPseudoSelector::Focus => match_interactive_pseudo(
+            CssPathPseudoSelector::Focus,
+            expected_path_ending,
+            is_last_content_group,
+        ),
         CssPathPseudoSelector::Lang(lang) => {
             // :lang() is matched via DynamicSelector at runtime, not during CSS cascade
             // During cascade, we just check if this is the expected ending
@@ -436,7 +462,7 @@ fn match_last_child(html_node: &CascadeInfo) -> bool {
 /// Matches :nth-child(n), :nth-child(even), :nth-child(odd), or :nth-child(An+B) patterns.
 fn match_nth_child(html_node: &CascadeInfo, pattern: &CssNthChildSelector) -> bool {
     use azul_css::css::CssNthChildPattern;
-    
+
     // nth-child is 1-indexed, index_in_parent is 0-indexed
     let index = html_node.index_in_parent + 1;
 
@@ -444,7 +470,10 @@ fn match_nth_child(html_node: &CascadeInfo, pattern: &CssNthChildSelector) -> bo
         Number(n) => index == *n,
         Even => index % 2 == 0,
         Odd => index % 2 == 1,
-        Pattern(CssNthChildPattern { pattern_repeat, offset }) => {
+        Pattern(CssNthChildPattern {
+            pattern_repeat,
+            offset,
+        }) => {
             if *pattern_repeat == 0 {
                 index == *offset
             } else {

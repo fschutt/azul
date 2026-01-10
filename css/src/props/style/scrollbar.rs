@@ -77,7 +77,7 @@ pub struct OverscrollBehaviorXY {
 // ============================================================================
 
 /// Scroll physics configuration for momentum scrolling
-/// 
+///
 /// This controls how scrolling feels - the "weight" and "friction" of the scroll.
 /// Different platforms have different scroll physics (iOS vs Android vs Windows).
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -86,34 +86,34 @@ pub struct ScrollPhysics {
     /// Smooth scroll animation duration in milliseconds (default: 300ms)
     /// Only used when scroll-behavior: smooth
     pub smooth_scroll_duration_ms: u32,
-    
+
     /// Deceleration rate for momentum scrolling (0.0 = instant stop, 1.0 = never stops)
     /// Typical values: 0.95 (fast deceleration) to 0.998 (slow, iOS-like)
     /// Default: 0.95
     pub deceleration_rate: f32,
-    
+
     /// Minimum velocity threshold to start momentum scrolling (pixels/second)
     /// Below this, scrolling stops immediately. Default: 50.0
     pub min_velocity_threshold: f32,
-    
+
     /// Maximum scroll velocity (pixels/second). Default: 8000.0
     pub max_velocity: f32,
-    
+
     /// Scroll wheel multiplier. Default: 1.0
     /// Values > 1.0 make scrolling faster, < 1.0 slower
     pub wheel_multiplier: f32,
-    
+
     /// Whether to invert scroll direction (natural scrolling). Default: false
     pub invert_direction: bool,
-    
+
     /// Overscroll elasticity (0.0 = no bounce, 1.0 = full bounce like iOS)
     /// Only applies when overscroll-behavior: auto. Default: 0.0 (no bounce)
     pub overscroll_elasticity: f32,
-    
+
     /// Maximum overscroll distance in pixels before rubber-banding stops
     /// Default: 100.0
     pub max_overscroll_distance: f32,
-    
+
     /// Bounce-back duration when releasing overscroll (milliseconds)
     /// Default: 400
     pub bounce_back_duration_ms: u32,
@@ -150,7 +150,7 @@ impl ScrollPhysics {
             bounce_back_duration_ms: 500,
         }
     }
-    
+
     /// macOS-like scroll physics
     pub const fn macos() -> Self {
         Self {
@@ -165,7 +165,7 @@ impl ScrollPhysics {
             bounce_back_duration_ms: 400,
         }
     }
-    
+
     /// Windows-like scroll physics (no momentum, no bounce)
     pub const fn windows() -> Self {
         Self {
@@ -180,7 +180,7 @@ impl ScrollPhysics {
             bounce_back_duration_ms: 200,
         }
     }
-    
+
     /// Android-like scroll physics
     pub const fn android() -> Self {
         Self {

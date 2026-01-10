@@ -7,7 +7,6 @@ use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 #[cfg(feature = "std")]
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use azul_css::{impl_option, impl_option_inner, StringVec};
 use azul_core::{
     dom::{DomId, NodeId, OptionDomNodeId},
     geom::{LogicalPosition, PhysicalPositionI32},
@@ -16,6 +15,7 @@ use azul_core::{
     window::WindowPosition,
 };
 use azul_css::AzString;
+use azul_css::{impl_option, impl_option_inner, StringVec};
 
 #[cfg(feature = "std")]
 static NEXT_EVENT_ID: AtomicU64 = AtomicU64::new(1);
@@ -340,18 +340,17 @@ pub struct PenState {
     pub device_id: u64,
 }
 
-impl_option!(
-    PenState,
-    OptionPenState,
-    [Debug, Clone, Copy, PartialEq]
-);
+impl_option!(PenState, OptionPenState, [Debug, Clone, Copy, PartialEq]);
 
 impl Default for PenState {
     fn default() -> Self {
         Self {
             position: LogicalPosition::zero(),
             pressure: 0.0,
-            tilt: crate::callbacks::PenTilt { x_tilt: 0.0, y_tilt: 0.0 },
+            tilt: crate::callbacks::PenTilt {
+                x_tilt: 0.0,
+                y_tilt: 0.0,
+            },
             in_contact: false,
             is_eraser: false,
             barrel_button_pressed: false,
@@ -667,7 +666,10 @@ impl GestureAndDragManager {
         self.pen_state = Some(PenState {
             position,
             pressure,
-            tilt: crate::callbacks::PenTilt { x_tilt: tilt.0, y_tilt: tilt.1 },
+            tilt: crate::callbacks::PenTilt {
+                x_tilt: tilt.0,
+                y_tilt: tilt.1,
+            },
             in_contact,
             is_eraser,
             barrel_button_pressed,

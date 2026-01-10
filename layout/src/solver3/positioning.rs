@@ -435,8 +435,12 @@ fn find_absolute_containing_block_rect(
 
             // Calculate padding-box size (border-box - borders)
             let padding_box_size = LogicalSize::new(
-                border_box_size.width - parent_node.box_props.border.left - parent_node.box_props.border.right,
-                border_box_size.height - parent_node.box_props.border.top - parent_node.box_props.border.bottom,
+                border_box_size.width
+                    - parent_node.box_props.border.left
+                    - parent_node.box_props.border.right,
+                border_box_size.height
+                    - parent_node.box_props.border.top
+                    - parent_node.box_props.border.bottom,
             );
 
             return Ok(LogicalRect::new(padding_box_pos, padding_box_size));

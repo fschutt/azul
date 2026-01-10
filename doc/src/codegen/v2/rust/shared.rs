@@ -47,20 +47,22 @@ pub fn generate_type_alias(
     config: &CodegenConfig,
 ) {
     let name = config.apply_prefix(&type_alias.name);
-    
+
     // Target types should also be prefixed if they're not primitives
     let target_base = if is_primitive_type(&type_alias.target) || type_alias.target.contains("::") {
         type_alias.target.clone()
     } else {
         config.apply_prefix(&type_alias.target)
     };
-    
+
     // Build the full target type including generic arguments
     let target = if type_alias.generic_args.is_empty() {
         target_base
     } else {
         // Apply prefix to each generic argument
-        let prefixed_args: Vec<String> = type_alias.generic_args.iter()
+        let prefixed_args: Vec<String> = type_alias
+            .generic_args
+            .iter()
             .map(|arg| {
                 if is_primitive_type(arg) || arg.contains("::") {
                     arg.clone()
@@ -71,7 +73,7 @@ pub fn generate_type_alias(
             .collect();
         format!("{}<{}>", target_base, prefixed_args.join(", "))
     };
-    
+
     builder.line(&format!("pub type {} = {};", name, target));
     builder.blank();
 }
@@ -93,19 +95,25 @@ pub fn generate_callback_typedef(
     }
 
     // Generate function pointer signature
-    let args: Vec<String> = callback.args.iter().map(|arg| {
-        let type_name = config.apply_prefix(&arg.type_name);
-        let ref_prefix = match arg.ref_kind {
-            ArgRefKind::Owned => "",
-            ArgRefKind::Ref => "&",
-            ArgRefKind::RefMut => "&mut ",
-            ArgRefKind::Ptr => "*const ",
-            ArgRefKind::PtrMut => "*mut ",
-        };
-        format!("{}{}", ref_prefix, type_name)
-    }).collect();
-    
-    let return_str = callback.return_type.as_ref()
+    let args: Vec<String> = callback
+        .args
+        .iter()
+        .map(|arg| {
+            let type_name = config.apply_prefix(&arg.type_name);
+            let ref_prefix = match arg.ref_kind {
+                ArgRefKind::Owned => "",
+                ArgRefKind::Ref => "&",
+                ArgRefKind::RefMut => "&mut ",
+                ArgRefKind::Ptr => "*const ",
+                ArgRefKind::PtrMut => "*mut ",
+            };
+            format!("{}{}", ref_prefix, type_name)
+        })
+        .collect();
+
+    let return_str = callback
+        .return_type
+        .as_ref()
         .map(|r| format!(" -> {}", config.apply_prefix(r)))
         .unwrap_or_default();
 
@@ -119,13 +127,9 @@ pub fn generate_callback_typedef(
 }
 
 /// Generate a struct definition
-pub fn generate_struct(
-    builder: &mut CodeBuilder,
-    struct_def: &StructDef,
-    config: &CodegenConfig,
-) {
+pub fn generate_struct(builder: &mut CodeBuilder, struct_def: &StructDef, config: &CodegenConfig) {
     let name = config.apply_prefix(&struct_def.name);
-    
+
     // Add generic parameters if present
     let generics = if struct_def.generic_params.is_empty() {
         String::new()
@@ -158,7 +162,11 @@ pub fn generate_struct(
         builder.indent();
         for field in &struct_def.fields {
             let field_type = format_field_type(&field.type_name, &field.ref_kind, config);
-            let visibility = if field.is_public { "pub " } else { "pub(crate) " };
+            let visibility = if field.is_public {
+                "pub "
+            } else {
+                "pub(crate) "
+            };
             builder.line(&format!("{}{}: {},", visibility, field.name, field_type));
         }
         builder.dedent();
@@ -168,13 +176,9 @@ pub fn generate_struct(
 }
 
 /// Generate an enum definition
-pub fn generate_enum(
-    builder: &mut CodeBuilder,
-    enum_def: &EnumDef,
-    config: &CodegenConfig,
-) {
+pub fn generate_enum(builder: &mut CodeBuilder, enum_def: &EnumDef, config: &CodegenConfig) {
     let name = config.apply_prefix(&enum_def.name);
-    
+
     // Add generic parameters if present
     let generics = if enum_def.generic_params.is_empty() {
         String::new()
@@ -208,9 +212,7 @@ pub fn generate_enum(
                 builder.line(&format!("{},", variant.name));
             }
             EnumVariantKind::Tuple(types) => {
-                let types_str: Vec<String> = types.iter()
-                    .map(|t| config.apply_prefix(t))
-                    .collect();
+                let types_str: Vec<String> = types.iter().map(|t| config.apply_prefix(t)).collect();
                 builder.line(&format!("{}({}),", variant.name, types_str.join(", ")));
             }
             EnumVariantKind::Struct(fields) => {
@@ -231,7 +233,11 @@ pub fn generate_enum(
 }
 
 /// Format a field type with its reference kind
-pub fn format_field_type(type_name: &str, ref_kind: &FieldRefKind, config: &CodegenConfig) -> String {
+pub fn format_field_type(
+    type_name: &str,
+    ref_kind: &FieldRefKind,
+    config: &CodegenConfig,
+) -> String {
     let prefixed = config.apply_prefix(type_name);
     match ref_kind {
         FieldRefKind::Owned => prefixed,
@@ -245,14 +251,10 @@ pub fn format_field_type(type_name: &str, ref_kind: &FieldRefKind, config: &Code
 }
 
 /// Generate all type definitions (aliases, callbacks, structs, enums)
-pub fn generate_types(
-    builder: &mut CodeBuilder,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
-) {
+pub fn generate_types(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     builder.line("// --- Type Definitions ---");
     builder.blank();
-    
+
     // Type aliases first
     for type_alias in &ir.type_aliases {
         if !config.should_include_type(&type_alias.name) {
@@ -292,12 +294,31 @@ pub fn generate_types(
 
 /// Check if a type name is a Rust primitive
 pub fn is_primitive_type(type_name: &str) -> bool {
-    matches!(type_name, 
-        "bool" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
-        "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
-        "f32" | "f64" | "char" | "()" |
-        "c_void" |
-        "c_int" | "c_uint" | "c_long" | "c_ulong" | "c_char" | "c_uchar"
-        // NOTE: "String" is NOT a primitive - it's AzString in Azul
+    matches!(
+        type_name,
+        "bool"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+            | "char"
+            | "()"
+            | "c_void"
+            | "c_int"
+            | "c_uint"
+            | "c_long"
+            | "c_ulong"
+            | "c_char"
+            | "c_uchar" // NOTE: "String" is NOT a primitive - it's AzString in Azul
     )
 }

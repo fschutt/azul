@@ -4,13 +4,13 @@
 //! and building a complete Intermediate Representation (IR) that can
 //! be consumed by language-specific generators.
 
-use std::collections::BTreeMap;
 use anyhow::Result;
 use indexmap::IndexMap;
+use std::collections::BTreeMap;
 
-use crate::api::{ApiData, ClassData, VersionData, FieldData, EnumVariantData};
-use crate::utils::string::snake_case_to_lower_camel;
 use super::ir::*;
+use crate::api::{ApiData, ClassData, EnumVariantData, FieldData, VersionData};
+use crate::utils::string::snake_case_to_lower_camel;
 
 // ============================================================================
 // IR Builder
@@ -75,43 +75,65 @@ impl<'a> IRBuilder<'a> {
     }
 
     /// Validate api.json for disallowed patterns
-    /// 
+    ///
     /// This checks for:
     /// 1. Array types like [T; N] - should be replaced with proper structs
     /// 2. Direct type aliases without generics - should be replaced with actual struct/enum definitions
     /// 3. Non-FFI-safe types (NonZeroUsize, std library types, etc.)
     fn validate_api_json(&self) -> Result<()> {
         let mut errors: Vec<String> = Vec::new();
-        
+
         // Types that are not FFI-safe and should not appear in the public API
         // These must be checked with careful pattern matching to avoid false positives
         // (e.g., "BoxSizing" should NOT match "Box<T>")
-        
+
         /// Check if a type string contains any non-FFI-safe type
         /// Returns the problematic type name if found
         fn contains_non_ffi_safe_type(type_str: &str) -> Option<&'static str> {
             // Check for generic types with angle brackets (Box<T>, Arc<T>, etc.)
             const GENERIC_NON_FFI_TYPES: &[&str] = &[
-                "Box<", "Arc<", "Rc<", "Mutex<", "RwLock<", "Cell<", "RefCell<",
-                "BTreeMap<", "HashMap<", "HashSet<", "BTreeSet<",
-                "FastBTreeSet<", "FastHashMap<", "FastHashSet<",
+                "Box<",
+                "Arc<",
+                "Rc<",
+                "Mutex<",
+                "RwLock<",
+                "Cell<",
+                "RefCell<",
+                "BTreeMap<",
+                "HashMap<",
+                "HashSet<",
+                "BTreeSet<",
+                "FastBTreeSet<",
+                "FastHashMap<",
+                "FastHashSet<",
                 "Vec<", // Generic Vec (not our specialized Vec types)
             ];
-            
+
             for &generic in GENERIC_NON_FFI_TYPES {
                 if type_str.contains(generic) {
                     return Some(generic.trim_end_matches('<'));
                 }
             }
-            
+
             // Check for standalone non-FFI types (must be exact word match)
             const STANDALONE_NON_FFI_TYPES: &[&str] = &[
-                "NonZeroUsize", "NonZeroU8", "NonZeroU16", "NonZeroU32", "NonZeroU64",
-                "NonZeroIsize", "NonZeroI8", "NonZeroI16", "NonZeroI32", "NonZeroI64",
-                "FcFontCache", "ImageCache", "CallbackInfoRefData", "LayoutCallbackInfoRefData",
+                "NonZeroUsize",
+                "NonZeroU8",
+                "NonZeroU16",
+                "NonZeroU32",
+                "NonZeroU64",
+                "NonZeroIsize",
+                "NonZeroI8",
+                "NonZeroI16",
+                "NonZeroI32",
+                "NonZeroI64",
+                "FcFontCache",
+                "ImageCache",
+                "CallbackInfoRefData",
+                "LayoutCallbackInfoRefData",
                 "CssPropertyCache",
             ];
-            
+
             for &standalone in STANDALONE_NON_FFI_TYPES {
                 // Check if it's a complete word (not part of another identifier)
                 if type_str == standalone {
@@ -120,10 +142,10 @@ impl<'a> IRBuilder<'a> {
                 // Check if it appears as a standalone type (not part of a larger name)
                 // by checking for word boundaries
                 let patterns = [
-                    format!("{}<", standalone),      // Generic usage
+                    format!("{}<", standalone),        // Generic usage
                     format!("Option<{}>", standalone), // Inside Option
-                    format!("&{}", standalone),      // Reference
-                    format!("&mut {}", standalone),  // Mutable reference
+                    format!("&{}", standalone),        // Reference
+                    format!("&mut {}", standalone),    // Mutable reference
                 ];
                 for pattern in &patterns {
                     if type_str.contains(pattern.as_str()) {
@@ -131,10 +153,10 @@ impl<'a> IRBuilder<'a> {
                     }
                 }
             }
-            
+
             None
         }
-        
+
         for (module_name, module_data) in &self.version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Check struct fields for array types and non-FFI-safe types
@@ -158,7 +180,7 @@ impl<'a> IRBuilder<'a> {
                         }
                     }
                 }
-                
+
                 // Check enum variant payloads for array types and non-FFI-safe types
                 if let Some(enum_fields) = &class_data.enum_fields {
                     for variant_map in enum_fields {
@@ -182,7 +204,7 @@ impl<'a> IRBuilder<'a> {
                         }
                     }
                 }
-                
+
                 // Check function arguments and return types for non-FFI-safe types
                 if let Some(functions) = &class_data.functions {
                     for (fn_name, fn_data) in functions {
@@ -210,7 +232,7 @@ impl<'a> IRBuilder<'a> {
                         }
                     }
                 }
-                
+
                 // Check constructors for non-FFI-safe types
                 if let Some(constructors) = &class_data.constructors {
                     for (ctor_name, ctor_data) in constructors {
@@ -227,7 +249,7 @@ impl<'a> IRBuilder<'a> {
                         }
                     }
                 }
-                
+
                 // Check for direct type aliases without generics (not pointing to a generic type)
                 // These are problematic for codegen because:
                 // 1. They cause type ordering issues (the alias may appear before its target)
@@ -244,19 +266,32 @@ impl<'a> IRBuilder<'a> {
                 if let Some(type_alias) = &class_data.type_alias {
                     if type_alias.generic_args.is_empty() {
                         let target = &type_alias.target;
-                        
+
                         // Primitives are OK (C-API naming like GLuint, GLint, etc.)
-                        let is_primitive_alias = matches!(target.as_str(), 
-                            "u8" | "u16" | "u32" | "u64" | "usize" |
-                            "i8" | "i16" | "i32" | "i64" | "isize" |
-                            "f32" | "f64" | "bool" | "char" | "c_void"
+                        let is_primitive_alias = matches!(
+                            target.as_str(),
+                            "u8" | "u16"
+                                | "u32"
+                                | "u64"
+                                | "usize"
+                                | "i8"
+                                | "i16"
+                                | "i32"
+                                | "i64"
+                                | "isize"
+                                | "f32"
+                                | "f64"
+                                | "bool"
+                                | "char"
+                                | "c_void"
                         );
-                        
+
                         // Pointer types are OK (opaque handles like X11Visual, HwndHandle)
-                        let is_pointer_alias = matches!(type_alias.ref_kind,
+                        let is_pointer_alias = matches!(
+                            type_alias.ref_kind,
                             crate::api::RefKind::ConstPtr | crate::api::RefKind::MutPtr
                         );
-                        
+
                         if !is_primitive_alias && !is_pointer_alias {
                             errors.push(format!(
                                 "Simple type alias not allowed: {} = {}. \n\
@@ -294,13 +329,22 @@ impl<'a> IRBuilder<'a> {
                         }
                     }
                 }
-                
+
                 // Check for reserved function names that conflict with auto-generated trait functions
                 const RESERVED_FN_NAMES: &[&str] = &[
-                    "hash", "partialEq", "partialCmp", "cmp", "deepCopy", "delete",
-                    "eq", "clone", "default", "debug", "display"
+                    "hash",
+                    "partialEq",
+                    "partialCmp",
+                    "cmp",
+                    "deepCopy",
+                    "delete",
+                    "eq",
+                    "clone",
+                    "default",
+                    "debug",
+                    "display",
                 ];
-                
+
                 if let Some(functions) = &class_data.functions {
                     for (fn_name, _fn_data) in functions {
                         if RESERVED_FN_NAMES.contains(&fn_name.as_str()) {
@@ -315,7 +359,7 @@ impl<'a> IRBuilder<'a> {
                 }
             }
         }
-        
+
         if errors.is_empty() {
             Ok(())
         } else {
@@ -328,32 +372,38 @@ impl<'a> IRBuilder<'a> {
     }
 
     /// Analyze and sort all types by their dependencies (topological sort)
-    /// 
+    ///
     /// This populates the dependency tracking fields in the IR:
     /// - `dependencies`: List of type names this type depends on
     /// - `sort_order`: Position in topological order (lower = earlier)
     /// - `needs_forward_decl`: Whether this type needs a forward declaration
-    /// 
+    ///
     /// This is critical for C/C++ code generation where types must be defined
     /// before they are used as field types (not pointers).
     fn sort_types_by_dependencies(&mut self) {
         use std::collections::{BTreeMap, BTreeSet};
-        
+
         // Build a unified set of all type names (including type aliases with monomorphized defs)
-        let all_type_names: BTreeSet<String> = self.ir.structs.iter().map(|s| s.name.clone())
+        let all_type_names: BTreeSet<String> = self
+            .ir
+            .structs
+            .iter()
+            .map(|s| s.name.clone())
             .chain(self.ir.enums.iter().map(|e| e.name.clone()))
             .chain(self.ir.callback_typedefs.iter().map(|c| c.name.clone()))
             .chain(self.ir.type_aliases.iter().map(|t| t.name.clone()))
             .collect();
-        
+
         // Collect dependencies for all types into a unified map
         // IMPORTANT: Only direct field references are dependencies!
         // Pointer references (*, &, Box, etc.) only need forward declarations
         let mut all_deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        
+
         // Struct dependencies (from field types - only direct, not pointer)
         for struct_def in &self.ir.structs {
-            let deps: Vec<String> = struct_def.fields.iter()
+            let deps: Vec<String> = struct_def
+                .fields
+                .iter()
                 .filter_map(|field| {
                     // Skip if it's a pointer reference (forward decl is enough)
                     // Check both the type string AND the ref_kind
@@ -362,9 +412,12 @@ impl<'a> IRBuilder<'a> {
                     }
                     // Also skip if ref_kind indicates pointer/reference indirection
                     match field.ref_kind {
-                        FieldRefKind::Ptr | FieldRefKind::PtrMut | 
-                        FieldRefKind::Ref | FieldRefKind::RefMut |
-                        FieldRefKind::Boxed | FieldRefKind::OptionBoxed => {
+                        FieldRefKind::Ptr
+                        | FieldRefKind::PtrMut
+                        | FieldRefKind::Ref
+                        | FieldRefKind::RefMut
+                        | FieldRefKind::Boxed
+                        | FieldRefKind::OptionBoxed => {
                             return None;
                         }
                         FieldRefKind::Owned => {}
@@ -379,21 +432,26 @@ impl<'a> IRBuilder<'a> {
                 .collect();
             all_deps.insert(struct_def.name.clone(), deps);
         }
-        
+
         // Enum dependencies (from variant payloads - only direct, not pointer)
         for enum_def in &self.ir.enums {
-            let deps: Vec<String> = enum_def.variants.iter()
+            let deps: Vec<String> = enum_def
+                .variants
+                .iter()
                 .flat_map(|variant| {
                     match &variant.kind {
                         EnumVariantKind::Tuple(types) => {
-                            types.iter()
+                            types
+                                .iter()
                                 .filter_map(|t| {
                                     // Skip if it's a pointer reference
                                     if self.is_pointer_type(t) {
                                         return None;
                                     }
                                     let base = self.extract_base_type(t);
-                                    if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
+                                    if self.is_primitive_type(&base)
+                                        || !all_type_names.contains(&base)
+                                    {
                                         None
                                     } else {
                                         Some(base)
@@ -402,7 +460,8 @@ impl<'a> IRBuilder<'a> {
                                 .collect::<Vec<_>>()
                         }
                         EnumVariantKind::Struct(fields) => {
-                            fields.iter()
+                            fields
+                                .iter()
                                 .filter_map(|f| {
                                     // Skip if it's a pointer reference (type string)
                                     if self.is_pointer_type(&f.type_name) {
@@ -410,15 +469,20 @@ impl<'a> IRBuilder<'a> {
                                     }
                                     // Also skip if ref_kind indicates pointer/reference indirection
                                     match f.ref_kind {
-                                        FieldRefKind::Ptr | FieldRefKind::PtrMut | 
-                                        FieldRefKind::Ref | FieldRefKind::RefMut |
-                                        FieldRefKind::Boxed | FieldRefKind::OptionBoxed => {
+                                        FieldRefKind::Ptr
+                                        | FieldRefKind::PtrMut
+                                        | FieldRefKind::Ref
+                                        | FieldRefKind::RefMut
+                                        | FieldRefKind::Boxed
+                                        | FieldRefKind::OptionBoxed => {
                                             return None;
                                         }
                                         FieldRefKind::Owned => {}
                                     }
                                     let base = self.extract_base_type(&f.type_name);
-                                    if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
+                                    if self.is_primitive_type(&base)
+                                        || !all_type_names.contains(&base)
+                                    {
                                         None
                                     } else {
                                         Some(base)
@@ -432,7 +496,7 @@ impl<'a> IRBuilder<'a> {
                 .collect();
             all_deps.insert(enum_def.name.clone(), deps);
         }
-        
+
         // Callback typedef dependencies (from argument types and return type)
         // Note: Callback args are always passed by pointer in C, so no dependencies needed
         for callback in &self.ir.callback_typedefs {
@@ -440,11 +504,11 @@ impl<'a> IRBuilder<'a> {
             // because arguments are always pointers or primitives in C ABI
             all_deps.insert(callback.name.clone(), Vec::new());
         }
-        
+
         // Type alias dependencies (from monomorphized variants/fields)
         for type_alias in &self.ir.type_aliases {
             let mut deps: Vec<String> = Vec::new();
-            
+
             if let Some(ref mono_def) = type_alias.monomorphized_def {
                 match &mono_def.kind {
                     MonomorphizedKind::TaggedUnion { variants, .. } => {
@@ -455,7 +519,8 @@ impl<'a> IRBuilder<'a> {
                                     continue;
                                 }
                                 let base = self.extract_base_type(payload_type);
-                                if !self.is_primitive_type(&base) && all_type_names.contains(&base) {
+                                if !self.is_primitive_type(&base) && all_type_names.contains(&base)
+                                {
                                     deps.push(base);
                                 }
                             }
@@ -469,9 +534,12 @@ impl<'a> IRBuilder<'a> {
                             }
                             // Also skip if ref_kind indicates pointer/reference indirection
                             match field.ref_kind {
-                                FieldRefKind::Ptr | FieldRefKind::PtrMut | 
-                                FieldRefKind::Ref | FieldRefKind::RefMut |
-                                FieldRefKind::Boxed | FieldRefKind::OptionBoxed => {
+                                FieldRefKind::Ptr
+                                | FieldRefKind::PtrMut
+                                | FieldRefKind::Ref
+                                | FieldRefKind::RefMut
+                                | FieldRefKind::Boxed
+                                | FieldRefKind::OptionBoxed => {
                                     continue;
                                 }
                                 FieldRefKind::Owned => {}
@@ -487,34 +555,35 @@ impl<'a> IRBuilder<'a> {
                     }
                 }
             }
-            
+
             all_deps.insert(type_alias.name.clone(), deps);
         }
-        
+
         // Calculate depths using iterative algorithm
         let mut depths: BTreeMap<String, usize> = BTreeMap::new();
-        
+
         // Initialize: types with no dependencies have depth 0
         for (name, deps) in &all_deps {
             if deps.is_empty() {
                 depths.insert(name.clone(), 0);
             }
         }
-        
+
         // Iteratively resolve depths
         for _ in 0..500 {
             let mut changed = false;
-            
+
             for (name, deps) in &all_deps {
                 if depths.contains_key(name) {
                     continue;
                 }
-                
+
                 // Check if all dependencies are resolved
                 let all_deps_resolved = deps.iter().all(|dep| depths.contains_key(dep));
-                
+
                 if all_deps_resolved {
-                    let max_dep_depth = deps.iter()
+                    let max_dep_depth = deps
+                        .iter()
                         .filter_map(|dep| depths.get(dep).copied())
                         .max()
                         .unwrap_or(0);
@@ -522,12 +591,12 @@ impl<'a> IRBuilder<'a> {
                     changed = true;
                 }
             }
-            
+
             if !changed {
                 break;
             }
         }
-        
+
         // Handle circular dependencies: assign incrementally higher depths
         let max_depth = depths.values().copied().max().unwrap_or(0);
         let mut next_depth = max_depth + 1;
@@ -537,7 +606,7 @@ impl<'a> IRBuilder<'a> {
                 next_depth += 1;
             }
         }
-        
+
         // Update struct IR with dependencies and sort order
         for struct_def in &mut self.ir.structs {
             struct_def.dependencies = all_deps.get(&struct_def.name).cloned().unwrap_or_default();
@@ -545,26 +614,26 @@ impl<'a> IRBuilder<'a> {
             // Structs with circular dependencies need forward declarations
             struct_def.needs_forward_decl = struct_def.sort_order > max_depth;
         }
-        
+
         // Update enum IR with dependencies and sort order
         for enum_def in &mut self.ir.enums {
             enum_def.dependencies = all_deps.get(&enum_def.name).cloned().unwrap_or_default();
             enum_def.sort_order = depths.get(&enum_def.name).copied().unwrap_or(usize::MAX);
             enum_def.needs_forward_decl = enum_def.sort_order > max_depth;
         }
-        
+
         // Update callback typedef IR with dependencies and sort order
         for callback in &mut self.ir.callback_typedefs {
             callback.dependencies = all_deps.get(&callback.name).cloned().unwrap_or_default();
             callback.sort_order = depths.get(&callback.name).copied().unwrap_or(usize::MAX);
         }
-        
+
         // Update type alias IR with dependencies and sort order
         for type_alias in &mut self.ir.type_aliases {
             type_alias.dependencies = all_deps.get(&type_alias.name).cloned().unwrap_or_default();
             type_alias.sort_order = depths.get(&type_alias.name).copied().unwrap_or(usize::MAX);
         }
-        
+
         // Sort all collections by depth
         self.ir.structs.sort_by_key(|s| s.sort_order);
         self.ir.enums.sort_by_key(|e| e.sort_order);
@@ -574,11 +643,29 @@ impl<'a> IRBuilder<'a> {
 
     /// Check if a type name is a primitive type
     fn is_primitive_type(&self, type_name: &str) -> bool {
-        matches!(type_name, 
-            "bool" | "u8" | "u16" | "u32" | "u64" | "usize" |
-            "i8" | "i16" | "i32" | "i64" | "isize" |
-            "f32" | "f64" | "c_void" | "()" |
-            "c_int" | "c_uint" | "c_long" | "c_ulong" | "c_char" | "c_uchar"
+        matches!(
+            type_name,
+            "bool"
+                | "u8"
+                | "u16"
+                | "u32"
+                | "u64"
+                | "usize"
+                | "i8"
+                | "i16"
+                | "i32"
+                | "i64"
+                | "isize"
+                | "f32"
+                | "f64"
+                | "c_void"
+                | "()"
+                | "c_int"
+                | "c_uint"
+                | "c_long"
+                | "c_ulong"
+                | "c_char"
+                | "c_uchar"
         )
     }
 
@@ -586,37 +673,37 @@ impl<'a> IRBuilder<'a> {
     /// Pointer types include: *const T, *mut T, Box<T>, &T, &mut T
     fn is_pointer_type(&self, type_name: &str) -> bool {
         let s = type_name.trim();
-        s.starts_with("*const ") ||
-        s.starts_with("*mut ") ||
-        s.starts_with("* const ") ||
-        s.starts_with("* mut ") ||
-        s.starts_with("Box<") ||
-        s.starts_with("&mut ") ||
-        s.starts_with("&")
+        s.starts_with("*const ")
+            || s.starts_with("*mut ")
+            || s.starts_with("* const ")
+            || s.starts_with("* mut ")
+            || s.starts_with("Box<")
+            || s.starts_with("&mut ")
+            || s.starts_with("&")
     }
 
     /// Extract base type name from a complex type (removes pointers, generics, arrays)
     fn extract_base_type(&self, type_name: &str) -> String {
         let mut s = type_name.trim();
-        
+
         // Remove pointer prefixes
         s = s.strip_prefix("*const ").unwrap_or(s);
         s = s.strip_prefix("*mut ").unwrap_or(s);
         s = s.strip_prefix("* const ").unwrap_or(s);
         s = s.strip_prefix("* mut ").unwrap_or(s);
-        
+
         // Remove generic suffix
         if let Some(idx) = s.find('<') {
             s = &s[..idx];
         }
-        
+
         // Remove array syntax
         if s.starts_with('[') && s.contains(';') {
             if let Some(idx) = s.find(';') {
                 s = s[1..idx].trim();
             }
         }
-        
+
         s.trim().to_string()
     }
 
@@ -628,13 +715,17 @@ impl<'a> IRBuilder<'a> {
         // TODO: Iterate through all modules and classes
         // TODO: Build type_to_module map
         // TODO: Build type_to_external map from class.external field
-        
+
         for (module_name, module_data) in &self.version_data.api {
             for (class_name, class_data) in &module_data.classes {
-                self.ir.type_to_module.insert(class_name.clone(), module_name.clone());
-                
+                self.ir
+                    .type_to_module
+                    .insert(class_name.clone(), module_name.clone());
+
                 if let Some(ref external) = class_data.external {
-                    self.ir.type_to_external.insert(class_name.clone(), external.clone());
+                    self.ir
+                        .type_to_external
+                        .insert(class_name.clone(), external.clone());
                 }
             }
         }
@@ -684,20 +775,21 @@ impl<'a> IRBuilder<'a> {
         let custom_impls = class_data.custom_impls.clone().unwrap_or_default();
         let has_explicit_derive = class_data.derive.is_some();
         let has_custom_drop = class_data.has_custom_drop();
-        let mut traits = TypeTraits::from_derives_and_custom_impls(&derives, &custom_impls, has_custom_drop);
+        let mut traits =
+            TypeTraits::from_derives_and_custom_impls(&derives, &custom_impls, has_custom_drop);
 
         let fields = self.build_struct_fields(class_data)?;
-        
+
         // Classify the type category
         let category = classify_struct_type(name, class_data, self.version_data);
-        
+
         // Destructor and callback types are Copy+Clone (they only contain function pointers)
         if matches!(category, TypeCategory::DestructorOrClone) {
             traits.is_copy = true;
             traits.is_clone = true;
             traits.clone_is_derived = true; // These can be derived
         }
-        
+
         // Vec types should have Clone (they have a deep_copy function that clones the data)
         // Vec types end with "Vec" but NOT "VecRef"
         // IMPORTANT: Vec Clone CANNOT be derived! The derive(Clone) would do a bitwise copy,
@@ -737,7 +829,7 @@ impl<'a> IRBuilder<'a> {
     fn build_struct_fields(&self, class_data: &ClassData) -> Result<Vec<FieldDef>> {
         // TODO: Iterate through class_data.struct_fields
         // TODO: Build FieldDef for each field with proper type analysis
-        
+
         let mut fields = Vec::new();
 
         if let Some(ref struct_fields) = class_data.struct_fields {
@@ -767,23 +859,19 @@ impl<'a> IRBuilder<'a> {
         Ok(fields)
     }
 
-    fn build_enum_def(
-        &self,
-        name: &str,
-        class_data: &ClassData,
-        module: &str,
-    ) -> Result<EnumDef> {
+    fn build_enum_def(&self, name: &str, class_data: &ClassData, module: &str) -> Result<EnumDef> {
         let derives = class_data.derive.clone().unwrap_or_default();
         let custom_impls = class_data.custom_impls.clone().unwrap_or_default();
         let has_explicit_derive = class_data.derive.is_some();
         let has_custom_drop = class_data.has_custom_drop();
-        let mut traits = TypeTraits::from_derives_and_custom_impls(&derives, &custom_impls, has_custom_drop);
+        let mut traits =
+            TypeTraits::from_derives_and_custom_impls(&derives, &custom_impls, has_custom_drop);
 
         let (variants, is_union) = self.build_enum_variants(class_data)?;
-        
+
         // Classify the type category
         let category = classify_enum_type(name, class_data, self.version_data);
-        
+
         // Destructor and callback types are Copy+Clone (they only contain function pointers)
         if matches!(category, TypeCategory::DestructorOrClone) {
             traits.is_copy = true;
@@ -816,7 +904,7 @@ impl<'a> IRBuilder<'a> {
     fn build_enum_variants(&self, class_data: &ClassData) -> Result<(Vec<EnumVariantDef>, bool)> {
         // TODO: Parse enum_fields and determine variant kinds
         // TODO: Return (variants, is_union)
-        
+
         let mut variants = Vec::new();
         let mut is_union = false;
 
@@ -824,7 +912,7 @@ impl<'a> IRBuilder<'a> {
             for variant_map in enum_fields {
                 for (variant_name, variant_data) in variant_map {
                     let kind = self.build_variant_kind(variant_data)?;
-                    
+
                     if !matches!(kind, EnumVariantKind::Unit) {
                         is_union = true;
                     }
@@ -847,7 +935,7 @@ impl<'a> IRBuilder<'a> {
         // If absent, it's a unit variant
         // Note: The current api.json structure doesn't support multi-element tuples
         // or struct variants - those would need schema changes
-        
+
         if let Some(ref type_name) = variant_data.r#type {
             // Single-element tuple variant
             return Ok(EnumVariantKind::Tuple(vec![type_name.clone()]));
@@ -864,25 +952,29 @@ impl<'a> IRBuilder<'a> {
     fn build_callback_typedefs(&mut self) -> Result<()> {
         // Extract callback_typedef definitions from api.json
         // CallbackDefinition has fn_args: Vec<CallbackArgData> and returns: Option<ReturnTypeData>
-        
+
         for (module_name, module_data) in &self.version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 if let Some(ref callback) = class_data.callback_typedef {
-                    let args = callback.fn_args.iter().map(|arg_data| {
-                        FunctionArg {
-                            name: String::new(), // CallbackArgData doesn't have a name field
-                            type_name: arg_data.r#type.clone(),
-                            ref_kind: match arg_data.ref_kind {
-                                crate::api::RefKind::Ref => ArgRefKind::Ref,
-                                crate::api::RefKind::RefMut => ArgRefKind::RefMut,
-                                crate::api::RefKind::ConstPtr => ArgRefKind::Ptr,
-                                crate::api::RefKind::MutPtr => ArgRefKind::PtrMut,
-                                _ => ArgRefKind::Owned,
-                            },
-                            doc: arg_data.doc.as_ref().and_then(|d| d.first().cloned()),
-                            callback_info: None, // Callback typedef args don't have nested callbacks
-                        }
-                    }).collect();
+                    let args = callback
+                        .fn_args
+                        .iter()
+                        .map(|arg_data| {
+                            FunctionArg {
+                                name: String::new(), // CallbackArgData doesn't have a name field
+                                type_name: arg_data.r#type.clone(),
+                                ref_kind: match arg_data.ref_kind {
+                                    crate::api::RefKind::Ref => ArgRefKind::Ref,
+                                    crate::api::RefKind::RefMut => ArgRefKind::RefMut,
+                                    crate::api::RefKind::ConstPtr => ArgRefKind::Ptr,
+                                    crate::api::RefKind::MutPtr => ArgRefKind::PtrMut,
+                                    _ => ArgRefKind::Owned,
+                                },
+                                doc: arg_data.doc.as_ref().and_then(|d| d.first().cloned()),
+                                callback_info: None, // Callback typedef args don't have nested callbacks
+                            }
+                        })
+                        .collect();
 
                     let return_type = callback.returns.as_ref().map(|r| r.r#type.clone());
 
@@ -913,7 +1005,7 @@ impl<'a> IRBuilder<'a> {
         // Only handle non-generic type aliases here.
         // Generic type aliases (like StyleCursorValue = CssPropertyValue<StyleCursor>)
         // are monomorphized and stored in the monomorphized_def field.
-        
+
         for (module_name, module_data) in &self.version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 if let Some(ref type_alias) = class_data.type_alias {
@@ -924,21 +1016,25 @@ impl<'a> IRBuilder<'a> {
                         crate::api::RefKind::MutPtr => format!("*mut {}", type_alias.target),
                         _ => type_alias.target.clone(),
                     };
-                    
+
                     // Build monomorphized definition for generic type aliases
                     let monomorphized_def = if !type_alias.generic_args.is_empty() {
                         self.build_monomorphized_def(&type_alias.target, &type_alias.generic_args)
                     } else {
                         None
                     };
-                    
+
                     // Build traits from derive/custom_impls (same logic as structs/enums)
                     // For type aliases, inherit traits from the target type if not explicitly set
                     let derives = class_data.derive.clone().unwrap_or_default();
                     let custom_impls = class_data.custom_impls.clone().unwrap_or_default();
                     let has_custom_drop = class_data.has_custom_drop();
-                    let traits = TypeTraits::from_derives_and_custom_impls(&derives, &custom_impls, has_custom_drop);
-                    
+                    let traits = TypeTraits::from_derives_and_custom_impls(
+                        &derives,
+                        &custom_impls,
+                        has_custom_drop,
+                    );
+
                     self.ir.type_aliases.push(TypeAliasDef {
                         name: class_name.clone(),
                         target,
@@ -957,9 +1053,9 @@ impl<'a> IRBuilder<'a> {
 
         Ok(())
     }
-    
+
     /// Build a monomorphized type definition from a generic type alias
-    /// 
+    ///
     /// For example, `CaretColorValue = CssPropertyValue<CaretColor>` becomes
     /// a concrete enum with variants Auto, None, Inherit, Initial, Exact(CaretColor)
     fn build_monomorphized_def(
@@ -968,16 +1064,20 @@ impl<'a> IRBuilder<'a> {
         generic_args: &[String],
     ) -> Option<MonomorphizedTypeDef> {
         // Find the target class (e.g., CssPropertyValue)
-        let target_class = self.version_data.api.values()
+        let target_class = self
+            .version_data
+            .api
+            .values()
             .find_map(|module| module.classes.get(target_type))?;
-        
+
         // Check if it's an enum
         if let Some(enum_fields) = &target_class.enum_fields {
             let is_union = self.enum_is_union(enum_fields);
-            
+
             if is_union {
                 // Build tagged union variants
-                let variants: Vec<MonomorphizedVariant> = enum_fields.iter()
+                let variants: Vec<MonomorphizedVariant> = enum_fields
+                    .iter()
                     .flat_map(|variant_map| variant_map.iter())
                     .map(|(variant_name, variant_data)| {
                         let payload_type = variant_data.r#type.as_ref().map(|t| {
@@ -990,7 +1090,7 @@ impl<'a> IRBuilder<'a> {
                         }
                     })
                     .collect();
-                
+
                 Some(MonomorphizedTypeDef {
                     kind: MonomorphizedKind::TaggedUnion {
                         repr: target_class.repr.clone(),
@@ -999,11 +1099,12 @@ impl<'a> IRBuilder<'a> {
                 })
             } else {
                 // Simple enum (no data)
-                let variants: Vec<String> = enum_fields.iter()
+                let variants: Vec<String> = enum_fields
+                    .iter()
                     .flat_map(|variant_map| variant_map.keys())
                     .cloned()
                     .collect();
-                
+
                 Some(MonomorphizedTypeDef {
                     kind: MonomorphizedKind::SimpleEnum {
                         repr: target_class.repr.clone(),
@@ -1013,7 +1114,8 @@ impl<'a> IRBuilder<'a> {
             }
         } else if let Some(struct_fields) = &target_class.struct_fields {
             // Build struct fields with substituted types
-            let fields: Vec<FieldDef> = struct_fields.iter()
+            let fields: Vec<FieldDef> = struct_fields
+                .iter()
                 .flat_map(|field_map| field_map.iter())
                 .map(|(field_name, field_data)| {
                     let type_name = self.substitute_generic_param(&field_data.r#type, generic_args);
@@ -1034,7 +1136,7 @@ impl<'a> IRBuilder<'a> {
                     }
                 })
                 .collect();
-            
+
             Some(MonomorphizedTypeDef {
                 kind: MonomorphizedKind::Struct { fields },
             })
@@ -1042,7 +1144,7 @@ impl<'a> IRBuilder<'a> {
             None
         }
     }
-    
+
     /// Substitute generic type parameters (like "T") with concrete types
     fn substitute_generic_param(&self, type_str: &str, generic_args: &[String]) -> String {
         // Common generic parameter names
@@ -1054,15 +1156,19 @@ impl<'a> IRBuilder<'a> {
                 "V" => 2,
                 _ => 0,
             };
-            generic_args.get(idx).cloned().unwrap_or_else(|| type_str.to_string())
+            generic_args
+                .get(idx)
+                .cloned()
+                .unwrap_or_else(|| type_str.to_string())
         } else {
             type_str.to_string()
         }
     }
-    
+
     /// Check if an enum has data in any variant (making it a tagged union)
     fn enum_is_union(&self, enum_fields: &[IndexMap<String, crate::api::EnumVariantData>]) -> bool {
-        enum_fields.iter()
+        enum_fields
+            .iter()
             .flat_map(|m| m.values())
             .any(|v| v.r#type.is_some())
     }
@@ -1072,48 +1178,54 @@ impl<'a> IRBuilder<'a> {
     // ========================================================================
 
     /// Links callback wrapper structs to their callback_typedefs.
-    /// 
+    ///
     /// A callback wrapper struct is identified by:
     /// 1. Name ends with "Callback" (but not "CallbackType" or "CallbackInfo")
     /// 2. Has a field with a callback_typedef type (usually named "cb")
     /// 3. Has a "callable" field with type "OptionRefAny"
-    /// 
+    ///
     /// For "Core" callbacks like "Callback", the associated typedef is "CallbackType".
     /// For widget callbacks like "ButtonOnClickCallback", it's "ButtonOnClickCallbackType".
     fn link_callback_wrappers(&mut self) {
         // Build a set of callback typedef names for fast lookup
-        let callback_typedef_names: std::collections::BTreeSet<String> = self.ir.callback_typedefs
+        let callback_typedef_names: std::collections::BTreeSet<String> = self
+            .ir
+            .callback_typedefs
             .iter()
             .map(|cb| cb.name.clone())
             .collect();
-        
+
         // Iterate through all structs and find callback wrappers
         for struct_def in &mut self.ir.structs {
             // Quick reject: must end with "Callback" but not "CallbackType" or "CallbackInfo"
             if !struct_def.name.ends_with("Callback") {
                 continue;
             }
-            if struct_def.name.ends_with("CallbackType") || struct_def.name.ends_with("CallbackInfo") {
+            if struct_def.name.ends_with("CallbackType")
+                || struct_def.name.ends_with("CallbackInfo")
+            {
                 continue;
             }
-            
+
             // Find the callback typedef field and the context field
             let mut callback_field: Option<(String, String)> = None; // (field_name, typedef_name)
             let mut context_field_name: Option<String> = None;
-            
+
             for field in &struct_def.fields {
                 // Check if field type is a callback_typedef
                 if callback_typedef_names.contains(&field.type_name) {
                     callback_field = Some((field.name.clone(), field.type_name.clone()));
                 }
-                
+
                 // Check for "ctx" or "callable" field with type "OptionRefAny"
                 // "ctx" is used in api.json for some callbacks, "callable" for others
-                if (field.name == "ctx" || field.name == "callable") && field.type_name == "OptionRefAny" {
+                if (field.name == "ctx" || field.name == "callable")
+                    && field.type_name == "OptionRefAny"
+                {
                     context_field_name = Some(field.name.clone());
                 }
             }
-            
+
             // If we found both a callback typedef field and a ctx/callable field, this is a callback wrapper
             if let Some((field_name, typedef_name)) = callback_field {
                 if let Some(ctx_name) = context_field_name {
@@ -1135,7 +1247,7 @@ impl<'a> IRBuilder<'a> {
         // TODO: Extract constructors and functions from api.json
         // TODO: Build FunctionDef for each
         // TODO: Handle fn_body from api.json
-        
+
         for (module_name, module_data) in &self.version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Skip callback typedefs, type aliases
@@ -1159,7 +1271,8 @@ impl<'a> IRBuilder<'a> {
                 // Build methods
                 if let Some(ref functions) = class_data.functions {
                     for (fn_name, fn_data) in functions {
-                        let kind = self.determine_method_kind(fn_data)
+                        let kind = self
+                            .determine_method_kind(fn_data)
                             .map_err(|e| anyhow::anyhow!("{}", e))?;
                         let func = self.build_function_def(class_name, fn_name, fn_data, kind)?;
                         self.ir.functions.push(func);
@@ -1180,51 +1293,59 @@ impl<'a> IRBuilder<'a> {
     ) -> Result<FunctionDef> {
         // Parse function arguments from Vec<IndexMap<String, String>>
         // Each IndexMap has one entry: arg_name -> type_name
-        
-        // C-ABI function name uses camelCase for method name (e.g., Az{ClassName}_{methodName})
-        let c_name = format!("Az{}_{}", class_name, snake_case_to_lower_camel(method_name));
 
-        let args: Vec<FunctionArg> = fn_data.fn_args.iter().flat_map(|arg_map| {
-            arg_map.iter().map(|(name, type_name)| {
-                // Handle self parameter specially:
-                // In api.json: "self": "ref" | "refmut" | "value"
-                // These become reference types (not pointers!) for C-ABI
-                // The parameter name becomes the lowercase class name (e.g., Dom -> dom)
-                // because fn_body uses that name (e.g., "dom.root.set_node_type(...)")
-                if name == "self" {
-                    let (ref_kind, actual_type) = match type_name.as_str() {
-                        "ref" => (ArgRefKind::Ref, class_name.to_string()),      // &self -> &ClassName
-                        "refmut" => (ArgRefKind::RefMut, class_name.to_string()), // &mut self -> &mut ClassName
-                        "value" => (ArgRefKind::Owned, class_name.to_string()),  // self -> ClassName
-                        "mut value" => (ArgRefKind::Owned, class_name.to_string()), // mut self -> ClassName
-                        other => (ArgRefKind::Owned, other.to_string()), // fallback
-                    };
-                    return FunctionArg {
-                        // Use lowercase class name as parameter name
-                        // This matches what fn_body expects (e.g., "dom.root.set_node_type(...)")
-                        name: class_name.to_lowercase(),
+        // C-ABI function name uses camelCase for method name (e.g., Az{ClassName}_{methodName})
+        let c_name = format!(
+            "Az{}_{}",
+            class_name,
+            snake_case_to_lower_camel(method_name)
+        );
+
+        let args: Vec<FunctionArg> = fn_data
+            .fn_args
+            .iter()
+            .flat_map(|arg_map| {
+                arg_map.iter().map(|(name, type_name)| {
+                    // Handle self parameter specially:
+                    // In api.json: "self": "ref" | "refmut" | "value"
+                    // These become reference types (not pointers!) for C-ABI
+                    // The parameter name becomes the lowercase class name (e.g., Dom -> dom)
+                    // because fn_body uses that name (e.g., "dom.root.set_node_type(...)")
+                    if name == "self" {
+                        let (ref_kind, actual_type) = match type_name.as_str() {
+                            "ref" => (ArgRefKind::Ref, class_name.to_string()), // &self -> &ClassName
+                            "refmut" => (ArgRefKind::RefMut, class_name.to_string()), // &mut self -> &mut ClassName
+                            "value" => (ArgRefKind::Owned, class_name.to_string()), // self -> ClassName
+                            "mut value" => (ArgRefKind::Owned, class_name.to_string()), // mut self -> ClassName
+                            other => (ArgRefKind::Owned, other.to_string()),            // fallback
+                        };
+                        return FunctionArg {
+                            // Use lowercase class name as parameter name
+                            // This matches what fn_body expects (e.g., "dom.root.set_node_type(...)")
+                            name: class_name.to_lowercase(),
+                            type_name: actual_type,
+                            ref_kind,
+                            doc: None,
+                            callback_info: None,
+                        };
+                    }
+
+                    // For regular arguments, parse the ref_kind from type string
+                    let (ref_kind, actual_type) = parse_type_ref_kind(type_name);
+
+                    // Check if this is a callback typedef type
+                    let callback_info = self.detect_callback_arg_info(&actual_type);
+
+                    FunctionArg {
+                        name: name.clone(),
                         type_name: actual_type,
                         ref_kind,
                         doc: None,
-                        callback_info: None,
-                    };
-                }
-                
-                // For regular arguments, parse the ref_kind from type string
-                let (ref_kind, actual_type) = parse_type_ref_kind(type_name);
-                
-                // Check if this is a callback typedef type
-                let callback_info = self.detect_callback_arg_info(&actual_type);
-                
-                FunctionArg {
-                    name: name.clone(),
-                    type_name: actual_type,
-                    ref_kind,
-                    doc: None,
-                    callback_info,
-                }
+                        callback_info,
+                    }
+                })
             })
-        }).collect();
+            .collect();
 
         // Determine return type:
         // - For explicit returns: use the specified type
@@ -1254,12 +1375,15 @@ impl<'a> IRBuilder<'a> {
         })
     }
 
-    fn determine_method_kind(&self, fn_data: &crate::api::FunctionData) -> Result<FunctionKind, String> {
+    fn determine_method_kind(
+        &self,
+        fn_data: &crate::api::FunctionData,
+    ) -> Result<FunctionKind, String> {
         // Analyze fn_data to determine if method, method_mut, or static
         // Look at first argument to see if it's self/&self/&mut self
         // Note: fn_args is Vec<IndexMap<String, String>>, not Option
         // In api.json: "self": "ref" | "refmut" | "value"
-        
+
         if let Some(first_arg) = fn_data.fn_args.first() {
             if let Some((name, value)) = first_arg.iter().next() {
                 if name == "self" {
@@ -1279,12 +1403,17 @@ impl<'a> IRBuilder<'a> {
                 }
             }
         }
-        
+
         // Error: functions without self should be constructors
         // This is an error in api.json - functions in "functions" section
         // should have self as the first argument. Use "constructors" section for
         // static factory methods.
-        if fn_data.fn_body.as_ref().map(|b| b.contains("self.")).unwrap_or(false) {
+        if fn_data
+            .fn_body
+            .as_ref()
+            .map(|b| b.contains("self."))
+            .unwrap_or(false)
+        {
             return Err(format!(
                 "[ERROR] Function uses 'self.' in fn_body but has no 'self' parameter. \
                  This is an error in api.json. The function should have \
@@ -1293,7 +1422,7 @@ impl<'a> IRBuilder<'a> {
                 fn_data.fn_body
             ));
         }
-        
+
         Ok(FunctionKind::StaticMethod)
     }
 
@@ -1302,12 +1431,12 @@ impl<'a> IRBuilder<'a> {
     // ========================================================================
 
     /// Generate constructor functions for each enum variant automatically.
-    /// 
+    ///
     /// For simple unit variants like `HoverEventFilter::MouseUp`:
     ///   - C name: `AzHoverEventFilter_mouseUp`
     ///   - Returns: `HoverEventFilter`
     ///   - Body: `HoverEventFilter::MouseUp`
-    /// 
+    ///
     /// For tuple variants like `EventFilter::Hover(HoverEventFilter)`:
     ///   - C name: `AzEventFilter_hover`
     ///   - Args: `payload: HoverEventFilter`
@@ -1322,9 +1451,8 @@ impl<'a> IRBuilder<'a> {
 
         // Build a set of existing function c_names to avoid duplicates
         // (if api.json already defines a constructor for a variant, skip auto-generation)
-        let existing_c_names: std::collections::HashSet<_> = self.ir.functions.iter()
-            .map(|f| f.c_name.clone())
-            .collect();
+        let existing_c_names: std::collections::HashSet<_> =
+            self.ir.functions.iter().map(|f| f.c_name.clone()).collect();
 
         for (enum_name, variants) in enum_infos {
             for variant in variants {
@@ -1343,14 +1471,17 @@ impl<'a> IRBuilder<'a> {
 
     fn build_variant_constructor(&self, enum_name: &str, variant: &EnumVariantDef) -> FunctionDef {
         use crate::codegen::v2::ir::FunctionKind;
-        
+
         // Convert variant name to lowerCamelCase for method name
         // e.g., "MouseUp" -> "mouseUp", "LeftMouseDown" -> "leftMouseDown"
-        let method_name = variant.name.chars().next()
+        let method_name = variant
+            .name
+            .chars()
+            .next()
             .map(|c| c.to_lowercase().to_string())
             .unwrap_or_default()
             + &variant.name[1..];
-        
+
         // C-ABI name: Az{EnumName}_{methodName}
         let c_name = format!("Az{}_{}", enum_name, method_name);
 
@@ -1359,10 +1490,7 @@ impl<'a> IRBuilder<'a> {
             EnumVariantKind::Unit => {
                 // No args, returns the unit variant directly
                 // e.g., `HoverEventFilter::MouseUp`
-                (
-                    Vec::new(),
-                    Some(format!("{}::{}", enum_name, variant.name)),
-                )
+                (Vec::new(), Some(format!("{}::{}", enum_name, variant.name)))
             }
             EnumVariantKind::Tuple(types) => {
                 // For single-element tuples, use "payload" as arg name
@@ -1376,20 +1504,27 @@ impl<'a> IRBuilder<'a> {
                         callback_info: None,
                     }]
                 } else {
-                    types.iter().enumerate().map(|(i, t)| FunctionArg {
-                        name: format!("payload{}", i),
-                        type_name: t.clone(),
-                        ref_kind: ArgRefKind::Owned,
-                        doc: None,
-                        callback_info: None,
-                    }).collect()
+                    types
+                        .iter()
+                        .enumerate()
+                        .map(|(i, t)| FunctionArg {
+                            name: format!("payload{}", i),
+                            type_name: t.clone(),
+                            ref_kind: ArgRefKind::Owned,
+                            doc: None,
+                            callback_info: None,
+                        })
+                        .collect()
                 };
 
                 // Build fn_body like `EventFilter::Hover(payload)` or `Variant(payload0, payload1)`
                 let arg_names = if types.len() == 1 {
                     "payload".to_string()
                 } else {
-                    (0..types.len()).map(|i| format!("payload{}", i)).collect::<Vec<_>>().join(", ")
+                    (0..types.len())
+                        .map(|i| format!("payload{}", i))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 };
                 let fn_body = format!("{}::{}({})", enum_name, variant.name, arg_names);
 
@@ -1397,17 +1532,25 @@ impl<'a> IRBuilder<'a> {
             }
             EnumVariantKind::Struct(fields) => {
                 // Use field names as arg names
-                let args: Vec<FunctionArg> = fields.iter().map(|f| FunctionArg {
-                    name: f.name.clone(),
-                    type_name: f.type_name.clone(),
-                    ref_kind: ArgRefKind::Owned,
-                    doc: None,
-                    callback_info: None,
-                }).collect();
+                let args: Vec<FunctionArg> = fields
+                    .iter()
+                    .map(|f| FunctionArg {
+                        name: f.name.clone(),
+                        type_name: f.type_name.clone(),
+                        ref_kind: ArgRefKind::Owned,
+                        doc: None,
+                        callback_info: None,
+                    })
+                    .collect();
 
                 // Build fn_body like `Variant { field1, field2 }`
                 let field_names: Vec<_> = fields.iter().map(|f| f.name.clone()).collect();
-                let fn_body = format!("{}::{} {{ {} }}", enum_name, variant.name, field_names.join(", "));
+                let fn_body = format!(
+                    "{}::{} {{ {} }}",
+                    enum_name,
+                    variant.name,
+                    field_names.join(", ")
+                );
 
                 (args, Some(fn_body))
             }
@@ -1439,16 +1582,22 @@ impl<'a> IRBuilder<'a> {
         //   - _partialCmp if PartialOrd
         //   - _cmp if Ord
         //   - _hash if Hash
-        
+
         // Collect type info first to avoid borrow issues
         // IMPORTANT: Skip generic types - they need to be monomorphized first
         // Only their monomorphized versions (type aliases) should get trait functions
-        let struct_infos: Vec<_> = self.ir.structs.iter()
+        let struct_infos: Vec<_> = self
+            .ir
+            .structs
+            .iter()
             .filter(|s| s.generic_params.is_empty())
             .map(|s| (s.name.clone(), s.traits.clone()))
             .collect();
 
-        let enum_infos: Vec<_> = self.ir.enums.iter()
+        let enum_infos: Vec<_> = self
+            .ir
+            .enums
+            .iter()
             .filter(|e| e.generic_params.is_empty())
             .map(|e| (e.name.clone(), e.traits.clone()))
             .collect();
@@ -1462,14 +1611,17 @@ impl<'a> IRBuilder<'a> {
         for (name, traits) in enum_infos {
             self.generate_trait_functions_for_type(&name, &traits);
         }
-        
+
         // Generate trait functions for monomorphized type aliases
         // These are the concrete instantiations of generic types
-        let type_alias_infos: Vec<_> = self.ir.type_aliases.iter()
+        let type_alias_infos: Vec<_> = self
+            .ir
+            .type_aliases
+            .iter()
             .filter(|t| t.monomorphized_def.is_some())
             .map(|t| (t.name.clone(), t.traits.clone()))
             .collect();
-        
+
         for (name, traits) in type_alias_infos {
             self.generate_trait_functions_for_type(&name, &traits);
         }
@@ -1653,13 +1805,13 @@ impl<'a> IRBuilder<'a> {
             });
         }
     }
-    
+
     /// Detect if an argument type is a callback typedef and return info for code generation
-    /// 
+    ///
     /// A callback typedef type:
     /// - Ends with "CallbackType" (e.g., "CallbackType", "ButtonOnClickCallbackType")
     /// - Is registered in api.json with callback_typedef
-    /// 
+    ///
     /// Returns CallbackArgInfo with:
     /// - callback_typedef_name: The typedef name (e.g., "CallbackType")
     /// - callback_wrapper_name: The wrapper struct name (e.g., "Callback", "ButtonOnClickCallback")
@@ -1669,21 +1821,21 @@ impl<'a> IRBuilder<'a> {
         if !type_name.ends_with("CallbackType") {
             return None;
         }
-        
+
         // Skip destructor and clone callback types - these are internal
         // FontRefDestructorCallbackType ends with "CallbackType" but contains "Destructor"
         if type_name.contains("Destructor") || type_name.ends_with("CloneCallbackType") {
             return None;
         }
-        
+
         // The wrapper name is the typedef name with "Type" stripped
         // e.g., "ButtonOnClickCallbackType" -> "ButtonOnClickCallback"
         // e.g., "CallbackType" -> "Callback"
         let wrapper_name = type_name.strip_suffix("Type").unwrap_or(type_name);
-        
+
         // Build trampoline name: invoke_py_{snake_case_of_wrapper}
         let trampoline_name = format!("invoke_py_{}", to_snake_case(wrapper_name));
-        
+
         Some(CallbackArgInfo {
             callback_typedef_name: type_name.to_string(),
             callback_wrapper_name: wrapper_name.to_string(),
@@ -1737,14 +1889,14 @@ pub fn build_ir(api_data: &ApiData) -> Result<CodegenIR> {
 }
 
 /// Parse a type string to extract ref_kind and the actual type name
-/// 
+///
 /// Examples:
 /// - "NodeType" → (Owned, "NodeType")
 /// - "*const SvgNode" → (Ptr, "SvgNode")
 /// - "*mut TextBuffer" → (PtrMut, "TextBuffer")
 fn parse_type_ref_kind(type_str: &str) -> (ArgRefKind, String) {
     let trimmed = type_str.trim();
-    
+
     if let Some(rest) = trimmed.strip_prefix("*const ") {
         return (ArgRefKind::Ptr, rest.trim().to_string());
     }
@@ -1757,7 +1909,7 @@ fn parse_type_ref_kind(type_str: &str) -> (ArgRefKind, String) {
     if let Some(rest) = trimmed.strip_prefix("&") {
         return (ArgRefKind::Ref, rest.trim().to_string());
     }
-    
+
     (ArgRefKind::Owned, trimmed.to_string())
 }
 
@@ -1768,23 +1920,41 @@ fn parse_type_ref_kind(type_str: &str) -> (ArgRefKind, String) {
 /// Recursive types that cause "infinite size" errors in PyO3
 /// These would need Box<> indirection which the C-API doesn't have
 const RECURSIVE_TYPE_NAMES: &[&str] = &[
-    "XmlNode", "XmlNodeChild", "XmlNodeChildVec", 
-    "Xml", "ResultXmlXmlError",
+    "XmlNode",
+    "XmlNodeChild",
+    "XmlNodeChildVec",
+    "Xml",
+    "ResultXmlXmlError",
 ];
 
 /// VecRef types - raw pointer slice wrappers
 /// These need special trampolines and are skipped in Python for now
 const VECREF_TYPE_NAMES: &[&str] = &[
     // Immutable VecRef types
-    "GLuintVecRef", "GLintVecRef", "GLenumVecRef",
-    "U8VecRef", "U16VecRef", "U32VecRef", "I32VecRef", "F32VecRef",
-    "Refstr", "RefstrVecRef",
-    "TessellatedSvgNodeVecRef", "TessellatedColoredSvgNodeVecRef",
-    "OptionU8VecRef", "OptionI16VecRef", "OptionI32VecRef",
-    "OptionF32VecRef", "OptionFloatVecRef",
+    "GLuintVecRef",
+    "GLintVecRef",
+    "GLenumVecRef",
+    "U8VecRef",
+    "U16VecRef",
+    "U32VecRef",
+    "I32VecRef",
+    "F32VecRef",
+    "Refstr",
+    "RefstrVecRef",
+    "TessellatedSvgNodeVecRef",
+    "TessellatedColoredSvgNodeVecRef",
+    "OptionU8VecRef",
+    "OptionI16VecRef",
+    "OptionI32VecRef",
+    "OptionF32VecRef",
+    "OptionFloatVecRef",
     // Mutable VecRefMut types
-    "GLintVecRefMut", "GLint64VecRefMut", "GLbooleanVecRefMut",
-    "GLfloatVecRefMut", "U8VecRefMut", "F32VecRefMut",
+    "GLintVecRefMut",
+    "GLint64VecRefMut",
+    "GLbooleanVecRefMut",
+    "GLfloatVecRefMut",
+    "U8VecRefMut",
+    "F32VecRefMut",
 ];
 
 /// String type name
@@ -1793,9 +1963,7 @@ const STRING_TYPE_NAME: &str = "String";
 /// Vec types that use C-API directly with special conversion
 /// These types should NOT get a Python wrapper struct because they
 /// have type aliases defined and PyO3 traits implemented on the C-API types
-const VEC_TYPE_NAMES: &[&str] = &[
-    "U8Vec", "StringVec", "GLuintVec", "GLintVec",
-];
+const VEC_TYPE_NAMES: &[&str] = &["U8Vec", "StringVec", "GLuintVec", "GLintVec"];
 
 /// RefAny type name
 const REFANY_TYPE_NAME: &str = "RefAny";
@@ -1807,11 +1975,15 @@ const CAPI_DIRECT_TYPES: &[&str] = &[
     // String types
     "String",
     // Vec types
-    "U8Vec", "StringVec", "GLuintVec", "GLintVec",
+    "U8Vec",
+    "StringVec",
+    "GLuintVec",
+    "GLintVec",
     // RefAny
     "RefAny",
     // Destructor types
-    "U8VecDestructor", "StringVecDestructor",
+    "U8VecDestructor",
+    "StringVecDestructor",
     // Opaque pointer types
     "InstantPtr",
     // Menu types with special handling
@@ -1821,7 +1993,7 @@ const CAPI_DIRECT_TYPES: &[&str] = &[
 /// Classify a struct type based on its properties
 /// This is the central classification function that replaces all ad-hoc checks
 pub fn classify_struct_type(
-    name: &str, 
+    name: &str,
     class_data: &ClassData,
     version_data: &VersionData,
 ) -> TypeCategory {
@@ -1862,17 +2034,23 @@ pub fn classify_struct_type(
     }
 
     // 5. Check for generic templates
-    if class_data.generic_params.is_some() && 
-       !class_data.generic_params.as_ref().map(|v| v.is_empty()).unwrap_or(true) {
+    if class_data.generic_params.is_some()
+        && !class_data
+            .generic_params
+            .as_ref()
+            .map(|v| v.is_empty())
+            .unwrap_or(true)
+    {
         return TypeCategory::GenericTemplate;
     }
 
     // 6. Check for destructor/clone callback types (wrapper structs containing function pointers)
-    if name.ends_with("Destructor") || 
-       name.ends_with("DestructorType") ||
-       name.ends_with("CloneCallbackType") ||
-       name.ends_with("CloneCallback") ||
-       name.ends_with("DestructorCallback") {
+    if name.ends_with("Destructor")
+        || name.ends_with("DestructorType")
+        || name.ends_with("CloneCallbackType")
+        || name.ends_with("CloneCallback")
+        || name.ends_with("DestructorCallback")
+    {
         return TypeCategory::DestructorOrClone;
     }
 
@@ -1897,15 +2075,21 @@ pub fn classify_enum_type(
     }
 
     // 2. Check for destructor/clone callback types (enums like U8VecDestructor)
-    if name.ends_with("Destructor") || 
-       name.ends_with("DestructorType") ||
-       name.ends_with("CloneCallbackType") {
+    if name.ends_with("Destructor")
+        || name.ends_with("DestructorType")
+        || name.ends_with("CloneCallbackType")
+    {
         return TypeCategory::DestructorOrClone;
     }
 
     // 3. Check for generic templates
-    if class_data.generic_params.is_some() && 
-       !class_data.generic_params.as_ref().map(|v| v.is_empty()).unwrap_or(true) {
+    if class_data.generic_params.is_some()
+        && !class_data
+            .generic_params
+            .as_ref()
+            .map(|v| v.is_empty())
+            .unwrap_or(true)
+    {
         return TypeCategory::GenericTemplate;
     }
 
@@ -1974,7 +2158,7 @@ fn get_class<'a>(
 }
 
 /// Convert CamelCase to snake_case
-/// 
+///
 /// Examples:
 /// - "ButtonOnClickCallback" -> "button_on_click_callback"
 /// - "CallbackType" -> "callback_type"
@@ -1994,7 +2178,7 @@ fn to_snake_case(s: &str) -> String {
 }
 
 /// Check if a type string is an array type like [T; N]
-/// 
+///
 /// Array types are not allowed in api.json because they require
 /// special handling in each language binding. Use dedicated structs instead.
 fn is_array_type(type_str: &str) -> bool {

@@ -1,10 +1,10 @@
-use azul_simplecss::{Tokenizer, Token};
+use azul_simplecss::{Token, Tokenizer};
 
 #[test]
 fn debug_lang_pseudo_class() {
     let css = r#"div:lang(de) { color: red; }"#;
     let mut tokenizer = Tokenizer::new(css);
-    
+
     let mut tokens = Vec::new();
     loop {
         match tokenizer.parse_next() {
@@ -21,10 +21,10 @@ fn debug_lang_pseudo_class() {
             }
         }
     }
-    
+
     for t in &tokens {
         eprintln!("{}", t);
     }
-    
+
     panic!("Tokens: {:?}", tokens);
 }

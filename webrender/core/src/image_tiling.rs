@@ -420,7 +420,7 @@ fn tiles_1d(
 /// image range (in pixels) in an arbitrary dimension.
 ///
 /// ```ignore
-/// 
+///
 ///         0
 ///         :
 ///   #-+---+---+---+---+---+--#

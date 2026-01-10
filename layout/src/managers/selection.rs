@@ -10,7 +10,7 @@ use azul_core::{
     dom::{DomId, DomNodeId},
     events::SelectionManagerQuery,
     geom::LogicalPosition,
-    selection::{Selection, SelectionRange, SelectionState, TextCursor, SelectionVec},
+    selection::{Selection, SelectionRange, SelectionState, SelectionVec, TextCursor},
 };
 use azul_css::{impl_option, impl_option_inner, AzString, OptionString};
 
@@ -308,7 +308,12 @@ pub struct StyledTextRun {
     pub is_italic: bool,
 }
 
-azul_css::impl_vec!(StyledTextRun, StyledTextRunVec, StyledTextRunVecDestructor, StyledTextRunVecDestructorType);
+azul_css::impl_vec!(
+    StyledTextRun,
+    StyledTextRunVec,
+    StyledTextRunVecDestructor,
+    StyledTextRunVecDestructorType
+);
 azul_css::impl_vec_debug!(StyledTextRun, StyledTextRunVec);
 azul_css::impl_vec_clone!(StyledTextRun, StyledTextRunVec, StyledTextRunVecDestructor);
 azul_css::impl_vec_partialeq!(StyledTextRun, StyledTextRunVec);

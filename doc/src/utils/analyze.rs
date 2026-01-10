@@ -259,7 +259,7 @@ pub fn has_recursive_destructor(version_data: &VersionData, class: &ClassData) -
 
 /// Inner function with cycle detection
 fn has_recursive_destructor_inner(
-    version_data: &VersionData, 
+    version_data: &VersionData,
     class: &ClassData,
     visited: &mut HashSet<String>,
 ) -> bool {
@@ -289,7 +289,7 @@ fn has_recursive_destructor_inner(
                     if visited.contains(&field_type_base) {
                         continue;
                     }
-                    
+
                     if let Some((module_name, class_name)) =
                         search_for_class_by_class_name(version_data, &field_type_base)
                     {
@@ -318,7 +318,7 @@ fn has_recursive_destructor_inner(
                         if visited.contains(&variant_type_base) {
                             continue;
                         }
-                        
+
                         if let Some((module_name, class_name)) =
                             search_for_class_by_class_name(version_data, &variant_type_base)
                         {
@@ -326,7 +326,11 @@ fn has_recursive_destructor_inner(
                                 get_class(version_data, module_name, class_name)
                             {
                                 visited.insert(variant_type_base.clone());
-                                if has_recursive_destructor_inner(version_data, variant_class, visited) {
+                                if has_recursive_destructor_inner(
+                                    version_data,
+                                    variant_class,
+                                    visited,
+                                ) {
                                     return true;
                                 }
                             }

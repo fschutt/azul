@@ -181,7 +181,12 @@ pub struct GlyphInfo {
     pub placement: Placement,
 }
 
-impl_vec!(GlyphInfo, GlyphInfoVec, GlyphInfoVecDestructor, GlyphInfoVecDestructorType);
+impl_vec!(
+    GlyphInfo,
+    GlyphInfoVec,
+    GlyphInfoVecDestructor,
+    GlyphInfoVecDestructorType
+);
 impl_vec_clone!(GlyphInfo, GlyphInfoVec, GlyphInfoVecDestructor);
 impl_vec_debug!(GlyphInfo, GlyphInfoVec);
 impl_vec_partialeq!(GlyphInfo, GlyphInfoVec);

@@ -321,9 +321,7 @@ impl SceneBuilderThread {
                     let built_txns: Vec<Box<BuiltTransaction>> = txns
                         .into_iter()
                         .enumerate()
-                        .map(|(_i, txn)| {
-                            self.process_transaction(*txn)
-                        })
+                        .map(|(_i, txn)| self.process_transaction(*txn))
                         .collect();
                     #[cfg(feature = "capture")]
                     match built_txns.iter().any(|txn| txn.built_scene.is_some()) {
@@ -541,7 +539,10 @@ impl SceneBuilderThread {
                 SceneMsg::SetQualitySettings { settings } => {
                     doc.view.quality_settings = settings;
                 }
-                SceneMsg::SetDocumentView { device_rect, device_pixel_scale } => {
+                SceneMsg::SetDocumentView {
+                    device_rect,
+                    device_pixel_scale,
+                } => {
                     doc.view.device_rect = device_rect;
                     doc.view.device_pixel_scale = device_pixel_scale;
                 }

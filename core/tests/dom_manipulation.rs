@@ -40,22 +40,29 @@ fn test_dom_with_multiple_children() {
 
 #[test]
 fn test_dom_with_children_vec() {
-    let dom = Dom::create_div()
-        .with_children(vec![Dom::create_text("One"), Dom::create_text("Two"), Dom::create_text("Three")].into());
+    let dom = Dom::create_div().with_children(
+        vec![
+            Dom::create_text("One"),
+            Dom::create_text("Two"),
+            Dom::create_text("Three"),
+        ]
+        .into(),
+    );
     assert_eq!(dom.children.len(), 3);
 }
 
 #[test]
 fn test_dom_nested_structure() {
-    let dom = Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_text("Nested")));
+    let dom =
+        Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_text("Nested")));
     assert_eq!(dom.children.len(), 1);
 }
 
 #[test]
 fn test_dom_deeply_nested() {
-    let dom = Dom::create_div().with_child(
-        Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_text("Deep")))),
-    );
+    let dom = Dom::create_div().with_child(Dom::create_div().with_child(
+        Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_text("Deep"))),
+    ));
     assert_eq!(dom.children.len(), 1);
 }
 
@@ -326,8 +333,7 @@ fn test_set_children_estimated_total_children_correct() {
 
     // This should correctly be 3 (the child + its 2 descendants)
     assert_eq!(
-        parent.estimated_total_children,
-        3,
+        parent.estimated_total_children, 3,
         "set_children correctly calculates estimated_total_children"
     );
 }

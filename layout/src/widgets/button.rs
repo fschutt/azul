@@ -2,11 +2,7 @@ use std::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{
-        Dom, IdOrClass,
-        IdOrClass::Class,
-        IdOrClassVec, TabIndex,
-    },
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
     resources::{ImageRef, OptionImageRef},
 };
@@ -65,8 +61,7 @@ const MAC_FONT_FAMILIES: &[StyleFontFamily] = &[
     StyleFontFamily::System(HELVETICA),
     StyleFontFamily::System(SANS_SERIF),
 ];
-const MAC_FONT_FAMILY: StyleFontFamilyVec =
-    StyleFontFamilyVec::from_const_slice(MAC_FONT_FAMILIES);
+const MAC_FONT_FAMILY: StyleFontFamilyVec = StyleFontFamilyVec::from_const_slice(MAC_FONT_FAMILIES);
 
 const RGB_172: ColorU = ColorU {
     r: 172,
@@ -267,9 +262,11 @@ static BUTTON_CONTAINER_WINDOWS: &[CssPropertyWithConditions] = &[
             inner: WINDOWS_HOVER_BORDER,
         },
     )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
-        inner: WINDOWS_HOVER_BORDER,
-    })),
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: WINDOWS_HOVER_BORDER,
+        },
+    )),
     CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: WINDOWS_HOVER_BORDER,
@@ -278,17 +275,21 @@ static BUTTON_CONTAINER_WINDOWS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::on_active(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(BUTTON_ACTIVE_BACKGROUND_WINDOWS),
     )),
-    CssPropertyWithConditions::on_active(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: WINDOWS_ACTIVE_BORDER,
-    })),
+    CssPropertyWithConditions::on_active(CssProperty::const_border_top_color(
+        StyleBorderTopColor {
+            inner: WINDOWS_ACTIVE_BORDER,
+        },
+    )),
     CssPropertyWithConditions::on_active(CssProperty::const_border_bottom_color(
         StyleBorderBottomColor {
             inner: WINDOWS_ACTIVE_BORDER,
         },
     )),
-    CssPropertyWithConditions::on_active(CssProperty::const_border_left_color(StyleBorderLeftColor {
-        inner: WINDOWS_ACTIVE_BORDER,
-    })),
+    CssPropertyWithConditions::on_active(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: WINDOWS_ACTIVE_BORDER,
+        },
+    )),
     CssPropertyWithConditions::on_active(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: WINDOWS_ACTIVE_BORDER,
@@ -302,9 +303,11 @@ static BUTTON_CONTAINER_WINDOWS: &[CssPropertyWithConditions] = &[
             inner: WINDOWS_FOCUS_BORDER,
         },
     )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
-        inner: WINDOWS_FOCUS_BORDER,
-    })),
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: WINDOWS_FOCUS_BORDER,
+        },
+    )),
     CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: WINDOWS_FOCUS_BORDER,
@@ -316,192 +319,386 @@ static BUTTON_CONTAINER_WINDOWS: &[CssPropertyWithConditions] = &[
 const LINUX_NORMAL_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU { r: 252, g: 252, b: 252, a: 255 },
+        color: ColorU {
+            r: 252,
+            g: 252,
+            b: 252,
+            a: 255,
+        },
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU { r: 239, g: 239, b: 239, a: 255 },
+        color: ColorU {
+            r: 239,
+            g: 239,
+            b: 239,
+            a: 255,
+        },
     },
 ];
-const LINUX_NORMAL_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::LinearGradient(LinearGradient {
-    direction: Direction::FromTo(DirectionCorners {
-        dir_from: DirectionCorner::Top,
-        dir_to: DirectionCorner::Bottom,
-    }),
-    extend_mode: ExtendMode::Clamp,
-    stops: NormalizedLinearColorStopVec::from_const_slice(LINUX_NORMAL_GRADIENT_STOPS),
-})];
+const LINUX_NORMAL_BACKGROUND: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(LINUX_NORMAL_GRADIENT_STOPS),
+    })];
 
 const LINUX_HOVER_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU { r: 255, g: 255, b: 255, a: 255 },
+        color: ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        },
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU { r: 245, g: 245, b: 245, a: 255 },
+        color: ColorU {
+            r: 245,
+            g: 245,
+            b: 245,
+            a: 255,
+        },
     },
 ];
-const LINUX_HOVER_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::LinearGradient(LinearGradient {
-    direction: Direction::FromTo(DirectionCorners {
-        dir_from: DirectionCorner::Top,
-        dir_to: DirectionCorner::Bottom,
-    }),
-    extend_mode: ExtendMode::Clamp,
-    stops: NormalizedLinearColorStopVec::from_const_slice(LINUX_HOVER_GRADIENT_STOPS),
-})];
+const LINUX_HOVER_BACKGROUND: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(LINUX_HOVER_GRADIENT_STOPS),
+    })];
 
 const LINUX_ACTIVE_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU { r: 220, g: 220, b: 220, a: 255 },
+        color: ColorU {
+            r: 220,
+            g: 220,
+            b: 220,
+            a: 255,
+        },
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU { r: 200, g: 200, b: 200, a: 255 },
+        color: ColorU {
+            r: 200,
+            g: 200,
+            b: 200,
+            a: 255,
+        },
     },
 ];
-const LINUX_ACTIVE_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::LinearGradient(LinearGradient {
-    direction: Direction::FromTo(DirectionCorners {
-        dir_from: DirectionCorner::Top,
-        dir_to: DirectionCorner::Bottom,
-    }),
-    extend_mode: ExtendMode::Clamp,
-    stops: NormalizedLinearColorStopVec::from_const_slice(LINUX_ACTIVE_GRADIENT_STOPS),
-})];
+const LINUX_ACTIVE_BACKGROUND: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(LINUX_ACTIVE_GRADIENT_STOPS),
+    })];
 
-const LINUX_BORDER_COLOR: ColorU = ColorU { r: 183, g: 183, b: 183, a: 255 };
+const LINUX_BORDER_COLOR: ColorU = ColorU {
+    r: 183,
+    g: 183,
+    b: 183,
+    a: 255,
+};
 
 static BUTTON_CONTAINER_LINUX: &[CssPropertyWithConditions] = &[
     // Linux/GTK-style button styling
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
-    CssPropertyWithConditions::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     // background: linear-gradient(#fcfcfc, #efefef)
-    CssPropertyWithConditions::simple(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(LINUX_NORMAL_BACKGROUND))),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(LINUX_NORMAL_BACKGROUND),
+    )),
     // border: 1px solid #b7b7b7
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor { inner: LINUX_BORDER_COLOR })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: LINUX_BORDER_COLOR })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: LINUX_BORDER_COLOR })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(StyleBorderRightColor { inner: LINUX_BORDER_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+        LayoutBorderTopWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+        inner: BorderStyle::Solid,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+        inner: BorderStyle::Solid,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: LINUX_BORDER_COLOR,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: LINUX_BORDER_COLOR,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: LINUX_BORDER_COLOR,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: LINUX_BORDER_COLOR,
+        },
+    )),
     // border-radius: 4px
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(StyleBorderTopLeftRadius::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_right_radius(StyleBorderTopRightRadius::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(StyleBorderBottomLeftRadius::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(StyleBorderBottomRightRadius::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
+        StyleBorderTopLeftRadius::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_right_radius(
+        StyleBorderTopRightRadius::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(
+        StyleBorderBottomLeftRadius::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
+        StyleBorderBottomRightRadius::const_px(4),
+    )),
     // padding: 5px 10px
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(5))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(5))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(10))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(10))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        5,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(5),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(10),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(10),
+    )),
     // Hover state
-    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(LINUX_HOVER_BACKGROUND))),
+    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(LINUX_HOVER_BACKGROUND),
+    )),
     // Active state
-    CssPropertyWithConditions::on_active(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(LINUX_ACTIVE_BACKGROUND))),
+    CssPropertyWithConditions::on_active(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(LINUX_ACTIVE_BACKGROUND),
+    )),
 ];
 
 // macOS button background gradients
 const MAC_NORMAL_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU { r: 252, g: 252, b: 252, a: 255 },
+        color: ColorU {
+            r: 252,
+            g: 252,
+            b: 252,
+            a: 255,
+        },
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU { r: 239, g: 239, b: 239, a: 255 },
+        color: ColorU {
+            r: 239,
+            g: 239,
+            b: 239,
+            a: 255,
+        },
     },
 ];
 // Temporarily use simple color for testing inline rendering on macOS
-const MAC_NORMAL_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(
-    ColorU { r: 239, g: 239, b: 239, a: 255 }
-)];
+const MAC_NORMAL_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(ColorU {
+    r: 239,
+    g: 239,
+    b: 239,
+    a: 255,
+})];
 
 const MAC_HOVER_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU { r: 255, g: 255, b: 255, a: 255 },
+        color: ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        },
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU { r: 245, g: 245, b: 245, a: 255 },
+        color: ColorU {
+            r: 245,
+            g: 245,
+            b: 245,
+            a: 255,
+        },
     },
 ];
-const MAC_HOVER_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::LinearGradient(LinearGradient {
-    direction: Direction::FromTo(DirectionCorners {
-        dir_from: DirectionCorner::Top,
-        dir_to: DirectionCorner::Bottom,
-    }),
-    extend_mode: ExtendMode::Clamp,
-    stops: NormalizedLinearColorStopVec::from_const_slice(MAC_HOVER_GRADIENT_STOPS),
-})];
+const MAC_HOVER_BACKGROUND: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(MAC_HOVER_GRADIENT_STOPS),
+    })];
 
 const MAC_ACTIVE_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU { r: 220, g: 220, b: 220, a: 255 },
+        color: ColorU {
+            r: 220,
+            g: 220,
+            b: 220,
+            a: 255,
+        },
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU { r: 200, g: 200, b: 200, a: 255 },
+        color: ColorU {
+            r: 200,
+            g: 200,
+            b: 200,
+            a: 255,
+        },
     },
 ];
-const MAC_ACTIVE_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::LinearGradient(LinearGradient {
-    direction: Direction::FromTo(DirectionCorners {
-        dir_from: DirectionCorner::Top,
-        dir_to: DirectionCorner::Bottom,
-    }),
-    extend_mode: ExtendMode::Clamp,
-    stops: NormalizedLinearColorStopVec::from_const_slice(MAC_ACTIVE_GRADIENT_STOPS),
-})];
+const MAC_ACTIVE_BACKGROUND: &[StyleBackgroundContent] =
+    &[StyleBackgroundContent::LinearGradient(LinearGradient {
+        direction: Direction::FromTo(DirectionCorners {
+            dir_from: DirectionCorner::Top,
+            dir_to: DirectionCorner::Bottom,
+        }),
+        extend_mode: ExtendMode::Clamp,
+        stops: NormalizedLinearColorStopVec::from_const_slice(MAC_ACTIVE_GRADIENT_STOPS),
+    })];
 
-const MAC_BORDER_COLOR: ColorU = ColorU { r: 183, g: 183, b: 183, a: 255 };
+const MAC_BORDER_COLOR: ColorU = ColorU {
+    r: 183,
+    g: 183,
+    b: 183,
+    a: 255,
+};
 
 static BUTTON_CONTAINER_MAC: &[CssPropertyWithConditions] = &[
     // macOS native button styling
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
-    CssPropertyWithConditions::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_justify_content(
+        LayoutJustifyContent::Center,
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     // background: linear-gradient(#fcfcfc, #efefef)
-    CssPropertyWithConditions::simple(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(MAC_NORMAL_BACKGROUND))),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(MAC_NORMAL_BACKGROUND),
+    )),
     // border: 1px solid #b7b7b7
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor { inner: MAC_BORDER_COLOR })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: MAC_BORDER_COLOR })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: MAC_BORDER_COLOR })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(StyleBorderRightColor { inner: MAC_BORDER_COLOR })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+        LayoutBorderTopWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+        inner: BorderStyle::Solid,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+        inner: BorderStyle::Solid,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: MAC_BORDER_COLOR,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: MAC_BORDER_COLOR,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: MAC_BORDER_COLOR,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: MAC_BORDER_COLOR,
+        },
+    )),
     // border-radius: 4px
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(StyleBorderTopLeftRadius::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_right_radius(StyleBorderTopRightRadius::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(StyleBorderBottomLeftRadius::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(StyleBorderBottomRightRadius::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
+        StyleBorderTopLeftRadius::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_right_radius(
+        StyleBorderTopRightRadius::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(
+        StyleBorderBottomLeftRadius::const_px(4),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
+        StyleBorderBottomRightRadius::const_px(4),
+    )),
     // padding: 5px 10px
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(5))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(5))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(10))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(10))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        5,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(5),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(10),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(10),
+    )),
     // Hover state
-    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(MAC_HOVER_BACKGROUND))),
+    CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(MAC_HOVER_BACKGROUND),
+    )),
     // Active state
-    CssPropertyWithConditions::on_active(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(MAC_ACTIVE_BACKGROUND))),
+    CssPropertyWithConditions::on_active(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(MAC_ACTIVE_BACKGROUND),
+    )),
 ];
 
 static BUTTON_CONTAINER_OTHER: &[CssPropertyWithConditions] = &[];
@@ -519,7 +716,12 @@ static BUTTON_LABEL_LINUX: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: ColorU { r: 76, g: 76, b: 76, a: 255 },
+        inner: ColorU {
+            r: 76,
+            g: 76,
+            b: 76,
+            a: 255,
+        },
     })),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
@@ -528,7 +730,12 @@ static BUTTON_LABEL_MAC: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: ColorU { r: 76, g: 76, b: 76, a: 255 },
+        inner: ColorU {
+            r: 76,
+            g: 76,
+            b: 76,
+            a: 255,
+        },
     })),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(MAC_FONT_FAMILY)),
 ];
@@ -596,7 +803,11 @@ impl Button {
     }
 
     #[inline]
-    pub fn with_on_click<C: Into<ButtonOnClickCallback>>(mut self, data: RefAny, on_click: C) -> Self {
+    pub fn with_on_click<C: Into<ButtonOnClickCallback>>(
+        mut self,
+        data: RefAny,
+        on_click: C,
+    ) -> Self {
         self.set_on_click(data, on_click);
         self
     }
@@ -609,7 +820,10 @@ impl Button {
         };
 
         let callbacks = match self.on_click.into_option() {
-            Some(ButtonOnClick { refany: data, callback }) => vec![CoreCallbackData {
+            Some(ButtonOnClick {
+                refany: data,
+                callback,
+            }) => vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseUp),
                 callback: CoreCallback {
                     cb: callback.cb as usize,
@@ -620,9 +834,8 @@ impl Button {
             None => Vec::new(),
         };
 
-        static BUTTON_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
-            "__azul-native-button",
-        ))];
+        static BUTTON_CLASS: &[IdOrClass] =
+            &[Class(AzString::from_const_str("__azul-native-button"))];
 
         Dom::create_button(self.label)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(BUTTON_CLASS))

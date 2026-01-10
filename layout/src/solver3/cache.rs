@@ -42,10 +42,12 @@ use crate::{
         fc::{self, layout_formatting_context, LayoutConstraints, OverflowBehavior},
         geometry::PositionedRectangle,
         getters::{
-            get_css_height, get_display_property, get_justify_content, get_overflow_x, get_overflow_y, get_text_align,
-            get_wrap, get_writing_mode, MultiValue,
+            get_css_height, get_display_property, get_justify_content, get_overflow_x,
+            get_overflow_y, get_text_align, get_wrap, get_writing_mode, MultiValue,
         },
-        layout_tree::{is_block_level, AnonymousBoxType, LayoutNode, LayoutTreeBuilder, SubtreeHash},
+        layout_tree::{
+            is_block_level, AnonymousBoxType, LayoutNode, LayoutTreeBuilder, SubtreeHash,
+        },
         positioning::get_position_type,
         scrollbar::ScrollbarRequirements,
         sizing::calculate_used_size_for_node,
@@ -469,15 +471,17 @@ pub fn reconcile_recursive(
     let mut new_child_hashes = Vec::new();
 
     // CSS 2.2 Section 9.2.1.1: Anonymous Block Boxes
-    // "When an inline box contains an in-flow block-level box, the inline box 
-    // (and its inline ancestors within the same line box) are broken around 
+    // "When an inline box contains an in-flow block-level box, the inline box
+    // (and its inline ancestors within the same line box) are broken around
     // the block-level box [...], splitting the inline box into two boxes"
     //
     // When a block container has mixed block/inline children, we must:
     // 1. Wrap consecutive inline children in anonymous block boxes
     // 2. Leave block-level children as direct children
-    
-    let has_block_child = new_children_dom_ids.iter().any(|&id| is_block_level(styled_dom, id));
+
+    let has_block_child = new_children_dom_ids
+        .iter()
+        .any(|&id| is_block_level(styled_dom, id));
 
     if !has_block_child {
         // All children are inline - no anonymous boxes needed
@@ -500,7 +504,9 @@ pub fn reconcile_recursive(
             }
 
             if old_tree.and_then(|t| t.get(old_child_idx?).map(|n| n.subtree_hash))
-                != new_tree_builder.get(reconciled_child_idx).map(|n| n.subtree_hash)
+                != new_tree_builder
+                    .get(reconciled_child_idx)
+                    .map(|n| n.subtree_hash)
             {
                 children_are_different = true;
             }
@@ -508,14 +514,14 @@ pub fn reconcile_recursive(
     } else {
         // Mixed content: block and inline children
         // We must create anonymous block boxes around consecutive inline runs
-        
+
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.push(LayoutDebugMessage::info(format!(
                 "[reconcile_recursive] Mixed content in node {}: creating anonymous IFC wrappers",
                 new_dom_id.index()
             )));
         }
-        
+
         let mut inline_run: Vec<(usize, NodeId)> = Vec::new(); // (dom_child_index, dom_id)
 
         for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
@@ -529,7 +535,7 @@ pub fn reconcile_recursive(
                         AnonymousBoxType::InlineWrapper,
                         FormattingContext::Inline, // IFC for inline content
                     );
-                    
+
                     if let Some(msgs) = debug_messages.as_mut() {
                         msgs.push(LayoutDebugMessage::info(format!(
                             "[reconcile_recursive] Created anonymous IFC wrapper (layout_idx={}) for {} inline children: {:?}",
@@ -538,7 +544,7 @@ pub fn reconcile_recursive(
                             inline_run.iter().map(|(_, id)| id.index()).collect::<Vec<_>>()
                         )));
                     }
-                    
+
                     // Process each inline child under the anonymous wrapper
                     for (pos, inline_dom_id) in inline_run.drain(..) {
                         let old_child_idx = old_children_indices.get(pos).copied();
@@ -556,12 +562,12 @@ pub fn reconcile_recursive(
                             new_child_hashes.push(child_node.subtree_hash.0);
                         }
                     }
-                    
+
                     // Mark anonymous wrapper as dirty for layout
                     recon.intrinsic_dirty.insert(anon_idx);
                     children_are_different = true;
                 }
-                
+
                 // Process block-level child directly under parent
                 let old_child_idx = old_children_indices.get(i).copied();
                 let reconciled_child_idx = reconcile_recursive(
@@ -579,7 +585,9 @@ pub fn reconcile_recursive(
                 }
 
                 if old_tree.and_then(|t| t.get(old_child_idx?).map(|n| n.subtree_hash))
-                    != new_tree_builder.get(reconciled_child_idx).map(|n| n.subtree_hash)
+                    != new_tree_builder
+                        .get(reconciled_child_idx)
+                        .map(|n| n.subtree_hash)
                 {
                     children_are_different = true;
                 }
@@ -588,7 +596,7 @@ pub fn reconcile_recursive(
                 inline_run.push((i, new_child_dom_id));
             }
         }
-        
+
         // Process any remaining inline run at the end
         if !inline_run.is_empty() {
             let anon_idx = new_tree_builder.create_anonymous_node(
@@ -596,7 +604,7 @@ pub fn reconcile_recursive(
                 AnonymousBoxType::InlineWrapper,
                 FormattingContext::Inline, // IFC for inline content
             );
-            
+
             if let Some(msgs) = debug_messages.as_mut() {
                 msgs.push(LayoutDebugMessage::info(format!(
                     "[reconcile_recursive] Created trailing anonymous IFC wrapper (layout_idx={}) for {} inline children: {:?}",
@@ -605,7 +613,7 @@ pub fn reconcile_recursive(
                     inline_run.iter().map(|(_, id)| id.index()).collect::<Vec<_>>()
                 )));
             }
-            
+
             for (pos, inline_dom_id) in inline_run.drain(..) {
                 let old_child_idx = old_children_indices.get(pos).copied();
                 let reconciled_child_idx = reconcile_recursive(
@@ -622,7 +630,7 @@ pub fn reconcile_recursive(
                     new_child_hashes.push(child_node.subtree_hash.0);
                 }
             }
-            
+
             recon.intrinsic_dirty.insert(anon_idx);
             children_are_different = true;
         }
@@ -656,7 +664,7 @@ struct PreparedLayoutContext<'a> {
 
 /// Prepares the layout context for a single node by calculating its used size
 /// and building the layout constraints for its children.
-/// 
+///
 /// For anonymous boxes (no dom_node_id), we use default values and inherit
 /// from the containing block.
 fn prepare_layout_context<'a, T: ParsedFontTrait>(
@@ -707,13 +715,13 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         Some(id) => get_css_height(ctx.styled_dom, id, &styled_node_state),
         None => MultiValue::Auto, // Anonymous boxes have auto height
     };
-    
+
     // Get display type to determine sizing behavior
     let display = match dom_id {
         Some(id) => get_display_property(ctx.styled_dom, Some(id)),
         None => MultiValue::Auto, // Anonymous boxes behave like blocks
     };
-    
+
     let available_size_for_children = if should_use_content_height(&css_height) {
         // Height is auto - use containing block size as available size
         let inner_size = node.box_props.inner_size(final_used_size, writing_mode);
@@ -743,7 +751,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         // Height is explicit - use inner size (after padding/border)
         node.box_props.inner_size(final_used_size, writing_mode)
     };
-    
+
     // Proactively reserve space for scrollbars based on overflow properties.
     // If overflow-y is auto/scroll, we must reduce available width for children
     // to ensure they don't overlap with the scrollbar.
@@ -766,7 +774,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         }
         None => 0.0,
     };
-    
+
     // Reduce available width by scrollbar reservation (if any)
     let available_size_for_children = if scrollbar_reservation > 0.0 {
         LogicalSize {
@@ -823,7 +831,7 @@ fn compute_scrollbar_info<T: ParsedFontTrait>(
     let overflow_y = get_overflow_y(ctx.styled_dom, dom_id, styled_node_state);
 
     let container_size = box_props.inner_size(final_used_size, writing_mode);
-    
+
     fc::check_scrollbar_necessity(
         content_size,
         container_size,

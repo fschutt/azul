@@ -343,7 +343,12 @@ impl_vec_partialeq!(u32, U32Vec);
 impl_vec_eq!(u32, U32Vec);
 impl_vec_hash!(u32, U32Vec);
 
-impl_vec!(AzString, StringVec, StringVecDestructor, StringVecDestructorType);
+impl_vec!(
+    AzString,
+    StringVec,
+    StringVecDestructor,
+    StringVecDestructorType
+);
 impl_vec_debug!(AzString, StringVec);
 impl_vec_partialord!(AzString, StringVec);
 impl_vec_ord!(AzString, StringVec);

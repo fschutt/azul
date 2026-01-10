@@ -19,7 +19,12 @@ pub struct Css {
     pub stylesheets: StylesheetVec,
 }
 
-impl_vec!(Stylesheet, StylesheetVec, StylesheetVecDestructor, StylesheetVecDestructorType);
+impl_vec!(
+    Stylesheet,
+    StylesheetVec,
+    StylesheetVecDestructor,
+    StylesheetVecDestructorType
+);
 impl_vec_mut!(Stylesheet, StylesheetVec);
 impl_vec_debug!(Stylesheet, StylesheetVec);
 impl_vec_partialord!(Stylesheet, StylesheetVec);
@@ -43,7 +48,9 @@ impl Css {
     }
 
     #[cfg(feature = "parser")]
-    pub fn from_string_with_warnings(s: crate::AzString) -> (Self, Vec<crate::parser2::CssParseWarnMsgOwned>) {
+    pub fn from_string_with_warnings(
+        s: crate::AzString,
+    ) -> (Self, Vec<crate::parser2::CssParseWarnMsgOwned>) {
         let (css, warnings) = crate::parser2::new_from_str(s.as_str());
         (
             css,
@@ -65,7 +72,12 @@ pub struct Stylesheet {
     pub rules: CssRuleBlockVec,
 }
 
-impl_vec!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor, CssRuleBlockVecDestructorType);
+impl_vec!(
+    CssRuleBlock,
+    CssRuleBlockVec,
+    CssRuleBlockVecDestructor,
+    CssRuleBlockVecDestructorType
+);
 impl_vec_mut!(CssRuleBlock, CssRuleBlockVec);
 impl_vec_debug!(CssRuleBlock, CssRuleBlockVec);
 impl_vec_partialord!(CssRuleBlock, CssRuleBlockVec);
@@ -1416,7 +1428,10 @@ pub fn format_nth_child_selector(n: &CssNthChildSelector) -> String {
         CssNthChildSelector::Number(num) => format!("CssNthChildSelector::Number({})", num),
         CssNthChildSelector::Even => format!("CssNthChildSelector::Even"),
         CssNthChildSelector::Odd => format!("CssNthChildSelector::Odd"),
-        CssNthChildSelector::Pattern(CssNthChildPattern { pattern_repeat, offset }) => format!(
+        CssNthChildSelector::Pattern(CssNthChildPattern {
+            pattern_repeat,
+            offset,
+        }) => format!(
             "CssNthChildSelector::Pattern(CssNthChildPattern {{ pattern_repeat: {}, offset: {} }})",
             pattern_repeat, offset
         ),

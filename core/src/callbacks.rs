@@ -146,7 +146,10 @@ impl_callback!(IFrameCallback, IFrameCallbackType);
 
 impl IFrameCallback {
     pub fn create(cb: IFrameCallbackType) -> Self {
-        Self { cb, ctx: OptionRefAny::None }
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
     }
 }
 

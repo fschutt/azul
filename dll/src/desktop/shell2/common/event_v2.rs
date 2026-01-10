@@ -135,7 +135,6 @@
 //!
 //! When migrating a platform to use `PlatformWindowV2`.
 
-
 use alloc::sync::Arc;
 use core::cell::RefCell;
 use std::collections::BTreeMap;
@@ -166,8 +165,8 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-use crate::{log_debug, log_warn};
 use crate::desktop::wr_translate2::{self, AsyncHitTester, WrRenderApi};
+use crate::{log_debug, log_warn};
 
 /// Maximum depth for recursive event processing (prevents infinite loops from callbacks)
 // Event Processing Configuration
@@ -651,27 +650,28 @@ pub trait PlatformWindowV2 {
     fn update_hit_test_at(&mut self, position: azul_core::geom::LogicalPosition) {
         use azul_core::window::CursorPosition;
         use azul_layout::managers::hover::InputPointId;
-        
+
         let document_id = self.get_document_id();
         let hidpi_factor = self.get_current_window_state().size.get_hidpi_factor();
-        
+
         // Get focused node before borrowing layout_window
-        let focused_node = self.get_layout_window()
+        let focused_node = self
+            .get_layout_window()
             .and_then(|lw| lw.focus_manager.get_focused_node().copied());
-        
+
         // Check if layout window exists
         let has_layout_window = self.get_layout_window().is_some();
         if !has_layout_window {
             return;
         }
-        
+
         // Resolve hit tester first (this mutates self.hit_tester from Requested to Resolved)
         let resolved_hit_tester = self.get_hit_tester_mut().resolve();
-        
+
         // Now get layout window immutably for hit testing
         let hit_test = {
             let layout_window = self.get_layout_window().unwrap();
-            
+
             crate::desktop::wr_translate2::fullhittest_new_webrender(
                 &*resolved_hit_tester,
                 document_id,
@@ -681,10 +681,12 @@ pub trait PlatformWindowV2 {
                 hidpi_factor,
             )
         };
-        
+
         // Store hit test in hover manager
         if let Some(layout_window) = self.get_layout_window_mut() {
-            layout_window.hover_manager.push_hit_test(InputPointId::Mouse, hit_test);
+            layout_window
+                .hover_manager
+                .push_hit_test(InputPointId::Mouse, hit_test);
         }
     }
 
@@ -780,21 +782,26 @@ pub trait PlatformWindowV2 {
                 };
 
                 let mut node_callbacks = Vec::new();
-                
+
                 // Check if this is a HoverEventFilter - if so, implement event bubbling
                 let is_hover_event = matches!(event_filter, EventFilter::Hover(_));
-                
+
                 if is_hover_event {
                     // For hover events, implement JS-style event bubbling:
                     // Find deepest hit node, then bubble up to root
                     use azul_layout::managers::hover::InputPointId;
-                    
-                    if let Some(hit_test) = layout_window.hover_manager.get_current(&InputPointId::Mouse) {
+
+                    if let Some(hit_test) = layout_window
+                        .hover_manager
+                        .get_current(&InputPointId::Mouse)
+                    {
                         for (dom_id, hit_test_data) in &hit_test.hovered_nodes {
                             if let Some(layout_result) = layout_window.layout_results.get(dom_id) {
-                                let node_data_container = layout_result.styled_dom.node_data.as_container();
-                                let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
-                                
+                                let node_data_container =
+                                    layout_result.styled_dom.node_data.as_container();
+                                let node_hierarchy =
+                                    layout_result.styled_dom.node_hierarchy.as_container();
+
                                 // Find the deepest hit node (target)
                                 // In regular_hit_test_nodes, the last node is typically the deepest
                                 // but we should find the one with the maximum depth
@@ -807,17 +814,17 @@ pub trait PlatformWindowV2 {
                                         let mut current = Some(**node_id);
                                         while let Some(nid) = current {
                                             depth += 1;
-                                            current = node_hierarchy.get(nid)
-                                                .and_then(|h| h.parent_id());
+                                            current =
+                                                node_hierarchy.get(nid).and_then(|h| h.parent_id());
                                         }
                                         depth
                                     });
-                                
+
                                 if let Some((target_node_id, _)) = deepest_node {
                                     // Build event chain: target → parent → ... → root
                                     let mut current_node = Some(*target_node_id);
                                     let mut depth = 0usize;
-                                    
+
                                     while let Some(node_id) = current_node {
                                         // Collect callbacks from this node
                                         if let Some(node_data) = node_data_container.get(node_id) {
@@ -832,10 +839,10 @@ pub trait PlatformWindowV2 {
                                                 }
                                             }
                                         }
-                                        
+
                                         // Move to parent
-                                        current_node = node_hierarchy.get(node_id)
-                                            .and_then(|h| h.parent_id());
+                                        current_node =
+                                            node_hierarchy.get(node_id).and_then(|h| h.parent_id());
                                         depth += 1;
                                     }
                                 }
@@ -905,9 +912,9 @@ pub trait PlatformWindowV2 {
 
             // Check if stopPropagation() was called - if so, stop bubbling
             let should_stop = callback_result.stop_propagation;
-            
+
             results.push(callback_result);
-            
+
             if should_stop {
                 // Stop event propagation - don't invoke callbacks on parent nodes
                 break;
@@ -1102,7 +1109,11 @@ pub trait PlatformWindowV2 {
     /// infinite loops from callbacks that regenerate the DOM.
     fn process_window_events_recursive_v2(&mut self, depth: usize) -> ProcessEventResult {
         if depth >= MAX_EVENT_RECURSION_DEPTH {
-            log_warn!(super::debug_server::LogCategory::EventLoop, "[PlatformWindowV2] Max event recursion depth {} reached", MAX_EVENT_RECURSION_DEPTH);
+            log_warn!(
+                super::debug_server::LogCategory::EventLoop,
+                "[PlatformWindowV2] Max event recursion depth {} reached",
+                MAX_EVENT_RECURSION_DEPTH
+            );
             return ProcessEventResult::DoNothing;
         }
 
@@ -1112,7 +1123,7 @@ pub trait PlatformWindowV2 {
             .get_previous_window_state()
             .as_ref()
             .unwrap_or(self.get_current_window_state());
-        
+
         let current_state = self.get_current_window_state();
 
         // Get gesture manager for gesture detection (if available)
@@ -1341,7 +1352,9 @@ pub trait PlatformWindowV2 {
                                     layout_window.get_selected_content_for_clipboard(&dom_id)
                                 {
                                     // Copy text to system clipboard
-                                    set_system_clipboard(clipboard_content.plain_text.as_str().to_string());
+                                    set_system_clipboard(
+                                        clipboard_content.plain_text.as_str().to_string(),
+                                    );
                                 }
                             }
                         }
@@ -1355,7 +1368,9 @@ pub trait PlatformWindowV2 {
                                 if let Some(clipboard_content) =
                                     layout_window.get_selected_content_for_clipboard(&dom_id)
                                 {
-                                    if set_system_clipboard(clipboard_content.plain_text.as_str().to_string()) {
+                                    if set_system_clipboard(
+                                        clipboard_content.plain_text.as_str().to_string(),
+                                    ) {
                                         // Then delete the selection
                                         if let Some(affected_nodes) =
                                             layout_window.delete_selection(*target, false)
@@ -1425,7 +1440,11 @@ pub trait PlatformWindowV2 {
 
                                             let new_content =
                                                 vec![InlineContent::Text(StyledRun {
-                                                    text: operation.pre_state.text_content.as_str().to_string(),
+                                                    text: operation
+                                                        .pre_state
+                                                        .text_content
+                                                        .as_str()
+                                                        .to_string(),
                                                     // TODO: Preserve original style
                                                     style: Arc::new(StyleProperties::default()),
                                                     logical_start_byte: 0,
@@ -1532,7 +1551,7 @@ pub trait PlatformWindowV2 {
             &pre_filter.user_events,
             hit_test_for_dispatch.as_ref(),
         );
-        
+
         if dispatch_result.is_empty() {
             return ProcessEventResult::DoNothing;
         }
@@ -1908,7 +1927,7 @@ pub trait PlatformWindowV2 {
             // the callback to fire multiple times for a single click.
             let current = self.get_current_window_state().clone();
             self.set_previous_window_state(current);
-            
+
             let recursive_result = self.process_window_events_recursive_v2(depth + 1);
             result = result.max(recursive_result);
         }
@@ -1936,7 +1955,10 @@ pub trait PlatformWindowV2 {
                             .gesture_drag_manager
                             .activate_window_drag(current_pos, hit_test_clone);
 
-                        log_debug!(super::debug_server::LogCategory::Input, "[Event V2] Auto-activated window drag on titlebar DragStart");
+                        log_debug!(
+                            super::debug_server::LogCategory::Input,
+                            "[Event V2] Auto-activated window drag on titlebar DragStart"
+                        );
                     }
                 }
             }
@@ -1976,7 +1998,7 @@ pub trait PlatformWindowV2 {
                 let old_state = self.get_current_window_state().clone();
                 self.set_previous_window_state(old_state);
             }
-            
+
             // Now update current state
             let current_state = self.get_current_window_state_mut();
             current_state.title = modified_state.title.clone();
@@ -1995,24 +2017,28 @@ pub trait PlatformWindowV2 {
 
             event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
-        
+
         // If mouse_state changed, trigger event processing to invoke callbacks
         // This enables synthetic mouse events from debug API and automation
         if mouse_state_changed {
             // First, update hit testing at the new mouse position
             // This is critical for synthetic events - without hit testing,
             // dispatch_synthetic_events won't know which nodes are under the mouse
-            let mouse_pos = self.get_current_window_state().mouse_state.cursor_position.get_position();
+            let mouse_pos = self
+                .get_current_window_state()
+                .mouse_state
+                .cursor_position
+                .get_position();
             if let Some(pos) = mouse_pos {
                 self.update_hit_test_at(pos);
             }
-            
+
             // Re-process events with the new mouse state
             // This will detect the mouse state change and invoke appropriate callbacks
             let nested_result = self.process_window_events_recursive_v2(0);
             event_result = event_result.max(nested_result);
         }
-        
+
         // Handle queued window state sequence (for simulating clicks, etc.)
         // Each state is applied in order, with event processing between states
         // to detect the transitions (e.g., mouse down → mouse up)
@@ -2021,7 +2047,7 @@ pub trait PlatformWindowV2 {
                 // Save current state as previous
                 let old_state = self.get_current_window_state().clone();
                 self.set_previous_window_state(old_state.clone());
-                
+
                 // Apply the queued state
                 let current_state = self.get_current_window_state_mut();
                 current_state.mouse_state = queued_state.mouse_state.clone();
@@ -2029,13 +2055,13 @@ pub trait PlatformWindowV2 {
                 current_state.size = queued_state.size;
                 current_state.position = queued_state.position;
                 current_state.flags = queued_state.flags;
-                
+
                 // Update hit testing at the new mouse position
                 let mouse_pos = queued_state.mouse_state.cursor_position.get_position();
                 if let Some(pos) = mouse_pos {
                     self.update_hit_test_at(pos);
                 }
-                
+
                 // Process events with this state (will detect state changes)
                 let nested_result = self.process_window_events_recursive_v2(0);
                 event_result = event_result.max(nested_result);
@@ -2091,7 +2117,8 @@ pub trait PlatformWindowV2 {
                         }
                     }
                     // Scrolling changes require re-render
-                    event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                    event_result =
+                        event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
                 }
             }
         }
@@ -2170,7 +2197,11 @@ pub trait PlatformWindowV2 {
         if !result.windows_created.is_empty() {
             // TODO: Signal to event loop to create new windows
             // For now, just log
-            log_debug!(super::debug_server::LogCategory::Window, "[PlatformWindowV2] {} new windows requested (not yet implemented)", result.windows_created.len());
+            log_debug!(
+                super::debug_server::LogCategory::Window,
+                "[PlatformWindowV2] {} new windows requested (not yet implemented)",
+                result.windows_created.len()
+            );
         }
 
         // Handle menus requested to be opened
@@ -2387,7 +2418,11 @@ pub trait PlatformWindowV2 {
             if is_vertical { 0.0 } else { scroll_delta },
             if is_vertical { scroll_delta } else { 0.0 },
         ) {
-            log_warn!(super::debug_server::LogCategory::Input, "Track click scroll failed: {}", e);
+            log_warn!(
+                super::debug_server::LogCategory::Input,
+                "Track click scroll failed: {}",
+                e
+            );
             return ProcessEventResult::DoNothing;
         }
 
@@ -2457,7 +2492,10 @@ pub trait PlatformWindowV2 {
             // Apply results: add new timers/threads, remove terminated ones
             if let Some(ref new_timers) = result.timers {
                 for (timer_id, timer) in new_timers {
-                    borrows.layout_window.timers.insert(*timer_id, timer.clone());
+                    borrows
+                        .layout_window
+                        .timers
+                        .insert(*timer_id, timer.clone());
                 }
             }
             if let Some(ref removed_timers) = result.timers_removed {
@@ -2467,7 +2505,10 @@ pub trait PlatformWindowV2 {
             }
             if let Some(ref new_threads) = result.threads {
                 for (thread_id, thread) in new_threads {
-                    borrows.layout_window.threads.insert(*thread_id, thread.clone());
+                    borrows
+                        .layout_window
+                        .threads
+                        .insert(*thread_id, thread.clone());
                 }
             }
             if let Some(ref removed_threads) = result.threads_removed {
@@ -2494,8 +2535,8 @@ pub trait PlatformWindowV2 {
         &mut self,
         current_pos: azul_core::geom::LogicalPosition,
     ) -> ProcessEventResult {
-        use azul_core::hit_test::ScrollbarHitId;
         use azul_core::dom::ScrollbarOrientation;
+        use azul_core::hit_test::ScrollbarHitId;
 
         let drag_state = match self.get_scrollbar_drag_state() {
             Some(ds) => ds.clone(),
@@ -2603,7 +2644,11 @@ pub trait PlatformWindowV2 {
             if is_vertical { 0.0 } else { delta_from_current },
             if is_vertical { delta_from_current } else { 0.0 },
         ) {
-            log_warn!(super::debug_server::LogCategory::Input, "Scrollbar drag failed: {}", e);
+            log_warn!(
+                super::debug_server::LogCategory::Input,
+                "Scrollbar drag failed: {}",
+                e
+            );
             return ProcessEventResult::DoNothing;
         }
 
@@ -2637,14 +2682,14 @@ fn is_hit_on_titlebar(
             None => continue,
         };
 
-        let has_titlebar_class = node_data
-            .get_ids_and_classes()
-            .as_ref()
-            .iter()
-            .any(|id_or_class| matches!(
-                id_or_class,
-                IdOrClass::Class(c) if c.as_str() == "csd-title" || c.as_str() == "csd-titlebar"
-            ));
+        let has_titlebar_class = node_data.get_ids_and_classes().as_ref().iter().any(
+            |id_or_class| {
+                matches!(
+                    id_or_class,
+                    IdOrClass::Class(c) if c.as_str() == "csd-title" || c.as_str() == "csd-titlebar"
+                )
+            },
+        );
 
         if has_titlebar_class {
             return true;

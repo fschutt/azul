@@ -77,7 +77,11 @@ impl_vec!(
     DynamicSelectorVecDestructor,
     DynamicSelectorVecDestructorType
 );
-impl_vec_clone!(DynamicSelector, DynamicSelectorVec, DynamicSelectorVecDestructor);
+impl_vec_clone!(
+    DynamicSelector,
+    DynamicSelectorVec,
+    DynamicSelectorVecDestructor
+);
 impl_vec_debug!(DynamicSelector, DynamicSelectorVec);
 impl_vec_partialeq!(DynamicSelector, DynamicSelectorVec);
 
@@ -150,7 +154,7 @@ impl From<BoolCondition> for bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OsCondition {
     Any,
-    Apple,  // macOS + iOS
+    Apple, // macOS + iOS
     MacOS,
     IOS,
     Linux,
@@ -262,9 +266,7 @@ impl LanguageCondition {
     /// Check if this condition matches the given language tag
     pub fn matches(&self, language: &str) -> bool {
         match self {
-            LanguageCondition::Exact(lang) => {
-                language.eq_ignore_ascii_case(lang.as_str())
-            }
+            LanguageCondition::Exact(lang) => language.eq_ignore_ascii_case(lang.as_str()),
             LanguageCondition::Prefix(prefix) => {
                 let prefix_str = prefix.as_str();
                 if language.len() < prefix_str.len() {
@@ -456,9 +458,7 @@ impl DynamicSelector {
             Self::ContainerHeight(range) => {
                 !ctx.container_height.is_nan() && range.matches(ctx.container_height)
             }
-            Self::ContainerName(name) => {
-                ctx.container_name.as_ref().map_or(false, |n| n == name)
-            }
+            Self::ContainerName(name) => ctx.container_name.as_ref().map_or(false, |n| n == name),
             Self::Theme(theme) => Self::match_theme(theme, &ctx.theme),
             Self::AspectRatio(range) => {
                 let ratio = ctx.viewport_width / ctx.viewport_height.max(1.0);
@@ -556,7 +556,10 @@ impl PartialOrd for CssPropertyWithConditions {
 impl Ord for CssPropertyWithConditions {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         // Compare by condition count only (simple stable ordering)
-        self.apply_if.as_slice().len().cmp(&other.apply_if.as_slice().len())
+        self.apply_if
+            .as_slice()
+            .len()
+            .cmp(&other.apply_if.as_slice().len())
     }
 }
 
@@ -570,7 +573,10 @@ impl CssPropertyWithConditions {
     }
 
     /// Create a property with a single condition (const version using slice reference)
-    pub const fn with_single_condition(property: CssProperty, conditions: &'static [DynamicSelector]) -> Self {
+    pub const fn with_single_condition(
+        property: CssProperty,
+        conditions: &'static [DynamicSelector],
+    ) -> Self {
         Self {
             property,
             apply_if: DynamicSelectorVec::from_const_slice(conditions),
@@ -595,22 +601,34 @@ impl CssPropertyWithConditions {
 
     /// Create a property that applies only on hover (const version)
     pub const fn on_hover(property: CssProperty) -> Self {
-        Self::with_single_condition(property, &[DynamicSelector::PseudoState(PseudoStateType::Hover)])
+        Self::with_single_condition(
+            property,
+            &[DynamicSelector::PseudoState(PseudoStateType::Hover)],
+        )
     }
 
     /// Create a property that applies only when active (const version)
     pub const fn on_active(property: CssProperty) -> Self {
-        Self::with_single_condition(property, &[DynamicSelector::PseudoState(PseudoStateType::Active)])
+        Self::with_single_condition(
+            property,
+            &[DynamicSelector::PseudoState(PseudoStateType::Active)],
+        )
     }
 
     /// Create a property that applies only when focused (const version)
     pub const fn on_focus(property: CssProperty) -> Self {
-        Self::with_single_condition(property, &[DynamicSelector::PseudoState(PseudoStateType::Focus)])
+        Self::with_single_condition(
+            property,
+            &[DynamicSelector::PseudoState(PseudoStateType::Focus)],
+        )
     }
 
     /// Create a property that applies only when disabled (const version)
     pub const fn when_disabled(property: CssProperty) -> Self {
-        Self::with_single_condition(property, &[DynamicSelector::PseudoState(PseudoStateType::Disabled)])
+        Self::with_single_condition(
+            property,
+            &[DynamicSelector::PseudoState(PseudoStateType::Disabled)],
+        )
     }
 
     /// Create a property that applies only on a specific OS (non-const, needs runtime value)
@@ -690,7 +708,11 @@ impl_vec!(
 impl_vec_debug!(CssPropertyWithConditions, CssPropertyWithConditionsVec);
 impl_vec_partialeq!(CssPropertyWithConditions, CssPropertyWithConditionsVec);
 impl_vec_partialord!(CssPropertyWithConditions, CssPropertyWithConditionsVec);
-impl_vec_clone!(CssPropertyWithConditions, CssPropertyWithConditionsVec, CssPropertyWithConditionsVecDestructor);
+impl_vec_clone!(
+    CssPropertyWithConditions,
+    CssPropertyWithConditionsVec,
+    CssPropertyWithConditionsVecDestructor
+);
 
 // Manual implementations for Eq and Ord (required for NodeData derives)
 impl Eq for CssPropertyWithConditionsVec {}
@@ -721,11 +743,14 @@ impl CssPropertyWithConditionsVec {
     /// Parse CSS properties from a string, all with "normal" (unconditional) state
     #[cfg(feature = "parser")]
     pub fn parse_normal(style: &str) -> Self {
-        use crate::props::property::{parse_css_property, parse_combined_css_property, CssPropertyType, CombinedCssPropertyType, CssKeyMap};
-        
+        use crate::props::property::{
+            parse_combined_css_property, parse_css_property, CombinedCssPropertyType, CssKeyMap,
+            CssPropertyType,
+        };
+
         let mut props = Vec::new();
         let key_map = CssKeyMap::get();
-        
+
         // Simple CSS parsing: split by semicolons and parse key:value pairs
         for pair in style.split(';') {
             let pair = pair.trim();
@@ -752,18 +777,21 @@ impl CssPropertyWithConditionsVec {
                 }
             }
         }
-        
+
         CssPropertyWithConditionsVec::from_vec(props)
     }
-    
+
     /// Parse CSS properties from a string, all with hover condition
     #[cfg(feature = "parser")]
     pub fn parse_hover(style: &str) -> Self {
-        use crate::props::property::{parse_css_property, parse_combined_css_property, CssPropertyType, CombinedCssPropertyType, CssKeyMap};
-        
+        use crate::props::property::{
+            parse_combined_css_property, parse_css_property, CombinedCssPropertyType, CssKeyMap,
+            CssPropertyType,
+        };
+
         let mut props = Vec::new();
         let key_map = CssKeyMap::get();
-        
+
         for pair in style.split(';') {
             let pair = pair.trim();
             if pair.is_empty() {
@@ -789,18 +817,21 @@ impl CssPropertyWithConditionsVec {
                 }
             }
         }
-        
+
         CssPropertyWithConditionsVec::from_vec(props)
     }
-    
+
     /// Parse CSS properties from a string, all with active condition
     #[cfg(feature = "parser")]
     pub fn parse_active(style: &str) -> Self {
-        use crate::props::property::{parse_css_property, parse_combined_css_property, CssPropertyType, CombinedCssPropertyType, CssKeyMap};
-        
+        use crate::props::property::{
+            parse_combined_css_property, parse_css_property, CombinedCssPropertyType, CssKeyMap,
+            CssPropertyType,
+        };
+
         let mut props = Vec::new();
         let key_map = CssKeyMap::get();
-        
+
         for pair in style.split(';') {
             let pair = pair.trim();
             if pair.is_empty() {
@@ -826,18 +857,21 @@ impl CssPropertyWithConditionsVec {
                 }
             }
         }
-        
+
         CssPropertyWithConditionsVec::from_vec(props)
     }
-    
+
     /// Parse CSS properties from a string, all with focus condition
     #[cfg(feature = "parser")]
     pub fn parse_focus(style: &str) -> Self {
-        use crate::props::property::{parse_css_property, parse_combined_css_property, CssPropertyType, CombinedCssPropertyType, CssKeyMap};
-        
+        use crate::props::property::{
+            parse_combined_css_property, parse_css_property, CombinedCssPropertyType, CssKeyMap,
+            CssPropertyType,
+        };
+
         let mut props = Vec::new();
         let key_map = CssKeyMap::get();
-        
+
         for pair in style.split(';') {
             let pair = pair.trim();
             if pair.is_empty() {
@@ -863,7 +897,7 @@ impl CssPropertyWithConditionsVec {
                 }
             }
         }
-        
+
         CssPropertyWithConditionsVec::from_vec(props)
     }
 }

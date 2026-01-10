@@ -64,31 +64,33 @@ pub mod ir;
 pub mod ir_builder;
 pub mod lang_c;
 pub mod lang_cpp;
-pub mod lang_rust;
 pub mod lang_python;
 pub mod lang_reexports;
-pub mod transmute_helpers;
-pub mod rust;  // New Rust generators (static/dynamic binding)
+pub mod lang_rust;
+pub mod rust;
+pub mod transmute_helpers; // New Rust generators (static/dynamic binding)
 
 pub use config::*;
 pub use generator::*;
 pub use ir::*;
 pub use ir_builder::*;
 pub use lang_reexports::generate_reexports;
-pub use rust::{RustStaticGenerator, RustDynamicGenerator};
+pub use rust::{RustDynamicGenerator, RustStaticGenerator};
 
-use std::path::Path;
-use anyhow::Result;
 use crate::api::ApiData;
+use anyhow::Result;
+use std::path::Path;
 
 // ============================================================================
 // Helper: Build IR from ApiData
 // ============================================================================
 
 fn build_ir_from_api(api_data: &ApiData) -> Result<CodegenIR> {
-    let version_str = api_data.get_latest_version_str()
+    let version_str = api_data
+        .get_latest_version_str()
         .ok_or_else(|| anyhow::anyhow!("No versions found in api.json"))?;
-    let version_data = api_data.get_version(&version_str)
+    let version_data = api_data
+        .get_version(&version_str)
         .ok_or_else(|| anyhow::anyhow!("Version {} not found", version_str))?;
 
     let ir_builder = IRBuilder::new(version_data);
@@ -160,19 +162,23 @@ pub fn generate_python(api_data: &ApiData) -> Result<String> {
 // ============================================================================
 
 /// Generate DLL API using codegen v2 (writes to file)
-/// 
+///
 /// This generates the static DLL API (equivalent to `memtest dll` command)
 /// Output is written to `target/codegen/v2/dll_api.rs`
 pub fn generate_dll_api_v2(api_data: &ApiData, project_root: &Path) -> Result<()> {
     println!("[V2] Building IR from api.json...");
     let ir = build_ir_from_api(api_data)?;
 
-    println!("[V2] IR built: {} structs, {} enums, {} functions", 
-        ir.structs.len(), ir.enums.len(), ir.functions.len());
+    println!(
+        "[V2] IR built: {} structs, {} enums, {} functions",
+        ir.structs.len(),
+        ir.enums.len(),
+        ir.functions.len()
+    );
 
     // Generate using static DLL config
     let config = CodegenConfig::dll_static();
-    
+
     let output_path = project_root
         .join("target")
         .join("codegen")
@@ -190,7 +196,7 @@ pub fn generate_dll_api_v2(api_data: &ApiData, project_root: &Path) -> Result<()
 }
 
 /// Generate all output files using codegen v2 (writes to files)
-/// 
+///
 /// This generates all standard code generation targets:
 /// - DLL static API
 /// - DLL dynamic API  
@@ -202,8 +208,12 @@ pub fn generate_all_v2(api_data: &ApiData, project_root: &Path) -> Result<()> {
     println!("[V2] Building IR from api.json...");
     let ir = build_ir_from_api(api_data)?;
 
-    println!("[V2] IR built: {} structs, {} enums, {} functions", 
-        ir.structs.len(), ir.enums.len(), ir.functions.len());
+    println!(
+        "[V2] IR built: {} structs, {} enums, {} functions",
+        ir.structs.len(),
+        ir.enums.len(),
+        ir.functions.len()
+    );
 
     // Generate all targets
     GenerationTargets::generate_all(&ir, project_root)?;
@@ -214,14 +224,14 @@ pub fn generate_all_v2(api_data: &ApiData, project_root: &Path) -> Result<()> {
 }
 
 /// Generate Python extension using codegen v2 (writes to file)
-/// 
+///
 /// This generates the Python extension module with PyO3 bindings.
 /// Output is written to `target/codegen/v2/python_api.rs`
 pub fn generate_python_v2(api_data: &ApiData, project_root: &Path) -> Result<()> {
     println!("[V2] Generating Python extension...");
-    
+
     let code = generate_python(api_data)?;
-    
+
     let output_path = project_root
         .join("target")
         .join("codegen")
@@ -235,7 +245,11 @@ pub fn generate_python_v2(api_data: &ApiData, project_root: &Path) -> Result<()>
     std::fs::write(&output_path, &code)?;
 
     println!("\n[OK] Python extension v2 generated successfully!");
-    println!("     Output: {} ({} bytes)", output_path.display(), code.len());
+    println!(
+        "     Output: {} ({} bytes)",
+        output_path.display(),
+        code.len()
+    );
     println!("     To use this, update dll/src/lib.rs include!() path to:");
     println!("     include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../target/codegen/v2/python_api.rs\"));");
 
@@ -243,15 +257,15 @@ pub fn generate_python_v2(api_data: &ApiData, project_root: &Path) -> Result<()>
 }
 
 /// Generate memtest using codegen v2 (writes to file)
-/// 
+///
 /// This generates test code for validating the generated API sizes/alignments.
 /// Output is written to `target/codegen/v2/memtest.rs`
 /// Included via include!() in dll/src/lib.rs for `cargo test`.
 pub fn generate_memtest_v2(api_data: &ApiData, project_root: &Path) -> Result<()> {
     println!("[V2] Generating memtest code...");
-    
+
     let code = generate_memtest(api_data)?;
-    
+
     let output_path = project_root
         .join("target")
         .join("codegen")
@@ -265,7 +279,11 @@ pub fn generate_memtest_v2(api_data: &ApiData, project_root: &Path) -> Result<()
     std::fs::write(&output_path, &code)?;
 
     println!("\n[OK] Memtest v2 generated successfully!");
-    println!("     Output: {} ({} bytes)", output_path.display(), code.len());
+    println!(
+        "     Output: {} ({} bytes)",
+        output_path.display(),
+        code.len()
+    );
     println!("     Run tests with: cd dll && cargo test");
 
     Ok(())

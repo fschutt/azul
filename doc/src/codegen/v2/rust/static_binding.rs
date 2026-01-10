@@ -95,15 +95,13 @@ impl LanguageGenerator for RustStaticGenerator {
 
     fn generate_functions(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         let mut builder = CodeBuilder::new(&config.indent);
-        
+
         builder.line("// --- C-ABI Functions ---");
         builder.blank();
 
         // Skip trait functions when using transmute (traits are implemented directly)
-        let skip_trait_functions = matches!(
-            config.trait_impl_mode,
-            TraitImplMode::UsingTransmute { .. }
-        );
+        let skip_trait_functions =
+            matches!(config.trait_impl_mode, TraitImplMode::UsingTransmute { .. });
 
         for func in &ir.functions {
             if !config.should_include_type(&func.class_name) {
@@ -121,7 +119,7 @@ impl LanguageGenerator for RustStaticGenerator {
 
     fn generate_trait_impls(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         let mut builder = CodeBuilder::new(&config.indent);
-        
+
         builder.line("// --- Trait Implementations ---");
         builder.blank();
 
@@ -131,13 +129,23 @@ impl LanguageGenerator for RustStaticGenerator {
                     if !config.should_include_type(&struct_def.name) {
                         continue;
                     }
-                    Self::generate_transmute_trait_impls(&mut builder, struct_def, config, external_crate);
+                    Self::generate_transmute_trait_impls(
+                        &mut builder,
+                        struct_def,
+                        config,
+                        external_crate,
+                    );
                 }
                 for enum_def in &ir.enums {
                     if !config.should_include_type(&enum_def.name) {
                         continue;
                     }
-                    Self::generate_transmute_trait_impls_enum(&mut builder, enum_def, config, external_crate);
+                    Self::generate_transmute_trait_impls_enum(
+                        &mut builder,
+                        enum_def,
+                        config,
+                        external_crate,
+                    );
                 }
             }
             TraitImplMode::UsingDerive => {
@@ -161,7 +169,7 @@ impl RustStaticGenerator {
         _external_crate: &str,
     ) {
         let name = config.apply_prefix(&struct_def.name);
-        
+
         // Build generics string
         let generics = if struct_def.generic_params.is_empty() {
             String::new()
@@ -212,7 +220,13 @@ impl RustStaticGenerator {
         }
 
         // PartialEq, Hash, PartialOrd, Ord, Eq as needed
-        Self::generate_comparison_traits(builder, &full_name, &generics, &external_path, &struct_def.traits);
+        Self::generate_comparison_traits(
+            builder,
+            &full_name,
+            &generics,
+            &external_path,
+            &struct_def.traits,
+        );
     }
 
     /// Generate transmute-based trait impls for an enum
@@ -223,7 +237,7 @@ impl RustStaticGenerator {
         _external_crate: &str,
     ) {
         let name = config.apply_prefix(&enum_def.name);
-        
+
         let generics = if enum_def.generic_params.is_empty() {
             String::new()
         } else {
@@ -271,7 +285,13 @@ impl RustStaticGenerator {
             builder.blank();
         }
 
-        Self::generate_comparison_traits(builder, &full_name, &generics, &external_path, &enum_def.traits);
+        Self::generate_comparison_traits(
+            builder,
+            &full_name,
+            &generics,
+            &external_path,
+            &enum_def.traits,
+        );
     }
 
     /// Generate comparison traits (PartialEq, Hash, PartialOrd, Ord, Eq)
@@ -307,7 +327,10 @@ impl RustStaticGenerator {
 
         // Hash
         if traits.is_hash {
-            builder.line(&format!("impl{} core::hash::Hash for {} {{", generics, full_name));
+            builder.line(&format!(
+                "impl{} core::hash::Hash for {} {{",
+                generics, full_name
+            ));
             builder.indent();
             builder.line("fn hash<H: core::hash::Hasher>(&self, state: &mut H) {");
             builder.indent();
@@ -379,7 +402,9 @@ impl RustStaticGenerator {
         // Function signature
         let fn_name = &func.c_name;
         let args = Self::format_fn_args(&func.args, config);
-        let return_type = func.return_type.as_ref()
+        let return_type = func
+            .return_type
+            .as_ref()
             .map(|r| format!(" -> {}", config.apply_prefix(r)))
             .unwrap_or_default();
 
@@ -452,7 +477,7 @@ impl RustStaticGenerator {
             if external_path.contains('<') {
                 continue;
             }
-            
+
             let external_path = config.transform_external_path(external_path);
             let generated_type = format!("dll::Az{}", struct_def.name);
             let test_name = format!("test_size_align_{}", struct_def.name.to_lowercase());
@@ -460,8 +485,14 @@ impl RustStaticGenerator {
             builder.line("#[test]");
             builder.line(&format!("fn {}() {{", test_name));
             builder.indent();
-            builder.line(&format!("assert_eq!(mem::size_of::<{}>(), mem::size_of::<{}>());", generated_type, external_path));
-            builder.line(&format!("assert_eq!(mem::align_of::<{}>(), mem::align_of::<{}>());", generated_type, external_path));
+            builder.line(&format!(
+                "assert_eq!(mem::size_of::<{}>(), mem::size_of::<{}>());",
+                generated_type, external_path
+            ));
+            builder.line(&format!(
+                "assert_eq!(mem::align_of::<{}>(), mem::align_of::<{}>());",
+                generated_type, external_path
+            ));
             builder.dedent();
             builder.line("}");
             builder.blank();

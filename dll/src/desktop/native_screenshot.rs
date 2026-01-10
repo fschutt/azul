@@ -55,13 +55,9 @@ impl NativeScreenshotExt for CallbackInfo {
 
         match window_handle {
             #[cfg(target_os = "macos")]
-            RawWindowHandle::MacOS(handle) => {
-                take_native_screenshot_macos(handle.ns_window, path)
-            }
+            RawWindowHandle::MacOS(handle) => take_native_screenshot_macos(handle.ns_window, path),
             #[cfg(target_os = "windows")]
-            RawWindowHandle::Windows(handle) => {
-                take_native_screenshot_windows(handle.hwnd, path)
-            }
+            RawWindowHandle::Windows(handle) => take_native_screenshot_windows(handle.hwnd, path),
             #[cfg(target_os = "linux")]
             RawWindowHandle::Xlib(handle) => {
                 take_native_screenshot_xlib(handle.display, handle.window, path)

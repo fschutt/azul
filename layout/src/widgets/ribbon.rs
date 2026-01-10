@@ -2356,7 +2356,13 @@ impl Ribbon {
                                     &[Class(AzString::from_const_str("between-tabs"))];
                                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9410866575549354381)
                             }),
-                        render_tab_element("HOME", self.tab_active == 0, 0, callback.clone(), data.clone()),
+                        render_tab_element(
+                            "HOME",
+                            self.tab_active == 0,
+                            0,
+                            callback.clone(),
+                            data.clone(),
+                        ),
                         render_tab_element(
                             "INSERT",
                             self.tab_active == 1,
@@ -2378,7 +2384,13 @@ impl Ribbon {
                             callback.clone(),
                             data.clone(),
                         ),
-                        render_tab_element("DATA", self.tab_active == 4, 4, callback.clone(), data.clone()),
+                        render_tab_element(
+                            "DATA",
+                            self.tab_active == 4,
+                            4,
+                            callback.clone(),
+                            data.clone(),
+                        ),
                         render_tab_element(
                             "REVIEW",
                             self.tab_active == 5,
@@ -2438,9 +2450,7 @@ impl Ribbon {
                                         })
                                         .with_children(DomVec::from_vec(vec![
                                             Dom::create_div()
-                                                .with_css_props(
-                                                    CSS_MATCH_14701061083766788292,
-                                                )
+                                                .with_css_props(CSS_MATCH_14701061083766788292)
                                                 .with_ids_and_classes({
                                                     const IDS_AND_CLASSES_4343297541786025485:
                                                         &[IdOrClass] = &[Class(
@@ -2450,7 +2460,8 @@ impl Ribbon {
                                                         IDS_AND_CLASSES_4343297541786025485,
                                                     )
                                                 })
-                                                .with_children(DomVec::from_vec(vec![Dom::create_div()
+                                                .with_children(DomVec::from_vec(
+                                                    vec![Dom::create_div()
                                                     .with_css_props(
                                                         CSS_MATCH_15716718910432952660,
                                                     )
@@ -2462,15 +2473,12 @@ impl Ribbon {
                                                         IdOrClassVec::from_const_slice(
                                                             IDS_AND_CLASSES_638783468819161744,
                                                         )
-                                                    })])),
+                                                    })],
+                                                )),
                                             Dom::create_text(AzString::from_const_str("Paste"))
-                                                .with_css_props(
-                                                    CSS_MATCH_6756514148882865175,
-                                                ),
+                                                .with_css_props(CSS_MATCH_6756514148882865175),
                                             Dom::create_div()
-                                                .with_css_props(
-                                                    CSS_MATCH_1934381104964361563,
-                                                )
+                                                .with_css_props(CSS_MATCH_1934381104964361563)
                                                 .with_ids_and_classes({
                                                     const IDS_AND_CLASSES_17000242124219500924:
                                                         &[IdOrClass] = &[Class(
@@ -2480,7 +2488,8 @@ impl Ribbon {
                                                         IDS_AND_CLASSES_17000242124219500924,
                                                     )
                                                 })
-                                                .with_children(DomVec::from_vec(vec![Dom::create_div()
+                                                .with_children(DomVec::from_vec(
+                                                    vec![Dom::create_div()
                                                     .with_css_props(
                                                         CSS_MATCH_491594124841839797,
                                                     )
@@ -2492,7 +2501,8 @@ impl Ribbon {
                                                         IdOrClassVec::from_const_slice(
                                                             IDS_AND_CLASSES_638783468819161744,
                                                         )
-                                                    })])),
+                                                    })],
+                                                )),
                                         ]))])),
                                 Dom::create_text(AzString::from_const_str("Clipboard"))
                                     .with_css_props(CSS_MATCH_2233073185823558635)

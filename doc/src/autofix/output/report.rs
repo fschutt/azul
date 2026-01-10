@@ -38,12 +38,8 @@ pub struct PathCorrectionEntry {
 }
 
 impl Report {
-
     /// Generate a report from analysis results
-    pub fn new(
-        patches: &PatchSet, 
-        reachability: Option<&ReachabilityAnalysis>
-    ) -> Self {
+    pub fn new(patches: &PatchSet, reachability: Option<&ReachabilityAnalysis>) -> Self {
         let path_corrections: Vec<PathCorrectionEntry> = patches
             .path_corrections
             .values()

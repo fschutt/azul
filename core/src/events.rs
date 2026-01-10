@@ -659,7 +659,13 @@ pub fn propagate_event(
     let mut result = PropagationResult::default();
 
     // Phase 1: Capture (root → target)
-    propagate_phase(event, ancestors.iter().copied(), EventPhase::Capture, callbacks, &mut result);
+    propagate_phase(
+        event,
+        ancestors.iter().copied(),
+        EventPhase::Capture,
+        callbacks,
+        &mut result,
+    );
 
     // Phase 2: Target
     if !event.stopped {
@@ -668,7 +674,13 @@ pub fn propagate_event(
 
     // Phase 3: Bubble (target → root)
     if !event.stopped {
-        propagate_phase(event, ancestors.iter().rev().copied(), EventPhase::Bubble, callbacks, &mut result);
+        propagate_phase(
+            event,
+            ancestors.iter().rev().copied(),
+            EventPhase::Bubble,
+            callbacks,
+            &mut result,
+        );
     }
 
     result.default_prevented = event.prevented_default;
@@ -1027,7 +1039,9 @@ pub fn detect_lifecycle_events(
     // Unmount events: nodes in old but not in new
     if let Some(layout) = old_layout {
         for &node_id in old_nodes.difference(&new_nodes) {
-            events.push(create_unmount_event(node_id, old_dom_id, layout, &timestamp));
+            events.push(create_unmount_event(
+                node_id, old_dom_id, layout, &timestamp,
+            ));
         }
     }
 
@@ -1811,7 +1825,7 @@ pub trait EventProvider {
     /// Get all pending events from this manager.
     ///
     /// Events should include:
-    /// 
+    ///
     /// - `target`: The DomNodeId that was affected
     /// - `event_type`: What happened (Input, Scroll, Focus, etc.)
     /// - `source`: EventSource::User for input, EventSource::Programmatic for API calls
@@ -1835,12 +1849,16 @@ pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<Synt
     // Coalesce consecutive events with same target and event_type
     let mut result = Vec::with_capacity(events.len());
     let mut iter = events.into_iter();
-    
+
     if let Some(mut prev) = iter.next() {
         for curr in iter {
             if prev.target == curr.target && prev.event_type == curr.event_type {
                 // Keep the one with later timestamp
-                prev = if curr.timestamp > prev.timestamp { curr } else { prev };
+                prev = if curr.timestamp > prev.timestamp {
+                    curr
+                } else {
+                    prev
+                };
             } else {
                 result.push(prev);
                 prev = curr;
@@ -1848,7 +1866,7 @@ pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<Synt
         }
         result.push(prev);
     }
-    
+
     result
 }
 
@@ -1872,14 +1890,14 @@ pub fn dispatch_synthetic_events(
 }
 
 /// Convert EventType to EventFilters (returns multiple filters for generic + specific events)
-/// 
+///
 /// For mouse button events, returns both generic (MouseUp) AND specific (LeftMouseUp).
 /// This allows callbacks registered for either filter to be triggered.
 fn event_type_to_filters(event_type: EventType) -> Vec<EventFilter> {
-    use EventType as E;
     use EventFilter as EF;
-    use HoverEventFilter as H;
+    use EventType as E;
     use FocusEventFilter as F;
+    use HoverEventFilter as H;
     use WindowEventFilter as W;
 
     match event_type {
@@ -1887,7 +1905,7 @@ fn event_type_to_filters(event_type: EventType) -> Vec<EventFilter> {
         // Generic first, then specific (bubbling order)
         E::MouseDown => vec![EF::Hover(H::MouseDown), EF::Hover(H::LeftMouseDown)],
         E::MouseUp => vec![EF::Hover(H::MouseUp), EF::Hover(H::LeftMouseUp)],
-        
+
         // Other mouse events
         E::MouseOver => vec![EF::Hover(H::MouseOver)],
         E::MouseEnter => vec![EF::Hover(H::MouseEnter)],
@@ -1952,12 +1970,14 @@ fn get_callback_target(event: &SyntheticEvent) -> Option<CallbackTarget> {
         return Some(CallbackTarget::RootNodes);
     }
 
-    event.target.node.into_crate_internal().map(|node_id| {
-        CallbackTarget::Node {
+    event
+        .target
+        .node
+        .into_crate_internal()
+        .map(|node_id| CallbackTarget::Node {
             dom_id: event.target.dom,
             node_id,
-        }
-    })
+        })
 }
 
 /// Get hit test item for a node target
@@ -2123,9 +2143,9 @@ where
         selection_manager,
     };
 
-    let (internal_events, user_events) = events
-        .iter()
-        .fold((Vec::new(), Vec::new()), |(mut internal, mut user), event| {
+    let (internal_events, user_events) = events.iter().fold(
+        (Vec::new(), Vec::new()),
+        |(mut internal, mut user), event| {
             match process_event_for_internal(&ctx, event) {
                 Some(InternalEventAction::AddAndSkip(evt)) => {
                     internal.push(evt);
@@ -2139,9 +2159,13 @@ where
                 }
             }
             (internal, user)
-        });
+        },
+    );
 
-    PreCallbackFilterResult { internal_events, user_events }
+    PreCallbackFilterResult {
+        internal_events,
+        user_events,
+    }
 }
 
 /// Context for filtering internal events
@@ -2162,9 +2186,12 @@ fn process_event_for_internal<SM: SelectionManagerQuery>(
 ) -> Option<InternalEventAction> {
     match event.event_type {
         EventType::MouseDown => handle_mouse_down(event, ctx.hit_test, ctx.click_count),
-        EventType::MouseOver => {
-            handle_mouse_over(event, ctx.hit_test, ctx.mouse_state, ctx.drag_start_position)
-        }
+        EventType::MouseOver => handle_mouse_over(
+            event,
+            ctx.hit_test,
+            ctx.mouse_state,
+            ctx.drag_start_position,
+        ),
         EventType::KeyDown => handle_key_down(
             event,
             ctx.keyboard_state,
@@ -2354,8 +2381,7 @@ pub fn post_callback_filter_internal_events(
     new_focus: Option<DomNodeId>,
 ) -> PostCallbackFilterResult {
     if prevent_default {
-        let focus_event = (old_focus != new_focus)
-            .then_some(PostCallbackSystemEvent::FocusChanged);
+        let focus_event = (old_focus != new_focus).then_some(PostCallbackSystemEvent::FocusChanged);
         return PostCallbackFilterResult {
             system_events: focus_event.into_iter().collect(),
         };
@@ -2365,8 +2391,7 @@ pub fn post_callback_filter_internal_events(
         .iter()
         .filter_map(internal_event_to_system_event);
 
-    let focus_event = (old_focus != new_focus)
-        .then_some(PostCallbackSystemEvent::FocusChanged);
+    let focus_event = (old_focus != new_focus).then_some(PostCallbackSystemEvent::FocusChanged);
 
     let system_events = core::iter::once(PostCallbackSystemEvent::ApplyTextInput)
         .chain(event_actions)
@@ -2377,17 +2402,21 @@ pub fn post_callback_filter_internal_events(
 }
 
 /// Convert internal event to post-callback system event
-fn internal_event_to_system_event(event: &PreCallbackSystemEvent) -> Option<PostCallbackSystemEvent> {
-    use PreCallbackSystemEvent::*;
+fn internal_event_to_system_event(
+    event: &PreCallbackSystemEvent,
+) -> Option<PostCallbackSystemEvent> {
     use PostCallbackSystemEvent::*;
+    use PreCallbackSystemEvent::*;
 
     match event {
         TextClick { .. } | ArrowKeyNavigation { .. } | DeleteSelection { .. } => {
             Some(ScrollIntoView)
         }
-        TextDragSelection { is_dragging, .. } => {
-            Some(if *is_dragging { StartAutoScrollTimer } else { CancelAutoScrollTimer })
-        }
+        TextDragSelection { is_dragging, .. } => Some(if *is_dragging {
+            StartAutoScrollTimer
+        } else {
+            CancelAutoScrollTimer
+        }),
         KeyboardShortcut { shortcut, .. } => shortcut_to_system_event(*shortcut),
     }
 }

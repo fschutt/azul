@@ -10,8 +10,8 @@ use azul_layout::window_state::WindowCreateOptions;
 use super::dlopen::{
     constants::*, encode_wide, Win32Libraries, HDC, HGLRC, HINSTANCE, HWND, POINT, RECT, WNDCLASSW,
 };
-use crate::desktop::shell2::common::WindowError;
 use crate::desktop::shell2::common::debug_server::LogCategory;
+use crate::desktop::shell2::common::WindowError;
 use crate::{log_debug, log_error, log_trace, log_warn};
 
 /// Win32 window class name
@@ -121,17 +121,41 @@ pub fn create_gl_context(
     use super::gl::ExtraWglFunctions;
 
     log_trace!(LogCategory::Rendering, "[GL] create_gl_context() called");
-    log_trace!(LogCategory::Rendering, "[GL] hwnd: {:?}, hinstance: {:?}", hwnd, hinstance);
+    log_trace!(
+        LogCategory::Rendering,
+        "[GL] hwnd: {:?}, hinstance: {:?}",
+        hwnd,
+        hinstance
+    );
 
     log_trace!(LogCategory::Rendering, "[GL] loading ExtraWglFunctions");
     let extra_wgl = ExtraWglFunctions::load().map_err(|e| {
-        log_error!(LogCategory::Rendering, "[GL] Failed to load WGL extensions: {:?}", e);
+        log_error!(
+            LogCategory::Rendering,
+            "[GL] Failed to load WGL extensions: {:?}",
+            e
+        );
         WindowError::PlatformError(format!("Failed to load WGL extensions: {:?}", e))
     })?;
-    log_trace!(LogCategory::Rendering, "[GL] ExtraWglFunctions loaded successfully");
-    log_trace!(LogCategory::Rendering, "[GL] wglChoosePixelFormatARB: {:?}", extra_wgl.wglChoosePixelFormatARB.is_some());
-    log_trace!(LogCategory::Rendering, "[GL] wglCreateContextAttribsARB: {:?}", extra_wgl.wglCreateContextAttribsARB.is_some());
-    log_trace!(LogCategory::Rendering, "[GL] wglSwapIntervalEXT: {:?}", extra_wgl.wglSwapIntervalEXT.is_some());
+    log_trace!(
+        LogCategory::Rendering,
+        "[GL] ExtraWglFunctions loaded successfully"
+    );
+    log_trace!(
+        LogCategory::Rendering,
+        "[GL] wglChoosePixelFormatARB: {:?}",
+        extra_wgl.wglChoosePixelFormatARB.is_some()
+    );
+    log_trace!(
+        LogCategory::Rendering,
+        "[GL] wglCreateContextAttribsARB: {:?}",
+        extra_wgl.wglCreateContextAttribsARB.is_some()
+    );
+    log_trace!(
+        LogCategory::Rendering,
+        "[GL] wglSwapIntervalEXT: {:?}",
+        extra_wgl.wglSwapIntervalEXT.is_some()
+    );
 
     log_trace!(LogCategory::Rendering, "[GL] calling GetDC");
     let hdc = unsafe { (win32.user32.GetDC)(hwnd) };
@@ -171,10 +195,16 @@ pub fn create_gl_context(
         let mut num_formats = 0u32;
 
         let choose_fn = extra_wgl.wglChoosePixelFormatARB.ok_or_else(|| {
-            log_error!(LogCategory::Rendering, "[GL] wglChoosePixelFormatARB not available");
+            log_error!(
+                LogCategory::Rendering,
+                "[GL] wglChoosePixelFormatARB not available"
+            );
             WindowError::PlatformError("wglChoosePixelFormatARB not available".into())
         })?;
-        log_trace!(LogCategory::Rendering, "[GL] calling wglChoosePixelFormatARB");
+        log_trace!(
+            LogCategory::Rendering,
+            "[GL] calling wglChoosePixelFormatARB"
+        );
 
         let result = choose_fn(
             hdc as _,
@@ -184,10 +214,19 @@ pub fn create_gl_context(
             &mut pixel_format,
             &mut num_formats,
         );
-        log_trace!(LogCategory::Rendering, "[GL] wglChoosePixelFormatARB returned: {}, num_formats: {}, pixel_format: {}", result, num_formats, pixel_format);
+        log_trace!(
+            LogCategory::Rendering,
+            "[GL] wglChoosePixelFormatARB returned: {}, num_formats: {}, pixel_format: {}",
+            result,
+            num_formats,
+            pixel_format
+        );
 
         if result == 0 || num_formats == 0 {
-            log_error!(LogCategory::Rendering, "[GL] wglChoosePixelFormatARB failed");
+            log_error!(
+                LogCategory::Rendering,
+                "[GL] wglChoosePixelFormatARB failed"
+            );
             (win32.user32.ReleaseDC)(hwnd, hdc);
             return Err(WindowError::PlatformError(
                 "wglChoosePixelFormatARB failed".into(),
@@ -196,7 +235,11 @@ pub fn create_gl_context(
 
         pixel_format
     };
-    log_trace!(LogCategory::Rendering, "[GL] pixel format chosen: {}", pixel_format);
+    log_trace!(
+        LogCategory::Rendering,
+        "[GL] pixel format chosen: {}",
+        pixel_format
+    );
 
     // Set pixel format
     log_trace!(LogCategory::Rendering, "[GL] setting pixel format");
@@ -210,13 +253,25 @@ pub fn create_gl_context(
             std::mem::size_of::<PIXELFORMATDESCRIPTOR>() as u32,
             &mut pfd,
         );
-        log_trace!(LogCategory::Rendering, "[GL] DescribePixelFormat done, pfd.dwFlags: 0x{:x}", pfd.dwFlags);
+        log_trace!(
+            LogCategory::Rendering,
+            "[GL] DescribePixelFormat done, pfd.dwFlags: 0x{:x}",
+            pfd.dwFlags
+        );
 
         let set_result = SetPixelFormat(hdc as _, pixel_format, &pfd);
-        log_trace!(LogCategory::Rendering, "[GL] SetPixelFormat returned: {}", set_result);
+        log_trace!(
+            LogCategory::Rendering,
+            "[GL] SetPixelFormat returned: {}",
+            set_result
+        );
         if set_result == 0 {
             let error = winapi::um::errhandlingapi::GetLastError();
-            log_error!(LogCategory::Rendering, "[GL] SetPixelFormat failed with error: {}", error);
+            log_error!(
+                LogCategory::Rendering,
+                "[GL] SetPixelFormat failed with error: {}",
+                error
+            );
             (win32.user32.ReleaseDC)(hwnd, hdc);
             return Err(WindowError::PlatformError("SetPixelFormat failed".into()));
         }
@@ -240,17 +295,30 @@ pub fn create_gl_context(
         ];
 
         let create_fn = extra_wgl.wglCreateContextAttribsARB.ok_or_else(|| {
-            log_error!(LogCategory::Rendering, "[GL] wglCreateContextAttribsARB not available");
+            log_error!(
+                LogCategory::Rendering,
+                "[GL] wglCreateContextAttribsARB not available"
+            );
             WindowError::PlatformError("wglCreateContextAttribsARB not available".into())
         })?;
-        log_trace!(LogCategory::Rendering, "[GL] calling wglCreateContextAttribsARB for GL 3.2 Core");
+        log_trace!(
+            LogCategory::Rendering,
+            "[GL] calling wglCreateContextAttribsARB for GL 3.2 Core"
+        );
 
         let mut hglrc = create_fn(hdc as _, std::ptr::null_mut(), context_attribs_32.as_ptr());
-        log_trace!(LogCategory::Rendering, "[GL] wglCreateContextAttribsARB (3.2 Core) returned: {:?}", hglrc);
+        log_trace!(
+            LogCategory::Rendering,
+            "[GL] wglCreateContextAttribsARB (3.2 Core) returned: {:?}",
+            hglrc
+        );
 
         // Fallback to OpenGL 3.0 if 3.2 fails
         if hglrc.is_null() {
-            log_trace!(LogCategory::Rendering, "[GL] GL 3.2 Core failed, trying GL 3.0");
+            log_trace!(
+                LogCategory::Rendering,
+                "[GL] GL 3.2 Core failed, trying GL 3.0"
+            );
             let context_attribs_30 = [
                 WGL_CONTEXT_MAJOR_VERSION_ARB as i32,
                 3,
@@ -259,20 +327,35 @@ pub fn create_gl_context(
                 0, // Terminate - no profile mask
             ];
             hglrc = create_fn(hdc as _, std::ptr::null_mut(), context_attribs_30.as_ptr());
-            log_trace!(LogCategory::Rendering, "[GL] wglCreateContextAttribsARB (3.0) returned: {:?}", hglrc);
+            log_trace!(
+                LogCategory::Rendering,
+                "[GL] wglCreateContextAttribsARB (3.0) returned: {:?}",
+                hglrc
+            );
         }
 
         // Fallback to legacy OpenGL context if all else fails
         if hglrc.is_null() {
-            log_trace!(LogCategory::Rendering, "[GL] GL 3.0 failed, trying legacy wglCreateContext");
+            log_trace!(
+                LogCategory::Rendering,
+                "[GL] GL 3.0 failed, trying legacy wglCreateContext"
+            );
             use winapi::um::wingdi::wglCreateContext;
             hglrc = wglCreateContext(hdc as _) as _;
-            log_trace!(LogCategory::Rendering, "[GL] wglCreateContext (legacy) returned: {:?}", hglrc);
+            log_trace!(
+                LogCategory::Rendering,
+                "[GL] wglCreateContext (legacy) returned: {:?}",
+                hglrc
+            );
         }
 
         if hglrc.is_null() {
             let error = winapi::um::errhandlingapi::GetLastError();
-            log_error!(LogCategory::Rendering, "[GL] All OpenGL context creation attempts failed! GetLastError: {}", error);
+            log_error!(
+                LogCategory::Rendering,
+                "[GL] All OpenGL context creation attempts failed! GetLastError: {}",
+                error
+            );
             (win32.user32.ReleaseDC)(hwnd, hdc);
             return Err(WindowError::PlatformError(
                 "wglCreateContextAttribsARB failed".into(),
@@ -281,7 +364,11 @@ pub fn create_gl_context(
 
         hglrc as HGLRC
     };
-    log_trace!(LogCategory::Rendering, "[GL] OpenGL context created: {:?}", hglrc);
+    log_trace!(
+        LogCategory::Rendering,
+        "[GL] OpenGL context created: {:?}",
+        hglrc
+    );
 
     #[cfg(target_os = "windows")]
     unsafe {
@@ -291,68 +378,102 @@ pub fn create_gl_context(
             hdc as winapi::shared::windef::HDC,
             hglrc as winapi::shared::windef::HGLRC,
         );
-        log_trace!(LogCategory::Rendering, "[GL] wglMakeCurrent returned: {}", result);
-        
+        log_trace!(
+            LogCategory::Rendering,
+            "[GL] wglMakeCurrent returned: {}",
+            result
+        );
+
         if result == 0 {
             let error = winapi::um::errhandlingapi::GetLastError();
-            log_error!(LogCategory::Rendering, "[GL] wglMakeCurrent FAILED! GetLastError: {}", error);
+            log_error!(
+                LogCategory::Rendering,
+                "[GL] wglMakeCurrent FAILED! GetLastError: {}",
+                error
+            );
             (win32.user32.ReleaseDC)(hwnd, hdc);
             return Err(WindowError::PlatformError(
                 format!("wglMakeCurrent failed with error {}", error).into(),
             ));
         }
-        
+
         // Query and log OpenGL info
         log_trace!(LogCategory::Rendering, "[GL] querying OpenGL info");
-        use winapi::um::wingdi::wglGetProcAddress;
         use winapi::um::libloaderapi::GetProcAddress;
-        
+        use winapi::um::wingdi::wglGetProcAddress;
+
         // Get glGetString and glGetIntegerv
         let opengl32 = winapi::um::libloaderapi::GetModuleHandleA(b"opengl32.dll\0".as_ptr() as _);
         if !opengl32.is_null() {
-            let gl_get_string: Option<extern "system" fn(u32) -> *const i8> = 
+            let gl_get_string: Option<extern "system" fn(u32) -> *const i8> =
                 std::mem::transmute(GetProcAddress(opengl32, b"glGetString\0".as_ptr() as _));
             let gl_get_integerv: Option<extern "system" fn(u32, *mut i32)> =
                 std::mem::transmute(GetProcAddress(opengl32, b"glGetIntegerv\0".as_ptr() as _));
             let gl_get_error: Option<extern "system" fn() -> u32> =
                 std::mem::transmute(GetProcAddress(opengl32, b"glGetError\0".as_ptr() as _));
-            
+
             if let Some(get_string) = gl_get_string {
                 const GL_VENDOR: u32 = 0x1F00;
                 const GL_RENDERER: u32 = 0x1F01;
                 const GL_VERSION: u32 = 0x1F02;
-                
+
                 let vendor = get_string(GL_VENDOR);
                 let renderer = get_string(GL_RENDERER);
                 let version = get_string(GL_VERSION);
-                
+
                 if !vendor.is_null() {
-                    log_debug!(LogCategory::Rendering, "[GL] Vendor: {}", std::ffi::CStr::from_ptr(vendor).to_string_lossy());
+                    log_debug!(
+                        LogCategory::Rendering,
+                        "[GL] Vendor: {}",
+                        std::ffi::CStr::from_ptr(vendor).to_string_lossy()
+                    );
                 }
                 if !renderer.is_null() {
-                    log_debug!(LogCategory::Rendering, "[GL] Renderer: {}", std::ffi::CStr::from_ptr(renderer).to_string_lossy());
+                    log_debug!(
+                        LogCategory::Rendering,
+                        "[GL] Renderer: {}",
+                        std::ffi::CStr::from_ptr(renderer).to_string_lossy()
+                    );
                 }
                 if !version.is_null() {
-                    log_debug!(LogCategory::Rendering, "[GL] Version: {}", std::ffi::CStr::from_ptr(version).to_string_lossy());
+                    log_debug!(
+                        LogCategory::Rendering,
+                        "[GL] Version: {}",
+                        std::ffi::CStr::from_ptr(version).to_string_lossy()
+                    );
                 }
             }
-            
+
             if let Some(get_integerv) = gl_get_integerv {
                 const GL_MAX_TEXTURE_SIZE: u32 = 0x0D33;
                 let mut max_texture_size: i32 = 0;
                 get_integerv(GL_MAX_TEXTURE_SIZE, &mut max_texture_size);
-                log_debug!(LogCategory::Rendering, "[GL] GL_MAX_TEXTURE_SIZE: {}", max_texture_size);
-                
+                log_debug!(
+                    LogCategory::Rendering,
+                    "[GL] GL_MAX_TEXTURE_SIZE: {}",
+                    max_texture_size
+                );
+
                 if max_texture_size == 0 {
-                    log_warn!(LogCategory::Rendering, "[GL] GL_MAX_TEXTURE_SIZE is 0 - context may be invalid!");
+                    log_warn!(
+                        LogCategory::Rendering,
+                        "[GL] GL_MAX_TEXTURE_SIZE is 0 - context may be invalid!"
+                    );
                     if let Some(get_error) = gl_get_error {
                         let err = get_error();
-                        log_error!(LogCategory::Rendering, "[GL] glGetError after glGetIntegerv: 0x{:x}", err);
+                        log_error!(
+                            LogCategory::Rendering,
+                            "[GL] glGetError after glGetIntegerv: 0x{:x}",
+                            err
+                        );
                     }
                 }
             }
         } else {
-            log_warn!(LogCategory::Rendering, "[GL] Could not get opengl32.dll handle for GL info query");
+            log_warn!(
+                LogCategory::Rendering,
+                "[GL] Could not get opengl32.dll handle for GL info query"
+            );
         }
     }
 
@@ -363,20 +484,34 @@ pub fn create_gl_context(
             Vsync::Disabled => 0,
             Vsync::DontCare => 1,
         };
-        log_trace!(LogCategory::Rendering, "[GL] setting swap interval to {}", interval);
+        log_trace!(
+            LogCategory::Rendering,
+            "[GL] setting swap interval to {}",
+            interval
+        );
         unsafe { swap_interval_fn(interval) };
     } else {
-        log_trace!(LogCategory::Rendering, "[GL] wglSwapIntervalEXT not available, skipping vsync");
+        log_trace!(
+            LogCategory::Rendering,
+            "[GL] wglSwapIntervalEXT not available, skipping vsync"
+        );
     }
 
     // NOTE: We do NOT release the DC here - it needs to stay valid for the GL context
     // The DC will be released when the window is destroyed
-    log_trace!(LogCategory::Rendering, "[GL] keeping DC active (not releasing)");
+    log_trace!(
+        LogCategory::Rendering,
+        "[GL] keeping DC active (not releasing)"
+    );
     // unsafe {
     //     (win32.user32.ReleaseDC)(hwnd, hdc);
     // }
 
-    log_trace!(LogCategory::Rendering, "[GL] SUCCESS, returning hglrc: {:?}", hglrc);
+    log_trace!(
+        LogCategory::Rendering,
+        "[GL] SUCCESS, returning hglrc: {:?}",
+        hglrc
+    );
     Ok(hglrc)
 }
 
@@ -405,7 +540,12 @@ pub fn show_window_with_frame(
     is_visible: bool,
     win32: &Win32Libraries,
 ) {
-    log_trace!(LogCategory::Window, "[Win32] show_window_with_frame() called, frame: {:?}, is_visible: {}", frame, is_visible);
+    log_trace!(
+        LogCategory::Window,
+        "[Win32] show_window_with_frame() called, frame: {:?}, is_visible: {}",
+        frame,
+        is_visible
+    );
     let mut show_cmd = SW_HIDE;
 
     if is_visible {
@@ -417,9 +557,17 @@ pub fn show_window_with_frame(
         };
     }
 
-    log_trace!(LogCategory::Window, "[Win32] calling ShowWindow with cmd: {}", show_cmd);
+    log_trace!(
+        LogCategory::Window,
+        "[Win32] calling ShowWindow with cmd: {}",
+        show_cmd
+    );
     let result = unsafe { (win32.user32.ShowWindow)(hwnd, show_cmd) };
-    log_trace!(LogCategory::Window, "[Win32] ShowWindow returned: {}", result);
+    log_trace!(
+        LogCategory::Window,
+        "[Win32] ShowWindow returned: {}",
+        result
+    );
 }
 
 /// Get client rectangle size

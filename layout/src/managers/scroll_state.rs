@@ -417,7 +417,7 @@ impl ScrollManager {
     }
 
     /// Scrolls to an absolute position with animation
-    /// 
+    ///
     /// If duration is zero, the position is set immediately without animation.
     pub fn scroll_to(
         &mut self,
@@ -433,12 +433,12 @@ impl ScrollManager {
             Duration::System(s) => s.secs == 0 && s.nanos == 0,
             Duration::Tick(t) => t.tick_diff == 0,
         };
-        
+
         if is_zero {
             self.set_scroll_position(dom_id, node_id, target, now);
             return;
         }
-        
+
         let state = self
             .states
             .entry((dom_id, node_id))
@@ -517,7 +517,7 @@ impl ScrollManager {
     /// Registers or updates a scrollable node with its container and content sizes.
     /// This should be called after layout for each node that has overflow:scroll or overflow:auto
     /// with overflowing content.
-    /// 
+    ///
     /// If the node already exists, updates container/content rects without changing scroll offset.
     /// If the node is new, initializes with zero scroll offset.
     pub fn register_or_update_scroll_node(
@@ -529,12 +529,12 @@ impl ScrollManager {
         now: Instant,
     ) {
         let key = (dom_id, node_id);
-        
+
         let content_rect = LogicalRect {
             origin: LogicalPosition::zero(),
             size: content_size,
         };
-        
+
         if let Some(existing) = self.states.get_mut(&key) {
             // Update rects, keep scroll offset
             existing.container_rect = container_rect;
@@ -543,14 +543,17 @@ impl ScrollManager {
             existing.current_offset = existing.clamp(existing.current_offset);
         } else {
             // New scrollable node
-            self.states.insert(key, AnimatedScrollState {
-                current_offset: LogicalPosition::zero(),
-                previous_offset: LogicalPosition::zero(),
-                animation: None,
-                last_activity: now,
-                container_rect,
-                content_rect,
-            });
+            self.states.insert(
+                key,
+                AnimatedScrollState {
+                    current_offset: LogicalPosition::zero(),
+                    previous_offset: LogicalPosition::zero(),
+                    animation: None,
+                    last_activity: now,
+                    container_rect,
+                    content_rect,
+                },
+            );
         }
     }
 

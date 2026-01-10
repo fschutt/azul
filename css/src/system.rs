@@ -34,7 +34,7 @@ use crate::{
             color::{parse_css_color, ColorU, OptionColorU},
             pixel::PixelValue,
         },
-        style::scrollbar::{ComputedScrollbarStyle, ScrollBehavior, OverscrollBehavior},
+        style::scrollbar::{ComputedScrollbarStyle, OverscrollBehavior, ScrollBehavior},
     },
 };
 
@@ -799,7 +799,7 @@ fn detect_language_windows() -> AzString {
             return AzString::from(lang.to_string());
         }
     }
-    
+
     // Fallback: try registry
     if let Ok(output) = run_command_with_timeout(
         "reg",
@@ -823,7 +823,7 @@ fn detect_language_windows() -> AzString {
             }
         }
     }
-    
+
     AzString::from_const_str("en-US")
 }
 
@@ -842,7 +842,7 @@ fn detect_language_macos() -> AzString {
             return AzString::from(locale.replace('_', "-"));
         }
     }
-    
+
     // Fallback: try AppleLanguages array
     if let Ok(output) = run_command_with_timeout(
         "defaults",
@@ -852,13 +852,15 @@ fn detect_language_macos() -> AzString {
         // Output is a plist array, extract first language
         // Example: "(\n    \"de-DE\",\n    \"en-US\"\n)"
         for line in output.lines() {
-            let trimmed = line.trim().trim_matches(|c| c == '"' || c == ',' || c == '(' || c == ')');
+            let trimmed = line
+                .trim()
+                .trim_matches(|c| c == '"' || c == ',' || c == '(' || c == ')');
             if !trimmed.is_empty() && trimmed.contains('-') {
                 return AzString::from(trimmed.to_string());
             }
         }
     }
-    
+
     AzString::from_const_str("en-US")
 }
 
@@ -867,27 +869,27 @@ fn detect_language_macos() -> AzString {
 fn detect_language_linux() -> AzString {
     // Check LANGUAGE, LANG, LC_ALL, LC_MESSAGES in order of priority
     let env_vars = ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"];
-    
+
     for var in &env_vars {
         if let Ok(value) = std::env::var(var) {
             let value = value.trim();
             if value.is_empty() || value == "C" || value == "POSIX" {
                 continue;
             }
-            
+
             // Parse locale format: "de_DE.UTF-8" or "de_DE" or "de"
             let lang = value
                 .split('.')  // Remove .UTF-8 suffix
                 .next()
                 .unwrap_or(value)
-                .replace('_', "-");  // Convert to BCP 47
-            
+                .replace('_', "-"); // Convert to BCP 47
+
             if !lang.is_empty() {
                 return AzString::from(lang);
             }
         }
     }
-    
+
     AzString::from_const_str("en-US")
 }
 

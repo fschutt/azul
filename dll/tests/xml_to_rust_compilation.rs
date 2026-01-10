@@ -144,7 +144,10 @@ mod xml_compilation_tests {
         let result = parse_xml_string(xml_input);
         // With lenient HTML5-like parsing, unclosed tags are auto-closed
         // so this should actually parse successfully
-        assert!(result.is_ok(), "Lenient parser should tolerate unclosed tags");
+        assert!(
+            result.is_ok(),
+            "Lenient parser should tolerate unclosed tags"
+        );
     }
 
     #[test]

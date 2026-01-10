@@ -141,12 +141,10 @@ pub struct Wayland {
         unsafe extern "C" fn(*mut wl_surface, *const wl_surface_listener, *mut c_void) -> i32,
 
     // wl_region functions (for transparency)
-    pub wl_compositor_create_region:
-        unsafe extern "C" fn(*mut wl_compositor) -> *mut wl_region,
+    pub wl_compositor_create_region: unsafe extern "C" fn(*mut wl_compositor) -> *mut wl_region,
     pub wl_region_destroy: unsafe extern "C" fn(*mut wl_region),
     pub wl_region_add: unsafe extern "C" fn(*mut wl_region, i32, i32, i32, i32),
-    pub wl_surface_set_opaque_region:
-        unsafe extern "C" fn(*mut wl_surface, *mut wl_region),
+    pub wl_surface_set_opaque_region: unsafe extern "C" fn(*mut wl_surface, *mut wl_region),
 
     // wayland-egl functions
     pub wl_egl_window_create: unsafe extern "C" fn(
@@ -287,7 +285,9 @@ impl Wayland {
             xdg_wm_base_get_xdg_surface: unsafe {
                 std::mem::transmute(wl_proxy_marshal_constructor_ptr)
             },
-            xdg_surface_get_toplevel: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
+            xdg_surface_get_toplevel: unsafe {
+                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
+            },
             xdg_surface_ack_configure: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_toplevel_set_title: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_toplevel_set_minimized: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
@@ -321,7 +321,9 @@ impl Wayland {
             wl_keyboard_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
 
             wl_shm_create_pool: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
-            wl_shm_pool_create_buffer: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
+            wl_shm_pool_create_buffer: unsafe {
+                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
+            },
             wl_buffer_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_shm_pool_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
 
@@ -329,7 +331,9 @@ impl Wayland {
             wl_surface_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
 
             // wl_region functions for transparency
-            wl_compositor_create_region: unsafe { std::mem::transmute(wl_proxy_marshal_constructor_ptr) },
+            wl_compositor_create_region: unsafe {
+                std::mem::transmute(wl_proxy_marshal_constructor_ptr)
+            },
             wl_region_destroy: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_region_add: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             wl_surface_set_opaque_region: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },

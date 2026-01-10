@@ -48,8 +48,8 @@ use std::{
     },
 };
 
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
 use super::super::common::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 pub use actions_protocol::{
     drain_pending_menu_callbacks, queue_menu_callback, ActionsProtocol, DbusAction,

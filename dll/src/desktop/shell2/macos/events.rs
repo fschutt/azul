@@ -1,7 +1,7 @@
 //! macOS Event handling - converts NSEvent to Azul events and dispatches callbacks.
 
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
 use super::super::common::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 use azul_core::{
     callbacks::LayoutCallbackInfo,
@@ -40,10 +40,7 @@ use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
 /// This function converts from macOS to Azul coordinates.
 #[inline]
 fn macos_to_azul_coords(location: NSPoint, window_height: f32) -> LogicalPosition {
-    LogicalPosition::new(
-        location.x as f32,
-        window_height - location.y as f32,
-    )
+    LogicalPosition::new(location.x as f32, window_height - location.y as f32)
 }
 
 /// Extension trait for Callback to convert from CoreCallback
@@ -652,7 +649,8 @@ impl MacOSWindow {
         let old_hidpi = self.current_window_state.size.get_hidpi_factor();
 
         if (current_hidpi.inner.get() - old_hidpi.inner.get()).abs() > 0.001 {
-            log_info!(LogCategory::Window,
+            log_info!(
+                LogCategory::Window,
                 "[Resize] DPI changed: {} -> {}",
                 old_hidpi.inner.get(),
                 current_hidpi.inner.get()
@@ -666,8 +664,11 @@ impl MacOSWindow {
         }
 
         // Check if viewport dimensions actually changed (debounce rapid resize events)
-        let viewport_changed = (old_context.viewport_width - self.dynamic_selector_context.viewport_width).abs() > 0.5
-            || (old_context.viewport_height - self.dynamic_selector_context.viewport_height).abs() > 0.5;
+        let viewport_changed =
+            (old_context.viewport_width - self.dynamic_selector_context.viewport_width).abs() > 0.5
+                || (old_context.viewport_height - self.dynamic_selector_context.viewport_height)
+                    .abs()
+                    > 0.5;
 
         if !viewport_changed {
             // No significant change, just update compositor
@@ -677,13 +678,12 @@ impl MacOSWindow {
         // Check if any CSS breakpoints were crossed
         // Common breakpoints: 320, 480, 640, 768, 1024, 1280, 1440, 1920
         let breakpoints = [320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
-        let breakpoint_crossed = old_context.viewport_breakpoint_changed(
-            &self.dynamic_selector_context,
-            &breakpoints
-        );
+        let breakpoint_crossed =
+            old_context.viewport_breakpoint_changed(&self.dynamic_selector_context, &breakpoints);
 
         if breakpoint_crossed {
-            log_debug!(LogCategory::Layout,
+            log_debug!(
+                LogCategory::Layout,
                 "[Resize] Breakpoint crossed: {}x{} -> {}x{}",
                 old_context.viewport_width,
                 old_context.viewport_height,
@@ -999,7 +999,8 @@ impl MacOSWindow {
         // Clone the menu to avoid borrow conflicts
         let context_menu = node_data.get_context_menu()?.clone();
 
-        log_debug!(LogCategory::Input,
+        log_debug!(
+            LogCategory::Input,
             "[Context Menu] Showing context menu at ({}, {}) for node {:?} with {} items",
             position.x,
             position.y,
@@ -1030,7 +1031,10 @@ impl MacOSWindow {
         let mtm = match MainThreadMarker::new() {
             Some(m) => m,
             None => {
-                log_warn!(LogCategory::Platform, "[Context Menu] Not on main thread, cannot show menu");
+                log_warn!(
+                    LogCategory::Platform,
+                    "[Context Menu] Not on main thread, cannot show menu"
+                );
                 return;
             }
         };
@@ -1055,7 +1059,8 @@ impl MacOSWindow {
         };
 
         if let Some(view) = view {
-            log_debug!(LogCategory::Input,
+            log_debug!(
+                LogCategory::Input,
                 "[Context Menu] Showing native menu at position ({}, {}) with {} items",
                 position.x,
                 position.y,
@@ -1107,10 +1112,12 @@ impl MacOSWindow {
 
         // Queue window creation request for processing in Phase 3 of the event loop
         // The event loop will create the window with MacOSWindow::new_with_fc_cache()
-        log_debug!(LogCategory::Window,
+        log_debug!(
+            LogCategory::Window,
             "[macOS] Queuing window-based context menu at screen ({}, {}) - will be created in \
              event loop Phase 3",
-            position.x, position.y
+            position.x,
+            position.y
         );
 
         self.pending_window_creates.push(menu_options);
@@ -1164,7 +1171,8 @@ impl MacOSWindow {
                         // Attach submenu to menu item
                         menu_item.setSubmenu(Some(&submenu));
 
-                        log_debug!(LogCategory::Input,
+                        log_debug!(
+                            LogCategory::Input,
                             "[Context Menu] Created submenu '{}' with {} items",
                             string_item.label,
                             string_item.children.as_ref().len()

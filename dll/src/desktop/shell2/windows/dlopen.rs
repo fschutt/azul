@@ -8,8 +8,8 @@
 
 use std::{ffi::CString, ptr};
 
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
 use super::super::common::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 // Re-export types that will be used by Win32 API
 pub type HINSTANCE = *mut std::ffi::c_void;
@@ -261,7 +261,10 @@ mod windows_impl {
 
     // Stub implementations for non-Windows platforms (for cross-compilation)
     pub unsafe fn load_library(_name: &str) -> Option<HINSTANCE> {
-        log_warn!(LogCategory::Platform, "WARNING: Attempted to load Win32 DLL on non-Windows platform");
+        log_warn!(
+            LogCategory::Platform,
+            "WARNING: Attempted to load Win32 DLL on non-Windows platform"
+        );
         None
     }
 
@@ -487,9 +490,9 @@ impl MARGINS {
 #[derive(Debug, Copy, Clone)]
 pub struct DWM_BLURBEHIND {
     pub dwFlags: u32,
-    pub fEnable: i32,  // BOOL
+    pub fEnable: i32,                     // BOOL
     pub hRgnBlur: *mut core::ffi::c_void, // HRGN
-    pub fTransitionOnMaximized: i32, // BOOL
+    pub fTransitionOnMaximized: i32,      // BOOL
 }
 
 impl Default for DWM_BLURBEHIND {
@@ -519,16 +522,12 @@ pub struct DwmapiFunctions {
         cbAttribute: u32,
     ) -> HRESULT,
     /// Extend the window frame into the client area (required for Mica/Acrylic)
-    pub DwmExtendFrameIntoClientArea: unsafe extern "system" fn(
-        hwnd: HWND,
-        pMarInset: *const MARGINS,
-    ) -> HRESULT,
+    pub DwmExtendFrameIntoClientArea:
+        unsafe extern "system" fn(hwnd: HWND, pMarInset: *const MARGINS) -> HRESULT,
     /// Enable blur-behind effect for transparent backgrounds
     /// This is the key function for making OpenGL windows transparent
-    pub DwmEnableBlurBehindWindow: unsafe extern "system" fn(
-        hwnd: HWND,
-        pBlurBehind: *const DWM_BLURBEHIND,
-    ) -> HRESULT,
+    pub DwmEnableBlurBehindWindow:
+        unsafe extern "system" fn(hwnd: HWND, pBlurBehind: *const DWM_BLURBEHIND) -> HRESULT,
     /// Flush the DWM compositor - blocks until the current frame is presented
     /// Critical for avoiding black flash when showing window after first render
     pub DwmFlush: unsafe extern "system" fn() -> HRESULT,
@@ -774,7 +773,7 @@ impl Win32Libraries {
             unsafe {
                 let set_thread_exec = dll.get_symbol("SetThreadExecutionState");
                 let get_module_handle = dll.get_symbol("GetModuleHandleW");
-                
+
                 if let (Some(ste), Some(gmh)) = (set_thread_exec, get_module_handle) {
                     Some(Kernel32Functions {
                         SetThreadExecutionState: ste,
@@ -796,9 +795,14 @@ impl Win32Libraries {
                 let extend_frame = dll.get_symbol("DwmExtendFrameIntoClientArea");
                 let blur_behind = dll.get_symbol("DwmEnableBlurBehindWindow");
                 let flush = dll.get_symbol("DwmFlush");
-                
-                if let (Some(s), Some(e), Some(b), Some(f)) = (set_attr, extend_frame, blur_behind, flush) {
-                    log_debug!(LogCategory::Platform, "Loaded dwmapi.dll - DWM transparency effects available");
+
+                if let (Some(s), Some(e), Some(b), Some(f)) =
+                    (set_attr, extend_frame, blur_behind, flush)
+                {
+                    log_debug!(
+                        LogCategory::Platform,
+                        "Loaded dwmapi.dll - DWM transparency effects available"
+                    );
                     Some(DwmapiFunctions {
                         DwmSetWindowAttribute: s,
                         DwmExtendFrameIntoClientArea: e,
@@ -806,7 +810,10 @@ impl Win32Libraries {
                         DwmFlush: f,
                     })
                 } else {
-                    log_debug!(LogCategory::Platform, "dwmapi.dll loaded but DWM functions not found");
+                    log_debug!(
+                        LogCategory::Platform,
+                        "dwmapi.dll loaded but DWM functions not found"
+                    );
                     None
                 }
             }

@@ -27,7 +27,10 @@ use azul_layout::{
 };
 use webrender::{
     api::{
-        units::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale, WorldPoint as WrWorldPoint},
+        units::{
+            DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale,
+            WorldPoint as WrWorldPoint,
+        },
         ApiHitTester as WrApiHitTester, DebugFlags as WrDebugFlags, DirtyRect,
         DocumentId as WrDocumentId, FontInstanceKey as WrFontInstanceKey,
         FontInstanceOptions as WrFontInstanceOptions,
@@ -103,7 +106,8 @@ impl WrRenderNotifier for Notifier {
         _frame_publish_id: webrender::api::FramePublishId,
     ) {
         // Signal that a new frame is ready to be rendered
-        log_debug!(LogCategory::Rendering, 
+        log_debug!(
+            LogCategory::Rendering,
             "[Notifier] new_frame_ready called - signaling main thread {_doc_id:?} _scrolled: \
              {_scrolled:?} _composite_needed: {_composite_needed:?} _frame_publish_id: \
              {_frame_publish_id:?}"
@@ -542,7 +546,13 @@ pub fn fullhittest_new_webrender(
 
                 // Update focused node if this item is focusable
                 if item.is_focusable {
-                    ret.focused_node = Some(azul_core::dom::DomNodeId { dom: *dom_id, node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id)) }).into();
+                    ret.focused_node = Some(azul_core::dom::DomNodeId {
+                        dom: *dom_id,
+                        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(
+                            Some(node_id),
+                        ),
+                    })
+                    .into();
                 }
 
                 // Always insert into regular_hit_test_nodes
@@ -609,7 +619,9 @@ pub fn fullhittest_new_webrender(
                         scroll_id,
                         pipeline_id,
                     ),
-                    parent_dom_hash: azul_core::dom::DomNodeHash { inner: node_id.index() as u64 },
+                    parent_dom_hash: azul_core::dom::DomNodeHash {
+                        inner: node_id.index() as u64,
+                    },
                     scroll_tag_id: azul_core::dom::ScrollTagId {
                         inner: azul_core::dom::TagId {
                             inner: node_id.index() as u64,
@@ -703,7 +715,8 @@ pub fn collect_image_resource_updates(
     };
     use azul_layout::solver3::display_list::DisplayListItem;
 
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[collect_image_resource_updates] Scanning {} DOMs for images",
         layout_window.layout_results.len()
     );
@@ -743,7 +756,8 @@ pub fn collect_image_resource_updates(
         }
     }
 
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[collect_image_resource_updates] Found {} unique images",
         images_in_dom.len()
     );
@@ -758,7 +772,8 @@ pub fn collect_image_resource_updates(
         crate::desktop::gl_texture_integration::insert_into_active_gl_textures,
     );
 
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[collect_image_resource_updates] Generated {} AddImage messages",
         image_updates.len()
     );
@@ -784,7 +799,8 @@ pub fn collect_font_resource_updates(
     };
     use azul_layout::solver3::display_list::{DisplayList, DisplayListItem};
 
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[collect_font_resource_updates] Scanning {} DOMs for fonts",
         layout_window.layout_results.len()
     );
@@ -811,7 +827,8 @@ pub fn collect_font_resource_updates(
         }
     }
 
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[collect_font_resource_updates] Found {} unique fonts with various sizes",
         font_hash_sizes.len()
     );
@@ -826,7 +843,8 @@ pub fn collect_font_resource_updates(
         if font_needs_registration {
             // Get the FontRef from the layout's font manager
             if let Some(font_ref) = layout_window.font_manager.get_font_by_hash(font_hash) {
-                log_debug!(LogCategory::Rendering, 
+                log_debug!(
+                    LogCategory::Rendering,
                     "[collect_font_resource_updates] Font found, parsed ptr: {:?}",
                     font_ref.get_parsed()
                 );
@@ -836,12 +854,15 @@ pub fn collect_font_resource_updates(
                     font: font_ref.clone(),
                 }));
 
-                log_debug!(LogCategory::Rendering, 
+                log_debug!(
+                    LogCategory::Rendering,
                     "[collect_font_resource_updates] ✓ Created AddFont for hash {} -> key {:?}",
-                    font_hash, font_key
+                    font_hash,
+                    font_key
                 );
             } else {
-                log_debug!(LogCategory::Rendering, 
+                log_debug!(
+                    LogCategory::Rendering,
                     "[collect_font_resource_updates] ✗ WARNING: Font {} not found in FontManager!",
                     font_hash
                 );
@@ -893,16 +914,19 @@ pub fn collect_font_resource_updates(
                     variations: Vec::new(),
                 }));
 
-                log_debug!(LogCategory::Rendering, 
+                log_debug!(
+                    LogCategory::Rendering,
                     "[collect_font_resource_updates] ✓ Created AddFontInstance for size {:?} @ \
                      dpi {:?}",
-                    font_size, dpi_factor
+                    font_size,
+                    dpi_factor
                 );
             }
         }
     }
 
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[collect_font_resource_updates] Generated {} resource updates",
         resource_updates.len()
     );
@@ -1043,7 +1067,8 @@ fn translate_update_image(update_image: UpdateImage) -> Option<WrUpdateImage> {
 fn translate_add_font(add_font: azul_core::resources::AddFont) -> Option<webrender::AddFont> {
     // WebRender's AddFont is an enum with Parsed variant
     // azul-core's AddFont already has both key and FontRef
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[translate_add_font] Translating FontKey {:?}, parsed ptr: {:?}",
         add_font.key,
         add_font.font.get_parsed()
@@ -1058,10 +1083,10 @@ fn translate_add_font(add_font: azul_core::resources::AddFont) -> Option<webrend
 /// Translate AddFontInstance from azul-core to WebRender  
 fn translate_add_font_instance(add_instance: AddFontInstance) -> Option<WrAddFontInstance> {
     // Convert Au to f32 pixels: Au units are 1/60th of a pixel
-    // glyph_size is (Au, DpiScaleFactor) 
+    // glyph_size is (Au, DpiScaleFactor)
     let font_size_au = add_instance.glyph_size.0;
     let dpi_factor = add_instance.glyph_size.1.inner.get();
-    
+
     // Convert Au to logical pixels (1 Au = 1/60 px), then multiply by DPI factor
     // to get the physical pixel size for rasterization.
     // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
@@ -1069,9 +1094,12 @@ fn translate_add_font_instance(add_instance: AddFontInstance) -> Option<WrAddFon
     // need to be pre-scaled because they are rasterized at specific pixel sizes.
     let glyph_size_px = (font_size_au.0 as f32) / 60.0 * dpi_factor;
 
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[translate_add_font_instance] Converting Au({}) to {}px (physical), dpi={}",
-        font_size_au.0, glyph_size_px, dpi_factor
+        font_size_au.0,
+        glyph_size_px,
+        dpi_factor
     );
 
     Some(WrAddFontInstance {
@@ -1199,7 +1227,8 @@ pub fn generate_frame(
 
     // If display list was rebuilt, add resources and display lists to this transaction FIRST
     if display_list_was_rebuilt {
-        log_debug!(LogCategory::Rendering, 
+        log_debug!(
+            LogCategory::Rendering,
             "[generate_frame] Display list was rebuilt - adding resources and display lists to \
              transaction"
         );
@@ -1215,7 +1244,8 @@ pub fn generate_frame(
         let image_updates =
             collect_image_resource_updates(layout_window, &layout_window.renderer_resources);
 
-        log_debug!(LogCategory::Rendering, 
+        log_debug!(
+            LogCategory::Rendering,
             "[generate_frame] Collected {} image updates",
             image_updates.len()
         );
@@ -1240,9 +1270,11 @@ pub fn generate_frame(
                 .image_key_map
                 .insert(add_image_msg.0.key, *image_ref_hash);
 
-            log_debug!(LogCategory::Rendering, 
+            log_debug!(
+                LogCategory::Rendering,
                 "[generate_frame] Registered ImageRefHash({}) -> ImageKey {:?}",
-                image_ref_hash.inner, add_image_msg.0.key
+                image_ref_hash.inner,
+                add_image_msg.0.key
             );
         }
 
@@ -1264,7 +1296,8 @@ pub fn generate_frame(
                         .entry(add_font.key)
                         .or_insert_with(|| (add_font.font.clone(), BTreeMap::default()));
 
-                    log_debug!(LogCategory::Rendering, 
+                    log_debug!(
+                        LogCategory::Rendering,
                         "[generate_frame] Registered font_hash {} -> FontKey {:?}",
                         add_font.font.get_hash(),
                         add_font.key
@@ -1279,10 +1312,13 @@ pub fn generate_frame(
                     {
                         let size = add_font_instance.glyph_size;
                         instances.insert(size, add_font_instance.key);
-                        log_debug!(LogCategory::Rendering, 
+                        log_debug!(
+                            LogCategory::Rendering,
                             "[generate_frame] Registered FontInstanceKey {:?} for FontKey {:?} at \
                              size {:?}",
-                            add_font_instance.key, add_font_instance.font_key, size
+                            add_font_instance.key,
+                            add_font_instance.font_key,
+                            size
                         );
                     }
                 }
@@ -1297,7 +1333,8 @@ pub fn generate_frame(
                 .filter_map(|r| translate_resource_update(r))
                 .collect();
 
-            log_debug!(LogCategory::Rendering, 
+            log_debug!(
+                LogCategory::Rendering,
                 "[generate_frame] Adding {} font resources to transaction",
                 wr_resources.len()
             );
@@ -1314,7 +1351,8 @@ pub fn generate_frame(
                 .filter_map(|x| x)
                 .collect();
 
-            log_debug!(LogCategory::Rendering, 
+            log_debug!(
+                LogCategory::Rendering,
                 "[generate_frame] Adding {} image resources to transaction",
                 wr_image_resources.len()
             );
@@ -1343,7 +1381,8 @@ pub fn generate_frame(
                 layout_window.document_id.id,
             ) {
                 Ok((_, built_display_list, nested_pipelines)) => {
-                    log_debug!(LogCategory::Rendering, 
+                    log_debug!(
+                        LogCategory::Rendering,
                         "[generate_frame] Adding display list for DOM {} to transaction (with {} \
                          nested pipelines), display_list_size_in_bytes={}",
                         dom_id.inner,
@@ -1359,7 +1398,8 @@ pub fn generate_frame(
 
                     // Add all nested iframe pipelines
                     for (nested_pipeline_id, nested_display_list) in nested_pipelines {
-                        log_debug!(LogCategory::Rendering, 
+                        log_debug!(
+                            LogCategory::Rendering,
                             "[generate_frame] Adding nested pipeline {:?} to transaction",
                             nested_pipeline_id
                         );
@@ -1370,9 +1410,11 @@ pub fn generate_frame(
                     }
                 }
                 Err(e) => {
-                    log_debug!(LogCategory::Rendering, 
+                    log_debug!(
+                        LogCategory::Rendering,
                         "[generate_frame] Error building display list for DOM {}: {}",
-                        dom_id.inner, e
+                        dom_id.inner,
+                        e
                     );
                 }
             }
@@ -1381,12 +1423,16 @@ pub fn generate_frame(
         // Increment epoch after using it
         layout_window.epoch.increment();
     } else {
-        log_debug!(LogCategory::Rendering, "[generate_frame] Display list unchanged - skipping scene builder");
+        log_debug!(
+            LogCategory::Rendering,
+            "[generate_frame] Display list unchanged - skipping scene builder"
+        );
         txn.skip_scene_builder();
     }
 
     // CRITICAL: Set root pipeline AFTER display list (matching upstream WebRender order)
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[generate_frame] Setting root pipeline to {:?}",
         root_pipeline_id
     );
@@ -1396,7 +1442,12 @@ pub fn generate_frame(
     let view_rect =
         DeviceIntRect::from_origin_and_size(DeviceIntPoint::new(0, 0), framebuffer_size);
     let hidpi_factor = layout_window.current_window_state.size.get_hidpi_factor();
-    log_debug!(LogCategory::Rendering, "[generate_frame] Setting document view: {:?}, hidpi: {}", view_rect, hidpi_factor.inner.get());
+    log_debug!(
+        LogCategory::Rendering,
+        "[generate_frame] Setting document view: {:?}, hidpi: {}",
+        view_rect,
+        hidpi_factor.inner.get()
+    );
     // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels), like a HTML engine.
     // WebRender's device_pixel_scale handles the conversion to device pixels.
     txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
@@ -1413,10 +1464,14 @@ pub fn generate_frame(
     // Synchronize GPU values (transforms, opacities, etc.)
     synchronize_gpu_values(layout_window, txn);
 
-    log_debug!(LogCategory::Rendering, "[generate_frame] Calling generate_frame on transaction");
+    log_debug!(
+        LogCategory::Rendering,
+        "[generate_frame] Calling generate_frame on transaction"
+    );
     txn.generate_frame(0, WrRenderReasons::empty());
 
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[generate_frame] Sending unified transaction (root_pipeline + document_view + resources \
          + display_lists) to document {:?}",
         layout_window.document_id
@@ -1501,10 +1556,14 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
                     value: opacity,
                 });
 
-                log_debug!(LogCategory::Rendering, 
+                log_debug!(
+                    LogCategory::Rendering,
                     "[synchronize_gpu_values] Set vertical scrollbar opacity for {:?}:{:?} to {} \
                      (key={:?})",
-                    dom_id, node_id, opacity, opacity_key
+                    dom_id,
+                    node_id,
+                    opacity,
+                    opacity_key
                 );
             }
         }
@@ -1524,10 +1583,14 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
                     value: opacity,
                 });
 
-                log_debug!(LogCategory::Rendering, 
+                log_debug!(
+                    LogCategory::Rendering,
                     "[synchronize_gpu_values] Set horizontal scrollbar opacity for {:?}:{:?} to \
                      {} (key={:?})",
-                    dom_id, node_id, opacity, opacity_key
+                    dom_id,
+                    node_id,
+                    opacity,
+                    opacity_key
                 );
             }
         }
@@ -1557,9 +1620,12 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
         // WebRender renamed update_dynamic_properties to append_dynamic_properties
         txn.append_dynamic_properties(properties);
 
-        log_debug!(LogCategory::Rendering, 
+        log_debug!(
+            LogCategory::Rendering,
             "[synchronize_gpu_values] Updated {} float properties, {} transforms, {} colors",
-            float_count, transform_count, color_count
+            float_count,
+            transform_count,
+            color_count
         );
     }
 }
@@ -1943,7 +2009,10 @@ pub fn build_webrender_transaction(
     render_api: &mut WrRenderApi,
     image_cache: &ImageCache,
 ) -> Result<(), &'static str> {
-    log_debug!(LogCategory::Rendering, "[build_atomic_txn] Building atomic transaction");
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Building atomic transaction"
+    );
 
     // Get sizes
     let physical_size = layout_window.current_window_state.size.get_physical_size();
@@ -1956,12 +2025,16 @@ pub fn build_webrender_transaction(
     let root_pipeline_id = wr_translate_pipeline_id(PipelineId(0, layout_window.document_id.id));
 
     // Step 1: Collect and add font resources to transaction
-    log_debug!(LogCategory::Rendering, "[build_atomic_txn] Step 1: Collecting font resources");
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Step 1: Collecting font resources"
+    );
     let font_updates =
         collect_font_resource_updates(layout_window, &layout_window.renderer_resources, dpi);
 
     if !font_updates.is_empty() {
-        log_debug!(LogCategory::Rendering, 
+        log_debug!(
+            LogCategory::Rendering,
             "[build_atomic_txn] Adding {} font resources",
             font_updates.len()
         );
@@ -1979,7 +2052,8 @@ pub fn build_webrender_transaction(
                         .currently_registered_fonts
                         .entry(add_font.key)
                         .or_insert_with(|| (add_font.font.clone(), BTreeMap::default()));
-                    log_debug!(LogCategory::Rendering, 
+                    log_debug!(
+                        LogCategory::Rendering,
                         "[build_atomic_txn] Font registered: hash {} -> key {:?}",
                         add_font.font.get_hash(),
                         add_font.key
@@ -1992,9 +2066,11 @@ pub fn build_webrender_transaction(
                         .get_mut(&add_font_instance.font_key)
                     {
                         instances.insert(add_font_instance.glyph_size, add_font_instance.key);
-                        log_debug!(LogCategory::Rendering, 
+                        log_debug!(
+                            LogCategory::Rendering,
                             "[build_atomic_txn] Font instance registered: key {:?} at size {:?}",
-                            add_font_instance.key, add_font_instance.glyph_size
+                            add_font_instance.key,
+                            add_font_instance.glyph_size
                         );
                     }
                 }
@@ -2009,7 +2085,8 @@ pub fn build_webrender_transaction(
             .collect();
 
         if !wr_resources.is_empty() {
-            log_debug!(LogCategory::Rendering, 
+            log_debug!(
+                LogCategory::Rendering,
                 "[build_atomic_txn] Adding {} WebRender resources to transaction",
                 wr_resources.len()
             );
@@ -2018,7 +2095,8 @@ pub fn build_webrender_transaction(
     }
 
     // Step 2: Build and add display lists for all DOMs to transaction
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[build_atomic_txn] Step 2: Building display lists for {} DOMs",
         layout_window.layout_results.len()
     );
@@ -2029,7 +2107,8 @@ pub fn build_webrender_transaction(
             layout_window.document_id.id,
         ));
 
-        log_debug!(LogCategory::Rendering, 
+        log_debug!(
+            LogCategory::Rendering,
             "[build_atomic_txn] Building display list for DOM {}",
             dom_id.inner
         );
@@ -2046,7 +2125,8 @@ pub fn build_webrender_transaction(
         ) {
             Ok((_, built_display_list, nested_pipelines)) => {
                 let epoch = webrender::api::Epoch(layout_window.epoch.into_u32());
-                log_debug!(LogCategory::Rendering, 
+                log_debug!(
+                    LogCategory::Rendering,
                     "[build_atomic_txn] Adding display list for DOM {} (pipeline {:?}, epoch \
                      {:?}, {} nested)",
                     dom_id.inner,
@@ -2060,17 +2140,21 @@ pub fn build_webrender_transaction(
 
                 // Add all nested iframe pipelines
                 for (nested_pipeline_id, nested_display_list) in nested_pipelines {
-                    log_debug!(LogCategory::Rendering, 
+                    log_debug!(
+                        LogCategory::Rendering,
                         "[build_atomic_txn] Adding nested pipeline {:?} (epoch {:?})",
-                        nested_pipeline_id, epoch
+                        nested_pipeline_id,
+                        epoch
                     );
                     txn.set_display_list(epoch, (nested_pipeline_id, nested_display_list));
                 }
             }
             Err(e) => {
-                log_debug!(LogCategory::Rendering, 
+                log_debug!(
+                    LogCategory::Rendering,
                     "[build_atomic_txn] Error building display list for DOM {}: {}",
-                    dom_id.inner, e
+                    dom_id.inner,
+                    e
                 );
                 return Err("Failed to build display list");
             }
@@ -2078,7 +2162,8 @@ pub fn build_webrender_transaction(
     }
 
     // Step 3: Set root pipeline
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[build_atomic_txn] Step 3: Setting root pipeline {:?}",
         root_pipeline_id
     );
@@ -2088,29 +2173,43 @@ pub fn build_webrender_transaction(
     let view_rect =
         DeviceIntRect::from_origin_and_size(DeviceIntPoint::new(0, 0), framebuffer_size);
     let hidpi_factor = layout_window.current_window_state.size.get_hidpi_factor();
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[build_atomic_txn] Step 4: Setting document view {:?}, hidpi: {}",
-        view_rect, hidpi_factor.inner.get()
+        view_rect,
+        hidpi_factor.inner.get()
     );
     // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
     txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
     // Step 5: Add scroll offsets
-    log_debug!(LogCategory::Rendering, "[build_atomic_txn] Step 5: Adding scroll offsets");
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Step 5: Adding scroll offsets"
+    );
     scroll_all_nodes(layout_window, txn);
 
     // Step 6: Synchronize GPU values
-    log_debug!(LogCategory::Rendering, "[build_atomic_txn] Step 6: Synchronizing GPU values");
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Step 6: Synchronizing GPU values"
+    );
     synchronize_gpu_values(layout_window, txn);
 
     // Step 7: Generate frame
-    log_debug!(LogCategory::Rendering, "[build_atomic_txn] Step 7: Calling generate_frame");
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Step 7: Calling generate_frame"
+    );
     txn.generate_frame(0, webrender::api::RenderReasons::empty());
 
     // Increment epoch for next frame
     layout_window.epoch.increment();
 
-    log_debug!(LogCategory::Rendering, "[build_atomic_txn] Transaction ready to send");
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Transaction ready to send"
+    );
     Ok(())
 }
 
@@ -2140,7 +2239,10 @@ fn process_image_callback_updates(layout_window: &mut LayoutWindow, txn: &mut Wr
     // TODO: Pass CallCallbacksResult.image_callbacks_changed to this function
     // For now, this is a no-op until the callback result flow is connected
 
-    log_debug!(LogCategory::Rendering, "[process_image_callback_updates] Checking for pending image callback updates");
+    log_debug!(
+        LogCategory::Rendering,
+        "[process_image_callback_updates] Checking for pending image callback updates"
+    );
 }
 
 /// Process IFrame updates requested by callbacks
@@ -2171,7 +2273,8 @@ fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransact
         return;
     }
 
-    log_debug!(LogCategory::Rendering, 
+    log_debug!(
+        LogCategory::Rendering,
         "[process_iframe_updates] Processing {} pending IFrame updates",
         layout_window.pending_iframe_updates.len()
     );
@@ -2202,17 +2305,18 @@ fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransact
     // For each IFrame, rebuild and submit its display list
     for (child_dom_id, parent_dom_id, node_id) in child_dom_ids {
         // Get the layout result for the IFrame's content
-        let layout_result = match layout_window.layout_results.get(&child_dom_id) {
-            Some(lr) => lr,
-            None => {
-                log_debug!(LogCategory::Rendering, 
+        let layout_result =
+            match layout_window.layout_results.get(&child_dom_id) {
+                Some(lr) => lr,
+                None => {
+                    log_debug!(LogCategory::Rendering,
                     "[process_iframe_updates] No layout result for child DOM {:?} (parent {:?}, \
                      node {:?})",
                     child_dom_id, parent_dom_id, node_id
                 );
-                continue;
-            }
-        };
+                    continue;
+                }
+            };
 
         // Build the pipeline ID for this IFrame
         let pipeline_id = wr_translate_pipeline_id(PipelineId(
@@ -2232,10 +2336,12 @@ fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransact
             layout_window.document_id.id,
         ) {
             Ok((_, built_display_list, nested_pipelines)) => {
-                log_debug!(LogCategory::Rendering, 
+                log_debug!(
+                    LogCategory::Rendering,
                     "[process_iframe_updates] Submitting display list for IFrame DOM {} (pipeline \
                      {:?})",
-                    child_dom_id.inner, pipeline_id
+                    child_dom_id.inner,
+                    pipeline_id
                 );
 
                 // Submit the updated display list
@@ -2246,7 +2352,8 @@ fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransact
 
                 // Submit any nested pipelines (IFrames within IFrames)
                 for (nested_pipeline_id, nested_display_list) in nested_pipelines {
-                    log_debug!(LogCategory::Rendering, 
+                    log_debug!(
+                        LogCategory::Rendering,
                         "[process_iframe_updates] Submitting nested pipeline {:?}",
                         nested_pipeline_id
                     );
@@ -2257,9 +2364,11 @@ fn process_iframe_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransact
                 }
             }
             Err(e) => {
-                log_debug!(LogCategory::Rendering, 
+                log_debug!(
+                    LogCategory::Rendering,
                     "[process_iframe_updates] Error building display list for IFrame DOM {}: {}",
-                    child_dom_id.inner, e
+                    child_dom_id.inner,
+                    e
                 );
             }
         }

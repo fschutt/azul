@@ -1438,23 +1438,29 @@ impl Device {
         panic_on_gl_error: bool,
     ) -> Device {
         let mut max_texture_size = [0];
-        
+
         // Debug: Check if GL context is valid
         let gl_error = unsafe { gl.get_error() };
         if gl_error != gl::NO_ERROR {
-            error!("GL error before querying MAX_TEXTURE_SIZE: 0x{:x}", gl_error);
+            error!(
+                "GL error before querying MAX_TEXTURE_SIZE: 0x{:x}",
+                gl_error
+            );
         }
-        
+
         unsafe {
             gl.get_integer_v(gl::MAX_TEXTURE_SIZE, &mut max_texture_size);
         }
-        
+
         // Debug: Check for errors after query
         let gl_error_after = unsafe { gl.get_error() };
         if gl_error_after != gl::NO_ERROR {
-            error!("GL error after querying MAX_TEXTURE_SIZE: 0x{:x}", gl_error_after);
+            error!(
+                "GL error after querying MAX_TEXTURE_SIZE: 0x{:x}",
+                gl_error_after
+            );
         }
-        
+
         info!("Raw MAX_TEXTURE_SIZE from GL: {}", max_texture_size[0]);
 
         // We cap the max texture size at 16384. Some hardware report higher

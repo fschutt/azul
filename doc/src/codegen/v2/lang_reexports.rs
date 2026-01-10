@@ -15,11 +15,11 @@
 //! }
 //! ```
 
-use std::collections::BTreeMap;
 use anyhow::Result;
+use std::collections::BTreeMap;
 
-use super::ir::*;
 use super::generator::CodeBuilder;
+use super::ir::*;
 
 /// Configuration for re-export generation
 pub struct ReexportConfig {
@@ -137,9 +137,7 @@ pub fn generate_reexports_with_config(ir: &CodegenIR, config: &ReexportConfig) -
         }
 
         // Skip generic types for now (they need special handling)
-        let non_generic_exports: Vec<_> = exports.iter()
-            .filter(|e| !e.is_generic)
-            .collect();
+        let non_generic_exports: Vec<_> = exports.iter().filter(|e| !e.is_generic).collect();
 
         if non_generic_exports.is_empty() {
             continue;
@@ -188,32 +186,45 @@ struct TypeExport {
 /// Normalize module name to a valid Rust identifier
 fn normalize_module_name(module: &str) -> String {
     // Convert to snake_case and handle special cases
-    let name = module
-        .replace("::", "_")
-        .replace("-", "_")
-        .to_lowercase();
-    
+    let name = module.replace("::", "_").replace("-", "_").to_lowercase();
+
     // Handle empty module names
     if name.is_empty() {
         return "types".to_string();
     }
-    
+
     name
 }
 
 /// Check if a type alias is a primitive (GL types, etc.)
 fn is_primitive_alias(name: &str) -> bool {
-    matches!(name, 
-        "GLuint" | "GLint" | "GLenum" | "GLboolean" | "GLbitfield" |
-        "GLbyte" | "GLshort" | "GLsizei" | "GLubyte" | "GLushort" |
-        "GLfloat" | "GLclampf" | "GLdouble" | "GLclampd" |
-        "GLintptr" | "GLsizeiptr" | "GLint64" | "GLuint64" |
-        "c_void" | "c_char"
+    matches!(
+        name,
+        "GLuint"
+            | "GLint"
+            | "GLenum"
+            | "GLboolean"
+            | "GLbitfield"
+            | "GLbyte"
+            | "GLshort"
+            | "GLsizei"
+            | "GLubyte"
+            | "GLushort"
+            | "GLfloat"
+            | "GLclampf"
+            | "GLdouble"
+            | "GLclampd"
+            | "GLintptr"
+            | "GLsizeiptr"
+            | "GLint64"
+            | "GLuint64"
+            | "c_void"
+            | "c_char"
     )
 }
 
 /// Generate the prelude module with commonly used types
-/// 
+///
 /// This function searches for types across ALL modules, so you only need to
 /// specify the type name - the module is automatically determined from where
 /// the type actually exists in the generated code.
@@ -226,31 +237,73 @@ fn generate_prelude(builder: &mut CodeBuilder, modules: &BTreeMap<String, Vec<Ty
     // NOTE: Module is automatically determined - just list the type names
     let prelude_types: &[&str] = &[
         // Core application types
-        "App", "AppConfig",
+        "App",
+        "AppConfig",
         // DOM types
-        "Dom", "NodeData", "DomVec", "NodeType", "On", "Callback",
+        "Dom",
+        "NodeData",
+        "DomVec",
+        "NodeType",
+        "On",
+        "Callback",
         // Callbacks - includes IFrameCallbackInfo, RefAny, Update
-        "LayoutCallback", "LayoutCallbackInfo", "CallbackInfo", 
-        "IFrameCallback", "IFrameCallbackInfo", "IFrameCallbackReturn",
-        "WriteBackCallback", "TimerCallback", "TimerCallbackInfo", "TimerCallbackReturn",
-        "RefAny", "Update",
+        "LayoutCallback",
+        "LayoutCallbackInfo",
+        "CallbackInfo",
+        "IFrameCallback",
+        "IFrameCallbackInfo",
+        "IFrameCallbackReturn",
+        "WriteBackCallback",
+        "TimerCallback",
+        "TimerCallbackInfo",
+        "TimerCallbackReturn",
+        "RefAny",
+        "Update",
         // CSS types - includes EventFilter types and StyledDom
-        "Css", "CssProperty", "StyledDom",
-        "EventFilter", "HoverEventFilter", "FocusEventFilter", "WindowEventFilter", 
-        "ApplicationEventFilter", "ComponentEventFilter", "NotEventFilter",
-        "LogicalSize", "LogicalPosition", "LayoutSize", "LayoutPoint",
-        "LogicalRect", "LayoutRect",
+        "Css",
+        "CssProperty",
+        "StyledDom",
+        "EventFilter",
+        "HoverEventFilter",
+        "FocusEventFilter",
+        "WindowEventFilter",
+        "ApplicationEventFilter",
+        "ComponentEventFilter",
+        "NotEventFilter",
+        "LogicalSize",
+        "LogicalPosition",
+        "LayoutSize",
+        "LayoutPoint",
+        "LogicalRect",
+        "LayoutRect",
         // Option types
-        "OptionStyledDom", "OptionLogicalPosition",
+        "OptionStyledDom",
+        "OptionLogicalPosition",
         // Window types
-        "WindowCreateOptions", "WindowState",
+        "WindowCreateOptions",
+        "WindowState",
         // Widgets
-        "Button", "Label", "TextInput", "CheckBox", "NumberInput", "ProgressBar", "ColorInput", "FileInput",
+        "Button",
+        "Label",
+        "TextInput",
+        "CheckBox",
+        "NumberInput",
+        "ProgressBar",
+        "ColorInput",
+        "FileInput",
         // Task / Threading
-        "Thread", "ThreadId", "ThreadSender", "ThreadReceiver", "ThreadSendMsg",
-        "ThreadReceiveMsg", "ThreadWriteBackMsg",
+        "Thread",
+        "ThreadId",
+        "ThreadSender",
+        "ThreadReceiver",
+        "ThreadSendMsg",
+        "ThreadReceiveMsg",
+        "ThreadWriteBackMsg",
         // Time
-        "TimerId", "Timer", "Duration", "Instant",
+        "TimerId",
+        "Timer",
+        "Duration",
+        "Instant",
         // NOTE: String is intentionally NOT included in prelude to avoid conflicts with std::string::String
         // Users should use azul::str::String explicitly or .into() for conversions
     ];
@@ -260,7 +313,10 @@ fn generate_prelude(builder: &mut CodeBuilder, modules: &BTreeMap<String, Vec<Ty
         // Find which module contains this type
         let mut found = false;
         for (_module_name, exports) in modules.iter() {
-            if exports.iter().any(|e| e.public_name == *type_name && !e.is_generic) {
+            if exports
+                .iter()
+                .any(|e| e.public_name == *type_name && !e.is_generic)
+            {
                 builder.line("#[doc(inline)]");
                 builder.line(&format!(
                     "pub use crate::ffi::dll::Az{} as {};",
@@ -272,7 +328,10 @@ fn generate_prelude(builder: &mut CodeBuilder, modules: &BTreeMap<String, Vec<Ty
         }
         if !found {
             // Emit a compile-time warning comment for missing types
-            builder.line(&format!("// WARNING: Type '{}' not found in any module", type_name));
+            builder.line(&format!(
+                "// WARNING: Type '{}' not found in any module",
+                type_name
+            ));
         }
     }
 

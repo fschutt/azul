@@ -3,7 +3,7 @@ use std::{env, fs, path::Path, process::Command};
 fn main() {
     // Check for required generated files before compilation
     check_generated_files();
-    
+
     // Configure dynamic linking when link-dynamic feature is enabled
     // Uses AZUL_LINK_PATH environment variable to find libazul
     // Note: In build.rs, we check features via CARGO_FEATURE_* env vars
@@ -16,19 +16,24 @@ fn main() {
             let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
             let target_release = Path::new(&manifest_dir).join("../target/release");
             let target_debug = Path::new(&manifest_dir).join("../target/debug");
-            
+
             if target_release.exists() {
-                println!("cargo:rustc-link-search=native={}", target_release.display());
+                println!(
+                    "cargo:rustc-link-search=native={}",
+                    target_release.display()
+                );
             } else if target_debug.exists() {
                 println!("cargo:rustc-link-search=native={}", target_debug.display());
             } else {
-                println!("cargo:warning=AZUL_LINK_PATH not set and no default libazul location found.");
+                println!(
+                    "cargo:warning=AZUL_LINK_PATH not set and no default libazul location found."
+                );
                 println!("cargo:warning=Set AZUL_LINK_PATH to the directory containing libazul.dylib/so/dll");
             }
         }
         println!("cargo:rustc-link-lib=dylib=azul");
     }
-    
+
     // Configure Python extension linking on macOS
     // With extension-module, PyO3 expects Python symbols to be provided by the interpreter
     // On macOS, we need to tell the linker that undefined symbols are OK
@@ -150,7 +155,7 @@ fn check_generated_files() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let workspace_root = Path::new(&manifest_dir).parent().unwrap();
     let codegen_v2_dir = workspace_root.join("target/codegen/v2");
-    
+
     // Check for build-dll feature (needs dll_api_build.rs)
     if env::var("CARGO_FEATURE_BUILD_DLL").is_ok() {
         let dll_api_build_path = codegen_v2_dir.join("dll_api_build.rs");
@@ -172,7 +177,7 @@ fn check_generated_files() {
         }
         println!("cargo:rerun-if-changed={}", dll_api_build_path.display());
     }
-    
+
     // Check for link-static feature (needs dll_api_static.rs)
     if env::var("CARGO_FEATURE_LINK_STATIC").is_ok() {
         let dll_api_static_path = codegen_v2_dir.join("dll_api_static.rs");
@@ -194,7 +199,7 @@ fn check_generated_files() {
         }
         println!("cargo:rerun-if-changed={}", dll_api_static_path.display());
     }
-    
+
     // Check for link-dynamic feature (needs dll_api_dynamic.rs)
     if env::var("CARGO_FEATURE_LINK_DYNAMIC").is_ok() {
         let dll_api_dynamic_path = codegen_v2_dir.join("dll_api_dynamic.rs");
@@ -216,11 +221,11 @@ fn check_generated_files() {
         }
         println!("cargo:rerun-if-changed={}", dll_api_dynamic_path.display());
     }
-    
+
     // Check for reexports.rs (needed by any link mode)
-    if env::var("CARGO_FEATURE_LINK_STATIC").is_ok() 
+    if env::var("CARGO_FEATURE_LINK_STATIC").is_ok()
         || env::var("CARGO_FEATURE_LINK_DYNAMIC").is_ok()
-        || env::var("CARGO_FEATURE_BUILD_DLL").is_ok() 
+        || env::var("CARGO_FEATURE_BUILD_DLL").is_ok()
     {
         let reexports_path = codegen_v2_dir.join("reexports.rs");
         if !reexports_path.exists() {
@@ -241,7 +246,7 @@ fn check_generated_files() {
         }
         println!("cargo:rerun-if-changed={}", reexports_path.display());
     }
-    
+
     // Check for python-extension feature
     if env::var("CARGO_FEATURE_PYTHON_EXTENSION").is_ok() {
         let python_api_path = codegen_v2_dir.join("python_api.rs");
@@ -263,7 +268,7 @@ fn check_generated_files() {
         }
         println!("cargo:rerun-if-changed={}", python_api_path.display());
     }
-    
+
     // Always rerun if api.json changes (the source of truth)
     let api_json_path = workspace_root.join("api.json");
     if api_json_path.exists() {

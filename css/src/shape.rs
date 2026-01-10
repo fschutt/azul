@@ -43,7 +43,12 @@ impl core::hash::Hash for ShapePoint {
     }
 }
 
-impl_vec!(ShapePoint, ShapePointVec, ShapePointVecDestructor, ShapePointVecDestructorType);
+impl_vec!(
+    ShapePoint,
+    ShapePointVec,
+    ShapePointVecDestructor,
+    ShapePointVecDestructorType
+);
 impl_vec_debug!(ShapePoint, ShapePointVec);
 impl_vec_partialord!(ShapePoint, ShapePointVec);
 impl_vec_ord!(ShapePoint, ShapePointVec);
@@ -158,22 +163,24 @@ impl PartialOrd for ShapeInset {
 impl Ord for ShapeInset {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         match self.inset_top.partial_cmp(&other.inset_top) {
-            Some(core::cmp::Ordering::Equal) | None => match self.inset_right.partial_cmp(&other.inset_right) {
-                Some(core::cmp::Ordering::Equal) | None => {
-                    match self.inset_bottom.partial_cmp(&other.inset_bottom) {
-                        Some(core::cmp::Ordering::Equal) | None => {
-                            match self.inset_left.partial_cmp(&other.inset_left) {
-                                Some(core::cmp::Ordering::Equal) | None => {
-                                    self.border_radius.cmp(&other.border_radius)
+            Some(core::cmp::Ordering::Equal) | None => {
+                match self.inset_right.partial_cmp(&other.inset_right) {
+                    Some(core::cmp::Ordering::Equal) | None => {
+                        match self.inset_bottom.partial_cmp(&other.inset_bottom) {
+                            Some(core::cmp::Ordering::Equal) | None => {
+                                match self.inset_left.partial_cmp(&other.inset_left) {
+                                    Some(core::cmp::Ordering::Equal) | None => {
+                                        self.border_radius.cmp(&other.border_radius)
+                                    }
+                                    Some(other) => other,
                                 }
-                                Some(other) => other,
                             }
+                            Some(other) => other,
                         }
-                        Some(other) => other,
                     }
+                    Some(other) => other,
                 }
-                Some(other) => other,
-            },
+            }
             Some(other) => other,
         }
     }
@@ -343,7 +350,12 @@ impl LineSegment {
     }
 }
 
-impl_vec!(LineSegment, LineSegmentVec, LineSegmentVecDestructor, LineSegmentVecDestructorType);
+impl_vec!(
+    LineSegment,
+    LineSegmentVec,
+    LineSegmentVecDestructor,
+    LineSegmentVecDestructorType
+);
 impl_vec_debug!(LineSegment, LineSegmentVec);
 impl_vec_clone!(LineSegment, LineSegmentVec, LineSegmentVecDestructor);
 impl_vec_partialeq!(LineSegment, LineSegmentVec);

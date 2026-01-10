@@ -99,7 +99,12 @@ impl_option!(
     OptionLayoutRect,
     [Debug, Copy, Clone, PartialEq, PartialOrd]
 );
-impl_vec!(LayoutRect, LayoutRectVec, LayoutRectVecDestructor, LayoutRectVecDestructorType);
+impl_vec!(
+    LayoutRect,
+    LayoutRectVec,
+    LayoutRectVecDestructor,
+    LayoutRectVecDestructorType
+);
 impl_vec_clone!(LayoutRect, LayoutRectVec, LayoutRectVecDestructor);
 impl_vec_debug!(LayoutRect, LayoutRectVec);
 impl_vec_mut!(LayoutRect, LayoutRectVec);

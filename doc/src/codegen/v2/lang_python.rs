@@ -26,17 +26,17 @@
 //! Types are now classified via TypeCategory in the IR, not ad-hoc constants here.
 //! See ir.rs TypeCategory enum for the central classification system.
 
-use std::collections::BTreeSet;
 use anyhow::Result;
+use std::collections::BTreeSet;
 
 use super::config::{CodegenConfig, PythonConfig};
 use super::generator::CodeBuilder;
+use super::generator::LanguageGenerator;
 use super::ir::{
-    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind,
-    FunctionDef, FunctionKind, StructDef, TypeCategory,
+    CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef,
+    TypeCategory,
 };
 use super::lang_rust::RustGenerator;
-use super::generator::LanguageGenerator;
 use crate::utils::analyze::analyze_type;
 
 // ============================================================================
@@ -46,9 +46,17 @@ use crate::utils::analyze::analyze_type;
 /// Types that are C-API type aliases (not structs with .inner field)
 /// These types use `type AzFoo = dll::AzFoo;` not `struct AzFoo { inner: ... }`
 const CAPI_TYPE_ALIASES: &[&str] = &[
-    "String", "U8Vec", "StringVec", "GLuintVec", "GLintVec",
-    "RefAny", "U8VecDestructor", "StringVecDestructor",
-    "InstantPtr", "StringMenuItem", "ParsedSvgXmlNode",
+    "String",
+    "U8Vec",
+    "StringVec",
+    "GLuintVec",
+    "GLintVec",
+    "RefAny",
+    "U8VecDestructor",
+    "StringVecDestructor",
+    "InstantPtr",
+    "StringMenuItem",
+    "ParsedSvgXmlNode",
 ];
 
 /// Check if a type is a C-API type alias (no .inner field)
@@ -72,7 +80,7 @@ impl PythonGenerator {
 
         // Generate inner DLL API module (C-API types for transmute)
         self.generate_inner_dll_module(&mut builder, ir, config)?;
-        
+
         // Generate unsafe Send + Sync impls for Vec-like types
         self.generate_send_sync_impls(&mut builder, ir, config);
 
@@ -123,21 +131,30 @@ impl PythonGenerator {
         builder.line("use pyo3::Borrowed;");
         builder.blank();
     }
-    
+
     /// Generate unsafe Send + Sync implementations for Vec-like types
-    /// 
+    ///
     /// Vec types (U8Vec, StringVec, etc.) use internal pointers (*const T)
     /// but are semantically safe like Rust's Vec<T>. PyO3 requires Send
     /// for types used in pyclass, so we implement it manually.
-    fn generate_send_sync_impls(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &PythonConfig) {
+    fn generate_send_sync_impls(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &PythonConfig,
+    ) {
         let prefix = &config.base.type_prefix;
-        
-        builder.line("// ============================================================================");
+
+        builder.line(
+            "// ============================================================================",
+        );
         builder.line("// SEND + SYNC IMPLEMENTATIONS FOR SEND-SAFE TYPES");
-        builder.line("// ============================================================================");
+        builder.line(
+            "// ============================================================================",
+        );
         builder.line("// These types use internal pointers but are semantically safe to Send");
         builder.blank();
-        
+
         // Python-specific: Types that wrap & or Box<> and are semantically Send
         const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
             "CssPropertyCachePtr",
@@ -155,14 +172,14 @@ impl PythonGenerator {
             "GridMinMax",
             "GridTrackSizing",
         ];
-        
+
         // Generate for Python-specific send-safe types
         for type_name in PYTHON_SEND_SAFE_TYPES {
             let full_type = format!("__dll_api_inner::dll::{}{}", prefix, type_name);
             builder.line(&format!("unsafe impl Send for {} {{}}", full_type));
             builder.line(&format!("unsafe impl Sync for {} {{}}", full_type));
         }
-        
+
         // Generate for IR-marked send-safe types (vec module)
         for struct_def in &ir.structs {
             if struct_def.is_send_safe {
@@ -171,7 +188,7 @@ impl PythonGenerator {
                 builder.line(&format!("unsafe impl Sync for {} {{}}", type_name));
             }
         }
-        
+
         for enum_def in &ir.enums {
             if enum_def.is_send_safe {
                 let type_name = format!("__dll_api_inner::dll::{}{}", prefix, enum_def.name);
@@ -179,7 +196,7 @@ impl PythonGenerator {
                 builder.line(&format!("unsafe impl Sync for {} {{}}", type_name));
             }
         }
-        
+
         builder.blank();
     }
 
@@ -189,9 +206,13 @@ impl PythonGenerator {
         ir: &CodegenIR,
         config: &PythonConfig,
     ) -> Result<()> {
-        builder.line("// ============================================================================");
+        builder.line(
+            "// ============================================================================",
+        );
         builder.line("// GENERATED C-API TYPES (standalone, not imported from crate::ffi::dll)");
-        builder.line("// ============================================================================");
+        builder.line(
+            "// ============================================================================",
+        );
         builder.blank();
 
         // Generate DLL API using RustGenerator with dll_types_only config
@@ -200,7 +221,7 @@ impl PythonGenerator {
         let dll_config = CodegenConfig::dll_types_only();
         let rust_gen = RustGenerator;
         let dll_code = rust_gen.generate(ir, &dll_config)?;
-        
+
         builder.raw(&dll_code);
         builder.blank();
 
@@ -213,14 +234,18 @@ impl PythonGenerator {
         ir: &CodegenIR,
         config: &PythonConfig,
     ) -> Result<()> {
-        builder.line("// ============================================================================");
+        builder.line(
+            "// ============================================================================",
+        );
         builder.line("// AUTO-GENERATED PYTHON PATCHES");
-        builder.line("// ============================================================================");
+        builder.line(
+            "// ============================================================================",
+        );
         builder.blank();
 
         // Note: No type aliases needed here - all types are available through
         // `pub use __dll_api_inner::dll::*;` (e.g., AzString, AzU8Vec, AzStringVec, etc.)
-        
+
         self.generate_helper_functions(builder);
         self.generate_from_into_impls(builder);
         self.generate_pyo3_traits(builder);
@@ -234,7 +259,8 @@ impl PythonGenerator {
         builder.line("// --- Helper functions for type conversion ---");
         builder.blank();
 
-        builder.raw(r#"fn az_string_to_py_string(input: AzString) -> String {
+        builder.raw(
+            r#"fn az_string_to_py_string(input: AzString) -> String {
     let bytes = unsafe {
         core::slice::from_raw_parts(input.vec.ptr, input.vec.len)
     };
@@ -272,14 +298,16 @@ fn az_glintvec_to_py_veci32(input: AzGLintVec) -> Vec<i32> {
     slice.to_vec()
 }
 
-"#);
+"#,
+        );
     }
 
     fn generate_from_into_impls(&self, builder: &mut CodeBuilder) {
         builder.line("// --- From/Into implementations for string/bytes types ---");
         builder.blank();
 
-        builder.raw(r#"impl From<String> for AzString {
+        builder.raw(
+            r#"impl From<String> for AzString {
     fn from(s: String) -> AzString {
         let bytes = s.into_bytes();
         let ptr = bytes.as_ptr();
@@ -328,14 +356,16 @@ impl From<Vec<u8>> for AzU8Vec {
     }
 }
 
-"#);
+"#,
+        );
     }
 
     fn generate_pyo3_traits(&self, builder: &mut CodeBuilder) {
         builder.line("// --- PyO3 conversion traits (FromPyObject, IntoPyObject) ---");
         builder.blank();
 
-        builder.raw(r#"impl FromPyObject<'_, '_> for AzString {
+        builder.raw(
+            r#"impl FromPyObject<'_, '_> for AzString {
     type Error = PyErr;
     
     fn extract(ob: Borrowed<'_, '_, PyAny>) -> Result<Self, Self::Error> {
@@ -421,14 +451,16 @@ impl AzStringVec {
     }
 }
 
-"#);
+"#,
+        );
     }
 
     fn generate_callback_wrapper_types(&self, builder: &mut CodeBuilder) {
         builder.line("// --- Python Wrapper Types for RefAny ---");
         builder.blank();
 
-        builder.raw(r#"/// Holds Python objects for the main App (data + layout callback)
+        builder.raw(
+            r#"/// Holds Python objects for the main App (data + layout callback)
 #[repr(C)]
 pub struct AppDataTy {
     pub _py_app_data: Option<Py<PyAny>>,
@@ -453,7 +485,8 @@ pub struct PyObjectWrapper {
     pub py_obj: Py<PyAny>,
 }
 
-"#);
+"#,
+        );
     }
 
     fn generate_callback_trampolines(
@@ -472,9 +505,9 @@ pub struct PyObjectWrapper {
 
         // Generate trampolines for other callback typedefs
         for callback in &ir.callback_typedefs {
-            if callback.name.ends_with("DestructorType") 
+            if callback.name.ends_with("DestructorType")
                 || callback.name.ends_with("CloneCallbackType")
-                || callback.name.ends_with("DestructorCallbackType") 
+                || callback.name.ends_with("DestructorCallbackType")
                 || callback.name == "LayoutCallbackType"
             {
                 continue;
@@ -485,14 +518,14 @@ pub struct PyObjectWrapper {
             if callback.args.iter().any(|a| a.type_name.contains("*")) {
                 continue;
             }
-            
+
             // Skip callbacks with return types that don't have Python wrappers or Default impl
             let return_type = callback.return_type.as_deref().unwrap_or("()");
             if return_type == "ImageRef" {
                 // ImageRef is a special type that needs manual handling
                 continue;
             }
-            
+
             self.generate_callback_trampoline(builder, callback, ir, prefix);
         }
 
@@ -561,28 +594,46 @@ extern "C" fn invoke_py_layout_callback(
         ir: &CodegenIR,
         prefix: &str,
     ) {
-        let trampoline_name = format!("invoke_py_{}", to_snake_case(&callback.name.replace("Type", "")));
-        
+        let trampoline_name = format!(
+            "invoke_py_{}",
+            to_snake_case(&callback.name.replace("Type", ""))
+        );
+
         // Build argument signature
         let mut args_sig = String::new();
         let mut ctx_source_type = String::new();
         let mut ctx_source_arg_name = String::new();
-        
+
         // Find the first non-RefAny argument that can provide get_ctx()
         // All non-RefAny, non-primitive types have get_ctx() method
         // For callbacks like (RefAny, RefAny, CallbackInfo) -> Update, we want CallbackInfo
         // For callbacks like (RefAny, TimerCallbackInfo) -> Update, we want TimerCallbackInfo
         // For callbacks like (RefAny, ThreadSender, ThreadReceiver) -> (), we want ThreadSender
         for (i, arg) in callback.args.iter().enumerate() {
-            if arg.type_name != "RefAny" && !is_primitive_type(&arg.type_name) && ctx_source_type.is_empty() {
+            if arg.type_name != "RefAny"
+                && !is_primitive_type(&arg.type_name)
+                && ctx_source_type.is_empty()
+            {
                 ctx_source_type = arg.type_name.clone();
-                ctx_source_arg_name = if i == 0 { "data".to_string() } else if i == 1 { "info".to_string() } else { format!("arg{}", i) };
+                ctx_source_arg_name = if i == 0 {
+                    "data".to_string()
+                } else if i == 1 {
+                    "info".to_string()
+                } else {
+                    format!("arg{}", i)
+                };
             }
         }
-        
+
         for (i, arg) in callback.args.iter().enumerate() {
-            let arg_name = if i == 0 { "data".to_string() } else if i == 1 { "info".to_string() } else { format!("arg{}", i) };
-            
+            let arg_name = if i == 0 {
+                "data".to_string()
+            } else if i == 1 {
+                "info".to_string()
+            } else {
+                format!("arg{}", i)
+            };
+
             let arg_type_external = if is_primitive_type(&arg.type_name) {
                 arg.type_name.clone()
             } else if let Some(ext) = self.find_external_path(&arg.type_name, ir) {
@@ -590,13 +641,13 @@ extern "C" fn invoke_py_layout_callback(
             } else {
                 format!("__dll_api_inner::dll::{}{}", prefix, arg.type_name)
             };
-            
+
             if i > 0 {
                 args_sig.push_str(",\n    ");
             }
             args_sig.push_str(&format!("{}: {}", arg_name, arg_type_external));
         }
-        
+
         let return_type = callback.return_type.as_deref().unwrap_or("()");
         let return_type_external = if is_primitive_type(return_type) || return_type == "()" {
             return_type.to_string()
@@ -605,7 +656,7 @@ extern "C" fn invoke_py_layout_callback(
         } else {
             format!("__dll_api_inner::dll::{}{}", prefix, return_type)
         };
-        
+
         let default_expr = match return_type {
             "()" => "()".to_string(),
             "Update" => format!("{}::DoNothing", return_type_external),
@@ -616,15 +667,18 @@ extern "C" fn invoke_py_layout_callback(
             _ => format!("{}::default()", return_type_external),
         };
 
-        builder.line(&format!("/// Trampoline for {} - bridges Python to Rust", callback.name));
+        builder.line(&format!(
+            "/// Trampoline for {} - bridges Python to Rust",
+            callback.name
+        ));
         builder.line(&format!("extern \"C\" fn {}(", trampoline_name));
         builder.line(&format!("    {}", args_sig));
         builder.line(&format!(") -> {} {{", return_type_external));
         builder.indent();
-        
+
         builder.line(&format!("let default = {};", default_expr));
         builder.blank();
-        
+
         builder.line("let mut data_core = data;");
         builder.line("let py_data_wrapper = match data_core.downcast_ref::<PyDataWrapper>() {");
         builder.line("    Some(s) => s,");
@@ -635,13 +689,17 @@ extern "C" fn invoke_py_layout_callback(
         builder.line("    None => return default,");
         builder.line("};");
         builder.blank();
-        
+
         if !ctx_source_type.is_empty() {
-            let ctx_external = self.find_external_path(&ctx_source_type, ir)
+            let ctx_external = self
+                .find_external_path(&ctx_source_type, ir)
                 .unwrap_or_else(|| format!("__dll_api_inner::dll::{}{}", prefix, ctx_source_type));
             // Clone the source to avoid move issues when it's also used for Python wrapper
             builder.line(&format!("let ctx_source_ffi: __dll_api_inner::dll::{}{} = unsafe {{ mem::transmute({}.clone()) }};", prefix, ctx_source_type, ctx_source_arg_name));
-            builder.line(&format!("let ctx_source_rust: &{} = unsafe {{ mem::transmute(&ctx_source_ffi) }};", ctx_external));
+            builder.line(&format!(
+                "let ctx_source_rust: &{} = unsafe {{ mem::transmute(&ctx_source_ffi) }};",
+                ctx_external
+            ));
             builder.line("let callable_opt = ctx_source_rust.get_ctx();");
             builder.line("let callable_refany = match callable_opt {");
             builder.line("    azul_core::refany::OptionRefAny::Some(r) => r,");
@@ -658,49 +716,73 @@ extern "C" fn invoke_py_layout_callback(
             builder.line("};");
             builder.blank();
         }
-        
+
         builder.line("Python::attach(|py| {");
         builder.indent();
-        
+
         // For *Info types, we wrap and pass to Python
         // Find the info type for passing to Python (if any)
-        let info_type_for_python = callback.args.iter()
+        let info_type_for_python = callback
+            .args
+            .iter()
             .find(|arg| arg.type_name.ends_with("Info") && arg.type_name != "RefAny")
             .map(|arg| arg.type_name.clone());
-        
+
         if let Some(ref info_type) = info_type_for_python {
-            let info_arg_idx = callback.args.iter().position(|arg| &arg.type_name == info_type).unwrap();
-            let info_arg_name = if info_arg_idx == 0 { "data".to_string() } else if info_arg_idx == 1 { "info".to_string() } else { format!("arg{}", info_arg_idx) };
-            builder.line(&format!("let info_ffi_py: __dll_api_inner::dll::{}{} = unsafe {{ mem::transmute({}) }};", prefix, info_type, info_arg_name));
-            builder.line(&format!("let info_py = {}{} {{ inner: info_ffi_py }};", prefix, info_type));
+            let info_arg_idx = callback
+                .args
+                .iter()
+                .position(|arg| &arg.type_name == info_type)
+                .unwrap();
+            let info_arg_name = if info_arg_idx == 0 {
+                "data".to_string()
+            } else if info_arg_idx == 1 {
+                "info".to_string()
+            } else {
+                format!("arg{}", info_arg_idx)
+            };
+            builder.line(&format!(
+                "let info_ffi_py: __dll_api_inner::dll::{}{} = unsafe {{ mem::transmute({}) }};",
+                prefix, info_type, info_arg_name
+            ));
+            builder.line(&format!(
+                "let info_py = {}{} {{ inner: info_ffi_py }};",
+                prefix, info_type
+            ));
         }
-        
+
         let call_args = if info_type_for_python.is_none() {
-            "py_data.clone_ref(py),".to_string()  // Single-element tuple needs trailing comma
+            "py_data.clone_ref(py),".to_string() // Single-element tuple needs trailing comma
         } else {
             "py_data.clone_ref(py), info_py".to_string()
         };
-        
+
         builder.line(&format!("match py_callable.call1(py, ({})) {{", call_args));
         builder.indent();
         builder.line("Ok(result) => {");
         builder.indent();
-        
+
         if return_type == "()" {
             builder.line("()");
         } else {
-            builder.line(&format!("match result.extract::<{}{}>(py) {{", prefix, return_type));
+            builder.line(&format!(
+                "match result.extract::<{}{}>(py) {{",
+                prefix, return_type
+            ));
             builder.line("    Ok(ret) => unsafe { mem::transmute(ret.inner) },");
             builder.line("    Err(_) => default,");
             builder.line("}");
         }
-        
+
         builder.dedent();
         builder.line("}");
         builder.line("Err(e) => {");
         builder.indent();
         builder.line("#[cfg(feature = \"logging\")]");
-        builder.line(&format!("log::error!(\"Exception in {} callback: {{:?}}\", e);", callback.name));
+        builder.line(&format!(
+            "log::error!(\"Exception in {} callback: {{:?}}\", e);",
+            callback.name
+        ));
         builder.line("default");
         builder.dedent();
         builder.line("}");
@@ -719,9 +801,13 @@ extern "C" fn invoke_py_layout_callback(
         ir: &CodegenIR,
         config: &PythonConfig,
     ) -> Result<()> {
-        builder.line("// ============================================================================");
+        builder.line(
+            "// ============================================================================",
+        );
         builder.line("// STRUCT DEFINITIONS");
-        builder.line("// ============================================================================");
+        builder.line(
+            "// ============================================================================",
+        );
         builder.blank();
 
         let prefix = &config.base.type_prefix;
@@ -733,9 +819,13 @@ extern "C" fn invoke_py_layout_callback(
             self.generate_struct_wrapper(builder, struct_def, prefix, ir);
         }
 
-        builder.line("// ============================================================================");
+        builder.line(
+            "// ============================================================================",
+        );
         builder.line("// ENUM DEFINITIONS");
-        builder.line("// ============================================================================");
+        builder.line(
+            "// ============================================================================",
+        );
         builder.blank();
 
         for enum_def in &ir.enums {
@@ -748,7 +838,13 @@ extern "C" fn invoke_py_layout_callback(
         Ok(())
     }
 
-    fn generate_struct_wrapper(&self, builder: &mut CodeBuilder, struct_def: &StructDef, prefix: &str, ir: &CodegenIR) {
+    fn generate_struct_wrapper(
+        &self,
+        builder: &mut CodeBuilder,
+        struct_def: &StructDef,
+        prefix: &str,
+        ir: &CodegenIR,
+    ) {
         let name = format!("{}{}", prefix, struct_def.name);
         let c_api_type = format!("__dll_api_inner::dll::{}{}", prefix, struct_def.name);
 
@@ -764,7 +860,10 @@ extern "C" fn invoke_py_layout_callback(
             ""
         };
 
-        builder.line(&format!("#[pyclass(name = \"{}\", module = \"azul\"{})]", struct_def.name, unsendable));
+        builder.line(&format!(
+            "#[pyclass(name = \"{}\", module = \"azul\"{})]",
+            struct_def.name, unsendable
+        ));
         builder.line("#[repr(transparent)]");
         builder.line(&format!("pub struct {} {{", name));
         builder.line(&format!("    pub inner: {},", c_api_type));
@@ -772,17 +871,29 @@ extern "C" fn invoke_py_layout_callback(
         builder.blank();
 
         builder.line(&format!("impl From<{}> for {} {{", c_api_type, name));
-        builder.line(&format!("    fn from(inner: {}) -> Self {{ Self {{ inner }} }}", c_api_type));
+        builder.line(&format!(
+            "    fn from(inner: {}) -> Self {{ Self {{ inner }} }}",
+            c_api_type
+        ));
         builder.line("}");
         builder.blank();
 
         builder.line(&format!("impl From<{}> for {} {{", name, c_api_type));
-        builder.line(&format!("    fn from(wrapper: {}) -> Self {{ wrapper.inner }}", name));
+        builder.line(&format!(
+            "    fn from(wrapper: {}) -> Self {{ wrapper.inner }}",
+            name
+        ));
         builder.line("}");
         builder.blank();
     }
 
-    fn generate_enum_wrapper(&self, builder: &mut CodeBuilder, enum_def: &EnumDef, prefix: &str, ir: &CodegenIR) {
+    fn generate_enum_wrapper(
+        &self,
+        builder: &mut CodeBuilder,
+        enum_def: &EnumDef,
+        prefix: &str,
+        ir: &CodegenIR,
+    ) {
         let name = format!("{}{}", prefix, enum_def.name);
         let c_api_type = format!("__dll_api_inner::dll::{}{}", prefix, enum_def.name);
 
@@ -798,7 +909,10 @@ extern "C" fn invoke_py_layout_callback(
             ""
         };
 
-        builder.line(&format!("#[pyclass(name = \"{}\", module = \"azul\"{})]", enum_def.name, unsendable));
+        builder.line(&format!(
+            "#[pyclass(name = \"{}\", module = \"azul\"{})]",
+            enum_def.name, unsendable
+        ));
         builder.line("#[repr(transparent)]");
         builder.line(&format!("pub struct {} {{", name));
         builder.line(&format!("    pub inner: {},", c_api_type));
@@ -806,12 +920,18 @@ extern "C" fn invoke_py_layout_callback(
         builder.blank();
 
         builder.line(&format!("impl From<{}> for {} {{", c_api_type, name));
-        builder.line(&format!("    fn from(inner: {}) -> Self {{ Self {{ inner }} }}", c_api_type));
+        builder.line(&format!(
+            "    fn from(inner: {}) -> Self {{ Self {{ inner }} }}",
+            c_api_type
+        ));
         builder.line("}");
         builder.blank();
 
         builder.line(&format!("impl From<{}> for {} {{", name, c_api_type));
-        builder.line(&format!("    fn from(wrapper: {}) -> Self {{ wrapper.inner }}", name));
+        builder.line(&format!(
+            "    fn from(wrapper: {}) -> Self {{ wrapper.inner }}",
+            name
+        ));
         builder.line("}");
         builder.blank();
 
@@ -842,10 +962,19 @@ extern "C" fn invoke_py_layout_callback(
         }
     }
 
-    fn generate_clone_impls(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &PythonConfig) -> Result<()> {
-        builder.line("// ============================================================================");
+    fn generate_clone_impls(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &PythonConfig,
+    ) -> Result<()> {
+        builder.line(
+            "// ============================================================================",
+        );
         builder.line("// CLONE IMPLEMENTATIONS");
-        builder.line("// ============================================================================");
+        builder.line(
+            "// ============================================================================",
+        );
         builder.blank();
 
         let prefix = &config.base.type_prefix;
@@ -887,10 +1016,19 @@ extern "C" fn invoke_py_layout_callback(
         Ok(())
     }
 
-    fn generate_debug_impls(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &PythonConfig) -> Result<()> {
-        builder.line("// ============================================================================");
+    fn generate_debug_impls(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &PythonConfig,
+    ) -> Result<()> {
+        builder.line(
+            "// ============================================================================",
+        );
         builder.line("// DEBUG IMPLEMENTATIONS");
-        builder.line("// ============================================================================");
+        builder.line(
+            "// ============================================================================",
+        );
         builder.blank();
 
         let prefix = &config.base.type_prefix;
@@ -924,10 +1062,19 @@ extern "C" fn invoke_py_layout_callback(
         Ok(())
     }
 
-    fn generate_pymethods(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &PythonConfig) -> Result<()> {
-        builder.line("// ============================================================================");
+    fn generate_pymethods(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &PythonConfig,
+    ) -> Result<()> {
+        builder.line(
+            "// ============================================================================",
+        );
         builder.line("// PYMETHODS IMPLEMENTATIONS");
-        builder.line("// ============================================================================");
+        builder.line(
+            "// ============================================================================",
+        );
         builder.blank();
 
         let prefix = &config.base.type_prefix;
@@ -949,7 +1096,13 @@ extern "C" fn invoke_py_layout_callback(
         Ok(())
     }
 
-    fn generate_struct_pymethods(&self, builder: &mut CodeBuilder, struct_def: &StructDef, ir: &CodegenIR, prefix: &str) {
+    fn generate_struct_pymethods(
+        &self,
+        builder: &mut CodeBuilder,
+        struct_def: &StructDef,
+        ir: &CodegenIR,
+        prefix: &str,
+    ) {
         let name = format!("{}{}", prefix, struct_def.name);
         let c_api_type = format!("__dll_api_inner::dll::{}{}", prefix, struct_def.name);
 
@@ -957,7 +1110,9 @@ extern "C" fn invoke_py_layout_callback(
         builder.line(&format!("impl {} {{", name));
         builder.indent();
 
-        let class_functions: Vec<_> = ir.functions.iter()
+        let class_functions: Vec<_> = ir
+            .functions
+            .iter()
             .filter(|f| f.class_name == struct_def.name)
             .filter(|f| !f.kind.is_trait_function())
             .collect();
@@ -989,7 +1144,13 @@ extern "C" fn invoke_py_layout_callback(
         builder.blank();
     }
 
-    fn generate_enum_pymethods(&self, builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &CodegenIR, prefix: &str) {
+    fn generate_enum_pymethods(
+        &self,
+        builder: &mut CodeBuilder,
+        enum_def: &EnumDef,
+        ir: &CodegenIR,
+        prefix: &str,
+    ) {
         let name = format!("{}{}", prefix, enum_def.name);
         let c_api_type = format!("__dll_api_inner::dll::{}{}", prefix, enum_def.name);
 
@@ -1003,12 +1164,18 @@ extern "C" fn invoke_py_layout_callback(
                     if enum_def.is_union {
                         builder.line("#[staticmethod]");
                         builder.line(&format!("fn {}() -> Self {{", variant.name));
-                        builder.line(&format!("    Self {{ inner: {}::{} }}", c_api_type, variant.name));
+                        builder.line(&format!(
+                            "    Self {{ inner: {}::{} }}",
+                            c_api_type, variant.name
+                        ));
                         builder.line("}");
                     } else {
                         builder.line("#[classattr]");
                         builder.line(&format!("fn {}() -> Self {{", variant.name));
-                        builder.line(&format!("    Self {{ inner: {}::{} }}", c_api_type, variant.name));
+                        builder.line(&format!(
+                            "    Self {{ inner: {}::{} }}",
+                            c_api_type, variant.name
+                        ));
                         builder.line("}");
                     }
                     builder.blank();
@@ -1022,7 +1189,10 @@ extern "C" fn invoke_py_layout_callback(
                         builder.line("#[staticmethod]");
                         builder.line(&format!("fn {}(v: {}) -> Self {{", variant.name, py_type));
                         if is_primitive_type(ty) {
-                            builder.line(&format!("    Self {{ inner: {}::{}(v) }}", c_api_type, variant.name));
+                            builder.line(&format!(
+                                "    Self {{ inner: {}::{}(v) }}",
+                                c_api_type, variant.name
+                            ));
                         } else if ty == "String" {
                             // String needs to be converted to AzString and transmuted
                             builder.line(&format!("    unsafe {{ Self {{ inner: {}::{}(core::mem::transmute(azul_css::corety::AzString::from(v))) }} }}", c_api_type, variant.name));
@@ -1030,9 +1200,15 @@ extern "C" fn invoke_py_layout_callback(
                             // Callback types use Py<PyAny> which has no .inner field
                             // For now, skip these - callbacks in Option<Callback> require more complex handling
                             builder.line("    // TODO: callback type conversion");
-                            builder.line(&format!("    unimplemented!(\"Option<{}> not yet supported in Python\")", ty));
+                            builder.line(&format!(
+                                "    unimplemented!(\"Option<{}> not yet supported in Python\")",
+                                ty
+                            ));
                         } else {
-                            builder.line(&format!("    Self {{ inner: {}::{}(v.inner) }}", c_api_type, variant.name));
+                            builder.line(&format!(
+                                "    Self {{ inner: {}::{}(v.inner) }}",
+                                c_api_type, variant.name
+                            ));
                         }
                         builder.line("}");
                         builder.blank();
@@ -1057,7 +1233,13 @@ extern "C" fn invoke_py_layout_callback(
         builder.blank();
     }
 
-    fn generate_pymethod(&self, builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR, prefix: &str) {
+    fn generate_pymethod(
+        &self,
+        builder: &mut CodeBuilder,
+        func: &FunctionDef,
+        ir: &CodegenIR,
+        prefix: &str,
+    ) {
         // Skip functions without fn_body - they can't be called directly
         // This is the key insight from the old generator: methods like intersect/tessellate_stroke
         // are implemented via fn_body calling free functions, not actual methods on the type
@@ -1065,19 +1247,27 @@ extern "C" fn invoke_py_layout_callback(
             Some(body) => body.clone(),
             None => {
                 // No fn_body means this function can't be implemented
-                builder.line(&format!("// fn {}(...) - skipped: no fn_body in api.json", func.method_name));
+                builder.line(&format!(
+                    "// fn {}(...) - skipped: no fn_body in api.json",
+                    func.method_name
+                ));
                 builder.blank();
                 return;
             }
         };
 
         // Find the external path for the class
-        let external_path = ir.structs.iter()
+        let external_path = ir
+            .structs
+            .iter()
             .find(|s| s.name == func.class_name)
             .and_then(|s| s.external_path.clone())
-            .or_else(|| ir.enums.iter()
-                .find(|e| e.name == func.class_name)
-                .and_then(|e| e.external_path.clone()))
+            .or_else(|| {
+                ir.enums
+                    .iter()
+                    .find(|e| e.name == func.class_name)
+                    .and_then(|e| e.external_path.clone())
+            })
             .unwrap_or_else(|| format!("crate::{}", func.class_name))
             .replace("azul_dll::", "crate::");
 
@@ -1086,7 +1276,7 @@ extern "C" fn invoke_py_layout_callback(
         let is_constructor = func.kind == FunctionKind::Constructor;
         let is_static = func.kind == FunctionKind::StaticMethod;
         let takes_self = matches!(func.kind, FunctionKind::Method | FunctionKind::MethodMut);
-        
+
         // Check if this function has a callback pattern (RefAny + CallbackType)
         // This needs to be early because we need it for function signature
         let has_callback_pattern = self.has_callback_pattern(func);
@@ -1097,11 +1287,14 @@ extern "C" fn invoke_py_layout_callback(
             builder.line("#[staticmethod]");
         }
 
-        let args: Vec<_> = func.args.iter()
+        let args: Vec<_> = func
+            .args
+            .iter()
             .filter(|a| a.name != func.class_name.to_lowercase())
             .collect();
 
-        let args_str: String = args.iter()
+        let args_str: String = args
+            .iter()
             .map(|a| {
                 let py_type = self.rust_type_to_python(&a.type_name, prefix, ir);
                 format!("{}: {}", a.name, py_type)
@@ -1109,7 +1302,9 @@ extern "C" fn invoke_py_layout_callback(
             .collect::<Vec<_>>()
             .join(", ");
 
-        let return_type = func.return_type.as_ref()
+        let return_type = func
+            .return_type
+            .as_ref()
             .map(|t| self.rust_type_to_python(t, prefix, ir))
             .unwrap_or_else(|| "()".to_string());
 
@@ -1117,34 +1312,55 @@ extern "C" fn invoke_py_layout_callback(
         let has_refany_arg = args.iter().any(|a| a.type_name == "RefAny");
         let has_callback_arg = args.iter().any(|a| a.callback_info.is_some());
         let needs_py_param = has_refany_arg || has_callback_arg;
-        
+
         // Generate function signature
         if takes_self {
             if args.is_empty() {
                 if needs_py_param {
-                    builder.line(&format!("fn {}(&self, py: Python<'_>) -> {} {{", func.method_name, return_type));
+                    builder.line(&format!(
+                        "fn {}(&self, py: Python<'_>) -> {} {{",
+                        func.method_name, return_type
+                    ));
                 } else {
-                    builder.line(&format!("fn {}(&self) -> {} {{", func.method_name, return_type));
+                    builder.line(&format!(
+                        "fn {}(&self) -> {} {{",
+                        func.method_name, return_type
+                    ));
                 }
             } else {
                 if needs_py_param {
-                    builder.line(&format!("fn {}(&self, py: Python<'_>, {}) -> {} {{", func.method_name, args_str, return_type));
+                    builder.line(&format!(
+                        "fn {}(&self, py: Python<'_>, {}) -> {} {{",
+                        func.method_name, args_str, return_type
+                    ));
                 } else {
-                    builder.line(&format!("fn {}(&self, {}) -> {} {{", func.method_name, args_str, return_type));
+                    builder.line(&format!(
+                        "fn {}(&self, {}) -> {} {{",
+                        func.method_name, args_str, return_type
+                    ));
                 }
             }
         } else {
             if args.is_empty() {
                 if needs_py_param {
-                    builder.line(&format!("fn {}(py: Python<'_>) -> {} {{", func.method_name, return_type));
+                    builder.line(&format!(
+                        "fn {}(py: Python<'_>) -> {} {{",
+                        func.method_name, return_type
+                    ));
                 } else {
                     builder.line(&format!("fn {}() -> {} {{", func.method_name, return_type));
                 }
             } else {
                 if needs_py_param {
-                    builder.line(&format!("fn {}(py: Python<'_>, {}) -> {} {{", func.method_name, args_str, return_type));
+                    builder.line(&format!(
+                        "fn {}(py: Python<'_>, {}) -> {} {{",
+                        func.method_name, args_str, return_type
+                    ));
                 } else {
-                    builder.line(&format!("fn {}({}) -> {} {{", func.method_name, args_str, return_type));
+                    builder.line(&format!(
+                        "fn {}({}) -> {} {{",
+                        func.method_name, args_str, return_type
+                    ));
                 }
             }
         }
@@ -1160,16 +1376,15 @@ extern "C" fn invoke_py_layout_callback(
         // 3. Replace self references with transmuted variable
         // 4. Replace parameter names with transmuted versions
         // 5. Replace type constructors (TypeName::method) with fully qualified paths
-        let mut transformed_body = fn_body
-            .replace("azul_dll::", "crate::");
-        
+        let mut transformed_body = fn_body.replace("azul_dll::", "crate::");
+
         // Replace Self with external path (Self in fn_body refers to the Rust type, not the Python wrapper)
         // Handle both "Self::" (associated functions) and "Self {" or "Self " (struct construction)
         transformed_body = transformed_body
             .replace("Self::", &format!("{}::", external_path))
             .replace("Self {", &format!("{} {{", external_path))
             .replace("Self(", &format!("{}(", external_path));
-        
+
         // Replace type constructors with fully qualified paths
         // Only replace if it's at the start of fn_body (e.g., "TypeName::method(args)")
         for struct_def in &ir.structs {
@@ -1201,18 +1416,22 @@ extern "C" fn invoke_py_layout_callback(
             ));
             // Clone self so methods can consume it (mut for methods that mutate)
             builder.line("let mut __cloned = _self.clone();");
-            
+
             // Replace self references in fn_body
             // First replace method calls (with dot)
             transformed_body = transformed_body
                 .replace("self.", "__cloned.")
                 .replace(&format!("{}.", self_var), "__cloned.")
                 .replace("object.", "__cloned.");
-            
+
             // Then replace standalone variable references (as function arguments)
             // Handle various contexts: (var, ...), (var), var, ..., etc.
             // For MethodMut, use &mut __cloned; for Method, use &__cloned
-            let self_ref = if is_method_mut { "&mut __cloned" } else { "&__cloned" };
+            let self_ref = if is_method_mut {
+                "&mut __cloned"
+            } else {
+                "&__cloned"
+            };
             transformed_body = transformed_body
                 .replace(&format!("({},", self_var), &format!("({},", self_ref))
                 .replace(&format!("({}, ", self_var), &format!("({}, ", self_ref))
@@ -1243,7 +1462,7 @@ extern "C" fn invoke_py_layout_callback(
                 // No fn_body replacement needed - we used the same variable name as the parameter
                 continue;
             }
-            
+
             // Callback types with callback_info are converted from Py<PyAny> to Callback struct
             if let Some(ref cb_info) = arg.callback_info {
                 // Wrap Python callable in the callback wrapper struct with trampoline
@@ -1255,11 +1474,12 @@ extern "C" fn invoke_py_layout_callback(
                     "let __py_{}_refany = azul_core::refany::RefAny::new(__py_{}_wrapper);",
                     arg.name, arg.name
                 ));
-                
+
                 // Find the external path for the callback wrapper (the internal Rust type)
-                let wrapper_external = self.find_external_path(&cb_info.callback_wrapper_name, ir)
+                let wrapper_external = self
+                    .find_external_path(&cb_info.callback_wrapper_name, ir)
                     .unwrap_or_else(|| format!("crate::{}", cb_info.callback_wrapper_name));
-                
+
                 // Create the callback wrapper with trampoline + callable using the INTERNAL type
                 // Use the SAME name as the parameter so fn_body can use it unchanged
                 // The .into() in fn_body will accept this callback struct
@@ -1279,10 +1499,11 @@ extern "C" fn invoke_py_layout_callback(
                 // No fn_body replacement needed - we used the same variable name as the parameter
                 continue;
             }
-            
+
             // Normal argument handling
             // Use the SAME name as the parameter so fn_body can use it unchanged
-            let arg_external = self.find_external_path(&arg.type_name, ir)
+            let arg_external = self
+                .find_external_path(&arg.type_name, ir)
                 .unwrap_or_else(|| {
                     if is_primitive_type(&arg.type_name) {
                         arg.type_name.clone()
@@ -1324,7 +1545,9 @@ extern "C" fn invoke_py_layout_callback(
         let has_statements = transformed_body.contains(';');
 
         // Determine return type handling
-        let ret_type_str = func.return_type.as_ref()
+        let ret_type_str = func
+            .return_type
+            .as_ref()
             .map(|t| format!("{}{}", prefix, t))
             .unwrap_or_default();
 
@@ -1360,7 +1583,8 @@ extern "C" fn invoke_py_layout_callback(
                 builder.line("__result.into_library_owned_string()");
             } else if is_capi_type_alias(ret_type) {
                 // C-API type aliases (like U8Vec, StringVec) - transmute directly without wrapper
-                let ret_external = self.find_external_path(ret_type, ir)
+                let ret_external = self
+                    .find_external_path(ret_type, ir)
                     .unwrap_or_else(|| format!("crate::{}", ret_type));
                 if has_statements {
                     builder.line(&format!(
@@ -1376,9 +1600,10 @@ extern "C" fn invoke_py_layout_callback(
                 builder.line("core::mem::transmute(__result)");
             } else {
                 // Need to wrap result in Python wrapper
-                let ret_external = self.find_external_path(ret_type, ir)
+                let ret_external = self
+                    .find_external_path(ret_type, ir)
                     .unwrap_or_else(|| format!("crate::{}", ret_type));
-                
+
                 if has_statements {
                     // fn_body has statements - wrap in block
                     builder.line(&format!(
@@ -1391,13 +1616,16 @@ extern "C" fn invoke_py_layout_callback(
                         ret_external, transformed_body
                     ));
                 }
-                
+
                 // Only use Self { inner } if the return type matches the class
                 // For constructors that return Result types, use the return type wrapper
                 if ret_type == &func.class_name {
                     builder.line("Self { inner: core::mem::transmute(__result) }");
                 } else {
-                    builder.line(&format!("{}{} {{ inner: core::mem::transmute(__result) }}", prefix, ret_type));
+                    builder.line(&format!(
+                        "{}{} {{ inner: core::mem::transmute(__result) }}",
+                        prefix, ret_type
+                    ));
                 }
             }
         } else {
@@ -1411,14 +1639,21 @@ extern "C" fn invoke_py_layout_callback(
         builder.blank();
     }
 
-    fn generate_module_registration(&self, builder: &mut CodeBuilder, ir: &CodegenIR, config: &PythonConfig) -> Result<()> {
+    fn generate_module_registration(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &PythonConfig,
+    ) -> Result<()> {
         builder.line("// MODULE REGISTRATION");
         builder.blank();
 
         let prefix = &config.base.type_prefix;
 
         builder.line("/// Register all Python types with the module");
-        builder.line("pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {");
+        builder.line(
+            "pub fn register_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {",
+        );
         builder.indent();
 
         for struct_def in &ir.structs {
@@ -1462,17 +1697,17 @@ extern "C" fn invoke_py_layout_callback(
         if struct_def.category.skip_in_python() {
             return false;
         }
-        
+
         // Types that use C-API directly don't get wrapper structs
         if struct_def.category.uses_capi_directly() {
             return false;
         }
-        
+
         // Check config overrides
         if config.skip_types.contains(&struct_def.name) {
             return false;
         }
-        
+
         config.base.should_include_type(&struct_def.name)
     }
 
@@ -1483,12 +1718,12 @@ extern "C" fn invoke_py_layout_callback(
         if enum_def.category.skip_in_python() {
             return false;
         }
-        
+
         // Check config overrides
         if config.skip_types.contains(&enum_def.name) {
             return false;
         }
-        
+
         config.base.should_include_type(&enum_def.name)
     }
 
@@ -1496,8 +1731,8 @@ extern "C" fn invoke_py_layout_callback(
     /// Types without Clone cannot be cloned
     fn struct_supports_clone(&self, struct_def: &StructDef) -> bool {
         // Check if struct has Clone in derive list or custom_impls
-        struct_def.derives.contains(&"Clone".to_string()) ||
-            struct_def.custom_impls.contains(&"Clone".to_string())
+        struct_def.derives.contains(&"Clone".to_string())
+            || struct_def.custom_impls.contains(&"Clone".to_string())
     }
 
     /// Check if an enum can be cloned
@@ -1507,12 +1742,12 @@ extern "C" fn invoke_py_layout_callback(
     }
 
     /// Check if a struct type needs the `unsendable` marker in PyO3
-    /// 
+    ///
     /// A type is sendable if:
     /// - It has `is_send_safe: true` in the IR (vec module types), OR
     /// - It's in the PYTHON_SEND_SAFE_TYPES list (types that wrap & or Box), OR
     /// - All its fields are transitively sendable
-    /// 
+    ///
     /// A type needs unsendable if it contains:
     /// - Raw pointers (*const, *mut) that are NOT in a send_safe type
     /// - Function pointers (extern "C" fn)
@@ -1523,24 +1758,24 @@ extern "C" fn invoke_py_layout_callback(
         if struct_def.is_send_safe {
             return false;
         }
-        
+
         // Python-specific: These types use *const/*mut c_void but are semantically Send
         // because they wrap references (&) or Box<> which are Send
         const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
-            "CssPropertyCachePtr",   // wraps Box<CssPropertyCache>
-            "IFrameCallbackInfo",    // wraps &IFrameCallbackInfoInternal
-            "IFrameCallbackReturn",  // contains OptionStyledDom which contains CssPropertyCachePtr
-            "StyledDom",             // contains CssPropertyCachePtr
-            "LayoutCallbackInfo",    // wraps & to internal data
-            "CallbackInfo",          // wraps & to internal data
+            "CssPropertyCachePtr",          // wraps Box<CssPropertyCache>
+            "IFrameCallbackInfo",           // wraps &IFrameCallbackInfoInternal
+            "IFrameCallbackReturn", // contains OptionStyledDom which contains CssPropertyCachePtr
+            "StyledDom",            // contains CssPropertyCachePtr
+            "LayoutCallbackInfo",   // wraps & to internal data
+            "CallbackInfo",         // wraps & to internal data
             "RenderImageCallbackInfo", // wraps & to internal data
-            "RefCount",              // refcounted pointer, semantically Send
-            "OptionRefAny",          // Option<RefAny>
-            "GlVoidPtrMut",          // GL pointer wrapper
-            "ParsedSvg",             // SVG data structure
+            "RefCount",             // refcounted pointer, semantically Send
+            "OptionRefAny",         // Option<RefAny>
+            "GlVoidPtrMut",         // GL pointer wrapper
+            "ParsedSvg",            // SVG data structure
             "ResultParsedSvgSvgParseError", // Result type containing ParsedSvg
-            "GridMinMax",            // CSS grid layout type
-            "GridTrackSizing",       // CSS grid layout type
+            "GridMinMax",           // CSS grid layout type
+            "GridTrackSizing",      // CSS grid layout type
             // Window/Thread types - Send but not Sync
             "RawWindowHandle",
             "OptionThread",
@@ -1552,33 +1787,37 @@ extern "C" fn invoke_py_layout_callback(
         if PYTHON_SEND_SAFE_TYPES.contains(&struct_def.name.as_str()) {
             return false;
         }
-        
+
         // Boxed types definitely need unsendable
         if struct_def.is_boxed {
             return true;
         }
-        
+
         // Types with callback wrappers contain function pointers
         if struct_def.callback_wrapper_info.is_some() {
             return true;
         }
-        
+
         // Check all fields for unsendable types
         for field in &struct_def.fields {
             // Fields with pointer ref_kind are not sendable
-            if matches!(field.ref_kind, crate::codegen::v2::ir::FieldRefKind::Ptr | crate::codegen::v2::ir::FieldRefKind::PtrMut) {
+            if matches!(
+                field.ref_kind,
+                crate::codegen::v2::ir::FieldRefKind::Ptr
+                    | crate::codegen::v2::ir::FieldRefKind::PtrMut
+            ) {
                 return true;
             }
             if self.field_type_needs_unsendable(&field.type_name, ir) {
                 return true;
             }
         }
-        
+
         false
     }
-    
+
     /// Check if an enum type needs the `unsendable` marker
-    /// 
+    ///
     /// An enum is sendable if:
     /// - It has `is_send_safe: true` in the IR, OR
     /// - It's in the PYTHON_SEND_SAFE_TYPES list, OR
@@ -1588,7 +1827,7 @@ extern "C" fn invoke_py_layout_callback(
         if enum_def.is_send_safe {
             return false;
         }
-        
+
         // Python-specific: These enum types NEED unsendable because they contain raw pointers
         // but we want to use them in Python anyway
         const PYTHON_FORCE_UNSENDABLE_ENUMS: &[&str] = &[
@@ -1601,9 +1840,9 @@ extern "C" fn invoke_py_layout_callback(
             "ThreadSendMsg",
         ];
         if PYTHON_FORCE_UNSENDABLE_ENUMS.contains(&enum_def.name.as_str()) {
-            return true;  // Force unsendable for these types
+            return true; // Force unsendable for these types
         }
-        
+
         // Check all variant payload types
         for variant in &enum_def.variants {
             match &variant.kind {
@@ -1624,12 +1863,12 @@ extern "C" fn invoke_py_layout_callback(
                 EnumVariantKind::Unit => {}
             }
         }
-        
+
         false
     }
-    
+
     /// Check if a field type (by name) requires unsendable
-    /// 
+    ///
     /// This checks whether a type is NOT sendable.
     /// A type is sendable if:
     /// - It's a primitive
@@ -1641,7 +1880,7 @@ extern "C" fn invoke_py_layout_callback(
         if is_primitive_type(type_name) {
             return false;
         }
-        
+
         // Python-specific: These types use *const/*mut c_void but are semantically Send
         const PYTHON_SEND_SAFE_TYPES: &[&str] = &[
             "CssPropertyCachePtr",
@@ -1694,34 +1933,34 @@ extern "C" fn invoke_py_layout_callback(
         if PYTHON_SEND_SAFE_TYPES.contains(&type_name) {
             return false;
         }
-        
+
         // Raw pointers in the type name itself - NOT sendable
         if type_name.contains("*const") || type_name.contains("*mut") {
             return true;
         }
-        
+
         // Function pointers - NOT sendable
         if type_name.contains("extern") || type_name.contains("fn(") {
             return true;
         }
-        
+
         // Box types - NOT sendable
         if type_name.starts_with("Box<") {
             return true;
         }
-        
+
         // Types ending with "Callback" contain function pointers - NOT sendable
         if type_name.ends_with("Callback") || type_name.ends_with("CallbackType") {
             return true;
         }
-        
+
         // Check if this is a type alias to a pointer type
         if let Some(type_alias) = ir.find_type_alias(type_name) {
             if type_alias.target.contains("*const") || type_alias.target.contains("*mut") {
                 return true;
             }
         }
-        
+
         // Check if it's a struct - use is_send_safe flag
         if let Some(struct_def) = ir.find_struct(type_name) {
             // If struct is marked send_safe, it's sendable
@@ -1741,7 +1980,7 @@ extern "C" fn invoke_py_layout_callback(
             // All fields are sendable, so this struct is sendable
             return false;
         }
-        
+
         // Check if it's an enum - use is_send_safe flag
         if let Some(enum_def) = ir.find_enum(type_name) {
             // If enum is marked send_safe, it's sendable
@@ -1771,11 +2010,11 @@ extern "C" fn invoke_py_layout_callback(
             // All variants are sendable
             return false;
         }
-        
+
         // Unknown types - assume sendable (will fail at compile time if wrong)
         false
     }
-    
+
     /// Check if a class (by name) needs unsendable
     /// Used for determining if &mut self methods should be skipped
     fn class_needs_unsendable(&self, class_name: &str, ir: &CodegenIR) -> bool {
@@ -1800,151 +2039,209 @@ extern "C" fn invoke_py_layout_callback(
             }
             // Sendable class - &mut self is allowed, continue checking args
         }
-        
+
         for arg in &func.args {
             // RefAny is ALWAYS allowed - becomes Py<PyAny>
             if arg.type_name == "RefAny" {
                 continue;
             }
-            
+
             // Callback types with callback_info are ALWAYS allowed - become Py<PyAny>
             // This check MUST come before is_python_compatible_type to allow CallbackType args
             if arg.callback_info.is_some() {
                 continue;
             }
-            
+
             // Skip raw pointer types
-            if arg.type_name.contains("*const") || arg.type_name.contains("*mut") { 
-                return true; 
+            if arg.type_name.contains("*const") || arg.type_name.contains("*mut") {
+                return true;
             }
             // Skip VecRef types
-            if arg.type_name.contains("VecRef") || arg.type_name == "Refstr" { 
-                return true; 
+            if arg.type_name.contains("VecRef") || arg.type_name == "Refstr" {
+                return true;
             }
             // Skip generic instantiations (e.g., CssPropertyValue<StyleBoxShadow>)
-            if arg.type_name.contains('<') && arg.type_name.contains('>') { 
-                return true; 
+            if arg.type_name.contains('<') && arg.type_name.contains('>') {
+                return true;
             }
             // Skip array types
-            if arg.type_name.starts_with('[') && arg.type_name.contains(';') { 
-                return true; 
+            if arg.type_name.starts_with('[') && arg.type_name.contains(';') {
+                return true;
             }
-            
+
             // Skip type aliases to generic types
             if !self.is_python_compatible_type(&arg.type_name, ir) {
                 return true;
             }
-            
+
             // Unrecognized CallbackType (no callback_info) - skip
-            if arg.type_name.ends_with("CallbackType") { 
-                return true; 
+            if arg.type_name.ends_with("CallbackType") {
+                return true;
             }
         }
-        
+
         if let Some(ret) = &func.return_type {
-            if ret.contains("*const") || ret.contains("*mut") { return true; }
-            if ret.contains("VecRef") || ret == "Refstr" { return true; }
+            if ret.contains("*const") || ret.contains("*mut") {
+                return true;
+            }
+            if ret.contains("VecRef") || ret == "Refstr" {
+                return true;
+            }
             // Skip generic instantiations in return types
-            if ret.contains('<') && ret.contains('>') { return true; }
+            if ret.contains('<') && ret.contains('>') {
+                return true;
+            }
             // Skip incompatible return types
-            if !self.is_python_compatible_type(ret, ir) { return true; }
+            if !self.is_python_compatible_type(ret, ir) {
+                return true;
+            }
         }
-        
+
         false
     }
-    
+
     /// Check if a function has a recognized callback pattern:
     /// - Has an argument named "data" with type "RefAny"
     /// - Has an argument named "callback" with a recognized CallbackType (has callback_info)
     /// - Or has any argument that is a callback type (Py<PyAny>)
     fn has_callback_pattern(&self, func: &FunctionDef) -> bool {
-        let has_refany = func.args.iter().any(|a| a.name == "data" && a.type_name == "RefAny");
-        let has_callback = func.args.iter().any(|a| a.name == "callback" && a.callback_info.is_some());
-        
+        let has_refany = func
+            .args
+            .iter()
+            .any(|a| a.name == "data" && a.type_name == "RefAny");
+        let has_callback = func
+            .args
+            .iter()
+            .any(|a| a.name == "callback" && a.callback_info.is_some());
+
         // Also check for any argument that has callback_info (for cases like layout_callback)
         let has_any_callback = func.args.iter().any(|a| a.callback_info.is_some());
-        
+
         (has_refany && has_callback) || has_any_callback
     }
 
     /// Check if a type is compatible with Python bindings
     /// Uses structural analysis rather than hardcoded lists
     fn is_python_compatible_type(&self, type_name: &str, ir: &CodegenIR) -> bool {
-        if is_primitive_type(type_name) { return true; }
-        
+        if is_primitive_type(type_name) {
+            return true;
+        }
+
         // Skip pointer types
-        if type_name.contains('*') { return false; }
-        
+        if type_name.contains('*') {
+            return false;
+        }
+
         // Skip RefAny and c_void
-        if type_name == "RefAny" || type_name == "c_void" { return false; }
-        
+        if type_name == "RefAny" || type_name == "c_void" {
+            return false;
+        }
+
         // Skip VecRef types (by name pattern)
-        if type_name.contains("VecRef") || type_name == "Refstr" { return false; }
-        
+        if type_name.contains("VecRef") || type_name == "Refstr" {
+            return false;
+        }
+
         // Skip array types like [PixelValue; 2]
         if type_name.starts_with('[') && type_name.contains(';') {
             return false;
         }
-        
+
         // Skip generic type parameters (single uppercase letters like T, U, V)
-        if type_name.len() == 1 && type_name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false) {
+        if type_name.len() == 1
+            && type_name
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_uppercase())
+                .unwrap_or(false)
+        {
             return false;
         }
-        
+
         // Skip generic instantiations like PhysicalPosition<i32>
         if type_name.contains('<') && type_name.contains('>') {
             return false;
         }
-        
+
         // Skip callback wrapper types - these need special Py<PyAny> handling
         if is_callback_wrapper_type(type_name, ir) {
             return false;
         }
-        
+
         // Skip C-API direct types that don't have .inner field
         const CAPI_DIRECT: &[&str] = &[
-            "String", "U8Vec", "StringVec", "GLuintVec", "GLintVec",
-            "RefAny", "U8VecDestructor", "StringVecDestructor",
-            "InstantPtr", "StringMenuItem",
+            "String",
+            "U8Vec",
+            "StringVec",
+            "GLuintVec",
+            "GLintVec",
+            "RefAny",
+            "U8VecDestructor",
+            "StringVecDestructor",
+            "InstantPtr",
+            "StringMenuItem",
         ];
         if CAPI_DIRECT.contains(&type_name) {
             return false;
         }
-        
+
         // Skip type_alias types that resolve to raw pointers (c_void with pointer)
         // These are platform-specific handles like HwndHandle, X11Visual, etc.
         const POINTER_TYPE_ALIASES: &[&str] = &[
-            "HwndHandle", "X11Visual", "XWindowType", "XConnection",
-            "WaylandHandle", "IOSHandle", "MacOSHandle", "AndroidHandle",
+            "HwndHandle",
+            "X11Visual",
+            "XWindowType",
+            "XConnection",
+            "WaylandHandle",
+            "IOSHandle",
+            "MacOSHandle",
+            "AndroidHandle",
             // Add any other type_alias to c_void here
         ];
         if POINTER_TYPE_ALIASES.contains(&type_name) {
             return false;
         }
-        
+
         // Skip type_aliases to generic types (like PhysicalPositionI32 → PhysicalPosition<i32>)
         // These resolve to generic FFI types which don't have FromPyObject impl
         const GENERIC_TYPE_ALIASES: &[&str] = &[
-            "PhysicalPositionI32", "PhysicalPositionU32", "PhysicalPositionF32", "PhysicalPositionF64",
-            "PhysicalSizeI32", "PhysicalSizeU32", "PhysicalSizeF32", "PhysicalSizeF64",
-            "LogicalPositionI32", "LogicalPositionF32",
-            "LogicalSizeI32", "LogicalSizeF32",
+            "PhysicalPositionI32",
+            "PhysicalPositionU32",
+            "PhysicalPositionF32",
+            "PhysicalPositionF64",
+            "PhysicalSizeI32",
+            "PhysicalSizeU32",
+            "PhysicalSizeF32",
+            "PhysicalSizeF64",
+            "LogicalPositionI32",
+            "LogicalPositionF32",
+            "LogicalSizeI32",
+            "LogicalSizeF32",
         ];
         if GENERIC_TYPE_ALIASES.contains(&type_name) {
             return false;
         }
-        
+
         // Skip type aliases for CssPropertyValue<T> (they end with "Value" and are not "PixelValue")
         // These can't be used as Python arguments because they resolve to generic types
-        if type_name.ends_with("Value") && !["PixelValue", "PixelValueNoPercent", "FloatValue", "PercentageValue", "AngleValue"].contains(&type_name) {
+        if type_name.ends_with("Value")
+            && ![
+                "PixelValue",
+                "PixelValueNoPercent",
+                "FloatValue",
+                "PercentageValue",
+                "AngleValue",
+            ]
+            .contains(&type_name)
+        {
             return false;
         }
-        
+
         // Skip destructor types (extern "C" fn types)
         if type_name.ends_with("Destructor") || type_name.ends_with("DestructorType") {
             return false;
         }
-        
+
         // Note: U8Vec, StringVec, ImageRef, FontRef, Callback types etc. are NOT skipped here.
         // They ARE Python-compatible and have proper wrapper implementations.
         // Only truly incompatible types (raw pointers, VecRef, destructors) are skipped.
@@ -1979,17 +2276,21 @@ extern "C" fn invoke_py_layout_callback(
 
     fn rust_type_to_python(&self, rust_type: &str, prefix: &str, ir: &CodegenIR) -> String {
         // Handle primitives directly
-        if is_primitive_type(rust_type) { return rust_type.to_string(); }
-        if rust_type == "String" { return "String".to_string(); }
-        
+        if is_primitive_type(rust_type) {
+            return rust_type.to_string();
+        }
+        if rust_type == "String" {
+            return "String".to_string();
+        }
+
         // Handle array types: [PixelValue; 2] -> [AzPixelValue; 2]
         let (ptr_prefix, base_type, array_suffix) = analyze_type(rust_type);
-        
+
         // RefAny → Py<PyAny> (Python object that gets wrapped internally)
         if base_type == "RefAny" {
             return "Py<PyAny>".to_string();
         }
-        
+
         // Callback typedef types (e.g., CallbackType, ButtonOnClickCallbackType) → Py<PyAny>
         // These are raw function pointer types that Python can't use directly
         // We accept a Python callable and use a trampoline to invoke it
@@ -1998,38 +2299,48 @@ extern "C" fn invoke_py_layout_callback(
         if base_type.ends_with("CallbackType") && !base_type.contains("Destructor") {
             return "Py<PyAny>".to_string();
         }
-        
+
         // Callback wrapper types (Callback, IFrameCallback, etc.) → Py<PyAny>
         // These get converted to a callback struct with a trampoline in the function body
         if is_callback_wrapper_type(&base_type, ir) {
             return "Py<PyAny>".to_string();
         }
-        
+
         // Skip generic type parameters
-        if base_type.len() == 1 && base_type.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false) {
+        if base_type.len() == 1
+            && base_type
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_uppercase())
+                .unwrap_or(false)
+        {
             return rust_type.to_string(); // Return as-is, caller should skip
         }
-        
+
         // For primitives in the base, don't prefix
         if is_primitive_type(&base_type) {
             return format!("{}{}{}", ptr_prefix, base_type, array_suffix);
         }
-        
+
         // For complex types, add prefix to base type
         format!("{}{}{}{}", ptr_prefix, prefix, base_type, array_suffix)
     }
 
     fn find_external_path(&self, type_name: &str, ir: &CodegenIR) -> Option<String> {
-        let path = if let Some(s) = ir.find_struct(type_name) { s.external_path.clone() }
-        else if let Some(e) = ir.find_enum(type_name) { e.external_path.clone() }
-        else if let Some(ta) = ir.type_aliases.iter().find(|ta| ta.name == type_name) { 
+        let path = if let Some(s) = ir.find_struct(type_name) {
+            s.external_path.clone()
+        } else if let Some(e) = ir.find_enum(type_name) {
+            e.external_path.clone()
+        } else if let Some(ta) = ir.type_aliases.iter().find(|ta| ta.name == type_name) {
             ta.external_path.clone()
-        }
-        else {
-            for cb in &ir.callback_typedefs { 
-                if cb.name == type_name { 
-                    return cb.external_path.clone().map(|p| p.replace("azul_dll::", "crate::")); 
-                } 
+        } else {
+            for cb in &ir.callback_typedefs {
+                if cb.name == type_name {
+                    return cb
+                        .external_path
+                        .clone()
+                        .map(|p| p.replace("azul_dll::", "crate::"));
+                }
             }
             return None;
         };
@@ -2038,7 +2349,8 @@ extern "C" fn invoke_py_layout_callback(
 }
 
 fn is_primitive_type(name: &str) -> bool {
-    matches!(name,
+    matches!(
+        name,
         "bool" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
         "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
         "f32" | "f64" | "char" | "()" | "c_void" |
@@ -2068,8 +2380,12 @@ fn is_callback_wrapper_type(type_name: &str, ir: &CodegenIR) -> bool {
 }
 
 /// Get the callback wrapper info for a type, if it is a callback wrapper
-fn get_callback_wrapper_info<'a>(type_name: &str, ir: &'a CodegenIR) -> Option<&'a crate::codegen::v2::ir::CallbackWrapperInfo> {
-    ir.find_struct(type_name).and_then(|s| s.callback_wrapper_info.as_ref())
+fn get_callback_wrapper_info<'a>(
+    type_name: &str,
+    ir: &'a CodegenIR,
+) -> Option<&'a crate::codegen::v2::ir::CallbackWrapperInfo> {
+    ir.find_struct(type_name)
+        .and_then(|s| s.callback_wrapper_info.as_ref())
 }
 
 /// Check if a type is a direct FFI type (not wrapped in a struct with .inner)
@@ -2078,13 +2394,19 @@ fn is_direct_ffi_type(type_name: &str) -> bool {
     // Vec types that have direct type aliases (no .inner wrapper)
     const DIRECT_FFI_TYPES: &[&str] = &[
         // Core Vec types
-        "StringVec", "U8Vec", "U16Vec", "U32Vec", "I32Vec", "F32Vec",
+        "StringVec",
+        "U8Vec",
+        "U16Vec",
+        "U32Vec",
+        "I32Vec",
+        "F32Vec",
         // GL Vec types
-        "GLuintVec", "GLintVec",
+        "GLuintVec",
+        "GLintVec",
         // These might have FromPyObject/IntoPyObject implementations
         "String", // Already handled separately, but include for completeness
     ];
-    
+
     DIRECT_FFI_TYPES.contains(&type_name) || type_name.ends_with("Vec")
 }
 
@@ -2092,7 +2414,9 @@ fn to_snake_case(s: &str) -> String {
     let mut result = String::new();
     for (i, c) in s.chars().enumerate() {
         if c.is_uppercase() {
-            if i > 0 { result.push('_'); }
+            if i > 0 {
+                result.push('_');
+            }
             result.push(c.to_ascii_lowercase());
         } else {
             result.push(c);

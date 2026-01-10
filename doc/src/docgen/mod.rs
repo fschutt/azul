@@ -2,10 +2,7 @@ mod apidocs;
 pub mod blog;
 pub mod donate;
 mod guide;
-use std::{
-    collections::BTreeMap,
-    path::Path,
-};
+use std::{collections::BTreeMap, path::Path};
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -14,7 +11,7 @@ use crate::api::{ApiData, Language, LoadedExample};
 const HTML_ROOT: &str = "https://azul.rs";
 
 /// Generate all documentation files
-/// 
+///
 /// # Arguments
 /// * `inline_css` - If true, CSS will be inlined into index.html to prevent FOUC.
 ///                  If false, only a link to main.css is used (faster for development).
@@ -65,10 +62,7 @@ pub fn generate_docs(
     }
 
     // Generate blog index page
-    docs.insert(
-        "blog.html".to_string(),
-        blog::generate_blog_index(),
-    );
+    docs.insert("blog.html".to_string(), blog::generate_blog_index());
 
     Ok(docs)
 }
@@ -76,35 +70,44 @@ pub fn generate_docs(
 /// Generate the HTML for language tabs based on tabOrder configuration
 fn generate_language_tabs_html(installation: &crate::api::Installation) -> String {
     let mut tabs = Vec::new();
-    
+
     // Use tabOrder if specified, otherwise use default order
     let tab_order: Vec<String> = if installation.tab_order.is_empty() {
         // Default order: rust, python, cpp, c
-        vec!["rust".to_string(), "python".to_string(), "cpp".to_string(), "c".to_string()]
+        vec![
+            "rust".to_string(),
+            "python".to_string(),
+            "cpp".to_string(),
+            "c".to_string(),
+        ]
     } else {
         installation.tab_order.clone()
     };
-    
+
     for lang in &tab_order {
         // Check if this is a dialect group (has variants)
         if let Some(dialect) = installation.dialects.get(lang) {
             // Generate dropdown for dialect - user must select a variant
             let default_variant = &dialect.default;
-            
+
             // Build options HTML for the dropdown - sorted by version (newest first)
             let mut variants: Vec<_> = dialect.variants.iter().collect();
             variants.sort_by(|a, b| b.0.cmp(a.0)); // Reverse sort: cpp23 > cpp20 > cpp17...
-            
+
             let mut options_html = String::new();
             for (var_key, var_config) in variants {
                 options_html.push_str(&format!(
                     "<option value=\"{}\"{}>{}</option>",
                     var_key,
-                    if var_key == default_variant { " selected" } else { "" },
+                    if var_key == default_variant {
+                        " selected"
+                    } else {
+                        ""
+                    },
                     var_config.display_name
                 ));
             }
-            
+
             // Dropdown-only tab for dialects (no separate button - select IS the tab)
             tabs.push(format!(
                 r#"<div class="lang-tab-dropdown" data-lang="{}">
@@ -124,7 +127,7 @@ fn generate_language_tabs_html(installation: &crate::api::Installation) -> Strin
             ));
         }
     }
-    
+
     tabs.join("\n        ")
 }
 
@@ -135,7 +138,7 @@ fn generate_language_tabs_html(installation: &crate::api::Installation) -> Strin
 struct ExampleRendered {
     id: String,
     #[serde(skip)]
-    title: String,  // Joined with <br> for multiline display
+    title: String, // Joined with <br> for multiline display
     #[serde(skip)]
     description: String,
     alt: String,
@@ -188,7 +191,7 @@ impl ExampleRendered {
 
         ExampleRendered {
             id: name.clone(),
-            title: e.title.join("<br>"),  // Join multiline titles with <br>
+            title: e.title.join("<br>"), // Join multiline titles with <br>
             description: comrak::markdown_to_html(
                 &e.description.join("\r\n"),
                 &comrak::Options::default(),
@@ -213,7 +216,7 @@ impl ExampleRendered {
 }
 
 /// Generate the main index.html page - imageoutput_path is the folder where all the screenshots go
-/// 
+///
 /// # Arguments
 /// * `inline_css` - If true, CSS from main.css will be inlined into a <style> tag.
 ///                  If false, only a <link> to main.css is used.
@@ -496,7 +499,7 @@ pub fn get_prism_script() -> String {
 }
 
 /// Generate common head tags for HTML pages.
-/// 
+///
 /// # Arguments
 /// * `inline_css` - If true, the CSS from main.css is inlined in a <style> tag
 ///                  to prevent flash of unstyled content (FOUC).
@@ -509,7 +512,7 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
     } else {
         "" // Root-relative paths like /fonts/..., /main.css
     };
-    
+
     let css_tag = if inline_css {
         // Read and inline the CSS file to prevent FOUC
         let css_content = include_str!("../../templates/main.css");
@@ -518,7 +521,7 @@ pub fn get_common_head_tags(inline_css: bool) -> String {
         // Link to local stylesheet for development (main.css is copied to deploy folder)
         "<link rel='stylesheet' type='text/css' href='/main.css'>".to_string()
     };
-    
+
     format!("
       <meta charset='utf-8'/>
       <meta name='viewport' content='width=device-width, initial-scale=1'>

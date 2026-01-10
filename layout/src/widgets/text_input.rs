@@ -173,9 +173,11 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
             inner: COLOR_4C4C4C,
         },
     )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
-        inner: COLOR_4C4C4C,
-    })),
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: COLOR_4C4C4C,
+        },
+    )),
     CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_4C4C4C,
@@ -190,9 +192,11 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
             inner: COLOR_4286F4,
         },
     )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
-        inner: COLOR_4286F4,
-    })),
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: COLOR_4286F4,
+        },
+    )),
     CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_4286F4,
@@ -287,9 +291,11 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
             inner: COLOR_4286F4,
         },
     )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
-        inner: COLOR_4286F4,
-    })),
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: COLOR_4286F4,
+        },
+    )),
     CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_4286F4,
@@ -304,9 +310,11 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
             inner: COLOR_4286F4,
         },
     )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
-        inner: COLOR_4286F4,
-    })),
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: COLOR_4286F4,
+        },
+    )),
     CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_4286F4,
@@ -398,9 +406,11 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
             inner: COLOR_4286F4,
         },
     )),
-    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(StyleBorderLeftColor {
-        inner: COLOR_4286F4,
-    })),
+    CssPropertyWithConditions::on_hover(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: COLOR_4286F4,
+        },
+    )),
     CssPropertyWithConditions::on_hover(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_4286F4,
@@ -415,9 +425,11 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
             inner: COLOR_4286F4,
         },
     )),
-    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(StyleBorderLeftColor {
-        inner: COLOR_4286F4,
-    })),
+    CssPropertyWithConditions::on_focus(CssProperty::const_border_left_color(
+        StyleBorderLeftColor {
+            inner: COLOR_4286F4,
+        },
+    )),
     CssPropertyWithConditions::on_focus(CssProperty::const_border_right_color(
         StyleBorderRightColor {
             inner: COLOR_4286F4,
@@ -683,7 +695,11 @@ impl TextInput {
         self
     }
 
-    pub fn set_on_text_input<C: Into<TextInputOnTextInputCallback>>(&mut self, refany: RefAny, callback: C) {
+    pub fn set_on_text_input<C: Into<TextInputOnTextInputCallback>>(
+        &mut self,
+        refany: RefAny,
+        callback: C,
+    ) {
         self.text_input_state.on_text_input = Some(TextInputOnTextInput {
             callback: callback.into(),
             refany,
@@ -721,7 +737,11 @@ impl TextInput {
         self
     }
 
-    pub fn set_on_focus_lost<C: Into<TextInputOnFocusLostCallback>>(&mut self, refany: RefAny, callback: C) {
+    pub fn set_on_focus_lost<C: Into<TextInputOnFocusLostCallback>>(
+        &mut self,
+        refany: RefAny,
+        callback: C,
+    ) {
         self.text_input_state.on_focus_lost = Some(TextInputOnFocusLost {
             callback: callback.into(),
             refany,
@@ -864,11 +884,9 @@ impl TextInput {
                                 .with_ids_and_classes(
                                     vec![Class("__azul-native-text-input-cursor".into())].into(),
                                 )
-                                .with_css_props(
-                                    CssPropertyWithConditionsVec::from_const_slice(
-                                        TEXT_CURSOR_PROPS,
-                                    ),
-                                )]
+                                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                                    TEXT_CURSOR_PROPS,
+                                ))]
                             .into(),
                         ),
                 ]

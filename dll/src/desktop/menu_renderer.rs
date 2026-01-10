@@ -54,7 +54,10 @@ extern "C" fn menu_item_click_callback(mut data: RefAny, mut info: CallbackInfo)
     let callback_data = match data.downcast_ref::<MenuItemCallbackData>() {
         Some(d) => d,
         None => {
-            log_debug!(LogCategory::General, "[menu_item_click_callback] Failed to downcast MenuItemCallbackData");
+            log_debug!(
+                LogCategory::General,
+                "[menu_item_click_callback] Failed to downcast MenuItemCallbackData"
+            );
             return Update::DoNothing;
         }
     };
@@ -68,7 +71,8 @@ extern "C" fn menu_item_click_callback(mut data: RefAny, mut info: CallbackInfo)
         let callback_data_refany = menu_callback.refany.clone();
         let result = callback.invoke(callback_data_refany, info.clone());
 
-        log_debug!(LogCategory::General, 
+        log_debug!(
+            LogCategory::General,
             "[menu_item_click_callback] Invoked callback for menu item '{}' (index {})",
             callback_data.menu_item.label.as_str(),
             callback_data.item_index
@@ -101,7 +105,10 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
     let submenu_data = match data.downcast_ref::<SubmenuCallbackData>() {
         Some(d) => d,
         None => {
-            log_debug!(LogCategory::General, "[submenu_hover_callback] Failed to downcast SubmenuCallbackData");
+            log_debug!(
+                LogCategory::General,
+                "[submenu_hover_callback] Failed to downcast SubmenuCallbackData"
+            );
             return Update::DoNothing;
         }
     };
@@ -110,7 +117,10 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
     let item_rect = match info.get_hit_node_rect() {
         Some(rect) => rect,
         None => {
-            log_debug!(LogCategory::General, "[submenu_hover_callback] Could not get hit node rect");
+            log_debug!(
+                LogCategory::General,
+                "[submenu_hover_callback] Could not get hit node rect"
+            );
             return Update::DoNothing;
         }
     };
@@ -122,7 +132,10 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
     let parent_menu_data = match menu_window_data_clone.downcast_ref::<MenuWindowData>() {
         Some(d) => d,
         None => {
-            log_debug!(LogCategory::General, "[submenu_hover_callback] Failed to downcast parent MenuWindowData");
+            log_debug!(
+                LogCategory::General,
+                "[submenu_hover_callback] Failed to downcast parent MenuWindowData"
+            );
             return Update::DoNothing;
         }
     };
@@ -158,7 +171,8 @@ extern "C" fn submenu_hover_callback(mut data: RefAny, mut info: CallbackInfo) -
     // TODO: Track the returned window ID and add to parent_menu_data.child_menu_ids
     info.create_window(submenu_options);
 
-    log_debug!(LogCategory::General, 
+    log_debug!(
+        LogCategory::General,
         "[submenu_hover_callback] Spawned submenu for item '{}' (index {})",
         submenu_data.menu_item.label.as_str(),
         submenu_data.item_index
@@ -275,7 +289,8 @@ fn create_string_menu_item_dom(
 ) -> Dom {
     let mut classes = vec![IdOrClass::Class("menu-item".into())];
 
-    let is_disabled = item.menu_item_state == MenuItemState::Disabled || item.menu_item_state == MenuItemState::Greyed;
+    let is_disabled = item.menu_item_state == MenuItemState::Disabled
+        || item.menu_item_state == MenuItemState::Greyed;
     let has_children = !item.children.as_slice().is_empty();
 
     // Add state classes
@@ -323,10 +338,9 @@ fn create_string_menu_item_dom(
 
     // Submenu arrow (if has children)
     if has_children {
-        let arrow_dom =
-            Dom::create_text("▶").with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
-                "menu-item-arrow".into(),
-            )]));
+        let arrow_dom = Dom::create_text("▶").with_ids_and_classes(IdOrClassVec::from_vec(vec![
+            IdOrClass::Class("menu-item-arrow".into()),
+        ]));
         item_dom = item_dom.with_child(arrow_dom);
     }
 
@@ -391,11 +405,12 @@ fn create_icon_dom(icon: &OptionMenuItemIcon) -> Dom {
             MenuItemIcon::Checkbox(checked) => {
                 // Add checkmark if checked
                 if *checked {
-                    icon_dom = Dom::create_text("✓").with_ids_and_classes(IdOrClassVec::from_vec(vec![
-                        IdOrClass::Class("menu-item-icon".into()),
-                        IdOrClass::Class("menu-item-checkbox".into()),
-                        IdOrClass::Class("menu-item-checkbox-checked".into()),
-                    ]));
+                    icon_dom =
+                        Dom::create_text("✓").with_ids_and_classes(IdOrClassVec::from_vec(vec![
+                            IdOrClass::Class("menu-item-icon".into()),
+                            IdOrClass::Class("menu-item-checkbox".into()),
+                            IdOrClass::Class("menu-item-checkbox-checked".into()),
+                        ]));
                 } else {
                     icon_dom = icon_dom.with_ids_and_classes(IdOrClassVec::from_vec(vec![
                         IdOrClass::Class("menu-item-icon".into()),

@@ -4,15 +4,15 @@
 //! API surface in a language-agnostic way. The IR is built from api.json
 //! and then consumed by language-specific generators.
 
-use std::collections::BTreeMap;
 use indexmap::IndexMap;
+use std::collections::BTreeMap;
 
 // ============================================================================
 // Top-level IR
 // ============================================================================
 
 /// Complete IR built from api.json
-/// 
+///
 /// This is the "source of truth" for all code generation.
 /// Language-specific generators consume this IR with different configurations.
 #[derive(Debug, Clone)]
@@ -80,8 +80,13 @@ impl CodegenIR {
     }
 
     /// Find functions for a specific class
-    pub fn functions_for_class<'a>(&'a self, class_name: &'a str) -> impl Iterator<Item = &'a FunctionDef> + 'a {
-        self.functions.iter().filter(move |f| f.class_name == class_name)
+    pub fn functions_for_class<'a>(
+        &'a self,
+        class_name: &'a str,
+    ) -> impl Iterator<Item = &'a FunctionDef> + 'a {
+        self.functions
+            .iter()
+            .filter(move |f| f.class_name == class_name)
     }
 
     /// Get all trait functions (deepCopy, delete, partialEq, etc.)
@@ -180,15 +185,14 @@ pub struct StructDef {
     pub category: TypeCategory,
 
     // === C/C++ ordering fields (populated by analyze_dependencies pass) ===
-    
     /// Types this struct depends on (field types, excluding primitives)
     /// Used by C/C++ backends for topological sorting
     pub dependencies: Vec<String>,
-    
+
     /// Sort order for C/C++ output (lower = earlier)
     /// Computed by topological sort of dependencies
     pub sort_order: usize,
-    
+
     /// Whether this type needs a forward declaration in C/C++
     /// True if the type is referenced before its definition
     pub needs_forward_decl: bool,
@@ -201,7 +205,7 @@ pub struct StructDef {
 }
 
 /// Information about a callback wrapper struct
-/// 
+///
 /// Callback wrappers pair a function pointer (callback_typedef) with
 /// optional data (OptionRefAny). In Python, the user passes a Py<PyAny>
 /// callable, which gets stored in `callable`/`ctx` and invoked via a trampoline.
@@ -210,10 +214,10 @@ pub struct CallbackWrapperInfo {
     /// The name of the callback_typedef this wrapper contains
     /// e.g., "IFrameCallbackType", "ButtonOnClickCallbackType"
     pub callback_typedef_name: String,
-    
+
     /// The field name that holds the callback (usually "cb")
     pub callback_field_name: String,
-    
+
     /// The field name that holds the context/callable (usually "ctx" or "callable")
     pub context_field_name: String,
 }
@@ -307,15 +311,14 @@ pub struct EnumDef {
     pub category: TypeCategory,
 
     // === C/C++ ordering fields (populated by analyze_dependencies pass) ===
-    
     /// Types this enum depends on (variant payload types, excluding primitives)
     /// Used by C/C++ backends for topological sorting
     pub dependencies: Vec<String>,
-    
+
     /// Sort order for C/C++ output (lower = earlier)
     /// Computed by topological sort of dependencies
     pub sort_order: usize,
-    
+
     /// Whether this type needs a forward declaration in C/C++
     /// True if the type is referenced before its definition
     pub needs_forward_decl: bool,
@@ -352,7 +355,7 @@ pub enum EnumVariantKind {
 // ============================================================================
 
 /// A function definition
-/// 
+///
 /// This includes:
 /// - Regular methods and constructors from api.json
 /// - Generated trait functions (_deepCopy, _delete, _partialEq, etc.)
@@ -405,7 +408,6 @@ pub enum FunctionKind {
     StaticMethod,
 
     // === Auto-generated trait functions ===
-
     /// Drop::drop: `fn _delete(&mut self)`
     Delete,
 
@@ -447,12 +449,12 @@ impl FunctionKind {
                 | FunctionKind::Hash
         )
     }
-    
+
     /// Check if this is a Default constructor (should be generated as static method)
     pub fn is_default_constructor(&self) -> bool {
         matches!(self, FunctionKind::Default)
     }
-    
+
     /// Check if this is a DeepCopy method (should be generated as clone())
     pub fn is_clone_method(&self) -> bool {
         matches!(self, FunctionKind::DeepCopy)
@@ -504,11 +506,11 @@ pub struct FunctionArg {
 
     /// If this argument is a callback typedef type (e.g., CallbackType, ButtonOnClickCallbackType),
     /// this contains information about the callback for language generators.
-    /// 
+    ///
     /// This is set when:
-    /// - The argument type ends with "CallbackType" 
+    /// - The argument type ends with "CallbackType"
     /// - The type is registered as a callback_typedef in api.json
-    /// 
+    ///
     /// Python generator uses this to:
     /// 1. Accept `Py<PyAny>` callable instead of the function pointer
     /// 2. Generate trampoline code to invoke the Python callable
@@ -517,7 +519,7 @@ pub struct FunctionArg {
 }
 
 /// Information about a callback argument
-/// 
+///
 /// When a function takes a callback typedef type (e.g., `callback: CallbackType`),
 /// this struct contains the information needed for language generators to
 /// properly handle the callback.
@@ -525,12 +527,12 @@ pub struct FunctionArg {
 pub struct CallbackArgInfo {
     /// The name of the callback typedef type (e.g., "CallbackType", "ButtonOnClickCallbackType")
     pub callback_typedef_name: String,
-    
+
     /// The name of the callback wrapper struct (e.g., "Callback", "ButtonOnClickCallback")
     /// This is typically the typedef name with "Type" stripped: "ButtonOnClickCallbackType" → "ButtonOnClickCallback"
     /// Some wrappers use different conventions (e.g., "Callback" for "CallbackType" becomes "CoreCallback")
     pub callback_wrapper_name: String,
-    
+
     /// The name of the trampoline function to use (e.g., "invoke_py_callback", "invoke_py_button_on_click_callback")
     pub trampoline_name: String,
 }
@@ -555,7 +557,7 @@ pub enum ArgRefKind {
 // ============================================================================
 
 /// Type alias definition (e.g., `type GLenum = u32;`)
-/// 
+///
 /// For generic type aliases like `CaretColorValue = CssPropertyValue<CaretColor>`,
 /// the `monomorphized_def` field contains the instantiated enum/struct definition.
 #[derive(Debug, Clone)]
@@ -574,29 +576,28 @@ pub struct TypeAliasDef {
 
     /// Module
     pub module: String,
-    
+
     /// External path (from api.json "external" field)
     pub external_path: Option<String>,
-    
+
     /// Trait capabilities (inherited from target type or explicit in api.json)
     pub traits: TypeTraits,
 
     // === C/C++ ordering fields (populated by analyze_dependencies pass) ===
-    
     /// If this is a generic type alias, this contains the monomorphized enum definition
     /// For example, `CaretColorValue = CssPropertyValue<CaretColor>` becomes a concrete enum
     /// with variants like Auto, None, Inherit, Initial, Exact(CaretColor)
     pub monomorphized_def: Option<MonomorphizedTypeDef>,
-    
+
     /// Types this alias depends on
     pub dependencies: Vec<String>,
-    
+
     /// Sort order for C/C++ output
     pub sort_order: usize,
 }
 
 /// A monomorphized type definition created from a generic type alias
-/// 
+///
 /// When a type alias points to a generic type (e.g., CssPropertyValue<T>),
 /// we need to instantiate it with concrete types for C/C++ code generation.
 #[derive(Debug, Clone)]
@@ -622,9 +623,7 @@ pub enum MonomorphizedKind {
         variants: Vec<String>,
     },
     /// A struct
-    Struct {
-        fields: Vec<FieldDef>,
-    },
+    Struct { fields: Vec<FieldDef> },
 }
 
 /// A variant in a monomorphized tagged union
@@ -664,7 +663,7 @@ pub struct ConstantDef {
 // ============================================================================
 
 /// Callback function pointer type definition
-/// 
+///
 /// e.g., `type LayoutCallbackType = extern "C" fn(&mut RefAny, &LayoutCallbackInfo) -> StyledDom;`
 #[derive(Debug, Clone)]
 pub struct CallbackTypedefDef {
@@ -687,11 +686,10 @@ pub struct CallbackTypedefDef {
     pub external_path: Option<String>,
 
     // === C/C++ ordering fields (populated by analyze_dependencies pass) ===
-    
     /// Types this callback depends on (argument types and return type, excluding primitives)
     /// Used by C/C++ backends for topological sorting
     pub dependencies: Vec<String>,
-    
+
     /// Sort order for C/C++ output (lower = earlier)
     /// Computed by topological sort of dependencies
     pub sort_order: usize,
@@ -702,11 +700,11 @@ pub struct CallbackTypedefDef {
 // ============================================================================
 
 /// Type category for code generation
-/// 
+///
 /// This is the central type classification system that replaces all ad-hoc
 /// checks with a single source of truth. Language generators use this to
 /// determine how to handle each type.
-/// 
+///
 /// The category is computed from api.json properties during IR building.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TypeCategory {
@@ -780,38 +778,37 @@ impl TypeCategory {
     /// Check if this type should get a Python wrapper struct
     /// Returns false for types that use C-API types directly
     pub fn needs_python_wrapper(&self) -> bool {
-        matches!(self, 
-            TypeCategory::Regular | 
-            TypeCategory::CallbackDataPair
-        )
+        matches!(self, TypeCategory::Regular | TypeCategory::CallbackDataPair)
     }
 
     /// Check if this type should be completely skipped in Python
     pub fn skip_in_python(&self) -> bool {
-        matches!(self,
-            TypeCategory::Recursive |
-            TypeCategory::VecRef |
-            TypeCategory::GenericTemplate |
-            TypeCategory::DestructorOrClone |
-            TypeCategory::CallbackTypedef
+        matches!(
+            self,
+            TypeCategory::Recursive
+                | TypeCategory::VecRef
+                | TypeCategory::GenericTemplate
+                | TypeCategory::DestructorOrClone
+                | TypeCategory::CallbackTypedef
         )
     }
 
     /// Check if this type uses the C-API type directly (no wrapper)
     pub fn uses_capi_directly(&self) -> bool {
-        matches!(self,
-            TypeCategory::Primitive |
-            TypeCategory::String |
-            TypeCategory::Vec |
-            TypeCategory::RefAny
+        matches!(
+            self,
+            TypeCategory::Primitive
+                | TypeCategory::String
+                | TypeCategory::Vec
+                | TypeCategory::RefAny
         )
     }
 
     /// Check if this is a callback-related type that needs trampolines
     pub fn is_callback_related(&self) -> bool {
-        matches!(self,
-            TypeCategory::CallbackTypedef |
-            TypeCategory::CallbackDataPair
+        matches!(
+            self,
+            TypeCategory::CallbackTypedef | TypeCategory::CallbackDataPair
         )
     }
 
@@ -847,7 +844,7 @@ pub struct TypeTraits {
 
     /// Can be cloned (implements Clone or has _deepCopy)
     pub is_clone: bool,
-    
+
     /// Clone should be derived (vs manual impl via custom_impls)
     pub clone_is_derived: bool,
 
@@ -889,7 +886,11 @@ impl TypeTraits {
     }
 
     /// Build from derives and custom_impls lists
-    pub fn from_derives_and_custom_impls(derives: &[String], custom_impls: &[String], has_custom_drop: bool) -> Self {
+    pub fn from_derives_and_custom_impls(
+        derives: &[String],
+        custom_impls: &[String],
+        has_custom_drop: bool,
+    ) -> Self {
         let mut traits = Self::default();
         traits.has_custom_drop = has_custom_drop;
 
@@ -923,7 +924,7 @@ impl TypeTraits {
                 _ => {}
             }
         }
-        
+
         // Then process custom_impls - these have manual implementations
         // Clone in custom_impls means the type has Clone but it's manually implemented
         for custom_impl in custom_impls.iter() {

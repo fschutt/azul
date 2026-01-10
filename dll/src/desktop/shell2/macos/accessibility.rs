@@ -25,7 +25,10 @@ struct TreeActivationHandler {
 impl accesskit::ActivationHandler for TreeActivationHandler {
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
         // Use try_lock to avoid blocking - return None if lock unavailable
-        self.tree_provider.try_lock().ok().and_then(|mut guard| guard.take())
+        self.tree_provider
+            .try_lock()
+            .ok()
+            .and_then(|mut guard| guard.take())
     }
 }
 

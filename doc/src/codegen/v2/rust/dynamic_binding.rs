@@ -87,7 +87,7 @@ impl LanguageGenerator for RustDynamicGenerator {
 
     fn generate_functions(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         let mut builder = CodeBuilder::new(&config.indent);
-        
+
         builder.line("// --- Extern C Function Declarations ---");
         builder.blank();
 
@@ -117,7 +117,7 @@ impl LanguageGenerator for RustDynamicGenerator {
 
     fn generate_trait_impls(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         let mut builder = CodeBuilder::new(&config.indent);
-        
+
         builder.line("// --- Trait Implementations ---");
         builder.blank();
 
@@ -152,7 +152,7 @@ impl RustDynamicGenerator {
         config: &CodegenConfig,
     ) {
         let name = config.apply_prefix(&struct_def.name);
-        
+
         let generics = if struct_def.generic_params.is_empty() {
             String::new()
         } else {
@@ -214,7 +214,10 @@ impl RustDynamicGenerator {
         // Hash - calls Az{Type}_hash
         if struct_def.traits.is_hash {
             let hash_fn = format!("{}_hash", name);
-            builder.line(&format!("impl{} core::hash::Hash for {} {{", generics, full_name));
+            builder.line(&format!(
+                "impl{} core::hash::Hash for {} {{",
+                generics, full_name
+            ));
             builder.indent();
             builder.line("fn hash<H: core::hash::Hasher>(&self, state: &mut H) {");
             builder.indent();
@@ -233,7 +236,10 @@ impl RustDynamicGenerator {
             builder.indent();
             builder.line("fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {");
             builder.indent();
-            builder.line(&format!("unsafe {{ {}(self, other).into_option() }}", cmp_fn));
+            builder.line(&format!(
+                "unsafe {{ {}(self, other).into_option() }}",
+                cmp_fn
+            ));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -248,7 +254,10 @@ impl RustDynamicGenerator {
             builder.indent();
             builder.line("fn cmp(&self, other: &Self) -> core::cmp::Ordering {");
             builder.indent();
-            builder.line(&format!("unsafe {{ {}(self, other).into_ordering() }}", cmp_fn));
+            builder.line(&format!(
+                "unsafe {{ {}(self, other).into_ordering() }}",
+                cmp_fn
+            ));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -265,7 +274,7 @@ impl RustDynamicGenerator {
     ) {
         // Same logic as structs - enums have the same trait functions
         let name = config.apply_prefix(&enum_def.name);
-        
+
         let generics = if enum_def.generic_params.is_empty() {
             String::new()
         } else {
@@ -322,7 +331,10 @@ impl RustDynamicGenerator {
 
         if enum_def.traits.is_hash {
             let hash_fn = format!("{}_hash", name);
-            builder.line(&format!("impl{} core::hash::Hash for {} {{", generics, full_name));
+            builder.line(&format!(
+                "impl{} core::hash::Hash for {} {{",
+                generics, full_name
+            ));
             builder.indent();
             builder.line("fn hash<H: core::hash::Hasher>(&self, state: &mut H) {");
             builder.indent();
@@ -340,7 +352,10 @@ impl RustDynamicGenerator {
             builder.indent();
             builder.line("fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {");
             builder.indent();
-            builder.line(&format!("unsafe {{ {}(self, other).into_option() }}", cmp_fn));
+            builder.line(&format!(
+                "unsafe {{ {}(self, other).into_option() }}",
+                cmp_fn
+            ));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -354,7 +369,10 @@ impl RustDynamicGenerator {
             builder.indent();
             builder.line("fn cmp(&self, other: &Self) -> core::cmp::Ordering {");
             builder.indent();
-            builder.line(&format!("unsafe {{ {}(self, other).into_ordering() }}", cmp_fn));
+            builder.line(&format!(
+                "unsafe {{ {}(self, other).into_ordering() }}",
+                cmp_fn
+            ));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -371,7 +389,9 @@ impl RustDynamicGenerator {
     ) -> Result<()> {
         let fn_name = &func.c_name;
         let args = Self::format_fn_args(&func.args, config);
-        let return_type = func.return_type.as_ref()
+        let return_type = func
+            .return_type
+            .as_ref()
             .map(|r| format!(" -> {}", config.apply_prefix(r)))
             .unwrap_or_default();
 

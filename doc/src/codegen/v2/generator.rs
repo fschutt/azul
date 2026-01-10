@@ -3,16 +3,16 @@
 //! This module provides the unified code generator that takes an IR
 //! and a configuration to produce output code.
 
-use std::path::Path;
-use std::fs;
 use anyhow::Result;
+use std::fs;
+use std::path::Path;
 
 use super::config::*;
 use super::ir::*;
-use super::lang_rust::RustGenerator;
 use super::lang_c::CGenerator;
-use super::lang_cpp;  // Use new dialect-based module
+use super::lang_cpp; // Use new dialect-based module
 use super::lang_python::PythonGenerator;
+use super::lang_rust::RustGenerator;
 
 // ============================================================================
 // Code Generator Trait
@@ -49,7 +49,7 @@ impl CodeGenerator {
             TargetLang::CppHeader { standard } => {
                 // Use new dialect-based C++ generators
                 lang_cpp::generate_cpp_header(ir, config, standard)
-            },
+            }
             TargetLang::Python => {
                 // Python needs its own config, use default PythonConfig
                 let python_config = PythonConfig::python_extension();
@@ -72,7 +72,7 @@ impl CodeGenerator {
         }
 
         fs::write(output_path, &code)?;
-        
+
         println!(
             "[OK] Generated {} ({} bytes)",
             output_path.display(),
@@ -176,7 +176,7 @@ impl GenerationTargets {
         }
 
         fs::write(output_path, &code)?;
-        
+
         println!(
             "[OK] Generated {} ({} bytes)",
             output_path.display(),
@@ -196,7 +196,7 @@ impl GenerationTargets {
         }
 
         fs::write(output_path, &code)?;
-        
+
         println!(
             "[OK] Generated {} ({} bytes)",
             output_path.display(),

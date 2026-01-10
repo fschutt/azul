@@ -31,8 +31,7 @@ use crate::{
     prop_cache::CssPropertyCache,
     refany::RefAny,
     styled_dom::{
-        NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, 
-        StyledDom, StyledNodeState,
+        NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom, StyledNodeState,
     },
     ui_solver::GlyphInstance,
     window::OptionChar,
@@ -597,7 +596,9 @@ impl Drop for ImageRef {
 }
 
 pub fn image_ref_get_hash(ir: &ImageRef) -> ImageRefHash {
-    ImageRefHash { inner: ir.data as usize }
+    ImageRefHash {
+        inner: ir.data as usize,
+    }
 }
 
 /// Convert a stable ImageRefHash directly to an ImageKey.

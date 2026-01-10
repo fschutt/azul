@@ -39,7 +39,13 @@ impl LayoutOverflow {
 
     pub fn is_clipped(&self) -> bool {
         // All overflow values except 'visible' clip their content
-        matches!(self, LayoutOverflow::Hidden | LayoutOverflow::Clip | LayoutOverflow::Auto | LayoutOverflow::Scroll)
+        matches!(
+            self,
+            LayoutOverflow::Hidden
+                | LayoutOverflow::Clip
+                | LayoutOverflow::Auto
+                | LayoutOverflow::Scroll
+        )
     }
 
     pub fn is_scroll(&self) -> bool {

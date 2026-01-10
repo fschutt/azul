@@ -36,7 +36,12 @@ fn test_media_screen() {
     // Check that the rule has a Media(Screen) condition
     let rule = &rules[0];
     let conditions: Vec<_> = rule.conditions.iter().collect();
-    assert_eq!(conditions.len(), 1, "Expected 1 condition, got {:?}", conditions);
+    assert_eq!(
+        conditions.len(),
+        1,
+        "Expected 1 condition, got {:?}",
+        conditions
+    );
 
     match &conditions[0] {
         DynamicSelector::Media(MediaType::Screen) => {}
@@ -253,13 +258,19 @@ fn test_media_compound_screen_and_min_width() {
 
     let rule = &rules[0];
     let conditions: Vec<_> = rule.conditions.iter().collect();
-    assert_eq!(conditions.len(), 2, "Expected 2 conditions for compound query");
+    assert_eq!(
+        conditions.len(),
+        2,
+        "Expected 2 conditions for compound query"
+    );
 
     // Should have both Media(Screen) and ViewportWidth
-    let has_screen = conditions.iter().any(|c| matches!(c, DynamicSelector::Media(MediaType::Screen)));
-    let has_viewport = conditions.iter().any(|c| {
-        matches!(c, DynamicSelector::ViewportWidth(r) if r.min() == Some(1024.0))
-    });
+    let has_screen = conditions
+        .iter()
+        .any(|c| matches!(c, DynamicSelector::Media(MediaType::Screen)));
+    let has_viewport = conditions
+        .iter()
+        .any(|c| matches!(c, DynamicSelector::ViewportWidth(r) if r.min() == Some(1024.0)));
 
     assert!(has_screen, "Expected Media(Screen) condition");
     assert!(has_viewport, "Expected ViewportWidth(min: 1024) condition");
@@ -302,7 +313,10 @@ fn test_no_conditions_for_regular_rules() {
 
     for rule in &rules {
         let conditions: Vec<_> = rule.conditions.iter().collect();
-        assert!(conditions.is_empty(), "Regular rules should have no conditions");
+        assert!(
+            conditions.is_empty(),
+            "Regular rules should have no conditions"
+        );
     }
 }
 
@@ -317,7 +331,11 @@ fn test_lang_pseudo_class_simple() {
     let (result, warnings) = new_from_str(css);
 
     // Should parse without warnings
-    assert!(warnings.is_empty(), "Expected no warnings, got: {:?}", warnings);
+    assert!(
+        warnings.is_empty(),
+        "Expected no warnings, got: {:?}",
+        warnings
+    );
 
     let rules: Vec<_> = result.rules().collect();
     assert_eq!(rules.len(), 1, "Expected 1 rule");
@@ -329,7 +347,11 @@ fn test_lang_pseudo_class_simple() {
     let has_lang = path_selectors.iter().any(|sel| {
         matches!(sel, CssPathSelector::PseudoSelector(CssPathPseudoSelector::Lang(lang)) if lang.as_str() == "de")
     });
-    assert!(has_lang, "Expected :lang(de) pseudo-selector in path: {:?}", path_selectors);
+    assert!(
+        has_lang,
+        "Expected :lang(de) pseudo-selector in path: {:?}",
+        path_selectors
+    );
 }
 
 #[test]
@@ -338,7 +360,11 @@ fn test_lang_pseudo_class_with_region() {
     let css = r#"p:lang(de-DE) { font-family: Arial; }"#;
     let (result, warnings) = new_from_str(css);
 
-    assert!(warnings.is_empty(), "Expected no warnings, got: {:?}", warnings);
+    assert!(
+        warnings.is_empty(),
+        "Expected no warnings, got: {:?}",
+        warnings
+    );
 
     let rules: Vec<_> = result.rules().collect();
     assert_eq!(rules.len(), 1);
@@ -349,7 +375,11 @@ fn test_lang_pseudo_class_with_region() {
     let has_lang = path_selectors.iter().any(|sel| {
         matches!(sel, CssPathSelector::PseudoSelector(CssPathPseudoSelector::Lang(lang)) if lang.as_str() == "de-DE")
     });
-    assert!(has_lang, "Expected :lang(de-DE) pseudo-selector in path: {:?}", path_selectors);
+    assert!(
+        has_lang,
+        "Expected :lang(de-DE) pseudo-selector in path: {:?}",
+        path_selectors
+    );
 }
 
 #[test]
@@ -358,7 +388,11 @@ fn test_lang_pseudo_class_quoted() {
     let css = r#"span:lang("en-US") { font-family: Helvetica; }"#;
     let (result, warnings) = new_from_str(css);
 
-    assert!(warnings.is_empty(), "Expected no warnings, got: {:?}", warnings);
+    assert!(
+        warnings.is_empty(),
+        "Expected no warnings, got: {:?}",
+        warnings
+    );
 
     let rules: Vec<_> = result.rules().collect();
     assert_eq!(rules.len(), 1);
@@ -369,7 +403,11 @@ fn test_lang_pseudo_class_quoted() {
     let has_lang = path_selectors.iter().any(|sel| {
         matches!(sel, CssPathSelector::PseudoSelector(CssPathPseudoSelector::Lang(lang)) if lang.as_str() == "en-US")
     });
-    assert!(has_lang, "Expected :lang(en-US) pseudo-selector (quotes stripped) in path: {:?}", path_selectors);
+    assert!(
+        has_lang,
+        "Expected :lang(en-US) pseudo-selector (quotes stripped) in path: {:?}",
+        path_selectors
+    );
 }
 
 #[test]
@@ -378,7 +416,11 @@ fn test_lang_pseudo_class_single_quoted() {
     let css = r#"div:lang('fr') { color: blue; }"#;
     let (result, warnings) = new_from_str(css);
 
-    assert!(warnings.is_empty(), "Expected no warnings, got: {:?}", warnings);
+    assert!(
+        warnings.is_empty(),
+        "Expected no warnings, got: {:?}",
+        warnings
+    );
 
     let rules: Vec<_> = result.rules().collect();
     assert_eq!(rules.len(), 1);
@@ -389,7 +431,11 @@ fn test_lang_pseudo_class_single_quoted() {
     let has_lang = path_selectors.iter().any(|sel| {
         matches!(sel, CssPathSelector::PseudoSelector(CssPathPseudoSelector::Lang(lang)) if lang.as_str() == "fr")
     });
-    assert!(has_lang, "Expected :lang(fr) pseudo-selector (quotes stripped) in path: {:?}", path_selectors);
+    assert!(
+        has_lang,
+        "Expected :lang(fr) pseudo-selector (quotes stripped) in path: {:?}",
+        path_selectors
+    );
 }
 
 #[test]
@@ -402,7 +448,11 @@ fn test_lang_pseudo_class_multiple_rules() {
     "#;
     let (result, warnings) = new_from_str(css);
 
-    assert!(warnings.is_empty(), "Expected no warnings, got: {:?}", warnings);
+    assert!(
+        warnings.is_empty(),
+        "Expected no warnings, got: {:?}",
+        warnings
+    );
 
     let rules: Vec<_> = result.rules().collect();
     assert_eq!(rules.len(), 3, "Expected 3 rules");
@@ -415,7 +465,11 @@ fn test_lang_pseudo_class_multiple_rules() {
         let has_expected_lang = path_selectors.iter().any(|sel| {
             matches!(sel, CssPathSelector::PseudoSelector(CssPathPseudoSelector::Lang(lang)) if lang.as_str() == expected_langs[i])
         });
-        assert!(has_expected_lang, "Rule {} should have :lang({}), got: {:?}", i, expected_langs[i], path_selectors);
+        assert!(
+            has_expected_lang,
+            "Rule {} should have :lang({}), got: {:?}",
+            i, expected_langs[i], path_selectors
+        );
     }
 }
 
@@ -425,7 +479,11 @@ fn test_lang_pseudo_class_combined_with_class() {
     let css = r#".content:lang(de) { padding: 10px; }"#;
     let (result, warnings) = new_from_str(css);
 
-    assert!(warnings.is_empty(), "Expected no warnings, got: {:?}", warnings);
+    assert!(
+        warnings.is_empty(),
+        "Expected no warnings, got: {:?}",
+        warnings
+    );
 
     let rules: Vec<_> = result.rules().collect();
     assert_eq!(rules.len(), 1);
@@ -434,15 +492,23 @@ fn test_lang_pseudo_class_combined_with_class() {
     let path_selectors: Vec<_> = rule.path.selectors.iter().collect();
 
     // Should have class "content" and :lang(de)
-    let has_class = path_selectors.iter().any(|sel| {
-        matches!(sel, CssPathSelector::Class(c) if c.as_str() == "content")
-    });
+    let has_class = path_selectors
+        .iter()
+        .any(|sel| matches!(sel, CssPathSelector::Class(c) if c.as_str() == "content"));
     let has_lang = path_selectors.iter().any(|sel| {
         matches!(sel, CssPathSelector::PseudoSelector(CssPathPseudoSelector::Lang(lang)) if lang.as_str() == "de")
     });
-    
-    assert!(has_class, "Expected .content class in selector, got: {:?}", path_selectors);
-    assert!(has_lang, "Expected :lang(de) pseudo-selector, got: {:?}", path_selectors);
+
+    assert!(
+        has_class,
+        "Expected .content class in selector, got: {:?}",
+        path_selectors
+    );
+    assert!(
+        has_lang,
+        "Expected :lang(de) pseudo-selector, got: {:?}",
+        path_selectors
+    );
 }
 
 #[test]
@@ -451,7 +517,11 @@ fn test_lang_pseudo_class_combined_with_other_pseudo() {
     let css = r#"a:lang(en):hover { color: green; }"#;
     let (result, warnings) = new_from_str(css);
 
-    assert!(warnings.is_empty(), "Expected no warnings, got: {:?}", warnings);
+    assert!(
+        warnings.is_empty(),
+        "Expected no warnings, got: {:?}",
+        warnings
+    );
 
     let rules: Vec<_> = result.rules().collect();
     assert_eq!(rules.len(), 1);
@@ -464,11 +534,22 @@ fn test_lang_pseudo_class_combined_with_other_pseudo() {
         matches!(sel, CssPathSelector::PseudoSelector(CssPathPseudoSelector::Lang(lang)) if lang.as_str() == "en")
     });
     let has_hover = path_selectors.iter().any(|sel| {
-        matches!(sel, CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover))
+        matches!(
+            sel,
+            CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover)
+        )
     });
-    
-    assert!(has_lang, "Expected :lang(en) pseudo-selector, got: {:?}", path_selectors);
-    assert!(has_hover, "Expected :hover pseudo-selector, got: {:?}", path_selectors);
+
+    assert!(
+        has_lang,
+        "Expected :lang(en) pseudo-selector, got: {:?}",
+        path_selectors
+    );
+    assert!(
+        has_hover,
+        "Expected :hover pseudo-selector, got: {:?}",
+        path_selectors
+    );
 }
 
 // ============================================================================
@@ -543,7 +624,10 @@ fn test_mixed_media_and_regular_rules() {
     // Second rule: @media screen condition
     let cond1: Vec<_> = rules[1].conditions.iter().collect();
     assert_eq!(cond1.len(), 1);
-    assert!(matches!(cond1[0], DynamicSelector::Media(MediaType::Screen)));
+    assert!(matches!(
+        cond1[0],
+        DynamicSelector::Media(MediaType::Screen)
+    ));
 
     // Third rule: no conditions
     assert!(rules[2].conditions.iter().count() == 0);

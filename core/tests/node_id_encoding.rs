@@ -23,14 +23,22 @@ fn test_from_usize_zero_is_none() {
 fn test_from_usize_one_is_node_zero() {
     let result = NodeId::from_usize(1);
     assert!(result.is_some(), "from_usize(1) should return Some");
-    assert_eq!(result.unwrap().index(), 0, "from_usize(1) should return NodeId(0)");
+    assert_eq!(
+        result.unwrap().index(),
+        0,
+        "from_usize(1) should return NodeId(0)"
+    );
 }
 
 #[test]
 fn test_from_usize_two_is_node_one() {
     let result = NodeId::from_usize(2);
     assert!(result.is_some(), "from_usize(2) should return Some");
-    assert_eq!(result.unwrap().index(), 1, "from_usize(2) should return NodeId(1)");
+    assert_eq!(
+        result.unwrap().index(),
+        1,
+        "from_usize(2) should return NodeId(1)"
+    );
 }
 
 #[test]
@@ -101,7 +109,11 @@ fn test_roundtrip_various_values() {
         let original = Some(NodeId::new(i));
         let encoded = NodeId::into_raw(&original);
         let decoded = NodeId::from_usize(encoded);
-        assert_eq!(decoded, original, "NodeId({}) should roundtrip correctly", i);
+        assert_eq!(
+            decoded, original,
+            "NodeId({}) should roundtrip correctly",
+            i
+        );
     }
 }
 
@@ -111,7 +123,7 @@ fn test_roundtrip_various_values() {
 fn test_zero_encoding_invariant() {
     // The critical invariant: 0 in the encoded form ALWAYS means None
     // This prevents the underflow bug where we used usize::MAX as the sentinel
-    
+
     // Encoding 0 should produce 1 (not 0)
     let node = Some(NodeId::new(0));
     let encoded = NodeId::into_raw(&node);
@@ -123,21 +135,24 @@ fn test_zero_encoding_invariant() {
 fn test_no_underflow_on_none_check() {
     // This test verifies that checking for "no node" uses 0, not usize::MAX
     // The old buggy code would check `value != usize::MAX` which was wrong
-    
+
     let none_encoded = NodeId::into_raw(&None);
     assert_eq!(none_encoded, 0, "None should encode to 0, not usize::MAX");
-    
+
     // Verify that usize::MAX is a valid encoded value (represents NodeId(usize::MAX - 1))
     // and NOT a sentinel for None
     let max_node = NodeId::from_usize(usize::MAX);
-    assert!(max_node.is_some(), "usize::MAX should decode to Some, not None");
+    assert!(
+        max_node.is_some(),
+        "usize::MAX should decode to Some, not None"
+    );
 }
 
 #[test]
 fn test_encoded_zero_is_always_none() {
     // Decoding 0 should always give None
     assert!(NodeId::from_usize(0).is_none());
-    
+
     // There's no valid NodeId that encodes to 0
     for i in 0..1000 {
         let encoded = NodeId::into_raw(&Some(NodeId::new(i)));

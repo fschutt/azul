@@ -315,7 +315,7 @@ fn render_display_list(
             DisplayListItem::ScrollBarStyled { info } => {
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
-                
+
                 // Render track
                 if info.track_color.a > 0 {
                     render_rect(
@@ -328,7 +328,7 @@ fn render_display_list(
                         dpi_factor,
                     )?;
                 }
-                
+
                 // Render decrement button
                 if let Some(btn_bounds) = &info.button_decrement_bounds {
                     if info.button_color.a > 0 {
@@ -343,7 +343,7 @@ fn render_display_list(
                         )?;
                     }
                 }
-                
+
                 // Render increment button
                 if let Some(btn_bounds) = &info.button_increment_bounds {
                     if info.button_color.a > 0 {
@@ -358,7 +358,7 @@ fn render_display_list(
                         )?;
                     }
                 }
-                
+
                 // Render thumb
                 if info.thumb_color.a > 0 {
                     render_rect(
@@ -909,7 +909,9 @@ fn render_image(
     renderer_resources: &RendererResources,
 ) -> Result<(), String> {
     // Look up the image in renderer_resources
-    let image_ref_hash = ImageRefHash { inner: key.key as usize };
+    let image_ref_hash = ImageRefHash {
+        inner: key.key as usize,
+    };
 
     let resolved_image = match renderer_resources.get_image(&image_ref_hash) {
         Some(img) => img,

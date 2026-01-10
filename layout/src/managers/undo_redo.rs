@@ -28,14 +28,17 @@
 
 use alloc::{collections::VecDeque, vec::Vec};
 
-use azul_css::{impl_option, impl_option_inner, AzString};
 use azul_core::{
     dom::NodeId,
     geom::LogicalPosition,
-    selection::{CursorAffinity, GraphemeClusterId, SelectionRange, TextCursor, OptionTextCursor, OptionSelectionRange},
+    selection::{
+        CursorAffinity, GraphemeClusterId, OptionSelectionRange, OptionTextCursor, SelectionRange,
+        TextCursor,
+    },
     task::Instant,
     window::CursorPosition,
 };
+use azul_css::{impl_option, impl_option_inner, AzString};
 
 use super::changeset::{TextChangeset, TextOperation};
 
@@ -214,7 +217,10 @@ impl UndoRedoManager {
     pub fn record_operation(&mut self, changeset: TextChangeset, pre_state: NodeStateSnapshot) {
         // Convert DomNodeId to NodeId for indexing
         // NodeHierarchyItemId.into_crate_internal() decodes the 1-based encoding to Option<NodeId>
-        let node_id = changeset.target.node.into_crate_internal()
+        let node_id = changeset
+            .target
+            .node
+            .into_crate_internal()
             .expect("TextChangeset target node should not be None");
         let stack = self.get_or_create_stack_mut(node_id);
 
@@ -282,7 +288,11 @@ impl UndoRedoManager {
     ///
     /// This should be called AFTER an undo operation has been successfully applied.
     pub fn push_redo(&mut self, operation: UndoableOperation) {
-        let node_id = operation.changeset.target.node.into_crate_internal()
+        let node_id = operation
+            .changeset
+            .target
+            .node
+            .into_crate_internal()
             .expect("TextChangeset target node should not be None");
         let stack = self.get_or_create_stack_mut(node_id);
         stack.push_redo(operation);
@@ -292,7 +302,11 @@ impl UndoRedoManager {
     ///
     /// This should be called AFTER a redo operation has been successfully applied.
     pub fn push_undo(&mut self, operation: UndoableOperation) {
-        let node_id = operation.changeset.target.node.into_crate_internal()
+        let node_id = operation
+            .changeset
+            .target
+            .node
+            .into_crate_internal()
             .expect("TextChangeset target node should not be None");
         let stack = self.get_or_create_stack_mut(node_id);
         stack.push_undo(operation);

@@ -62,10 +62,12 @@ fn layout_dom_and_count_scrollbars(dom: Dom, css_str: &str, width: f32, height: 
             r.display_list
                 .items
                 .iter()
-                .filter(|item| matches!(item, 
-                    DisplayListItem::ScrollBar { .. } | 
-                    DisplayListItem::ScrollBarStyled { .. }
-                ))
+                .filter(|item| {
+                    matches!(
+                        item,
+                        DisplayListItem::ScrollBar { .. } | DisplayListItem::ScrollBarStyled { .. }
+                    )
+                })
                 .count()
         })
         .unwrap_or(0)
@@ -84,8 +86,11 @@ fn test_scrollbar_necessity_no_overflow_visible() {
         OverflowBehavior::Visible,
         OverflowBehavior::Visible,
     );
-    
-    assert!(!result.needs_horizontal, "Should not need horizontal scrollbar");
+
+    assert!(
+        !result.needs_horizontal,
+        "Should not need horizontal scrollbar"
+    );
     assert!(!result.needs_vertical, "Should not need vertical scrollbar");
 }
 
@@ -98,9 +103,15 @@ fn test_scrollbar_necessity_overflow_hidden() {
         OverflowBehavior::Hidden,
         OverflowBehavior::Hidden,
     );
-    
-    assert!(!result.needs_horizontal, "Hidden should not show horizontal scrollbar");
-    assert!(!result.needs_vertical, "Hidden should not show vertical scrollbar");
+
+    assert!(
+        !result.needs_horizontal,
+        "Hidden should not show horizontal scrollbar"
+    );
+    assert!(
+        !result.needs_vertical,
+        "Hidden should not show vertical scrollbar"
+    );
 }
 
 #[test]
@@ -112,11 +123,23 @@ fn test_scrollbar_necessity_overflow_scroll() {
         OverflowBehavior::Scroll,
         OverflowBehavior::Scroll,
     );
-    
-    assert!(result.needs_horizontal, "Scroll should always show horizontal scrollbar");
-    assert!(result.needs_vertical, "Scroll should always show vertical scrollbar");
-    assert!(result.scrollbar_width > 0.0, "scrollbar_width should be set");
-    assert!(result.scrollbar_height > 0.0, "scrollbar_height should be set");
+
+    assert!(
+        result.needs_horizontal,
+        "Scroll should always show horizontal scrollbar"
+    );
+    assert!(
+        result.needs_vertical,
+        "Scroll should always show vertical scrollbar"
+    );
+    assert!(
+        result.scrollbar_width > 0.0,
+        "scrollbar_width should be set"
+    );
+    assert!(
+        result.scrollbar_height > 0.0,
+        "scrollbar_height should be set"
+    );
 }
 
 #[test]
@@ -128,9 +151,15 @@ fn test_scrollbar_necessity_overflow_auto_no_overflow() {
         OverflowBehavior::Auto,
         OverflowBehavior::Auto,
     );
-    
-    assert!(!result.needs_horizontal, "Auto should not show scrollbar when content fits");
-    assert!(!result.needs_vertical, "Auto should not show scrollbar when content fits");
+
+    assert!(
+        !result.needs_horizontal,
+        "Auto should not show scrollbar when content fits"
+    );
+    assert!(
+        !result.needs_vertical,
+        "Auto should not show scrollbar when content fits"
+    );
 }
 
 #[test]
@@ -142,10 +171,19 @@ fn test_scrollbar_necessity_overflow_auto_vertical_overflow() {
         OverflowBehavior::Auto,
         OverflowBehavior::Auto,
     );
-    
-    assert!(!result.needs_horizontal, "Should not need horizontal scrollbar");
-    assert!(result.needs_vertical, "Should need vertical scrollbar for tall content");
-    assert!(result.scrollbar_width > 0.0, "scrollbar_width should be set");
+
+    assert!(
+        !result.needs_horizontal,
+        "Should not need horizontal scrollbar"
+    );
+    assert!(
+        result.needs_vertical,
+        "Should need vertical scrollbar for tall content"
+    );
+    assert!(
+        result.scrollbar_width > 0.0,
+        "scrollbar_width should be set"
+    );
 }
 
 #[test]
@@ -157,10 +195,16 @@ fn test_scrollbar_necessity_overflow_auto_horizontal_overflow() {
         OverflowBehavior::Auto,
         OverflowBehavior::Auto,
     );
-    
-    assert!(result.needs_horizontal, "Should need horizontal scrollbar for wide content");
+
+    assert!(
+        result.needs_horizontal,
+        "Should need horizontal scrollbar for wide content"
+    );
     assert!(!result.needs_vertical, "Should not need vertical scrollbar");
-    assert!(result.scrollbar_height > 0.0, "scrollbar_height should be set");
+    assert!(
+        result.scrollbar_height > 0.0,
+        "scrollbar_height should be set"
+    );
 }
 
 #[test]
@@ -172,7 +216,7 @@ fn test_scrollbar_necessity_both_overflow() {
         OverflowBehavior::Auto,
         OverflowBehavior::Auto,
     );
-    
+
     assert!(result.needs_horizontal, "Should need horizontal scrollbar");
     assert!(result.needs_vertical, "Should need vertical scrollbar");
 }
@@ -187,8 +231,7 @@ fn test_layout_overflow_auto_vertical_scrollbar() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("content".into())].into())
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("content".into())].into()),
         );
 
     let css = r#"
@@ -204,7 +247,7 @@ fn test_layout_overflow_auto_vertical_scrollbar() {
     "#;
 
     let scrollbar_count = layout_dom_and_count_scrollbars(dom, css, 1024.0, 768.0);
-    
+
     assert!(
         scrollbar_count > 0,
         "Display list should contain ScrollBar items when content overflows with overflow: auto"
@@ -217,8 +260,7 @@ fn test_layout_overflow_scroll_always_shows_scrollbar() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("content".into())].into())
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("content".into())].into()),
         );
 
     let css = r#"
@@ -234,7 +276,7 @@ fn test_layout_overflow_scroll_always_shows_scrollbar() {
     "#;
 
     let scrollbar_count = layout_dom_and_count_scrollbars(dom, css, 1024.0, 768.0);
-    
+
     // Should have both horizontal and vertical scrollbars
     assert!(
         scrollbar_count >= 2,
@@ -249,8 +291,7 @@ fn test_layout_overflow_hidden_no_scrollbar() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("content".into())].into())
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("content".into())].into()),
         );
 
     let css = r#"
@@ -266,7 +307,7 @@ fn test_layout_overflow_hidden_no_scrollbar() {
     "#;
 
     let scrollbar_count = layout_dom_and_count_scrollbars(dom, css, 1024.0, 768.0);
-    
+
     assert!(
         scrollbar_count == 0,
         "overflow: hidden should not show any scrollbars, got {} items",
@@ -279,7 +320,12 @@ fn test_layout_overflow_hidden_no_scrollbar() {
 // =============================================================================
 
 /// Helper to layout a DOM and get the content width
-fn layout_dom_and_get_content_width(dom: Dom, css_str: &str, width: f32, height: f32) -> Option<f32> {
+fn layout_dom_and_get_content_width(
+    dom: Dom,
+    css_str: &str,
+    width: f32,
+    height: f32,
+) -> Option<f32> {
     use azul_core::dom::{DomNodeId, NodeId};
     use azul_core::styled_dom::NodeHierarchyItemId;
 
@@ -319,13 +365,12 @@ fn layout_dom_and_get_content_width(dom: Dom, css_str: &str, width: f32, height:
 fn test_scrollbar_reflow_width_100_percent() {
     // Test that when a vertical scrollbar appears, content with width: 100%
     // is reduced by the scrollbar width
-    
+
     // Case 1: No scrollbar needed - content should be full container width
     let dom_no_overflow = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("content".into())].into())
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("content".into())].into()),
         );
 
     let css_no_overflow = r#"
@@ -340,14 +385,14 @@ fn test_scrollbar_reflow_width_100_percent() {
         }
     "#;
 
-    let width_no_overflow = layout_dom_and_get_content_width(dom_no_overflow, css_no_overflow, 1024.0, 768.0);
-    
+    let width_no_overflow =
+        layout_dom_and_get_content_width(dom_no_overflow, css_no_overflow, 1024.0, 768.0);
+
     // Case 2: Vertical scrollbar needed - content should be 200 - scrollbar_width
     let dom_with_overflow = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("content".into())].into())
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("content".into())].into()),
         );
 
     let css_with_overflow = r#"
@@ -362,11 +407,18 @@ fn test_scrollbar_reflow_width_100_percent() {
         }
     "#;
 
-    let width_with_overflow = layout_dom_and_get_content_width(dom_with_overflow, css_with_overflow, 1024.0, 768.0);
+    let width_with_overflow =
+        layout_dom_and_get_content_width(dom_with_overflow, css_with_overflow, 1024.0, 768.0);
 
     // Both should have values
-    assert!(width_no_overflow.is_some(), "Should get width for no-overflow case");
-    assert!(width_with_overflow.is_some(), "Should get width for with-overflow case");
+    assert!(
+        width_no_overflow.is_some(),
+        "Should get width for no-overflow case"
+    );
+    assert!(
+        width_with_overflow.is_some(),
+        "Should get width for with-overflow case"
+    );
 
     let w1 = width_no_overflow.unwrap();
     let w2 = width_with_overflow.unwrap();
@@ -379,9 +431,10 @@ fn test_scrollbar_reflow_width_100_percent() {
     assert!(
         w2 < w1,
         "Content width with scrollbar ({}) should be less than without scrollbar ({})",
-        w2, w1
+        w2,
+        w1
     );
-    
+
     // The difference should be approximately the scrollbar width (16px)
     let diff = w1 - w2;
     assert!(
@@ -397,8 +450,7 @@ fn test_scrollbar_appears_with_overflow_auto() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("content".into())].into())
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("content".into())].into()),
         );
 
     let css = r#"
@@ -414,7 +466,7 @@ fn test_scrollbar_appears_with_overflow_auto() {
     "#;
 
     let scrollbar_count = layout_dom_and_count_scrollbars(dom, css, 1024.0, 768.0);
-    
+
     assert!(
         scrollbar_count >= 1,
         "overflow: auto should show vertical scrollbar when content overflows, got {} scrollbars",
@@ -428,8 +480,7 @@ fn test_no_scrollbar_when_content_fits_with_overflow_auto() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("content".into())].into())
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("content".into())].into()),
         );
 
     let css = r#"
@@ -445,7 +496,7 @@ fn test_no_scrollbar_when_content_fits_with_overflow_auto() {
     "#;
 
     let scrollbar_count = layout_dom_and_count_scrollbars(dom, css, 1024.0, 768.0);
-    
+
     assert!(
         scrollbar_count == 0,
         "overflow: auto should NOT show scrollbar when content fits, got {} scrollbars",
@@ -459,8 +510,7 @@ fn test_horizontal_scrollbar_reduces_height() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("content".into())].into())
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("content".into())].into()),
         );
 
     let css = r#"
@@ -476,7 +526,7 @@ fn test_horizontal_scrollbar_reduces_height() {
     "#;
 
     let scrollbar_count = layout_dom_and_count_scrollbars(dom, css, 1024.0, 768.0);
-    
+
     // Should have at least horizontal scrollbar
     assert!(
         scrollbar_count >= 1,
@@ -559,8 +609,7 @@ fn test_scrollbar_bounds_vertical_at_right_edge() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("content".into())].into()),
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("content".into())].into()),
         );
 
     let css = r#"
@@ -576,37 +625,37 @@ fn test_scrollbar_bounds_vertical_at_right_edge() {
     "#;
 
     let bounds = layout_dom_and_get_scrollbar_bounds(dom, css, 1024.0, 768.0);
-    
+
     println!("Scrollbar bounds: {:?}", bounds);
-    
+
     // Should have exactly one vertical scrollbar
     let vertical_scrollbars: Vec<_> = bounds.iter().filter(|b| b.4.contains("Vertical")).collect();
-    
+
     assert!(
         !vertical_scrollbars.is_empty(),
         "Should have a vertical scrollbar when content overflows vertically"
     );
-    
+
     // Vertical scrollbar x position should be at container_width - scrollbar_width
     // Container is 200px, scrollbar is ~16px, so x should be around 184
     let (x, y, w, h, _) = vertical_scrollbars[0];
-    
+
     println!("Vertical scrollbar: x={}, y={}, w={}, h={}", x, y, w, h);
-    
+
     // X position should be near the right edge (200 - scrollbar_width)
     assert!(
         *x >= 180.0 && *x <= 200.0,
         "Vertical scrollbar x ({}) should be at right edge (180-200)",
         x
     );
-    
+
     // Scrollbar should start at top (y=0 or close)
     assert!(
         *y >= 0.0 && *y <= 10.0,
         "Vertical scrollbar y ({}) should be at top",
         y
     );
-    
+
     // Scrollbar height should match container height (or container height - horizontal scrollbar)
     assert!(
         *h >= 180.0 && *h <= 200.0,
@@ -621,8 +670,7 @@ fn test_scrollbar_bounds_horizontal_at_bottom() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
         .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("content".into())].into()),
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("content".into())].into()),
         );
 
     let css = r#"
@@ -638,35 +686,38 @@ fn test_scrollbar_bounds_horizontal_at_bottom() {
     "#;
 
     let bounds = layout_dom_and_get_scrollbar_bounds(dom, css, 1024.0, 768.0);
-    
+
     println!("Scrollbar bounds: {:?}", bounds);
-    
+
     // Should have a horizontal scrollbar
-    let horizontal_scrollbars: Vec<_> = bounds.iter().filter(|b| b.4.contains("Horizontal")).collect();
-    
+    let horizontal_scrollbars: Vec<_> = bounds
+        .iter()
+        .filter(|b| b.4.contains("Horizontal"))
+        .collect();
+
     assert!(
         !horizontal_scrollbars.is_empty(),
         "Should have a horizontal scrollbar when content overflows horizontally"
     );
-    
+
     let (x, y, w, h, _) = horizontal_scrollbars[0];
-    
+
     println!("Horizontal scrollbar: x={}, y={}, w={}, h={}", x, y, w, h);
-    
+
     // X position should be at left (x=0 or close)
     assert!(
         *x >= 0.0 && *x <= 10.0,
         "Horizontal scrollbar x ({}) should be at left edge",
         x
     );
-    
+
     // Y position should be at bottom (200 - scrollbar_height)
     assert!(
         *y >= 180.0 && *y <= 200.0,
         "Horizontal scrollbar y ({}) should be at bottom edge (180-200)",
         y
     );
-    
+
     // Scrollbar width should match container width
     assert!(
         *w >= 180.0 && *w <= 200.0,
@@ -679,26 +730,26 @@ fn test_scrollbar_bounds_horizontal_at_bottom() {
 fn test_scrolling_c_style_layout() {
     // Test a layout similar to scrolling.c:
     // body with flex column, header, scrollable container with many items, footer
-    
+
     // Create header
-    let header = Dom::create_div()
-        .with_ids_and_classes(vec![IdOrClass::Class("header".into())].into());
-    
+    let header =
+        Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("header".into())].into());
+
     // Create scroll container with tall content
     let mut scroll_container = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("scroll-container".into())].into());
-    
+
     // Add 10 items that overflow
     for _ in 0..10 {
-        let item = Dom::create_div()
-            .with_ids_and_classes(vec![IdOrClass::Class("item".into())].into());
+        let item =
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("item".into())].into());
         scroll_container = scroll_container.with_child(item);
     }
-    
+
     // Create footer
-    let footer = Dom::create_div()
-        .with_ids_and_classes(vec![IdOrClass::Class("footer".into())].into());
-    
+    let footer =
+        Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("footer".into())].into());
+
     // Build body
     let dom = Dom::create_body()
         .with_ids_and_classes(vec![IdOrClass::Class("body".into())].into())
@@ -736,24 +787,27 @@ fn test_scrolling_c_style_layout() {
 
     // Window is 600x500, like scrolling.c
     let bounds = layout_dom_and_get_scrollbar_bounds(dom, css, 600.0, 500.0);
-    
+
     println!("Scrolling.c style layout - Scrollbar bounds: {:?}", bounds);
-    
+
     // With 10 items at 100px height + margins, total content is ~1050px
     // Container height is 500 - 50 (header) - 30 (footer) = 420px
     // So we should have a vertical scrollbar
-    
+
     let vertical_scrollbars: Vec<_> = bounds.iter().filter(|b| b.4.contains("Vertical")).collect();
-    
+
     assert!(
         !vertical_scrollbars.is_empty(),
         "Flex container with overflow: auto should show vertical scrollbar when items overflow. Got: {:?}",
         bounds
     );
-    
+
     let (x, y, w, h, _) = vertical_scrollbars[0];
-    println!("Vertical scrollbar in flex layout: x={}, y={}, w={}, h={}", x, y, w, h);
-    
+    println!(
+        "Vertical scrollbar in flex layout: x={}, y={}, w={}, h={}",
+        x, y, w, h
+    );
+
     // Scrollbar should be within the scroll-container bounds
     // Header is 50px, so scroll container starts at y=50
     assert!(
@@ -854,9 +908,9 @@ fn layout_dom_and_get_scrollbar_info(
 fn test_scrollbar_thumb_increases_when_window_grows() {
     // Create a body with auto overflow and fixed content
     let create_dom = || {
-        let mut body = Dom::create_div()
-            .with_ids_and_classes(vec![IdOrClass::Class("body".into())].into());
-        
+        let mut body =
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("body".into())].into());
+
         // Add fixed-size content that will overflow at small window sizes
         for _ in 0..10 {
             let item = Dom::create_div()
@@ -881,7 +935,7 @@ fn test_scrollbar_thumb_increases_when_window_grows() {
 
     // Layout at small window size (should have scrollbar)
     let small_info = layout_dom_and_get_scrollbar_info(create_dom(), css, 400.0, 300.0);
-    
+
     // Layout at larger window size (should have scrollbar with larger thumb, or no scrollbar)
     let large_info = layout_dom_and_get_scrollbar_info(create_dom(), css, 400.0, 600.0);
 
@@ -903,14 +957,15 @@ fn test_scrollbar_thumb_increases_when_window_grows() {
     // If both have styled scrollbars with thumbs, compare thumb sizes
     let small_thumb = small_info.iter().find(|x| x.4 == "VerticalThumb");
     let large_thumb = large_info.iter().find(|x| x.4 == "VerticalThumb");
-    
+
     if let (Some(small), Some(large)) = (small_thumb, large_thumb) {
         // The thumb height should increase when window is larger
         // (more visible content = larger thumb)
         assert!(
             large.3 > small.3,
             "Thumb height should increase when window grows: small={}, large={}",
-            small.3, large.3
+            small.3,
+            large.3
         );
     }
     // If large_thumb is None or using simple scrollbar, the test passes
@@ -922,9 +977,9 @@ fn test_scrollbar_thumb_increases_when_window_grows() {
 #[test]
 fn test_scrollbar_thumb_decreases_when_window_shrinks() {
     let create_dom = || {
-        let mut body = Dom::create_div()
-            .with_ids_and_classes(vec![IdOrClass::Class("body".into())].into());
-        
+        let mut body =
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("body".into())].into());
+
         for _ in 0..10 {
             let item = Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("item".into())].into());
@@ -948,7 +1003,7 @@ fn test_scrollbar_thumb_decreases_when_window_shrinks() {
 
     // Layout at medium window size
     let medium_info = layout_dom_and_get_scrollbar_info(create_dom(), css, 400.0, 500.0);
-    
+
     // Layout at smaller window size
     let small_info = layout_dom_and_get_scrollbar_info(create_dom(), css, 400.0, 250.0);
 
@@ -979,7 +1034,8 @@ fn test_scrollbar_thumb_decreases_when_window_shrinks() {
         assert!(
             small.3 < medium.3,
             "Thumb height should decrease when window shrinks: small={}, medium={}",
-            small.3, medium.3
+            small.3,
+            medium.3
         );
     }
 }
@@ -990,7 +1046,7 @@ fn test_scrollbar_disappears_when_content_fits() {
     let create_dom = || {
         let mut container = Dom::create_div()
             .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into());
-        
+
         // 5 items at 100px = 500px total content height (without margins)
         for _ in 0..5 {
             let item = Dom::create_div()
@@ -1028,9 +1084,10 @@ fn test_scrollbar_disappears_when_content_fits() {
             background-color: blue;
         }
     "#;
-    
+
     // 5 items * 100px = 500px content in 600px container - should NOT have scrollbar
-    let large_scrollbar_count = layout_dom_and_count_scrollbars(create_dom(), css_large, 800.0, 700.0);
+    let large_scrollbar_count =
+        layout_dom_and_count_scrollbars(create_dom(), css_large, 800.0, 700.0);
 
     println!("Small container scrollbar count: {}", small_scrollbar_count);
     println!("Large container scrollbar count: {}", large_scrollbar_count);

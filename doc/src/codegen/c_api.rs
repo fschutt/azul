@@ -129,10 +129,10 @@ pub fn escape_cpp_keyword(name: &str) -> String {
 
 /// Check if a type is a "callback struct" - a struct with a `cb` field (function pointer)
 /// and a `callable` field (for FFI bindings).
-/// 
+///
 /// Callback structs are things like `Callback`, `ButtonOnClickCallback`, `RenderImageCallback`.
 /// These have the pattern: `struct FooCallback { cb: FooCallbackType, callable: OptionRefAny }`
-/// 
+///
 /// For the C API, when a function takes a callback struct as parameter, we generate two variants:
 /// 1. The base function that takes just the function pointer (CallbackType) - for C/C++ users
 /// 2. A `_withCallback` variant that takes the full struct - for FFI bindings like Python
@@ -141,7 +141,7 @@ fn is_callback_struct(api_data: &ApiData, version: &str, type_name: &str) -> boo
         Some(v) => v,
         None => return false,
     };
-    
+
     // Look up the type in all modules
     for module in version_data.api.values() {
         if let Some(class_data) = module.classes.get(type_name) {
@@ -153,7 +153,7 @@ fn is_callback_struct(api_data: &ApiData, version: &str, type_name: &str) -> boo
             }
         }
     }
-    
+
     false
 }
 
@@ -164,7 +164,11 @@ fn get_callback_type_for_struct(callback_struct_name: &str) -> String {
 }
 
 /// Check if any argument in a function is a callback struct
-fn function_has_callback_arg(api_data: &ApiData, version: &str, function_data: &crate::api::FunctionData) -> Option<(String, String)> {
+fn function_has_callback_arg(
+    api_data: &ApiData,
+    version: &str,
+    function_data: &crate::api::FunctionData,
+) -> Option<(String, String)> {
     for arg in &function_data.fn_args {
         if let Some((arg_name, arg_type)) = arg.iter().next() {
             if arg_name == "self" {
@@ -627,11 +631,11 @@ fn format_c_function_args(
 }
 
 /// Format C function arguments, with option to replace callback structs with their CallbackType.
-/// 
+///
 /// When `replace_callback_with_type` is true:
 /// - `Callback` becomes `CallbackType` (the function pointer)
 /// - This is the default C API behavior - users pass function pointers directly
-/// 
+///
 /// When `replace_callback_with_type` is false:
 /// - The full callback struct is used (e.g., `AzCallback`)
 /// - This is for the `_withCallback` variant used by FFI bindings
@@ -686,7 +690,9 @@ fn format_c_function_args_ex(
             let (prefix_ptr, base_type, _suffix) = analyze_type(arg_type);
 
             // Check if this is a callback struct that should be replaced with its Type
-            let effective_base_type = if replace_callback_with_type && is_callback_struct(api_data, version, &base_type) {
+            let effective_base_type = if replace_callback_with_type
+                && is_callback_struct(api_data, version, &base_type)
+            {
                 get_callback_type_for_struct(&base_type)
             } else {
                 base_type.clone()
@@ -704,7 +710,11 @@ fn format_c_function_args_ex(
                 }
             } else {
                 // Non-primitive type - add PREFIX
-                let c_type = format!("{}{}", PREFIX, replace_primitive_ctype(&effective_base_type));
+                let c_type = format!(
+                    "{}{}",
+                    PREFIX,
+                    replace_primitive_ctype(&effective_base_type)
+                );
                 let ptr_suffix = if prefix_ptr == "*const " || prefix_ptr == "&" {
                     "* "
                 } else if prefix_ptr == "*mut " || prefix_ptr == "&mut " {
@@ -1247,14 +1257,12 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                         // Format: #define AzXxxVec_empty { .ptr = 0, .len = 0, .cap = 0,
                         // .destructor = { .NoDestructor = { .tag =
                         // AzXxxVecDestructor_Tag_NoDestructor } } }
-                        code.push_str(
-                            &format!(
-                                "#define {}_empty {{ \\\r\n    .ptr = 0, \\\r\n    .len = 0, \
+                        code.push_str(&format!(
+                            "#define {}_empty {{ \\\r\n    .ptr = 0, \\\r\n    .len = 0, \
                                  \\\r\n    .cap = 0, \\\r\n    .destructor = {{ .NoDestructor = \
                                  {{ .tag = {}_Tag_NoDestructor }} }} \\\r\n}}\r\n\r\n",
-                                struct_name, destr_type
-                            ),
-                        );
+                            struct_name, destr_type
+                        ));
                     }
                 }
             }
@@ -1300,7 +1308,8 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                         format!("{}_{}", class_ptr_name, snake_case_to_lower_camel(fn_name));
 
                     // Check if this function has a callback struct argument
-                    let has_callback_arg = function_has_callback_arg(api_data, version, constructor);
+                    let has_callback_arg =
+                        function_has_callback_arg(api_data, version, constructor);
 
                     // Generate function arguments - replace callback struct with CallbackType for base version
                     let fn_args = format_c_function_args_ex(
@@ -1443,9 +1452,12 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
             // Skip trait functions for generic types and type aliases
             // Generic types (e.g., CssPropertyValue<T>) have unresolved type parameters
             // Type aliases are instantiations that reference the generic type
-            let is_generic_type = class_data.generic_params.as_ref().map_or(false, |p| !p.is_empty());
+            let is_generic_type = class_data
+                .generic_params
+                .as_ref()
+                .map_or(false, |p| !p.is_empty());
             let is_type_alias = class_data.type_alias.is_some();
-            
+
             if !is_generic_type && !is_type_alias {
                 // Generate partialEq if type has PartialEq
                 if class_data.has_partial_eq() {

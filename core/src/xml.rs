@@ -765,7 +765,12 @@ impl XmlNodeChild {
     }
 }
 
-impl_vec!(XmlNodeChild, XmlNodeChildVec, XmlNodeChildVecDestructor, XmlNodeChildVecDestructorType);
+impl_vec!(
+    XmlNodeChild,
+    XmlNodeChildVec,
+    XmlNodeChildVecDestructor,
+    XmlNodeChildVecDestructorType
+);
 impl_vec_mut!(XmlNodeChild, XmlNodeChildVec);
 impl_vec_debug!(XmlNodeChild, XmlNodeChildVec);
 impl_vec_partialeq!(XmlNodeChild, XmlNodeChildVec);
@@ -820,7 +825,12 @@ impl XmlNode {
     }
 }
 
-impl_vec!(XmlNode, XmlNodeVec, XmlNodeVecDestructor, XmlNodeVecDestructorType);
+impl_vec!(
+    XmlNode,
+    XmlNodeVec,
+    XmlNodeVecDestructor,
+    XmlNodeVecDestructorType
+);
 impl_vec_mut!(XmlNode, XmlNodeVec);
 impl_vec_debug!(XmlNode, XmlNodeVec);
 impl_vec_partialeq!(XmlNode, XmlNodeVec);
@@ -860,7 +870,7 @@ impl Default for XmlComponentMap {
         let mut map = Self {
             components: Vec::new(),
         };
-        
+
         // Structural elements
         map.register_component(XmlComponent {
             id: normalize_casing("html"),
@@ -882,7 +892,7 @@ impl Default for XmlComponentMap {
             renderer: Box::new(BodyRenderer::new()),
             inherit_vars: true,
         });
-        
+
         // Block-level elements
         map.register_component(XmlComponent {
             id: normalize_casing("div"),
@@ -924,7 +934,7 @@ impl Default for XmlComponentMap {
             renderer: Box::new(MainRenderer::new()),
             inherit_vars: true,
         });
-        
+
         // Heading elements
         map.register_component(XmlComponent {
             id: normalize_casing("h1"),
@@ -956,7 +966,7 @@ impl Default for XmlComponentMap {
             renderer: Box::new(H6Renderer::new()),
             inherit_vars: true,
         });
-        
+
         // Text content elements
         map.register_component(XmlComponent {
             id: normalize_casing("p"),
@@ -993,7 +1003,7 @@ impl Default for XmlComponentMap {
             renderer: Box::new(HrRenderer::new()),
             inherit_vars: true,
         });
-        
+
         // List elements
         map.register_component(XmlComponent {
             id: normalize_casing("ul"),
@@ -1025,7 +1035,7 @@ impl Default for XmlComponentMap {
             renderer: Box::new(DdRenderer::new()),
             inherit_vars: true,
         });
-        
+
         // Table elements
         map.register_component(XmlComponent {
             id: normalize_casing("table"),
@@ -1062,7 +1072,7 @@ impl Default for XmlComponentMap {
             renderer: Box::new(TdRenderer::new()),
             inherit_vars: true,
         });
-        
+
         // Inline elements
         map.register_component(XmlComponent {
             id: normalize_casing("a"),
@@ -1114,7 +1124,7 @@ impl Default for XmlComponentMap {
             renderer: Box::new(SupRenderer::new()),
             inherit_vars: true,
         });
-        
+
         // Form elements
         map.register_component(XmlComponent {
             id: normalize_casing("form"),
@@ -1131,7 +1141,7 @@ impl Default for XmlComponentMap {
             renderer: Box::new(ButtonRenderer::new()),
             inherit_vars: true,
         });
-        
+
         map
     }
 }
@@ -1422,7 +1432,7 @@ macro_rules! html_component {
                 text: &XmlTextContent,
             ) -> Result<StyledDom, RenderDomError> {
                 let mut dom = Dom::create_node($node_type);
-                
+
                 // Add text content if present
                 if let Some(text_str) = text.as_ref() {
                     let prepared = prepare_string(text_str);
@@ -1430,7 +1440,7 @@ macro_rules! html_component {
                         dom = dom.with_children(alloc::vec![Dom::create_text(prepared)].into());
                     }
                 }
-                
+
                 Ok(dom.style(Css::empty()))
             }
 
@@ -1440,7 +1450,10 @@ macro_rules! html_component {
                 _: &ComponentArguments,
                 _: &XmlTextContent,
             ) -> Result<String, CompileError> {
-                Ok(format!("Dom::create_node(NodeType::{})", stringify!($node_type)))
+                Ok(format!(
+                    "Dom::create_node(NodeType::{})",
+                    stringify!($node_type)
+                ))
             }
 
             fn get_xml_node(&self) -> XmlNode {
@@ -2333,8 +2346,7 @@ pub fn render_dom_from_body_node_inner<'a>(
             }
             XmlNodeChild::Text(text) => {
                 // Create a text node for text children
-                let text_dom =
-                    Dom::create_text(AzString::from(text.as_str())).style(Css::empty());
+                let text_dom = Dom::create_text(AzString::from(text.as_str())).style(Css::empty());
                 dom.append_child(text_dom);
             }
         }
@@ -3062,7 +3074,8 @@ fn group_matches(
                 }
             }
             PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Pattern(p))) => {
-                if idx_in_parent.saturating_sub(p.offset as usize) % p.pattern_repeat as usize != 0 {
+                if idx_in_parent.saturating_sub(p.offset as usize) % p.pattern_repeat as usize != 0
+                {
                     return false;
                 }
             }
@@ -3203,10 +3216,8 @@ pub fn compile_body_node_to_rust_code<'a>(
                     let text = text.trim();
                     if !text.is_empty() {
                         let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
-                        dom_string.push_str(&format!(
-                            "{}Dom::text(\"{}\".into()),\r\n",
-                            t, escaped
-                        ));
+                        dom_string
+                            .push_str(&format!("{}Dom::text(\"{}\".into()),\r\n", t, escaped));
                     }
                 }
             }
@@ -3485,37 +3496,35 @@ pub fn compile_node_to_rust_code_inner<'a>(
         .as_ref()
         .iter()
         .enumerate()
-        .filter_map(|(child_idx, c)| {
-            match c {
-                XmlNodeChild::Element(child_node) => {
-                    let mut matcher = matcher.clone();
-                    matcher.path.push(CssPathSelector::Children);
-                    matcher.indices_in_parent.push(child_idx);
-                    matcher.children_length.push(node.children.len());
+        .filter_map(|(child_idx, c)| match c {
+            XmlNodeChild::Element(child_node) => {
+                let mut matcher = matcher.clone();
+                matcher.path.push(CssPathSelector::Children);
+                matcher.indices_in_parent.push(child_idx);
+                matcher.children_length.push(node.children.len());
 
-                    Some(compile_node_to_rust_code_inner(
-                        child_node,
-                        component_map,
-                        &ComponentArguments {
-                            args: filtered_xml_attributes.types.clone(),
-                            accepts_text: filtered_xml_attributes.accepts_text,
-                        },
-                        tabs + 1,
-                        extra_blocks,
-                        css_blocks,
-                        css,
-                        matcher,
-                    ))
-                }
-                XmlNodeChild::Text(text) => {
-                    let text = text.trim();
-                    if text.is_empty() {
-                        None
-                    } else {
-                        let t2 = String::from("    ").repeat(tabs);
-                        let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
-                        Some(Ok(format!("{}Dom::text(\"{}\".into())", t2, escaped)))
-                    }
+                Some(compile_node_to_rust_code_inner(
+                    child_node,
+                    component_map,
+                    &ComponentArguments {
+                        args: filtered_xml_attributes.types.clone(),
+                        accepts_text: filtered_xml_attributes.accepts_text,
+                    },
+                    tabs + 1,
+                    extra_blocks,
+                    css_blocks,
+                    css,
+                    matcher,
+                ))
+            }
+            XmlNodeChild::Text(text) => {
+                let text = text.trim();
+                if text.is_empty() {
+                    None
+                } else {
+                    let t2 = String::from("    ").repeat(tabs);
+                    let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
+                    Some(Ok(format!("{}Dom::text(\"{}\".into())", t2, escaped)))
                 }
             }
         })
@@ -3655,7 +3664,8 @@ mod tests {
         let expected_dom = Dom::create_p().with_children(
             vec![
                 Dom::create_text("Text before "),
-                Dom::create_node(NodeType::Span).with_children(vec![Dom::create_text("inline text")].into()),
+                Dom::create_node(NodeType::Span)
+                    .with_children(vec![Dom::create_text("inline text")].into()),
                 Dom::create_text(" text after."),
             ]
             .into(),
@@ -3683,7 +3693,9 @@ mod tests {
 
         let node = XmlNode {
             node_type: "p".into(),
-            attributes: XmlAttributeMap { inner: StringPairVec::from_const_slice(&[]) },
+            attributes: XmlAttributeMap {
+                inner: StringPairVec::from_const_slice(&[]),
+            },
             children: vec![
                 XmlNodeChild::Text("Before ".into()),
                 XmlNodeChild::Element(XmlNode {

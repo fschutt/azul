@@ -16,8 +16,8 @@ use azul_core::{
 use super::{defines::*, WaylandWindow};
 use crate::desktop::shell2::common::window::PlatformWindow;
 
-use crate::{log_debug, log_error, log_info, log_warn, log_trace};
 use super::super::super::common::debug_server::LogCategory;
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 // -- State for input devices --
 
@@ -149,9 +149,11 @@ pub(super) extern "C" fn wl_surface_enter_handler(
 
     // Only regenerate if DPI changed significantly
     if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
-        log_info!(LogCategory::Window,
+        log_info!(
+            LogCategory::Window,
             "[Wayland DPI Change] {} -> {} (entered new monitor)",
-            old_dpi, new_dpi
+            old_dpi,
+            new_dpi
         );
         window.current_window_state.size.dpi = new_dpi;
         window.frame_needs_regeneration = true;
@@ -175,9 +177,11 @@ pub(super) extern "C" fn wl_surface_leave_handler(
 
     // Only regenerate if DPI changed significantly
     if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
-        log_info!(LogCategory::Window,
+        log_info!(
+            LogCategory::Window,
             "[Wayland DPI Change] {} -> {} (left monitor)",
-            old_dpi, new_dpi
+            old_dpi,
+            new_dpi
         );
         window.current_window_state.size.dpi = new_dpi;
         window.frame_needs_regeneration = true;
@@ -303,12 +307,19 @@ pub(super) extern "C" fn registry_global_handler(
             let blur_manager = unsafe {
                 // wl_registry.bind signature: new_id<interface>(name: uint, interface: string, version: uint)
                 type WlRegistryBindFn = unsafe extern "C" fn(
-                    *mut wl_proxy, u32, *const wl_interface, u32, *const i8, u32, *const std::ffi::c_void
+                    *mut wl_proxy,
+                    u32,
+                    *const wl_interface,
+                    u32,
+                    *const i8,
+                    u32,
+                    *const std::ffi::c_void,
                 ) -> *mut wl_proxy;
-                let bind_fn: WlRegistryBindFn = std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
+                let bind_fn: WlRegistryBindFn =
+                    std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
                 bind_fn(
                     registry as *mut wl_proxy,
-                    0, // wl_registry.bind opcode
+                    0,                // wl_registry.bind opcode
                     std::ptr::null(), // No interface definition for KDE extension
                     name,
                     b"org_kde_kwin_blur_manager\0".as_ptr() as *const i8,
@@ -529,8 +540,11 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
 
             // Check if any CSS breakpoints were crossed
             let breakpoints = [320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
-            if old_context.viewport_breakpoint_changed(&window.dynamic_selector_context, &breakpoints) {
-                log_debug!(LogCategory::Layout,
+            if old_context
+                .viewport_breakpoint_changed(&window.dynamic_selector_context, &breakpoints)
+            {
+                log_debug!(
+                    LogCategory::Layout,
                     "[Wayland Resize] Breakpoint crossed: {}x{} -> {}x{}",
                     old_context.viewport_width,
                     old_context.viewport_height,

@@ -3,11 +3,11 @@
 //! This module implements 4x4 transformation matrices for CSS `transform` properties,
 //! including translation, rotation, scaling, skewing, and perspective. It handles conversion
 //! from CSS transform functions to hardware-accelerated matrices for WebRender.
-//! 
+//!
 //! On x86_64 platforms, the module automatically detects and uses SSE/AVX instructions
 //! for optimized matrix multiplication and inversion.
 //!
-//! **NOTE**: Matrices are stored in **row-major** format (unlike some graphics APIs that 
+//! **NOTE**: Matrices are stored in **row-major** format (unlike some graphics APIs that
 //! use column-major). The module handles coordinate system differences between WebRender
 //! and hit-testing via the `RotationMode` enum.
 

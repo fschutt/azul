@@ -1,8 +1,6 @@
 use azul_core::{
     callbacks::{CoreCallback, CoreCallbackData, Update},
-    dom::{
-        Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec,
-    },
+    dom::{Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
 use azul_css::{
@@ -1230,7 +1228,11 @@ impl TabHeader {
         .into();
     }
 
-    pub fn with_on_click<C: Into<TabOnClickCallback>>(mut self, refany: RefAny, on_click: C) -> Self {
+    pub fn with_on_click<C: Into<TabOnClickCallback>>(
+        mut self,
+        refany: RefAny,
+        on_click: C,
+    ) -> Self {
         self.set_on_click(refany, on_click);
         self
     }

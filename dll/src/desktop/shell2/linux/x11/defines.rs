@@ -275,12 +275,12 @@ pub const FocusChangeMask: c_long = 1 << 21;
 // X11 modifier masks (from X.h)
 // These are used in the 'state' field of XButtonEvent, XMotionEvent, XKeyEvent, XCrossingEvent
 pub const SHIFT_MASK: c_uint = 1 << 0;
-pub const LOCK_MASK: c_uint = 1 << 1;   // Caps Lock
+pub const LOCK_MASK: c_uint = 1 << 1; // Caps Lock
 pub const CONTROL_MASK: c_uint = 1 << 2;
-pub const MOD1_MASK: c_uint = 1 << 3;   // Usually Alt
-pub const MOD2_MASK: c_uint = 1 << 4;   // Usually Num Lock
+pub const MOD1_MASK: c_uint = 1 << 3; // Usually Alt
+pub const MOD2_MASK: c_uint = 1 << 4; // Usually Num Lock
 pub const MOD3_MASK: c_uint = 1 << 5;
-pub const MOD4_MASK: c_uint = 1 << 6;   // Usually Super/Windows key
+pub const MOD4_MASK: c_uint = 1 << 6; // Usually Super/Windows key
 pub const MOD5_MASK: c_uint = 1 << 7;
 
 // Event types
@@ -699,15 +699,18 @@ pub struct XRenderPictFormat {
 }
 
 // Xlib function types for ARGB visual / colormap
-pub type XCreateColormap = unsafe extern "C" fn(*mut Display, Window, *mut Visual, c_int) -> Colormap;
+pub type XCreateColormap =
+    unsafe extern "C" fn(*mut Display, Window, *mut Visual, c_int) -> Colormap;
 pub type XDefaultVisual = unsafe extern "C" fn(*mut Display, c_int) -> *mut Visual;
 pub type XDefaultColormap = unsafe extern "C" fn(*mut Display, c_int) -> Colormap;
 pub type XDefaultDepth = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
-pub type XMatchVisualInfo = unsafe extern "C" fn(*mut Display, c_int, c_int, c_int, *mut XVisualInfo) -> c_int;
+pub type XMatchVisualInfo =
+    unsafe extern "C" fn(*mut Display, c_int, c_int, c_int, *mut XVisualInfo) -> c_int;
 pub type XFreeColormap = unsafe extern "C" fn(*mut Display, Colormap) -> c_int;
 
 // XRender function types
-pub type XRenderFindVisualFormat = unsafe extern "C" fn(*mut Display, *const Visual) -> *mut XRenderPictFormat;
+pub type XRenderFindVisualFormat =
+    unsafe extern "C" fn(*mut Display, *const Visual) -> *mut XRenderPictFormat;
 
 // Additional CW (change window) attribute flags for XCreateWindow
 pub const CWBackPixmap: c_ulong = 1 << 0;
@@ -719,4 +722,3 @@ pub const AllocAll: c_int = 1;
 
 // Visual class for XMatchVisualInfo
 pub const TrueColor: c_int = 4;
-

@@ -644,7 +644,12 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]
 );
 
-crate::impl_vec!(CssProperty, CssPropertyVec, CssPropertyVecDestructor, CssPropertyVecDestructorType);
+crate::impl_vec!(
+    CssProperty,
+    CssPropertyVec,
+    CssPropertyVecDestructor,
+    CssPropertyVecDestructorType
+);
 crate::impl_vec_clone!(CssProperty, CssPropertyVec, CssPropertyVecDestructor);
 crate::impl_vec_debug!(CssProperty, CssPropertyVec);
 crate::impl_vec_partialeq!(CssProperty, CssPropertyVec);
@@ -1646,7 +1651,10 @@ impl_from!(
 impl_from!(LayoutTopParseError<'a>, CssParsingError::LayoutTop);
 impl_from!(LayoutRightParseError<'a>, CssParsingError::LayoutRight);
 impl_from!(LayoutLeftParseError<'a>, CssParsingError::LayoutLeft);
-impl_from!(LayoutInsetBottomParseError<'a>, CssParsingError::LayoutInsetBottom);
+impl_from!(
+    LayoutInsetBottomParseError<'a>,
+    CssParsingError::LayoutInsetBottom
+);
 impl_from!(LayoutZIndexParseError<'a>, CssParsingError::LayoutZIndex);
 
 // Layout flex
@@ -2082,7 +2090,9 @@ impl CssParsingErrorOwned {
             CssParsingErrorOwned::LayoutTop(e) => CssParsingError::LayoutTop(e.to_shared()),
             CssParsingErrorOwned::LayoutRight(e) => CssParsingError::LayoutRight(e.to_shared()),
             CssParsingErrorOwned::LayoutLeft(e) => CssParsingError::LayoutLeft(e.to_shared()),
-            CssParsingErrorOwned::LayoutInsetBottom(e) => CssParsingError::LayoutInsetBottom(e.to_shared()),
+            CssParsingErrorOwned::LayoutInsetBottom(e) => {
+                CssParsingError::LayoutInsetBottom(e.to_shared())
+            }
             CssParsingErrorOwned::LayoutZIndex(e) => CssParsingError::LayoutZIndex(e.to_shared()),
             CssParsingErrorOwned::FlexWrap(e) => CssParsingError::FlexWrap(e.to_shared()),
             CssParsingErrorOwned::FlexDirection(e) => CssParsingError::FlexDirection(e.to_shared()),
@@ -2306,7 +2316,9 @@ pub fn parse_css_property<'a>(
             }
             CssPropertyType::GridAutoColumns => {
                 let template = parse_grid_template(value)?;
-                CssProperty::GridAutoColumns(CssPropertyValue::Exact(GridAutoTracks::from(template)))
+                CssProperty::GridAutoColumns(CssPropertyValue::Exact(GridAutoTracks::from(
+                    template,
+                )))
             }
             CssPropertyType::GridAutoFlow => {
                 CssProperty::GridAutoFlow(parse_layout_grid_auto_flow(value)?.into())
@@ -2727,10 +2739,14 @@ pub fn parse_combined_css_property<'a>(
     // so we must not intercept it here and let the specific parser handle it below.
     let has_typed_auto = matches!(key, Overflow);
     let has_typed_none = false; // Currently no combined properties have typed "none"
-    
+
     match value {
-        "auto" if !has_typed_auto => return Ok(keys.into_iter().map(|ty| CssProperty::auto(ty)).collect()),
-        "none" if !has_typed_none => return Ok(keys.into_iter().map(|ty| CssProperty::none(ty)).collect()),
+        "auto" if !has_typed_auto => {
+            return Ok(keys.into_iter().map(|ty| CssProperty::auto(ty)).collect())
+        }
+        "none" if !has_typed_none => {
+            return Ok(keys.into_iter().map(|ty| CssProperty::none(ty)).collect())
+        }
         "initial" => {
             return Ok(keys
                 .into_iter()

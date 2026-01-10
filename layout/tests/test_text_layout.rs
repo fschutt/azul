@@ -46,7 +46,8 @@ fn test_nested_text_nodes() {
     // HTML: <div><span>Hello</span> <span>World</span></div>
     // Expected: DIV creates BFC with IFC, spans are inline, text is inline content
 
-    let mut dom = Dom::create_div().with_children(vec![Dom::create_text("Hello "), Dom::create_text("World")].into());
+    let mut dom = Dom::create_div()
+        .with_children(vec![Dom::create_text("Hello "), Dom::create_text("World")].into());
     let styled_dom = dom.style(Css::empty());
 
     eprintln!("\nTest: nested_text_nodes");

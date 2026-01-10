@@ -240,7 +240,7 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<()> {
 /// Generate a reftest HTML page without running any tests.
 /// If test_dir exists and contains tests, it will show "X tests found (not run)".
 /// If test_dir doesn't exist or is empty, it will show "0 tests found".
-/// 
+///
 /// This function also copies existing reftest results and images from the standard
 /// reftest output directory (doc/target/reftest) if they exist.
 pub fn generate_reftest_page(output_dir: &Path, test_dir: Option<&Path>) -> anyhow::Result<()> {
@@ -257,20 +257,20 @@ pub fn generate_reftest_page(output_dir: &Path, test_dir: Option<&Path>) -> anyh
     // If we have existing results, copy them instead of generating empty page
     if existing_results_json.exists() && existing_index_html.exists() {
         println!("  Found existing reftest results, copying...");
-        
+
         // Copy index.html
         fs::copy(&existing_index_html, output_dir.join("index.html"))?;
         println!("    Copied index.html");
-        
+
         // Copy results.json
         fs::copy(&existing_results_json, output_dir.join("results.json"))?;
         println!("    Copied results.json");
-        
+
         // Copy reftest_img directory if it exists
         if existing_reftest_img.exists() && existing_reftest_img.is_dir() {
             let dest_img_dir = output_dir.join("reftest_img");
             fs::create_dir_all(&dest_img_dir)?;
-            
+
             let mut img_count = 0;
             for entry in fs::read_dir(&existing_reftest_img)? {
                 let entry = entry?;
@@ -283,14 +283,18 @@ pub fn generate_reftest_page(output_dir: &Path, test_dir: Option<&Path>) -> anyh
             }
             println!("    Copied {} reftest images", img_count);
         }
-        
+
         // Also copy to reftest.html in parent directory
-        if output_dir.file_name().map(|n| n == "reftest").unwrap_or(false) {
+        if output_dir
+            .file_name()
+            .map(|n| n == "reftest")
+            .unwrap_or(false)
+        {
             if let Some(parent) = output_dir.parent() {
                 fs::copy(output_dir.join("index.html"), parent.join("reftest.html"))?;
             }
         }
-        
+
         println!("  [OK] Reftest results copied from existing run");
         return Ok(());
     }
@@ -412,7 +416,11 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
         "Comparison: {} pixels different ({:.3}%), test {}",
         diff_count,
         percentage,
-        if passed { "PASSED [ OK ]" } else { "FAILED [ ERROR ]" }
+        if passed {
+            "PASSED [ OK ]"
+        } else {
+            "FAILED [ ERROR ]"
+        }
     );
 
     // Read XHTML source
@@ -1334,8 +1342,7 @@ impl CssWarningCollector {
     /// Parse CSS and collect warnings
     pub fn parse_css(&mut self, css_text: &str) -> Css {
         // Parse CSS and get warnings
-        let (css, warnings) =
-            Css::from_string_with_warnings(css_text.to_string().into());
+        let (css, warnings) = Css::from_string_with_warnings(css_text.to_string().into());
 
         // Check for parse errors
         for w in warnings {

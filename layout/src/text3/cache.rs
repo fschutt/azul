@@ -17,7 +17,9 @@ use azul_core::{
     selection::{CursorAffinity, SelectionRange, TextCursor},
     ui_solver::GlyphInstance,
 };
-use azul_css::{corety::LayoutDebugMessage, props::basic::ColorU, props::style::StyleBackgroundContent};
+use azul_css::{
+    corety::LayoutDebugMessage, props::basic::ColorU, props::style::StyleBackgroundContent,
+};
 #[cfg(feature = "text_layout_hyphenation")]
 use hyphenation::{Hyphenator, Language, Load, Standard};
 use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, FontId, PatternMatch, UnicodeRange};
@@ -1128,7 +1130,7 @@ pub enum ObjectFit {
 }
 
 /// Border information for inline elements (display: inline, inline-block)
-/// 
+///
 /// This stores the resolved border properties needed for rendering inline element borders.
 /// Unlike block elements which render borders via paint_node_background_and_border(),
 /// inline element borders must be rendered per glyph-run to handle line breaks correctly.
@@ -5805,7 +5807,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
         //   <img style="vertical-align: middle"> would center in line box
         //   <img style="vertical-align: bottom"> would align to line bottom
         //
-        // To fix this, we would need dir_to: 
+        // To fix this, we would need dir_to:
         // 1. Add a helper function `get_item_vertical_align(&item)` that extracts the alignment
         //    from ShapedItem::Object -> InlineContent::Image -> alignment
         // 2. Use that alignment instead of `constraints.vertical_align` for Objects
