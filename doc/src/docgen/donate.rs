@@ -17,7 +17,6 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
         donation_options.push_str(&format!(
             r#"<div class="donation-option">
                 <h2>GitHub Sponsors</h2>
-                <p>Support development directly through GitHub Sponsors.</p>
                 <a href="https://github.com/sponsors/{}" class="donation-button github">
                     Sponsor on GitHub
                 </a>
@@ -31,7 +30,6 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
         donation_options.push_str(&format!(
             r#"<div class="donation-option">
                 <h2>Ko-fi</h2>
-                <p>Buy me a coffee to keep development going.</p>
                 <a href="https://ko-fi.com/{}" class="donation-button kofi">
                     Support on Ko-fi
                 </a>
@@ -45,7 +43,6 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
         donation_options.push_str(&format!(
             r#"<div class="donation-option">
                 <h2>Liberapay</h2>
-                <p>Support through Liberapay, an open source donation platform.</p>
                 <a href="https://liberapay.com/{}" class="donation-button liberapay">
                     Donate on Liberapay
                 </a>
@@ -68,7 +65,6 @@ pub fn generate_donation_page(yaml_str: &str) -> anyhow::Result<String> {
             donation_options.push_str(&format!(
                 r#"<div class="donation-option">
                     <h2>{}</h2>
-                    <p>Direct payment through {}.</p>
                     <a href="{}" class="donation-button {}">
                         Donate via {}
                     </a>
