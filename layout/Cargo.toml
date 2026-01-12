@@ -69,8 +69,11 @@ widgets = ["text_layout", "dep:strfmt"]
 extra = ["dep:tfd"]
 
 # Basic text shaping (unicode support, allsorts font parsing)
+# Requires font_loading for font discovery (FcFontCache)
 # Does NOT include hyphenation (saves ~25 dependencies)
 text_layout = [
+    "std",
+    "font_loading",
     "dep:unicode-normalization",
     "dep:allsorts",
     "dep:tinyvec",

@@ -15,7 +15,13 @@
 
 use azul_core::geom::{LogicalPosition, LogicalSize};
 
+#[cfg(all(feature = "text_layout", feature = "font_loading"))]
 use crate::solver3::display_list::DisplayList;
+
+// Stub type when text_layout or font_loading is disabled
+#[cfg(not(all(feature = "text_layout", feature = "font_loading")))]
+#[derive(Debug, Clone, Default)]
+pub struct DisplayList;
 
 /// Represents a series of containers that content flows into during layout.
 ///

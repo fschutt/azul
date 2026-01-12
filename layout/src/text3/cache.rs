@@ -21,14 +21,31 @@ use azul_css::{
     corety::LayoutDebugMessage, props::basic::ColorU, props::style::StyleBackgroundContent,
 };
 #[cfg(feature = "text_layout_hyphenation")]
-use hyphenation::{Hyphenator, Language, Load, Standard};
+use hyphenation::{Hyphenator, Language as HyphenationLanguage, Load, Standard};
 use rust_fontconfig::{FcFontCache, FcPattern, FcWeight, FontId, PatternMatch, UnicodeRange};
 use unicode_bidi::{BidiInfo, Level, TextSource};
 use unicode_segmentation::UnicodeSegmentation;
 
+// Stub type when hyphenation is disabled
 #[cfg(not(feature = "text_layout_hyphenation"))]
-use crate::text3::script::Language;
-use crate::text3::script::{script_to_language, Script};
+pub struct Standard;
+
+#[cfg(not(feature = "text_layout_hyphenation"))]
+impl Standard {
+    /// Stub hyphenate method that returns no breaks
+    pub fn hyphenate<'a>(&'a self, _word: &'a str) -> StubHyphenationBreaks {
+        StubHyphenationBreaks { breaks: Vec::new() }
+    }
+}
+
+/// Result of hyphenation (stub when feature is disabled)
+#[cfg(not(feature = "text_layout_hyphenation"))]
+pub struct StubHyphenationBreaks {
+    pub breaks: alloc::vec::Vec<usize>,
+}
+
+// Always import Language from script module
+use crate::text3::script::{script_to_language, Language, Script};
 
 /// Available space for layout, similar to Taffy's AvailableSpace.
 ///
@@ -6586,8 +6603,15 @@ fn polygon_line_intersection(
 // ADDITION: A helper function to get a hyphenator.
 /// Helper to get a hyphenator for a given language.
 /// TODO: In a real app, this would be cached.
-fn get_hyphenator(language: Language) -> Result<Standard, LayoutError> {
+#[cfg(feature = "text_layout_hyphenation")]
+fn get_hyphenator(language: HyphenationLanguage) -> Result<Standard, LayoutError> {
     Standard::from_embedded(language).map_err(|e| LayoutError::HyphenationError(e.to_string()))
+}
+
+/// Stub when hyphenation is disabled - always returns an error
+#[cfg(not(feature = "text_layout_hyphenation"))]
+fn get_hyphenator(_language: Language) -> Result<Standard, LayoutError> {
+    Err(LayoutError::HyphenationError("Hyphenation feature not enabled".to_string()))
 }
 
 fn is_break_opportunity(item: &ShapedItem) -> bool {

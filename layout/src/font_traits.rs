@@ -5,9 +5,9 @@
 
 use azul_core::geom::LogicalSize;
 
-#[cfg(feature = "text_layout")]
+#[cfg(all(feature = "text_layout", feature = "font_loading"))]
 pub use crate::text3::script::Language;
-#[cfg(feature = "text_layout")]
+#[cfg(all(feature = "text_layout", feature = "font_loading"))]
 pub use crate::text3::{
     cache::{
         AvailableSpace, BidiDirection, ContentIndex, FontHash, FontManager, FontSelector,
@@ -19,7 +19,11 @@ pub use crate::text3::{
     script::Script,
 };
 
+#[cfg(all(feature = "text_layout", feature = "font_loading"))]
 pub type TextLayoutCache = LayoutCache;
+
+#[cfg(not(all(feature = "text_layout", feature = "font_loading")))]
+pub use stub::TextLayoutCache;
 
 /// Trait for types that support cheap, shallow cloning (e.g., reference-counted types).
 pub trait ShallowClone {
@@ -67,11 +71,42 @@ pub trait FontLoaderTrait<T>: Send + core::fmt::Debug {
     fn load_font(&self, font_bytes: &[u8], font_index: usize) -> Result<T, LayoutError>;
 }
 
-// When text_layout is disabled, provide minimal stub types
-#[cfg(not(feature = "text_layout"))]
+/// Opaque font identifier - wraps the underlying font system's ID type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FontId(pub u64);
+
+/// Trait for font system abstraction (font discovery, fallback chains).
+///
+/// This abstracts over the underlying font system (e.g., rust_fontconfig, fontdb)
+/// allowing text3 to work with or without system font discovery.
+pub trait FontSystemTrait: Send + Sync {
+    /// The type of font fallback chain this system uses
+    type FallbackChain: FontFallbackChainTrait;
+
+    /// Resolve a character to a font ID using the fallback chain
+    fn resolve_char(&self, chain: &Self::FallbackChain, c: char) -> Option<FontId>;
+
+    /// Get the font data (bytes) for a font ID
+    fn get_font_data(&self, font_id: FontId) -> Option<alloc::vec::Vec<u8>>;
+
+    /// Get the font index within the font file
+    fn get_font_index(&self, font_id: FontId) -> usize;
+}
+
+/// Trait for font fallback chains
+pub trait FontFallbackChainTrait: Clone + Send + Sync {
+    /// Check if the chain is empty
+    fn is_empty(&self) -> bool;
+
+    /// Get the primary font ID (if any)
+    fn primary_font_id(&self) -> Option<FontId>;
+}
+
+// When text_layout or font_loading is disabled, provide minimal stub types
+#[cfg(not(all(feature = "text_layout", feature = "font_loading")))]
 pub use stub::*;
 
-#[cfg(not(feature = "text_layout"))]
+#[cfg(not(all(feature = "text_layout", feature = "font_loading")))]
 mod stub {
     use super::*;
 
@@ -94,13 +129,18 @@ mod stub {
         RightToLeft,
     }
 
+    /// Stub for BidiDirection when text_layout is disabled
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum BidiDirection {
+        Ltr,
+        Rtl,
+    }
+
     #[derive(Debug, Clone)]
     pub struct StyleProperties;
 
     #[derive(Debug, Clone)]
-    pub struct Glyph<T> {
-        _phantom: core::marker::PhantomData<T>,
-    }
+    pub struct Glyph;
 
     #[derive(Debug, Clone, Copy)]
     pub struct VerticalMetrics {
@@ -124,14 +164,10 @@ mod stub {
     pub struct FontSelector;
 
     #[derive(Debug)]
-    pub struct FontManager<T, Q> {
-        _phantom: core::marker::PhantomData<(T, Q)>,
-    }
+    pub struct FontManager;
 
     #[derive(Debug)]
-    pub struct LayoutCache<T> {
-        _phantom: core::marker::PhantomData<T>,
-    }
+    pub struct LayoutCache;
 
     // Additional stub types needed by solver3
     pub type ContentIndex = usize;
@@ -186,7 +222,7 @@ mod stub {
     #[derive(Debug, Clone)]
     pub struct UnifiedLayout;
 
-    pub type TextLayoutCache = LayoutCache<()>;
+    pub type TextLayoutCache = LayoutCache;
 
     pub type Size = azul_core::geom::LogicalSize;
 }

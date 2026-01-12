@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 #[cfg(feature = "text_layout_hyphenation")]
 use hyphenation::{Hyphenator, Standard};
+#[cfg(not(feature = "text_layout_hyphenation"))]
+use crate::text3::cache::Standard;
 
 use crate::text3::cache::{
     get_base_direction_from_logical, get_item_measure, is_word_separator, AvailableSpace,

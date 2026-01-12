@@ -231,6 +231,26 @@ impl Clone for ThreadSendCallback {
     }
 }
 
+impl PartialEq for ThreadSendCallback {
+    fn eq(&self, other: &Self) -> bool {
+        self.cb as usize == other.cb as usize
+    }
+}
+
+impl Eq for ThreadSendCallback {}
+
+impl PartialOrd for ThreadSendCallback {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ThreadSendCallback {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        (self.cb as usize).cmp(&(other.cb as usize))
+    }
+}
+
 /// Destructor callback for ThreadSender
 pub type ThreadSenderDestructorCallbackType = extern "C" fn(*mut ThreadSenderInner);
 
@@ -252,6 +272,26 @@ impl core::fmt::Debug for ThreadSenderDestructorCallback {
 impl Clone for ThreadSenderDestructorCallback {
     fn clone(&self) -> Self {
         Self { cb: self.cb }
+    }
+}
+
+impl PartialEq for ThreadSenderDestructorCallback {
+    fn eq(&self, other: &Self) -> bool {
+        self.cb as usize == other.cb as usize
+    }
+}
+
+impl Eq for ThreadSenderDestructorCallback {}
+
+impl PartialOrd for ThreadSenderDestructorCallback {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ThreadSenderDestructorCallback {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        (self.cb as usize).cmp(&(other.cb as usize))
     }
 }
 

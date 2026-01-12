@@ -31,7 +31,19 @@ use azul_css::props::layout::fragmentation::{
     BoxDecorationBreak, BreakInside, Orphans, PageBreak, Widows,
 };
 
+#[cfg(all(feature = "text_layout", feature = "font_loading"))]
 use crate::solver3::display_list::{DisplayList, DisplayListItem};
+
+// Stub types when text_layout or font_loading is disabled
+#[cfg(not(all(feature = "text_layout", feature = "font_loading")))]
+#[derive(Debug, Clone, Default)]
+pub struct DisplayList {
+    pub items: Vec<DisplayListItem>,
+}
+
+#[cfg(not(all(feature = "text_layout", feature = "font_loading")))]
+#[derive(Debug, Clone)]
+pub struct DisplayListItem;
 
 // Page Templates (Headers, Footers, Running Content)
 

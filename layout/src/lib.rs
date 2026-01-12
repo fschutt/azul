@@ -15,6 +15,7 @@ pub mod font_traits;
 pub mod image;
 #[cfg(feature = "text_layout")]
 pub mod managers;
+#[cfg(feature = "text_layout")]
 pub mod solver3;
 
 // Widget modules (behind feature flags)
@@ -35,12 +36,12 @@ pub mod callbacks;
 pub mod cpurender;
 #[cfg(feature = "text_layout")]
 pub mod event_determination;
-#[cfg(feature = "font_loading")]
+#[cfg(feature = "text_layout")]
 pub mod font;
 // Re-export allsorts types needed by printpdf
-#[cfg(feature = "font_loading")]
+#[cfg(feature = "text_layout")]
 pub use allsorts::subset::CmapTarget;
-#[cfg(feature = "font_loading")]
+#[cfg(feature = "text_layout")]
 pub use font::parsed::{
     FontParseWarning, FontParseWarningSeverity, FontType, OwnedGlyph, ParsedFont, PdfFontMetrics,
     SubsetFont,
@@ -113,7 +114,7 @@ pub fn parse_font_fn(
     .map(|parsed_font| parsed_font_to_font_ref(parsed_font))
 }
 
-#[cfg(feature = "font_loading")]
+#[cfg(feature = "text_layout")]
 pub fn parsed_font_to_font_ref(
     parsed_font: crate::font::parsed::ParsedFont,
 ) -> azul_css::props::basic::FontRef {
@@ -130,7 +131,7 @@ pub fn parsed_font_to_font_ref(
     azul_css::props::basic::FontRef::new(raw_ptr, parsed_font_destructor)
 }
 
-#[cfg(feature = "font_loading")]
+#[cfg(feature = "text_layout")]
 pub fn font_ref_to_parsed_font(
     font_ref: &azul_css::props::basic::FontRef,
 ) -> &crate::font::parsed::ParsedFont {
