@@ -1939,6 +1939,7 @@ impl CallbackInfo {
     ///     Update::DoNothing
     /// }
     /// ```
+    #[cfg(feature = "cpurender")]
     pub fn take_screenshot(&self, dom_id: DomId) -> Result<alloc::vec::Vec<u8>, AzString> {
         use crate::cpurender::{render, RenderOptions};
 
@@ -2000,7 +2001,7 @@ impl CallbackInfo {
     /// # Returns
     /// * `Ok(())` - Screenshot saved successfully
     /// * `Err(String)` - Error message if rendering or saving failed
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", feature = "cpurender"))]
     pub fn take_screenshot_to_file(&self, dom_id: DomId, path: &str) -> Result<(), AzString> {
         let png_data = self.take_screenshot(dom_id)?;
         std::fs::write(path, png_data)
@@ -2075,6 +2076,7 @@ impl CallbackInfo {
     /// # Returns
     /// * `Ok(String)` - Base64 data URI string
     /// * `Err(String)` - Error message if rendering failed
+    #[cfg(feature = "cpurender")]
     pub fn take_screenshot_base64(&self, dom_id: DomId) -> Result<AzString, AzString> {
         let png_bytes = self.take_screenshot(dom_id)?;
         let base64_str = base64_encode(&png_bytes);
