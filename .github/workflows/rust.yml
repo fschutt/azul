@@ -88,6 +88,51 @@ jobs:
           cargo check -p azul-layout
           cargo check -p azul-dll --no-default-features --features "link-static,logging,ico,tga,hdr,webp,pnm,gif,png,tiff,bmp,a11y"
 
+  # Check that the crate compiles with various feature combinations
+  # This catches issues like missing Copy/Clone derives on stub types
+  feature_matrix_check:
+    name: Feature Matrix Check
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Generate DLL API bindings
+        run: cargo run -r -p azul-doc codegen all
+
+      - name: Check azul-dll with a11y enabled (default)
+        run: cargo check -p azul-dll --no-default-features --features "link-static,logging,a11y"
+
+      - name: Check azul-dll WITHOUT a11y (stub implementations)
+        run: cargo check -p azul-dll --no-default-features --features "link-static,logging"
+
+      - name: Check azul-dll with minimal features
+        run: cargo check -p azul-dll --no-default-features --features "link-static"
+
+      - name: Check azul-dll with all image formats
+        run: cargo check -p azul-dll --no-default-features --features "link-static,all_img_formats"
+
+      - name: Check azul-dll with svg and xml
+        run: cargo check -p azul-dll --no-default-features --features "link-static,svg,xml"
+
+      - name: Check azul-dll with link-dynamic (no internal crates)
+        run: cargo check -p azul-dll --no-default-features --features "link-dynamic"
+
+      - name: Check azul-layout with various features
+        run: |
+          cargo check -p azul-layout --no-default-features
+          cargo check -p azul-layout --no-default-features --features "text_layout"
+          cargo check -p azul-layout --no-default-features --features "font_loading"
+          cargo check -p azul-layout --no-default-features --features "svg"
+          cargo check -p azul-layout --no-default-features --features "xml"
+          cargo check -p azul-layout --no-default-features --features "text_layout,font_loading,svg,xml"
+
   test_heavy:
     name: Run Heavy Tests (Miri + Reftests)
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
