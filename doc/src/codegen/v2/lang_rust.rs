@@ -192,7 +192,7 @@ impl LanguageGenerator for RustGenerator {
                     if skip_trait_functions && func.kind.is_trait_function() {
                         continue;
                     }
-                    self.generate_function_declaration(&mut builder, func, config);
+                    self.generate_function_declaration(&mut builder, func, ir, config);
                 }
 
                 builder.dedent();
@@ -725,7 +725,7 @@ impl RustGenerator {
 
             // into_option() - converts to std Option<T>
             builder.line(&format!(
-                "/// Converts to a Rust `Option<{}>`.",
+                "/// Converts to a Rust `Option<{}>`, consuming self.",
                 prefixed_inner
             ));
             builder.line("#[inline]");
@@ -734,9 +734,15 @@ impl RustGenerator {
                 prefixed_inner
             ));
             builder.indent();
-            builder.line("match self {");
+            builder.line("match &self {");
             builder.indent();
-            builder.line(&format!("{}::Some(v) => Some(v),", prefixed_name));
+            builder.line(&format!("{}::Some(val) => {{", prefixed_name));
+            builder.indent();
+            builder.line("let v = unsafe { core::ptr::read(val) };");
+            builder.line("core::mem::forget(self);");
+            builder.line("Some(v)");
+            builder.dedent();
+            builder.line("}");
             builder.line(&format!("{}::None => None,", prefixed_name));
             builder.dedent();
             builder.line("}");
@@ -1478,10 +1484,9 @@ impl RustGenerator {
                 // Check if this type is a callback wrapper
                 // If so, accept the CallbackType (fn pointer) and pass it directly
                 // (The C-ABI function now accepts CallbackType directly, not the wrapper struct)
-                // BUT: Don't apply this transformation when we're in a method of the callback wrapper itself
-                // (e.g., deep_copy on IFrameCallback should take &IFrameCallback, not IFrameCallbackType)
-                // ALSO: Don't apply for EnumVariantConstructor - enum variants need exact types
-                // (e.g., OptionCallback::Some needs Callback, not CallbackType)
+                // BUT: Don't apply this transformation when:
+                // - we're in a method of the callback wrapper itself (e.g., deep_copy on IFrameCallback)
+                // - this is an EnumVariantConstructor (e.g., OptionCallback::Some needs Callback, not CallbackType)
                 let is_method_of_this_callback = arg.type_name == func.class_name;
                 let is_enum_variant_constructor =
                     matches!(func.kind, FunctionKind::EnumVariantConstructor);
@@ -1492,7 +1497,7 @@ impl RustGenerator {
                     {
                         let fn_ptr_type = config.apply_prefix(callback_type_name);
                         args.push(format!("{}: {}", arg.name, fn_ptr_type));
-                        // Pass the callback type directly to the C-ABI function
+                        // The C-ABI function now expects the fn pointer type directly
                         call_args.push(arg.name.clone());
                         continue;
                     }
@@ -1780,11 +1785,18 @@ impl RustGenerator {
 
         // Copy is a marker trait that cannot be implemented manually or via transmute
         // If the source type explicitly derives Copy, we must derive it here too
+        // Note: Copy requires Clone, so Copy types must also derive Clone
         if struct_def.traits.is_copy {
             builder.line("#[derive(Copy)]");
         }
-        // Only derive Clone if it was explicitly in the derive list (not custom_impls)
-        if struct_def.traits.clone_is_derived {
+        // Derive Clone if:
+        // 1. The type is Copy (Copy requires Clone as supertrait), OR
+        // 2. clone_is_derived is true AND we're NOT using C-API trait impls
+        // When using UsingCAPI for non-Copy types, Clone is implemented via C-ABI function calls
+        let clone_via_capi = matches!(config.trait_impl_mode, TraitImplMode::UsingCAPI);
+        let need_derive_clone = struct_def.traits.is_copy
+            || (struct_def.traits.clone_is_derived && !clone_via_capi);
+        if need_derive_clone {
             builder.line("#[derive(Clone)]");
         }
 
@@ -1844,11 +1856,18 @@ impl RustGenerator {
 
         // Copy is a marker trait that cannot be implemented manually or via transmute
         // If the source type explicitly derives Copy, we must derive it here too
+        // Note: Copy requires Clone, so Copy types must also derive Clone
         if enum_def.traits.is_copy {
             builder.line("#[derive(Copy)]");
         }
-        // Only derive Clone if it was explicitly in the derive list (not custom_impls)
-        if enum_def.traits.clone_is_derived {
+        // Derive Clone if:
+        // 1. The type is Copy (Copy requires Clone as supertrait), OR
+        // 2. clone_is_derived is true AND we're NOT using C-API trait impls
+        // When using UsingCAPI for non-Copy types, Clone is implemented via C-ABI function calls
+        let clone_via_capi = matches!(config.trait_impl_mode, TraitImplMode::UsingCAPI);
+        let need_derive_clone = enum_def.traits.is_copy
+            || (enum_def.traits.clone_is_derived && !clone_via_capi);
+        if need_derive_clone {
             builder.line("#[derive(Clone)]");
         }
 
@@ -2286,11 +2305,10 @@ impl RustGenerator {
             builder.line("#[no_mangle]");
         }
 
-        // Only apply callback wrapper substitution for API functions (Constructor, Method, etc.)
-        // NOT for trait functions (Delete, DeepCopy, PartialEq, etc.) which operate on the
-        // callback wrapper struct itself
-        // NOT for EnumVariantConstructor because enum variants need the exact type (e.g.,
-        // OptionCallback::Some needs Callback, not CallbackType)
+        // Apply callback wrapper substitution for API functions (Constructor, Method, etc.)
+        // NOT for trait functions (Delete, DeepCopy, etc.) which operate on the callback wrapper itself
+        // NOT for EnumVariantConstructor - enum variants like OptionCallback::Some need exact types
+        // for easier C code generation
         let should_substitute_callbacks = matches!(
             func.kind,
             FunctionKind::Constructor
@@ -2599,9 +2617,23 @@ impl RustGenerator {
         &self,
         builder: &mut CodeBuilder,
         func: &FunctionDef,
+        ir: &CodegenIR,
         config: &CodegenConfig,
     ) {
-        let args = self.format_function_args(func, config);
+        // Use format_function_args_for_cabi for API functions (substitutes callback wrappers with fn pointers)
+        // Use format_function_args for EnumVariantConstructor (keeps Callback structs for easier C code)
+        let should_substitute_callbacks = matches!(
+            func.kind,
+            FunctionKind::Constructor
+                | FunctionKind::StaticMethod
+                | FunctionKind::Method
+                | FunctionKind::MethodMut
+        );
+        let args = if should_substitute_callbacks {
+            self.format_function_args_for_cabi(func, ir, config)
+        } else {
+            self.format_function_args(func, config)
+        };
         let return_str = func
             .return_type
             .as_ref()

@@ -161,7 +161,8 @@ impl RustDynamicGenerator {
         let full_name = format!("{}{}", name, generics);
 
         // Clone trait - calls Az{Type}_clone
-        if struct_def.traits.is_clone {
+        // Only generate manual impl if Clone is NOT derived (to avoid conflict with #[derive(Clone)])
+        if struct_def.traits.is_clone && !struct_def.traits.clone_is_derived {
             let clone_fn = format!("{}_clone", name);
             builder.line(&format!("impl{} Clone for {} {{", generics, full_name));
             builder.indent();
@@ -282,7 +283,8 @@ impl RustDynamicGenerator {
         };
         let full_name = format!("{}{}", name, generics);
 
-        if enum_def.traits.is_clone {
+        // Clone trait - only generate manual impl if Clone is NOT derived
+        if enum_def.traits.is_clone && !enum_def.traits.clone_is_derived {
             let clone_fn = format!("{}_clone", name);
             builder.line(&format!("impl{} Clone for {} {{", generics, full_name));
             builder.indent();

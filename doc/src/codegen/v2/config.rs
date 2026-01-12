@@ -546,13 +546,16 @@ impl CodegenConfig {
         Self {
             target_lang: TargetLang::Rust,
             cabi_functions: CAbiFunctionMode::ExternalBindings {
-                link_library: "azul_dll".into(),
+                link_library: "azul".into(),
             },
             struct_mode: StructMode::Prefixed,
             trait_impl_mode: TraitImplMode::UsingCAPI,
             type_prefix: "Az".into(),
             module_wrapper: Some("dll".into()),
-            imports: vec!["use core::ffi::c_void;".into()],
+            imports: vec![
+                "use core::ffi::c_void;".into(),
+                "use core::ffi::c_int;".into(),
+            ],
             type_filter: None,
             type_exclude: BTreeSet::new(),
             indent: "    ".into(),
