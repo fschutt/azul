@@ -140,6 +140,7 @@ impl ActionHandler for AccessibilityActionHandler {
 
 /// Stub implementation when accessibility feature is disabled
 #[cfg(not(feature = "a11y"))]
+#[derive(Debug, Clone, Copy)]
 pub struct WindowsAccessibilityAdapter;
 
 #[cfg(not(feature = "a11y"))]

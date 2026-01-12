@@ -147,6 +147,7 @@ impl DeactivationHandler for AccessibilityDeactivationHandler {
 
 /// Stub implementation when accessibility feature is disabled
 #[cfg(not(feature = "a11y"))]
+#[derive(Debug, Clone, Copy)]
 pub struct LinuxAccessibilityAdapter;
 
 #[cfg(not(feature = "a11y"))]
