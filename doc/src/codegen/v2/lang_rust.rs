@@ -719,6 +719,9 @@ impl RustGenerator {
 
             let prefixed_name = config.apply_prefix(&enum_def.name);
             let prefixed_inner = config.apply_prefix(inner_type);
+            
+            // Check if this type derives Copy - if so, we don't need forget
+            let is_copy = enum_def.derives.contains(&"Copy".to_string());
 
             builder.line(&format!("impl {} {{", prefixed_name));
             builder.indent();
@@ -739,7 +742,13 @@ impl RustGenerator {
             builder.line(&format!("{}::Some(val) => {{", prefixed_name));
             builder.indent();
             builder.line("let v = unsafe { core::ptr::read(val) };");
-            builder.line("core::mem::forget(self);");
+            // For Copy types, forget does nothing and generates a warning
+            // For non-Copy types, we need forget to prevent double-drop
+            if is_copy {
+                builder.line("let _ = self;");
+            } else {
+                builder.line("core::mem::forget(self);");
+            }
             builder.line("Some(v)");
             builder.dedent();
             builder.line("}");
