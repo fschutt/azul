@@ -2450,6 +2450,7 @@ fn translate_to_usvg_parseoptions<'a>(e: SvgParseOptions) -> usvg::Options<'a> {
         default_size: usvg::Size::from_wh(100.0, 100.0).unwrap(), // TODO
         style_sheet: None,                                        // TODO
         image_href_resolver: ImageHrefResolver::default(),        // TODO
+        ..Default::default()
     };
 
     /*
