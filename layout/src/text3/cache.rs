@@ -3052,6 +3052,32 @@ impl UnifiedLayout {
         None
     }
 
+    /// Get a cursor at the first cluster (leading edge) in the layout.
+    pub fn get_first_cluster_cursor(&self) -> Option<TextCursor> {
+        for item in &self.items {
+            if let ShapedItem::Cluster(cluster) = &item.item {
+                return Some(TextCursor {
+                    cluster_id: cluster.source_cluster_id,
+                    affinity: CursorAffinity::Leading,
+                });
+            }
+        }
+        None
+    }
+
+    /// Get a cursor at the last cluster (trailing edge) in the layout.
+    pub fn get_last_cluster_cursor(&self) -> Option<TextCursor> {
+        for item in self.items.iter().rev() {
+            if let ShapedItem::Cluster(cluster) = &item.item {
+                return Some(TextCursor {
+                    cluster_id: cluster.source_cluster_id,
+                    affinity: CursorAffinity::Trailing,
+                });
+            }
+        }
+        None
+    }
+
     /// Moves a cursor one visual unit to the left, handling line wrapping and Bidi text.
     pub fn move_cursor_left(
         &self,
