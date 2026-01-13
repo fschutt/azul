@@ -1200,7 +1200,11 @@ pub fn get_inline_border_info(
 /// Style information for text selection rendering
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SelectionStyle {
+    /// Background color of the selection highlight
     pub bg_color: ColorU,
+    /// Text color when selected (overrides normal text color)
+    pub text_color: Option<ColorU>,
+    /// Border radius for selection rectangles
     pub radius: f32,
 }
 
@@ -1220,15 +1224,31 @@ pub fn get_selection_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> S
         .and_then(|c| c.get_property().cloned())
         .map(|c| c.inner)
         .unwrap_or(ColorU {
-            r: 100,
-            g: 149,
-            b: 237, // Cornflower blue - typical selection color
+            r: 51,
+            g: 153,
+            b: 255, // Standard blue selection color
             a: 128, // Semi-transparent
         });
 
+    let text_color = styled_dom
+        .css_property_cache
+        .ptr
+        .get_selection_color(node_data, &node_id, node_state)
+        .and_then(|c| c.get_property().cloned())
+        .map(|c| c.inner);
+
+    let radius = styled_dom
+        .css_property_cache
+        .ptr
+        .get_selection_radius(node_data, &node_id, node_state)
+        .and_then(|r| r.get_property().cloned())
+        .map(|r| r.inner.to_pixels_internal(0.0, 16.0)) // percent=0, em=16px default font size
+        .unwrap_or(0.0);
+
     SelectionStyle {
         bg_color,
-        radius: 0.0, // TODO: Add custom -azul-selection-radius CSS property
+        text_color,
+        radius,
     }
 }
 
