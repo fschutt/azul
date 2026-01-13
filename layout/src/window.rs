@@ -1365,6 +1365,10 @@ impl LayoutWindow {
     ) -> CallbackChangeResult {
         use crate::callbacks::CallbackChange;
 
+        if !changes.is_empty() {
+            eprintln!("[DEBUG] apply_callback_changes: {} changes", changes.len());
+        }
+
         let mut result = CallbackChangeResult {
             modified_window_state: current_window_state.clone(),
             ..Default::default()
@@ -1763,6 +1767,12 @@ impl LayoutWindow {
                     // Mark that a hit test update is requested
                     // This will be processed by the shell layer which has access to WebRender
                     result.hit_test_update_requested = Some(position);
+                }
+                CallbackChange::ProcessTextSelectionClick { position, time_ms } => {
+                    // Process text selection click at position
+                    // This is used by the Debug API to trigger text selection directly
+                    // The selection update will cause the display list to be regenerated
+                    let _ = self.process_mouse_click_for_selection(position, time_ms);
                 }
             }
         }
@@ -5286,12 +5296,10 @@ impl LayoutWindow {
                 self.selection_manager
                     .set_selection(location.dom_id, selection_state);
             }
-        } else {
-            // No cursor - clear selections
-            // Note: We might want to be more careful here to not clear user selections
-            // For now, clearing when cursor is cleared is safe
-            self.selection_manager.clear_all();
         }
+        // NOTE: We intentionally do NOT clear selections when there's no cursor.
+        // Text selections from mouse clicks should persist independently of cursor state.
+        // Only explicit user actions (clicking elsewhere, Escape, etc.) should clear selections.
     }
 
     /// Edit the text content of a node (used for text input actions)
@@ -5369,127 +5377,346 @@ impl LayoutWindow {
     /// - Triple click: Select paragraph (line) at click position
     ///
     /// ## Workflow
-    /// 1. Update ClickState to determine click count
-    /// 2. Hit-test the position to find the text node
-    /// 3. Apply appropriate selection based on click count
-    /// 4. Update SelectionManager with new selection
-    /// 5. Return affected nodes for dirty tracking
+    /// 1. Use HoverManager's hit test to find hit nodes
+    /// 2. Find the IFC layout via `inline_layout_result` (IFC root) or `ifc_membership` (text node)
+    /// 3. Use point_relative_to_item for local cursor position
+    /// 4. Hit-test the text layout to get logical cursor
+    /// 5. Apply appropriate selection based on click count
+    /// 6. Update SelectionManager with new selection
+    ///
+    /// ## IFC Architecture
+    /// Text nodes don't store `inline_layout_result` directly. Instead:
+    /// - IFC root nodes (e.g., `<p>`) have `inline_layout_result` with the complete text layout
+    /// - Text nodes have `ifc_membership` pointing back to their IFC root
+    /// - This allows efficient lookup without iterating all nodes
     ///
     /// ## Parameters
-    /// * `position` - Click position in logical coordinates
+    /// * `position` - Click position in logical coordinates (for click count tracking)
     /// * `time_ms` - Current time in milliseconds (for multi-click detection)
     ///
     /// ## Returns
-    /// * `Option<Vec<DomNodeId>>` - Affected nodes that need re-rendering, None if click didn't hit
-    ///   text
+    /// * `Option<Vec<DomNodeId>>` - Affected nodes that need re-rendering, None if click didn't hit text
     pub fn process_mouse_click_for_selection(
         &mut self,
         position: azul_core::geom::LogicalPosition,
         time_ms: u64,
     ) -> Option<Vec<azul_core::dom::DomNodeId>> {
-        use crate::{
-            managers::hover::InputPointId,
-            text3::selection::{select_paragraph_at_cursor, select_word_at_cursor},
-        };
+        use crate::managers::hover::InputPointId;
+        use crate::text3::selection::{select_paragraph_at_cursor, select_word_at_cursor};
 
-        // Get the current hit test to find which node was clicked
-        let hit_test = self.hover_manager.get_current(&InputPointId::Mouse)?;
+        #[cfg(feature = "std")]
+        eprintln!("[DEBUG] process_mouse_click_for_selection: position=({:.1},{:.1}), time_ms={}", 
+            position.x, position.y, time_ms);
 
-        // Find the first text node that was hit
-        // Text nodes have a text layout in the text cache
-        let mut hit_text_node: Option<(DomId, NodeId)> = None;
+        // found_selection stores: (dom_id, ifc_root_node_id, selection_range, local_pos)
+        // IMPORTANT: We always store the IFC root NodeId, not the text node NodeId,
+        // because selections are rendered via inline_layout_result which lives on the IFC root.
+        let mut found_selection: Option<(DomId, NodeId, SelectionRange, azul_core::geom::LogicalPosition)> = None;
 
-        for (dom_id, hit) in &hit_test.hovered_nodes {
-            for (node_id, _hit_item) in &hit.regular_hit_test_nodes {
-                // Check if this node has text layout
-                // For now, we'll check if it's in any layout result
-                if let Some(layout_result) = self.layout_results.get(dom_id) {
-                    if layout_result
-                        .styled_dom
-                        .node_data
-                        .as_container()
-                        .get(*node_id)
-                        .is_some()
-                    {
-                        hit_text_node = Some((*dom_id, *node_id));
+        // Try to get hit test from HoverManager first (fast path, uses WebRender's point_relative_to_item)
+        if let Some(hit_test) = self.hover_manager.get_current(&InputPointId::Mouse) {
+            #[cfg(feature = "std")]
+            eprintln!("[DEBUG] HoverManager has hit test with {} doms", hit_test.hovered_nodes.len());
+            
+            // Iterate through hit nodes from the HoverManager
+            for (dom_id, hit) in &hit_test.hovered_nodes {
+                let layout_result = match self.layout_results.get(dom_id) {
+                    Some(lr) => lr,
+                    None => continue,
+                };
+                // Use layout tree from layout_result, not layout_cache
+                let tree = &layout_result.layout_tree;
+                
+                for (node_id, hit_item) in &hit.regular_hit_test_nodes {
+                    // Check if text is selectable
+                    if !self.is_text_selectable(&layout_result.styled_dom, *node_id) {
+                        continue;
+                    }
+                    
+                    // Find the layout node for this DOM node
+                    let layout_node_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(*node_id));
+                    let layout_node_idx = match layout_node_idx {
+                        Some(idx) => idx,
+                        None => continue,
+                    };
+                    let layout_node = &tree.nodes[layout_node_idx];
+                    
+                    // Get the IFC layout and IFC root NodeId
+                    // Selection must be stored on the IFC root, not on text nodes
+                    let (cached_layout, ifc_root_node_id) = if let Some(ref cached) = layout_node.inline_layout_result {
+                        // This node IS an IFC root - use its own NodeId
+                        (cached, *node_id)
+                    } else if let Some(ref membership) = layout_node.ifc_membership {
+                        // This node participates in an IFC - get layout and NodeId from IFC root
+                        match tree.nodes.get(membership.ifc_root_layout_index) {
+                            Some(ifc_root) => match (ifc_root.inline_layout_result.as_ref(), ifc_root.dom_node_id) {
+                                (Some(cached), Some(root_dom_id)) => (cached, root_dom_id),
+                                _ => continue,
+                            },
+                            None => continue,
+                        }
+                    } else {
+                        // No IFC involvement - not a text node
+                        continue;
+                    };
+                    
+                    let layout = &cached_layout.layout;
+                    
+                    // Use point_relative_to_item - this is the local position within the hit node
+                    // provided by WebRender's hit test
+                    let local_pos = hit_item.point_relative_to_item;
+                    
+                    // Hit-test the cursor in this text layout
+                    if let Some(cursor) = layout.hittest_cursor(local_pos) {
+                        // Store selection with IFC root NodeId, not the hit text node
+                        found_selection = Some((*dom_id, ifc_root_node_id, SelectionRange {
+                            start: cursor.clone(),
+                            end: cursor,
+                        }, local_pos));
                         break;
                     }
                 }
-            }
-
-            if hit_text_node.is_some() {
-                break;
+                
+                if found_selection.is_some() {
+                    break;
+                }
             }
         }
 
-        let (dom_id, node_id) = hit_text_node?;
+        // Fallback: If HoverManager has no hit test (e.g., debug server),
+        // search through IFC roots using global position
+        if found_selection.is_none() {
+            #[cfg(feature = "std")]
+            eprintln!("[DEBUG] Fallback path: layout_results count = {}", self.layout_results.len());
+            
+            for (dom_id, layout_result) in &self.layout_results {
+                // Use the layout tree from layout_result, not layout_cache
+                // layout_cache.tree is for the root DOM only; layout_result.layout_tree
+                // is the correct tree for each DOM (including iframes)
+                let tree = &layout_result.layout_tree;
+                
+                #[cfg(feature = "std")]
+                {
+                    let ifc_root_count = tree.nodes.iter()
+                        .filter(|n| n.inline_layout_result.is_some())
+                        .count();
+                    eprintln!("[DEBUG] DOM {:?}: tree has {} nodes, {} IFC roots", 
+                        dom_id, tree.nodes.len(), ifc_root_count);
+                }
+                
+                // Only iterate IFC roots (nodes with inline_layout_result)
+                for (node_idx, layout_node) in tree.nodes.iter().enumerate() {
+                    let cached_layout = match layout_node.inline_layout_result.as_ref() {
+                        Some(c) => c,
+                        None => continue, // Skip non-IFC-root nodes
+                    };
+                    
+                    let node_id = match layout_node.dom_node_id {
+                        Some(n) => n,
+                        None => continue,
+                    };
+                    
+                    // Check if text is selectable
+                    if !self.is_text_selectable(&layout_result.styled_dom, node_id) {
+                        #[cfg(feature = "std")]
+                        eprintln!("[DEBUG]   IFC root node_idx={} node_id={:?}: NOT selectable", node_idx, node_id);
+                        continue;
+                    }
+                    
+                    // Get the node's absolute position
+                    // Use layout_result.calculated_positions for the correct DOM
+                    let node_pos = layout_result.calculated_positions
+                        .get(&node_idx)
+                        .copied()
+                        .unwrap_or_default();
+                    
+                    // Check if position is within node bounds
+                    let node_size = layout_node.used_size.unwrap_or_else(|| {
+                        let bounds = cached_layout.layout.bounds();
+                        azul_core::geom::LogicalSize::new(bounds.width, bounds.height)
+                    });
+                    
+                    #[cfg(feature = "std")]
+                    eprintln!("[DEBUG]   IFC root node_idx={} node_id={:?}: pos=({:.1},{:.1}) size=({:.1},{:.1}), click=({:.1},{:.1})",
+                        node_idx, node_id, node_pos.x, node_pos.y, node_size.width, node_size.height, position.x, position.y);
+                    
+                    if position.x < node_pos.x || position.x > node_pos.x + node_size.width ||
+                       position.y < node_pos.y || position.y > node_pos.y + node_size.height {
+                        #[cfg(feature = "std")]
+                        eprintln!("[DEBUG]     -> OUT OF BOUNDS");
+                        continue;
+                    }
+                    
+                    // Convert global position to node-local coordinates
+                    let local_pos = azul_core::geom::LogicalPosition {
+                        x: position.x - node_pos.x,
+                        y: position.y - node_pos.y,
+                    };
+                    
+                    let layout = &cached_layout.layout;
+                    
+                    // Hit-test the cursor in this text layout
+                    if let Some(cursor) = layout.hittest_cursor(local_pos) {
+                        found_selection = Some((*dom_id, node_id, SelectionRange {
+                            start: cursor.clone(),
+                            end: cursor,
+                        }, local_pos));
+                        break;
+                    }
+                }
+                
+                if found_selection.is_some() {
+                    break;
+                }
+            }
+        }
 
-        // Create DomNodeId for click state tracking
-        let node_hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+        let (dom_id, ifc_root_node_id, initial_range, _local_pos) = found_selection?;
+
+        // Create DomNodeId for click state tracking - use IFC root's NodeId
+        // Selection state is keyed by IFC root because that's where inline_layout_result lives
+        let node_hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(ifc_root_node_id));
         let dom_node_id = azul_core::dom::DomNodeId {
             dom: dom_id,
             node: node_hierarchy_id,
         };
 
-        // Update click count to determine click count
+        // Update click count to determine selection type
         let click_count = self
             .selection_manager
             .update_click_count(dom_node_id, position, time_ms);
 
-        // Get the text layout for this node
-        // We need to iterate through all cache entries to find ones that match this node
-        let mut selection_ranges = Vec::new();
-
-        for cache_id in self.text_cache.get_all_layout_ids() {
-            let layout = match self.text_cache.get_layout(&cache_id) {
-                Some(l) => l,
-                None => continue,
-            };
-
-            // Hit-test the layout to find cursor position
-            let cursor = match layout.hittest_cursor(position) {
-                Some(c) => c,
-                None => continue,
-            };
-
-            // Apply selection based on click count
-            let selection = match click_count {
-                1 => {
-                    // Single click: place cursor
-                    Some(SelectionRange {
-                        start: cursor,
-                        end: cursor,
-                    })
-                }
-                2 => {
-                    // Double click: select word
-                    select_word_at_cursor(&cursor, layout.as_ref())
-                }
-                3 => {
-                    // Triple click: select paragraph (line)
-                    select_paragraph_at_cursor(&cursor, layout.as_ref())
-                }
-                _ => None,
-            };
-
-            if let Some(sel) = selection {
-                selection_ranges.push(sel);
+        // Get the text layout again for word/paragraph selection
+        let final_range = if click_count > 1 {
+            // Use layout_results for the correct DOM's tree
+            let layout_result = self.layout_results.get(&dom_id)?;
+            let tree = &layout_result.layout_tree;
+            
+            // Find layout node - ifc_root_node_id is always the IFC root, so it has inline_layout_result
+            let layout_node = tree.nodes.iter().find(|n| n.dom_node_id == Some(ifc_root_node_id))?;
+            let cached_layout = layout_node.inline_layout_result.as_ref()?;
+            let layout = &cached_layout.layout;
+            
+            match click_count {
+                2 => select_word_at_cursor(&initial_range.start, layout.as_ref())
+                    .unwrap_or(initial_range),
+                3 => select_paragraph_at_cursor(&initial_range.start, layout.as_ref())
+                    .unwrap_or(initial_range),
+                _ => initial_range,
             }
-        }
+        } else {
+            initial_range
+        };
 
         // Clear existing selections and set new one
         self.selection_manager.clear_selection(&dom_id);
 
-        if !selection_ranges.is_empty() {
-            let state = SelectionState {
-                selections: selection_ranges.into_iter().map(Selection::Range).collect(),
-                node_id: dom_node_id,
-            };
-            self.selection_manager.set_selection(dom_id, state);
-        }
+        let state = SelectionState {
+            selections: vec![Selection::Range(final_range)].into(),
+            node_id: dom_node_id,
+        };
+        
+        #[cfg(feature = "std")]
+        eprintln!("[DEBUG] Setting selection on dom_id={:?}, node_id={:?}", dom_id, ifc_root_node_id);
+        
+        self.selection_manager.set_selection(dom_id, state);
 
         // Return the affected node for dirty tracking
         Some(vec![dom_node_id])
+    }
+
+    /// Process mouse drag for text selection extension.
+    ///
+    /// This method handles drag-to-select by extending the selection from
+    /// the initial click position to the current drag position.
+    ///
+    /// ## Parameters
+    /// * `start_position` - Initial click position in logical coordinates
+    /// * `current_position` - Current mouse position in logical coordinates
+    ///
+    /// ## Returns
+    /// * `Option<Vec<DomNodeId>>` - Affected nodes that need re-rendering
+    pub fn process_mouse_drag_for_selection(
+        &mut self,
+        _start_position: azul_core::geom::LogicalPosition,
+        _current_position: azul_core::geom::LogicalPosition,
+    ) -> Option<Vec<azul_core::dom::DomNodeId>> {
+        use crate::managers::hover::InputPointId;
+
+        // Get the current hit test from HoverManager
+        // WebRender provides point_relative_to_item which is the local position within the hit node
+        let hit_test = self.hover_manager.get_current(&InputPointId::Mouse)?;
+
+        let mut affected_nodes = Vec::new();
+        let mut selection_ranges = Vec::new();
+        let mut selection_dom_id = None;
+        let mut selection_dom_node_id = None;
+
+        for (dom_id, hit) in &hit_test.hovered_nodes {
+            let layout_result = self.layout_results.get(dom_id)?;
+            let tree = self.layout_cache.tree.as_ref()?;
+            
+            for (node_id, hit_item) in &hit.regular_hit_test_nodes {
+                // Check if text is selectable
+                if !self.is_text_selectable(&layout_result.styled_dom, *node_id) {
+                    continue;
+                }
+
+                // Find the layout node for this DOM node
+                let layout_node = tree.nodes.iter().find(|n| n.dom_node_id == Some(*node_id))?;
+                
+                // Check if this node has an inline layout (text content)
+                let cached_layout = layout_node.inline_layout_result.as_ref()?;
+                let layout = &cached_layout.layout;
+
+                // Use point_relative_to_item - this is the local position within the hit node
+                let local_pos = hit_item.point_relative_to_item;
+                
+                // For drag selection, we use the current selection state to extend
+                // Get existing selection start, or use the current position
+                let existing_selection = self.selection_manager.get_selection(dom_id);
+                
+                if let Some(state) = existing_selection {
+                    if let Some(Selection::Range(range)) = state.selections.as_ref().first() {
+                        // Extend from existing start to current position
+                        if let Some(current_cursor) = layout.hittest_cursor(local_pos) {
+                            let new_range = SelectionRange {
+                                start: range.start.clone(),
+                                end: current_cursor,
+                            };
+                            selection_ranges.push(new_range);
+                            selection_dom_id = Some(*dom_id);
+                            let node_hierarchy_id =
+                                NodeHierarchyItemId::from_crate_internal(Some(*node_id));
+                            let dom_node_id = azul_core::dom::DomNodeId {
+                                dom: *dom_id,
+                                node: node_hierarchy_id,
+                            };
+                            selection_dom_node_id = Some(dom_node_id);
+                            affected_nodes.push(dom_node_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Update selection manager with new selection
+        if let (Some(dom_id), Some(dom_node_id)) = (selection_dom_id, selection_dom_node_id) {
+            self.selection_manager.clear_selection(&dom_id);
+            if !selection_ranges.is_empty() {
+                let state = SelectionState {
+                    selections: selection_ranges.into_iter().map(Selection::Range).collect(),
+                    node_id: dom_node_id,
+                };
+                self.selection_manager.set_selection(dom_id, state);
+            }
+        }
+
+        if affected_nodes.is_empty() {
+            None
+        } else {
+            Some(affected_nodes)
+        }
     }
 
     /// Delete the currently selected text
