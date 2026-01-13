@@ -2185,7 +2185,7 @@ fn process_event_for_internal<SM: SelectionManagerQuery>(
     event: &SyntheticEvent,
 ) -> Option<InternalEventAction> {
     match event.event_type {
-        EventType::MouseDown => handle_mouse_down(event, ctx.hit_test, ctx.click_count),
+        EventType::MouseDown => handle_mouse_down(event, ctx.hit_test, ctx.click_count, ctx.mouse_state),
         EventType::MouseOver => handle_mouse_over(
             event,
             ctx.hit_test,
@@ -2221,11 +2221,19 @@ fn get_first_hovered_node(hit_test: Option<&FullHitTest>) -> Option<DomNodeId> {
     })
 }
 
-/// Extract mouse position from event data
-fn get_mouse_position(event: &SyntheticEvent) -> LogicalPosition {
+/// Extract mouse position from event data, falling back to mouse_state if not available
+fn get_mouse_position_with_fallback(
+    event: &SyntheticEvent,
+    mouse_state: &crate::window::MouseState,
+) -> LogicalPosition {
     match &event.data {
         EventData::Mouse(mouse_data) => mouse_data.position,
-        _ => LogicalPosition::zero(),
+        _ => {
+            // Fallback: use current cursor position from mouse_state
+            // This handles synthetic events from debug API and automation
+            // where EventData may not contain the mouse position
+            mouse_state.cursor_position.get_position().unwrap_or(LogicalPosition::zero())
+        }
     }
 }
 
@@ -2234,19 +2242,25 @@ fn handle_mouse_down(
     event: &SyntheticEvent,
     hit_test: Option<&FullHitTest>,
     click_count: u8,
+    mouse_state: &crate::window::MouseState,
 ) -> Option<InternalEventAction> {
-    if click_count == 0 || click_count > 3 {
+    // Note: click_count == 0 means this is a new click sequence (first click)
+    // The actual click count will be determined in process_mouse_click_for_selection
+    // We use 1 here as a placeholder for new clicks
+    let effective_click_count = if click_count == 0 { 1 } else { click_count };
+    
+    if effective_click_count > 3 {
         return None;
     }
 
     let target = get_first_hovered_node(hit_test)?;
-    let position = get_mouse_position(event);
+    let position = get_mouse_position_with_fallback(event, mouse_state);
 
     Some(InternalEventAction::AddAndPass(
         PreCallbackSystemEvent::TextClick {
             target,
             position,
-            click_count,
+            click_count: effective_click_count,
             timestamp: event.timestamp.clone(),
         },
     ))
@@ -2265,7 +2279,7 @@ fn handle_mouse_over(
 
     let start_position = drag_start_position?;
     let target = get_first_hovered_node(hit_test)?;
-    let current_position = get_mouse_position(event);
+    let current_position = get_mouse_position_with_fallback(event, mouse_state);
 
     Some(InternalEventAction::AddAndPass(
         PreCallbackSystemEvent::TextDragSelection {
