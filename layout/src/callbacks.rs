@@ -366,6 +366,19 @@ pub enum CallbackChange {
     /// data after modifying the mouse position, ensuring that callbacks
     /// can find the correct nodes under the cursor.
     RequestHitTestUpdate { position: LogicalPosition },
+
+    // Text Selection (for Debug API)
+    /// Process a text selection click at a specific position
+    ///
+    /// This is used by the Debug API to trigger text selection directly,
+    /// bypassing the normal event pipeline. The handler will:
+    /// 1. Hit-test IFC roots to find selectable text at the position
+    /// 2. Create a text cursor at the clicked position
+    /// 3. Update the selection manager with the new selection
+    ProcessTextSelectionClick {
+        position: LogicalPosition,
+        time_ms: u64,
+    },
 }
 
 /// Main callback type for UI event handling
@@ -2691,6 +2704,17 @@ impl CallbackInfo {
     /// The hit test is performed during the next frame update.
     pub fn request_hit_test_update(&mut self, position: LogicalPosition) {
         self.push_change(CallbackChange::RequestHitTestUpdate { position });
+    }
+
+    /// Process a text selection click at a specific position
+    ///
+    /// This is used by the Debug API to trigger text selection directly,
+    /// bypassing the normal event pipeline which generates PreCallbackSystemEvent::TextClick.
+    ///
+    /// The selection processing is deferred until the CallbackChange is processed,
+    /// at which point the LayoutWindow can be mutably accessed.
+    pub fn process_text_selection_click(&mut self, position: LogicalPosition, time_ms: u64) {
+        self.push_change(CallbackChange::ProcessTextSelectionClick { position, time_ms });
     }
 
     /// Get the current text content of a node
