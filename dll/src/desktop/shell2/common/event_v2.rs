@@ -1333,8 +1333,22 @@ pub trait PlatformWindowV2 {
                         }
                     }
                 }
-                PreCallbackSystemEvent::TextDragSelection { .. } => {
-                    // TODO: Implement drag selection handling
+                PreCallbackSystemEvent::TextDragSelection {
+                    start_position,
+                    current_position,
+                    is_dragging,
+                    ..
+                } => {
+                    if *is_dragging {
+                        // Extend selection from start to current position
+                        if let Some(layout_window) = self.get_layout_window_mut() {
+                            if let Some(affected_nodes) = layout_window
+                                .process_mouse_drag_for_selection(*start_position, *current_position)
+                            {
+                                text_selection_affected_nodes.extend(affected_nodes);
+                            }
+                        }
+                    }
                 }
                 PreCallbackSystemEvent::ArrowKeyNavigation { .. } => {
                     // TODO: Implement arrow key navigation
