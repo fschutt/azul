@@ -262,6 +262,70 @@ Each scrollbar geometry object contains:
 | `thumb_position_ratio` | Position ratio (0.0 = start, 1.0 = end) |
 | `thumb_size_ratio` | Thumb size relative to track |
 
+### Text Selection Inspection
+
+```bash
+# get_selection_state - Get current text selection state (selections, cursor positions, rectangles)
+curl -X POST http://localhost:8765/ -d '{"op": "get_selection_state"}'
+```
+
+The `get_selection_state` response includes:
+
+| Field | Description |
+|-------|-------------|
+| `has_selection` | Whether any selection exists |
+| `selection_count` | Number of DOMs with active selections |
+| `selections` | Array of selection info per DOM |
+
+Each selection info object contains:
+
+| Field | Description |
+|-------|-------------|
+| `dom_id` | The DOM ID |
+| `node_id` | The node containing the selection |
+| `ranges` | Array of selection ranges |
+| `rectangles` | Visual bounds of each selected region |
+
+Each selection range contains:
+
+| Field | Description |
+|-------|-------------|
+| `selection_type` | `"cursor"`, `"range"`, or `"block"` |
+| `cursor_position` | For cursor: character index |
+| `start`, `end` | For range: start and end character indices |
+| `direction` | `"forward"` or `"backward"` |
+
+Example response:
+```json
+{
+  "data": {
+    "type": "selection_state",
+    "value": {
+      "has_selection": true,
+      "selection_count": 1,
+      "selections": [
+        {
+          "dom_id": 0,
+          "node_id": 5,
+          "ranges": [
+            {
+              "selection_type": "range",
+              "start": 10,
+              "end": 50,
+              "direction": "forward"
+            }
+          ],
+          "rectangles": [
+            {"x": 20.0, "y": 100.0, "width": 200.0, "height": 24.0},
+            {"x": 20.0, "y": 124.0, "width": 150.0, "height": 24.0}
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
 ### Finding / debugging nodes
 
 ```bash
