@@ -2038,9 +2038,19 @@ where
         // Set current node for node mapping (for pagination break properties)
         builder.set_current_node(node.dom_node_id);
 
-        let Some(paint_rect) = self.get_paint_rect(node_index) else {
+        let Some(mut paint_rect) = self.get_paint_rect(node_index) else {
             return Ok(());
         };
+
+        // For text nodes (with inline layout), the used_size might be 0x0.
+        // In this case, compute the bounds from the inline layout result.
+        if paint_rect.size.width == 0.0 || paint_rect.size.height == 0.0 {
+            if let Some(cached_layout) = &node.inline_layout_result {
+                let content_bounds = cached_layout.layout.bounds();
+                paint_rect.size.width = content_bounds.width;
+                paint_rect.size.height = content_bounds.height;
+            }
+        }
 
         // Add a hit-test area for this node if it's interactive.
         // NOTE: For scrollable containers (overflow: scroll/auto), the hit-test area
