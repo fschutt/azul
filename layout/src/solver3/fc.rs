@@ -4658,6 +4658,13 @@ fn position_table_cells<T: ParsedFontTrait>(
 
 /// Gathers all inline content for `text3`, recursively laying out `inline-block` children
 /// to determine their size and baseline before passing them to the text engine.
+///
+/// This function also assigns IFC membership to all participating nodes:
+/// - The IFC root gets an `ifc_id` assigned
+/// - Each text/inline child gets `ifc_membership` set with a reference back to the IFC root
+///
+/// This mapping enables efficient cursor hit-testing: when a text node is clicked,
+/// we can find its parent IFC's `inline_layout_result` via `ifc_membership.ifc_root_layout_index`.
 fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,
@@ -4665,15 +4672,28 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     ifc_root_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
+    use crate::solver3::layout_tree::{IfcId, IfcMembership};
+
     debug_ifc_layout!(
         ctx,
         "collect_and_measure_inline_content: node_index={}",
         ifc_root_index
     );
 
+    // Generate a unique IFC ID for this inline formatting context
+    let ifc_id = IfcId::unique();
+
+    // Store IFC ID on the IFC root node
+    if let Some(ifc_root_node) = tree.get_mut(ifc_root_index) {
+        ifc_root_node.ifc_id = Some(ifc_id);
+    }
+
     let mut content = Vec::new();
     // Maps the `ContentIndex` used by text3 back to the `LayoutNode` index.
     let mut child_map = HashMap::new();
+    // Track the current run index for IFC membership assignment
+    let mut current_run_index: u32 = 0;
+
     let ifc_root_node = tree.get(ifc_root_index).ok_or(LayoutError::InvalidTree)?;
 
     // Check if this is an anonymous IFC wrapper (has no DOM ID)
@@ -4761,6 +4781,18 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                     logical_start_byte: 0,
                 }));
                 child_map.insert(content_index, child_index);
+                
+                // Set IFC membership on the text node - drop child_node borrow first
+                drop(child_node);
+                if let Some(child_node_mut) = tree.get_mut(child_index) {
+                    child_node_mut.ifc_membership = Some(IfcMembership {
+                        ifc_id,
+                        ifc_root_layout_index: ifc_root_index,
+                        run_index: current_run_index,
+                    });
+                }
+                current_run_index += 1;
+                
                 continue;
             }
 
@@ -5105,7 +5137,21 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 style: Arc::new(get_style_properties(ctx.styled_dom, dom_child_id)),
                 logical_start_byte: 0,
             }));
-            // Text nodes don't have layout tree nodes, so we don't add them to child_map
+            
+            // Set IFC membership on the text node's layout node (if it exists)
+            // Text nodes may or may not have their own layout tree entry depending on
+            // whether they're wrapped in an anonymous IFC wrapper
+            if let Some(&layout_idx) = tree.dom_to_layout.get(&dom_child_id).and_then(|v| v.first()) {
+                if let Some(text_layout_node) = tree.get_mut(layout_idx) {
+                    text_layout_node.ifc_membership = Some(IfcMembership {
+                        ifc_id,
+                        ifc_root_layout_index: ifc_root_index,
+                        run_index: current_run_index,
+                    });
+                }
+            }
+            current_run_index += 1;
+            
             continue;
         }
 

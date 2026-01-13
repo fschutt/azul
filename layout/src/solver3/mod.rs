@@ -356,6 +356,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: azul_core::dom::DomId,
 ) -> Result<DisplayList> {
+    // Reset IFC ID counter at the start of each layout pass
+    // This ensures IFCs get consistent IDs across frames when the DOM structure is stable
+    crate::solver3::layout_tree::IfcId::reset_counter();
+
     if let Some(msgs) = debug_messages.as_mut() {
         msgs.push(LayoutDebugMessage::info(format!(
             "[Layout] layout_document called - viewport: ({:.1}, {:.1}) size ({:.1}x{:.1})",

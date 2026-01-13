@@ -4,8 +4,78 @@
 use std::{
     collections::BTreeMap,
     hash::{Hash, Hasher},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
 };
+
+/// Global counter for IFC IDs. Resets to 0 when layout() callback is invoked.
+static IFC_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+/// Unique identifier for an Inline Formatting Context (IFC).
+///
+/// An IFC represents a region where inline content (text, inline-blocks, images)
+/// is laid out together. One IFC can contain content from multiple DOM nodes
+/// (e.g., `<p>Hello <span>world</span>!</p>` is one IFC with 3 text runs).
+///
+/// The ID is generated using a global atomic counter that resets at the start
+/// of each layout pass. This ensures:
+/// - IDs are unique within a layout pass
+/// - The same logical IFC gets the same ID across frames (for selection stability)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct IfcId(pub u32);
+
+impl IfcId {
+    /// Generate a new unique IFC ID.
+    pub fn unique() -> Self {
+        Self(IFC_ID_COUNTER.fetch_add(1, Ordering::Relaxed))
+    }
+
+    /// Reset the IFC ID counter. Called at the start of each layout pass.
+    pub fn reset_counter() {
+        IFC_ID_COUNTER.store(0, Ordering::Relaxed);
+    }
+}
+
+/// Tracks a layout node's membership in an Inline Formatting Context.
+///
+/// Text nodes don't store their own `inline_layout_result` - instead, they
+/// participate in their parent's IFC. This struct provides the link from
+/// a text node back to its IFC's layout data.
+///
+/// # Architecture
+///
+/// ```text
+/// DOM:  <p>Hello <span>world</span>!</p>
+///
+/// Layout Tree:
+/// ├── LayoutNode (p) - IFC root
+/// │   └── inline_layout_result: Some(UnifiedLayout)
+/// │   └── ifc_id: IfcId(5)
+/// │
+/// ├── LayoutNode (::text "Hello ")
+/// │   └── ifc_membership: Some(IfcMembership { ifc_id: 5, run_index: 0 })
+/// │
+/// ├── LayoutNode (span)
+/// │   └── ifc_membership: Some(IfcMembership { ifc_id: 5, run_index: 1 })
+/// │   └── LayoutNode (::text "world")
+/// │       └── ifc_membership: Some(IfcMembership { ifc_id: 5, run_index: 1 })
+/// │
+/// └── LayoutNode (::text "!")
+///     └── ifc_membership: Some(IfcMembership { ifc_id: 5, run_index: 2 })
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IfcMembership {
+    /// The IFC ID this node's content was laid out in.
+    pub ifc_id: IfcId,
+    /// The index of the IFC root LayoutNode in the layout tree.
+    /// Used to quickly find the node with `inline_layout_result`.
+    pub ifc_root_layout_index: usize,
+    /// Which run index within the IFC corresponds to this node's text.
+    /// Maps to `ContentIndex::run_index` in the shaped items.
+    pub run_index: u32,
+}
 
 use azul_core::{
     dom::{FormattingContext, NodeId, NodeType},
@@ -254,6 +324,13 @@ pub struct LayoutNode {
     /// This is the size of all content that might need to be scrolled, which can
     /// be larger than `used_size` when content overflows the container.
     pub overflow_content_size: Option<LogicalSize>,
+    /// If this node is an IFC root, stores the IFC ID.
+    /// Used to identify which IFC this node's `inline_layout_result` belongs to.
+    pub ifc_id: Option<IfcId>,
+    /// If this node participates in an IFC (is inline content like text),
+    /// stores the reference back to the IFC root and the run index.
+    /// This allows text nodes to find their layout data in the parent's IFC.
+    pub ifc_membership: Option<IfcMembership>,
 }
 
 impl LayoutNode {
@@ -814,6 +891,8 @@ impl LayoutTreeBuilder {
             escaped_bottom_margin: None,
             scrollbar_info: None,
             overflow_content_size: None,
+            ifc_id: None,
+            ifc_membership: None,
         });
 
         self.nodes[parent].children.push(index);
@@ -869,6 +948,8 @@ impl LayoutTreeBuilder {
             escaped_bottom_margin: None,
             scrollbar_info: None,
             overflow_content_size: None,
+            ifc_id: None,
+            ifc_membership: None,
         });
 
         // Insert as FIRST child (per spec)
@@ -916,6 +997,8 @@ impl LayoutTreeBuilder {
             escaped_bottom_margin: None,
             scrollbar_info: None,
             overflow_content_size: None,
+            ifc_id: None,
+            ifc_membership: None,
         });
         if let Some(p) = parent {
             self.nodes[p].children.push(index);
