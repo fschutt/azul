@@ -744,6 +744,10 @@ impl CssPropertyCache {
 
         // NOTE: restyling a DOM may change the :hover nodes, which is
         // why the tag IDs have to be re-generated on every .restyle() call!
+        
+        // Keep a reference to the node data container for use in the closure
+        let node_data_container = &node_data.internal;
+        
         node_data
             .internal
             .iter()
@@ -893,6 +897,50 @@ impl CssPropertyCache {
                     };
 
                     if node_has_overflow_scroll {
+                        node_should_have_tag = true;
+                        break;
+                    }
+
+                    // check for selectable text - nodes that contain text children and user-select != none
+                    // need hit-test tags for text selection support
+                    // NOTE: The inline_layout_result is stored on the PARENT (container) node,
+                    // not on the text node itself. So we tag the container, not the text node.
+                    let node_has_selectable_text = {
+                        use azul_css::props::style::StyleUserSelect;
+                        use crate::dom::NodeType;
+                        
+                        // Check if this node has immediate text children
+                        let has_text_children = {
+                            let hier = node_hierarchy.as_container()[node_id];
+                            let mut has_text = false;
+                            if let Some(first_child) = hier.first_child_id(node_id) {
+                                let mut child_id = Some(first_child);
+                                while let Some(cid) = child_id {
+                                    let child_data = &node_data_container[cid.index()];
+                                    if matches!(child_data.get_node_type(), NodeType::Text(_)) {
+                                        has_text = true;
+                                        break;
+                                    }
+                                    child_id = node_hierarchy.as_container()[cid].next_sibling_id();
+                                }
+                            }
+                            has_text
+                        };
+                        
+                        if has_text_children {
+                            // Check user-select property on this container (default is selectable)
+                            let user_select = self
+                                .get_user_select(&node_data, &node_id, &default_node_state)
+                                .and_then(|p| p.get_property().cloned())
+                                .unwrap_or(StyleUserSelect::Auto);
+                            
+                            !matches!(user_select, StyleUserSelect::None)
+                        } else {
+                            false
+                        }
+                    };
+
+                    if node_has_selectable_text {
                         node_should_have_tag = true;
                         break;
                     }
