@@ -98,6 +98,10 @@ pub enum ResponseData {
     ClickNode(ClickNodeResponse),
     /// Scrollbar info result
     ScrollbarInfo(ScrollbarInfoResponse),
+    /// Selection state result
+    SelectionState(SelectionStateResponse),
+    /// Full selection manager dump
+    SelectionManagerDump(SelectionManagerDump),
 }
 
 /// Screenshot response data
@@ -612,6 +616,54 @@ pub struct ScrollbarGeometry {
     pub thumb_size_ratio: f32,
 }
 
+/// Response for GetSelectionState - text selection state
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SelectionStateResponse {
+    /// Whether any selection exists
+    pub has_selection: bool,
+    /// Number of DOMs with selections
+    pub selection_count: usize,
+    /// Selections per DOM
+    pub selections: Vec<DomSelectionInfo>,
+}
+
+/// Selection info for a single DOM
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DomSelectionInfo {
+    /// DOM ID
+    pub dom_id: u32,
+    /// Node that contains the selection
+    pub node_id: Option<u64>,
+    /// CSS selector path to the node (e.g. "div#main > p.intro")
+    pub selector: Option<String>,
+    /// Selection ranges within this DOM
+    pub ranges: Vec<SelectionRangeInfo>,
+    /// Selection rectangles (visual bounds of each selected region)
+    pub rectangles: Vec<LogicalRectJson>,
+}
+
+/// Information about a single selection range
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SelectionRangeInfo {
+    /// Selection type: "cursor", "range", or "block"
+    pub selection_type: String,
+    /// For cursor: the cursor position (character index)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor_position: Option<usize>,
+    /// For range: start character index
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start: Option<usize>,
+    /// For range: end character index
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<usize>,
+    /// Direction: "forward", "backward", or "none"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
+}
+
 /// JSON-serializable LogicalSize
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
@@ -636,6 +688,54 @@ pub struct LogicalRectJson {
     pub y: f32,
     pub width: f32,
     pub height: f32,
+}
+
+/// Full dump of the SelectionManager for debugging
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SelectionManagerDump {
+    /// All selections indexed by DOM ID
+    pub selections: Vec<SelectionDumpEntry>,
+    /// Click state for multi-click detection
+    pub click_state: ClickStateDump,
+}
+
+/// Single selection entry in the dump
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SelectionDumpEntry {
+    /// DOM ID
+    pub dom_id: u32,
+    /// Node ID 
+    pub node_id: Option<u64>,
+    /// CSS selector for the node
+    pub selector: Option<String>,
+    /// All selections on this node
+    pub selections: Vec<SelectionDump>,
+}
+
+/// Dump of a single Selection
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SelectionDump {
+    /// "cursor" or "range"
+    pub selection_type: String,
+    /// Raw debug representation
+    pub debug: String,
+}
+
+/// Dump of click state
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ClickStateDump {
+    /// Last clicked node
+    pub last_node: Option<String>,
+    /// Last click position
+    pub last_position: LogicalPositionJson,
+    /// Last click time in ms
+    pub last_time_ms: u64,
+    /// Current click count (1=single, 2=double, 3=triple)
+    pub click_count: u8,
 }
 
 // ==================== Debug Events ====================
@@ -820,6 +920,12 @@ pub enum DebugEvent {
         orientation: Option<String>,
     },
 
+    // Selection
+    /// Get the current text selection state (selection ranges, cursor positions)
+    GetSelectionState,
+    /// Dump the entire selection manager state for debugging
+    DumpSelectionManager,
+
     // Control
     Relayout,
     Redraw,
@@ -905,6 +1011,60 @@ fn resolve_node_target(
     }
 
     None
+}
+
+/// Builds a CSS selector string for a node (e.g., "div#my-id.class1.class2")
+/// Returns a selector that can be used to find this node again
+#[cfg(feature = "std")]
+fn build_selector_for_node(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
+    node_id: azul_core::id::NodeId,
+) -> Option<String> {
+    use alloc::string::ToString;
+
+    let layout_window = callback_info.get_layout_window();
+    let layout_result = layout_window.layout_results.get(&dom_id)?;
+    let styled_dom = &layout_result.styled_dom;
+    let node_data_container = styled_dom.node_data.as_container();
+    
+    if node_id.index() >= node_data_container.len() {
+        return None;
+    }
+    
+    let node_data = &node_data_container[node_id];
+    
+    // Get tag name from NodeTypeTag (lowercase HTML tag name)
+    let node_type_tag = node_data.get_node_type().get_path();
+    let tag_name = alloc::format!("{:?}", node_type_tag).to_lowercase();
+    
+    let mut selector = tag_name;
+    
+    // Add ID if present (first ID wins)
+    let ids_and_classes = node_data.get_ids_and_classes();
+    for idc in ids_and_classes.iter() {
+        if let Some(id) = idc.as_id() {
+            selector.push('#');
+            selector.push_str(id);
+            break; // Only one ID
+        }
+    }
+    
+    // Add all classes
+    for idc in ids_and_classes.iter() {
+        if let Some(class) = idc.as_class() {
+            selector.push('.');
+            selector.push_str(class);
+        }
+    }
+    
+    // If no ID or classes, add node index to make it unique
+    let has_id_or_class = ids_and_classes.iter().any(|idc| idc.as_id().is_some() || idc.as_class().is_some());
+    if !has_id_or_class {
+        selector.push_str(&alloc::format!(":nth-child({})", node_id.index() + 1));
+    }
+    
+    Some(selector)
 }
 
 /// Resolves a node target to center position (x, y) for clicking
@@ -1744,6 +1904,11 @@ fn process_debug_event(
             }
             callback_info.modify_window_state(new_state);
             needs_update = true;
+
+            // Text selection is now handled automatically by the normal event pipeline.
+            // When modify_window_state is called, it triggers process_callback_result_v2
+            // which detects mouse_state_changed and calls process_window_events_recursive_v2.
+            // This generates a TextClick internal event with the correct position from mouse_state.
 
             send_ok(request, None, None);
         }
@@ -2709,6 +2874,21 @@ fn process_debug_event(
                                 ..Default::default()
                             }
                         }
+                        azul_layout::solver3::display_list::DisplayListItem::HitTestArea { bounds, tag } => {
+                            other_count += 1;
+                            DisplayListItemInfo {
+                                index: idx,
+                                item_type: "hit_test_area".to_string(),
+                                x: Some(bounds.origin.x),
+                                y: Some(bounds.origin.y),
+                                width: Some(bounds.size.width),
+                                height: Some(bounds.size.height),
+                                debug_info: Some(format!("tag:{}", tag)),
+                                clip_depth: Some(clip_depth),
+                                scroll_depth: Some(scroll_depth),
+                                ..Default::default()
+                            }
+                        }
                         _ => {
                             other_count += 1;
                             DisplayListItemInfo {
@@ -3302,6 +3482,126 @@ fn process_debug_event(
                 },
             };
             send_ok(request, None, Some(ResponseData::ScrollbarInfo(response)));
+        }
+
+        DebugEvent::GetSelectionState => {
+            // Get the selection manager from layout window
+            let layout_window = callback_info.get_layout_window();
+            let selection_manager = &layout_window.selection_manager;
+            let all_selections = selection_manager.get_all_selections();
+            
+            eprintln!("[DEBUG] GetSelectionState: selection_manager has {} selections", all_selections.len());
+            for (dom_id, sel_state) in all_selections.iter() {
+                eprintln!("[DEBUG]   dom_id={:?}, node_id={:?}, selections={}", 
+                    dom_id, sel_state.node_id, sel_state.selections.as_slice().len());
+            }
+
+            let mut selections = Vec::new();
+
+            for (dom_id, selection_state) in all_selections.iter() {
+                // Get the node ID from selection state
+                let internal_node_id = selection_state.node_id.node.into_crate_internal();
+                let node_id = internal_node_id.map(|n| n.index() as u64);
+                
+                // Build CSS selector for this node
+                let selector = internal_node_id
+                    .and_then(|nid| build_selector_for_node(&callback_info, *dom_id, nid));
+
+                // Convert selections to range info
+                let mut ranges = Vec::new();
+                for selection in selection_state.selections.as_slice() {
+                    use azul_core::selection::Selection;
+                    let range_info = match selection {
+                        Selection::Cursor(cursor) => SelectionRangeInfo {
+                            selection_type: "cursor".to_string(),
+                            cursor_position: Some(cursor.cluster_id.start_byte_in_run as usize),
+                            start: None,
+                            end: None,
+                            direction: None,
+                        },
+                        Selection::Range(range) => {
+                            let start_pos = range.start.cluster_id.start_byte_in_run as usize;
+                            let end_pos = range.end.cluster_id.start_byte_in_run as usize;
+                            SelectionRangeInfo {
+                                selection_type: "range".to_string(),
+                                cursor_position: None,
+                                start: Some(start_pos),
+                                end: Some(end_pos),
+                                direction: Some(if start_pos <= end_pos { "forward" } else { "backward" }.to_string()),
+                            }
+                        },
+                    };
+                    ranges.push(range_info);
+                }
+
+                // Note: Selection rectangles would require accessing private methods
+                // For now, we just return the selection ranges without visual rectangles
+                let rectangles = Vec::new();
+
+                selections.push(DomSelectionInfo {
+                    dom_id: dom_id.inner as u32,
+                    node_id,
+                    selector,
+                    ranges,
+                    rectangles,
+                });
+            }
+
+            let response = SelectionStateResponse {
+                has_selection: !selections.is_empty(),
+                selection_count: selections.len(),
+                selections,
+            };
+            send_ok(request, None, Some(ResponseData::SelectionState(response)));
+        }
+
+        DebugEvent::DumpSelectionManager => {
+            // Dump entire selection manager state for debugging
+            let layout_window = callback_info.get_layout_window();
+            let selection_manager = &layout_window.selection_manager;
+            let all_selections = selection_manager.get_all_selections();
+            
+            let mut selections = Vec::new();
+            for (dom_id, selection_state) in all_selections.iter() {
+                let internal_node_id = selection_state.node_id.node.into_crate_internal();
+                let node_id = internal_node_id.map(|n| n.index() as u64);
+                let selector = internal_node_id
+                    .and_then(|nid| build_selector_for_node(&callback_info, *dom_id, nid));
+                
+                let mut sel_dumps = Vec::new();
+                for sel in selection_state.selections.as_slice() {
+                    use azul_core::selection::Selection;
+                    sel_dumps.push(SelectionDump {
+                        selection_type: match sel {
+                            Selection::Cursor(_) => "cursor".to_string(),
+                            Selection::Range(_) => "range".to_string(),
+                        },
+                        debug: alloc::format!("{:?}", sel),
+                    });
+                }
+                
+                selections.push(SelectionDumpEntry {
+                    dom_id: dom_id.inner as u32,
+                    node_id,
+                    selector,
+                    selections: sel_dumps,
+                });
+            }
+            
+            let click_state = &selection_manager.click_state;
+            let response = SelectionManagerDump {
+                selections,
+                click_state: ClickStateDump {
+                    last_node: click_state.last_node.map(|n| alloc::format!("{:?}", n)),
+                    last_position: LogicalPositionJson {
+                        x: click_state.last_position.x,
+                        y: click_state.last_position.y,
+                    },
+                    last_time_ms: click_state.last_time_ms,
+                    click_count: click_state.click_count,
+                },
+            };
+            send_ok(request, None, Some(ResponseData::SelectionManagerDump(response)));
         }
 
         _ => {
