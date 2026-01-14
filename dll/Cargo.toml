@@ -160,6 +160,8 @@ build-dll = [
     "clipboard-win",
     # Windows needs libm
     "libm",
+    # ICU internationalization support
+    "icu",
 ]
 
 # -----------------------------------------------------------------------------
@@ -250,6 +252,10 @@ xml = ["azul-layout", "azul-layout/xml"]
 font_loading = ["azul-layout", "azul-layout/font_loading"]
 font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithreaded"]
 text_layout = ["azul-layout", "azul-layout/text_layout"]
+
+# ICU4X internationalization support
+icu = ["azul-layout", "azul-layout/icu"]
+icu_chrono = ["icu", "azul-layout/icu_chrono"]
 
 # -----------------------------------------------------------------------------
 # Logging Backends

@@ -1040,10 +1040,10 @@ fn extract_types_from_type_path(
     if let Some(last) = type_path.path.segments.last() {
         let type_name = last.ident.to_string();
 
-        // Box<T> and Option<Box<T>> are "stop types" - they map to *const c_void
+        // Box<T>, Arc<T>, Rc<T> are "stop types" - they map to *const c_void
         // We don't need to extract the inner type T
-        if type_name == "Box" {
-            // Box<T> becomes *const c_void - don't extract inner type
+        if matches!(type_name.as_str(), "Box" | "Arc" | "Rc") {
+            // These become *const c_void - don't extract inner type
             return;
         }
 
@@ -1066,7 +1066,8 @@ fn extract_types_from_type_path(
         }
 
         // Check if it's a wrapper type that we should "look through"
-        let is_wrapper = matches!(type_name.as_str(), "Vec" | "Arc" | "Rc" | "Result");
+        // Note: Arc and Rc are handled above as "stop types" (they become *const c_void)
+        let is_wrapper = matches!(type_name.as_str(), "Vec" | "Result");
 
         // If it's not a wrapper and not a primitive, add it
         if !is_wrapper && !TypeIndex::is_primitive(&type_name) {
@@ -1102,9 +1103,9 @@ fn extract_simple_name_from_str(s: &str) -> String {
 }
 
 /// Check if a type is a wrapper that we want to "look through"
-/// Note: Box and Option<Box> are "stop types" and handled separately
+/// Note: Box, Arc, Rc and Option<Box> are "stop types" and handled separately
 fn is_wrapper_type(name: &str) -> bool {
-    matches!(name, "Option" | "Vec" | "Arc" | "Rc" | "Result")
+    matches!(name, "Option" | "Vec" | "Result")
 }
 
 /// Extract the base type name from a complex type string (legacy, for compatibility)

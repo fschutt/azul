@@ -30,6 +30,16 @@ pub mod desktop;
 #[cfg(feature = "extra")]
 pub mod extra;
 
+// ICU4X internationalization support
+#[cfg(feature = "icu")]
+pub mod icu;
+#[cfg(feature = "icu")]
+pub use icu::{
+    DateTimeFieldSet, FormatLength, IcuDate, IcuDateTime, IcuError,
+    IcuLocalizer, IcuLocalizerHandle, IcuResult, IcuStringVec, IcuTime,
+    LayoutCallbackInfoIcuExt, ListType, PluralCategory,
+};
+
 #[cfg(feature = "text_layout")]
 pub mod callbacks;
 #[cfg(feature = "cpurender")]

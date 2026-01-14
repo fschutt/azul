@@ -17,6 +17,7 @@ publish = false
 
 [dependencies]
 azul = { path = "../../dll", package = "azul-dll", default-features = false }
+azul_css = { path = "../../css", package = "azul-css", default-features = false }
 serde = { version = "1", optional = true }
 serde_derive = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
@@ -26,6 +27,7 @@ default = ["link-static"]
 serde_support = ["serde", "serde_derive", "serde_json"]
 link-static = ["azul/link-static"]
 link-dynamic = ["azul/link-dynamic"]
+icu = ["azul/icu"]
 
 [[example]]
 name = "async"
@@ -59,3 +61,8 @@ path = "src/xhtml.rs"
 [[example]]
 name = "scrolling"
 path = "src/scrolling.rs"
+
+[[example]]
+name = "icu_demo"
+path = "icu_demo.rs"
+required-features = ["icu"]

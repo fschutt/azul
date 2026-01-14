@@ -54,6 +54,15 @@ base64 = "0.22.1"
 strfmt = { version = "0.2", optional = true }
 tfd = { version = "0.1", optional = true }
 
+# ICU4X dependencies for internationalization
+# compiled_data is enabled by default to include all locale data
+icu = { version = "2.1", optional = true }
+icu_provider_blob = { version = "2.1", default-features = false, optional = true }
+writeable = { version = "0.6", default-features = false, optional = true }
+
+# Optional: chrono for getting current date/time
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"], optional = true }
+
 [features]
 # Default: Full layout engine with text, fonts, SVG, images, accessibility
 # Uses multithreaded font loading for faster startup on desktop
@@ -131,3 +140,9 @@ cpurender = ["dep:tiny-skia", "dep:allsorts", "dep:gl-context-loader"]
 
 # Accessibility support (accesskit)
 a11y = ["dep:accesskit"]
+
+# ICU4X internationalization support (number/date/list formatting, pluralization)
+icu = ["dep:icu", "dep:icu_provider_blob", "dep:writeable", "std"]
+
+# Add chrono support for Date.now() style APIs (optional with ICU)
+icu_chrono = ["icu", "dep:chrono"]

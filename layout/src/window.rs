@@ -53,6 +53,8 @@ use azul_css::{
 };
 use rust_fontconfig::FcFontCache;
 
+#[cfg(feature = "icu")]
+use crate::icu::IcuLocalizerHandle;
 use crate::{
     callbacks::{
         CallCallbacksResult, Callback, ExternalSystemCallbacks, FocusUpdateRequest, MenuCallback,
@@ -318,6 +320,10 @@ pub struct LayoutWindow {
     /// Pending IFrame updates from callbacks (processed in next frame)
     /// Map of DomId -> Set of NodeIds that need re-rendering
     pub pending_iframe_updates: BTreeMap<DomId, FastBTreeSet<NodeId>>,
+    /// ICU4X localizer handle for internationalized formatting (numbers, dates, lists, plurals)
+    /// Initialized from system language at startup, can be overridden
+    #[cfg(feature = "icu")]
+    pub icu_localizer: IcuLocalizerHandle,
 }
 
 fn default_duration_500ms() -> Duration {
@@ -405,6 +411,8 @@ impl LayoutWindow {
                 constraints: BTreeMap::new(),
             },
             pending_iframe_updates: BTreeMap::new(),
+            #[cfg(feature = "icu")]
+            icu_localizer: IcuLocalizerHandle::default(),
         })
     }
 
@@ -472,6 +480,8 @@ impl LayoutWindow {
                 constraints: BTreeMap::new(),
             },
             pending_iframe_updates: BTreeMap::new(),
+            #[cfg(feature = "icu")]
+            icu_localizer: IcuLocalizerHandle::default(),
         })
     }
 
@@ -2850,6 +2860,8 @@ impl LayoutWindow {
                 current_window_handle,
                 system_callbacks,
                 system_style,
+                #[cfg(feature = "icu")]
+                icu_localizer: self.icu_localizer.clone(),
                 ctx: timer_ctx,
             };
 
@@ -3089,6 +3101,8 @@ impl LayoutWindow {
                 current_window_handle,
                 system_callbacks,
                 system_style: system_style.clone(),
+                #[cfg(feature = "icu")]
+                icu_localizer: self.icu_localizer.clone(),
                 ctx: callback.ctx.clone(),
             };
 
@@ -3312,6 +3326,8 @@ impl LayoutWindow {
             current_window_handle,
             system_callbacks,
             system_style,
+            #[cfg(feature = "icu")]
+            icu_localizer: self.icu_localizer.clone(),
             ctx: OptionRefAny::None,
         };
 
@@ -3490,6 +3506,8 @@ impl LayoutWindow {
             current_window_handle,
             system_callbacks,
             system_style,
+            #[cfg(feature = "icu")]
+            icu_localizer: self.icu_localizer.clone(),
             ctx: OptionRefAny::None,
         };
 
@@ -3592,6 +3610,44 @@ impl LayoutWindow {
         }
 
         return ret;
+    }
+}
+
+// --- ICU4X Internationalization API ---
+
+#[cfg(feature = "icu")]
+impl LayoutWindow {
+    /// Initialize the ICU localizer with the system's detected language.
+    ///
+    /// This should be called during window initialization, passing the language
+    /// from `SystemStyle::language`.
+    ///
+    /// # Arguments
+    /// * `locale` - The BCP 47 language tag (e.g., "en-US", "de-DE")
+    pub fn set_icu_locale(&mut self, locale: &str) {
+        self.icu_localizer.set_locale(locale);
+    }
+
+    /// Initialize the ICU localizer from a SystemStyle.
+    ///
+    /// This is a convenience method that extracts the language from the system style.
+    pub fn init_icu_from_system_style(&mut self, system_style: &azul_css::system::SystemStyle) {
+        self.icu_localizer = IcuLocalizerHandle::from_system_language(&system_style.language);
+    }
+
+    /// Get a clone of the ICU localizer handle.
+    ///
+    /// This can be used to perform locale-aware formatting outside of callbacks.
+    pub fn get_icu_localizer(&self) -> IcuLocalizerHandle {
+        self.icu_localizer.clone()
+    }
+
+    /// Load additional ICU locale data from a binary blob.
+    ///
+    /// The blob should be generated using `icu4x-datagen` with the `--format blob` flag.
+    /// This allows supporting locales that aren't compiled into the binary.
+    pub fn load_icu_data_blob(&mut self, data: Vec<u8>) -> bool {
+        self.icu_localizer.load_data_blob(&data)
     }
 }
 

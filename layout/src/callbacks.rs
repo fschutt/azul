@@ -46,6 +46,12 @@ use azul_css::{
 };
 use rust_fontconfig::FcFontCache;
 
+#[cfg(feature = "icu")]
+use crate::icu::{
+    FormatLength, IcuDate, IcuDateTime, IcuLocalizerHandle, IcuResult,
+    IcuStringVec, IcuTime, ListType, PluralCategory,
+};
+
 use crate::{
     hit_test::FullHitTest,
     managers::{
@@ -554,6 +560,10 @@ pub struct CallbackInfoRefData<'a> {
     /// Platform-specific system style (colors, spacing, etc.)
     /// Arc allows safe cloning in callbacks without unsafe pointer manipulation
     pub system_style: Arc<SystemStyle>,
+    /// ICU4X localizer cache for internationalized formatting (numbers, dates, lists, plurals)
+    /// Caches localizers for multiple locales. Only available when the "icu" feature is enabled.
+    #[cfg(feature = "icu")]
+    pub icu_localizer: IcuLocalizerHandle,
     /// The callable for FFI language bindings (Python, etc.)
     /// Cloned from the Callback struct before invocation. Native Rust callbacks have this as None.
     pub ctx: OptionRefAny,
@@ -1827,6 +1837,221 @@ impl CallbackInfo {
     /// This is useful for creating custom menus or other system-styled UI.
     pub fn get_system_style(&self) -> Arc<SystemStyle> {
         unsafe { (*self.ref_data).system_style.clone() }
+    }
+
+    // ==================== ICU4X Internationalization API ====================
+    //
+    // All formatting functions take a locale string (BCP 47 format) as the first
+    // parameter, allowing dynamic language switching per-call.
+    //
+    // For date/time construction, use the static methods on IcuDate, IcuTime, IcuDateTime:
+    // - IcuDate::now(), IcuDate::now_utc(), IcuDate::new(year, month, day)
+    // - IcuTime::now(), IcuTime::now_utc(), IcuTime::new(hour, minute, second)
+    // - IcuDateTime::now(), IcuDateTime::now_utc(), IcuDateTime::from_timestamp(secs)
+
+    /// Get the ICU localizer cache for internationalized formatting.
+    ///
+    /// The cache stores localizers for multiple locales. Each locale's formatter
+    /// is lazily created on first use and cached for subsequent calls.
+    #[cfg(feature = "icu")]
+    pub fn get_icu_localizer(&self) -> &IcuLocalizerHandle {
+        unsafe { &(*self.ref_data).icu_localizer }
+    }
+
+    /// Format an integer with locale-appropriate grouping separators.
+    ///
+    /// # Arguments
+    /// * `locale` - BCP 47 locale string (e.g., "en-US", "de-DE", "ja-JP")
+    /// * `value` - The integer to format
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// info.format_integer("en-US", 1234567) // → "1,234,567"
+    /// info.format_integer("de-DE", 1234567) // → "1.234.567"
+    /// info.format_integer("fr-FR", 1234567) // → "1 234 567"
+    /// ```
+    #[cfg(feature = "icu")]
+    pub fn format_integer(&self, locale: &str, value: i64) -> AzString {
+        self.get_icu_localizer().format_integer(locale, value)
+    }
+
+    /// Format a decimal number with locale-appropriate separators.
+    ///
+    /// # Arguments
+    /// * `locale` - BCP 47 locale string
+    /// * `integer_part` - The full integer value (e.g., 123456 for 1234.56)
+    /// * `decimal_places` - Number of decimal places (e.g., 2 for 1234.56)
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// info.format_decimal("en-US", 123456, 2) // → "1,234.56"
+    /// info.format_decimal("de-DE", 123456, 2) // → "1.234,56"
+    /// ```
+    #[cfg(feature = "icu")]
+    pub fn format_decimal(&self, locale: &str, integer_part: i64, decimal_places: i16) -> AzString {
+        self.get_icu_localizer().format_decimal(locale, integer_part, decimal_places)
+    }
+
+    /// Get the plural category for a number (cardinal: "1 item", "2 items").
+    ///
+    /// # Arguments
+    /// * `locale` - BCP 47 locale string
+    /// * `value` - The number to get the plural category for
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// info.get_plural_category("en", 1)  // → PluralCategory::One
+    /// info.get_plural_category("en", 2)  // → PluralCategory::Other
+    /// info.get_plural_category("pl", 2)  // → PluralCategory::Few
+    /// info.get_plural_category("pl", 5)  // → PluralCategory::Many
+    /// ```
+    #[cfg(feature = "icu")]
+    pub fn get_plural_category(&self, locale: &str, value: i64) -> PluralCategory {
+        self.get_icu_localizer().get_plural_category(locale, value)
+    }
+
+    /// Select the appropriate string based on plural rules.
+    ///
+    /// # Arguments
+    /// * `locale` - BCP 47 locale string
+    /// * `value` - The number to pluralize
+    /// * `zero`, `one`, `two`, `few`, `many`, `other` - Strings for each category
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// info.pluralize("en", count, "no items", "1 item", "2 items", "{} items", "{} items", "{} items")
+    /// info.pluralize("pl", count, "brak", "1 element", "2 elementy", "{} elementy", "{} elementów", "{} elementów")
+    /// ```
+    #[cfg(feature = "icu")]
+    pub fn pluralize(
+        &self,
+        locale: &str,
+        value: i64,
+        zero: &str,
+        one: &str,
+        two: &str,
+        few: &str,
+        many: &str,
+        other: &str,
+    ) -> AzString {
+        self.get_icu_localizer().pluralize(locale, value, zero, one, two, few, many, other)
+    }
+
+    /// Format a list of items with locale-appropriate conjunctions.
+    ///
+    /// # Arguments
+    /// * `locale` - BCP 47 locale string
+    /// * `items` - The items to format as a list
+    /// * `list_type` - And, Or, or Unit list type
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// info.format_list("en-US", &items, ListType::And) // → "A, B, and C"
+    /// info.format_list("es-ES", &items, ListType::And) // → "A, B y C"
+    /// ```
+    #[cfg(feature = "icu")]
+    pub fn format_list(&self, locale: &str, items: &[AzString], list_type: ListType) -> AzString {
+        self.get_icu_localizer().format_list(locale, items, list_type)
+    }
+
+    /// Format a date according to the specified locale.
+    ///
+    /// # Arguments
+    /// * `locale` - BCP 47 locale string
+    /// * `date` - The date to format (use IcuDate::now() or IcuDate::new())
+    /// * `length` - Short, Medium, or Long format
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let today = IcuDate::now();
+    /// info.format_date("en-US", today, FormatLength::Medium) // → "Jan 15, 2025"
+    /// info.format_date("de-DE", today, FormatLength::Medium) // → "15.01.2025"
+    /// ```
+    #[cfg(feature = "icu")]
+    pub fn format_date(&self, locale: &str, date: IcuDate, length: FormatLength) -> IcuResult {
+        self.get_icu_localizer().format_date(locale, date, length)
+    }
+
+    /// Format a time according to the specified locale.
+    ///
+    /// # Arguments
+    /// * `locale` - BCP 47 locale string
+    /// * `time` - The time to format (use IcuTime::now() or IcuTime::new())
+    /// * `include_seconds` - Whether to include seconds in the output
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let now = IcuTime::now();
+    /// info.format_time("en-US", now, false) // → "4:30 PM"
+    /// info.format_time("de-DE", now, false) // → "16:30"
+    /// ```
+    #[cfg(feature = "icu")]
+    pub fn format_time(&self, locale: &str, time: IcuTime, include_seconds: bool) -> IcuResult {
+        self.get_icu_localizer().format_time(locale, time, include_seconds)
+    }
+
+    /// Format a date and time according to the specified locale.
+    ///
+    /// # Arguments
+    /// * `locale` - BCP 47 locale string
+    /// * `datetime` - The date and time to format (use IcuDateTime::now())
+    /// * `length` - Short, Medium, or Long format
+    #[cfg(feature = "icu")]
+    pub fn format_datetime(&self, locale: &str, datetime: IcuDateTime, length: FormatLength) -> IcuResult {
+        self.get_icu_localizer().format_datetime(locale, datetime, length)
+    }
+
+    /// Compare two strings according to locale-specific collation rules.
+    ///
+    /// Returns -1 if a < b, 0 if a == b, 1 if a > b.
+    /// This is useful for locale-aware sorting where "Ä" should sort with "A" in German.
+    ///
+    /// # Arguments
+    /// * `locale` - BCP 47 locale string
+    /// * `a` - First string to compare
+    /// * `b` - Second string to compare
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// info.compare_strings("de-DE", "Äpfel", "Banane") // → -1 (Ä sorts with A)
+    /// info.compare_strings("sv-SE", "Äpple", "Öl")     // → -1 (Swedish: Ä before Ö)
+    /// ```
+    #[cfg(feature = "icu")]
+    pub fn compare_strings(&self, locale: &str, a: &str, b: &str) -> i32 {
+        self.get_icu_localizer().compare_strings(locale, a, b)
+    }
+
+    /// Sort a list of strings using locale-aware collation.
+    ///
+    /// This properly handles accented characters, case sensitivity, and
+    /// language-specific sorting rules.
+    ///
+    /// # Arguments
+    /// * `locale` - BCP 47 locale string
+    /// * `strings` - The strings to sort
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let sorted = info.sort_strings("de-DE", &["Österreich", "Andorra", "Ägypten"]);
+    /// // Result: ["Ägypten", "Andorra", "Österreich"] (Ä sorts with A, Ö with O)
+    /// ```
+    #[cfg(feature = "icu")]
+    pub fn sort_strings(&self, locale: &str, strings: &[AzString]) -> IcuStringVec {
+        self.get_icu_localizer().sort_strings(locale, strings)
+    }
+
+    /// Check if two strings are equal according to locale collation rules.
+    ///
+    /// This may return `true` for strings that differ in case or accents,
+    /// depending on the collation strength.
+    ///
+    /// # Arguments
+    /// * `locale` - BCP 47 locale string
+    /// * `a` - First string to compare
+    /// * `b` - Second string to compare
+    #[cfg(feature = "icu")]
+    pub fn strings_equal(&self, locale: &str, a: &str, b: &str) -> bool {
+        self.get_icu_localizer().strings_equal(locale, a, b)
     }
 
     /// Get the current cursor position in logical coordinates relative to the window

@@ -87,6 +87,11 @@ pub mod svg {
 pub mod xml {
     pub use azul_layout::xml::*;
 }
+/// ICU4X internationalization support
+#[cfg(feature = "icu")]
+pub mod icu {
+    pub use azul_layout::icu::*;
+}
 /// Native screenshot extension trait using dlopen
 pub mod native_screenshot;
 /// Re-exports of errors

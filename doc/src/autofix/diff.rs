@@ -1411,9 +1411,9 @@ fn compare_struct_fields(
         workspace_fields.iter().zip(api_fields.iter()).any(
             |(ws, (api_name, api_type, api_ref_kind))| {
                 let name_differs = ws.name != *api_name;
-                let type_differs = normalize_type_name(&ws.ty) != normalize_type_name(api_type);
-                let ref_differs = ws.ref_kind != *api_ref_kind;
-                name_differs || type_differs || ref_differs
+                // Check if types are equivalent (handles Arc<T>/Box<T>/Rc<T> = *const c_void)
+                let types_equivalent = are_types_equivalent(&ws.ty, ws.ref_kind, api_type, *api_ref_kind);
+                name_differs || !types_equivalent
             },
         )
     };
@@ -1653,6 +1653,34 @@ fn compare_generic_params(
     }
 
     modifications
+}
+
+/// Check if a workspace type and an API type are equivalent
+/// This handles cases like Arc<T>/Box<T>/Rc<T> in workspace = c_void with constptr in API
+fn are_types_equivalent(
+    ws_type: &str,
+    ws_ref_kind: crate::api::RefKind,
+    api_type: &str,
+    api_ref_kind: crate::api::RefKind,
+) -> bool {
+    // Check if workspace type is a smart pointer that maps to *const c_void
+    let ws_is_smart_ptr = ws_type.starts_with("Arc<")
+        || ws_type.starts_with("Box<")
+        || ws_type.starts_with("Rc<");
+    
+    // If workspace has Arc<T>/Box<T>/Rc<T> and API has c_void with constptr, they're equivalent
+    if ws_is_smart_ptr {
+        let api_is_cvoid_ptr = normalize_type_name(api_type) == "c_void"
+            && api_ref_kind == crate::api::RefKind::ConstPtr;
+        if api_is_cvoid_ptr {
+            return true;
+        }
+    }
+    
+    // Otherwise, compare normally: types must match and ref_kinds must match
+    let types_match = normalize_type_name(ws_type) == normalize_type_name(api_type);
+    let refs_match = ws_ref_kind == api_ref_kind;
+    types_match && refs_match
 }
 
 /// Normalize a type name for comparison (remove whitespace, handle Az prefix)

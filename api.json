@@ -2321,6 +2321,449 @@
               }
             ],
             "repr": "C, u8"
+          },
+          "IcuLocalizerHandle": {
+            "external": "azul_layout::icu::IcuLocalizerHandle",
+            "derive": [
+              "Clone"
+            ],
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                }
+              }
+            ],
+            "constructors": {
+              "from_system_language": {
+                "doc": [
+                  "Create a cache initialized with the system language."
+                ],
+                "fn_args": [
+                  {
+                    "language": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::icu::IcuLocalizerHandle::from_system_language(&language)"
+              },
+              "new": {
+                "doc": [
+                  "Create a new empty cache with a default locale."
+                ],
+                "fn_args": [
+                  {
+                    "default_locale": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::icu::IcuLocalizerHandle::new(default_locale.as_str())"
+              }
+            },
+            "functions": {
+              "get_default_locale": {
+                "doc": [
+                  "Get the default locale string."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.get_default_locale().into()"
+              },
+              "set_default_locale": {
+                "doc": [
+                  "Set the default locale."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "locale": "String"
+                  }
+                ],
+                "fn_body": "object.set_default_locale(locale.as_str())"
+              },
+              "set_locale": {
+                "doc": [
+                  "Alias for set_default_locale for compatibility."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "locale": "String"
+                  }
+                ],
+                "fn_body": "object.set_locale(locale.as_str())"
+              },
+              "load_data_blob": {
+                "doc": [
+                  "Load additional locale data from a binary blob for all cached localizers.",
+                  "",
+                  "The blob should be generated using `icu4x-datagen` with the `--format blob` flag.",
+                  "This allows supporting locales that aren't compiled into the binary.",
+                  "",
+                  "Returns `true` if the data was successfully loaded."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "data": "U8VecRef"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.load_data_blob(data.as_slice())"
+              },
+              "get_language": {
+                "doc": [
+                  "Get the language part of a locale (e.g., \"en\" from \"en-US\")."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.get_language(locale.as_str()).into()"
+              },
+              "format_integer": {
+                "doc": [
+                  "Format an integer with locale-appropriate grouping.",
+                  "",
+                  "# Example",
+                  "```rust,ignore",
+                  "cache.format_integer(\"en-US\", 1234567) // → \"1,234,567\"",
+                  "cache.format_integer(\"de-DE\", 1234567) // → \"1.234.567\"",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "value": "i64"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.format_integer(locale.as_str(), value).into()"
+              },
+              "format_decimal": {
+                "doc": [
+                  "Format a decimal number.",
+                  "",
+                  "# Arguments",
+                  "* `locale` - BCP 47 locale string (e.g., \"en-US\", \"de-DE\")",
+                  "* `integer_part` - The full integer value (e.g., 123456 for 1234.56)",
+                  "* `decimal_places` - Number of decimal places (e.g., 2 for 1234.56)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "integer_part": "i64"
+                  },
+                  {
+                    "decimal_places": "i16"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.format_decimal(locale.as_str(), integer_part, decimal_places).into()"
+              },
+              "get_plural_category": {
+                "doc": [
+                  "Get the plural category for a number.",
+                  "",
+                  "# Example",
+                  "```rust,ignore",
+                  "cache.get_plural_category(\"en\", 1)  // → PluralCategory::One",
+                  "cache.get_plural_category(\"pl\", 5)  // → PluralCategory::Many",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "value": "i64"
+                  }
+                ],
+                "returns": {
+                  "type": "PluralCategory"
+                },
+                "fn_body": "object.get_plural_category(locale.as_str(), value)"
+              },
+              "pluralize": {
+                "doc": [
+                  "Select a string based on plural rules.",
+                  "",
+                  "# Arguments",
+                  "* `locale` - BCP 47 locale string",
+                  "* `value` - The number to pluralize",
+                  "* `zero`, `one`, `two`, `few`, `many`, `other` - Strings for each category"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "value": "i64"
+                  },
+                  {
+                    "zero": "String"
+                  },
+                  {
+                    "one": "String"
+                  },
+                  {
+                    "two": "String"
+                  },
+                  {
+                    "few": "String"
+                  },
+                  {
+                    "many": "String"
+                  },
+                  {
+                    "other": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.pluralize(locale.as_str(), value, zero.as_str(), one.as_str(), two.as_str(), few.as_str(), many.as_str(), other.as_str()).into()"
+              },
+              "format_date": {
+                "doc": [
+                  "Format a date according to the specified locale.",
+                  "",
+                  "# Example",
+                  "```rust,ignore",
+                  "let today = IcuDate::now();",
+                  "cache.format_date(\"en-US\", today, FormatLength::Medium) // → \"Jan 15, 2025\"",
+                  "cache.format_date(\"de-DE\", today, FormatLength::Medium) // → \"15.01.2025\"",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "date": "IcuDate"
+                  },
+                  {
+                    "length": "FormatLength"
+                  }
+                ],
+                "returns": {
+                  "type": "IcuResult"
+                },
+                "fn_body": "object.format_date(locale.as_str(), date, length)"
+              },
+              "format_time": {
+                "doc": [
+                  "Format a time according to the specified locale.",
+                  "",
+                  "# Example",
+                  "```rust,ignore",
+                  "let now = IcuTime::now();",
+                  "cache.format_time(\"en-US\", now, false) // → \"4:30 PM\"",
+                  "cache.format_time(\"de-DE\", now, false) // → \"16:30\"",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "time": "IcuTime"
+                  },
+                  {
+                    "include_seconds": "bool"
+                  }
+                ],
+                "returns": {
+                  "type": "IcuResult"
+                },
+                "fn_body": "object.format_time(locale.as_str(), time, include_seconds)"
+              },
+              "format_datetime": {
+                "doc": [
+                  "Format a date and time according to the specified locale."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "datetime": "IcuDateTime"
+                  },
+                  {
+                    "length": "FormatLength"
+                  }
+                ],
+                "returns": {
+                  "type": "IcuResult"
+                },
+                "fn_body": "object.format_datetime(locale.as_str(), datetime, length)"
+              },
+              "compare_strings": {
+                "doc": [
+                  "Compare two strings according to locale-specific collation rules.",
+                  "",
+                  "Returns -1 if a < b, 0 if a == b, 1 if a > b.",
+                  "",
+                  "# Example",
+                  "```rust,ignore",
+                  "cache.compare_strings(\"de-DE\", \"Äpfel\", \"Banane\") // → -1 (Ä sorts with A)",
+                  "cache.compare_strings(\"sv-SE\", \"Äpple\", \"Öl\")     // → -1 (Swedish: Ä before Ö)",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "a": "String"
+                  },
+                  {
+                    "b": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "i32"
+                },
+                "fn_body": "object.compare_strings(locale.as_str(), a.as_str(), b.as_str())"
+              },
+              "strings_equal": {
+                "doc": [
+                  "Check if two strings are equal according to locale collation rules."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "a": "String"
+                  },
+                  {
+                    "b": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.strings_equal(locale.as_str(), a.as_str(), b.as_str())"
+              },
+              "format_plural": {
+                "doc": [
+                  "Convenience function to format a localized message with plural support.",
+                  "",
+                  "This handles the common case of \"{count} {item/items}\" patterns.",
+                  "The `{}` placeholder in the template will be replaced with the formatted number."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "value": "i64"
+                  },
+                  {
+                    "zero": "String"
+                  },
+                  {
+                    "one": "String"
+                  },
+                  {
+                    "other": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.format_plural(locale.as_str(), value, zero.as_str(), one.as_str(), other.as_str()).into()"
+              },
+              "clear_cache": {
+                "doc": [
+                  "Clear the cache (useful for memory management or locale data reload)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "fn_body": "object.clear_cache()"
+              },
+              "cached_locale_count": {
+                "doc": [
+                  "Get the number of cached locales."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "object.cached_locale_count()"
+              }
+            },
+            "repr": "C"
           }
         }
       },
@@ -45480,6 +45923,51 @@
               }
             ],
             "repr": "C"
+          },
+          "IcuTime": {
+            "external": "azul_layout::icu::IcuTime",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "struct_fields": [
+              {
+                "hour": {
+                  "type": "u8"
+                },
+                "minute": {
+                  "type": "u8"
+                },
+                "second": {
+                  "type": "u8"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "IcuDateTime": {
+            "external": "azul_layout::icu::IcuDateTime",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "struct_fields": [
+              {
+                "date": {
+                  "type": "IcuDate"
+                },
+                "time": {
+                  "type": "IcuTime"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -45554,6 +46042,94 @@
                   "type": "Refstr"
                 },
                 "fn_body": "{ let s = string.as_str(); azul_core::gl::Refstr { ptr: s.as_ptr() as *const _, len: s.len() } }"
+              },
+              "to_c_str": {
+                "doc": [
+                  "Creates a null-terminated copy of the string for C FFI usage.",
+                  "Returns a new U8Vec that contains the string data followed by a null byte.",
+                  "The caller is responsible for freeing this memory."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "U8Vec"
+                },
+                "fn_body": "string.to_c_str()"
+              },
+              "from_utf16_le": {
+                "doc": [
+                  "Creates a new String from UTF-16 encoded bytes (little-endian).",
+                  "Returns an empty string if the input is invalid UTF-16 or has odd length."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const u8"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "unsafe { azul_css::corety::AzString::from_utf16_le(ptr, len) }"
+              },
+              "from_utf16_be": {
+                "doc": [
+                  "Creates a new String from UTF-16 encoded bytes (big-endian).",
+                  "Returns an empty string if the input is invalid UTF-16 or has odd length."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const u8"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "unsafe { azul_css::corety::AzString::from_utf16_be(ptr, len) }"
+              },
+              "from_utf8_lossy": {
+                "doc": [
+                  "Creates a new String from UTF-8 bytes with lossy conversion.",
+                  "Invalid UTF-8 sequences are replaced with the Unicode replacement character (U+FFFD)."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const u8"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "unsafe { azul_css::corety::AzString::from_utf8_lossy(ptr, len) }"
+              },
+              "from_utf8": {
+                "doc": [
+                  "Creates a new String from UTF-8 bytes.",
+                  "Returns an empty string if the input is not valid UTF-8."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const u8"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "unsafe { azul_css::corety::AzString::from_utf8(ptr, len) }"
               }
             },
             "repr": "C"
@@ -52783,6 +53359,41 @@
               }
             ],
             "repr": "C"
+          },
+          "IcuResult": {
+            "external": "azul_layout::icu::IcuResult",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "String"
+                },
+                "Err": {
+                  "type": "IcuError"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "IcuError": {
+            "external": "azul_layout::icu::IcuError",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "message": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -53847,6 +54458,72 @@
               {
                 "Auto": {},
                 "Smooth": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "PluralCategory": {
+            "external": "azul_layout::icu::PluralCategory",
+            "custom_impls": [
+              "From"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Zero": {},
+                "One": {},
+                "Two": {},
+                "Few": {},
+                "Many": {},
+                "Other": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "FormatLength": {
+            "external": "azul_layout::icu::FormatLength",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Short": {},
+                "Medium": {},
+                "Long": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "IcuDate": {
+            "external": "azul_layout::icu::IcuDate",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "struct_fields": [
+              {
+                "year": {
+                  "type": "i32"
+                },
+                "month": {
+                  "type": "u8"
+                },
+                "day": {
+                  "type": "u8"
+                }
               }
             ],
             "repr": "C"

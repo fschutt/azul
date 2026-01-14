@@ -236,6 +236,132 @@ impl AzString {
             run_destructor: m.vec.run_destructor,
         }
     }
+
+    /// Returns the length of the string in bytes (not including null terminator)
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.vec.len
+    }
+
+    /// Returns true if the string is empty
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.vec.len == 0
+    }
+
+    /// Creates a null-terminated copy of the string for C FFI usage.
+    /// Returns a new U8Vec that contains the string data followed by a null byte.
+    /// The caller is responsible for freeing this memory.
+    ///
+    /// Use this when you need to pass a string to C code that expects `const char*`.
+    #[inline]
+    pub fn to_c_str(&self) -> U8Vec {
+        let bytes = self.as_bytes();
+        let mut result = Vec::with_capacity(bytes.len() + 1);
+        result.extend_from_slice(bytes);
+        result.push(0); // null terminator
+        U8Vec::from_vec(result)
+    }
+
+    /// Creates a new AzString from UTF-16 encoded bytes (little-endian).
+    /// Returns an empty string if the input is invalid UTF-16 or has odd length.
+    ///
+    /// # Arguments
+    /// * `ptr` - Pointer to UTF-16 encoded bytes
+    /// * `len` - Length in bytes (not code units) - must be even
+    ///
+    /// # Safety
+    /// - `ptr` must be valid for reading `len` bytes
+    /// - `len` must be even (UTF-16 uses 2 bytes per code unit)
+    #[inline]
+    pub unsafe fn from_utf16_le(ptr: *const u8, len: usize) -> Self {
+        if ptr.is_null() || len == 0 {
+            return Self::default();
+        }
+        
+        // UTF-16 requires pairs of bytes
+        if len % 2 != 0 {
+            return Self::default();
+        }
+        
+        let byte_slice = core::slice::from_raw_parts(ptr, len);
+        let code_units: Vec<u16> = byte_slice
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        
+        match String::from_utf16(&code_units) {
+            Ok(s) => Self::from_string(s),
+            Err(_) => Self::default(),
+        }
+    }
+
+    /// Creates a new AzString from UTF-16 encoded bytes (big-endian).
+    /// Returns an empty string if the input is invalid UTF-16 or has odd length.
+    ///
+    /// # Arguments
+    /// * `ptr` - Pointer to UTF-16 encoded bytes
+    /// * `len` - Length in bytes (not code units) - must be even
+    ///
+    /// # Safety
+    /// - `ptr` must be valid for reading `len` bytes
+    /// - `len` must be even (UTF-16 uses 2 bytes per code unit)
+    #[inline]
+    pub unsafe fn from_utf16_be(ptr: *const u8, len: usize) -> Self {
+        if ptr.is_null() || len == 0 {
+            return Self::default();
+        }
+        
+        // UTF-16 requires pairs of bytes
+        if len % 2 != 0 {
+            return Self::default();
+        }
+        
+        let byte_slice = core::slice::from_raw_parts(ptr, len);
+        let code_units: Vec<u16> = byte_slice
+            .chunks_exact(2)
+            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+            .collect();
+        
+        match String::from_utf16(&code_units) {
+            Ok(s) => Self::from_string(s),
+            Err(_) => Self::default(),
+        }
+    }
+
+    /// Creates a new AzString from UTF-8 bytes with lossy conversion.
+    /// Invalid UTF-8 sequences are replaced with the Unicode replacement character (U+FFFD).
+    ///
+    /// # Safety
+    /// - `ptr` must be valid for reading `len` bytes
+    #[inline]
+    pub unsafe fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self {
+        if ptr.is_null() || len == 0 {
+            return Self::default();
+        }
+        
+        let byte_slice = core::slice::from_raw_parts(ptr, len);
+        let s = String::from_utf8_lossy(byte_slice).into_owned();
+        Self::from_string(s)
+    }
+
+    /// Creates a new AzString from UTF-8 bytes.
+    /// Returns an empty string if the input is not valid UTF-8.
+    ///
+    /// # Safety
+    /// - `ptr` must be valid for reading `len` bytes
+    #[inline]
+    pub unsafe fn from_utf8(ptr: *const u8, len: usize) -> Self {
+        if ptr.is_null() || len == 0 {
+            return Self::default();
+        }
+        
+        let byte_slice = core::slice::from_raw_parts(ptr, len);
+        match core::str::from_utf8(byte_slice) {
+            Ok(s) => Self::from_string(s.to_string()),
+            Err(_) => Self::default(),
+        }
+    }
 }
 
 impl From<String> for AzString {
