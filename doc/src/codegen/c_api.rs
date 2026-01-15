@@ -1252,17 +1252,29 @@ pub fn generate_c_api(api_data: &ApiData, version: &str) -> String {
                         .find(|(name, _)| *name == "destructor")
                         .map(|(_, data)| &data.r#type);
 
+                    // Check if it has run_destructor field (some vecs have this extra field)
+                    let has_run_destructor = field_names.contains(&&"run_destructor".to_string());
+
                     if let Some(destr_type) = destructor_type {
                         // Generate the empty macro
                         // Format: #define AzXxxVec_empty { .ptr = 0, .len = 0, .cap = 0,
                         // .destructor = { .NoDestructor = { .tag =
                         // AzXxxVecDestructor_Tag_NoDestructor } } }
-                        code.push_str(&format!(
-                            "#define {}_empty {{ \\\r\n    .ptr = 0, \\\r\n    .len = 0, \
-                                 \\\r\n    .cap = 0, \\\r\n    .destructor = {{ .NoDestructor = \
-                                 {{ .tag = {}_Tag_NoDestructor }} }} \\\r\n}}\r\n\r\n",
-                            struct_name, destr_type
-                        ));
+                        if has_run_destructor {
+                            code.push_str(&format!(
+                                "#define {}_empty {{ \\\r\n    .ptr = 0, \\\r\n    .len = 0, \
+                                     \\\r\n    .cap = 0, \\\r\n    .destructor = {{ .NoDestructor = \
+                                     {{ .tag = {}_Tag_NoDestructor }} }}, \\\r\n    .run_destructor = false \\\r\n}}\r\n\r\n",
+                                struct_name, destr_type
+                            ));
+                        } else {
+                            code.push_str(&format!(
+                                "#define {}_empty {{ \\\r\n    .ptr = 0, \\\r\n    .len = 0, \
+                                     \\\r\n    .cap = 0, \\\r\n    .destructor = {{ .NoDestructor = \
+                                     {{ .tag = {}_Tag_NoDestructor }} }} \\\r\n}}\r\n\r\n",
+                                struct_name, destr_type
+                            ));
+                        }
                     }
                 }
             }

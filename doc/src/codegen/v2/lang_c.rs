@@ -171,6 +171,9 @@ impl LanguageGenerator for CGenerator {
         // Union match helper functions
         self.generate_union_match_helpers(&mut builder, ir, config);
 
+        // Vec_empty macros (must come before capi_patch which uses them)
+        self.generate_vec_empty_macros(&mut builder, ir, config);
+
         // C-API patch (additional macros)
         self.generate_capi_patch(&mut builder);
 
@@ -1138,6 +1141,75 @@ impl CGenerator {
                 builder.blank();
             }
         }
+    }
+
+    /// Generate empty Vec initializer macros for all Vec types
+    /// These allow convenient compile-time initialization of empty vectors in C99
+    fn generate_vec_empty_macros(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        builder.line("/* Empty Vec initializer macros - C99 designated initializers */");
+        builder.line("#ifndef __cplusplus");
+        builder.blank();
+
+        for struct_def in &ir.structs {
+            // Skip if not included in config
+            if !config.should_include_type(&struct_def.name) {
+                continue;
+            }
+
+            // Check if this is a Vec type
+            if !matches!(struct_def.category, TypeCategory::Vec) {
+                continue;
+            }
+
+            // Find the destructor field to get its type
+            let destructor_field = struct_def.fields.iter().find(|f| f.name == "destructor");
+            let has_run_destructor = struct_def.fields.iter().any(|f| f.name == "run_destructor");
+
+            if let Some(destr_field) = destructor_field {
+                let prefixed_name = config.apply_prefix(&struct_def.name);
+                let destructor_type = config.apply_prefix(&destr_field.type_name);
+
+                if has_run_destructor {
+                    // Vec with run_destructor field (e.g., FmtArgVec)
+                    builder.line(&format!(
+                        "#define {}_empty {{ \\",
+                        prefixed_name
+                    ));
+                    builder.line("    .ptr = 0, \\");
+                    builder.line("    .len = 0, \\");
+                    builder.line("    .cap = 0, \\");
+                    builder.line(&format!(
+                        "    .destructor = {{ .NoDestructor = {{ .tag = {}_Tag_NoDestructor }} }}, \\",
+                        destructor_type
+                    ));
+                    builder.line("    .run_destructor = false \\");
+                    builder.line("}");
+                } else {
+                    // Standard Vec without run_destructor
+                    builder.line(&format!(
+                        "#define {}_empty {{ \\",
+                        prefixed_name
+                    ));
+                    builder.line("    .ptr = 0, \\");
+                    builder.line("    .len = 0, \\");
+                    builder.line("    .cap = 0, \\");
+                    builder.line(&format!(
+                        "    .destructor = {{ .NoDestructor = {{ .tag = {}_Tag_NoDestructor }} }} \\",
+                        destructor_type
+                    ));
+                    builder.line("}");
+                }
+                builder.blank();
+            }
+        }
+
+        builder.line("#endif /* __cplusplus - end of Vec_empty macros */");
+        builder.blank();
     }
 
     /// Generate the C-API patch (additional macros for convenience)
