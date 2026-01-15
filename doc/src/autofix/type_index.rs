@@ -297,7 +297,7 @@ impl TypeDefinition {
                         );
                         TypeDefKind::Enum {
                             variants,
-                            repr: Some("C".to_string()),
+                            repr: Some("C, u8".to_string()),
                             generic_params: vec![],
                             derives: if macro_derives.is_empty() {
                                 vec!["Debug".to_string()]
@@ -341,7 +341,7 @@ impl TypeDefinition {
                         );
                         TypeDefKind::Enum {
                             variants,
-                            repr: Some("C".to_string()),
+                            repr: Some("C, u8".to_string()),
                             generic_params: vec![],
                             derives: if macro_derives.is_empty() {
                                 vec!["Debug".to_string(), "Clone".to_string()]
@@ -410,7 +410,7 @@ impl TypeDefinition {
                         );
                         TypeDefKind::Enum {
                             variants,
-                            repr: Some("C".to_string()),
+                            repr: Some("C, u8".to_string()),
                             generic_params: vec![],
                             derives: if macro_derives.is_empty() {
                                 vec!["Debug".to_string(), "Clone".to_string()]

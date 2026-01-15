@@ -48605,7 +48605,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleBackgroundContentVecDestructorType": {
             "external": "azul_css::props::style::background::StyleBackgroundContentVecDestructorType",
@@ -48633,7 +48633,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleBackgroundRepeatVecDestructorType": {
             "external": "azul_css::props::style::background::StyleBackgroundRepeatVecDestructorType",
@@ -48661,7 +48661,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleTransformVecDestructor": {
             "external": "azul_css::props::style::transform::StyleTransformVecDestructor",
@@ -48677,7 +48677,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "MenuItemVecDestructorType": {
             "external": "azul_core::menu::MenuItemVecDestructorType",
@@ -48753,7 +48753,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "XmlNodeChildVecDestructor": {
             "external": "azul_core::xml::XmlNodeChildVecDestructor",
@@ -48769,7 +48769,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleBackgroundSizeVecDestructorType": {
             "external": "azul_css::props::style::background::StyleBackgroundSizeVecDestructorType",
@@ -48797,7 +48797,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StringVecDestructorType": {
             "external": "azul_css::corety::StringVecDestructorType",
@@ -48825,7 +48825,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "DomVecDestructorType": {
             "external": "azul_core::dom::DomVecDestructorType",
@@ -48853,7 +48853,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StringPairVecDestructorType": {
             "external": "azul_core::window::StringPairVecDestructorType",
@@ -48881,7 +48881,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StringVecDestructor": {
             "external": "azul_css::corety::StringVecDestructor",
@@ -48897,7 +48897,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "CssRuleBlockVecDestructorType": {
             "external": "azul_css::css::CssRuleBlockVecDestructorType",
@@ -48925,7 +48925,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "MenuItemVecDestructor": {
             "external": "azul_core::menu::MenuItemVecDestructor",
@@ -48941,7 +48941,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "AttributeVecDestructorType": {
             "external": "azul_core::dom::AttributeVecDestructorType",
@@ -48969,7 +48969,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ListViewRowVecDestructor": {
             "external": "azul_layout::widgets::list_view::ListViewRowVecDestructor",
@@ -48985,7 +48985,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "NodeIdVecDestructorType": {
             "external": "azul_core::styled_dom::NodeIdVecDestructorType",
@@ -49037,7 +49037,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StylesheetVecDestructor": {
             "external": "azul_css::css::StylesheetVecDestructor",
@@ -49053,7 +49053,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "U32VecDestructor": {
             "external": "azul_css::corety::U32VecDestructor",
@@ -49069,7 +49069,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "CssRuleBlockVecDestructor": {
             "external": "azul_css::css::CssRuleBlockVecDestructor",
@@ -49085,7 +49085,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ParentWithNodeDepthVecDestructorType": {
             "external": "azul_core::styled_dom::ParentWithNodeDepthVecDestructorType",
@@ -49113,7 +49113,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "CoreCallbackDataVecDestructorType": {
             "external": "azul_core::callbacks::CoreCallbackDataVecDestructorType",
@@ -49141,7 +49141,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "CascadeInfoVecDestructorType": {
             "external": "azul_core::style::CascadeInfoVecDestructorType",
@@ -49193,7 +49193,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleBackgroundPositionVecDestructorType": {
             "external": "azul_css::props::style::background::StyleBackgroundPositionVecDestructorType",
@@ -49233,7 +49233,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "VirtualKeyCodeVecDestructor": {
             "external": "azul_core::window::VirtualKeyCodeVecDestructor",
@@ -49249,7 +49249,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SvgVertexVecDestructorType": {
             "external": "azul_core::svg::SvgVertexVecDestructorType",
@@ -49277,7 +49277,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SvgPathElementVecDestructorType": {
             "external": "azul_core::svg::SvgPathElementVecDestructorType",
@@ -49305,7 +49305,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "AccessibilityActionVecDestructor": {
             "external": "azul_core::dom::AccessibilityActionVecDestructor",
@@ -49321,7 +49321,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ListViewRowVecDestructorType": {
             "external": "azul_layout::widgets::list_view::ListViewRowVecDestructorType",
@@ -49385,7 +49385,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "TagIdToNodeIdMappingVecDestructor": {
             "external": "azul_core::styled_dom::TagIdToNodeIdMappingVecDestructor",
@@ -49401,7 +49401,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "NodeIdVecDestructor": {
             "external": "azul_core::styled_dom::NodeIdVecDestructor",
@@ -49417,7 +49417,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "U16VecDestructorType": {
             "external": "azul_css::corety::U16VecDestructorType",
@@ -49493,7 +49493,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "GLintVecDestructor": {
             "external": "azul_core::gl::GLintVecDestructor",
@@ -49509,7 +49509,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "CssPropertyWithConditionsVecDestructor": {
             "external": "azul_css::dynamic_selector::CssPropertyWithConditionsVecDestructor",
@@ -49525,7 +49525,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "DynamicSelectorVecDestructorType": {
             "external": "azul_css::dynamic_selector::DynamicSelectorVecDestructorType",
@@ -49553,7 +49553,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "NormalizedRadialColorStopVecDestructorType": {
             "external": "azul_css::props::style::background::NormalizedRadialColorStopVecDestructorType",
@@ -49581,7 +49581,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleBackgroundPositionVecDestructor": {
             "external": "azul_css::props::style::background::StyleBackgroundPositionVecDestructor",
@@ -49597,7 +49597,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SvgMultiPolygonVecDestructorType": {
             "external": "azul_core::svg::SvgMultiPolygonVecDestructorType",
@@ -49625,7 +49625,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "TessellatedSvgNodeVecDestructor": {
             "external": "azul_core::svg::TessellatedSvgNodeVecDestructor",
@@ -49641,7 +49641,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "AccessibilityActionVecDestructorType": {
             "external": "azul_core::dom::AccessibilityActionVecDestructorType",
@@ -49681,7 +49681,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "NodeDataVecDestructorType": {
             "external": "azul_core::dom::NodeDataVecDestructorType",
@@ -49709,7 +49709,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "IdOrClassVecDestructor": {
             "external": "azul_core::dom::IdOrClassVecDestructor",
@@ -49725,7 +49725,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyleBackgroundSizeVecDestructor": {
             "external": "azul_css::props::style::background::StyleBackgroundSizeVecDestructor",
@@ -49741,7 +49741,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SvgPathVecDestructorType": {
             "external": "azul_core::svg::SvgPathVecDestructorType",
@@ -49781,7 +49781,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "CoreCallbackDataVecDestructor": {
             "external": "azul_core::callbacks::CoreCallbackDataVecDestructor",
@@ -49797,7 +49797,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SvgPathElementVecDestructor": {
             "external": "azul_core::svg::SvgPathElementVecDestructor",
@@ -49813,7 +49813,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "U8VecDestructor": {
             "external": "azul_css::corety::U8VecDestructor",
@@ -49829,7 +49829,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "GridTrackSizingVecDestructor": {
             "external": "azul_css::props::layout::grid::GridTrackSizingVecDestructor",
@@ -49845,7 +49845,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "IdOrClassVecDestructorType": {
             "external": "azul_core::dom::IdOrClassVecDestructorType",
@@ -49921,7 +49921,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "VertexAttributeVec": {
             "external": "azul_core::gl::VertexAttributeVec",
@@ -49973,7 +49973,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "DebugMessageVecDestructorType": {
             "external": "azul_core::gl::DebugMessageVecDestructorType",
@@ -50037,7 +50037,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ShapePointVecDestructorType": {
             "external": "azul_css::shape::ShapePointVecDestructorType",
@@ -50230,7 +50230,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "MonitorVecDestructorType": {
             "external": "azul_core::window::MonitorVecDestructorType",
@@ -50259,7 +50259,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "VideoModeVecDestructor": {
             "external": "azul_core::window::VideoModeVecDestructor",
@@ -50275,7 +50275,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "XWindowTypeVecDestructorType": {
             "external": "azul_core::window::XWindowTypeVecDestructorType",
@@ -50304,7 +50304,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ScanCodeVec": {
             "external": "azul_core::window::ScanCodeVec",
@@ -50356,7 +50356,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ContentGroupVec": {
             "external": "azul_core::styled_dom::ContentGroupVec",
@@ -50451,7 +50451,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyledNodeVecDestructorType": {
             "external": "azul_core::styled_dom::StyledNodeVecDestructorType",
@@ -50542,7 +50542,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "RefstrVecRef": {
             "external": "azul_core::gl::RefstrVecRef",
@@ -50578,7 +50578,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "TimerIdVec": {
             "doc": [
@@ -50676,7 +50676,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ThreadIdVec": {
             "doc": [
@@ -50729,7 +50729,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ThreadIdVecDestructorType": {
             "external": "azul_core::task::ThreadIdVecDestructorType",
@@ -50757,7 +50757,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "StyledTextRunVecDestructorType": {
             "external": "azul_layout::managers::selection::StyledTextRunVecDestructorType",
@@ -50863,7 +50863,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "HttpHeaderVec": {
             "external": "azul_layout::http::HttpHeaderVec",
@@ -50968,7 +50968,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "HttpHeaderVecDestructor": {
             "external": "azul_layout::http::HttpHeaderVecDestructor",
@@ -50984,7 +50984,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "JsonVec": {
             "external": "azul_layout::json::JsonVec",
@@ -51032,7 +51032,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "JsonVecDestructorType": {
             "external": "azul_layout::json::JsonVecDestructorType",
@@ -51105,7 +51105,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionJsonKeyValueVec": {
             "external": "azul_layout::json::OptionJsonKeyValueVec",
@@ -51121,7 +51121,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "JsonKeyValueVec": {
             "external": "azul_layout::json::JsonKeyValueVec",
@@ -51168,7 +51168,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "JsonKeyValueVecDestructorType": {
             "external": "azul_layout::json::JsonKeyValueVecDestructorType",
@@ -51197,7 +51197,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           }
         }
       },
@@ -51225,7 +51225,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionSvgPoint": {
             "external": "azul_css::props::basic::animation::OptionSvgPoint",
@@ -51245,7 +51245,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionListViewOnRowClick": {
             "external": "azul_layout::widgets::list_view::OptionListViewOnRowClick",
@@ -51277,7 +51277,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionListViewOnColumnClick": {
             "external": "azul_layout::widgets::list_view::OptionListViewOnColumnClick",
@@ -51309,7 +51309,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionListViewOnLazyLoadScroll": {
             "external": "azul_layout::widgets::list_view::OptionListViewOnLazyLoadScroll",
@@ -51341,7 +51341,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionMenu": {
             "external": "azul_core::menu::OptionMenu",
@@ -51364,7 +51364,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionPixelValueNoPercent": {
             "external": "azul_css::props::basic::pixel::OptionPixelValueNoPercent",
@@ -51388,7 +51388,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionColorInputOnValueChange": {
             "external": "azul_layout::widgets::color_input::OptionColorInputOnValueChange",
@@ -51420,7 +51420,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionButtonOnClick": {
             "external": "azul_layout::widgets::button::OptionButtonOnClick",
@@ -51452,7 +51452,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionTabOnClick": {
             "external": "azul_layout::widgets::tabs::OptionTabOnClick",
@@ -51484,7 +51484,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionFileInputOnPathChange": {
             "external": "azul_layout::widgets::file_input::OptionFileInputOnPathChange",
@@ -51516,7 +51516,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionCheckBoxOnToggle": {
             "external": "azul_layout::widgets::check_box::OptionCheckBoxOnToggle",
@@ -51548,7 +51548,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionTextInputOnTextInput": {
             "external": "azul_layout::widgets::text_input::OptionTextInputOnTextInput",
@@ -51580,7 +51580,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionTextInputOnVirtualKeyDown": {
             "external": "azul_layout::widgets::text_input::OptionTextInputOnVirtualKeyDown",
@@ -51612,7 +51612,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionTextInputOnFocusLost": {
             "external": "azul_layout::widgets::text_input::OptionTextInputOnFocusLost",
@@ -51644,7 +51644,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionTextInputSelection": {
             "external": "azul_layout::widgets::text_input::OptionTextInputSelection",
@@ -51665,7 +51665,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionNumberInputOnFocusLost": {
             "external": "azul_layout::widgets::number_input::OptionNumberInputOnFocusLost",
@@ -51697,7 +51697,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionNumberInputOnValueChange": {
             "external": "azul_layout::widgets::number_input::OptionNumberInputOnValueChange",
@@ -51729,7 +51729,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionMenuItemIcon": {
             "external": "azul_core::menu::OptionMenuItemIcon",
@@ -51752,7 +51752,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionVirtualKeyCodeCombo": {
             "external": "azul_core::window::OptionVirtualKeyCodeCombo",
@@ -51775,7 +51775,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionTimerId": {
             "external": "azul_core::task::OptionTimerId",
@@ -51799,7 +51799,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionTimer": {
             "external": "azul_layout::timer::OptionTimer",
@@ -51861,7 +51861,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionU16": {
             "external": "azul_css::corety::OptionU16",
@@ -51885,7 +51885,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionStringVec": {
             "external": "azul_css::corety::OptionStringVec",
@@ -51908,7 +51908,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionU32": {
             "external": "azul_css::corety::OptionU32",
@@ -51932,7 +51932,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionImageRef": {
             "external": "azul_core::resources::OptionImageRef",
@@ -51955,7 +51955,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionFontRef": {
             "external": "azul_css::props::basic::font::OptionFontRef",
@@ -51976,7 +51976,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionRefAny": {
             "external": "azul_core::refany::OptionRefAny",
@@ -51999,7 +51999,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionLayoutSize": {
             "external": "azul_css::props::basic::geometry::OptionLayoutSize",
@@ -52023,7 +52023,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionDomNodeId": {
             "external": "azul_core::dom::OptionDomNodeId",
@@ -52047,7 +52047,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionColorU": {
             "external": "azul_css::props::basic::color::OptionColorU",
@@ -52071,7 +52071,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionRawImage": {
             "external": "azul_core::resources::OptionRawImage",
@@ -52091,7 +52091,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionTabIndex": {
             "external": "azul_core::dom::OptionTabIndex",
@@ -52115,7 +52115,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionTagId": {
             "external": "azul_core::dom::OptionTagId",
@@ -52139,7 +52139,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionDuration": {
             "external": "azul_core::task::OptionDuration",
@@ -52163,7 +52163,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionUsize": {
             "external": "azul_css::corety::OptionUsize",
@@ -52187,7 +52187,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionCoreMenuCallback": {
             "external": "azul_core::menu::OptionCoreMenuCallback",
@@ -52210,7 +52210,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionStyledDom": {
             "external": "azul_core::styled_dom::OptionStyledDom",
@@ -52229,7 +52229,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SvgParseOptions": {
             "external": "azul_core::svg::SvgParseOptions",
@@ -52323,7 +52323,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionString": {
             "external": "azul_css::corety::OptionString",
@@ -52344,7 +52344,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionF32": {
             "external": "azul_css::corety::OptionF32",
@@ -52368,7 +52368,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionWaylandTheme": {
             "external": "azul_core::window::OptionWaylandTheme",
@@ -52386,7 +52386,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionMouseCursorType": {
             "external": "azul_core::window::OptionMouseCursorType",
@@ -52408,7 +52408,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionWindowIcon": {
             "external": "azul_core::window::OptionWindowIcon",
@@ -52429,7 +52429,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionCallback": {
             "external": "azul_layout::callbacks::OptionCallback",
@@ -52474,7 +52474,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionHwndHandle": {
             "external": "azul_core::window::OptionHwndHandle",
@@ -52495,7 +52495,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionLinuxDecorationsState": {
             "external": "azul_core::window::OptionLinuxDecorationsState",
@@ -52517,7 +52517,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionI32": {
             "external": "azul_css::corety::OptionI32",
@@ -52539,7 +52539,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionLogicalSize": {
             "external": "azul_core::geom::OptionLogicalSize",
@@ -52558,7 +52558,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionLogicalRect": {
             "external": "azul_core::geom::OptionLogicalRect",
@@ -52577,7 +52577,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionVirtualKeyCode": {
             "external": "azul_core::window::OptionVirtualKeyCode",
@@ -52599,7 +52599,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionX11Visual": {
             "external": "azul_core::window::OptionX11Visual",
@@ -52621,7 +52621,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionRendererOptions": {
             "external": "azul_core::window::OptionRendererOptions",
@@ -52643,7 +52643,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionWindowTheme": {
             "external": "azul_core::window::OptionWindowTheme",
@@ -52665,7 +52665,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionInstant": {
             "external": "azul_core::task::OptionInstant",
@@ -52686,7 +52686,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionAccessibilityRole": {
             "external": "azul_core::dom::OptionAccessibilityRole",
@@ -52708,7 +52708,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionThreadReceiveMsg": {
             "external": "azul_layout::thread::OptionThreadReceiveMsg",
@@ -52752,7 +52752,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionSvgDashPattern": {
             "external": "azul_core::svg::OptionSvgDashPattern",
@@ -52771,7 +52771,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionSelectionRange": {
             "external": "azul_core::selection::OptionSelectionRange",
@@ -52793,7 +52793,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionKeyboardState": {
             "external": "azul_core::window::OptionKeyboardState",
@@ -52810,7 +52810,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionMouseState": {
             "external": "azul_core::window::OptionMouseState",
@@ -52829,7 +52829,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionSelectionState": {
             "external": "azul_core::selection::OptionSelectionState",
@@ -52846,7 +52846,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionThreadSendMsg": {
             "external": "azul_core::task::OptionThreadSendMsg",
@@ -52867,7 +52867,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionCssProperty": {
             "external": "azul_css::props::property::OptionCssProperty",
@@ -52888,7 +52888,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionTextCursor": {
             "external": "azul_core::selection::OptionTextCursor",
@@ -52910,7 +52910,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionU64": {
             "external": "azul_css::corety::OptionU64",
@@ -52934,7 +52934,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionWindowFlags": {
             "external": "azul_core::window::OptionWindowFlags",
@@ -52957,7 +52957,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionCoreImageCallback": {
             "external": "azul_core::callbacks::OptionCoreImageCallback",
@@ -52980,7 +52980,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionPenTilt": {
             "external": "azul_layout::callbacks::OptionPenTilt",
@@ -53001,7 +53001,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionSelectAllResult": {
             "external": "azul_layout::callbacks::OptionSelectAllResult",
@@ -53020,7 +53020,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionDeleteResult": {
             "external": "azul_layout::callbacks::OptionDeleteResult",
@@ -53039,7 +53039,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionDragState": {
             "external": "azul_layout::managers::drag_drop::OptionDragState",
@@ -53058,7 +53058,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionPenState": {
             "external": "azul_layout::managers::gesture::OptionPenState",
@@ -53078,7 +53078,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionUndoableOperation": {
             "external": "azul_layout::managers::undo_redo::OptionUndoableOperation",
@@ -53096,7 +53096,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionClipboardContent": {
             "external": "azul_layout::managers::selection::OptionClipboardContent",
@@ -53115,7 +53115,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionFilePath": {
             "external": "azul_layout::file::OptionFilePath",
@@ -53132,7 +53132,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionJson": {
             "external": "azul_layout::json::OptionJson",
@@ -53149,7 +53149,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           }
         }
       },

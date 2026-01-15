@@ -1533,6 +1533,51 @@ pub fn check_ffi_safety(
         }
     }
 
+    // Check for api.json enum repr mismatches
+    // Enums with data variants must have repr: "C, u8" (or similar with discriminant type)
+    // Enums without data variants must have repr: "C"
+    for (_version_name, version) in &api_data.0 {
+        for (module_name, module) in &version.api {
+            for (class_name, class_def) in &module.classes {
+                // Check if this is an enum (has enum_fields)
+                if let Some(variants) = &class_def.enum_fields {
+                    let has_data_variants = variants.iter().any(|v| {
+                        v.values().any(|variant_data| variant_data.r#type.is_some())
+                    });
+                    
+                    let file_path = format!("api.json - {}.{}", module_name, class_name);
+                    
+                    if has_data_variants {
+                        // Enum with data needs repr(C, u8) or repr(C, i8) etc.
+                        let repr_ok = match &class_def.repr {
+                            Some(r) => {
+                                let r_lower = r.to_lowercase().replace(" ", "");
+                                r_lower.contains("c")
+                                    && (r_lower.contains("u8")
+                                        || r_lower.contains("u16")
+                                        || r_lower.contains("u32")
+                                        || r_lower.contains("i8")
+                                        || r_lower.contains("i16")
+                                        || r_lower.contains("i32"))
+                            }
+                            None => false,
+                        };
+
+                        if !repr_ok {
+                            warnings.push(FfiSafetyWarning {
+                                type_name: class_name.clone(),
+                                file_path,
+                                kind: FfiSafetyWarningKind::EnumWithDataMissingReprCU8 {
+                                    current_repr: class_def.repr.clone(),
+                                },
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     warnings
 }
 
