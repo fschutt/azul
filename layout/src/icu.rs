@@ -37,8 +37,8 @@ use icu::locale::Locale;
 use icu::plurals::PluralRules;
 use writeable::Writeable;
 
-// Import FmtArg types from str module for format_string_icu
-use crate::str::{FmtArg, FmtArgVec, FmtValue};
+// Import FmtArg types from fmt module for format_string_icu
+use crate::fmt::{FmtArg, FmtArgVec, FmtValue};
 
 // Re-export for external use
 pub use icu::locale::locale;
