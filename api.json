@@ -55452,6 +55452,49 @@
                   }
                 ],
                 "fn_body": "azul_layout::thread::Thread::create(thread_initialize_data, writeback_data, callback)"
+              },
+              "sleep_ms": {
+                "doc": [
+                  "Sleeps the current thread for the specified number of milliseconds.",
+                  "This is a cross-platform utility that can be called from C/C++/Python."
+                ],
+                "fn_args": [
+                  {
+                    "milliseconds": "u64"
+                  }
+                ],
+                "returns": {
+                  "type": "Void"
+                },
+                "fn_body": "azul_layout::thread::thread_sleep_ms(milliseconds)"
+              },
+              "sleep_us": {
+                "doc": [
+                  "Sleeps the current thread for the specified number of microseconds."
+                ],
+                "fn_args": [
+                  {
+                    "microseconds": "u64"
+                  }
+                ],
+                "returns": {
+                  "type": "Void"
+                },
+                "fn_body": "azul_layout::thread::thread_sleep_us(microseconds)"
+              },
+              "sleep_ns": {
+                "doc": [
+                  "Sleeps the current thread for the specified number of nanoseconds."
+                ],
+                "fn_args": [
+                  {
+                    "nanoseconds": "u64"
+                  }
+                ],
+                "returns": {
+                  "type": "Void"
+                },
+                "fn_body": "azul_layout::thread::thread_sleep_ns(nanoseconds)"
               }
             },
             "repr": "C"

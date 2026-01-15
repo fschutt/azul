@@ -942,3 +942,60 @@ impl OptionThread {
         }
     }
 }
+
+// ============================================================================
+// Sleep utilities
+// ============================================================================
+
+/// Sleeps the current thread for the specified number of milliseconds.
+///
+/// This is a cross-platform utility that can be called from C/C++/Python.
+///
+/// # Arguments
+/// * `milliseconds` - Number of milliseconds to sleep
+#[cfg(feature = "std")]
+pub fn thread_sleep_ms(milliseconds: u64) -> azul_css::corety::Void {
+    std::thread::sleep(std::time::Duration::from_millis(milliseconds));
+    azul_css::corety::Void::new()
+}
+
+/// Sleeps the current thread for the specified number of milliseconds (no-op on no_std).
+#[cfg(not(feature = "std"))]
+pub fn thread_sleep_ms(_milliseconds: u64) -> azul_css::corety::Void {
+    // No-op on no_std - can't sleep without OS
+    azul_css::corety::Void::new()
+}
+
+/// Sleeps the current thread for the specified number of microseconds.
+///
+/// # Arguments
+/// * `microseconds` - Number of microseconds to sleep
+#[cfg(feature = "std")]
+pub fn thread_sleep_us(microseconds: u64) -> azul_css::corety::Void {
+    std::thread::sleep(std::time::Duration::from_micros(microseconds));
+    azul_css::corety::Void::new()
+}
+
+/// Sleeps the current thread for the specified number of microseconds (no-op on no_std).
+#[cfg(not(feature = "std"))]
+pub fn thread_sleep_us(_microseconds: u64) -> azul_css::corety::Void {
+    // No-op on no_std - can't sleep without OS
+    azul_css::corety::Void::new()
+}
+
+/// Sleeps the current thread for the specified number of nanoseconds.
+///
+/// # Arguments
+/// * `nanoseconds` - Number of nanoseconds to sleep
+#[cfg(feature = "std")]
+pub fn thread_sleep_ns(nanoseconds: u64) -> azul_css::corety::Void {
+    std::thread::sleep(std::time::Duration::from_nanos(nanoseconds));
+    azul_css::corety::Void::new()
+}
+
+/// Sleeps the current thread for the specified number of nanoseconds (no-op on no_std).
+#[cfg(not(feature = "std"))]
+pub fn thread_sleep_ns(_nanoseconds: u64) -> azul_css::corety::Void {
+    // No-op on no_std - can't sleep without OS
+    azul_css::corety::Void::new()
+}
