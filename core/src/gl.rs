@@ -1287,9 +1287,9 @@ impl GlContextPtr {
     pub fn attach_shader(&self, program: GLuint, shader: GLuint) {
         self.get().attach_shader(program, shader)
     }
-    pub fn bind_attrib_location(&self, program: GLuint, index: GLuint, name: Refstr) {
+    pub fn bind_attrib_location(&self, program: GLuint, index: GLuint, name: &str) {
         self.get()
-            .bind_attrib_location(program, index, name.as_str())
+            .bind_attrib_location(program, index, name)
     }
     pub fn get_uniform_iv(&self, program: GLuint, location: GLint, mut result: GLintVecRefMut) {
         unsafe {
@@ -1303,8 +1303,8 @@ impl GlContextPtr {
                 .get_uniform_fv(program, location, result.as_mut_slice())
         }
     }
-    pub fn get_uniform_block_index(&self, program: GLuint, name: Refstr) -> GLuint {
-        self.get().get_uniform_block_index(program, name.as_str())
+    pub fn get_uniform_block_index(&self, program: GLuint, name: &str) -> GLuint {
+        self.get().get_uniform_block_index(program, name)
     }
     pub fn get_uniform_indices(&self, program: GLuint, names: RefstrVecRef) -> GLuintVec {
         let names_vec = names
@@ -2029,14 +2029,14 @@ impl GlContextPtr {
             .get_active_uniform_block_name(program, index)
             .into()
     }
-    pub fn get_attrib_location(&self, program: GLuint, name: Refstr) -> c_int {
-        self.get().get_attrib_location(program, name.as_str())
+    pub fn get_attrib_location(&self, program: GLuint, name: &str) -> c_int {
+        self.get().get_attrib_location(program, name)
     }
-    pub fn get_frag_data_location(&self, program: GLuint, name: Refstr) -> c_int {
-        self.get().get_frag_data_location(program, name.as_str())
+    pub fn get_frag_data_location(&self, program: GLuint, name: &str) -> c_int {
+        self.get().get_frag_data_location(program, name)
     }
-    pub fn get_uniform_location(&self, program: GLuint, name: Refstr) -> c_int {
-        self.get().get_uniform_location(program, name.as_str())
+    pub fn get_uniform_location(&self, program: GLuint, name: &str) -> c_int {
+        self.get().get_uniform_location(program, name)
     }
     pub fn get_program_info_log(&self, program: GLuint) -> AzString {
         self.get().get_program_info_log(program).into()
@@ -2175,11 +2175,11 @@ impl GlContextPtr {
     pub fn generate_mipmap(&self, target: GLenum) {
         self.get().generate_mipmap(target)
     }
-    pub fn insert_event_marker_ext(&self, message: Refstr) {
-        self.get().insert_event_marker_ext(message.as_str())
+    pub fn insert_event_marker_ext(&self, message: &str) {
+        self.get().insert_event_marker_ext(message)
     }
-    pub fn push_group_marker_ext(&self, message: Refstr) {
-        self.get().push_group_marker_ext(message.as_str())
+    pub fn push_group_marker_ext(&self, message: &str) {
+        self.get().push_group_marker_ext(message)
     }
     pub fn pop_group_marker_ext(&self) {
         self.get().pop_group_marker_ext()
@@ -2190,14 +2190,14 @@ impl GlContextPtr {
         type_: GLenum,
         id: GLuint,
         severity: GLenum,
-        message: Refstr,
+        message: &str,
     ) {
         self.get()
-            .debug_message_insert_khr(source, type_, id, severity, message.as_str())
+            .debug_message_insert_khr(source, type_, id, severity, message)
     }
-    pub fn push_debug_group_khr(&self, source: GLenum, id: GLuint, message: Refstr) {
+    pub fn push_debug_group_khr(&self, source: GLenum, id: GLuint, message: &str) {
         self.get()
-            .push_debug_group_khr(source, id, message.as_str())
+            .push_debug_group_khr(source, id, message)
     }
     pub fn pop_debug_group_khr(&self) {
         self.get().pop_debug_group_khr()
@@ -2238,8 +2238,8 @@ impl GlContextPtr {
     pub fn finish_object_apple(&self, object: GLenum, name: GLuint) {
         self.get().finish_object_apple(object, name)
     }
-    pub fn get_frag_data_index(&self, program: GLuint, name: Refstr) -> GLint {
-        self.get().get_frag_data_index(program, name.as_str())
+    pub fn get_frag_data_index(&self, program: GLuint, name: &str) -> GLint {
+        self.get().get_frag_data_index(program, name)
     }
     pub fn blend_barrier_khr(&self) {
         self.get().blend_barrier_khr()
@@ -2249,10 +2249,10 @@ impl GlContextPtr {
         program: GLuint,
         color_number: GLuint,
         index: GLuint,
-        name: Refstr,
+        name: &str,
     ) {
         self.get()
-            .bind_frag_data_location_indexed(program, color_number, index, name.as_str())
+            .bind_frag_data_location_indexed(program, color_number, index, name)
     }
     pub fn get_debug_messages(&self) -> DebugMessageVec {
         let dmv: Vec<DebugMessage> = self

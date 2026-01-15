@@ -6072,7 +6072,7 @@
                 "returns": {
                   "type": "ResultU8VecString"
                 },
-                "fn_body": "match object.take_screenshot(dom_id) { Ok(v) => azul_layout::callbacks::ResultU8VecString::Ok(v.into()), Err(e) => azul_layout::callbacks::ResultU8VecString::Err(e) }"
+                "fn_body": "object.take_screenshot(dom_id).into()"
               },
               "take_screenshot_to_file": {
                 "doc": [
@@ -6098,7 +6098,7 @@
                 "returns": {
                   "type": "ResultVoidString"
                 },
-                "fn_body": "match object.take_screenshot_to_file(dom_id, path.as_str()) { Ok(()) => azul_layout::callbacks::ResultVoidString::Ok, Err(e) => azul_layout::callbacks::ResultVoidString::Err(e) }"
+                "fn_body": "object.take_screenshot_to_file(dom_id, path.as_str()).into()"
               },
               "take_native_screenshot": {
                 "doc": [
@@ -6131,7 +6131,7 @@
                 "returns": {
                   "type": "ResultVoidString"
                 },
-                "fn_body": "match object.take_native_screenshot(path.as_str()) { Ok(()) => azul_layout::callbacks::ResultVoidString::Ok, Err(e) => azul_layout::callbacks::ResultVoidString::Err(e) }"
+                "fn_body": "object.take_native_screenshot(path.as_str()).into()"
               },
               "take_native_screenshot_bytes": {
                 "doc": [
@@ -6152,7 +6152,7 @@
                 "returns": {
                   "type": "ResultU8VecString"
                 },
-                "fn_body": "match object.take_native_screenshot_bytes() { Ok(v) => azul_layout::callbacks::ResultU8VecString::Ok(v.into()), Err(e) => azul_layout::callbacks::ResultU8VecString::Err(e) }"
+                "fn_body": "object.take_native_screenshot_bytes().into()"
               },
               "take_native_screenshot_base64": {
                 "doc": [
@@ -6173,7 +6173,7 @@
                 "returns": {
                   "type": "ResultStringString"
                 },
-                "fn_body": "match object.take_native_screenshot_base64() { Ok(s) => azul_layout::callbacks::ResultStringString::Ok(s), Err(e) => azul_layout::callbacks::ResultStringString::Err(e) }"
+                "fn_body": "object.take_native_screenshot_base64().into()"
               },
               "take_screenshot_base64": {
                 "doc": [
@@ -6197,7 +6197,7 @@
                 "returns": {
                   "type": "ResultStringString"
                 },
-                "fn_body": "match object.take_screenshot_base64(dom_id) { Ok(s) => azul_layout::callbacks::ResultStringString::Ok(s), Err(e) => azul_layout::callbacks::ResultStringString::Err(e) }"
+                "fn_body": "object.take_screenshot_base64(dom_id).into()"
               }
             },
             "repr": "C"
@@ -41506,10 +41506,10 @@
                     "index": "GLuint"
                   },
                   {
-                    "name": "Refstr"
+                    "name": "String"
                   }
                 ],
-                "fn_body": "object.bind_attrib_location(program, index, name)"
+                "fn_body": "object.bind_attrib_location(program, index, name.as_str())"
               },
               "get_uniform_block_index": {
                 "fn_args": [
@@ -41520,13 +41520,13 @@
                     "program": "GLuint"
                   },
                   {
-                    "name": "Refstr"
+                    "name": "String"
                   }
                 ],
                 "returns": {
                   "type": "GLuint"
                 },
-                "fn_body": "object.get_uniform_block_index(program, name)"
+                "fn_body": "object.get_uniform_block_index(program, name.as_str())"
               },
               "get_uniform_indices": {
                 "fn_args": [
@@ -41626,13 +41626,13 @@
                     "program": "GLuint"
                   },
                   {
-                    "name": "Refstr"
+                    "name": "String"
                   }
                 ],
                 "returns": {
                   "type": "c_int"
                 },
-                "fn_body": "object.get_attrib_location(program, name)"
+                "fn_body": "object.get_attrib_location(program, name.as_str())"
               },
               "get_frag_data_location": {
                 "fn_args": [
@@ -41643,13 +41643,13 @@
                     "program": "GLuint"
                   },
                   {
-                    "name": "Refstr"
+                    "name": "String"
                   }
                 ],
                 "returns": {
                   "type": "c_int"
                 },
-                "fn_body": "object.get_frag_data_location(program, name)"
+                "fn_body": "object.get_frag_data_location(program, name.as_str())"
               },
               "get_uniform_location": {
                 "fn_args": [
@@ -41660,13 +41660,13 @@
                     "program": "GLuint"
                   },
                   {
-                    "name": "Refstr"
+                    "name": "String"
                   }
                 ],
                 "returns": {
                   "type": "c_int"
                 },
-                "fn_body": "object.get_uniform_location(program, name)"
+                "fn_body": "object.get_uniform_location(program, name.as_str())"
               },
               "get_string": {
                 "fn_args": [
@@ -41705,10 +41705,10 @@
                     "self": "ref"
                   },
                   {
-                    "message": "Refstr"
+                    "message": "String"
                   }
                 ],
-                "fn_body": "object.insert_event_marker_ext(message)"
+                "fn_body": "object.insert_event_marker_ext(message.as_str())"
               },
               "push_group_marker_ext": {
                 "fn_args": [
@@ -41716,10 +41716,10 @@
                     "self": "ref"
                   },
                   {
-                    "message": "Refstr"
+                    "message": "String"
                   }
                 ],
-                "fn_body": "object.push_group_marker_ext(message)"
+                "fn_body": "object.push_group_marker_ext(message.as_str())"
               },
               "debug_message_insert_khr": {
                 "fn_args": [
@@ -41739,10 +41739,10 @@
                     "severity": "GLenum"
                   },
                   {
-                    "message": "Refstr"
+                    "message": "String"
                   }
                 ],
-                "fn_body": "object.debug_message_insert_khr(source, type_, id, severity, message)"
+                "fn_body": "object.debug_message_insert_khr(source, type_, id, severity, message.as_str())"
               },
               "push_debug_group_khr": {
                 "fn_args": [
@@ -41756,10 +41756,10 @@
                     "id": "GLuint"
                   },
                   {
-                    "message": "Refstr"
+                    "message": "String"
                   }
                 ],
-                "fn_body": "object.push_debug_group_khr(source, id, message)"
+                "fn_body": "object.push_debug_group_khr(source, id, message.as_str())"
               },
               "get_frag_data_index": {
                 "fn_args": [
@@ -41770,13 +41770,13 @@
                     "program": "GLuint"
                   },
                   {
-                    "name": "Refstr"
+                    "name": "String"
                   }
                 ],
                 "returns": {
                   "type": "GLint"
                 },
-                "fn_body": "object.get_frag_data_index(program, name)"
+                "fn_body": "object.get_frag_data_index(program, name.as_str())"
               },
               "bind_frag_data_location_indexed": {
                 "fn_args": [
@@ -41793,10 +41793,10 @@
                     "index": "GLuint"
                   },
                   {
-                    "name": "Refstr"
+                    "name": "String"
                   }
                 ],
-                "fn_body": "object.bind_frag_data_location_indexed(program, color_number, index, name)"
+                "fn_body": "object.bind_frag_data_location_indexed(program, color_number, index, name.as_str())"
               }
             },
             "repr": "C"
@@ -45845,7 +45845,7 @@
                 ],
                 "fn_args": [
                   {
-                    "xml_string": "Refstr"
+                    "xml_string": "String"
                   }
                 ],
                 "returns": {
@@ -46339,21 +46339,6 @@
               }
             },
             "functions": {
-              "as_refstr": {
-                "doc": [
-                  "Returns the String as a borrowed Refstr (pointer + length).",
-                  "This does not copy the string data."
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  }
-                ],
-                "returns": {
-                  "type": "Refstr"
-                },
-                "fn_body": "{ let s = string.as_str(); azul_core::gl::Refstr { ptr: s.as_ptr() as *const _, len: s.len() } }"
-              },
               "to_c_str": {
                 "doc": [
                   "Creates a null-terminated copy of the string for C FFI usage.",
@@ -57204,7 +57189,7 @@
                 "returns": {
                   "type": "StringVec"
                 },
-                "fn_body": "object.get_loaded_locales().into_iter().map(|s| azul_css::AzString::from(s)).collect::<Vec<azul_css::AzString>>().into()"
+                "fn_body": "object.get_loaded_locales().into()"
               },
               "clear_locale": {
                 "doc": [
