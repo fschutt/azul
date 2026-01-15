@@ -159,11 +159,18 @@ else
     C_EXAMPLES=(
         "async"
         "calc"
+        "combined"
+        "file"
+        "fluent"
+        "fmt"
         "hello-world"
+        "http"
         "infinity"
+        "jq"
         "opengl"
         "widgets"
         "xhtml"
+        "zip"
     )
 
     # Create output directory for C binaries

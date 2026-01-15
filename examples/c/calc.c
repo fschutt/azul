@@ -2,7 +2,7 @@
 // Demonstrates CSS Grid layout and component composition
 // cc -o calc calc.c -lazul
 
-#include <azul.h>
+#include "azul.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

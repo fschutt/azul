@@ -1,7 +1,7 @@
 // OpenGL Integration - C
 // cc -o opengl opengl.c -lazul
 
-#include <azul.h>
+#include "azul.h"
 #include <stdio.h>
 #include <math.h>
 #include <time.h>

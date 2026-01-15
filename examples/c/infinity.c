@@ -1,7 +1,7 @@
 // Infinite Scrolling - C
 // cc -o infinity infinity.c -lazul
 
-#include <azul.h>
+#include "azul.h"
 #include <stdio.h>
 #include <string.h>
 

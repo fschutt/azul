@@ -26,6 +26,10 @@ pub const MODULES: &[&str] = &[
     "vec",
     "option",
     "error",
+    "http",
+    "zip",
+    "fluent",
+    "icu",
 ];
 
 /// Keywords that map to specific modules
@@ -338,6 +342,57 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
 
     // Str module
     map.insert("str", vec!["string", "refstr", "azstring"]);
+
+    // HTTP module - network requests
+    map.insert(
+        "http",
+        vec![
+            "http",
+            "httpresponse",
+            "httprequest",
+            "httpconfig",
+            "download",
+            "urlreachable",
+        ],
+    );
+
+    // ZIP module - archive handling
+    map.insert(
+        "zip",
+        vec![
+            "zip",
+            "zipentry",
+            "ziparchive",
+            "zipextract",
+            "zipcreate",
+        ],
+    );
+
+    // Fluent module - localization
+    map.insert(
+        "fluent",
+        vec![
+            "fluent",
+            "locale",
+            "localizer",
+            "translate",
+            "langpack",
+            "languagepack",
+        ],
+    );
+
+    // ICU module - internationalization
+    map.insert(
+        "icu",
+        vec![
+            "icu",
+            "datetime",
+            "dateformat",
+            "numberformat",
+            "plural",
+            "listformat",
+        ],
+    );
 
     // Widgets module - UI components
     map.insert(

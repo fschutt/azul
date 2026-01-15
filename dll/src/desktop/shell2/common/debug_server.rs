@@ -181,17 +181,17 @@ pub struct LogMessageJson {
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "status")]
-pub enum HttpResponse {
+pub enum DebugHttpResponse {
     #[serde(rename = "ok")]
-    Ok(HttpResponseOk),
+    Ok(DebugHttpResponseOk),
     #[serde(rename = "error")]
-    Error(HttpResponseError),
+    Error(DebugHttpResponseError),
 }
 
 /// Successful HTTP response body
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct HttpResponseOk {
+pub struct DebugHttpResponseOk {
     pub request_id: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_state: Option<WindowStateSnapshot>,
@@ -202,7 +202,7 @@ pub struct HttpResponseOk {
 /// Error HTTP response body
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct HttpResponseError {
+pub struct DebugHttpResponseError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<u64>,
     pub message: String,
@@ -1422,9 +1422,9 @@ pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
     }
 }
 
-/// Helper function for serializing HttpResponse
+/// Helper function for serializing DebugHttpResponse
 #[cfg(feature = "std")]
-fn serialize_http_response(response: &HttpResponse) -> String {
+fn serialize_http_response(response: &DebugHttpResponse) -> String {
     serde_json::to_string_pretty(response)
         .unwrap_or_else(|_| r#"{"status":"error","message":"Serialization failed"}"#.to_string())
 }
@@ -1475,7 +1475,7 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
                     })
                     .collect(),
             };
-            serialize_http_response(&HttpResponse::Ok(HttpResponseOk {
+            serialize_http_response(&DebugHttpResponse::Ok(DebugHttpResponseOk {
                 request_id: 0,
                 window_state: None,
                 data: Some(ResponseData::Health(health)),
@@ -1494,14 +1494,14 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
                 let body = &request[start..];
                 handle_event_request(body)
             } else {
-                serialize_http_response(&HttpResponse::Error(HttpResponseError {
+                serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
                     request_id: None,
                     message: "No request body".to_string(),
                 }))
             }
         }
 
-        _ => serialize_http_response(&HttpResponse::Error(HttpResponseError {
+        _ => serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
             request_id: None,
             message: "Use GET / for status or POST / with JSON body".to_string(),
         })),
@@ -1606,13 +1606,13 @@ fn handle_event_request(body: &str) -> String {
                 Ok(response_data) => {
                     let http_response = match response_data {
                         DebugResponseData::Ok { window_state, data } => {
-                            HttpResponse::Ok(HttpResponseOk {
+                            DebugHttpResponse::Ok(DebugHttpResponseOk {
                                 request_id,
                                 window_state,
                                 data,
                             })
                         }
-                        DebugResponseData::Err(message) => HttpResponse::Error(HttpResponseError {
+                        DebugResponseData::Err(message) => DebugHttpResponse::Error(DebugHttpResponseError {
                             request_id: Some(request_id),
                             message,
                         }),
@@ -1620,20 +1620,20 @@ fn handle_event_request(body: &str) -> String {
                     serialize_http_response(&http_response)
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
-                    serialize_http_response(&HttpResponse::Error(HttpResponseError {
+                    serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
                         request_id: Some(request_id),
                         message: "Timeout waiting for response (is the timer running?)".to_string(),
                     }))
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    serialize_http_response(&HttpResponse::Error(HttpResponseError {
+                    serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
                         request_id: Some(request_id),
                         message: "Event loop disconnected".to_string(),
                     }))
                 }
             }
         }
-        Err(e) => serialize_http_response(&HttpResponse::Error(HttpResponseError {
+        Err(e) => serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
             request_id: None,
             message: format!("Invalid JSON: {}", e),
         })),

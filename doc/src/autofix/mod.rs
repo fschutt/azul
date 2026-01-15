@@ -1170,6 +1170,12 @@ pub enum FfiSafetyWarningKind {
     /// Struct is a tuple struct like `struct Foo(pub u64)` instead of `struct Foo { inner: u64 }`
     /// Tuple structs don't work well with C API since the field has no name
     TupleStruct,
+    /// Type uses `()` (unit type) which is not FFI-safe.
+    /// Use `Void` type instead (e.g., `Result<Void, Error>` instead of `Result<(), Error>`).
+    UnitTypeInSignature {
+        location: String,       // e.g., "return type" or "field 'foo'"
+        full_type: String,      // e.g., "Result<(), Error>"
+    },
 }
 
 impl FfiSafetyWarningKind {
@@ -1195,8 +1201,46 @@ impl FfiSafetyWarningKind {
             FfiSafetyWarningKind::BadConstructorName { .. } => true,
             // Critical - tuple structs don't work with C API
             FfiSafetyWarningKind::TupleStruct => true,
+            // Critical - () is not FFI-safe, use Void instead
+            FfiSafetyWarningKind::UnitTypeInSignature { .. } => true,
         }
     }
+}
+
+/// Check if a type string contains the unit type `()` which is not FFI-safe.
+/// Returns the full type if found, None otherwise.
+fn contains_unit_type(type_str: &str) -> bool {
+    // Check for `()` as a standalone type or in generic positions
+    // We need to be careful not to match things like `FnOnce()` where () is args
+    // The patterns we want to catch:
+    // - `()` as a standalone type
+    // - `Result<(), Error>` - () in first position of Result
+    // - `Option<()>` - () inside Option
+    
+    // Simple check: look for `()` that is followed by `,` or `>` or end of string
+    // or preceded by `<` or `,`
+    let chars: Vec<char> = type_str.chars().collect();
+    let len = chars.len();
+    
+    for i in 0..len {
+        if i + 1 < len && chars[i] == '(' && chars[i + 1] == ')' {
+            // Found `()` - check context
+            let before = if i > 0 { Some(chars[i - 1]) } else { None };
+            let after = if i + 2 < len { Some(chars[i + 2]) } else { None };
+            
+            // It's a unit type if:
+            // - preceded by `<` or `,` or space or start
+            // - followed by `,` or `>` or space or end
+            let valid_before = matches!(before, None | Some('<') | Some(',') | Some(' '));
+            let valid_after = matches!(after, None | Some(',') | Some('>') | Some(' '));
+            
+            if valid_before && valid_after {
+                return true;
+            }
+        }
+    }
+    
+    false
 }
 
 /// Check FFI safety of types that exist in api.json
@@ -1421,6 +1465,68 @@ pub fn check_ffi_safety(
                                 current_repr: r.clone(),
                             },
                         });
+                    }
+                }
+            }
+        }
+    }
+
+    // Check for () unit type in api.json function signatures
+    for (_version_name, version) in &api_data.0 {
+        for (module_name, module) in &version.api {
+            for (class_name, class_def) in &module.classes {
+                let file_path = format!("api.json - {}.{}", module_name, class_name);
+                
+                // Check functions
+                if let Some(functions) = &class_def.functions {
+                    for (fn_name, fn_def) in functions {
+                        // Check return type
+                        if let Some(ret) = &fn_def.returns {
+                            if contains_unit_type(&ret.r#type) {
+                                warnings.push(FfiSafetyWarning {
+                                    type_name: format!("{}::{}", class_name, fn_name),
+                                    file_path: file_path.clone(),
+                                    kind: FfiSafetyWarningKind::UnitTypeInSignature {
+                                        location: "return type".to_string(),
+                                        full_type: ret.r#type.clone(),
+                                    },
+                                });
+                            }
+                        }
+                        // Check args
+                        for arg in &fn_def.fn_args {
+                            for (arg_name, arg_type) in arg {
+                                if contains_unit_type(arg_type) {
+                                    warnings.push(FfiSafetyWarning {
+                                        type_name: format!("{}::{}", class_name, fn_name),
+                                        file_path: file_path.clone(),
+                                        kind: FfiSafetyWarningKind::UnitTypeInSignature {
+                                            location: format!("argument '{}'", arg_name),
+                                            full_type: arg_type.clone(),
+                                        },
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Check constructors
+                if let Some(constructors) = &class_def.constructors {
+                    for (ctor_name, ctor_def) in constructors {
+                        // Check return type
+                        if let Some(ret) = &ctor_def.returns {
+                            if contains_unit_type(&ret.r#type) {
+                                warnings.push(FfiSafetyWarning {
+                                    type_name: format!("{}::{}", class_name, ctor_name),
+                                    file_path: file_path.clone(),
+                                    kind: FfiSafetyWarningKind::UnitTypeInSignature {
+                                        location: "return type".to_string(),
+                                        full_type: ret.r#type.clone(),
+                                    },
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -1671,6 +1777,24 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!(
                 "    {} Convert `struct Foo(pub T)` to `struct Foo {{ inner: T }}`",
+                "FIX:".cyan()
+            );
+            println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
+        }
+        FfiSafetyWarningKind::UnitTypeInSignature { location, full_type } => {
+            println!("  {} {}", "✗".red(), warning.type_name.white());
+            println!(
+                "    {} {} uses unit type '()' which is not FFI-safe: {}",
+                "→".dimmed(),
+                location.cyan(),
+                full_type.yellow()
+            );
+            println!(
+                "    {} The unit type '()' has zero size and cannot be used in FFI.",
+                "REASON:".magenta()
+            );
+            println!(
+                "    {} Use 'Void' instead. E.g., `Result<Void, Error>` instead of `Result<(), Error>`.",
                 "FIX:".cyan()
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
