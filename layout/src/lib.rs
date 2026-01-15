@@ -18,9 +18,13 @@ pub mod managers;
 #[cfg(feature = "text_layout")]
 pub mod solver3;
 
+// String formatting utilities
+#[cfg(feature = "strfmt")]
+pub mod fmt;
+#[cfg(feature = "strfmt")]
+pub use fmt::{FmtArg, FmtArgVec, FmtArgVecDestructor, FmtValue, fmt_string};
+
 // Widget modules (behind feature flags)
-#[cfg(feature = "widgets")]
-pub mod str;
 #[cfg(feature = "widgets")]
 pub mod widgets;
 
@@ -38,6 +42,66 @@ pub use icu::{
     DateTimeFieldSet, FormatLength, IcuDate, IcuDateTime, IcuError,
     IcuLocalizer, IcuLocalizerHandle, IcuResult, IcuStringVec, IcuTime,
     LayoutCallbackInfoIcuExt, ListType, PluralCategory,
+};
+
+// Project Fluent localization support
+#[cfg(feature = "fluent")]
+pub mod fluent;
+#[cfg(feature = "fluent")]
+pub use fluent::{
+    check_fluent_syntax, check_fluent_syntax_bytes, create_fluent_zip,
+    create_fluent_zip_from_strings, export_to_zip, FluentError,
+    FluentLanguageInfo, FluentLanguageInfoVec,
+    FluentLocalizerHandle, FluentResult, FluentSyntaxCheckResult,
+    FluentSyntaxError, FluentZipLoadResult, LayoutCallbackInfoFluentExt,
+};
+
+// URL parsing support
+#[cfg(feature = "http")]
+pub mod url;
+#[cfg(feature = "http")]
+pub use url::{Url, UrlParseError, ResultUrlUrlParseError};
+
+// File system operations (C-compatible wrapper for std::fs)
+pub mod file;
+pub use file::{
+    dir_create, dir_create_all, dir_list, dir_delete, dir_delete_all,
+    file_copy, path_exists, file_metadata, file_read, file_delete, file_rename, file_write,
+    path_is_dir, path_is_file, path_join, temp_dir,
+    DirEntry, DirEntryVec, DirEntryVecDestructor, DirEntryVecDestructorType,
+    FileError, FileErrorKind, FileMetadata, FilePath, OptionFilePath,
+};
+
+// HTTP client support
+#[cfg(feature = "http")]
+pub mod http;
+#[cfg(feature = "http")]
+pub use http::{
+    download_bytes, download_bytes_with_config, http_get,
+    http_get_with_config, is_url_reachable, HttpError, HttpHeader,
+    HttpRequestConfig, HttpResponse, HttpResponseTooLargeError, HttpResult,
+    HttpStatusError,
+};
+
+// JSON parsing support
+#[cfg(feature = "json")]
+pub mod json;
+#[cfg(feature = "json")]
+pub use json::{
+    json_parse, json_parse_bytes, json_stringify, json_stringify_pretty,
+    Json, JsonInternal, JsonKeyValue, JsonKeyValueVec, JsonKeyValueVecDestructor, JsonKeyValueVecDestructorType,
+    JsonParseError, JsonType, JsonVec,
+    ResultJsonJsonParseError, OptionJson, OptionJsonVec, OptionJsonKeyValueVec,
+};
+
+// ZIP file manipulation support
+#[cfg(feature = "zip_support")]
+pub mod zip;
+#[cfg(feature = "zip_support")]
+pub use zip::{
+    zip_create, zip_create_from_files, zip_extract_all, zip_list_contents,
+    ZipFile, ZipFileEntry, ZipFileEntryVec, ZipPathEntry, ZipPathEntryVec,
+    ZipReadConfig, ZipWriteConfig, ZipReadError, ZipWriteError,
 };
 
 #[cfg(feature = "text_layout")]

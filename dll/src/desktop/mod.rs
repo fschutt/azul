@@ -92,6 +92,21 @@ pub mod xml {
 pub mod icu {
     pub use azul_layout::icu::*;
 }
+/// Project Fluent localization support
+#[cfg(feature = "fluent")]
+pub mod fluent {
+    pub use azul_layout::fluent::*;
+}
+/// HTTP client for downloading resources
+#[cfg(feature = "http")]
+pub mod http {
+    pub use azul_layout::http::*;
+}
+/// ZIP file manipulation
+#[cfg(feature = "zip_support")]
+pub mod zip {
+    pub use azul_layout::zip::*;
+}
 /// Native screenshot extension trait using dlopen
 pub mod native_screenshot;
 /// Re-exports of errors

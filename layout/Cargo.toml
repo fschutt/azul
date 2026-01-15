@@ -63,6 +63,24 @@ writeable = { version = "0.6", default-features = false, optional = true }
 # Optional: chrono for getting current date/time
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"], optional = true }
 
+# Fluent localization (Project Fluent)
+fluent = { version = "0.17", default-features = false, optional = true }
+fluent-syntax = { version = "0.12", default-features = false, optional = true }
+unic-langid = { version = "0.9", default-features = false, optional = true }
+intl-memoizer = { version = "0.5", default-features = false, optional = true }
+
+# ZIP file support for language packs
+zip = { version = "2.1", default-features = false, features = ["deflate"], optional = true }
+
+# HTTP client for downloading language packs
+ureq = { version = "2.9", default-features = false, features = ["tls"], optional = true }
+
+# URL parsing
+url = { version = "2.5", default-features = false, optional = true }
+
+# JSON parsing
+serde_json = { version = "1.0", default-features = false, features = ["std"], optional = true }
+
 [features]
 # Default: Full layout engine with text, fonts, SVG, images, accessibility
 # Uses multithreaded font loading for faster startup on desktop
@@ -71,8 +89,11 @@ default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multit
 # Standard library support
 std = ["azul-core/std"]
 
+# String formatting utilities (strfmt crate)
+strfmt = ["dep:strfmt", "std"]
+
 # Widget support (button, text_input, checkbox, etc.)
-widgets = ["text_layout", "dep:strfmt"]
+widgets = ["text_layout", "strfmt"]
 
 # Extra APIs (native dialogs, file operations)
 extra = ["dep:tfd"]
@@ -146,3 +167,15 @@ icu = ["dep:icu", "dep:icu_provider_blob", "dep:writeable", "std"]
 
 # Add chrono support for Date.now() style APIs (optional with ICU)
 icu_chrono = ["icu", "dep:chrono"]
+
+# Fluent localization support (Project Fluent FTL files, language packs)
+fluent = ["dep:fluent", "dep:fluent-syntax", "dep:unic-langid", "dep:intl-memoizer", "zip_support", "strfmt", "std"]
+
+# HTTP client support for downloading resources
+http = ["dep:ureq", "dep:url", "std"]
+
+# ZIP file manipulation (standalone, for C API)
+zip_support = ["dep:zip", "std"]
+
+# JSON parsing support
+json = ["dep:serde_json", "std"]

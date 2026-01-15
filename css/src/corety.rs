@@ -5,6 +5,63 @@ use alloc::{
 
 use crate::props::basic::ColorU;
 
+// ============================================================================
+// Void type - FFI-safe replacement for ()
+// ============================================================================
+
+/// FFI-safe void type to replace `()` in Result types.
+/// 
+/// Since `()` (unit type) has zero size, it's not FFI-safe.
+/// This type provides a minimal 1-byte representation that can be
+/// safely passed across the C ABI boundary.
+/// 
+/// # Usage
+/// Instead of `Result<(), Error>`, use `Result<Void, Error>`.
+/// 
+/// # Example
+/// ```ignore
+/// fn do_something() -> Result<Void, MyError> {
+///     // ... do work ...
+///     Ok(Void::default())
+/// }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct Void {
+    /// Reserved byte to ensure the struct has non-zero size.
+    /// Always initialized to 0.
+    pub _reserved: u8,
+}
+
+impl Default for Void {
+    fn default() -> Self {
+        Self { _reserved: 0 }
+    }
+}
+
+impl Void {
+    /// Create a new Void value (equivalent to `()`)
+    pub const fn new() -> Self {
+        Self { _reserved: 0 }
+    }
+}
+
+impl From<()> for Void {
+    fn from(_: ()) -> Self {
+        Self::default()
+    }
+}
+
+impl From<Void> for () {
+    fn from(_: Void) -> Self {
+        ()
+    }
+}
+
+// ============================================================================
+// Debug message types
+// ============================================================================
+
 // Debug message severity/category
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]

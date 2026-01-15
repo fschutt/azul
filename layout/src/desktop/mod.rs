@@ -3,4 +3,3 @@
 pub mod dialogs;
 pub mod extra;
 pub mod file;
-pub mod str;

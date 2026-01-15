@@ -2321,446 +2321,344 @@
               }
             ],
             "repr": "C, u8"
-          },
-          "IcuLocalizerHandle": {
-            "external": "azul_layout::icu::IcuLocalizerHandle",
+          }
+        }
+      },
+      "http": {
+        "doc": [
+          "HTTP client module for downloading resources (language packs, etc.)"
+        ],
+        "classes": {
+          "HttpHeader": {
+            "external": "azul_layout::http::HttpHeader",
             "derive": [
-              "Clone"
-            ],
-            "custom_impls": [
               "Debug",
-              "Default"
+              "Clone",
+              "PartialEq"
             ],
             "struct_fields": [
               {
-                "ptr": {
-                  "type": "c_void",
-                  "ref_kind": "constptr"
+                "name": {
+                  "type": "String"
+                },
+                "value": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "HttpResponse": {
+            "external": "azul_layout::http::HttpResponse",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "status_code": {
+                  "type": "u16"
+                },
+                "body": {
+                  "type": "U8Vec"
+                },
+                "content_type": {
+                  "type": "String"
+                },
+                "content_length": {
+                  "type": "u64"
+                },
+                "headers": {
+                  "type": "HttpHeaderVec"
+                }
+              }
+            ],
+            "functions": {
+              "is_success": {
+                "doc": [
+                  "Check if the response was successful (2xx status)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_success()"
+              },
+              "is_redirect": {
+                "doc": [
+                  "Check if the response is a redirect (3xx status)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_redirect()"
+              },
+              "is_client_error": {
+                "doc": [
+                  "Check if the response is a client error (4xx status)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_client_error()"
+              },
+              "is_server_error": {
+                "doc": [
+                  "Check if the response is a server error (5xx status)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_server_error()"
+              },
+              "body_as_string": {
+                "doc": [
+                  "Try to convert the body to a UTF-8 string"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionString"
+                },
+                "fn_body": "object.body_as_string().into()"
+              }
+            },
+            "repr": "C"
+          },
+          "HttpRequestConfig": {
+            "external": "azul_layout::http::HttpRequestConfig",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "timeout_secs": {
+                  "type": "u64"
+                },
+                "max_response_size": {
+                  "type": "u64"
+                },
+                "user_agent": {
+                  "type": "String"
+                },
+                "headers": {
+                  "type": "HttpHeaderVec"
                 }
               }
             ],
             "constructors": {
-              "from_system_language": {
-                "doc": [
-                  "Create a cache initialized with the system language."
-                ],
-                "fn_args": [
-                  {
-                    "language": "String"
-                  }
-                ],
-                "fn_body": "azul_layout::icu::IcuLocalizerHandle::from_system_language(&language)"
-              },
               "new": {
                 "doc": [
-                  "Create a new empty cache with a default locale."
+                  "Create a new config with default values"
                 ],
-                "fn_args": [
-                  {
-                    "default_locale": "String"
-                  }
-                ],
-                "fn_body": "azul_layout::icu::IcuLocalizerHandle::new(default_locale.as_str())"
+                "fn_args": [],
+                "fn_body": "azul_layout::http::HttpRequestConfig::new()"
               }
             },
             "functions": {
-              "get_default_locale": {
+              "with_timeout": {
                 "doc": [
-                  "Get the default locale string."
+                  "Set timeout in seconds"
                 ],
                 "fn_args": [
                   {
-                    "self": "ref"
+                    "self": "value"
+                  },
+                  {
+                    "secs": "u64"
                   }
                 ],
                 "returns": {
-                  "type": "String"
+                  "type": "HttpRequestConfig"
                 },
-                "fn_body": "object.get_default_locale().into()"
+                "fn_body": "object.with_timeout(secs)"
               },
-              "set_default_locale": {
+              "with_max_size": {
                 "doc": [
-                  "Set the default locale."
+                  "Set maximum response size (0 = unlimited)"
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
-                    "locale": "String"
+                    "max_bytes": "u64"
                   }
                 ],
-                "fn_body": "object.set_default_locale(locale.as_str())"
+                "returns": {
+                  "type": "HttpRequestConfig"
+                },
+                "fn_body": "object.with_max_size(max_bytes)"
               },
-              "set_locale": {
+              "with_user_agent": {
                 "doc": [
-                  "Alias for set_default_locale for compatibility."
+                  "Set User-Agent header"
                 ],
                 "fn_args": [
                   {
-                    "self": "refmut"
+                    "self": "value"
                   },
                   {
-                    "locale": "String"
+                    "ua": "String"
                   }
                 ],
-                "fn_body": "object.set_locale(locale.as_str())"
+                "returns": {
+                  "type": "HttpRequestConfig"
+                },
+                "fn_body": "object.with_user_agent(ua.as_str())"
               },
-              "load_data_blob": {
+              "with_header": {
                 "doc": [
-                  "Load additional locale data from a binary blob for all cached localizers.",
+                  "Add a header"
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "name": "String"
+                  },
+                  {
+                    "value": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "HttpRequestConfig"
+                },
+                "fn_body": "object.with_header(name.as_str(), value.as_str())"
+              },
+              "http_get_default": {
+                "doc": [
+                  "Simple HTTP GET request with default configuration",
                   "",
-                  "The blob should be generated using `icu4x-datagen` with the `--format blob` flag.",
-                  "This allows supporting locales that aren't compiled into the binary.",
+                  "# Arguments",
+                  "* `url` - The URL to request",
                   "",
-                  "Returns `true` if the data was successfully loaded."
+                  "# Returns",
+                  "* `HttpResult<HttpResponse>` - The response or an error"
+                ],
+                "fn_args": [
+                  {
+                    "url": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultHttpResponseHttpError"
+                },
+                "fn_body": "azul_layout::http::HttpRequestConfig::http_get_default(url)"
+              },
+              "http_get": {
+                "doc": [
+                  "HTTP GET request using this configuration",
+                  "",
+                  "# Arguments",
+                  "* `url` - The URL to request",
+                  "",
+                  "# Returns",
+                  "* `HttpResult<HttpResponse>` - The response or an error"
                 ],
                 "fn_args": [
                   {
                     "self": "ref"
                   },
                   {
-                    "data": "U8VecRef"
+                    "url": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultHttpResponseHttpError"
+                },
+                "fn_body": "object.http_get(url)"
+              },
+              "download_bytes_default": {
+                "doc": [
+                  "Download URL to bytes with default configuration",
+                  "",
+                  "# Arguments",
+                  "* `url` - The URL to download",
+                  "",
+                  "# Returns",
+                  "* `HttpResult<U8Vec>` - The response body or an error"
+                ],
+                "fn_args": [
+                  {
+                    "url": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultU8VecHttpError"
+                },
+                "fn_body": "azul_layout::http::HttpRequestConfig::download_bytes_default(url)"
+              },
+              "download_bytes": {
+                "doc": [
+                  "Download URL to bytes using this configuration",
+                  "",
+                  "# Arguments",
+                  "* `url` - The URL to download",
+                  "",
+                  "# Returns",
+                  "* `HttpResult<U8Vec>` - The response body or an error"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "url": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultU8VecHttpError"
+                },
+                "fn_body": "object.download_bytes(url)"
+              },
+              "is_url_reachable": {
+                "doc": [
+                  "Check if a URL is reachable (HEAD request)",
+                  "",
+                  "# Arguments",
+                  "* `url` - The URL to check",
+                  "",
+                  "# Returns",
+                  "* `bool` - True if reachable (2xx status)"
+                ],
+                "fn_args": [
+                  {
+                    "url": "String"
                   }
                 ],
                 "returns": {
                   "type": "bool"
                 },
-                "fn_body": "object.load_data_blob(data.as_slice())"
-              },
-              "get_language": {
-                "doc": [
-                  "Get the language part of a locale (e.g., \"en\" from \"en-US\")."
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "locale": "String"
-                  }
-                ],
-                "returns": {
-                  "type": "String"
-                },
-                "fn_body": "object.get_language(locale.as_str()).into()"
-              },
-              "format_integer": {
-                "doc": [
-                  "Format an integer with locale-appropriate grouping.",
-                  "",
-                  "# Example",
-                  "```rust,ignore",
-                  "cache.format_integer(\"en-US\", 1234567) // → \"1,234,567\"",
-                  "cache.format_integer(\"de-DE\", 1234567) // → \"1.234.567\"",
-                  "```"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "locale": "String"
-                  },
-                  {
-                    "value": "i64"
-                  }
-                ],
-                "returns": {
-                  "type": "String"
-                },
-                "fn_body": "object.format_integer(locale.as_str(), value).into()"
-              },
-              "format_decimal": {
-                "doc": [
-                  "Format a decimal number.",
-                  "",
-                  "# Arguments",
-                  "* `locale` - BCP 47 locale string (e.g., \"en-US\", \"de-DE\")",
-                  "* `integer_part` - The full integer value (e.g., 123456 for 1234.56)",
-                  "* `decimal_places` - Number of decimal places (e.g., 2 for 1234.56)"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "locale": "String"
-                  },
-                  {
-                    "integer_part": "i64"
-                  },
-                  {
-                    "decimal_places": "i16"
-                  }
-                ],
-                "returns": {
-                  "type": "String"
-                },
-                "fn_body": "object.format_decimal(locale.as_str(), integer_part, decimal_places).into()"
-              },
-              "get_plural_category": {
-                "doc": [
-                  "Get the plural category for a number.",
-                  "",
-                  "# Example",
-                  "```rust,ignore",
-                  "cache.get_plural_category(\"en\", 1)  // → PluralCategory::One",
-                  "cache.get_plural_category(\"pl\", 5)  // → PluralCategory::Many",
-                  "```"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "locale": "String"
-                  },
-                  {
-                    "value": "i64"
-                  }
-                ],
-                "returns": {
-                  "type": "PluralCategory"
-                },
-                "fn_body": "object.get_plural_category(locale.as_str(), value)"
-              },
-              "pluralize": {
-                "doc": [
-                  "Select a string based on plural rules.",
-                  "",
-                  "# Arguments",
-                  "* `locale` - BCP 47 locale string",
-                  "* `value` - The number to pluralize",
-                  "* `zero`, `one`, `two`, `few`, `many`, `other` - Strings for each category"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "locale": "String"
-                  },
-                  {
-                    "value": "i64"
-                  },
-                  {
-                    "zero": "String"
-                  },
-                  {
-                    "one": "String"
-                  },
-                  {
-                    "two": "String"
-                  },
-                  {
-                    "few": "String"
-                  },
-                  {
-                    "many": "String"
-                  },
-                  {
-                    "other": "String"
-                  }
-                ],
-                "returns": {
-                  "type": "String"
-                },
-                "fn_body": "object.pluralize(locale.as_str(), value, zero.as_str(), one.as_str(), two.as_str(), few.as_str(), many.as_str(), other.as_str()).into()"
-              },
-              "format_date": {
-                "doc": [
-                  "Format a date according to the specified locale.",
-                  "",
-                  "# Example",
-                  "```rust,ignore",
-                  "let today = IcuDate::now();",
-                  "cache.format_date(\"en-US\", today, FormatLength::Medium) // → \"Jan 15, 2025\"",
-                  "cache.format_date(\"de-DE\", today, FormatLength::Medium) // → \"15.01.2025\"",
-                  "```"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "locale": "String"
-                  },
-                  {
-                    "date": "IcuDate"
-                  },
-                  {
-                    "length": "FormatLength"
-                  }
-                ],
-                "returns": {
-                  "type": "IcuResult"
-                },
-                "fn_body": "object.format_date(locale.as_str(), date, length)"
-              },
-              "format_time": {
-                "doc": [
-                  "Format a time according to the specified locale.",
-                  "",
-                  "# Example",
-                  "```rust,ignore",
-                  "let now = IcuTime::now();",
-                  "cache.format_time(\"en-US\", now, false) // → \"4:30 PM\"",
-                  "cache.format_time(\"de-DE\", now, false) // → \"16:30\"",
-                  "```"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "locale": "String"
-                  },
-                  {
-                    "time": "IcuTime"
-                  },
-                  {
-                    "include_seconds": "bool"
-                  }
-                ],
-                "returns": {
-                  "type": "IcuResult"
-                },
-                "fn_body": "object.format_time(locale.as_str(), time, include_seconds)"
-              },
-              "format_datetime": {
-                "doc": [
-                  "Format a date and time according to the specified locale."
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "locale": "String"
-                  },
-                  {
-                    "datetime": "IcuDateTime"
-                  },
-                  {
-                    "length": "FormatLength"
-                  }
-                ],
-                "returns": {
-                  "type": "IcuResult"
-                },
-                "fn_body": "object.format_datetime(locale.as_str(), datetime, length)"
-              },
-              "compare_strings": {
-                "doc": [
-                  "Compare two strings according to locale-specific collation rules.",
-                  "",
-                  "Returns -1 if a < b, 0 if a == b, 1 if a > b.",
-                  "",
-                  "# Example",
-                  "```rust,ignore",
-                  "cache.compare_strings(\"de-DE\", \"Äpfel\", \"Banane\") // → -1 (Ä sorts with A)",
-                  "cache.compare_strings(\"sv-SE\", \"Äpple\", \"Öl\")     // → -1 (Swedish: Ä before Ö)",
-                  "```"
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "locale": "String"
-                  },
-                  {
-                    "a": "String"
-                  },
-                  {
-                    "b": "String"
-                  }
-                ],
-                "returns": {
-                  "type": "i32"
-                },
-                "fn_body": "object.compare_strings(locale.as_str(), a.as_str(), b.as_str())"
-              },
-              "strings_equal": {
-                "doc": [
-                  "Check if two strings are equal according to locale collation rules."
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "locale": "String"
-                  },
-                  {
-                    "a": "String"
-                  },
-                  {
-                    "b": "String"
-                  }
-                ],
-                "returns": {
-                  "type": "bool"
-                },
-                "fn_body": "object.strings_equal(locale.as_str(), a.as_str(), b.as_str())"
-              },
-              "format_plural": {
-                "doc": [
-                  "Convenience function to format a localized message with plural support.",
-                  "",
-                  "This handles the common case of \"{count} {item/items}\" patterns.",
-                  "The `{}` placeholder in the template will be replaced with the formatted number."
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "locale": "String"
-                  },
-                  {
-                    "value": "i64"
-                  },
-                  {
-                    "zero": "String"
-                  },
-                  {
-                    "one": "String"
-                  },
-                  {
-                    "other": "String"
-                  }
-                ],
-                "returns": {
-                  "type": "String"
-                },
-                "fn_body": "object.format_plural(locale.as_str(), value, zero.as_str(), one.as_str(), other.as_str()).into()"
-              },
-              "clear_cache": {
-                "doc": [
-                  "Clear the cache (useful for memory management or locale data reload)."
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  }
-                ],
-                "fn_body": "object.clear_cache()"
-              },
-              "cached_locale_count": {
-                "doc": [
-                  "Get the number of cached locales."
-                ],
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  }
-                ],
-                "returns": {
-                  "type": "usize"
-                },
-                "fn_body": "object.cached_locale_count()"
+                "fn_body": "azul_layout::http::HttpRequestConfig::is_url_reachable(url)"
               }
             },
             "repr": "C"
@@ -45483,6 +45381,440 @@
               }
             ],
             "repr": "C"
+          },
+          "FilePath": {
+            "external": "azul_layout::file::FilePath",
+            "custom_impls": [
+              "Default",
+              "From"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "String"
+                }
+              }
+            ],
+            "constructors": {
+              "new": {
+                "doc": [
+                  "Creates a new path from a string"
+                ],
+                "fn_args": [
+                  {
+                    "path": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::file::FilePath::new(path)"
+              },
+              "empty": {
+                "doc": [
+                  "Creates an empty path"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_layout::file::FilePath::empty()"
+              },
+              "from_str": {
+                "doc": [
+                  "Creates a path from a string slice"
+                ],
+                "fn_args": [
+                  {
+                    "s": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::file::FilePath::from_str(s.as_str())"
+              },
+              "get_temp_dir": {
+                "doc": [
+                  "Returns the system temporary directory"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_layout::file::FilePath::get_temp_dir()"
+              },
+              "get_current_dir": {
+                "doc": [
+                  "Returns the current working directory"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "ResultFilePathFileError"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_current_dir().into()"
+              },
+              "from": {
+                "fn_args": [
+                  {
+                    "s": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::file::FilePath::from(s)"
+              }
+            },
+            "functions": {
+              "join": {
+                "doc": [
+                  "Joins this path with another path component"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "other": "FilePath"
+                  }
+                ],
+                "returns": {
+                  "type": "FilePath"
+                },
+                "fn_body": "object.join(&other)"
+              },
+              "join_str": {
+                "doc": [
+                  "Joins this path with a string component  "
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "component": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "FilePath"
+                },
+                "fn_body": "object.join_str(&component)"
+              },
+              "parent": {
+                "doc": [
+                  "Returns the parent directory of this path"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "object.parent().into()"
+              },
+              "file_name": {
+                "doc": [
+                  "Returns the file name component of this path"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionString"
+                },
+                "fn_body": "object.file_name().into()"
+              },
+              "extension": {
+                "doc": [
+                  "Returns the file extension of this path"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionString"
+                },
+                "fn_body": "object.extension().into()"
+              },
+              "exists": {
+                "doc": [
+                  "Checks if the path exists on the filesystem"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.exists()"
+              },
+              "is_file": {
+                "doc": [
+                  "Checks if the path is a file"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_file()"
+              },
+              "is_dir": {
+                "doc": [
+                  "Checks if the path is a directory"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_dir()"
+              },
+              "is_absolute": {
+                "doc": [
+                  "Checks if the path is absolute"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_absolute()"
+              },
+              "create_dir_all": {
+                "doc": [
+                  "Creates this directory and all parent directories"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultVoidFileError"
+                },
+                "fn_body": "object.create_dir_all().into()"
+              },
+              "create_dir": {
+                "doc": [
+                  "Creates this directory (parent must exist)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultVoidFileError"
+                },
+                "fn_body": "object.create_dir().into()"
+              },
+              "remove_file": {
+                "doc": [
+                  "Removes this file"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultVoidFileError"
+                },
+                "fn_body": "object.remove_file().into()"
+              },
+              "remove_dir": {
+                "doc": [
+                  "Removes this directory (must be empty)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultVoidFileError"
+                },
+                "fn_body": "object.remove_dir().into()"
+              },
+              "remove_dir_all": {
+                "doc": [
+                  "Removes this directory and all contents"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultVoidFileError"
+                },
+                "fn_body": "object.remove_dir_all().into()"
+              },
+              "read_bytes": {
+                "doc": [
+                  "Reads the entire file at this path as bytes"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultU8VecFileError"
+                },
+                "fn_body": "object.read_bytes().into()"
+              },
+              "read_string": {
+                "doc": [
+                  "Reads the entire file at this path as a string"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultStringFileError"
+                },
+                "fn_body": "object.read_string().into()"
+              },
+              "write_bytes": {
+                "doc": [
+                  "Writes bytes to the file at this path"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "data": "U8Vec"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultVoidFileError"
+                },
+                "fn_body": "object.write_bytes(&data).into()"
+              },
+              "write_string": {
+                "doc": [
+                  "Writes a string to the file at this path"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "data": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultVoidFileError"
+                },
+                "fn_body": "object.write_string(&data).into()"
+              },
+              "copy_to": {
+                "doc": [
+                  "Copies a file from this path to another path"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "dest": "FilePath"
+                  }
+                ],
+                "returns": {
+                  "type": "Resultu64FileError"
+                },
+                "fn_body": "object.copy_to(&dest).into()"
+              },
+              "rename_to": {
+                "doc": [
+                  "Renames/moves a file from this path to another path"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "dest": "FilePath"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultVoidFileError"
+                },
+                "fn_body": "object.rename_to(&dest).into()"
+              },
+              "as_string": {
+                "doc": [
+                  "Returns the path as an AzString"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.as_string().into()"
+              },
+              "read_dir": {
+                "doc": [
+                  "Lists directory contents"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultDirEntryVecFileError"
+                },
+                "fn_body": "object.read_dir().into()"
+              },
+              "metadata": {
+                "doc": [
+                  "Returns metadata about the file/directory"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultFileMetadataFileError"
+                },
+                "fn_body": "object.metadata().into()"
+              },
+              "canonicalize": {
+                "doc": [
+                  "Makes the path canonical (absolute, with no `.` or `..` components)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultFilePathFileError"
+                },
+                "fn_body": "object.canonicalize().into()"
+              }
+            },
+            "repr": "C"
           }
         }
       },
@@ -45943,27 +46275,6 @@
                 },
                 "second": {
                   "type": "u8"
-                }
-              }
-            ],
-            "repr": "C"
-          },
-          "IcuDateTime": {
-            "external": "azul_layout::icu::IcuDateTime",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialEq",
-              "Eq"
-            ],
-            "struct_fields": [
-              {
-                "date": {
-                  "type": "IcuDate"
-                },
-                "time": {
-                  "type": "IcuTime"
                 }
               }
             ],
@@ -50568,6 +50879,340 @@
               }
             ],
             "repr": "C"
+          },
+          "HttpHeaderVec": {
+            "external": "azul_layout::http::HttpHeaderVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq"
+            ],
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "HttpHeader",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "HttpHeaderVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "HttpHeaderVecDestructorType": {
+            "external": "azul_layout::http::HttpHeaderVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "HttpHeaderVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            }
+          },
+          "FmtArgVecDestructorType": {
+            "external": "azul_layout::fmt::FmtArgVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "FmtArgVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            }
+          },
+          "FmtArgVec": {
+            "external": "azul_layout::fmt::FmtArgVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "FmtArg",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "FmtArgVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "FmtArgVecDestructor": {
+            "external": "azul_layout::fmt::FmtArgVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "FmtArgVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "HttpHeaderVecDestructor": {
+            "external": "azul_layout::http::HttpHeaderVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "HttpHeaderVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "JsonVec": {
+            "external": "azul_layout::json::JsonVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "PartialEq"
+            ],
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "Json",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "JsonVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "JsonVecDestructor": {
+            "external": "azul_layout::json::JsonVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "JsonVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "JsonVecDestructorType": {
+            "external": "azul_layout::json::JsonVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "JsonVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
+          },
+          "DirEntryVec": {
+            "external": "azul_layout::file::DirEntryVec",
+            "custom_impls": [
+              "Clone",
+              "Debug"
+            ],
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "DirEntry",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "DirEntryVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "DirEntryVecDestructorType": {
+            "external": "azul_layout::file::DirEntryVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "DirEntryVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
+          },
+          "DirEntryVecDestructor": {
+            "external": "azul_layout::file::DirEntryVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "DirEntryVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionJsonKeyValueVec": {
+            "external": "azul_layout::json::OptionJsonKeyValueVec",
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "JsonKeyValueVec"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "JsonKeyValueVec": {
+            "external": "azul_layout::json::JsonKeyValueVec",
+            "custom_impls": [
+              "Clone",
+              "Debug"
+            ],
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "JsonKeyValue",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "JsonKeyValueVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionJsonVec": {
+            "external": "azul_layout::json::OptionJsonVec",
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "JsonVec"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "JsonKeyValueVecDestructorType": {
+            "external": "azul_layout::json::JsonKeyValueVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "JsonKeyValueVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
+          },
+          "JsonKeyValueVecDestructor": {
+            "external": "azul_layout::json::JsonKeyValueVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "JsonKeyValueVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -51252,6 +51897,29 @@
               {
                 "Some": {
                   "type": "u16"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionStringVec": {
+            "external": "azul_css::corety::OptionStringVec",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Hash",
+              "Eq",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "StringVec"
                 }
               }
             ],
@@ -52463,6 +53131,40 @@
               }
             ],
             "repr": "C"
+          },
+          "OptionFilePath": {
+            "external": "azul_layout::file::OptionFilePath",
+            "derive": [
+              "Clone",
+              "Debug",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "FilePath"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionJson": {
+            "external": "azul_layout::json::OptionJson",
+            "derive": [
+              "Clone",
+              "Debug",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "Json"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -53381,6 +54083,552 @@
           },
           "IcuError": {
             "external": "azul_layout::icu::IcuError",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "message": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "FluentZipLoadResult": {
+            "external": "azul_layout::fluent::FluentZipLoadResult",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "files_loaded": {
+                  "type": "usize"
+                },
+                "files_failed": {
+                  "type": "usize"
+                },
+                "errors": {
+                  "type": "StringVec"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "FluentSyntaxError": {
+            "external": "azul_layout::fluent::FluentSyntaxError",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "message": {
+                  "type": "String"
+                },
+                "line": {
+                  "type": "u32"
+                },
+                "column": {
+                  "type": "u32"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "FluentSyntaxCheckResult": {
+            "external": "azul_layout::fluent::FluentSyntaxCheckResult",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {},
+                "Errors": {
+                  "type": "StringVec"
+                }
+              }
+            ],
+            "constructors": {
+              "checkSyntax": {
+                "doc": [
+                  "Check the syntax of a Fluent (FTL) string.",
+                  "",
+                  "Returns Ok if valid, or Errors with a list of error strings.",
+                  "Each error string has the format 'line:column: message'."
+                ],
+                "fn_args": [
+                  {
+                    "source": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::fluent::check_fluent_syntax(source.as_str())"
+              },
+              "checkSyntaxBytes": {
+                "doc": [
+                  "Check the syntax of a Fluent (FTL) file from bytes.",
+                  "",
+                  "Returns Ok if valid, or Errors with a list of error strings."
+                ],
+                "fn_args": [
+                  {
+                    "data": "U8VecRef"
+                  }
+                ],
+                "fn_body": "azul_layout::fluent::check_fluent_syntax_bytes(data.as_slice())"
+              }
+            },
+            "functions": {
+              "isOk": {
+                "doc": [
+                  "Returns true if the result is Ok (no syntax errors)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "fluentsyntaxcheckresult.is_ok()"
+              },
+              "getErrors": {
+                "doc": [
+                  "Get the error strings if this is an Errors result.",
+                  "",
+                  "Returns None if this is Ok."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStringVec"
+                },
+                "fn_body": "fluentsyntaxcheckresult.get_errors()"
+              }
+            },
+            "repr": "C, u8"
+          },
+          "HttpResponseTooLargeError": {
+            "external": "azul_layout::http::HttpResponseTooLargeError",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "max_size": {
+                  "type": "u64"
+                },
+                "actual_size": {
+                  "type": "u64"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "HttpError": {
+            "external": "azul_layout::http::HttpError",
+            "custom_impls": [
+              "Display"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "InvalidUrl": {
+                  "type": "String"
+                },
+                "ConnectionFailed": {
+                  "type": "String"
+                },
+                "Timeout": {},
+                "TlsError": {
+                  "type": "String"
+                },
+                "HttpStatus": {
+                  "type": "HttpStatusError"
+                },
+                "IoError": {
+                  "type": "String"
+                },
+                "ResponseTooLarge": {
+                  "type": "HttpResponseTooLargeError"
+                },
+                "Other": {
+                  "type": "String"
+                }
+              }
+            ],
+            "constructors": {
+              "invalid_url": {
+                "fn_args": [
+                  {
+                    "url": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::http::HttpError::invalid_url(url)"
+              },
+              "connection_failed": {
+                "fn_args": [
+                  {
+                    "msg": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::http::HttpError::connection_failed(msg)"
+              },
+              "tls_error": {
+                "fn_args": [
+                  {
+                    "msg": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::http::HttpError::tls_error(msg)"
+              },
+              "http_status": {
+                "fn_args": [
+                  {
+                    "status_code": "u16"
+                  },
+                  {
+                    "message": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::http::HttpError::http_status(status_code, message)"
+              },
+              "io_error": {
+                "fn_args": [
+                  {
+                    "msg": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::http::HttpError::io_error(msg)"
+              },
+              "response_too_large": {
+                "fn_args": [
+                  {
+                    "max_size": "u64"
+                  },
+                  {
+                    "actual_size": "u64"
+                  }
+                ],
+                "fn_body": "azul_layout::http::HttpError::response_too_large(max_size, actual_size)"
+              },
+              "other": {
+                "fn_args": [
+                  {
+                    "msg": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::http::HttpError::other(msg)"
+              }
+            },
+            "repr": "C, u8"
+          },
+          "HttpStatusError": {
+            "external": "azul_layout::http::HttpStatusError",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "status_code": {
+                  "type": "u16"
+                },
+                "message": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "FileError": {
+            "external": "azul_layout::file::FileError",
+            "custom_impls": [
+              "Display"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "message": {
+                  "type": "String"
+                },
+                "kind": {
+                  "type": "FileErrorKind"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "FileErrorKind": {
+            "external": "azul_layout::file::FileErrorKind",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "NotFound": {},
+                "PermissionDenied": {},
+                "AlreadyExists": {},
+                "InvalidPath": {},
+                "IoError": {},
+                "DirectoryNotEmpty": {},
+                "IsDirectory": {},
+                "IsFile": {},
+                "Other": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "ResultVoidFileError": {
+            "external": "azul_layout::file::ResultVoidFileError",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "Void"
+                },
+                "Err": {
+                  "type": "FileError"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ResultHttpResponseHttpError": {
+            "external": "azul_layout::http::ResultHttpResponseHttpError",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "HttpResponse"
+                },
+                "Err": {
+                  "type": "HttpError"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ResultU8VecHttpError": {
+            "external": "azul_layout::http::ResultU8VecHttpError",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "U8Vec"
+                },
+                "Err": {
+                  "type": "HttpError"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "Resultu64FileError": {
+            "external": "azul_layout::file::Resultu64FileError",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "u64"
+                },
+                "Err": {
+                  "type": "FileError"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ResultU8VecFileError": {
+            "external": "azul_layout::file::ResultU8VecFileError",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "U8Vec"
+                },
+                "Err": {
+                  "type": "FileError"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ResultFileMetadataFileError": {
+            "external": "azul_layout::file::ResultFileMetadataFileError",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "FileMetadata"
+                },
+                "Err": {
+                  "type": "FileError"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ResultStringFileError": {
+            "external": "azul_layout::file::ResultStringFileError",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "String"
+                },
+                "Err": {
+                  "type": "FileError"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ResultDirEntryVecFileError": {
+            "external": "azul_layout::file::ResultDirEntryVecFileError",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "DirEntryVec"
+                },
+                "Err": {
+                  "type": "FileError"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ResultFilePathFileError": {
+            "external": "azul_layout::file::ResultFilePathFileError",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "FilePath"
+                },
+                "Err": {
+                  "type": "FileError"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "JsonParseError": {
+            "external": "azul_layout::json::JsonParseError",
+            "custom_impls": [
+              "Display"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "message": {
+                  "type": "String"
+                },
+                "line": {
+                  "type": "u32"
+                },
+                "column": {
+                  "type": "u32"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ResultJsonJsonParseError": {
+            "external": "azul_layout::json::ResultJsonJsonParseError",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "Json"
+                },
+                "Err": {
+                  "type": "JsonParseError"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ResultUrlUrlParseError": {
+            "external": "azul_layout::url::ResultUrlUrlParseError",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "Url"
+                },
+                "Err": {
+                  "type": "UrlParseError"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "UrlParseError": {
+            "external": "azul_layout::url::UrlParseError",
             "derive": [
               "Debug",
               "Clone",
@@ -54462,6 +55710,828 @@
             ],
             "repr": "C"
           },
+          "FormatLength": {
+            "external": "azul_layout::icu::FormatLength",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Short": {},
+                "Medium": {},
+                "Long": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "FmtValue": {
+            "external": "azul_layout::fmt::FmtValue",
+            "custom_impls": [
+              "Display"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "enum_fields": [
+              {
+                "Bool": {
+                  "type": "bool"
+                },
+                "Uchar": {
+                  "type": "u8"
+                },
+                "Schar": {
+                  "type": "i8"
+                },
+                "Ushort": {
+                  "type": "u16"
+                },
+                "Sshort": {
+                  "type": "i16"
+                },
+                "Uint": {
+                  "type": "u32"
+                },
+                "Sint": {
+                  "type": "i32"
+                },
+                "Ulong": {
+                  "type": "u64"
+                },
+                "Slong": {
+                  "type": "i64"
+                },
+                "Isize": {
+                  "type": "isize"
+                },
+                "Usize": {
+                  "type": "usize"
+                },
+                "Float": {
+                  "type": "f32"
+                },
+                "Double": {
+                  "type": "f64"
+                },
+                "Str": {
+                  "type": "String"
+                },
+                "StrVec": {
+                  "type": "StringVec"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "FmtArg": {
+            "external": "azul_layout::fmt::FmtArg",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "struct_fields": [
+              {
+                "key": {
+                  "type": "String"
+                },
+                "value": {
+                  "type": "FmtValue"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "Url": {
+            "external": "azul_layout::url::Url",
+            "custom_impls": [
+              "Display"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "href": {
+                  "type": "String"
+                },
+                "scheme": {
+                  "type": "String"
+                },
+                "host": {
+                  "type": "String"
+                },
+                "port": {
+                  "type": "u16"
+                },
+                "path": {
+                  "type": "String"
+                },
+                "query": {
+                  "type": "String"
+                },
+                "fragment": {
+                  "type": "String"
+                }
+              }
+            ],
+            "constructors": {
+              "parse": {
+                "doc": [
+                  "Parse a URL from a string",
+                  "",
+                  "# Arguments",
+                  "* `s` - The URL string to parse",
+                  "",
+                  "# Returns",
+                  "* `Result<Url, UrlParseError>` - The parsed URL or an error"
+                ],
+                "fn_args": [
+                  {
+                    "s": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultUrlUrlParseError"
+                },
+                "fn_body": "azul_layout::url::Url::parse(s.as_str()).into()"
+              },
+              "from_parts": {
+                "doc": [
+                  "Create a URL from components"
+                ],
+                "fn_args": [
+                  {
+                    "scheme": "String"
+                  },
+                  {
+                    "host": "String"
+                  },
+                  {
+                    "port": "u16"
+                  },
+                  {
+                    "path": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::url::Url::from_parts(scheme.as_str(), host.as_str(), port, path.as_str())"
+              }
+            },
+            "functions": {
+              "to_string": {
+                "doc": [
+                  "Get the full URL as a string"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.to_string().into()"
+              },
+              "is_https": {
+                "doc": [
+                  "Check if this is an HTTPS URL"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_https()"
+              },
+              "is_http": {
+                "doc": [
+                  "Check if this is an HTTP URL"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_http()"
+              },
+              "effective_port": {
+                "doc": [
+                  "Get the effective port (using default ports for http/https)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "u16"
+                },
+                "fn_body": "object.effective_port()"
+              },
+              "join": {
+                "doc": [
+                  "Join a relative path to this URL"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "path": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultUrlUrlParseError"
+                },
+                "fn_body": "object.join(path.as_str()).into()"
+              }
+            },
+            "repr": "C"
+          },
+          "Json": {
+            "external": "azul_layout::json::Json",
+            "custom_impls": [
+              "Display"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "value_type": {
+                  "type": "JsonType"
+                },
+                "internal": {
+                  "type": "JsonInternal"
+                }
+              }
+            ],
+            "constructors": {
+              "parse": {
+                "doc": [
+                  "Parse JSON from a string"
+                ],
+                "fn_args": [
+                  {
+                    "s": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultJsonJsonParseError"
+                },
+                "fn_body": "azul_layout::json::Json::parse(s.as_str()).into()"
+              },
+              "parse_bytes": {
+                "doc": [
+                  "Parse JSON from bytes (UTF-8)"
+                ],
+                "fn_args": [
+                  {
+                    "bytes": "U8VecRef"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultJsonJsonParseError"
+                },
+                "fn_body": "azul_layout::json::Json::parse_bytes(bytes.as_slice()).into()"
+              },
+              "null": {
+                "doc": [
+                  "Create a null JSON value"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_layout::json::Json::null()"
+              },
+              "bool": {
+                "doc": [
+                  "Create a boolean JSON value"
+                ],
+                "fn_args": [
+                  {
+                    "value": "bool"
+                  }
+                ],
+                "fn_body": "azul_layout::json::Json::bool(value)"
+              },
+              "number": {
+                "doc": [
+                  "Create a number JSON value"
+                ],
+                "fn_args": [
+                  {
+                    "value": "f64"
+                  }
+                ],
+                "fn_body": "azul_layout::json::Json::number(value)"
+              },
+              "string": {
+                "doc": [
+                  "Create a string JSON value"
+                ],
+                "fn_args": [
+                  {
+                    "value": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::json::Json::string(value.as_str())"
+              }
+            },
+            "functions": {
+              "is_null": {
+                "doc": [
+                  "Check if this is null"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_null()"
+              },
+              "is_bool": {
+                "doc": [
+                  "Check if this is a boolean"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_bool()"
+              },
+              "is_number": {
+                "doc": [
+                  "Check if this is a number"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_number()"
+              },
+              "is_string": {
+                "doc": [
+                  "Check if this is a string"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_string()"
+              },
+              "is_array": {
+                "doc": [
+                  "Check if this is an array"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_array()"
+              },
+              "is_object": {
+                "doc": [
+                  "Check if this is an object"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_object()"
+              },
+              "len": {
+                "doc": [
+                  "Get the number of elements (for arrays) or keys (for objects)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "object.len()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Check if empty (for arrays/objects)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_empty()"
+              },
+              "get_index": {
+                "doc": [
+                  "Get array element by index"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionJson"
+                },
+                "fn_body": "object.get_index(index).into()"
+              },
+              "get_key": {
+                "doc": [
+                  "Get object value by key"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "key": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionJson"
+                },
+                "fn_body": "object.get_key(key.as_str()).into()"
+              },
+              "keys": {
+                "doc": [
+                  "Get all keys of an object"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "StringVec"
+                },
+                "fn_body": "object.keys().into()"
+              },
+              "to_array": {
+                "doc": [
+                  "Convert array to Vec<Json>"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionJsonVec"
+                },
+                "fn_body": "object.to_array().into()"
+              },
+              "to_object": {
+                "doc": [
+                  "Convert object to Vec<JsonKeyValue>"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionJsonKeyValueVec"
+                },
+                "fn_body": "object.to_object().into()"
+              },
+              "to_json_string": {
+                "doc": [
+                  "Serialize to JSON string"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.to_json_string().into()"
+              },
+              "to_json_string_pretty": {
+                "doc": [
+                  "Serialize to pretty-printed JSON string"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.to_json_string_pretty().into()"
+              },
+              "jq": {
+                "doc": [
+                  "Access a nested value using a JSON Pointer (RFC 6901).",
+                  "",
+                  "The pointer syntax uses `/` to separate path components:",
+                  "- `/foo` accesses key \"foo\" in an object",
+                  "- `/0` accesses index 0 in an array",
+                  "- `/foo/bar/0` accesses nested paths",
+                  "",
+                  "Returns Json::null() if the path doesn't exist or points to an invalid location.",
+                  "",
+                  "# Example",
+                  "```ignore",
+                  "let json = Json::parse(r#\"{\"users\": [{\"name\": \"Alice\"}, {\"name\": \"Bob\"}]}\"#).unwrap();",
+                  "let name = json.jq(\"/users/0/name\"); // Json::string(\"Alice\")",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "path": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "Json"
+                },
+                "fn_body": "object.jq(path.as_str())"
+              },
+              "jq_all": {
+                "doc": [
+                  "Access nested values using a JSON Pointer with wildcard support.",
+                  "",
+                  "Similar to `jq()` but supports `*` wildcard to iterate over all ",
+                  "elements in an array or all values in an object.",
+                  "",
+                  "The wildcard `*` matches all keys/indices at that position and returns",
+                  "a Vec of all matched values.",
+                  "",
+                  "# Examples",
+                  "```ignore",
+                  "let json = Json::parse(r#\"{\"users\": [{\"name\": \"Alice\"}, {\"name\": \"Bob\"}]}\"#).unwrap();",
+                  "",
+                  "// Get all user names",
+                  "let names = json.jq_all(\"/users/*/name\"); // [Json::string(\"Alice\"), Json::string(\"Bob\")]",
+                  "",
+                  "// Without wildcard, behaves like jq()",
+                  "let first = json.jq_all(\"/users/0/name\"); // [Json::string(\"Alice\")]",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "path": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "JsonVec"
+                },
+                "fn_body": "object.jq_all(path.as_str())"
+              }
+            },
+            "repr": "C"
+          },
+          "JsonType": {
+            "external": "azul_layout::json::JsonType",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Null": {},
+                "Bool": {},
+                "Number": {},
+                "String": {},
+                "Array": {},
+                "Object": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "JsonInternal": {
+            "external": "azul_layout::json::JsonInternal",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "string_value": {
+                  "type": "String"
+                },
+                "number_value": {
+                  "type": "f64"
+                },
+                "bool_value": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "Void": {
+            "external": "azul_css::corety::Void",
+            "custom_impls": [
+              "Default",
+              "From"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "_reserved": {
+                  "type": "u8"
+                }
+              }
+            ],
+            "constructors": {
+              "new": {
+                "doc": [
+                  "Create a new Void value (equivalent to `()`)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::corety::Void::new()"
+              }
+            },
+            "repr": "C"
+          },
+          "DirEntry": {
+            "external": "azul_layout::file::DirEntry",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "name": {
+                  "type": "String"
+                },
+                "path": {
+                  "type": "String"
+                },
+                "file_type": {
+                  "type": "FileType"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "FileType": {
+            "external": "azul_layout::file::FileType",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "File": {},
+                "Directory": {},
+                "Symlink": {},
+                "Other": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "FileMetadata": {
+            "external": "azul_layout::file::FileMetadata",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "size": {
+                  "type": "u64"
+                },
+                "file_type": {
+                  "type": "FileType"
+                },
+                "is_readonly": {
+                  "type": "bool"
+                },
+                "modified_secs": {
+                  "type": "u64"
+                },
+                "created_secs": {
+                  "type": "u64"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "JsonKeyValue": {
+            "external": "azul_layout::json::JsonKeyValue",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "key": {
+                  "type": "String"
+                },
+                "value": {
+                  "type": "Json"
+                }
+              }
+            ],
+            "repr": "C"
+          }
+        }
+      },
+      "icu": {
+        "classes": {
+          "IcuDateTime": {
+            "external": "azul_layout::icu::IcuDateTime",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "struct_fields": [
+              {
+                "date": {
+                  "type": "IcuDate"
+                },
+                "time": {
+                  "type": "IcuTime"
+                }
+              }
+            ],
+            "repr": "C"
+          },
           "PluralCategory": {
             "external": "azul_layout::icu::PluralCategory",
             "custom_impls": [
@@ -54482,24 +56552,6 @@
                 "Few": {},
                 "Many": {},
                 "Other": {}
-              }
-            ],
-            "repr": "C"
-          },
-          "FormatLength": {
-            "external": "azul_layout::icu::FormatLength",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Copy",
-              "PartialEq",
-              "Eq"
-            ],
-            "enum_fields": [
-              {
-                "Short": {},
-                "Medium": {},
-                "Long": {}
               }
             ],
             "repr": "C"
@@ -54526,6 +56578,660 @@
                 }
               }
             ],
+            "repr": "C"
+          }
+        }
+      },
+      "fluent": {
+        "classes": {
+          "IcuLocalizerHandle": {
+            "external": "azul_layout::icu::IcuLocalizerHandle",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
+            "derive": [
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                }
+              }
+            ],
+            "constructors": {
+              "from_system_language": {
+                "doc": [
+                  "Create a cache initialized with the system language."
+                ],
+                "fn_args": [
+                  {
+                    "language": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::icu::IcuLocalizerHandle::from_system_language(&language)"
+              },
+              "new": {
+                "doc": [
+                  "Create a new empty cache with a default locale."
+                ],
+                "fn_args": [
+                  {
+                    "default_locale": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::icu::IcuLocalizerHandle::new(default_locale.as_str())"
+              }
+            },
+            "functions": {
+              "get_default_locale": {
+                "doc": [
+                  "Get the default locale string."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.get_default_locale().into()"
+              },
+              "set_default_locale": {
+                "doc": [
+                  "Set the default locale."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "locale": "String"
+                  }
+                ],
+                "fn_body": "object.set_default_locale(locale.as_str())"
+              },
+              "set_locale": {
+                "doc": [
+                  "Alias for set_default_locale for compatibility."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "locale": "String"
+                  }
+                ],
+                "fn_body": "object.set_locale(locale.as_str())"
+              },
+              "load_data_blob": {
+                "doc": [
+                  "Load additional locale data from a binary blob for all cached localizers.",
+                  "",
+                  "The blob should be generated using `icu4x-datagen` with the `--format blob` flag.",
+                  "This allows supporting locales that aren't compiled into the binary.",
+                  "",
+                  "Returns `true` if the data was successfully loaded."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "data": "U8VecRef"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.load_data_blob(data.as_slice())"
+              },
+              "get_language": {
+                "doc": [
+                  "Get the language part of a locale (e.g., \"en\" from \"en-US\")."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.get_language(locale.as_str()).into()"
+              },
+              "format_integer": {
+                "doc": [
+                  "Format an integer with locale-appropriate grouping.",
+                  "",
+                  "# Example",
+                  "```rust,ignore",
+                  "cache.format_integer(\"en-US\", 1234567) // -> \"1,234,567\"",
+                  "cache.format_integer(\"de-DE\", 1234567) // -> \"1.234.567\"",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "value": "i64"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.format_integer(locale.as_str(), value).into()"
+              },
+              "format_decimal": {
+                "doc": [
+                  "Format a decimal number.",
+                  "",
+                  "# Arguments",
+                  "* `locale` - BCP 47 locale string (e.g., \"en-US\", \"de-DE\")",
+                  "* `integer_part` - The full integer value (e.g., 123456 for 1234.56)",
+                  "* `decimal_places` - Number of decimal places (e.g., 2 for 1234.56)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "integer_part": "i64"
+                  },
+                  {
+                    "decimal_places": "i16"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.format_decimal(locale.as_str(), integer_part, decimal_places).into()"
+              },
+              "get_plural_category": {
+                "doc": [
+                  "Get the plural category for a number.",
+                  "",
+                  "# Example",
+                  "```rust,ignore",
+                  "cache.get_plural_category(\"en\", 1)  // -> PluralCategory::One",
+                  "cache.get_plural_category(\"pl\", 5)  // -> PluralCategory::Many",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "value": "i64"
+                  }
+                ],
+                "returns": {
+                  "type": "PluralCategory"
+                },
+                "fn_body": "object.get_plural_category(locale.as_str(), value)"
+              },
+              "pluralize": {
+                "doc": [
+                  "Select a string based on plural rules.",
+                  "",
+                  "# Arguments",
+                  "* `locale` - BCP 47 locale string",
+                  "* `value` - The number to pluralize",
+                  "* `zero`, `one`, `two`, `few`, `many`, `other` - Strings for each category"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "value": "i64"
+                  },
+                  {
+                    "zero": "String"
+                  },
+                  {
+                    "one": "String"
+                  },
+                  {
+                    "two": "String"
+                  },
+                  {
+                    "few": "String"
+                  },
+                  {
+                    "many": "String"
+                  },
+                  {
+                    "other": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.pluralize(locale.as_str(), value, zero.as_str(), one.as_str(), two.as_str(), few.as_str(), many.as_str(), other.as_str()).into()"
+              },
+              "format_date": {
+                "doc": [
+                  "Format a date according to the specified locale.",
+                  "",
+                  "# Example",
+                  "```rust,ignore",
+                  "let today = IcuDate::now();",
+                  "cache.format_date(\"en-US\", today, FormatLength::Medium) // -> \"Jan 15, 2025\"",
+                  "cache.format_date(\"de-DE\", today, FormatLength::Medium) // -> \"15.01.2025\"",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "date": "IcuDate"
+                  },
+                  {
+                    "length": "FormatLength"
+                  }
+                ],
+                "returns": {
+                  "type": "IcuResult"
+                },
+                "fn_body": "object.format_date(locale.as_str(), date, length)"
+              },
+              "format_time": {
+                "doc": [
+                  "Format a time according to the specified locale.",
+                  "",
+                  "# Example",
+                  "```rust,ignore",
+                  "let now = IcuTime::now();",
+                  "cache.format_time(\"en-US\", now, false) // -> \"4:30 PM\"",
+                  "cache.format_time(\"de-DE\", now, false) // -> \"16:30\"",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "time": "IcuTime"
+                  },
+                  {
+                    "include_seconds": "bool"
+                  }
+                ],
+                "returns": {
+                  "type": "IcuResult"
+                },
+                "fn_body": "object.format_time(locale.as_str(), time, include_seconds)"
+              },
+              "format_datetime": {
+                "doc": [
+                  "Format a date and time according to the specified locale."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "datetime": "IcuDateTime"
+                  },
+                  {
+                    "length": "FormatLength"
+                  }
+                ],
+                "returns": {
+                  "type": "IcuResult"
+                },
+                "fn_body": "object.format_datetime(locale.as_str(), datetime, length)"
+              },
+              "compare_strings": {
+                "doc": [
+                  "Compare two strings according to locale-specific collation rules.",
+                  "",
+                  "Returns -1 if a < b, 0 if a == b, 1 if a > b.",
+                  "",
+                  "# Example",
+                  "```rust,ignore",
+                  "cache.compare_strings(\"de-DE\", \"Aepfel\", \"Banane\") // -> -1 (Ae sorts with A)",
+                  "cache.compare_strings(\"sv-SE\", \"Aepple\", \"Oel\")     // -> -1 (Swedish: Ae before Oe)",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "a": "String"
+                  },
+                  {
+                    "b": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "i32"
+                },
+                "fn_body": "object.compare_strings(locale.as_str(), a.as_str(), b.as_str())"
+              },
+              "strings_equal": {
+                "doc": [
+                  "Check if two strings are equal according to locale collation rules."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "a": "String"
+                  },
+                  {
+                    "b": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.strings_equal(locale.as_str(), a.as_str(), b.as_str())"
+              },
+              "format_plural": {
+                "doc": [
+                  "Convenience function to format a localized message with plural support.",
+                  "",
+                  "This handles the common case of \"{count} {item/items}\" patterns.",
+                  "The `{}` placeholder in the template will be replaced with the formatted number."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "value": "i64"
+                  },
+                  {
+                    "zero": "String"
+                  },
+                  {
+                    "one": "String"
+                  },
+                  {
+                    "other": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.format_plural(locale.as_str(), value, zero.as_str(), one.as_str(), other.as_str()).into()"
+              },
+              "clear_cache": {
+                "doc": [
+                  "Clear the cache (useful for memory management or locale data reload)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "fn_body": "object.clear_cache()"
+              },
+              "cached_locale_count": {
+                "doc": [
+                  "Get the number of cached locales."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "object.cached_locale_count()"
+              }
+            },
+            "repr": "C"
+          },
+          "FluentLocalizerHandle": {
+            "external": "azul_layout::fluent::FluentLocalizerHandle",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
+            "derive": [
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "c_void",
+                  "ref_kind": "constptr"
+                }
+              }
+            ],
+            "constructors": {
+              "create": {
+                "doc": [
+                  "Create a new Fluent localizer with the given default locale."
+                ],
+                "fn_args": [
+                  {
+                    "default_locale": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::fluent::FluentLocalizerHandle::create(default_locale.as_str())"
+              }
+            },
+            "functions": {
+              "get_default_locale": {
+                "doc": [
+                  "Get the default locale string."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.get_default_locale().into()"
+              },
+              "set_default_locale": {
+                "doc": [
+                  "Set the default locale."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  }
+                ],
+                "fn_body": "object.set_default_locale(locale.as_str())"
+              },
+              "add_resource": {
+                "doc": [
+                  "Add a Fluent resource (FTL content) for a specific locale.",
+                  "",
+                  "Returns true if the resource was successfully added."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "source": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.add_resource(locale.as_str(), source.as_str())"
+              },
+              "add_resource_from_bytes": {
+                "doc": [
+                  "Add a Fluent resource from bytes (for loading from files)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "data": "U8VecRef"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.add_resource_from_bytes(locale.as_str(), data.as_slice())"
+              },
+              "load_from_zip": {
+                "doc": [
+                  "Load translations from a ZIP archive containing .fluent files.",
+                  "",
+                  "File naming convention: `{locale}.fluent` or `{locale}/{filename}.fluent`"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "data": "U8VecRef"
+                  }
+                ],
+                "returns": {
+                  "type": "FluentZipLoadResult"
+                },
+                "fn_body": "object.load_from_zip(data.as_slice())"
+              },
+              "translate": {
+                "doc": [
+                  "Translate a message ID to the target locale.",
+                  "",
+                  "Returns the translated string, or the message ID if not found."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "message_id": "String"
+                  },
+                  {
+                    "args": "FmtArgVec"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.translate(locale, message_id, args).into()"
+              },
+              "has_message": {
+                "doc": [
+                  "Check if a message ID exists in the given locale."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  },
+                  {
+                    "message_id": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.has_message(locale.as_str(), message_id.as_str())"
+              },
+              "get_loaded_locales": {
+                "doc": [
+                  "Get the list of all loaded locales."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "StringVec"
+                },
+                "fn_body": "object.get_loaded_locales().into_iter().map(|s| azul_css::AzString::from(s)).collect::<Vec<azul_css::AzString>>().into()"
+              },
+              "clear_locale": {
+                "doc": [
+                  "Clear all loaded resources for a specific locale."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "locale": "String"
+                  }
+                ],
+                "fn_body": "object.clear_locale(locale.as_str())"
+              },
+              "clear_all": {
+                "doc": [
+                  "Clear all loaded resources."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "fn_body": "object.clear_all()"
+              }
+            },
             "repr": "C"
           }
         }
