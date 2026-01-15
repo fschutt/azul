@@ -81,6 +81,9 @@ url = { version = "2.5", default-features = false, optional = true }
 # JSON parsing
 serde_json = { version = "1.0", default-features = false, features = ["std"], optional = true }
 
+# Platform-specific user directories (home, config, cache, etc.)
+dirs = { version = "6.0", default-features = false, optional = true }
+
 [features]
 # Default: Full layout engine with text, fonts, SVG, images, accessibility
 # Uses multithreaded font loading for faster startup on desktop
@@ -96,7 +99,7 @@ strfmt = ["dep:strfmt", "std"]
 widgets = ["text_layout", "strfmt"]
 
 # Extra APIs (native dialogs, file operations)
-extra = ["dep:tfd"]
+extra = ["dep:tfd", "dep:dirs"]
 
 # Basic text shaping (unicode support, allsorts font parsing)
 # Requires font_loading for font discovery (FcFontCache)

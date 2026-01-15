@@ -638,6 +638,120 @@ impl FilePath {
         }
     }
 
+    /// Returns the user's home directory (e.g., /home/username on Linux, C:\Users\username on Windows)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_home_dir() -> Option<FilePath> {
+        dirs::home_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's cache directory (e.g., ~/.cache on Linux, ~/Library/Caches on macOS)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_cache_dir() -> Option<FilePath> {
+        dirs::cache_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's config directory (e.g., ~/.config on Linux, ~/Library/Application Support on macOS)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_config_dir() -> Option<FilePath> {
+        dirs::config_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's local config directory (e.g., ~/.config on Linux, ~/Library/Application Support on macOS)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_config_local_dir() -> Option<FilePath> {
+        dirs::config_local_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's data directory (e.g., ~/.local/share on Linux, ~/Library/Application Support on macOS)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_data_dir() -> Option<FilePath> {
+        dirs::data_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's local data directory (e.g., ~/.local/share on Linux, ~/Library/Application Support on macOS)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_data_local_dir() -> Option<FilePath> {
+        dirs::data_local_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's desktop directory (e.g., ~/Desktop)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_desktop_dir() -> Option<FilePath> {
+        dirs::desktop_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's documents directory (e.g., ~/Documents)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_document_dir() -> Option<FilePath> {
+        dirs::document_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's downloads directory (e.g., ~/Downloads)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_download_dir() -> Option<FilePath> {
+        dirs::download_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's executable directory (e.g., ~/.local/bin on Linux)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_executable_dir() -> Option<FilePath> {
+        dirs::executable_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's font directory (e.g., ~/.local/share/fonts on Linux, ~/Library/Fonts on macOS)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_font_dir() -> Option<FilePath> {
+        dirs::font_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's pictures directory (e.g., ~/Pictures)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_picture_dir() -> Option<FilePath> {
+        dirs::picture_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's preference directory (e.g., ~/.config on Linux, ~/Library/Preferences on macOS)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_preference_dir() -> Option<FilePath> {
+        dirs::preference_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's public directory (e.g., ~/Public)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_public_dir() -> Option<FilePath> {
+        dirs::public_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's runtime directory (e.g., /run/user/1000 on Linux)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_runtime_dir() -> Option<FilePath> {
+        dirs::runtime_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's state directory (e.g., ~/.local/state on Linux)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_state_dir() -> Option<FilePath> {
+        dirs::state_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's audio directory (e.g., ~/Music)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_audio_dir() -> Option<FilePath> {
+        dirs::audio_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's video directory (e.g., ~/Videos)
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_video_dir() -> Option<FilePath> {
+        dirs::video_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
+    /// Returns the user's templates directory
+    #[cfg(all(feature = "std", feature = "extra"))]
+    pub fn get_template_dir() -> Option<FilePath> {
+        dirs::template_dir().map(|p| Self { inner: AzString::from(p.to_string_lossy().into_owned()) })
+    }
+
     /// Joins this path with another path component
     pub fn join(&self, other: &FilePath) -> FilePath {
         FilePath { inner: path_join(self.inner.as_str(), other.inner.as_str()) }

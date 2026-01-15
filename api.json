@@ -45449,6 +45449,196 @@
                 },
                 "fn_body": "azul_layout::file::FilePath::get_current_dir().into()"
               },
+              "get_home_dir": {
+                "doc": [
+                  "Returns the user's home directory (e.g., /home/username on Linux, C:\\Users\\username on Windows)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_home_dir().into()"
+              },
+              "get_cache_dir": {
+                "doc": [
+                  "Returns the user's cache directory (e.g., ~/.cache on Linux, ~/Library/Caches on macOS)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_cache_dir().into()"
+              },
+              "get_config_dir": {
+                "doc": [
+                  "Returns the user's config directory (e.g., ~/.config on Linux, ~/Library/Application Support on macOS)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_config_dir().into()"
+              },
+              "get_config_local_dir": {
+                "doc": [
+                  "Returns the user's local config directory"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_config_local_dir().into()"
+              },
+              "get_data_dir": {
+                "doc": [
+                  "Returns the user's data directory (e.g., ~/.local/share on Linux, ~/Library/Application Support on macOS)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_data_dir().into()"
+              },
+              "get_data_local_dir": {
+                "doc": [
+                  "Returns the user's local data directory"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_data_local_dir().into()"
+              },
+              "get_desktop_dir": {
+                "doc": [
+                  "Returns the user's desktop directory (e.g., ~/Desktop)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_desktop_dir().into()"
+              },
+              "get_document_dir": {
+                "doc": [
+                  "Returns the user's documents directory (e.g., ~/Documents)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_document_dir().into()"
+              },
+              "get_download_dir": {
+                "doc": [
+                  "Returns the user's downloads directory (e.g., ~/Downloads)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_download_dir().into()"
+              },
+              "get_executable_dir": {
+                "doc": [
+                  "Returns the user's executable directory (e.g., ~/.local/bin on Linux)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_executable_dir().into()"
+              },
+              "get_font_dir": {
+                "doc": [
+                  "Returns the user's font directory (e.g., ~/.local/share/fonts on Linux, ~/Library/Fonts on macOS)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_font_dir().into()"
+              },
+              "get_picture_dir": {
+                "doc": [
+                  "Returns the user's pictures directory (e.g., ~/Pictures)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_picture_dir().into()"
+              },
+              "get_preference_dir": {
+                "doc": [
+                  "Returns the user's preference directory (e.g., ~/.config on Linux, ~/Library/Preferences on macOS)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_preference_dir().into()"
+              },
+              "get_public_dir": {
+                "doc": [
+                  "Returns the user's public directory (e.g., ~/Public)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_public_dir().into()"
+              },
+              "get_runtime_dir": {
+                "doc": [
+                  "Returns the user's runtime directory (e.g., /run/user/1000 on Linux)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_runtime_dir().into()"
+              },
+              "get_state_dir": {
+                "doc": [
+                  "Returns the user's state directory (e.g., ~/.local/state on Linux)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_state_dir().into()"
+              },
+              "get_audio_dir": {
+                "doc": [
+                  "Returns the user's audio directory (e.g., ~/Music)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_audio_dir().into()"
+              },
+              "get_video_dir": {
+                "doc": [
+                  "Returns the user's video directory (e.g., ~/Videos)"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_video_dir().into()"
+              },
+              "get_template_dir": {
+                "doc": [
+                  "Returns the user's templates directory"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionFilePath"
+                },
+                "fn_body": "azul_layout::file::FilePath::get_template_dir().into()"
+              },
               "from": {
                 "fn_args": [
                   {
