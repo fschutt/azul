@@ -735,9 +735,8 @@ extern "C" fn default_receive_thread_msg_fn(
 
 #[cfg(feature = "std")]
 extern "C" fn default_check_thread_finished(dropcheck: *const core::ffi::c_void) -> bool {
-    unsafe { &*(dropcheck as *const alloc::sync::Weak<()>) }
-        .upgrade()
-        .is_none()
+    let weak = unsafe { &*(dropcheck as *const alloc::sync::Weak<()>) };
+    weak.upgrade().is_none()
 }
 
 #[cfg(not(feature = "std"))]
@@ -846,9 +845,11 @@ pub extern "C" fn create_thread_libstd(
     let dropcheck = Arc::downgrade(&thread_check);
 
     let thread_handle = Some(thread::spawn(move || {
-        let _ = thread_check;
+        // Keep thread_check alive for the entire duration of the thread
+        // by binding it to a named variable (not `_` which drops immediately)
+        let _thread_check_guard = thread_check;
         (callback.cb)(thread_initialize_data, sender_receiver, receiver_sender);
-        // thread_check gets dropped here, signals that the thread has finished
+        // _thread_check_guard gets dropped here, signals that the thread has finished
     }));
 
     let thread_handle: alloc::boxed::Box<Option<JoinHandle<()>>> =

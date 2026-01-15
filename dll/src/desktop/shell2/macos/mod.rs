@@ -1741,8 +1741,11 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         use block2::RcBlock;
 
         if self.thread_timer_running.is_some() {
+            log_debug!(LogCategory::Timer, "[start_thread_poll_timer] Timer already running, skipping");
             return; // Already running
         }
+
+        log_debug!(LogCategory::Timer, "[start_thread_poll_timer] Starting thread poll timer (16ms interval)");
 
         // Create a timer that fires every 16ms (~60 FPS) to poll threads
         let ns_window = self.window.clone();
@@ -1774,6 +1777,7 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         &mut self,
         threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
     ) {
+        log_debug!(LogCategory::Timer, "[add_threads] Adding {} threads", threads.len());
         if let Some(layout_window) = self.layout_window.as_mut() {
             for (thread_id, thread) in threads {
                 layout_window.threads.insert(thread_id, thread);
@@ -4183,6 +4187,22 @@ impl MacOSWindow {
                 ) {
                     self.frame_needs_regeneration = true;
                 }
+            }
+        }
+
+        // CRITICAL: Poll threads for completed work and invoke writeback callbacks
+        // This processes ThreadWriteBackMsg from background threads
+        if let Some(thread_result) = self.invoke_thread_callbacks() {
+            // ALWAYS process thread callback result to handle threads_removed, new timers, etc.
+            self.previous_window_state = Some(self.current_window_state.clone());
+            let _ = self.process_callback_result_v2(&thread_result);
+            
+            // Check if redraw needed
+            if matches!(
+                thread_result.callbacks_update_screen,
+                Update::RefreshDom | Update::RefreshDomAllWindows
+            ) {
+                self.frame_needs_regeneration = true;
             }
         }
 

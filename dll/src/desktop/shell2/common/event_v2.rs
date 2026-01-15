@@ -2544,6 +2544,62 @@ pub trait PlatformWindowV2 {
         all_results
     }
 
+    // PROVIDED: Thread Callback Invocation (Cross-Platform Implementation)
+
+    /// Invoke all pending thread callbacks (writeback messages).
+    ///
+    /// This method polls all active threads for completed work and invokes
+    /// the writeback callbacks for any threads that have finished.
+    ///
+    /// ## Returns
+    /// * `Option<CallCallbacksResult>` - Combined result from all thread writeback callbacks, or None if no threads processed
+    ///
+    /// ## Platform Usage
+    /// Call this from platform event loops when:
+    /// - **Windows**: In `WM_TIMER` handler with thread timer ID (0xFFFF)
+    /// - **macOS**: In thread poll timer callback (NSTimer every 16ms)
+    /// - **X11**: After `select()` timeout when threads exist
+    /// - **Wayland**: After thread timerfd read
+    fn invoke_thread_callbacks(&mut self) -> Option<azul_layout::callbacks::CallCallbacksResult> {
+        use azul_layout::callbacks::ExternalSystemCallbacks;
+
+        // Check if we have threads to poll
+        let has_threads = {
+            let layout_window = match self.get_layout_window() {
+                Some(lw) => lw,
+                None => return None,
+            };
+            !layout_window.threads.is_empty()
+        };
+
+        if !has_threads {
+            return None;
+        }
+
+        // Get app_data from the platform window (shared across all windows)
+        let app_data_arc = self.get_app_data().clone();
+
+        // Prepare borrows for thread invocation
+        let mut borrows = self.prepare_callback_invocation();
+
+        // Call run_all_threads on the layout_window
+        let mut app_data = app_data_arc.borrow_mut();
+        let result = borrows.layout_window.run_all_threads(
+            &mut *app_data,
+            &borrows.window_handle,
+            borrows.gl_context_ptr,
+            borrows.image_cache,
+            &mut borrows.fc_cache_clone,
+            borrows.system_style.clone(),
+            &ExternalSystemCallbacks::rust_internal(),
+            borrows.previous_window_state,
+            borrows.current_window_state,
+            borrows.renderer_resources,
+        );
+
+        Some(result)
+    }
+
     /// Handle scrollbar drag - update scroll position based on mouse delta.
     fn handle_scrollbar_drag(
         &mut self,
