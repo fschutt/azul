@@ -1594,19 +1594,12 @@ fn handle_event_request(body: &str) -> String {
                 response_tx: tx,
             };
 
-            eprintln!("[DEBUG_SERVER] Pushing request {} to queue: {:?}", request_id, req.event);
-
             // Push to queue
             if let Some(queue) = REQUEST_QUEUE.get() {
                 if let Ok(mut q) = queue.lock() {
                     q.push_back(request);
-                    eprintln!("[DEBUG_SERVER] Queue now has {} items", q.len());
                 }
-            } else {
-                eprintln!("[DEBUG_SERVER] REQUEST_QUEUE.get() returned None!");
             }
-
-            eprintln!("[DEBUG_SERVER] Waiting for response...");
 
             // Wait for response (with timeout)
             match rx.recv_timeout(Duration::from_secs(30)) {
@@ -1659,23 +1652,18 @@ pub extern "C" fn debug_timer_callback(
     use azul_core::callbacks::{TimerCallbackReturn, Update};
     use azul_core::task::TerminateTimer;
 
-    eprintln!("[DEBUG_TIMER] debug_timer_callback called");
-
     // Check queue length first (without popping)
-    let queue_len = REQUEST_QUEUE
+    let _queue_len = REQUEST_QUEUE
         .get()
         .and_then(|q| q.lock().ok())
         .map(|q| q.len())
         .unwrap_or(0);
 
-    eprintln!("[DEBUG_TIMER] queue_len = {}", queue_len);
-
-    // Process all pending requests (no debug output unless there's work to do)
+    // Process all pending requests
     let mut needs_update = false;
-    let mut processed_count = 0;
+    let mut _processed_count = 0;
 
     while let Some(request) = pop_request() {
-        eprintln!("[DEBUG_TIMER] Processing request: {:?}", request.event);
         log(
             LogLevel::Debug,
             LogCategory::DebugServer,
@@ -1684,12 +1672,9 @@ pub extern "C" fn debug_timer_callback(
         );
 
         let result = process_debug_event(&request, &mut timer_info.callback_info);
-        eprintln!("[DEBUG_TIMER] process_debug_event returned: {}", result);
         needs_update = needs_update || result;
-        processed_count += 1;
+        _processed_count += 1;
     }
-
-    eprintln!("[DEBUG_TIMER] processed_count = {}, needs_update = {}", processed_count, needs_update);
 
     TimerCallbackReturn {
         should_update: if needs_update {

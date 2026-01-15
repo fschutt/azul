@@ -246,18 +246,10 @@ impl ProgressBar {
     pub fn dom(self) -> Dom {
         use azul_core::dom::DomVec;
 
-        // NOTE: This is a hack, but a quite effective one:
-        // since the layout solver doesn't support percentages in relation to the parent,
-        // this widget uses the flex-grow property to achieve the same effect
-        // using flex-direction row with two elements:
-        //
-        // 0%:   [ [ flex-grow: 0 ],        [ flex-grow: 10000000 ] ]
-        // 60%:  [ [ flex-grow: 4000000 ],  [ flex-grow: 6000000  ] ]
-        // 100%: [ [ flex-grow: 10000000 ], [ flex-grow: 0        ] ]
-
+        // Use percentage widths for the progress bar and remaining space.
+        // The container uses flex-direction: row, and we set explicit widths
+        // on the children using CSS percentages.
         let percent_done = self.progressbar_state.percent_done.max(0.0).min(100.0);
-        let flex_grow_bar = 10000000.0 / 100.0 * percent_done;
-        let flex_grow_remaining = 10000000.0 / 100.0 * (100.0 - percent_done);
 
         Dom::create_div()
             .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
@@ -474,10 +466,11 @@ impl ProgressBar {
                 Dom::create_div()
                     .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
                         // .__azul-native-progress-bar-bar
-                        CssPropertyWithConditions::simple(CssProperty::FlexGrow(
-                            LayoutFlexGrowValue::Exact(LayoutFlexGrow {
-                                inner: FloatValue::new(flex_grow_bar),
-                            }),
+                        // Use percentage width instead of flex-grow hack
+                        CssPropertyWithConditions::simple(CssProperty::Width(
+                            LayoutWidthValue::Exact(LayoutWidth::Px(
+                                PixelValue::percent(percent_done),
+                            )),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
                             StyleBoxShadowValue::Exact(StyleBoxShadow {
@@ -606,10 +599,11 @@ impl ProgressBar {
                 Dom::create_div()
                     .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
                         // .__azul-native-progress-bar-remaining
-                        CssPropertyWithConditions::simple(CssProperty::FlexGrow(
-                            LayoutFlexGrowValue::Exact(LayoutFlexGrow {
-                                inner: FloatValue::new(flex_grow_remaining),
-                            }),
+                        // Use percentage width for the remaining space
+                        CssPropertyWithConditions::simple(CssProperty::Width(
+                            LayoutWidthValue::Exact(LayoutWidth::Px(
+                                PixelValue::percent(100.0 - percent_done),
+                            )),
                         )),
                     ]))
                     .with_ids_and_classes({
