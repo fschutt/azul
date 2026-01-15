@@ -47722,7 +47722,7 @@
                     "len": "usize"
                   }
                 ],
-                "fn_body": " unsafe { let start_ptr = ptr.offset(start.max(core::isize::MAX as usize) as isize); let s = core::slice::from_raw_parts(start_ptr, len); s.to_vec().into() }"
+                "fn_body": "azul_css::corety::U8Vec::copy_from_bytes(ptr, start, len)"
               }
             },
             "functions": {

@@ -204,6 +204,164 @@ void demo_basic_localization(void) {
 }
 
 // ============================================================================
+// Language Pack Demo (Download + Cache)
+// ============================================================================
+
+void demo_language_packs(void) {
+    printf("\n============================================================\n");
+    printf("Language Pack Demo (Download + Cache)\n");
+    printf("============================================================\n\n");
+    
+    // In a real application, you would:
+    // 1. Check if language pack is cached locally
+    // 2. If not, download it from your server
+    // 3. Cache it for offline use
+    // 4. Load it into the localizer
+    
+    // Setup cache directory
+    AzFilePath temp = AzFilePath_getTempDir();
+    AzFilePath cache_dir = AzFilePath_joinStr(&temp, az_str("azul_lang_cache"));
+    
+    // Create cache directory
+    AzResultVoidFileError dir_result = AzFilePath_createDirAll(&cache_dir);
+    (void)dir_result; // Ignore if already exists
+    
+    AzString cache_path_str = AzFilePath_asString(&cache_dir);
+    WITH_CSTR(cache_path_str, path, {
+        printf("Language pack cache directory: %s\n\n", path);
+    });
+    AzString_delete(&cache_path_str);
+    
+    // Create localizer
+    AzFluentLocalizerHandle localizer = AzFluentLocalizerHandle_create(az_str("en-US"));
+    
+    // Simulate loading language packs
+    struct {
+        const char* locale;
+        const char* filename;
+        const char* content;
+    } lang_packs[] = {
+        {
+            "en-US",
+            "en-US.ftl",
+            "app-name = My Application\n"
+            "greeting = Hello, { $name }!\n"
+            "items = { $count ->\n"
+            "    [one] { $count } item\n"
+            "   *[other] { $count } items\n"
+            "}\n"
+        },
+        {
+            "de-DE",
+            "de-DE.ftl",
+            "app-name = Meine Anwendung\n"
+            "greeting = Hallo, { $name }!\n"
+            "items = { $count ->\n"
+            "    [one] { $count } Element\n"
+            "   *[other] { $count } Elemente\n"
+            "}\n"
+        },
+        {
+            "fr-FR",
+            "fr-FR.ftl",
+            "app-name = Mon Application\n"
+            "greeting = Bonjour, { $name }!\n"
+            "items = { $count ->\n"
+            "    [one] { $count } élément\n"
+            "   *[other] { $count } éléments\n"
+            "}\n"
+        },
+    };
+    
+    size_t num_packs = sizeof(lang_packs) / sizeof(lang_packs[0]);
+    
+    printf("Loading %zu language packs:\n", num_packs);
+    
+    for (size_t i = 0; i < num_packs; i++) {
+        // Check if cached
+        AzFilePath pack_path = AzFilePath_joinStr(&cache_dir, az_str(lang_packs[i].filename));
+        bool cached = AzFilePath_exists(&pack_path);
+        
+        if (cached) {
+            // Load from cache
+            printf("  %s: Loading from cache...", lang_packs[i].locale);
+            AzResultU8VecFileError read_result = AzFilePath_readBytes(&pack_path);
+            if (read_result.Ok.tag == AzResultU8VecFileError_Tag_Ok) {
+                AzU8Vec data = read_result.Ok.payload;
+                AzString content = AzString_copyFromBytes(data.ptr, 0, data.len);
+                // Note: addResource takes ownership of locale and source strings
+                bool ok = AzFluentLocalizerHandle_addResource(&localizer, az_str(lang_packs[i].locale), content);
+                printf(" %s\n", ok ? "OK" : "FAILED");
+                // Don't delete content - ownership transferred to addResource
+                AzU8Vec_delete(&data);
+            } else {
+                printf(" READ FAILED\n");
+            }
+        } else {
+            // "Download" (simulate) and cache
+            printf("  %s: Downloading and caching...", lang_packs[i].locale);
+            
+            // In real app: AzHttpClient_get(url) to download
+            // Here we just use the embedded content
+            AzU8Vec content_bytes = AzU8Vec_copyFromBytes(
+                (const uint8_t*)lang_packs[i].content, 
+                0, 
+                strlen(lang_packs[i].content)
+            );
+            
+            // Write to cache
+            AzResultVoidFileError write_result = AzFilePath_writeBytes(&pack_path, content_bytes);
+            (void)write_result;
+            
+            // Load into localizer
+            bool ok = AzFluentLocalizerHandle_addResource(
+                &localizer, 
+                az_str(lang_packs[i].locale), 
+                az_str(lang_packs[i].content)
+            );
+            printf(" %s\n", ok ? "OK" : "FAILED");
+        }
+        
+        AzFilePath_delete(&pack_path);
+    }
+    
+    // Show loaded languages
+    printf("\nLoaded languages:\n");
+    AzStringVec locales = AzFluentLocalizerHandle_getLoadedLocales(&localizer);
+    for (size_t i = 0; i < locales.len; i++) {
+        AzString* locale = &((AzString*)locales.ptr)[i];
+        WITH_CSTR(*locale, loc, {
+            printf("  - %s\n", loc);
+        });
+    }
+    AzStringVec_delete(&locales);
+    
+    // Demonstrate translation in all languages
+    printf("\nTranslation demo (app-name):\n");
+    AzFmtArgVec empty = { .ptr = NULL, .len = 0, .cap = 0, .destructor = AzFmtArgVecDestructor_noDestructor() };
+    
+    for (size_t i = 0; i < num_packs; i++) {
+        AzString result = AzFluentLocalizerHandle_translate(
+            &localizer, 
+            az_str(lang_packs[i].locale), 
+            az_str("app-name"), 
+            empty
+        );
+        WITH_CSTR(result, text, {
+            printf("  %s: %s\n", lang_packs[i].locale, text);
+        });
+        AzString_delete(&result);
+    }
+    
+    // Cleanup
+    AzFluentLocalizerHandle_delete(&localizer);
+    AzFilePath_delete(&cache_dir);
+    AzFilePath_delete(&temp);
+    
+    printf("\nNote: Language packs are now cached. Run again to see cached loading.\n");
+}
+
+// ============================================================================
 // Syntax Check from Bytes Demo (for CI usage)
 // ============================================================================
 
@@ -258,6 +416,7 @@ int main(int argc, char** argv) {
     
     demo_syntax_check();
     demo_basic_localization();
+    demo_language_packs();
     demo_syntax_check_bytes();
     
     printf("\n============================================================\n");
