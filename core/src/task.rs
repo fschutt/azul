@@ -147,6 +147,21 @@ impl From<StdInstant> for Instant {
 }
 
 impl Instant {
+    /// Returns the current system time.
+    /// 
+    /// On systems with std, this uses `std::time::Instant::now()`.
+    /// On no_std systems, this returns a zero tick.
+    #[cfg(feature = "std")]
+    pub fn now() -> Self {
+        StdInstant::now().into()
+    }
+
+    /// Returns the current system time (no_std fallback).
+    #[cfg(not(feature = "std"))]
+    pub fn now() -> Self {
+        Instant::Tick(SystemTick::new(0))
+    }
+
     /// Returns a number from 0.0 to 1.0 indicating the current
     /// linear interpolation value between (start, end)
     pub fn linear_interpolate(&self, mut start: Self, mut end: Self) -> f32 {

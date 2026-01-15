@@ -46154,6 +46154,15 @@
                 }
               }
             ],
+            "constructors": {
+              "now": {
+                "doc": [
+                  "Returns the current system time. On std platforms, uses std::time::Instant::now()."
+                ],
+                "fn_args": [],
+                "fn_body": "azul_core::task::Instant::now()"
+              }
+            },
             "functions": {
               "duration_since": {
                 "doc": [
