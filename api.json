@@ -53191,7 +53191,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ResultSvgSvgParseError": {
             "external": "azul_core::svg::ResultSvgSvgParseError",
@@ -53211,7 +53211,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SvgParseError": {
             "external": "azul_core::svg::SvgParseError",
@@ -53890,7 +53890,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "DecodeImageError": {
             "external": "azul_layout::image::decode::DecodeImageError",
@@ -53933,7 +53933,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ResultU8VecString": {
             "external": "azul_layout::callbacks::ResultU8VecString",
@@ -54016,7 +54016,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "SelectAllResult": {
             "external": "azul_layout::callbacks::SelectAllResult",
@@ -54420,7 +54420,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ResultHttpResponseHttpError": {
             "external": "azul_layout::http::ResultHttpResponseHttpError",
@@ -54438,7 +54438,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ResultU8VecHttpError": {
             "external": "azul_layout::http::ResultU8VecHttpError",
@@ -54456,7 +54456,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "Resultu64FileError": {
             "external": "azul_layout::file::Resultu64FileError",
@@ -54474,7 +54474,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ResultU8VecFileError": {
             "external": "azul_layout::file::ResultU8VecFileError",
@@ -54492,7 +54492,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ResultFileMetadataFileError": {
             "external": "azul_layout::file::ResultFileMetadataFileError",
@@ -54510,7 +54510,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ResultStringFileError": {
             "external": "azul_layout::file::ResultStringFileError",
@@ -54528,7 +54528,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ResultDirEntryVecFileError": {
             "external": "azul_layout::file::ResultDirEntryVecFileError",
@@ -54546,7 +54546,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ResultFilePathFileError": {
             "external": "azul_layout::file::ResultFilePathFileError",
@@ -54564,7 +54564,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "JsonParseError": {
             "external": "azul_layout::json::JsonParseError",
@@ -54607,7 +54607,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "ResultUrlUrlParseError": {
             "external": "azul_layout::url::ResultUrlUrlParseError",
@@ -54625,7 +54625,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "UrlParseError": {
             "external": "azul_layout::url::UrlParseError",

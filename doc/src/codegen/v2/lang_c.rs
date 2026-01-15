@@ -752,7 +752,12 @@ impl CGenerator {
 
             builder.line(&format!("struct {}Variant_{} {{", name, variant.name));
             builder.indent();
-            builder.line(&format!("{}_Tag tag;", name));
+            // Use uint8_t for tag if repr is u8, otherwise use the enum type
+            if is_u8_repr {
+                builder.line("uint8_t tag;");
+            } else {
+                builder.line(&format!("{}_Tag tag;", name));
+            }
 
             match &variant.kind {
                 EnumVariantKind::Tuple(types) if !types.is_empty() => {
