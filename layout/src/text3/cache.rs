@@ -14,6 +14,7 @@ use std::{
 pub use azul_core::selection::{ContentIndex, GraphemeClusterId};
 use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
+    resources::ImageRef,
     selection::{CursorAffinity, SelectionRange, TextCursor},
     ui_solver::GlyphInstance,
 };
@@ -1084,12 +1085,87 @@ pub struct TextRunInfo<'a> {
     pub content_index: usize,
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone)]
 pub enum ImageSource {
+    /// Direct reference to decoded image (from DOM NodeType::Image)
+    Ref(ImageRef),
+    /// CSS url reference (from background-image, needs ImageCache lookup)
     Url(String),
+    /// Raw image data
     Data(Arc<[u8]>),
+    /// SVG source
     Svg(Arc<str>),
-    Placeholder(Size), // For layout without actual image
+    /// Placeholder for layout without actual image
+    Placeholder(Size),
+}
+
+impl PartialEq for ImageSource {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ImageSource::Ref(a), ImageSource::Ref(b)) => a.get_hash() == b.get_hash(),
+            (ImageSource::Url(a), ImageSource::Url(b)) => a == b,
+            (ImageSource::Data(a), ImageSource::Data(b)) => Arc::ptr_eq(a, b),
+            (ImageSource::Svg(a), ImageSource::Svg(b)) => Arc::ptr_eq(a, b),
+            (ImageSource::Placeholder(a), ImageSource::Placeholder(b)) => {
+                a.width.to_bits() == b.width.to_bits() && a.height.to_bits() == b.height.to_bits()
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ImageSource {}
+
+impl std::hash::Hash for ImageSource {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        match self {
+            ImageSource::Ref(r) => r.get_hash().hash(state),
+            ImageSource::Url(s) => s.hash(state),
+            ImageSource::Data(d) => (Arc::as_ptr(d) as *const u8 as usize).hash(state),
+            ImageSource::Svg(s) => (Arc::as_ptr(s) as *const u8 as usize).hash(state),
+            ImageSource::Placeholder(sz) => {
+                sz.width.to_bits().hash(state);
+                sz.height.to_bits().hash(state);
+            }
+        }
+    }
+}
+
+impl PartialOrd for ImageSource {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ImageSource {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        fn variant_index(s: &ImageSource) -> u8 {
+            match s {
+                ImageSource::Ref(_) => 0,
+                ImageSource::Url(_) => 1,
+                ImageSource::Data(_) => 2,
+                ImageSource::Svg(_) => 3,
+                ImageSource::Placeholder(_) => 4,
+            }
+        }
+        match (self, other) {
+            (ImageSource::Ref(a), ImageSource::Ref(b)) => a.get_hash().cmp(&b.get_hash()),
+            (ImageSource::Url(a), ImageSource::Url(b)) => a.cmp(b),
+            (ImageSource::Data(a), ImageSource::Data(b)) => {
+                (Arc::as_ptr(a) as *const u8 as usize).cmp(&(Arc::as_ptr(b) as *const u8 as usize))
+            }
+            (ImageSource::Svg(a), ImageSource::Svg(b)) => {
+                (Arc::as_ptr(a) as *const u8 as usize).cmp(&(Arc::as_ptr(b) as *const u8 as usize))
+            }
+            (ImageSource::Placeholder(a), ImageSource::Placeholder(b)) => {
+                (a.width.to_bits(), a.height.to_bits())
+                    .cmp(&(b.width.to_bits(), b.height.to_bits()))
+            }
+            // Different variants: compare by variant index
+            _ => variant_index(self).cmp(&variant_index(other)),
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd)]

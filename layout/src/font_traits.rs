@@ -201,7 +201,13 @@ mod stub {
     pub struct ShapedItem;
 
     #[derive(Debug, Clone)]
-    pub struct ImageSource;
+    pub enum ImageSource {
+        Ref(azul_core::resources::ImageRef),
+        Url(String),
+        Data(std::sync::Arc<[u8]>),
+        Svg(std::sync::Arc<str>),
+        Placeholder(Size),
+    }
 
     #[derive(Debug, Clone, Copy)]
     pub enum ObjectFit {
