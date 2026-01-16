@@ -201,6 +201,22 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                     preferred_height: None, // Will be determined by CSS or flex-grow
                 });
             }
+            
+            // Images are replaced elements - get intrinsic size from the ImageRef
+            if let NodeType::Image(image_ref) = node_data.get_node_type() {
+                let size = image_ref.get_size();
+                let width = if size.width > 0.0 { size.width } else { 100.0 };
+                let height = if size.height > 0.0 { size.height } else { 100.0 };
+                println!("[SIZING] Image node {} intrinsic size: {}x{}", node_index, width, height);
+                return Ok(IntrinsicSizes {
+                    min_content_width: width,
+                    max_content_width: width,
+                    preferred_width: Some(width),
+                    min_content_height: height,
+                    max_content_height: height,
+                    preferred_height: Some(height),
+                });
+            }
         }
 
         match node.formatting_context {
