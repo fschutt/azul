@@ -8,7 +8,7 @@ use azul_core::{
     dom::ScrollbarOrientation,
     geom::{LogicalPosition, LogicalRect},
     resources::{
-        DecodedImage, FontInstanceKey, GlyphOutlineOperation, ImageKey, ImageRefHash,
+        DecodedImage, FontInstanceKey, GlyphOutlineOperation, ImageRef,
         RendererResources,
     },
     ui_solver::GlyphInstance,
@@ -280,17 +280,16 @@ fn render_display_list(
                 // TextLayout is metadata for PDF/accessibility - skip in CPU rendering
                 // The actual glyphs are rendered via Text items
             }
-            DisplayListItem::Image { bounds, key } => {
+            DisplayListItem::Image { bounds, image } => {
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
                 render_image(
                     pixmap,
                     bounds,
-                    *key,
+                    image,
                     *transform,
                     *clip,
                     dpi_factor,
-                    renderer_resources,
                 )?;
             }
             DisplayListItem::ScrollBar {
@@ -902,29 +901,14 @@ fn logical_rect_to_tiny_skia_rect(
 fn render_image(
     pixmap: &mut Pixmap,
     bounds: &LogicalRect,
-    key: ImageKey,
+    image: &ImageRef,
     transform: Transform,
     _clip: Option<Rect>,
     dpi_factor: f32,
-    renderer_resources: &RendererResources,
 ) -> Result<(), String> {
-    // Look up the image in renderer_resources
-    let image_ref_hash = ImageRefHash {
-        inner: key.key as usize,
-    };
-
-    let resolved_image = match renderer_resources.get_image(&image_ref_hash) {
-        Some(img) => img,
-        None => {
-            // Image not found - skip rendering
-            return Ok(());
-        }
-    };
-
-    // The image data is stored in renderer_resources, but we need to access it through ImageRef
-    // For CPU rendering, we'd need to decode the image data and blit it to the pixmap
-    // This is a complex operation that requires image decoding support in tiny-skia
-
+    // Get the decoded image data directly from the ImageRef
+    let image_data = image.get_data();
+    
     // For now, render a placeholder rectangle to show where the image would be
     let rect = logical_rect_to_tiny_skia_rect(bounds, transform, dpi_factor);
     let rect = match rect {
@@ -948,12 +932,11 @@ fn render_image(
         );
     }
 
-    // TODO: Implement actual image blitting
+    // TODO: Implement actual image blitting using image_data
     // This would require:
-    // 1. Accessing the ImageRef from renderer_resources
-    // 2. Getting the decoded image data (DecodedImage::Raw or DecodedImage::Gl)
-    // 3. Converting it to a tiny-skia Pixmap
-    // 4. Blitting it to the target pixmap with proper scaling
+    // 1. Checking if image_data is DecodedImage::Raw
+    // 2. Converting it to a tiny-skia Pixmap
+    // 3. Blitting it to the target pixmap with proper scaling
 
     Ok(())
 }
