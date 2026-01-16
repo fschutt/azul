@@ -284,6 +284,7 @@ impl PlatformWindow for X11Window {
             fc_cache: Arc::new(rust_fontconfig::FcFontCache::default()),
             app_data: app_data_arc,
             system_style: Arc::new(azul_css::system::SystemStyle::new()),
+            icon_provider: azul_core::icon::IconProviderHandle::new(),
         });
         Self::new_with_resources(options, resources)
     }
@@ -1369,6 +1370,7 @@ impl X11Window {
             &self.gl_context_ptr,
             &self.resources.fc_cache,
             &self.resources.system_style,
+            &self.resources.icon_provider,
             self.document_id.ok_or("No document ID")?,
             &mut debug_messages,
         )?;

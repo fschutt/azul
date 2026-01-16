@@ -562,6 +562,8 @@ pub enum NodeTypeTag {
     Text,
     Img,
     IFrame,
+    /// Icon element - resolved to actual content by IconProvider
+    Icon,
 
     // Pseudo-elements
     Before,
@@ -742,6 +744,7 @@ impl NodeTypeTag {
             // Special
             "img" => Ok(NodeTypeTag::Img),
             "iframe" => Ok(NodeTypeTag::IFrame),
+            "icon" => Ok(NodeTypeTag::Icon),
 
             // Pseudo-elements (usually prefixed with ::)
             "before" | "::before" => Ok(NodeTypeTag::Before),
@@ -892,6 +895,7 @@ impl fmt::Display for NodeTypeTag {
             NodeTypeTag::Text => write!(f, "text"),
             NodeTypeTag::Img => write!(f, "img"),
             NodeTypeTag::IFrame => write!(f, "iframe"),
+            NodeTypeTag::Icon => write!(f, "icon"),
 
             // Pseudo-elements
             NodeTypeTag::Before => write!(f, "::before"),
@@ -1352,6 +1356,7 @@ pub fn format_node_type(n: &NodeTypeTag) -> &'static str {
         NodeTypeTag::Text => "NodeTypeTag::Text",
         NodeTypeTag::Img => "NodeTypeTag::Img",
         NodeTypeTag::IFrame => "NodeTypeTag::IFrame",
+        NodeTypeTag::Icon => "NodeTypeTag::Icon",
 
         // Pseudo-elements
         NodeTypeTag::Before => "NodeTypeTag::Before",

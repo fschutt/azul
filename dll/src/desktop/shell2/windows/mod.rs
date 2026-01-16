@@ -167,6 +167,8 @@ pub struct Win32Window {
     /// Dynamic selector context for evaluating conditional CSS properties
     /// (viewport size, OS, theme, etc.) - updated on resize and theme change
     pub dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
+    /// Icon provider for resolving icon names to renderable content
+    pub icon_provider: azul_core::icon::IconProviderHandle,
 
     // Multi-window support
     /// Pending window creation requests (for popup menus, dialogs, etc.)
@@ -187,6 +189,7 @@ impl Win32Window {
     /// Create a new Win32 window with given options
     pub fn new(
         options: WindowCreateOptions,
+        config: azul_core::resources::AppConfig,
         fc_cache: Arc<FcFontCache>,
         app_data: Arc<std::cell::RefCell<RefAny>>,
     ) -> Result<Self, WindowError> {
@@ -511,6 +514,7 @@ impl Win32Window {
             fc_cache,
             system_style: Arc::new(azul_css::system::SystemStyle::new()),
             dynamic_selector_context,
+            icon_provider: config.icon_provider.clone(),
             pending_window_creates: Vec::new(),
             tooltip: None, // Created lazily when first needed
             #[cfg(feature = "a11y")]
@@ -805,6 +809,7 @@ impl Win32Window {
             &self.gl_context_ptr,
             &self.fc_cache,
             &self.system_style,
+            &self.icon_provider,
             self.document_id,
             &mut debug_messages,
         )?;

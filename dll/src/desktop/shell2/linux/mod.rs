@@ -139,6 +139,7 @@ impl LinuxWindow {
             config: resources.config.clone(),
             fc_cache: resources.fc_cache.clone(),
             system_style: resources.system_style.clone(),
+            icon_provider: resources.icon_provider.clone(),
         });
 
         match Self::select_backend()? {

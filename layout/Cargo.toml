@@ -72,6 +72,9 @@ intl-memoizer = { version = "0.5", default-features = false, optional = true }
 # ZIP file support for language packs
 zip = { version = "2.1", default-features = false, features = ["deflate"], optional = true }
 
+# Material Icons font (embedded TTF, Apache 2.0 licensed)
+material-icons = { version = "0.2", optional = true }
+
 # HTTP client for downloading language packs
 ureq = { version = "2.9", default-features = false, features = ["tls"], optional = true }
 
@@ -87,7 +90,7 @@ dirs = { version = "6.0", default-features = false, optional = true }
 [features]
 # Default: Full layout engine with text, fonts, SVG, images, accessibility
 # Uses multithreaded font loading for faster startup on desktop
-default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "svg", "image_decoding", "cpurender", "a11y", "widgets", "extra"]
+default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "svg", "image_decoding", "cpurender", "a11y", "widgets", "extra", "icons"]
 
 # Standard library support
 std = ["azul-core/std"]
@@ -182,3 +185,6 @@ zip_support = ["dep:zip", "std"]
 
 # JSON parsing support
 json = ["dep:serde_json", "std"]
+
+# Icon provider support (material icons, icon packs from fonts or ZIP files)
+icons = ["std", "zip_support", "dep:material-icons"]

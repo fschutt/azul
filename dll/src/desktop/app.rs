@@ -38,7 +38,13 @@ impl Default for App {
 }
 
 impl App {
-    pub fn create(initial_data: RefAny, app_config: AppConfig) -> Self {
+    pub fn create(initial_data: RefAny, mut app_config: AppConfig) -> Self {
+        // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
+        app_config.icon_provider.set_resolver(azul_layout::icon::default_icon_resolver);
+        
+        // Register embedded Material Icons if the feature is enabled
+        azul_layout::icon::register_embedded_material_icons(&mut app_config.icon_provider);
+        
         Self {
             ptr: Box::new(AppInternal::create(initial_data, app_config)),
             run_destructor: true,

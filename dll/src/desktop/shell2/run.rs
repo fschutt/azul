@@ -46,6 +46,7 @@ pub fn run(
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     use super::common::debug_server;
+    use azul_core::icon::SharedIconProvider;
     use azul_core::resources::AppTerminationBehavior;
     use objc2::{rc::autoreleasepool, MainThreadMarker};
     use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventMask};
@@ -58,6 +59,15 @@ pub fn run(
         "Starting macOS event loop setup",
         None,
     );
+    
+    // Extract the icon_provider from config, replacing it with an empty one.
+    // This allows us to move icon_provider into SharedIconProvider while still
+    // being able to use the rest of config.
+    let mut config = config;
+    let icon_provider_handle = core::mem::take(&mut config.icon_provider);
+    
+    // Convert IconProviderHandle to SharedIconProvider once - this will be cloned to all windows
+    let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
 
     autoreleasepool(|_| {
         let mtm = MainThreadMarker::new()
@@ -79,7 +89,7 @@ pub fn run(
             None,
         );
         let window =
-            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), fc_cache.clone(), mtm)?;
+            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), config.clone(), shared_icon_provider.clone(), fc_cache.clone(), mtm)?;
         debug_server::log(
             debug_server::LogLevel::Info,
             debug_server::LogCategory::Window,
@@ -240,6 +250,8 @@ pub fn run(
                                     match MacOSWindow::new_with_fc_cache(
                                         pending_create,
                                         app_data.clone(),
+                                        config.clone(),
+                                        shared_icon_provider.clone(),
                                         fc_cache.clone(),
                                         mtm,
                                     ) {
@@ -354,7 +366,7 @@ pub fn run(
         LogCategory::Window,
         "[shell2::run] calling Win32Window::new"
     );
-    let window = Win32Window::new(root_window, fc_cache.clone(), app_data_arc.clone())?;
+    let window = Win32Window::new(root_window, config.clone(), fc_cache.clone(), app_data_arc.clone())?;
     log_trace!(
         LogCategory::Window,
         "[shell2::run] Win32Window::new returned successfully"

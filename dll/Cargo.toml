@@ -170,6 +170,8 @@ build-dll = [
     "zip_support",
     # JSON support
     "json",
+    # Icon provider support
+    "icons",
 ]
 
 # -----------------------------------------------------------------------------
@@ -267,6 +269,9 @@ icu_chrono = ["icu", "azul-layout/icu_chrono"]
 
 # Project Fluent localization support (FTL files, language packs)
 fluent = ["azul-layout", "azul-layout/fluent"]
+
+# Icon provider support (material icons, icon packs)
+icons = ["azul-layout", "azul-layout/icons"]
 
 # HTTP client support for downloading resources
 http = ["azul-layout", "azul-layout/http"]

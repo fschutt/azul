@@ -1003,6 +1003,11 @@ impl Default for XmlComponentMap {
             renderer: Box::new(HrRenderer::new()),
             inherit_vars: true,
         });
+        map.register_component(XmlComponent {
+            id: normalize_casing("icon"),
+            renderer: Box::new(IconRenderer::new()),
+            inherit_vars: true,
+        });
 
         // List elements
         map.register_component(XmlComponent {
@@ -1631,6 +1636,74 @@ impl XmlComponentTrait for BrRenderer {
         _: &XmlTextContent,
     ) -> Result<String, CompileError> {
         Ok("Dom::create_node(NodeType::Br)".into())
+    }
+
+    fn get_xml_node(&self) -> XmlNode {
+        self.node.clone()
+    }
+}
+
+/// Renderer for an `icon` component
+///
+/// Renders an icon element that will be resolved by the IconProvider.
+/// The icon name is specified via the `name` attribute or the text content.
+///
+/// # Example
+/// ```html
+/// <icon name="home" />
+/// <icon>settings</icon>
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct IconRenderer {
+    node: XmlNode,
+}
+
+impl IconRenderer {
+    pub fn new() -> Self {
+        Self {
+            node: XmlNode::create("icon"),
+        }
+    }
+}
+
+impl XmlComponentTrait for IconRenderer {
+    fn get_available_arguments(&self) -> ComponentArguments {
+        let mut args = ComponentArgumentTypes::default();
+        args.push(("name".to_string(), "String".to_string()));
+        ComponentArguments {
+            args,
+            accepts_text: true, // Allow <icon>name</icon> syntax
+        }
+    }
+
+    fn render_dom(
+        &self,
+        _: &XmlComponentMap,
+        args: &FilteredComponentArguments,
+        content: &XmlTextContent,
+    ) -> Result<StyledDom, RenderDomError> {
+        // Get icon name from either the 'name' attribute or text content
+        let icon_name = args.values.get("name")
+            .map(|s| s.to_string())
+            .or_else(|| content.as_ref().map(|s| prepare_string(&s)))
+            .unwrap_or_else(|| "invalid-icon".to_string());
+        
+        Ok(Dom::create_node(NodeType::Icon(AzString::from(icon_name))).style(Css::empty()))
+    }
+
+    fn compile_to_rust_code(
+        &self,
+        _: &XmlComponentMap,
+        args: &ComponentArguments,
+        content: &XmlTextContent,
+    ) -> Result<String, CompileError> {
+        let icon_name = args.args.iter()
+            .find(|(name, _)| name == "name")
+            .map(|(_, value)| value.to_string())
+            .or_else(|| content.as_ref().map(|s| s.to_string()))
+            .unwrap_or_else(|| "invalid-icon".to_string());
+        
+        Ok(format!("Dom::create_node(NodeType::Icon(AzString::from(\"{}\")))", icon_name))
     }
 
     fn get_xml_node(&self) -> XmlNode {

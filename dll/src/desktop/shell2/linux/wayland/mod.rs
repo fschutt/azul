@@ -495,6 +495,7 @@ impl PlatformWindow for WaylandWindow {
             config: resources.config.clone(),
             fc_cache: resources.fc_cache.clone(),
             system_style: resources.system_style.clone(),
+            icon_provider: resources.icon_provider.clone(),
         });
 
         Self::new(options, resources)
@@ -2155,6 +2156,7 @@ impl WaylandWindow {
             &self.gl_context_ptr,
             &self.fc_cache,
             &self.resources.system_style,
+            &self.resources.icon_provider,
             self.document_id.ok_or("No document ID")?,
             &mut debug_messages,
         )?;

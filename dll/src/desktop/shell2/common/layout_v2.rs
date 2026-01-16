@@ -12,12 +12,14 @@ use azul_core::{
     callbacks::{LayoutCallback, LayoutCallbackInfo, LayoutCallbackInfoRefData},
     gl::OptionGlContextPtr,
     hit_test::DocumentId,
+    icon::SharedIconProvider,
     refany::RefAny,
     resources::{ImageCache, RendererResources},
 };
 use azul_css::system::SystemStyle;
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, window::LayoutWindow,
+    window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 use webrender::{RenderApi as WrRenderApi, Transaction as WrTransaction};
@@ -59,6 +61,7 @@ pub fn regenerate_layout(
     gl_context_ptr: &OptionGlContextPtr,
     fc_cache: &Arc<FcFontCache>,
     system_style: &Arc<SystemStyle>,
+    icon_provider: &SharedIconProvider,
     document_id: DocumentId,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<(), String> {
@@ -89,12 +92,16 @@ pub fn regenerate_layout(
 
     let app_data_borrowed = app_data.borrow_mut();
 
-    let user_styled_dom =
+    let mut user_styled_dom =
         (current_window_state.layout_callback.cb)((*app_data_borrowed).clone(), callback_info);
 
     drop(app_data_borrowed); // Release borrow
 
-    // 2. Conditionally inject Client-Side Decorations (CSD)
+    // 2. Resolve icon nodes to their actual content (text glyphs, images, etc.)
+    // This must happen after the user's layout callback and before CSD injection
+    azul_core::icon::resolve_icons_in_styled_dom(&mut user_styled_dom, icon_provider, system_style);
+
+    // 3. Conditionally inject Client-Side Decorations (CSD)
     let styled_dom = if csd::should_inject_csd(
         current_window_state.flags.has_decorations,
         current_window_state.flags.decorations,

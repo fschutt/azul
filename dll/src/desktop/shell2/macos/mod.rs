@@ -1494,6 +1494,8 @@ pub struct MacOSWindow {
     /// Dynamic selector context for evaluating conditional CSS properties
     /// (viewport size, OS, theme, etc.) - updated on resize and theme change
     dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
+    /// Icon provider for resolving icon names to renderable content
+    icon_provider: azul_core::icon::SharedIconProvider,
     /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
     frame_needs_regeneration: bool,
     /// Current scrollbar drag state (if dragging a scrollbar thumb)
@@ -2110,25 +2112,31 @@ impl MacOSWindow {
     pub fn new_with_fc_cache(
         options: WindowCreateOptions,
         app_data: RefAny,
+        config: azul_core::resources::AppConfig,
+        shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache: Arc<rust_fontconfig::FcFontCache>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, Some(fc_cache), mtm)
+        Self::new_with_options_internal(options, app_data, config, shared_icon_provider, Some(fc_cache), mtm)
     }
 
     /// Create a new macOS window with given options.
     pub fn new_with_options(
         options: WindowCreateOptions,
         app_data: RefAny,
+        config: azul_core::resources::AppConfig,
+        shared_icon_provider: azul_core::icon::SharedIconProvider,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, None, mtm)
+        Self::new_with_options_internal(options, app_data, config, shared_icon_provider, None, mtm)
     }
 
     /// Internal constructor with optional fc_cache parameter
     fn new_with_options_internal(
         options: WindowCreateOptions,
         app_data: RefAny,
+        config: azul_core::resources::AppConfig,
+        shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache_opt: Option<Arc<rust_fontconfig::FcFontCache>>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
@@ -2619,6 +2627,7 @@ impl MacOSWindow {
             fc_cache,
             system_style: Arc::new(azul_css::system::SystemStyle::new()),
             dynamic_selector_context,
+            icon_provider: shared_icon_provider,
             frame_needs_regeneration: false,
             scrollbar_drag_state: None,
             new_frame_ready,
@@ -2809,6 +2818,7 @@ impl MacOSWindow {
             &self.gl_context_ptr,
             &self.fc_cache,
             &self.system_style,
+            &self.icon_provider,
             self.document_id,
             &mut debug_messages,
         )?;
@@ -4477,7 +4487,11 @@ impl PlatformWindow for MacOSWindow {
         let mtm = MainThreadMarker::new()
             .ok_or_else(|| WindowError::PlatformError("Not on main thread".into()))?;
 
-        Self::new_with_options(options, app_data, mtm)
+        // Use default config when called via the generic PlatformWindow trait
+        // Create a default SharedIconProvider for this case
+        let default_config = azul_core::resources::AppConfig::default();
+        let shared_icon_provider = azul_core::icon::SharedIconProvider::from_handle(default_config.icon_provider.clone());
+        Self::new_with_options(options, app_data, default_config, shared_icon_provider, mtm)
     }
 
     fn get_state(&self) -> FullWindowState {

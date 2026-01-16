@@ -104,6 +104,24 @@ pub use zip::{
     ZipReadConfig, ZipWriteConfig, ZipReadError, ZipWriteError,
 };
 
+// Icon provider support (always available)
+pub mod icon;
+pub use icon::{
+    // Resolver
+    default_icon_resolver,
+    // Data types for RefAny
+    ImageIconData, FontIconData,
+    // Helpers
+    create_default_icon_provider,
+    register_material_icons,
+    register_embedded_material_icons,
+};
+// Re-export core icon types
+pub use azul_core::icon::{
+    IconProviderHandle, IconResolverCallbackType,
+    resolve_icons_in_styled_dom, OptionIconProviderHandle,
+};
+
 #[cfg(feature = "text_layout")]
 pub mod callbacks;
 #[cfg(feature = "cpurender")]

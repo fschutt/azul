@@ -7,6 +7,7 @@ use std::{cell::RefCell, sync::Arc};
 
 use azul_core::{refany::RefAny, resources::AppConfig};
 use azul_css::system::SystemStyle;
+use azul_core::icon::IconProviderHandle;
 use rust_fontconfig::FcFontCache;
 
 use super::super::common::debug_server::LogCategory;
@@ -18,6 +19,7 @@ use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 /// - Font cache sharing (expensive to build)
 /// - App data sharing (user's global state)
 /// - System styling sharing (detected once at startup)
+/// - Icon provider sharing (icon packs with fallbacks)
 #[derive(Clone)]
 pub struct AppResources {
     /// Application configuration
@@ -31,6 +33,9 @@ pub struct AppResources {
 
     /// System styling detected at startup (theme, colors, fonts, etc.)
     pub system_style: Arc<SystemStyle>,
+
+    /// Icon provider for resolving icon names to renderable content
+    pub icon_provider: IconProviderHandle,
 }
 
 impl AppResources {
@@ -43,6 +48,9 @@ impl AppResources {
 
         // Detect system style once at startup
         let system_style = Arc::new(SystemStyle::new());
+
+        // Clone icon provider from AppConfig (Arc-based, cheap)
+        let icon_provider = config.icon_provider.clone();
 
         log_debug!(
             LogCategory::Resources,
@@ -70,6 +78,7 @@ impl AppResources {
             fc_cache,
             app_data,
             system_style,
+            icon_provider,
         }
     }
 

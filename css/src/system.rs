@@ -32,7 +32,7 @@ use crate::{
     props::{
         basic::{
             color::{parse_css_color, ColorU, OptionColorU},
-            pixel::PixelValue,
+            pixel::{PixelValue, OptionPixelValue},
         },
         style::scrollbar::{ComputedScrollbarStyle, OverscrollBehavior, ScrollBehavior},
     },
@@ -80,7 +80,6 @@ pub struct SystemStyle {
     pub colors: SystemColors,
     pub fonts: SystemFonts,
     pub metrics: SystemMetrics,
-    pub scrollbar: Option<ComputedScrollbarStyle>,
     /// System language/locale in BCP 47 format (e.g., "en-US", "de-DE")
     /// Detected from OS settings at startup
     pub language: AzString,
@@ -89,6 +88,28 @@ pub struct SystemStyle {
     /// application-specific "ricing". This is only loaded when the "io"
     /// feature is enabled and not disabled by the `AZUL_DISABLE_RICING` env var.
     pub app_specific_stylesheet: Option<Box<Stylesheet>>,
+    /// Icon-specific styling options (grayscale, tinting, etc.)
+    pub icon_style: IconStyleOptions,
+    /// Scrollbar style information (boxed to ensure stable FFI size)
+    pub scrollbar: Option<Box<ComputedScrollbarStyle>>,
+}
+
+/// Icon-specific styling options for accessibility and theming.
+///
+/// These settings affect how icons are rendered, supporting accessibility
+/// needs like reduced colors and high contrast modes.
+#[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
+pub struct IconStyleOptions {
+    /// If true, icons should be rendered in grayscale (for color-blind users
+    /// or reduced color preference). Applies a CSS grayscale filter.
+    pub prefer_grayscale: bool,
+    /// Optional tint color to apply to icons. Useful for matching icons
+    /// to the current theme or for high contrast modes.
+    pub tint_color: OptionColorU,
+    /// If true, icons should inherit the current text color instead of
+    /// using their original colors. Works well with font-based icons.
+    pub inherit_text_color: bool,
 }
 
 /// Common system colors used for UI elements.
@@ -123,9 +144,9 @@ pub struct SystemFonts {
 #[repr(C)]
 pub struct SystemMetrics {
     /// The corner radius for standard elements like buttons.
-    pub corner_radius: Option<PixelValue>,
+    pub corner_radius: OptionPixelValue,
     /// The width of standard borders.
-    pub border_width: Option<PixelValue>,
+    pub border_width: OptionPixelValue,
 }
 
 impl SystemStyle {
@@ -565,12 +586,12 @@ fn discover_riced_style() -> Result<SystemStyle, ()> {
                 match k {
                     "rounding" => {
                         if let Ok(px) = v.parse::<f32>() {
-                            style.metrics.corner_radius = Some(PixelValue::px(px));
+                            style.metrics.corner_radius = OptionPixelValue::Some(PixelValue::px(px));
                         }
                     }
                     "border_size" => {
                         if let Ok(px) = v.parse::<f32>() {
-                            style.metrics.border_width = Some(PixelValue::px(px));
+                            style.metrics.border_width = OptionPixelValue::Some(PixelValue::px(px));
                         }
                     }
                     // Use the active border as the accent color if `wal` didn't provide one.
@@ -910,7 +931,7 @@ pub mod defaults {
         props::{
             basic::{
                 color::{ColorU, OptionColorU},
-                pixel::PixelValue,
+                pixel::{PixelValue, OptionPixelValue},
             },
             layout::{
                 dimensions::LayoutWidth,
@@ -929,7 +950,7 @@ pub mod defaults {
         },
         system::{
             DesktopEnvironment, Platform, SystemColors, SystemFonts, SystemMetrics, SystemStyle,
-            Theme,
+            Theme, IconStyleOptions,
         },
     };
 
@@ -1081,11 +1102,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("Consolas".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(4.0)),
-                border_width: Some(PixelValue::px(1.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_LIGHT)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_LIGHT))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
@@ -1109,11 +1131,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("Consolas".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(4.0)),
-                border_width: Some(PixelValue::px(1.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_DARK)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_DARK))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
@@ -1137,11 +1160,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("Consolas".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(6.0)),
-                border_width: Some(PixelValue::px(1.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(6.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
@@ -1165,11 +1189,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("Lucida Console".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(3.0)),
-                border_width: Some(PixelValue::px(1.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(3.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_CLASSIC)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_CLASSIC))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
@@ -1193,11 +1218,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("Menlo".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(8.0)),
-                border_width: Some(PixelValue::px(1.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(8.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_MACOS_LIGHT)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_LIGHT))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
@@ -1219,11 +1245,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("Menlo".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(8.0)),
-                border_width: Some(PixelValue::px(1.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(8.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_MACOS_DARK)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_DARK))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
@@ -1245,11 +1272,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("Monaco".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(12.0)),
-                border_width: Some(PixelValue::px(1.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(12.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_MACOS_AQUA)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_AQUA))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
@@ -1273,11 +1301,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("Monospace".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(4.0)),
-                border_width: Some(PixelValue::px(1.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
@@ -1299,11 +1328,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("Monospace".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(4.0)),
-                border_width: Some(PixelValue::px(1.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_DARK)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_DARK))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
@@ -1324,11 +1354,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("DejaVu Sans Mono".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(4.0)),
-                border_width: Some(PixelValue::px(1.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
@@ -1349,11 +1380,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("Hack".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(4.0)),
-                border_width: Some(PixelValue::px(1.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_KDE_OXYGEN)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_KDE_OXYGEN))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
@@ -1376,11 +1408,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("Droid Sans Mono".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(12.0)),
-                border_width: Some(PixelValue::px(1.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(12.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_LIGHT)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_LIGHT))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
@@ -1401,11 +1434,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("Droid Sans Mono".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(2.0)),
-                border_width: Some(PixelValue::px(1.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(2.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_DARK)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_DARK))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
@@ -1426,11 +1460,12 @@ pub mod defaults {
                 monospace_font: OptionString::Some("Menlo".into()),
             },
             metrics: SystemMetrics {
-                corner_radius: Some(PixelValue::px(10.0)),
-                border_width: Some(PixelValue::px(0.5)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(10.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(0.5)),
             },
-            scrollbar: Some(scrollbar_info_to_computed(&SCROLLBAR_IOS_LIGHT)),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_IOS_LIGHT))),
             app_specific_stylesheet: None,
+            icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
         }
     }
