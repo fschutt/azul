@@ -2052,14 +2052,27 @@ fn layout_ifc<T: ParsedFontTrait>(
         node.baseline = output.baseline;
 
         // Position all the inline-block children based on text3's calculations.
+        println!("[IFC POSITIONS] child_map has {} entries, layout has {} items",
+            child_map.len(), main_frag.items.len());
+        for (content_idx, &node_idx) in &child_map {
+            println!("[IFC POSITIONS]   child_map: ContentIndex({:?}) -> node_index {}", content_idx, node_idx);
+        }
+        
         for positioned_item in &main_frag.items {
-            if let ShapedItem::Object { source, .. } = &positioned_item.item {
+            if let ShapedItem::Object { source, content, .. } = &positioned_item.item {
+                println!("[IFC POSITIONS] Found Object with source {:?} at pos ({}, {}), content={:?}",
+                    source, positioned_item.position.x, positioned_item.position.y,
+                    std::mem::discriminant(content));
                 if let Some(&child_node_index) = child_map.get(source) {
                     let new_relative_pos = LogicalPosition {
                         x: positioned_item.position.x,
                         y: positioned_item.position.y,
                     };
+                    println!("[IFC POSITIONS] -> Inserting position for node {} at ({}, {})",
+                        child_node_index, new_relative_pos.x, new_relative_pos.y);
                     output.positions.insert(child_node_index, new_relative_pos);
+                } else {
+                    println!("[IFC POSITIONS] -> WARNING: source {:?} NOT FOUND in child_map!", source);
                 }
             }
         }
@@ -4879,6 +4892,12 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 let margin_box_width = final_size.width + margin.left + margin.right;
                 let margin_box_height = final_size.height + margin.top + margin.bottom;
 
+                // For inline-block shapes, text3 uses the content array index as run_index
+                // and always item_index=0 for objects. We must match this when inserting into child_map.
+                let shape_content_index = ContentIndex {
+                    run_index: content.len() as u32,
+                    item_index: 0,
+                };
                 content.push(InlineContent::Shape(InlineShape {
                     shape_def: ShapeDefinition::Rectangle {
                         size: crate::text3::cache::Size {
@@ -4894,7 +4913,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                     baseline_offset: baseline_offset + margin.top,
                     source_node_id: Some(dom_id),
                 }));
-                child_map.insert(content_index, child_index);
+                child_map.insert(shape_content_index, child_index);
             } else {
                 // Regular inline element - collect its text children
                 let span_style = get_style_properties(ctx.styled_dom, dom_id);
@@ -5288,6 +5307,12 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
             let margin_box_width = final_size.width + margin.left + margin.right;
             let margin_box_height = final_size.height + margin.top + margin.bottom;
 
+            // For inline-block shapes, text3 uses the content array index as run_index
+            // and always item_index=0 for objects. We must match this when inserting into child_map.
+            let shape_content_index = ContentIndex {
+                run_index: content.len() as u32,
+                item_index: 0,
+            };
             content.push(InlineContent::Shape(InlineShape {
                 shape_def: ShapeDefinition::Rectangle {
                     size: crate::text3::cache::Size {
@@ -5303,15 +5328,18 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 baseline_offset: baseline_offset + margin.top,
                 source_node_id: Some(dom_id),
             }));
-            child_map.insert(content_index, child_index);
-        } else if let NodeType::Image(image_data) =
+            child_map.insert(shape_content_index, child_index);
+        } else if let NodeType::Image(image_ref) =
             ctx.styled_dom.node_data.as_container()[dom_id].get_node_type()
         {
+            // Images are replaced elements - they have intrinsic dimensions
+            // and CSS width/height can constrain them
+            
             // Re-get child_node since we dropped it earlier for the inline-block case
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let box_props = child_node.box_props.clone();
 
-            // TODO: This is a simplified image handling. A real implementation would have
-            // more robust intrinsic size resolution (e.g., from the image data itself).
+            // Get intrinsic size from the image data or fall back to layout node
             let intrinsic_size = child_node
                 .intrinsic_sizes
                 .clone()
@@ -5320,19 +5348,73 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                     max_content_height: 50.0,
                     ..Default::default()
                 });
+            
+            // Get styled node state for CSS property lookup
+            let styled_node_state = ctx
+                .styled_dom
+                .styled_nodes
+                .as_container()
+                .get(dom_id)
+                .map(|n| n.styled_node_state.clone())
+                .unwrap_or_default();
+            
+            // Calculate the used size respecting CSS width/height constraints
+            let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
+                ctx.styled_dom,
+                Some(dom_id),
+                constraints.containing_block_size,
+                intrinsic_size.clone(),
+                &box_props,
+            )?;
+            
+            // Drop immutable borrow before mutable access
+            drop(child_node);
+            
+            // Set the used_size on the layout node so paint_rect works correctly
+            let final_size = LogicalSize::new(tentative_size.width, tentative_size.height);
+            tree.get_mut(child_index).unwrap().used_size = Some(final_size);
+            
+            println!("[FC IMAGE] Image node {} final_size: {}x{}", 
+                child_index, final_size.width, final_size.height);
+            
+            // Calculate display size for text3 (this is what text3 uses for positioning)
+            let display_width = if final_size.width > 0.0 { 
+                Some(final_size.width) 
+            } else { 
+                None 
+            };
+            let display_height = if final_size.height > 0.0 { 
+                Some(final_size.height) 
+            } else { 
+                None 
+            };
+            
             content.push(InlineContent::Image(InlineImage {
-                source: ImageSource::Url(String::new()), // Placeholder
+                source: ImageSource::Ref(image_ref.clone()),
                 intrinsic_size: crate::text3::cache::Size {
                     width: intrinsic_size.max_content_width,
                     height: intrinsic_size.max_content_height,
                 },
-                display_size: None,
+                display_size: if display_width.is_some() || display_height.is_some() {
+                    Some(crate::text3::cache::Size {
+                        width: display_width.unwrap_or(intrinsic_size.max_content_width),
+                        height: display_height.unwrap_or(intrinsic_size.max_content_height),
+                    })
+                } else {
+                    None
+                },
                 // Images are bottom-aligned with the baseline by default
                 baseline_offset: 0.0,
                 alignment: crate::text3::cache::VerticalAlign::Baseline,
                 object_fit: ObjectFit::Fill,
             }));
-            child_map.insert(content_index, child_index);
+            // For images, text3 uses the content array index as run_index
+            // and always item_index=0 for objects. We must match this.
+            let image_content_index = ContentIndex {
+                run_index: (content.len() - 1) as u32,  // -1 because we just pushed
+                item_index: 0,
+            };
+            child_map.insert(image_content_index, child_index);
         } else {
             // This is a regular inline box (display: inline) - e.g., <span>, <em>, <strong>
             //
