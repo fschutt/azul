@@ -9,8 +9,7 @@ use azul_core::{
     gpu::GpuValueCache,
     hit_test::ScrollPosition,
     resources::{
-        image_ref_hash_to_image_key, IdNamespace, ImageKey, ImageRefHash, OpacityKey,
-        RendererResources,
+        IdNamespace, ImageRef, OpacityKey, RendererResources,
     },
     selection::{Selection, SelectionState},
     styled_dom::StyledDom,
@@ -493,7 +492,7 @@ pub enum DisplayListItem {
     },
     Image {
         bounds: LogicalRect,
-        key: ImageKey,
+        image: ImageRef,
     },
     /// A dedicated primitive for a scrollbar with optional GPU-animated opacity.
     /// This is a simple single-color scrollbar used for basic rendering.
@@ -1124,8 +1123,8 @@ impl DisplayListBuilder {
         }
     }
 
-    pub fn push_image(&mut self, bounds: LogicalRect, key: ImageKey) {
-        self.push_item(DisplayListItem::Image { bounds, key });
+    pub fn push_image(&mut self, bounds: LogicalRect, image: ImageRef) {
+        self.push_item(DisplayListItem::Image { bounds, image });
     }
 }
 
@@ -2105,15 +2104,22 @@ where
         } else if let Some(dom_id) = node.dom_node_id {
             // This node might be a simple replaced element, like an <img> tag.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-            if let NodeType::Image(image_data) = node_data.get_node_type() {
+            if let NodeType::Image(image_ref) = node_data.get_node_type() {
+                println!("[DISPLAY_LIST] Painting image for node {} at bounds: x={}, y={}, w={}, h={}",
+                    node_index,
+                    paint_rect.origin.x,
+                    paint_rect.origin.y,
+                    paint_rect.size.width,
+                    paint_rect.size.height
+                );
                 debug_info!(
                     self.ctx,
                     "Painting image for node {} at {:?}",
                     node_index,
                     paint_rect
                 );
-                let image_key = get_image_key_for_src(&image_data.get_hash(), self.id_namespace);
-                builder.push_image(paint_rect, image_key);
+                // Store the ImageRef directly in the display list
+                builder.push_image(paint_rect, image_ref.clone());
             }
         }
 
@@ -2550,10 +2556,8 @@ where
 
         match content {
             InlineContent::Image(image) => {
-                if let Some(image_key) =
-                    get_image_key_for_image_source(&image.source, self.id_namespace)
-                {
-                    builder.push_image(object_bounds, image_key);
+                if let Some(image_ref) = get_image_ref_for_image_source(&image.source) {
+                    builder.push_image(object_bounds, image_ref);
                 }
             }
             InlineContent::Shape(shape) => {
@@ -2773,17 +2777,21 @@ fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<DisplayListTagId> {
     Some(tag_id.inner)
 }
 
-fn get_image_key_for_src(src: &ImageRefHash, namespace: IdNamespace) -> ImageKey {
-    image_ref_hash_to_image_key(*src, namespace)
-}
-
-fn get_image_key_for_image_source(
-    _source: &ImageSource,
-    _namespace: IdNamespace,
-) -> Option<ImageKey> {
-    // TODO: ImageSource needs to be extended to contain ImageRef/ImageRefHash
-    // For now, inline images are not yet supported
-    None
+fn get_image_ref_for_image_source(
+    source: &ImageSource,
+) -> Option<ImageRef> {
+    match source {
+        ImageSource::Ref(image_ref) => Some(image_ref.clone()),
+        ImageSource::Url(_url) => {
+            // TODO: Look up in ImageCache
+            // For now, CSS url() images are not yet supported
+            None
+        }
+        ImageSource::Data(_) | ImageSource::Svg(_) | ImageSource::Placeholder(_) => {
+            // TODO: Decode raw data / SVG to ImageRef
+            None
+        }
+    }
 }
 
 /// Get the bounds of a display list item, if it has spatial extent.
@@ -2850,8 +2858,8 @@ fn clip_and_offset_display_item(
             clip_cursor_rect_item(*bounds, *color, page_top, page_bottom)
         }
 
-        DisplayListItem::Image { bounds, key } => {
-            clip_image_item(*bounds, *key, page_top, page_bottom)
+        DisplayListItem::Image { bounds, image } => {
+            clip_image_item(*bounds, image.clone(), page_top, page_bottom)
         }
 
         DisplayListItem::TextLayout {
@@ -3166,7 +3174,7 @@ fn clip_cursor_rect_item(
 /// Clips an image to page bounds if it overlaps the page.
 fn clip_image_item(
     bounds: LogicalRect,
-    key: ImageKey,
+    image: ImageRef,
     page_top: f32,
     page_bottom: f32,
 ) -> Option<DisplayListItem> {
@@ -3175,7 +3183,7 @@ fn clip_image_item(
     }
     clip_rect_bounds(bounds, page_top, page_bottom).map(|clipped| DisplayListItem::Image {
         bounds: clipped,
-        key,
+        image,
     })
 }
 
@@ -3902,9 +3910,9 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             font_size_px: *font_size_px,
             color: *color,
         },
-        DisplayListItem::Image { bounds, key } => DisplayListItem::Image {
+        DisplayListItem::Image { bounds, image } => DisplayListItem::Image {
             bounds: offset_rect_y(*bounds, y_offset),
-            key: *key,
+            image: image.clone(),
         },
         // Pass through other items with their bounds offset
         DisplayListItem::SelectionRect {
