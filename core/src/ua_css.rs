@@ -665,7 +665,8 @@ pub fn get_ua_property(
 
         // Special Elements
         (NT::Br, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Image(_), PT::Display) => Some(&DISPLAY_INLINE),
+        // Images are replaced elements - inline-block so they respect width/height
+        (NT::Image(_), PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
 
         // Media Elements
         (NT::Video, PT::Display) => Some(&DISPLAY_INLINE),
@@ -673,6 +674,9 @@ pub fn get_ua_property(
         (NT::Canvas, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Svg, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::IFrame(_), PT::Display) => Some(&DISPLAY_INLINE),
+
+        // Icon Elements - inline-block so they have width/height but flow inline
+        (NT::Icon(_), PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
 
         // Form Input Elements (inline-block behavior approximated as inline)
         (NT::Input, PT::Display) => Some(&DISPLAY_INLINE),
