@@ -1103,11 +1103,17 @@ pub fn translate_displaylist_to_wr(
                 );
             }
 
-            DisplayListItem::Image { bounds, key } => {
-                // Look up the ImageKey in renderer_resources
-                let image_ref_hash = ImageRefHash {
-                    inner: key.key as usize,
-                };
+            DisplayListItem::Image { bounds, image } => {
+                // Get the ImageRefHash from the ImageRef
+                let image_ref_hash = image.get_hash();
+
+                println!("[COMPOSITOR2 IMAGE] Looking up ImageRefHash {{ inner: {} }}", 
+                    image_ref_hash.inner);
+                println!("[COMPOSITOR2 IMAGE] currently_registered_images has {} entries", 
+                    renderer_resources.currently_registered_images.len());
+                for (reg_hash, _) in renderer_resources.currently_registered_images.iter() {
+                    println!("[COMPOSITOR2 IMAGE]   - registered: ImageRefHash {{ inner: {} }}", reg_hash.inner);
+                }
 
                 if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
                     let wr_image_key = translate_image_key(resolved_image.key);
@@ -1144,7 +1150,7 @@ pub fn translate_displaylist_to_wr(
                     log_debug!(
                         LogCategory::DisplayList,
                         "[compositor2] WARNING: Image key {:?} not found in renderer_resources",
-                        key
+                        image_ref_hash
                     );
                 }
             }

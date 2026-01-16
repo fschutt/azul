@@ -16,7 +16,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect},
     hit_test::{DocumentId, PipelineId},
     resources::{
-        AddImage, ImageData as AzImageData, ImageDirtyRect, ImageKey, SyntheticItalics, UpdateImage,
+        AddImage, ImageData as AzImageData, ImageDirtyRect, ImageKey, ImageRef, SyntheticItalics, UpdateImage,
     },
     window::{CursorPosition, DebugState},
 };
@@ -710,56 +710,38 @@ pub fn collect_image_resource_updates(
     azul_core::resources::AddImageMsg,
 )> {
     use azul_core::{
-        resources::{build_add_image_resource_updates, image_ref_get_hash},
+        resources::build_add_image_resource_updates,
         FastBTreeSet,
     };
     use azul_layout::solver3::display_list::DisplayListItem;
 
     log_debug!(
         LogCategory::Rendering,
-        "[collect_image_resource_updates] Scanning {} DOMs for images",
+        "[collect_image_resource_updates] Scanning {} DOMs for images in display lists",
         layout_window.layout_results.len()
     );
 
     // Collect all unique ImageRefs from display lists
-    let mut images_in_dom = FastBTreeSet::new();
+    let mut images_in_display_list = FastBTreeSet::new();
 
-    for (dom_id, layout_result) in &layout_window.layout_results {
-        // Scan display list for Image items
+    for (_dom_id, layout_result) in &layout_window.layout_results {
+        // Scan display list for Image items - now contains ImageRef directly
         for item in &layout_result.display_list.items {
-            if let DisplayListItem::Image { key, .. } = item {
-                // Look up ImageRefHash from ImageKey using the reverse map
-                if let Some(image_ref_hash) = renderer_resources.image_key_map.get(key) {
-                    // Get the actual ImageRef from currently_registered_images
-                    if let Some(resolved_image) = renderer_resources
-                        .currently_registered_images
-                        .get(image_ref_hash)
-                    {
-                        // ImageRef needs to be reconstructed from ResolvedImage
-                        // For now, we skip images already in display list as they're already
-                        // registered New images will be caught by the
-                        // StyledDom scan below
-                    }
-                }
-            }
-        }
-
-        // Also scan the StyledDom for Image nodes
-        use azul_core::dom::NodeType;
-        let node_data_container = layout_result.styled_dom.node_data.as_container();
-        for i in 0..node_data_container.len() {
-            if let Some(node_data) = node_data_container.get(azul_core::id::NodeId::new(i)) {
-                if let NodeType::Image(image_ref) = node_data.get_node_type() {
-                    images_in_dom.insert(image_ref.clone());
-                }
+            if let DisplayListItem::Image { image, .. } = item {
+                #[cfg(feature = "std")]
+                eprintln!("[IMAGE DEBUG] Found Image in display list with hash {:?}", image.get_hash());
+                images_in_display_list.insert(image.clone());
             }
         }
     }
 
+    #[cfg(feature = "std")]
+    eprintln!("[IMAGE DEBUG] Total images in display lists: {}", images_in_display_list.len());
+
     log_debug!(
         LogCategory::Rendering,
-        "[collect_image_resource_updates] Found {} unique images",
-        images_in_dom.len()
+        "[collect_image_resource_updates] Found {} unique images in display lists",
+        images_in_display_list.len()
     );
 
     // Build AddImage messages for new images using our gl_texture_integration
@@ -768,9 +750,12 @@ pub fn collect_image_resource_updates(
         layout_window.id_namespace,
         layout_window.epoch,
         &layout_window.document_id,
-        &images_in_dom,
+        &images_in_display_list,
         crate::desktop::gl_texture_integration::insert_into_active_gl_textures,
     );
+
+    #[cfg(feature = "std")]
+    eprintln!("[IMAGE DEBUG] build_add_image_resource_updates returned {} updates", image_updates.len());
 
     log_debug!(
         LogCategory::Rendering,
@@ -1132,21 +1117,21 @@ pub fn translate_image_key(key: ImageKey) -> WrImageKey {
     WrImageKey(wr_translate_id_namespace(key.namespace), key.key)
 }
 
-/// Collect all ImageKeys used in a display list
-fn collect_image_keys_from_display_list(
+/// Collect all ImageRefs used in a display list
+fn collect_image_refs_from_display_list(
     display_list: &azul_layout::solver3::display_list::DisplayList,
-) -> Vec<ImageKey> {
+) -> Vec<ImageRef> {
     use azul_layout::solver3::display_list::DisplayListItem;
 
-    let mut image_keys = Vec::new();
+    let mut image_refs = Vec::new();
 
     for item in &display_list.items {
-        if let DisplayListItem::Image { key, .. } = item {
-            image_keys.push(*key);
+        if let DisplayListItem::Image { image, .. } = item {
+            image_refs.push(image.clone());
         }
     }
 
-    image_keys
+    image_refs
 }
 
 /// Translate FontKey from azul-core to WebRender
@@ -1212,12 +1197,20 @@ pub fn generate_frame(
     render_api: &mut WrRenderApi,
     display_list_was_rebuilt: bool,
 ) {
+    #[cfg(feature = "std")]
+    eprintln!("[GENERATE_FRAME] called with display_list_was_rebuilt={}", display_list_was_rebuilt);
+    
     let physical_size = layout_window.current_window_state.size.get_physical_size();
     let framebuffer_size =
         DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
 
+    #[cfg(feature = "std")]
+    eprintln!("[GENERATE_FRAME] framebuffer_size: {}x{}", framebuffer_size.width, framebuffer_size.height);
+
     // Don't render if window is minimized (width/height = 0)
     if framebuffer_size.width == 0 || framebuffer_size.height == 0 {
+        #[cfg(feature = "std")]
+        eprintln!("[GENERATE_FRAME] returning early - window minimized");
         return;
     }
 
@@ -1227,6 +1220,9 @@ pub fn generate_frame(
 
     // If display list was rebuilt, add resources and display lists to this transaction FIRST
     if display_list_was_rebuilt {
+        #[cfg(feature = "std")]
+        eprintln!("[GENERATE_FRAME] display_list_was_rebuilt=true, collecting resources");
+        
         log_debug!(
             LogCategory::Rendering,
             "[generate_frame] Display list was rebuilt - adding resources and display lists to \
@@ -2091,6 +2087,72 @@ pub fn build_webrender_transaction(
                 wr_resources.len()
             );
             txn.update_resources(wr_resources);
+        }
+    }
+
+    // Step 1.5: Collect and add image resources to transaction
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Step 1.5: Collecting image resources"
+    );
+    let image_updates = collect_image_resource_updates(layout_window, &layout_window.renderer_resources);
+    
+    if !image_updates.is_empty() {
+        log_debug!(
+            LogCategory::Rendering,
+            "[build_atomic_txn] Adding {} image resources",
+            image_updates.len()
+        );
+        
+        // Update currently_registered_images and image_key_map
+        for (image_ref_hash, add_image_msg) in &image_updates {
+            use azul_core::resources::ResolvedImage;
+            
+            let resolved_image = ResolvedImage {
+                key: add_image_msg.0.key,
+                descriptor: add_image_msg.0.descriptor,
+            };
+            
+            layout_window
+                .renderer_resources
+                .currently_registered_images
+                .insert(*image_ref_hash, resolved_image);
+            
+            layout_window
+                .renderer_resources
+                .image_key_map
+                .insert(add_image_msg.0.key, *image_ref_hash);
+            
+            log_debug!(
+                LogCategory::Rendering,
+                "[build_atomic_txn] Image registered: hash {:?} -> key {:?}",
+                image_ref_hash,
+                add_image_msg.0.key
+            );
+        }
+        
+        // Translate to WebRender resources and add to transaction
+        let wr_image_resources: Vec<webrender::ResourceUpdate> = image_updates
+            .into_iter()
+            .filter_map(|(_, add_image_msg)| {
+                translate_add_image(add_image_msg.0).map(|add_img| {
+                    webrender::ResourceUpdate::AddImage(add_img)
+                })
+            })
+            .collect();
+        
+        #[cfg(feature = "std")]
+        eprintln!("[IMAGE DEBUG] wr_image_resources count: {}", wr_image_resources.len());
+        
+        if !wr_image_resources.is_empty() {
+            #[cfg(feature = "std")]
+            eprintln!("[IMAGE DEBUG] Adding {} images to WebRender transaction!", wr_image_resources.len());
+            log_debug!(
+                LogCategory::Rendering,
+                "[build_atomic_txn] Adding {} WebRender image resources to transaction",
+                wr_image_resources.len()
+            );
+            txn.update_resources(wr_image_resources);
         }
     }
 
