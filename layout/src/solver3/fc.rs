@@ -703,12 +703,15 @@ fn layout_bfc<T: ParsedFontTrait>(
     // We use constraints.available_size directly as this already represents the
     // content-box available to this node (set by parent). For nodes with explicit
     // sizes, used_size contains the border-box which we convert to content-box.
+    // constraints.available_size is already the content-box size calculated by
+    // prepare_layout_context() in cache.rs. It accounts for padding/borders.
+    // We use it directly since used_size is set AFTER layout_formatting_context().
     let mut children_containing_block_size = if let Some(used_size) = node.used_size {
         // Node has explicit used_size (border-box) - convert to content-box
         node.box_props.inner_size(used_size, writing_mode)
     } else {
-        // No used_size yet - use available_size directly (this is already content-box
-        // when coming from parent's layout constraints)
+        // Use the pre-calculated available_size from prepare_layout_context.
+        // This is already the content-box size of this node.
         constraints.available_size
     };
 

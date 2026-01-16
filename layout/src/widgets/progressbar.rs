@@ -246,20 +246,25 @@ impl ProgressBar {
     pub fn dom(self) -> Dom {
         use azul_core::dom::DomVec;
 
-        // Use percentage widths for the progress bar and remaining space.
-        // The container uses flex-direction: row, and we set explicit widths
-        // on the children using CSS percentages.
+        // Use flexbox for the progress bar layout.
+        // Block container with absolutely positioned bar child.
+        // The bar uses percentage width relative to the container.
         let percent_done = self.progressbar_state.percent_done.max(0.0).min(100.0);
 
         Dom::create_div()
             .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
                 // .__azul-native-progress-bar-container
+                // Block container with position: relative for absolute children
+                // The background gradient shows the "empty" portion
+                CssPropertyWithConditions::simple(CssProperty::Display(
+                    LayoutDisplayValue::Exact(LayoutDisplay::Block),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::Position(
+                    LayoutPositionValue::Exact(LayoutPosition::Relative),
+                )),
                 CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
                     LayoutHeight::Px(self.height.clone()),
                 ))),
-                CssPropertyWithConditions::simple(CssProperty::FlexDirection(
-                    LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
-                )),
                 CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
                     StyleBoxShadowValue::Exact(StyleBoxShadow {
                         offset_x: PixelValueNoPercent {
@@ -463,14 +468,25 @@ impl ProgressBar {
                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_10874511710181900075)
             })
             .with_children(DomVec::from_vec(vec![
+                // Progress bar (filled portion) - absolutely positioned
                 Dom::create_div()
                     .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
                         // .__azul-native-progress-bar-bar
-                        // Use percentage width instead of flex-grow hack
+                        // Absolutely positioned with percentage width
+                        CssPropertyWithConditions::simple(CssProperty::Position(
+                            LayoutPositionValue::Exact(LayoutPosition::Absolute),
+                        )),
+                        CssPropertyWithConditions::simple(CssProperty::Top(
+                            LayoutTopValue::Exact(LayoutTop::px(0.0)),
+                        )),
+                        CssPropertyWithConditions::simple(CssProperty::Left(
+                            LayoutLeftValue::Exact(LayoutLeft::px(0.0)),
+                        )),
+                        CssPropertyWithConditions::simple(CssProperty::Height(
+                            LayoutHeightValue::Exact(LayoutHeight::Px(PixelValue::percent(100.0))),
+                        )),
                         CssPropertyWithConditions::simple(CssProperty::Width(
-                            LayoutWidthValue::Exact(LayoutWidth::Px(
-                                PixelValue::percent(percent_done),
-                            )),
+                            LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::percent(percent_done))),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
                             StyleBoxShadowValue::Exact(StyleBoxShadow {
@@ -596,21 +612,24 @@ impl ProgressBar {
                         )];
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16512648314570682783)
                     }),
+                // Placeholder element to give the container intrinsic height
+                // (absolute children don't contribute to intrinsic size)
                 Dom::create_div()
                     .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-                        // .__azul-native-progress-bar-remaining
-                        // Use percentage width for the remaining space
+                        // .__azul-native-progress-bar-placeholder
+                        // Height matches the container, width is 0 (invisible)
+                        CssPropertyWithConditions::simple(CssProperty::Height(
+                            LayoutHeightValue::Exact(LayoutHeight::Px(self.height.clone())),
+                        )),
                         CssPropertyWithConditions::simple(CssProperty::Width(
-                            LayoutWidthValue::Exact(LayoutWidth::Px(
-                                PixelValue::percent(100.0 - percent_done),
-                            )),
+                            LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::const_px(0))),
                         )),
                     ]))
                     .with_ids_and_classes({
-                        const IDS_AND_CLASSES_2492405364126620395: &[IdOrClass] = &[Class(
-                            AzString::from_const_str("__azul-native-progress-bar-remaining"),
+                        const IDS_AND_CLASSES_PLACEHOLDER: &[IdOrClass] = &[Class(
+                            AzString::from_const_str("__azul-native-progress-bar-placeholder"),
                         )];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2492405364126620395)
+                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_PLACEHOLDER)
                     }),
             ]))
     }

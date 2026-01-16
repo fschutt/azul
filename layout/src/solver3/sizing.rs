@@ -787,7 +787,6 @@ pub fn calculate_used_size_for_node(
                         - _box_props.border.right
                         - _box_props.padding.left
                         - _box_props.padding.right;
-
                     available_width.max(0.0)
                 }
                 LayoutDisplay::Inline | LayoutDisplay::InlineBlock => {
@@ -805,6 +804,7 @@ pub fn calculate_used_size_for_node(
                 pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
                 SizeMetric,
             };
+
             let pixels_opt = match px.metric {
                 SizeMetric::Px => Some(px.number.get()),
                 SizeMetric::Pt => Some(px.number.get() * PT_TO_PX),
@@ -819,17 +819,13 @@ pub fn calculate_used_size_for_node(
             match pixels_opt {
                 Some(pixels) => pixels,
                 None => match px.to_percent() {
-                    Some(p) => {
-                        let result = resolve_percentage_with_box_model(
-                            containing_block_size.width,
-                            p.get(),
-                            (_box_props.margin.left, _box_props.margin.right),
-                            (_box_props.border.left, _box_props.border.right),
-                            (_box_props.padding.left, _box_props.padding.right),
-                        );
-
-                        result
-                    }
+                    Some(p) => resolve_percentage_with_box_model(
+                        containing_block_size.width,
+                        p.get(),
+                        (_box_props.margin.left, _box_props.margin.right),
+                        (_box_props.border.left, _box_props.border.right),
+                        (_box_props.padding.left, _box_props.padding.right),
+                    ),
                     None => intrinsic.max_content_width,
                 },
             }

@@ -416,8 +416,9 @@ fn find_absolute_containing_block_rect(
 
     while let Some(parent_index) = current_parent_idx {
         let parent_node = tree.get(parent_index).ok_or(LayoutError::InvalidTree)?;
+        let pos_type = get_position_type(styled_dom, parent_node.dom_node_id);
 
-        if get_position_type(styled_dom, parent_node.dom_node_id) != LayoutPosition::Static {
+        if pos_type != LayoutPosition::Static {
             // calculated_positions stores margin-box positions
             let margin_box_pos = calculated_positions
                 .get(&parent_index)
