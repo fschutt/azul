@@ -4252,24 +4252,6 @@ impl LayoutCache {
         // fragments can have different writing modes.
         let oriented_items = apply_text_orientation(shaped_items, first_constraints)?;
 
-        // BASELINE DEBUG: Print all oriented items before line breaking
-        eprintln!("[FLOW DEBUG] oriented_items count={}", oriented_items.len());
-        for (i, item) in oriented_items.iter().enumerate() {
-            match item {
-                ShapedItem::Cluster(c) => {
-                    eprintln!("  [{}] Cluster: '{}' font_size={} run_idx={}", 
-                        i, c.text, c.style.font_size_px, c.source_content_index.run_index);
-                }
-                ShapedItem::Object { bounds, .. } => {
-                    eprintln!("  [{}] Object: {}x{}", i, bounds.width, bounds.height);
-                }
-                ShapedItem::Break { .. } => {
-                    eprintln!("  [{}] Break", i);
-                }
-                _ => eprintln!("  [{}] Other", i),
-            }
-        }
-
         // --- Stage 5: The Flow Loop ---
 
         let mut fragment_layouts = HashMap::new();
@@ -6083,17 +6065,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // The baseline for the entire line is determined by its tallest item.
     let line_baseline_y = line_top_y + line_ascent;
 
-    // DEBUG: Print baseline calculation with all item details
-    let items_summary: Vec<String> = line_items.iter().map(|item| {
-        match item {
-            ShapedItem::Cluster(c) => format!("'{}'@{}px", c.text, c.style.font_size_px),
-            ShapedItem::Object { .. } => "OBJ".to_string(),
-            _ => "?".to_string(),
-        }
-    }).collect();
-    eprintln!("[BASELINE DEBUG] line_top_y={}, line_ascent={}, line_descent={}, line_baseline_y={}, vertical_align={:?}, num_items={}, items=[{}]",
-        line_top_y, line_ascent, line_descent, line_baseline_y, constraints.vertical_align, line_items.len(), items_summary.join(", "));
-
     // --- Segment-Aware Positioning ---
     let mut item_cursor = 0;
     let is_first_line_of_para = line_index == 0; // Simplified assumption
@@ -6258,16 +6229,6 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 VerticalAlign::Bottom => line_top_y + line_box_height - item_descent,
                 _ => line_baseline_y, // Baseline
             };
-
-            // DEBUG: Print item positioning
-            let item_text = item.as_cluster().map(|c| c.text.as_str()).unwrap_or("[obj]");
-            eprintln!("[BASELINE DEBUG] item='{}' font_size={} item_ascent={} item_descent={} item_baseline_pos={} final_y={}",
-                item_text,
-                item.as_cluster().map(|c| c.style.font_size_px).unwrap_or(0.0),
-                item_ascent,
-                item_descent,
-                item_baseline_pos,
-                item_baseline_pos - item_ascent);
 
             // Calculate item measure (needed for both positioning and pen advance)
             let item_measure = get_item_measure(&item, is_vertical);
