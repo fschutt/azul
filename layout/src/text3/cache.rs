@@ -147,9 +147,53 @@ pub struct FontChainKey {
     pub oblique: bool,
 }
 
+/// Either a FontChainKey (resolved via fontconfig) or a direct FontRef hash.
+/// 
+/// This enum cleanly separates:
+/// - `Chain`: Fonts resolved through fontconfig with fallback support
+/// - `Ref`: Direct FontRef that bypasses fontconfig entirely (e.g., embedded icon fonts)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum FontChainKeyOrRef {
+    /// Regular font chain resolved via fontconfig
+    Chain(FontChainKey),
+    /// Direct FontRef identified by pointer address (covers entire Unicode range, no fallbacks)
+    Ref(usize),
+}
+
+impl FontChainKeyOrRef {
+    /// Create from a FontStack enum
+    pub fn from_font_stack(font_stack: &FontStack) -> Self {
+        match font_stack {
+            FontStack::Stack(selectors) => FontChainKeyOrRef::Chain(FontChainKey::from_selectors(selectors)),
+            FontStack::Ref(font_ref) => FontChainKeyOrRef::Ref(font_ref.parsed as usize),
+        }
+    }
+    
+    /// Returns true if this is a direct FontRef
+    pub fn is_ref(&self) -> bool {
+        matches!(self, FontChainKeyOrRef::Ref(_))
+    }
+    
+    /// Returns the FontRef pointer if this is a Ref variant
+    pub fn as_ref_ptr(&self) -> Option<usize> {
+        match self {
+            FontChainKeyOrRef::Ref(ptr) => Some(*ptr),
+            _ => None,
+        }
+    }
+    
+    /// Returns the FontChainKey if this is a Chain variant
+    pub fn as_chain(&self) -> Option<&FontChainKey> {
+        match self {
+            FontChainKeyOrRef::Chain(key) => Some(key),
+            _ => None,
+        }
+    }
+}
+
 impl FontChainKey {
-    /// Create a FontChainKey from a font stack
-    pub fn from_font_stack(font_stack: &[FontSelector]) -> Self {
+    /// Create a FontChainKey from a slice of font selectors
+    pub fn from_selectors(font_stack: &[FontSelector]) -> Self {
         let font_families: Vec<String> = font_stack
             .iter()
             .map(|s| s.family.clone())
@@ -270,6 +314,99 @@ impl<T: ParsedFontTrait> FromIterator<(FontId, T)> for LoadedFonts<T> {
     }
 }
 
+/// Enum that wraps either a fontconfig-resolved font (T) or a direct FontRef.
+///
+/// This allows the shaping code to handle both fontconfig-resolved fonts
+/// and embedded fonts (FontRef) uniformly through the ParsedFontTrait interface.
+#[derive(Debug, Clone)]
+pub enum FontOrRef<T> {
+    /// A font loaded via fontconfig
+    Font(T),
+    /// A direct FontRef (embedded font, bypasses fontconfig)
+    Ref(azul_css::props::basic::FontRef),
+}
+
+impl<T: ParsedFontTrait> ShallowClone for FontOrRef<T> {
+    fn shallow_clone(&self) -> Self {
+        match self {
+            FontOrRef::Font(f) => FontOrRef::Font(f.shallow_clone()),
+            FontOrRef::Ref(r) => FontOrRef::Ref(r.clone()),
+        }
+    }
+}
+
+impl<T: ParsedFontTrait> ParsedFontTrait for FontOrRef<T> {
+    fn shape_text(
+        &self,
+        text: &str,
+        script: Script,
+        language: Language,
+        direction: BidiDirection,
+        style: &StyleProperties,
+    ) -> Result<Vec<Glyph>, LayoutError> {
+        match self {
+            FontOrRef::Font(f) => f.shape_text(text, script, language, direction, style),
+            FontOrRef::Ref(r) => r.shape_text(text, script, language, direction, style),
+        }
+    }
+
+    fn get_hash(&self) -> u64 {
+        match self {
+            FontOrRef::Font(f) => f.get_hash(),
+            FontOrRef::Ref(r) => r.get_hash(),
+        }
+    }
+
+    fn get_glyph_size(&self, glyph_id: u16, font_size: f32) -> Option<LogicalSize> {
+        match self {
+            FontOrRef::Font(f) => f.get_glyph_size(glyph_id, font_size),
+            FontOrRef::Ref(r) => r.get_glyph_size(glyph_id, font_size),
+        }
+    }
+
+    fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
+        match self {
+            FontOrRef::Font(f) => f.get_hyphen_glyph_and_advance(font_size),
+            FontOrRef::Ref(r) => r.get_hyphen_glyph_and_advance(font_size),
+        }
+    }
+
+    fn get_kashida_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
+        match self {
+            FontOrRef::Font(f) => f.get_kashida_glyph_and_advance(font_size),
+            FontOrRef::Ref(r) => r.get_kashida_glyph_and_advance(font_size),
+        }
+    }
+
+    fn has_glyph(&self, codepoint: u32) -> bool {
+        match self {
+            FontOrRef::Font(f) => f.has_glyph(codepoint),
+            FontOrRef::Ref(r) => r.has_glyph(codepoint),
+        }
+    }
+
+    fn get_vertical_metrics(&self, glyph_id: u16) -> Option<VerticalMetrics> {
+        match self {
+            FontOrRef::Font(f) => f.get_vertical_metrics(glyph_id),
+            FontOrRef::Ref(r) => r.get_vertical_metrics(glyph_id),
+        }
+    }
+
+    fn get_font_metrics(&self) -> LayoutFontMetrics {
+        match self {
+            FontOrRef::Font(f) => f.get_font_metrics(),
+            FontOrRef::Ref(r) => r.get_font_metrics(),
+        }
+    }
+
+    fn num_glyphs(&self) -> u16 {
+        match self {
+            FontOrRef::Font(f) => f.num_glyphs(),
+            FontOrRef::Ref(r) => r.num_glyphs(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct FontManager<T> {
     ///  Cache that holds the **file paths** of the fonts (not any font data itself)
@@ -279,6 +416,9 @@ pub struct FontManager<T> {
     // Cache for font chains - populated by resolve_all_font_chains() before layout
     // This is read-only during layout - no locking needed for reads
     pub font_chain_cache: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    /// Cache for direct FontRefs (embedded fonts like Material Icons)
+    /// These are fonts referenced via FontStack::Ref that bypass fontconfig
+    pub embedded_fonts: Mutex<HashMap<u64, azul_css::props::basic::FontRef>>,
 }
 
 impl<T: ParsedFontTrait> FontManager<T> {
@@ -287,6 +427,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             fc_cache: Arc::new(fc_cache),
             parsed_fonts: Mutex::new(HashMap::new()),
             font_chain_cache: HashMap::new(), // Populated via set_font_chain_cache()
+            embedded_fonts: Mutex::new(HashMap::new()),
         })
     }
 
@@ -318,20 +459,33 @@ impl<T: ParsedFontTrait> FontManager<T> {
         &self.font_chain_cache
     }
 
-    /// Get a font by its hash (used for WebRender registration)
-    /// Returns the parsed font if it exists in the cache
+    /// Get an embedded font by its hash (used for WebRender registration)
+    /// Returns the FontRef if it exists in the embedded_fonts cache.
+    pub fn get_embedded_font_by_hash(&self, font_hash: u64) -> Option<azul_css::props::basic::FontRef> {
+        let embedded = self.embedded_fonts.lock().unwrap();
+        embedded.get(&font_hash).cloned()
+    }
+
+    /// Get a parsed font by its hash (used for WebRender registration)
+    /// Returns the parsed font if it exists in the parsed_fonts cache.
     pub fn get_font_by_hash(&self, font_hash: u64) -> Option<T> {
         let parsed = self.parsed_fonts.lock().unwrap();
         // Linear search through all cached fonts to find one with matching hash
-        // This is acceptable because:
-        // 1. Font caches are typically small (< 100 fonts)
-        // 2. This is only called during font registration, not per-frame
         for (_, font) in parsed.iter() {
             if font.get_hash() == font_hash {
                 return Some(font.clone());
             }
         }
         None
+    }
+
+    /// Register an embedded FontRef for later lookup by hash
+    /// This is called when using FontStack::Ref during shaping
+    pub fn register_embedded_font(&self, font_ref: &azul_css::props::basic::FontRef) {
+        let hash = font_ref.get_hash();
+        let mut embedded = self.embedded_fonts.lock().unwrap();
+        embedded.insert(hash, font_ref.clone());
+        eprintln!("[FontManager] Registered embedded font with hash {}", hash);
     }
 
     /// Get a snapshot of all currently loaded fonts
@@ -692,6 +846,89 @@ impl Default for FontSelector {
             weight: FcWeight::Normal,
             style: FontStyle::Normal,
             unicode_ranges: Vec::new(),
+        }
+    }
+}
+
+/// Font stack that can be either a list of font selectors (resolved via fontconfig)
+/// or a direct FontRef (bypasses fontconfig entirely).
+///
+/// When a `FontRef` is used, it bypasses fontconfig resolution entirely
+/// and uses the pre-parsed font data directly. This is used for embedded
+/// fonts like Material Icons.
+#[derive(Debug, Clone)]
+pub enum FontStack {
+    /// A stack of font selectors to be resolved via fontconfig
+    /// First font is primary, rest are fallbacks
+    Stack(Vec<FontSelector>),
+    /// A direct reference to a pre-parsed font (e.g., embedded icon fonts)
+    /// This font covers the entire Unicode range and has no fallbacks.
+    Ref(azul_css::props::basic::font::FontRef),
+}
+
+impl Default for FontStack {
+    fn default() -> Self {
+        FontStack::Stack(vec![FontSelector::default()])
+    }
+}
+
+impl FontStack {
+    /// Returns true if this is a direct FontRef
+    pub fn is_ref(&self) -> bool {
+        matches!(self, FontStack::Ref(_))
+    }
+
+    /// Returns the FontRef if this is a Ref variant
+    pub fn as_ref(&self) -> Option<&azul_css::props::basic::font::FontRef> {
+        match self {
+            FontStack::Ref(r) => Some(r),
+            _ => None,
+        }
+    }
+
+    /// Returns the font selectors if this is a Stack variant
+    pub fn as_stack(&self) -> Option<&[FontSelector]> {
+        match self {
+            FontStack::Stack(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// Returns the first FontSelector if this is a Stack variant, None if Ref
+    pub fn first_selector(&self) -> Option<&FontSelector> {
+        match self {
+            FontStack::Stack(s) => s.first(),
+            FontStack::Ref(_) => None,
+        }
+    }
+
+    /// Returns the first font family name (for Stack) or a placeholder (for Ref)
+    pub fn first_family(&self) -> &str {
+        match self {
+            FontStack::Stack(s) => s.first().map(|f| f.family.as_str()).unwrap_or("serif"),
+            FontStack::Ref(_) => "<embedded-font>",
+        }
+    }
+}
+
+impl PartialEq for FontStack {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (FontStack::Stack(a), FontStack::Stack(b)) => a == b,
+            (FontStack::Ref(a), FontStack::Ref(b)) => a.parsed == b.parsed,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for FontStack {}
+
+impl Hash for FontStack {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        match self {
+            FontStack::Stack(s) => s.hash(state),
+            FontStack::Ref(r) => (r.parsed as usize).hash(state),
         }
     }
 }
@@ -2129,8 +2366,9 @@ impl Default for FontHash {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyleProperties {
     /// Font stack for fallback support (priority order)
-    /// First font is primary, rest are fallbacks
-    pub font_stack: Vec<FontSelector>,
+    /// Can be either a list of FontSelectors (resolved via fontconfig)
+    /// or a direct FontRef (bypasses fontconfig entirely).
+    pub font_stack: FontStack,
     pub font_size_px: f32,
     pub color: ColorU,
     /// Background color for inline elements (e.g., `<span style="background-color: yellow">`)
@@ -2182,7 +2420,7 @@ impl Default for StyleProperties {
         const FONT_SIZE: f32 = 16.0;
         const TAB_SIZE: f32 = 8.0;
         Self {
-            font_stack: vec![FontSelector::default()],
+            font_stack: FontStack::default(),
             font_size_px: FONT_SIZE,
             color: ColorU::default(),
             background_color: None,
@@ -2355,7 +2593,7 @@ pub struct StyleOverride {
 
 #[derive(Debug, Clone, Default)]
 pub struct PartialStyleProperties {
-    pub font_stack: Option<Vec<FontSelector>>,
+    pub font_stack: Option<FontStack>,
     pub font_size_px: Option<f32>,
     pub color: Option<ColorU>,
     pub letter_spacing: Option<Spacing>,
@@ -4437,72 +4675,116 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     BidiDirection::Ltr
                 };
 
-                // Build FontChainKey from style
-                let cache_key = FontChainKey::from_font_stack(&style.font_stack);
-
-                // Look up pre-resolved font chain
-                let font_chain = match font_chain_cache.get(&cache_key) {
-                    Some(chain) => chain,
-                    None => {
-                        if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::warning(format!(
-                                "[TextLayout] Font chain not pre-resolved for {:?} - text will \
-                                 not be rendered",
-                                cache_key.font_families
-                            )));
-                        }
-                        continue;
-                    }
-                };
-
-                // Use the font chain to resolve which font to use for the first character
-                let first_char = item.text.chars().next().unwrap_or('A');
-                let font_id = match font_chain.resolve_char(fc_cache, first_char) {
-                    Some((id, _css_source)) => id,
-                    None => {
-                        if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::warning(format!(
-                                "[TextLayout] No font in chain can render character '{}' \
-                                 (U+{:04X})",
-                                first_char, first_char as u32
-                            )));
-                        }
-                        continue;
-                    }
-                };
-
-                // Look up the pre-loaded font
-                let font = match loaded_fonts.get(&font_id) {
-                    Some(f) => f,
-                    None => {
-                        if let Some(msgs) = debug_messages {
-                            let truncated_text = item.text.chars().take(50).collect::<String>();
-                            let display_text = if item.text.chars().count() > 50 {
-                                format!("{}...", truncated_text)
-                            } else {
-                                truncated_text
-                            };
-
-                            msgs.push(LayoutDebugMessage::warning(format!(
-                                "[TextLayout] Font {:?} not pre-loaded for text: '{}'",
-                                font_id, display_text
-                            )));
-                        }
-                        continue;
-                    }
-                };
-
                 let language = script_to_language(item.script, &item.text);
 
-                let mut shaped_clusters = shape_text_correctly(
-                    &item.text,
-                    item.script,
-                    language,
-                    direction,
-                    font,
-                    style,
-                    *source,
-                )?;
+                // Shape text using either FontRef directly or fontconfig-resolved font
+                let shaped_clusters_result: Result<Vec<ShapedCluster>, LayoutError> = match &style.font_stack {
+                    FontStack::Ref(font_ref) => {
+                        // For FontRef, use the font directly without fontconfig
+                        eprintln!("[FONTREF SHAPING] Using direct FontRef for text: '{}' (codepoints: {:?})", 
+                            item.text.chars().take(30).collect::<String>(),
+                            item.text.chars().take(5).map(|c| format!("U+{:04X}", c as u32)).collect::<Vec<_>>());
+                        if let Some(msgs) = debug_messages {
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "[TextLayout] Using direct FontRef for text: '{}'",
+                                item.text.chars().take(30).collect::<String>()
+                            )));
+                        }
+                        let result = shape_text_correctly(
+                            &item.text,
+                            item.script,
+                            language,
+                            direction,
+                            font_ref,
+                            style,
+                            *source,
+                        );
+                        match &result {
+                            Ok(clusters) => {
+                                let glyph_count: usize = clusters.iter().map(|c| c.glyphs.len()).sum();
+                                eprintln!("[FONTREF SHAPING] Shaped {} clusters with {} total glyphs", 
+                                    clusters.len(), glyph_count);
+                                for (i, cluster) in clusters.iter().enumerate().take(3) {
+                                    eprintln!("[FONTREF SHAPING]   Cluster {}: {} glyphs, text='{}', glyph_ids={:?}",
+                                        i, cluster.glyphs.len(), cluster.text,
+                                        cluster.glyphs.iter().map(|g| g.glyph_id).collect::<Vec<_>>());
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("[FONTREF SHAPING] ERROR: {:?}", e);
+                            }
+                        }
+                        result
+                    }
+                    FontStack::Stack(selectors) => {
+                        // Build FontChainKey and resolve through fontconfig
+                        let cache_key = FontChainKey::from_selectors(selectors);
+
+                        // Look up pre-resolved font chain
+                        let font_chain = match font_chain_cache.get(&cache_key) {
+                            Some(chain) => chain,
+                            None => {
+                                if let Some(msgs) = debug_messages {
+                                    msgs.push(LayoutDebugMessage::warning(format!(
+                                        "[TextLayout] Font chain not pre-resolved for {:?} - text will \
+                                         not be rendered",
+                                        cache_key.font_families
+                                    )));
+                                }
+                                continue;
+                            }
+                        };
+
+                        // Use the font chain to resolve which font to use for the first character
+                        let first_char = item.text.chars().next().unwrap_or('A');
+                        let font_id = match font_chain.resolve_char(fc_cache, first_char) {
+                            Some((id, _css_source)) => id,
+                            None => {
+                                if let Some(msgs) = debug_messages {
+                                    msgs.push(LayoutDebugMessage::warning(format!(
+                                        "[TextLayout] No font in chain can render character '{}' \
+                                         (U+{:04X})",
+                                        first_char, first_char as u32
+                                    )));
+                                }
+                                continue;
+                            }
+                        };
+
+                        // Look up the pre-loaded font
+                        match loaded_fonts.get(&font_id) {
+                            Some(font) => {
+                                shape_text_correctly(
+                                    &item.text,
+                                    item.script,
+                                    language,
+                                    direction,
+                                    font,
+                                    style,
+                                    *source,
+                                )
+                            }
+                            None => {
+                                if let Some(msgs) = debug_messages {
+                                    let truncated_text = item.text.chars().take(50).collect::<String>();
+                                    let display_text = if item.text.chars().count() > 50 {
+                                        format!("{}...", truncated_text)
+                                    } else {
+                                        truncated_text
+                                    };
+
+                                    msgs.push(LayoutDebugMessage::warning(format!(
+                                        "[TextLayout] Font {:?} not pre-loaded for text: '{}'",
+                                        font_id, display_text
+                                    )));
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                };
+
+                let mut shaped_clusters = shaped_clusters_result?;
 
                 // Set marker flag on all clusters if this is a marker
                 if let Some(is_outside) = marker_position_outside {
@@ -4566,59 +4848,79 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 source,
                 text,
             } => {
-                // Build FontChainKey from style and look up font
-                let cache_key = FontChainKey::from_font_stack(&style.font_stack);
-
-                let font_chain = match font_chain_cache.get(&cache_key) {
-                    Some(chain) => chain,
-                    None => {
-                        if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::warning(format!(
-                                "[TextLayout] Font chain not pre-resolved for CombinedText {:?}",
-                                cache_key.font_families
-                            )));
-                        }
-                        continue;
-                    }
-                };
-
-                let first_char = text.chars().next().unwrap_or('A');
-                let font_id = match font_chain.resolve_char(fc_cache, first_char) {
-                    Some((id, _)) => id,
-                    None => {
-                        if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::warning(format!(
-                                "[TextLayout] No font for CombinedText char '{}'",
-                                first_char
-                            )));
-                        }
-                        continue;
-                    }
-                };
-
-                let font = match loaded_fonts.get(&font_id) {
-                    Some(f) => f,
-                    None => {
-                        if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::warning(format!(
-                                "[TextLayout] Font {:?} not pre-loaded for CombinedText",
-                                font_id
-                            )));
-                        }
-                        continue;
-                    }
-                };
-
                 let language = script_to_language(item.script, &item.text);
 
-                // Force LTR horizontal shaping for the combined block.
-                let glyphs = font.shape_text(
-                    text,
-                    item.script,
-                    language,
-                    BidiDirection::Ltr,
-                    style.as_ref(),
-                )?;
+                // Shape CombinedText using either FontRef directly or fontconfig-resolved font
+                let glyphs: Vec<Glyph> = match &style.font_stack {
+                    FontStack::Ref(font_ref) => {
+                        // For FontRef, use the font directly without fontconfig
+                        if let Some(msgs) = debug_messages {
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "[TextLayout] Using direct FontRef for CombinedText: '{}'",
+                                text.chars().take(30).collect::<String>()
+                            )));
+                        }
+                        font_ref.shape_text(
+                            text,
+                            item.script,
+                            language,
+                            BidiDirection::Ltr,
+                            style.as_ref(),
+                        )?
+                    }
+                    FontStack::Stack(selectors) => {
+                        // Build FontChainKey and resolve through fontconfig
+                        let cache_key = FontChainKey::from_selectors(selectors);
+
+                        let font_chain = match font_chain_cache.get(&cache_key) {
+                            Some(chain) => chain,
+                            None => {
+                                if let Some(msgs) = debug_messages {
+                                    msgs.push(LayoutDebugMessage::warning(format!(
+                                        "[TextLayout] Font chain not pre-resolved for CombinedText {:?}",
+                                        cache_key.font_families
+                                    )));
+                                }
+                                continue;
+                            }
+                        };
+
+                        let first_char = text.chars().next().unwrap_or('A');
+                        let font_id = match font_chain.resolve_char(fc_cache, first_char) {
+                            Some((id, _)) => id,
+                            None => {
+                                if let Some(msgs) = debug_messages {
+                                    msgs.push(LayoutDebugMessage::warning(format!(
+                                        "[TextLayout] No font for CombinedText char '{}'",
+                                        first_char
+                                    )));
+                                }
+                                continue;
+                            }
+                        };
+
+                        match loaded_fonts.get(&font_id) {
+                            Some(font) => {
+                                font.shape_text(
+                                    text,
+                                    item.script,
+                                    language,
+                                    BidiDirection::Ltr,
+                                    style.as_ref(),
+                                )?
+                            }
+                            None => {
+                                if let Some(msgs) = debug_messages {
+                                    msgs.push(LayoutDebugMessage::warning(format!(
+                                        "[TextLayout] Font {:?} not pre-loaded for CombinedText",
+                                        font_id
+                                    )));
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                };
 
                 let shaped_glyphs = glyphs
                     .into_iter()
