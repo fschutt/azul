@@ -13,6 +13,7 @@ vendor/
 *.pyc
 crash.log
 azul.h
+azul.hpp
 *.log
 .idea/*
 out.txt
