@@ -397,64 +397,22 @@ fn load_images_from_zip(_zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> 
 // Material Icons Registration
 // ============================================================================
 
-/// Register default Material Icons in the provider.
+/// Register all Material Icons in the provider.
+/// 
+/// This registers all 2234 Material Icons from the `material-icons` crate.
+/// Each icon is registered under the "material-icons" pack with its HTML name
+/// (e.g., "home", "settings", "arrow_back", etc.).
+/// 
 /// Requires the "icons" feature with material-icons crate.
 #[cfg(feature = "icons")]
 pub fn register_material_icons(provider: &mut IconProviderHandle, font: FontRef) {
-    // Register common Material Icons with their Unicode codepoints
-    let icons = [
-        ("home", "\u{e88a}"),
-        ("settings", "\u{e8b8}"),
-        ("search", "\u{e8b6}"),
-        ("menu", "\u{e5d2}"),
-        ("close", "\u{e5cd}"),
-        ("add", "\u{e145}"),
-        ("delete", "\u{e872}"),
-        ("edit", "\u{e3c9}"),
-        ("save", "\u{e161}"),
-        ("check", "\u{e5ca}"),
-        ("arrow_back", "\u{e5c4}"),
-        ("arrow_forward", "\u{e5c8}"),
-        ("expand_more", "\u{e5cf}"),
-        ("expand_less", "\u{e5ce}"),
-        ("more_vert", "\u{e5d4}"),
-        ("more_horiz", "\u{e5d3}"),
-        ("refresh", "\u{e5d5}"),
-        ("info", "\u{e88e}"),
-        ("warning", "\u{e002}"),
-        ("error", "\u{e000}"),
-        ("help", "\u{e887}"),
-        ("visibility", "\u{e8f4}"),
-        ("visibility_off", "\u{e8f5}"),
-        ("lock", "\u{e897}"),
-        ("lock_open", "\u{e898}"),
-        ("person", "\u{e7fd}"),
-        ("group", "\u{e7ef}"),
-        ("email", "\u{e0be}"),
-        ("phone", "\u{e0cd}"),
-        ("place", "\u{e55f}"),
-        ("calendar_today", "\u{e935}"),
-        ("schedule", "\u{e8b5}"),
-        ("star", "\u{e838}"),
-        ("star_border", "\u{e83a}"),
-        ("favorite", "\u{e87d}"),
-        ("favorite_border", "\u{e87e}"),
-        ("folder", "\u{e2c7}"),
-        ("folder_open", "\u{e2c8}"),
-        ("file_copy", "\u{e173}"),
-        ("attach_file", "\u{e226}"),
-        ("cloud", "\u{e2bd}"),
-        ("cloud_upload", "\u{e2c3}"),
-        ("cloud_download", "\u{e2c0}"),
-        ("print", "\u{e8ad}"),
-        ("share", "\u{e80d}"),
-        ("link", "\u{e157}"),
-        ("send", "\u{e163}"),
-        ("notifications", "\u{e7f4}"),
-        ("notifications_off", "\u{e7f6}"),
-    ];
+    use material_icons::{ALL_ICONS, icon_to_char, icon_to_html_name};
     
-    for (name, icon_char) in icons {
+    // Register all Material Icons with their Unicode codepoints
+    for icon in ALL_ICONS.iter() {
+        let icon_char = icon_to_char(*icon);
+        let name = icon_to_html_name(icon);
+        
         let data = FontIconData {
             font: font.clone(),
             icon_char: icon_char.to_string(),
