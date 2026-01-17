@@ -2052,27 +2052,14 @@ fn layout_ifc<T: ParsedFontTrait>(
         node.baseline = output.baseline;
 
         // Position all the inline-block children based on text3's calculations.
-        println!("[IFC POSITIONS] child_map has {} entries, layout has {} items",
-            child_map.len(), main_frag.items.len());
-        for (content_idx, &node_idx) in &child_map {
-            println!("[IFC POSITIONS]   child_map: ContentIndex({:?}) -> node_index {}", content_idx, node_idx);
-        }
-        
         for positioned_item in &main_frag.items {
             if let ShapedItem::Object { source, content, .. } = &positioned_item.item {
-                println!("[IFC POSITIONS] Found Object with source {:?} at pos ({}, {}), content={:?}",
-                    source, positioned_item.position.x, positioned_item.position.y,
-                    std::mem::discriminant(content));
                 if let Some(&child_node_index) = child_map.get(source) {
                     let new_relative_pos = LogicalPosition {
                         x: positioned_item.position.x,
                         y: positioned_item.position.y,
                     };
-                    println!("[IFC POSITIONS] -> Inserting position for node {} at ({}, {})",
-                        child_node_index, new_relative_pos.x, new_relative_pos.y);
                     output.positions.insert(child_node_index, new_relative_pos);
-                } else {
-                    println!("[IFC POSITIONS] -> WARNING: source {:?} NOT FOUND in child_map!", source);
                 }
             }
         }
