@@ -131,8 +131,11 @@ where
     {
         use crate::solver3::getters::{
             collect_and_resolve_font_chains, collect_font_ids_from_chains, compute_fonts_to_load,
-            load_fonts_from_disk,
+            load_fonts_from_disk, register_embedded_fonts_from_styled_dom,
         };
+
+        // Register embedded FontRefs (e.g. Material Icons) before resolving chains
+        register_embedded_fonts_from_styled_dom(&new_dom, font_manager);
 
         let chains = collect_and_resolve_font_chains(&new_dom, &font_manager.fc_cache);
         let required_fonts = collect_font_ids_from_chains(&chains);
@@ -152,7 +155,7 @@ where
                 }
             }
         }
-        font_manager.set_font_chain_cache(chains.into_inner());
+        font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
     }
 
     // Get page dimensions from fragmentation context

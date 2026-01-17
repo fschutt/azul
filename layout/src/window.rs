@@ -603,7 +603,7 @@ impl LayoutWindow {
             use crate::{
                 solver3::getters::{
                     collect_and_resolve_font_chains, collect_font_ids_from_chains,
-                    compute_fonts_to_load, load_fonts_from_disk,
+                    compute_fonts_to_load, load_fonts_from_disk, register_embedded_fonts_from_styled_dom,
                 },
                 text3::default::PathLoader,
             };
@@ -613,6 +613,10 @@ impl LayoutWindow {
                     "[FontLoading] Starting font resolution for DOM".to_string(),
                 ));
             }
+
+            // Step 0: Register embedded FontRefs (e.g. Material Icons)
+            // These fonts bypass fontconfig and are used directly
+            register_embedded_fonts_from_styled_dom(&styled_dom, &self.font_manager);
 
             // Step 1: Resolve font chains (cached by FontChainKey)
             let chains = collect_and_resolve_font_chains(&styled_dom, &self.font_manager.fc_cache);
@@ -681,7 +685,7 @@ impl LayoutWindow {
             }
 
             // Step 5: Update font chain cache
-            self.font_manager.set_font_chain_cache(chains.into_inner());
+            self.font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
         }
 
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
@@ -5905,10 +5909,10 @@ impl LayoutWindow {
                                 if let Some(first_glyph) = cluster.glyphs.first() {
                                     let style = &first_glyph.style;
 
-                                    // Extract font family from font selector (use first from stack)
+                                    // Extract font family from font stack
                                     let default_font = FontSelector::default();
-                                    let first_font =
-                                        style.font_stack.first().unwrap_or(&default_font);
+                                    let first_font = style.font_stack.first_selector()
+                                        .unwrap_or(&default_font);
                                     let font_family: OptionString =
                                         Some(AzString::from(first_font.family.as_str())).into();
 

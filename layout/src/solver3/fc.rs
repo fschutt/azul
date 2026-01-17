@@ -6086,14 +6086,16 @@ fn generate_list_marker_segments(
     }
 
     if let Some(msgs) = debug_messages {
+        let font_families: Vec<&str> = match &base_style.font_stack {
+            crate::text3::cache::FontStack::Stack(selectors) => {
+                selectors.iter().map(|f| f.family.as_str()).collect()
+            }
+            crate::text3::cache::FontStack::Ref(_) => vec!["<embedded-font>"],
+        };
         msgs.push(LayoutDebugMessage::info(format!(
             "[generate_list_marker_segments] Marker text: '{}' with font stack: {:?}",
             marker_text,
-            base_style
-                .font_stack
-                .iter()
-                .map(|f| f.family.as_str())
-                .collect::<Vec<_>>()
+            font_families
         )));
     }
 
