@@ -2444,9 +2444,22 @@ where
         for (idx, glyph_run) in glyph_runs.iter().enumerate() {
             let clip_rect = container_rect; // Clip to the container rect
 
+            // Fix: Offset glyph positions by the container origin.
+            // Text layout is relative to (0,0) of the IFC, but we need absolute coordinates.
+            let offset_glyphs: Vec<GlyphInstance> = glyph_run
+                .glyphs
+                .iter()
+                .map(|g| {
+                    let mut g = g.clone();
+                    g.point.x += container_rect.origin.x;
+                    g.point.y += container_rect.origin.y;
+                    g
+                })
+                .collect();
+
             // Store only the font hash in the display list to keep it lean
             builder.push_text_run(
-                glyph_run.glyphs.clone(),
+                offset_glyphs,
                 FontHash::from_hash(glyph_run.font_hash),
                 glyph_run.font_size_px,
                 glyph_run.color,
@@ -2585,9 +2598,33 @@ where
         // Get border information
         let border_info = get_border_info(self.ctx.styled_dom, node_id, styled_node_state);
 
+        // FIX: object_bounds is the margin-box position from text3.
+        // We need to convert to border-box for painting backgrounds/borders.
+        let margins = if let Some(indices) = self.positioned_tree.tree.dom_to_layout.get(&node_id) {
+            if let Some(&idx) = indices.first() {
+                self.positioned_tree.tree.nodes[idx].box_props.margin
+            } else {
+                Default::default()
+            }
+        } else {
+            Default::default()
+        };
+
+        // Convert margin-box bounds to border-box bounds
+        let border_box_bounds = LogicalRect {
+            origin: LogicalPosition {
+                x: object_bounds.origin.x + margins.left,
+                y: object_bounds.origin.y + margins.top,
+            },
+            size: LogicalSize {
+                width: (object_bounds.size.width - margins.left - margins.right).max(0.0),
+                height: (object_bounds.size.height - margins.top - margins.bottom).max(0.0),
+            },
+        };
+
         let element_size = PhysicalSizeImport {
-            width: bounds.width,
-            height: bounds.height,
+            width: border_box_bounds.size.width,
+            height: border_box_bounds.size.height,
         };
 
         // Get border radius for background clipping
@@ -2603,9 +2640,9 @@ where
         let style_border_radius =
             get_style_border_radius(self.ctx.styled_dom, node_id, styled_node_state);
 
-        // Use unified background/border painting
+        // Use unified background/border painting with border-box bounds
         builder.push_backgrounds_and_border(
-            object_bounds,
+            border_box_bounds,
             &background_contents,
             &border_info,
             simple_border_radius,
