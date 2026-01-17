@@ -121,16 +121,9 @@ int main() {
     // Create app config - call the function to properly initialize icon_provider
     AzAppConfig config = AzAppConfig_create();
     
-    // Debug: print icon_provider pointer
-    printf("DEBUG: config.icon_provider.inner = %p\n", config.icon_provider.inner);
-    printf("DEBUG: &config.icon_provider = %p\n", (void*)&config.icon_provider);
-    
     // Register the favicon on the config's icon provider
     // This is the correct way: icons registered here will be cloned into each window
-    printf("DEBUG: About to call registerImageIcon...\n");
     AzIconProviderHandle_registerImageIcon(&config.icon_provider, az_str("app-icons"), az_str("favicon"), favicon_image);
-    
-    printf("Registered icon: 'favicon' on config.icon_provider\n\n");
     
     // Create empty RefAny for layout callback
     AzString empty_type = az_str("");
