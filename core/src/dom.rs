@@ -485,6 +485,9 @@ pub enum NodeType {
     Image(ImageRef),
     /// IFrame (embedded content)
     IFrame(IFrameNode),
+    /// Icon element - resolved to actual content by IconProvider
+    /// The string is the icon name (e.g., "home", "settings", "search")
+    Icon(AzString),
 }
 
 impl NodeType {
@@ -613,6 +616,7 @@ impl NodeType {
                 callback: i.callback.clone(),
                 refany: i.refany.clone(),
             }),
+            Icon(s) => Icon(s.clone_self()),
         }
     }
 
@@ -622,6 +626,7 @@ impl NodeType {
             Text(s) => Some(format!("{}", s)),
             Image(id) => Some(format!("image({:?})", id)),
             IFrame(i) => Some(format!("iframe({:?})", i)),
+            Icon(s) => Some(format!("icon({})", s)),
             _ => None,
         }
     }
@@ -743,6 +748,7 @@ impl NodeType {
             Self::Text(_) => NodeTypeTag::Text,
             Self::Image(_) => NodeTypeTag::Img,
             Self::IFrame(_) => NodeTypeTag::IFrame,
+            Self::Icon(_) => NodeTypeTag::Icon,
             Self::Before => NodeTypeTag::Before,
             Self::After => NodeTypeTag::After,
             Self::Marker => NodeTypeTag::Marker,
@@ -3124,17 +3130,20 @@ impl Dom {
     pub fn create_image(image: ImageRef) -> Self {
         Self::create_node(NodeType::Image(image))
     }
-
-    /// Alias for `create_body()` - creates a body container.
+    /// Creates an icon node with the given icon name.
+    ///
+    /// The icon name should match names from the icon provider (e.g., "home", "settings", "search").
+    /// Icons are resolved to actual content (font glyph, image, etc.) during StyledDom creation
+    /// based on the configured IconProvider.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// Dom::create_icon("home")
+    ///     .with_class("nav-icon")
+    /// ```
     #[inline(always)]
-    pub const fn body() -> Self {
-        Self::create_body()
-    }
-
-    /// Alias for `create_image()` - creates an image node.
-    #[inline(always)]
-    pub fn image(image: ImageRef) -> Self {
-        Self::create_image(image)
+    pub fn create_icon<S: Into<AzString>>(icon_name: S) -> Self {
+        Self::create_node(NodeType::Icon(icon_name.into()))
     }
 
     #[inline(always)]

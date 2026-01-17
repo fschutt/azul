@@ -23,6 +23,8 @@ pub mod callbacks;
 pub mod dom;
 /// Table layout support (anonymous box generation)
 pub mod dom_table;
+/// Icon system for loading and resolving icons from fonts, images, or zip packs
+pub mod icon;
 /// Type definitions for Glyphs
 pub mod glyph;
 /// Functions to manage adding fonts + images, garbage collection

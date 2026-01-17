@@ -91,6 +91,8 @@ pub enum DebugCategory {
     DebugServer,
     /// Platform-specific (macOS, Windows, Linux)
     Platform,
+    /// Icon resolution
+    Icon,
 }
 
 impl Default for DebugCategory {

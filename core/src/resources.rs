@@ -76,7 +76,7 @@ impl Default for AppTerminationBehavior {
 }
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct AppConfig {
     /// If enabled, logs error and info messages.
@@ -95,6 +95,10 @@ pub struct AppConfig {
     /// Determines what happens when all windows are closed.
     /// Default: EndProcess (terminate when last window closes).
     pub termination_behavior: AppTerminationBehavior,
+    /// Icon provider for the application.
+    /// Register icons here before calling App::run().
+    /// Each window will clone this provider (cheap, Arc-based).
+    pub icon_provider: crate::icon::IconProviderHandle,
 }
 
 impl AppConfig {
@@ -105,6 +109,7 @@ impl AppConfig {
             enable_logging_on_panic: true,
             enable_tab_navigation: true,
             termination_behavior: AppTerminationBehavior::default(),
+            icon_provider: crate::icon::IconProviderHandle::new(),
         }
     }
 }
