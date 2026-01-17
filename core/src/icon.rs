@@ -55,7 +55,7 @@ use azul_css::{AzString, system::SystemStyle};
 use crate::{
     debug::DebugLog,
     dom::{Dom, NodeType},
-    refany::RefAny,
+    refany::{OptionRefAny, RefAny},
     styled_dom::StyledDom,
 };
 
@@ -74,14 +74,14 @@ use crate::{
 ///
 /// Note: icon_name is accessible via `original_icon_dom.node_data[0].get_node_type()` → `NodeType::Icon(name)`
 pub type IconResolverCallbackType = extern "C" fn(
-    icon_data: Option<RefAny>,
+    icon_data: OptionRefAny,
     original_icon_dom: &StyledDom,
     system_style: &SystemStyle,
 ) -> StyledDom;
 
 /// Default resolver that returns an empty StyledDom (shows placeholder)
 pub extern "C" fn default_icon_resolver(
-    _icon_data: Option<RefAny>,
+    _icon_data: OptionRefAny,
     _original_icon_dom: &StyledDom,
     _system_style: &SystemStyle,
 ) -> StyledDom {
@@ -333,7 +333,7 @@ impl SharedIconProvider {
             (resolver, lookup_result)
         };
         
-        resolver(lookup_result, original_icon_dom, system_style)
+        resolver(lookup_result.into(), original_icon_dom, system_style)
     }
     
     /// Look up an icon across all packs

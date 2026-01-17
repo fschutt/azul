@@ -42,7 +42,7 @@ use crate::{
 
 /// Represents the detected platform.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum Platform {
     Windows,
     MacOs,
@@ -55,7 +55,7 @@ pub enum Platform {
 
 /// Represents the detected Linux Desktop Environment.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum DesktopEnvironment {
     Gnome,
     Kde,

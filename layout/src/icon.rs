@@ -46,7 +46,7 @@ use azul_css::{
 use azul_core::{
     dom::{Dom, NodeData, NodeType, AccessibilityInfo, AccessibilityRole, OptionDomNodeId, AccessibilityStateVec},
     icon::{IconProviderHandle, IconResolverCallbackType},
-    refany::RefAny,
+    refany::{OptionRefAny, RefAny},
     resources::ImageRef,
     styled_dom::StyledDom,
     window::OptionVirtualKeyCodeCombo,
@@ -87,12 +87,12 @@ pub struct FontIconData {
 /// Styles from the original icon DOM are copied to the result,
 /// filtered based on SystemStyle preferences.
 pub extern "C" fn default_icon_resolver(
-    icon_data: Option<RefAny>,
+    icon_data: OptionRefAny,
     original_icon_dom: &StyledDom,
     system_style: &SystemStyle,
 ) -> StyledDom {
     // No icon found → empty div
-    let Some(mut data) = icon_data else {
+    let Some(mut data) = icon_data.into_option() else {
         let mut dom = Dom::create_div();
         return StyledDom::create(&mut dom, Css::empty());
     };
@@ -486,7 +486,7 @@ mod tests {
         let style = SystemStyle::default();
         let original = StyledDom::default();
         
-        let result = default_icon_resolver(None, &original, &style);
+        let result = default_icon_resolver(OptionRefAny::None, &original, &style);
         
         // Without data, should return empty div StyledDom
         assert_eq!(result.node_data.as_ref().len(), 1);

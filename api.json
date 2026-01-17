@@ -2343,7 +2343,7 @@
                 "Unknown": {}
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "Theme": {
             "external": "azul_css::system::Theme",
@@ -27248,7 +27248,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           }
         }
       },
