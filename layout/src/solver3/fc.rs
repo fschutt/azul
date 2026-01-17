@@ -2052,16 +2052,56 @@ fn layout_ifc<T: ParsedFontTrait>(
         node.baseline = output.baseline;
 
         // Position all the inline-block children based on text3's calculations.
+        debug_info!(
+            ctx,
+            "[layout_ifc] Processing {} positioned items, child_map has {} entries",
+            main_frag.items.len(),
+            child_map.len()
+        );
         for positioned_item in &main_frag.items {
             if let ShapedItem::Object { source, content, .. } = &positioned_item.item {
+                debug_info!(
+                    ctx,
+                    "[layout_ifc] Found Object with source=({}, {}), position=({:.2}, {:.2})",
+                    source.run_index,
+                    source.item_index,
+                    positioned_item.position.x,
+                    positioned_item.position.y
+                );
                 if let Some(&child_node_index) = child_map.get(source) {
                     let new_relative_pos = LogicalPosition {
                         x: positioned_item.position.x,
                         y: positioned_item.position.y,
                     };
+                    debug_info!(
+                        ctx,
+                        "[layout_ifc] Mapping Object source=({}, {}) to child_node_index={}, pos=({:.2}, {:.2})",
+                        source.run_index,
+                        source.item_index,
+                        child_node_index,
+                        new_relative_pos.x,
+                        new_relative_pos.y
+                    );
                     output.positions.insert(child_node_index, new_relative_pos);
+                } else {
+                    debug_warning!(
+                        ctx,
+                        "[layout_ifc] Object source=({}, {}) NOT FOUND in child_map!",
+                        source.run_index,
+                        source.item_index
+                    );
                 }
             }
+        }
+        // Debug: print child_map contents
+        for (idx, &node_idx) in &child_map {
+            debug_info!(
+                ctx,
+                "[layout_ifc] child_map entry: ({}, {}) -> node_idx={}",
+                idx.run_index,
+                idx.item_index,
+                node_idx
+            );
         }
     }
 
@@ -2248,22 +2288,8 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             })
             .collect()
     } else {
-        debug_info!(
-            ctx,
-            "[translate_to_text3] dom_id={:?}, NO bfc_state - no float exclusions",
-            dom_id
-        );
         Vec::new()
     };
-
-    debug_info!(
-        ctx,
-        "[translate_to_text3] dom_id={:?}, available_size={}x{}, shape_exclusions.len()={}",
-        dom_id,
-        constraints.available_size.width,
-        constraints.available_size.height,
-        shape_exclusions.len()
-    );
 
     // Map text-align and justify-content from CSS to text3 enums.
     let id = dom_id;
@@ -2311,71 +2337,35 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     };
 
     // shape-inside: Text flows within the shape boundary
-    debug_info!(ctx, "Checking shape-inside for node {:?}", id);
-    debug_info!(
-        ctx,
-        "Reference box: {:?} (available_size height was: {})",
-        reference_box,
-        constraints.available_size.height
-    );
-
     let shape_boundaries = styled_dom
         .css_property_cache
         .ptr
         .get_shape_inside(node_data, &id, node_state)
-        .and_then(|v| {
-            debug_info!(ctx, "Got shape-inside value: {:?}", v);
-            v.get_property()
-        })
+        .and_then(|v| v.get_property())
         .and_then(|shape_inside| {
-            debug_info!(ctx, "shape-inside property: {:?}", shape_inside);
             if let ShapeInside::Shape(css_shape) = shape_inside {
-                debug_info!(
-                    ctx,
-                    "Converting CSS shape to ShapeBoundary: {:?}",
-                    css_shape
-                );
                 let boundary =
                     ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
-                debug_info!(ctx, "Created ShapeBoundary: {:?}", boundary);
                 Some(vec![boundary])
             } else {
-                debug_info!(ctx, "shape-inside is None");
                 None
             }
         })
         .unwrap_or_default();
 
-    debug_info!(
-        ctx,
-        "Final shape_boundaries count: {}",
-        shape_boundaries.len()
-    );
-
     // shape-outside: Text wraps around the shape (adds to exclusions)
-    debug_info!(ctx, "Checking shape-outside for node {:?}", id);
     if let Some(shape_outside_value) = styled_dom
         .css_property_cache
         .ptr
         .get_shape_outside(node_data, &id, node_state)
     {
-        debug_info!(ctx, "Got shape-outside value: {:?}", shape_outside_value);
         if let Some(shape_outside) = shape_outside_value.get_property() {
-            debug_info!(ctx, "shape-outside property: {:?}", shape_outside);
             if let ShapeOutside::Shape(css_shape) = shape_outside {
-                debug_info!(
-                    ctx,
-                    "Converting CSS shape-outside to ShapeBoundary: {:?}",
-                    css_shape
-                );
                 let boundary =
                     ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
-                debug_info!(ctx, "Created ShapeBoundary (exclusion): {:?}", boundary);
                 shape_exclusions.push(boundary);
             }
         }
-    } else {
-        debug_info!(ctx, "No shape-outside value found");
     }
 
     // TODO: clip-path will be used for rendering clipping (not text layout)
@@ -5097,16 +5087,6 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     // According to CSS spec, a block container with inline-level children establishes
     // an IFC and should collect ALL inline content, including text nodes.
     // Text nodes exist in the DOM but might not have their own layout tree nodes.
-
-    // Debug: Check what the node_hierarchy says about this node
-    let node_hier_item = &ctx.styled_dom.node_hierarchy.as_container()[ifc_root_dom_id];
-    debug_info!(
-        ctx,
-        "[collect_and_measure_inline_content] DEBUG: node_hier_item.first_child={:?}, \
-         last_child={:?}",
-        node_hier_item.first_child_id(ifc_root_dom_id),
-        node_hier_item.last_child_id()
-    );
 
     let dom_children: Vec<NodeId> = ifc_root_dom_id
         .az_children(&ctx.styled_dom.node_hierarchy.as_container())
