@@ -2321,6 +2321,248 @@
               }
             ],
             "repr": "C, u8"
+          },
+          "Platform": {
+            "external": "azul_css::system::Platform",
+            "derive": [
+              "Debug",
+              "Default",
+              "Clone",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Windows": {},
+                "MacOs": {},
+                "Linux": {
+                  "type": "DesktopEnvironment"
+                },
+                "Android": {},
+                "Ios": {},
+                "Unknown": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "Theme": {
+            "external": "azul_css::system::Theme",
+            "derive": [
+              "Debug",
+              "Default",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Light": {},
+                "Dark": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "IconProviderHandle": {
+            "external": "azul_core::icon::IconProviderHandle",
+            "derive": [
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
+                }
+              }
+            ],
+            "constructors": {
+              "new": {
+                "doc": [
+                  "Create a new empty icon provider with the default resolver"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_core::icon::IconProviderHandle::new()"
+              },
+              "with_resolver": {
+                "doc": [
+                  "Create with a custom resolver callback"
+                ],
+                "fn_args": [
+                  {
+                    "resolver": "IconResolverCallbackType"
+                  }
+                ],
+                "fn_body": "azul_core::icon::IconProviderHandle::with_resolver(resolver)"
+              },
+              "default": {
+                "fn_args": [],
+                "fn_body": "azul_core::icon::IconProviderHandle::default()"
+              }
+            },
+            "functions": {
+              "set_resolver": {
+                "doc": [
+                  "Set the resolver callback"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "resolver": "IconResolverCallbackType"
+                  }
+                ],
+                "fn_body": "object.set_resolver(resolver)"
+              },
+              "register_icon": {
+                "doc": [
+                  "Register a single icon in a pack (creates pack if needed)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "pack_name": "String"
+                  },
+                  {
+                    "icon_name": "String"
+                  },
+                  {
+                    "data": "RefAny"
+                  }
+                ],
+                "fn_body": "object.register_icon(pack_name.as_str(), icon_name.as_str(), data)"
+              },
+              "unregister_icon": {
+                "doc": [
+                  "Unregister a single icon from a pack"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "pack_name": "String"
+                  },
+                  {
+                    "icon_name": "String"
+                  }
+                ],
+                "fn_body": "object.unregister_icon(pack_name.as_str(), icon_name.as_str())"
+              },
+              "unregister_pack": {
+                "doc": [
+                  "Unregister an entire icon pack"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "pack_name": "String"
+                  }
+                ],
+                "fn_body": "object.unregister_pack(pack_name.as_str())"
+              },
+              "lookup": {
+                "doc": [
+                  "Look up an icon across all packs (first match wins)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "icon_name": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionRefAny"
+                },
+                "fn_body": "object.lookup(icon_name.as_str()).into()"
+              },
+              "has_icon": {
+                "doc": [
+                  "Check if an icon exists in any pack"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "icon_name": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.has_icon(icon_name.as_str())"
+              },
+              "register_image_icon": {
+                "doc": [
+                  "Register an image icon in a pack"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "pack_name": "String"
+                  },
+                  {
+                    "icon_name": "String"
+                  },
+                  {
+                    "image": "ImageRef"
+                  }
+                ],
+                "fn_body": "azul_layout::icon::register_image_icon(iconproviderhandle, pack_name.as_str(), icon_name.as_str(), image)"
+              },
+              "register_font_icon": {
+                "doc": [
+                  "Register a font icon in a pack"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "pack_name": "String"
+                  },
+                  {
+                    "icon_name": "String"
+                  },
+                  {
+                    "font": "FontRef"
+                  },
+                  {
+                    "icon_char": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::icon::register_font_icon(iconproviderhandle, pack_name.as_str(), icon_name.as_str(), font, icon_char.as_str())"
+              },
+              "debug_lookup": {
+                "doc": [
+                  "Debug lookup: returns detailed info about an icon's RefAny contents.",
+                  "Useful for debugging to verify icons are registered correctly."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "icon_name": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "String"
+                },
+                "fn_body": "object.debug_lookup(icon_name.as_str())"
+              }
+            },
+            "repr": "C"
           }
         }
       },
@@ -7401,6 +7643,27 @@
               }
             ],
             "repr": "C"
+          },
+          "IconResolverCallbackType": {
+            "external": "azul_core::icon::IconResolverCallbackType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "OptionRefAny"
+                },
+                {
+                  "type": "StyledDom",
+                  "ref_kind": "ref"
+                },
+                {
+                  "type": "SystemStyle",
+                  "ref_kind": "ref"
+                }
+              ],
+              "returns": {
+                "type": "StyledDom"
+              }
+            }
           }
         }
       },
@@ -7491,23 +7754,22 @@
                 ],
                 "fn_body": "azul_core::dom::Dom::create_image(image)"
               },
-              "body": {
+              "create_icon": {
                 "doc": [
-                  "Alias for `create_body()` - creates a body container."
-                ],
-                "fn_args": [],
-                "fn_body": "azul_core::dom::Dom::body()"
-              },
-              "image": {
-                "doc": [
-                  "Alias for `create_image()` - creates an image node."
+                  "Creates an icon element that will be resolved by the icon provider.",
+                  "",
+                  "**Accessibility**: Icons are resolved to images or font glyphs with automatic",
+                  "aria-label generation. The icon name is used to generate the accessibility label.",
+                  "",
+                  "The icon resolution happens during the StyledDom creation phase, before layout.",
+                  "The icon provider returns a StyledDom subtree that replaces the icon node."
                 ],
                 "fn_args": [
                   {
-                    "image": "ImageRef"
+                    "icon_name": "String"
                   }
                 ],
-                "fn_body": "azul_core::dom::Dom::image(image)"
+                "fn_body": "azul_core::dom::Dom::create_icon(icon_name)"
               },
               "create_iframe": {
                 "fn_args": [
@@ -10961,6 +11223,14 @@
                   "type": "IFrameNode",
                   "doc": [
                     "IFrame (embedded content)"
+                  ]
+                }
+              },
+              {
+                "Icon": {
+                  "type": "String",
+                  "doc": [
+                    "Icon element resolved by icon provider to image/font glyph."
                   ]
                 }
               }
@@ -26802,6 +27072,166 @@
               },
               {
                 "Other": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "SystemFonts": {
+            "external": "azul_css::system::SystemFonts",
+            "derive": [
+              "Debug",
+              "Default",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "ui_font": {
+                  "type": "OptionString"
+                },
+                "ui_font_size": {
+                  "type": "OptionF32"
+                },
+                "monospace_font": {
+                  "type": "OptionString"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "SystemStyle": {
+            "external": "azul_css::system::SystemStyle",
+            "derive": [
+              "Debug",
+              "Default",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "theme": {
+                  "type": "Theme"
+                },
+                "platform": {
+                  "type": "Platform"
+                },
+                "colors": {
+                  "type": "SystemColors"
+                },
+                "fonts": {
+                  "type": "SystemFonts"
+                },
+                "metrics": {
+                  "type": "SystemMetrics"
+                },
+                "language": {
+                  "type": "String"
+                },
+                "app_specific_stylesheet": {
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
+                },
+                "icon_style": {
+                  "type": "IconStyleOptions"
+                },
+                "scrollbar": {
+                  "type": "c_void",
+                  "ref_kind": "mutptr"
+                }
+              }
+            ],
+            "constructors": {
+              "new": {
+                "doc": [
+                  "Discovers the system's UI style, and loads an optional app-specific stylesheet.",
+                  "",
+                  "If the \"io\" feature is enabled, this function may be slow as it can",
+                  "involve running external commands and reading files.",
+                  "",
+                  "If the \"io\" feature is disabled, this returns a hard-coded, deterministic",
+                  "style based on the target operating system."
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::system::SystemStyle::new()"
+              }
+            },
+            "functions": {
+              "create_csd_stylesheet": {
+                "doc": [
+                  "Create a CSS stylesheet for CSD (Client-Side Decorations) titlebar",
+                  "",
+                  "This generates CSS rules for the CSD titlebar using system colors,",
+                  "fonts, and metrics to match the native platform look."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "Stylesheet"
+                },
+                "fn_body": "object.create_csd_stylesheet()"
+              }
+            },
+            "repr": "C"
+          },
+          "SystemColors": {
+            "external": "azul_css::system::SystemColors",
+            "derive": [
+              "Debug",
+              "Default",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "text": {
+                  "type": "OptionColorU"
+                },
+                "background": {
+                  "type": "OptionColorU"
+                },
+                "accent": {
+                  "type": "OptionColorU"
+                },
+                "accent_text": {
+                  "type": "OptionColorU"
+                },
+                "button_face": {
+                  "type": "OptionColorU"
+                },
+                "button_text": {
+                  "type": "OptionColorU"
+                },
+                "window_background": {
+                  "type": "OptionColorU"
+                },
+                "selection_background": {
+                  "type": "OptionColorU"
+                },
+                "selection_text": {
+                  "type": "OptionColorU"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "DesktopEnvironment": {
+            "external": "azul_css::system::DesktopEnvironment",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "Gnome": {},
+                "Kde": {},
+                "Other": {
+                  "type": "String"
+                }
               }
             ],
             "repr": "C"
@@ -51589,6 +52019,30 @@
             ],
             "repr": "C, u8"
           },
+          "OptionPixelValue": {
+            "external": "azul_css::props::basic::pixel::OptionPixelValue",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialOrd",
+              "PartialEq",
+              "Ord",
+              "Hash",
+              "Copy",
+              "Eq"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "PixelValue"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
           "OptionColorInputOnValueChange": {
             "external": "azul_layout::widgets::color_input::OptionColorInputOnValueChange",
             "custom_impls": [
@@ -53349,6 +53803,29 @@
               }
             ],
             "repr": "C, u8"
+          },
+          "IconStyleOptions": {
+            "external": "azul_css::system::IconStyleOptions",
+            "derive": [
+              "Debug",
+              "Default",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "prefer_grayscale": {
+                  "type": "bool"
+                },
+                "tint_color": {
+                  "type": "OptionColorU"
+                },
+                "inherit_text_color": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -54838,12 +55315,7 @@
             ],
             "derive": [
               "Debug",
-              "Clone",
-              "PartialEq",
-              "Eq",
-              "PartialOrd",
-              "Ord",
-              "Hash"
+              "Clone"
             ],
             "struct_fields": [
               {
@@ -54861,6 +55333,14 @@
                 },
                 "termination_behavior": {
                   "type": "AppTerminationBehavior"
+                },
+                "icon_provider": {
+                  "type": "IconProviderHandle",
+                  "doc": [
+                    "Icon provider for the application.",
+                    "Register icons here before calling App::run().",
+                    "Each window will clone this provider (cheap, Arc-based)."
+                  ]
                 }
               }
             ],
@@ -56729,6 +57209,26 @@
                 },
                 "value": {
                   "type": "Json"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "SystemMetrics": {
+            "external": "azul_css::system::SystemMetrics",
+            "derive": [
+              "Debug",
+              "Default",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "corner_radius": {
+                  "type": "OptionPixelValue"
+                },
+                "border_width": {
+                  "type": "OptionPixelValue"
                 }
               }
             ],
