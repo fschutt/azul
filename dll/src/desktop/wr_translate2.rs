@@ -826,8 +826,12 @@ pub fn collect_font_resource_updates(
         let font_needs_registration = !renderer_resources.font_hash_map.contains_key(&font_hash);
 
         if font_needs_registration {
-            // Get the FontRef from the layout's font manager
-            if let Some(font_ref) = layout_window.font_manager.get_font_by_hash(font_hash) {
+            // First try to get embedded font (e.g. Material Icons)
+            // Then fall back to parsed font (fontconfig-loaded)
+            let font_ref = layout_window.font_manager.get_embedded_font_by_hash(font_hash)
+                .or_else(|| layout_window.font_manager.get_font_by_hash(font_hash));
+            
+            if let Some(font_ref) = font_ref {
                 log_debug!(
                     LogCategory::Rendering,
                     "[collect_font_resource_updates] Font found, parsed ptr: {:?}",
