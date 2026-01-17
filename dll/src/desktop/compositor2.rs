@@ -1881,18 +1881,15 @@ fn push_text(
         }
     };
 
-    // Translate glyph positions to absolute coordinates by adding container origin
-    // The glyphs have positions relative to (0,0) in LOGICAL pixels
-    // We need to:
-    // 1. Scale the glyph positions from logical to physical pixels
-    // 2. Add the container offset (which is already in physical pixels)
+    // Glyph positions are already absolute (container origin was added in paint_inline_content).
+    // We only need to scale from logical to physical pixels here.
     let wr_glyphs: Vec<_> = glyphs
         .iter()
         .map(|g| webrender::api::GlyphInstance {
             index: g.index,
             point: webrender::api::units::LayoutPoint::new(
-                container_origin.x + g.point.x * dpi_scale,
-                container_origin.y + g.point.y * dpi_scale,
+                g.point.x * dpi_scale,
+                g.point.y * dpi_scale,
             ),
         })
         .collect();
