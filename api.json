@@ -2365,8 +2365,10 @@
           },
           "IconProviderHandle": {
             "external": "azul_core::icon::IconProviderHandle",
-            "derive": [
-              "Clone"
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Default"
             ],
             "struct_fields": [
               {
@@ -2394,10 +2396,6 @@
                   }
                 ],
                 "fn_body": "azul_core::icon::IconProviderHandle::with_resolver(resolver)"
-              },
-              "default": {
-                "fn_args": [],
-                "fn_body": "azul_core::icon::IconProviderHandle::default()"
               }
             },
             "functions": {
@@ -12936,6 +12934,7 @@
                 "Text": {},
                 "Img": {},
                 "IFrame": {},
+                "Icon": {},
                 "Before": {},
                 "After": {},
                 "Marker": {},
@@ -23710,7 +23709,7 @@
           },
           "StyleVerticalAlign": {
             "doc": [
-              "Vertical text alignment enum (top, center, bottom) - default: `Top`"
+              "Vertical text alignment enum (baseline, top, middle, bottom, sub, super, text-top, text-bottom) - default: `Baseline`"
             ],
             "external": "azul_css::props::style::text::StyleVerticalAlign",
             "custom_impls": [
@@ -23728,13 +23727,28 @@
             ],
             "enum_fields": [
               {
+                "Baseline": {}
+              },
+              {
                 "Top": {}
               },
               {
-                "Center": {}
+                "Middle": {}
               },
               {
                 "Bottom": {}
+              },
+              {
+                "Sub": {}
+              },
+              {
+                "Superscript": {}
+              },
+              {
+                "TextTop": {}
+              },
+              {
+                "TextBottom": {}
               }
             ],
             "repr": "C"
@@ -47059,26 +47073,6 @@
             },
             "repr": "C"
           },
-          "Refstr": {
-            "external": "azul_core::gl::Refstr",
-            "custom_impls": [
-              "Clone",
-              "Debug",
-              "From"
-            ],
-            "struct_fields": [
-              {
-                "ptr": {
-                  "type": "c_void",
-                  "ref_kind": "constptr"
-                },
-                "len": {
-                  "type": "usize"
-                }
-              }
-            ],
-            "repr": "C"
-          },
           "StringPair": {
             "external": "azul_core::window::AzStringPair",
             "derive": [
@@ -51827,6 +51821,29 @@
               }
             ],
             "repr": "C, u8"
+          },
+          "OptionStringVec": {
+            "external": "azul_css::corety::OptionStringVec",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Hash",
+              "Eq",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "enum_fields": [
+              {
+                "None": {}
+              },
+              {
+                "Some": {
+                  "type": "StringVec"
+                }
+              }
+            ],
+            "repr": "C, u8"
           }
         }
       },
@@ -52535,29 +52552,6 @@
               {
                 "Some": {
                   "type": "u16"
-                }
-              }
-            ],
-            "repr": "C, u8"
-          },
-          "OptionStringVec": {
-            "external": "azul_css::corety::OptionStringVec",
-            "derive": [
-              "Debug",
-              "Clone",
-              "Hash",
-              "Eq",
-              "Ord",
-              "PartialEq",
-              "PartialOrd"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "StringVec"
                 }
               }
             ],
@@ -54779,28 +54773,6 @@
             ],
             "repr": "C"
           },
-          "FluentSyntaxError": {
-            "external": "azul_layout::fluent::FluentSyntaxError",
-            "derive": [
-              "Debug",
-              "Clone",
-              "PartialEq"
-            ],
-            "struct_fields": [
-              {
-                "message": {
-                  "type": "String"
-                },
-                "line": {
-                  "type": "u32"
-                },
-                "column": {
-                  "type": "u32"
-                }
-              }
-            ],
-            "repr": "C"
-          },
           "FluentSyntaxCheckResult": {
             "external": "azul_layout::fluent::FluentSyntaxCheckResult",
             "derive": [
@@ -55290,6 +55262,9 @@
           },
           "UrlParseError": {
             "external": "azul_layout::url::UrlParseError",
+            "custom_impls": [
+              "Display"
+            ],
             "derive": [
               "Debug",
               "Clone",

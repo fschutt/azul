@@ -368,9 +368,22 @@ impl PrintAsCssValue for StyleTextDecoration {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleVerticalAlign {
+    /// CSS default - align baselines
+    Baseline,
+    /// Align top of element with top of line box
     Top,
-    Center,
+    /// Align middle of element with baseline + half x-height
+    Middle,
+    /// Align bottom of element with bottom of line box
     Bottom,
+    /// Align baseline with parent's subscript baseline
+    Sub,
+    /// Align baseline with parent's superscript baseline
+    Superscript,
+    /// Align top with top of parent's font
+    TextTop,
+    /// Align bottom with bottom of parent's font
+    TextBottom,
 }
 
 impl_option!(
@@ -381,15 +394,20 @@ impl_option!(
 
 impl Default for StyleVerticalAlign {
     fn default() -> Self {
-        StyleVerticalAlign::Top
+        StyleVerticalAlign::Baseline
     }
 }
 impl PrintAsCssValue for StyleVerticalAlign {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
+            StyleVerticalAlign::Baseline => "baseline",
             StyleVerticalAlign::Top => "top",
-            StyleVerticalAlign::Center => "center",
+            StyleVerticalAlign::Middle => "middle",
             StyleVerticalAlign::Bottom => "bottom",
+            StyleVerticalAlign::Sub => "sub",
+            StyleVerticalAlign::Superscript => "super",
+            StyleVerticalAlign::TextTop => "text-top",
+            StyleVerticalAlign::TextBottom => "text-bottom",
         })
     }
 }
@@ -397,9 +415,14 @@ impl PrintAsCssValue for StyleVerticalAlign {
 impl crate::format_rust_code::FormatAsRustCode for StyleVerticalAlign {
     fn format_as_rust_code(&self, _: usize) -> String {
         match self {
+            StyleVerticalAlign::Baseline => "StyleVerticalAlign::Baseline",
             StyleVerticalAlign::Top => "StyleVerticalAlign::Top",
-            StyleVerticalAlign::Center => "StyleVerticalAlign::Center",
+            StyleVerticalAlign::Middle => "StyleVerticalAlign::Middle",
             StyleVerticalAlign::Bottom => "StyleVerticalAlign::Bottom",
+            StyleVerticalAlign::Sub => "StyleVerticalAlign::Sub",
+            StyleVerticalAlign::Superscript => "StyleVerticalAlign::Superscript",
+            StyleVerticalAlign::TextTop => "StyleVerticalAlign::TextTop",
+            StyleVerticalAlign::TextBottom => "StyleVerticalAlign::TextBottom",
         }
         .to_string()
     }
@@ -1529,9 +1552,14 @@ pub fn parse_style_vertical_align(
     input: &str,
 ) -> Result<StyleVerticalAlign, StyleVerticalAlignParseError> {
     match input.trim() {
+        "baseline" => Ok(StyleVerticalAlign::Baseline),
         "top" => Ok(StyleVerticalAlign::Top),
-        "center" => Ok(StyleVerticalAlign::Center),
+        "middle" => Ok(StyleVerticalAlign::Middle),
         "bottom" => Ok(StyleVerticalAlign::Bottom),
+        "sub" => Ok(StyleVerticalAlign::Sub),
+        "super" => Ok(StyleVerticalAlign::Superscript),
+        "text-top" => Ok(StyleVerticalAlign::TextTop),
+        "text-bottom" => Ok(StyleVerticalAlign::TextBottom),
         other => Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(
             other,
         ))),

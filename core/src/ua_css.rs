@@ -351,9 +351,9 @@ static PADDING_RIGHT_1PX: CssProperty =
 static TEXT_ALIGN_CENTER: CssProperty =
     CssProperty::TextAlign(CssPropertyValue::Exact(StyleTextAlign::Center));
 
-/// vertical-align: center (maps to CSS vertical-align: middle for table elements)
-static VERTICAL_ALIGN_CENTER: CssProperty =
-    CssProperty::VerticalAlign(CssPropertyValue::Exact(StyleVerticalAlign::Center));
+/// vertical-align: middle (for table elements)
+static VERTICAL_ALIGN_MIDDLE: CssProperty =
+    CssProperty::VerticalAlign(CssPropertyValue::Exact(StyleVerticalAlign::Middle));
 
 /// list-style-type: disc (default for <ul>)
 static LIST_STYLE_TYPE_DISC: CssProperty =
@@ -623,27 +623,27 @@ pub fn get_ua_property(
         (NT::Table, PT::Display) => Some(&DISPLAY_TABLE),
         // NOTE: Removed break-inside: avoid from Table - tables CAN break across pages
         (NT::THead, PT::Display) => Some(&DISPLAY_TABLE_HEADER_GROUP),
-        (NT::THead, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
+        (NT::THead, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_MIDDLE),
         (NT::THead, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::TBody, PT::Display) => Some(&DISPLAY_TABLE_ROW_GROUP),
-        (NT::TBody, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
+        (NT::TBody, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_MIDDLE),
         // NOTE: Removed break-inside: avoid from TBody - tbody CAN break across pages
         (NT::TFoot, PT::Display) => Some(&DISPLAY_TABLE_FOOTER_GROUP),
-        (NT::TFoot, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
+        (NT::TFoot, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_MIDDLE),
         (NT::TFoot, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::Tr, PT::Display) => Some(&DISPLAY_TABLE_ROW),
-        (NT::Tr, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
+        (NT::Tr, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_MIDDLE),
         (NT::Tr, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::Th, PT::Display) => Some(&DISPLAY_TABLE_CELL),
         (NT::Th, PT::TextAlign) => Some(&TEXT_ALIGN_CENTER),
         (NT::Th, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
-        (NT::Th, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
+        (NT::Th, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_MIDDLE),
         (NT::Th, PT::PaddingTop) => Some(&PADDING_TOP_1PX),
         (NT::Th, PT::PaddingBottom) => Some(&PADDING_BOTTOM_1PX),
         (NT::Th, PT::PaddingLeft) => Some(&PADDING_LEFT_1PX),
         (NT::Th, PT::PaddingRight) => Some(&PADDING_RIGHT_1PX),
         (NT::Td, PT::Display) => Some(&DISPLAY_TABLE_CELL),
-        (NT::Td, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_CENTER),
+        (NT::Td, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_MIDDLE),
         (NT::Td, PT::PaddingTop) => Some(&PADDING_TOP_1PX),
         (NT::Td, PT::PaddingBottom) => Some(&PADDING_BOTTOM_1PX),
         (NT::Td, PT::PaddingLeft) => Some(&PADDING_LEFT_1PX),

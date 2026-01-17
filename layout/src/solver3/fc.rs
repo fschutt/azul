@@ -351,6 +351,11 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
 ) -> Result<BfcLayoutResult> {
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
 
+    // BASELINE DEBUG: Print which FC is being laid out
+    let dom_id_str = node.dom_node_id.map(|id| format!("{:?}", id)).unwrap_or_else(|| "anon".to_string());
+    eprintln!("[FC ENTRY] node_index={} dom_id={} fc={:?} available_width={:.1}",
+        node_index, dom_id_str, node.formatting_context, constraints.available_size.width);
+
     debug_info!(
         ctx,
         "[layout_formatting_context] node_index={}, fc={:?}, available_size={:?}",
@@ -1901,6 +1906,20 @@ fn layout_ifc<T: ParsedFontTrait>(
         }
     }
 
+    // BASELINE DEBUG: Print all collected inline content
+    eprintln!("[IFC CONTENT] node_index={} collected {} items:", node_index, inline_content.len());
+    for (i, item) in inline_content.iter().enumerate() {
+        match item {
+            InlineContent::Text(run) => {
+                eprintln!("  [{}] Text: '{}' font_size={}", i, run.text, run.style.font_size_px);
+            }
+            InlineContent::Shape(_) => eprintln!("  [{}] Shape", i),
+            InlineContent::Image(_) => eprintln!("  [{}] Image", i),
+            InlineContent::Marker { run, .. } => eprintln!("  [{}] Marker: '{}'", i, run.text),
+            _ => eprintln!("  [{}] Other", i),
+        }
+    }
+
     debug_ifc_layout!(
         ctx,
         "Collected {} inline content items",
@@ -2426,8 +2445,24 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         .and_then(|s| s.get_property().copied())
         .unwrap_or_default();
 
-    // Note: vertical_align and text_orientation property getters not yet available, using defaults
-    let vertical_align = StyleVerticalAlign::default();
+    // Get vertical-align from CSS property cache (defaults to Baseline per CSS spec)
+    let vertical_align = styled_dom
+        .css_property_cache
+        .ptr
+        .get_vertical_align(node_data, &id, node_state)
+        .and_then(|s| s.get_property().copied())
+        .unwrap_or_default();
+
+    let vertical_align = match vertical_align {
+        StyleVerticalAlign::Baseline => text3::cache::VerticalAlign::Baseline,
+        StyleVerticalAlign::Top => text3::cache::VerticalAlign::Top,
+        StyleVerticalAlign::Middle => text3::cache::VerticalAlign::Middle,
+        StyleVerticalAlign::Bottom => text3::cache::VerticalAlign::Bottom,
+        StyleVerticalAlign::Sub => text3::cache::VerticalAlign::Sub,
+        StyleVerticalAlign::Superscript => text3::cache::VerticalAlign::Super,
+        StyleVerticalAlign::TextTop => text3::cache::VerticalAlign::TextTop,
+        StyleVerticalAlign::TextBottom => text3::cache::VerticalAlign::TextBottom,
+    };
     let text_orientation = text3::cache::TextOrientation::default();
 
     // Get the direction property from the CSS cache (defaults to LTR if not set)
@@ -2655,11 +2690,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             LayoutTextJustify::Distribute => text3::cache::JustifyContent::Distribute,
         },
         line_height: line_height_value.inner.normalized() * font_size, /* Resolve line-height relative to font-size */
-        vertical_align: match vertical_align {
-            StyleVerticalAlign::Top => text3::cache::VerticalAlign::Top,
-            StyleVerticalAlign::Center => text3::cache::VerticalAlign::Middle,
-            StyleVerticalAlign::Bottom => text3::cache::VerticalAlign::Bottom,
-        },
+        vertical_align, // CSS vertical-align property (defaults to Baseline)
     }
 }
 
@@ -4584,8 +4615,14 @@ fn position_table_cells<T: ParsedFontTrait>(
             // Calculate vertical offset based on alignment within content-box
             let align_factor = match vertical_align {
                 StyleVerticalAlign::Top => 0.0,
-                StyleVerticalAlign::Center => 0.5,
+                StyleVerticalAlign::Middle => 0.5,
                 StyleVerticalAlign::Bottom => 1.0,
+                // For inline text alignments within table cells, default to middle
+                StyleVerticalAlign::Baseline
+                | StyleVerticalAlign::Sub
+                | StyleVerticalAlign::Superscript
+                | StyleVerticalAlign::TextTop
+                | StyleVerticalAlign::TextBottom => 0.5,
             };
             let y_offset = (content_box_height - content_height) * align_factor;
 
@@ -4742,6 +4779,9 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
         children.len(),
         is_anonymous
     );
+
+    eprintln!("[IFC DEBUG] ifc_root_index={} is_anonymous={} ifc_root_dom_id={:?} num_children={}",
+        ifc_root_index, is_anonymous, ifc_root_dom_id, children.len());
 
     // For anonymous IFC wrappers, we collect content from layout tree children
     // For regular IFC roots, we also check DOM children for text nodes
@@ -5120,6 +5160,9 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
         dom_children.len()
     );
 
+    eprintln!("[IFC DOM] ifc_root_dom_id={:?} dom_children.len()={} ifc_root_node_type={}",
+        ifc_root_dom_id, dom_children.len(), ifc_root_node_type);
+
     for (item_idx, &dom_child_id) in dom_children.iter().enumerate() {
         let content_index = ContentIndex {
             run_index: ifc_root_index as u32,
@@ -5130,6 +5173,9 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
 
         // Check if this is a text node
         if let NodeType::Text(ref text_content) = node_data.get_node_type() {
+            let style = get_style_properties(ctx.styled_dom, dom_child_id);
+            eprintln!("[IFC COLLECT] ifc_root={} item_idx={} text='{}' font_size={:?}",
+                ifc_root_index, item_idx, text_content.as_str(), style.font_size_px);
             debug_info!(
                 ctx,
                 "[collect_and_measure_inline_content] OK: Found text node (DOM child {:?}): '{}'",
