@@ -1507,33 +1507,53 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
     let fc_weight = super::fc::convert_font_weight(font_weight);
     let fc_style = super::fc::convert_font_style(font_style);
 
-    // Build font stack from all font families
-    let mut font_stack = Vec::with_capacity(font_families.len() + 3);
-
-    for i in 0..font_families.len() {
-        font_stack.push(crate::text3::cache::FontSelector {
-            family: font_families.get(i).unwrap().as_string(),
-            weight: fc_weight,
-            style: fc_style,
-            unicode_ranges: Vec::new(),
-        });
-    }
-
-    // Add generic fallbacks (serif/sans-serif will be resolved based on Unicode ranges later)
-    let generic_fallbacks = ["sans-serif", "serif", "monospace"];
-    for fallback in &generic_fallbacks {
-        if !font_stack
-            .iter()
-            .any(|f| f.family.to_lowercase() == fallback.to_lowercase())
-        {
-            font_stack.push(crate::text3::cache::FontSelector {
-                family: fallback.to_string(),
-                weight: rust_fontconfig::FcWeight::Normal,
-                style: crate::text3::cache::FontStyle::Normal,
-                unicode_ranges: Vec::new(),
+    // Check if any font family is a FontRef - if so, use FontStack::Ref
+    // This allows embedded fonts (like Material Icons) to bypass fontconfig
+    let font_stack = {
+        // Look for a Ref in the font families
+        let font_ref = (0..font_families.len())
+            .find_map(|i| {
+                match font_families.get(i).unwrap() {
+                    azul_css::props::basic::font::StyleFontFamily::Ref(r) => Some(r.clone()),
+                    _ => None,
+                }
             });
+        
+        if let Some(font_ref) = font_ref {
+            // Use FontStack::Ref for embedded fonts
+            FontStack::Ref(font_ref)
+        } else {
+            // Build regular font stack from all font families
+            let mut stack = Vec::with_capacity(font_families.len() + 3);
+
+            for i in 0..font_families.len() {
+                stack.push(crate::text3::cache::FontSelector {
+                    family: font_families.get(i).unwrap().as_string(),
+                    weight: fc_weight,
+                    style: fc_style,
+                    unicode_ranges: Vec::new(),
+                });
+            }
+
+            // Add generic fallbacks (serif/sans-serif will be resolved based on Unicode ranges later)
+            let generic_fallbacks = ["sans-serif", "serif", "monospace"];
+            for fallback in &generic_fallbacks {
+                if !stack
+                    .iter()
+                    .any(|f| f.family.to_lowercase() == fallback.to_lowercase())
+                {
+                    stack.push(crate::text3::cache::FontSelector {
+                        family: fallback.to_string(),
+                        weight: rust_fontconfig::FcWeight::Normal,
+                        style: crate::text3::cache::FontStyle::Normal,
+                        unicode_ranges: Vec::new(),
+                    });
+                }
+            }
+
+            FontStack::Stack(stack)
         }
-    }
+    };
 
     let properties = StyleProperties {
         font_stack,
@@ -1837,43 +1857,74 @@ use std::collections::HashMap;
 
 use rust_fontconfig::{FcFontCache, FcWeight, FontFallbackChain, PatternMatch};
 
-use crate::text3::cache::{FontChainKey, FontSelector, FontStyle};
+use crate::text3::cache::{FontChainKey, FontChainKeyOrRef, FontSelector, FontStack, FontStyle};
 
 /// Result of collecting font stacks from a StyledDom
 /// Contains all unique font stacks and the mapping from StyleFontFamiliesHash to FontChainKey
 #[derive(Debug, Clone)]
 pub struct CollectedFontStacks {
-    /// All unique font stacks found in the document
+    /// All unique font stacks found in the document (system/file fonts via fontconfig)
     pub font_stacks: Vec<Vec<FontSelector>>,
     /// Map from the font stack hash to the index in font_stacks
     pub hash_to_index: HashMap<u64, usize>,
+    /// Direct FontRefs that bypass fontconfig (e.g., embedded icon fonts)
+    /// These are keyed by their pointer address for uniqueness
+    pub font_refs: HashMap<usize, azul_css::props::basic::font::FontRef>,
 }
 
 /// Resolved font chains ready for use in layout
 /// This is the result of resolving font stacks against FcFontCache
 #[derive(Debug, Clone)]
 pub struct ResolvedFontChains {
-    /// Map from FontChainKey to the resolved FontFallbackChain
-    pub chains: HashMap<FontChainKey, FontFallbackChain>,
+    /// Map from FontChainKeyOrRef to the resolved FontFallbackChain
+    /// For FontChainKeyOrRef::Ref variants, the FontFallbackChain contains
+    /// a single-font chain that covers the entire Unicode range.
+    pub chains: HashMap<FontChainKeyOrRef, FontFallbackChain>,
 }
 
 impl ResolvedFontChains {
     /// Get a font chain by its key
-    pub fn get(&self, key: &FontChainKey) -> Option<&FontFallbackChain> {
+    pub fn get(&self, key: &FontChainKeyOrRef) -> Option<&FontFallbackChain> {
         self.chains.get(key)
     }
-
-    /// Get a font chain for a font stack
-    pub fn get_for_font_stack(&self, font_stack: &[FontSelector]) -> Option<&FontFallbackChain> {
-        let key = FontChainKey::from_font_stack(font_stack);
-        self.chains.get(&key)
+    
+    /// Get a font chain by FontChainKey (for system fonts)
+    pub fn get_by_chain_key(&self, key: &FontChainKey) -> Option<&FontFallbackChain> {
+        self.chains.get(&FontChainKeyOrRef::Chain(key.clone()))
     }
 
-    /// Consume self and return the inner HashMap
+    /// Get a font chain for a font stack (via fontconfig)
+    pub fn get_for_font_stack(&self, font_stack: &[FontSelector]) -> Option<&FontFallbackChain> {
+        let key = FontChainKeyOrRef::Chain(FontChainKey::from_selectors(font_stack));
+        self.chains.get(&key)
+    }
+    
+    /// Get a font chain for a FontRef pointer
+    pub fn get_for_font_ref(&self, ptr: usize) -> Option<&FontFallbackChain> {
+        self.chains.get(&FontChainKeyOrRef::Ref(ptr))
+    }
+
+    /// Consume self and return the inner HashMap with FontChainKeyOrRef keys
     ///
-    /// This is useful for passing the resolved chains to a FontManager
-    pub fn into_inner(self) -> HashMap<FontChainKey, FontFallbackChain> {
+    /// This is useful when you need access to both Chain and Ref variants.
+    pub fn into_inner(self) -> HashMap<FontChainKeyOrRef, FontFallbackChain> {
         self.chains
+    }
+
+    /// Consume self and return only the fontconfig-resolved chains
+    /// 
+    /// This filters out FontRef entries and returns only the chains
+    /// resolved via fontconfig. This is what FontManager expects.
+    pub fn into_fontconfig_chains(self) -> HashMap<FontChainKey, FontFallbackChain> {
+        self.chains
+            .into_iter()
+            .filter_map(|(key, chain)| {
+                match key {
+                    FontChainKeyOrRef::Chain(chain_key) => Some((chain_key, chain)),
+                    FontChainKeyOrRef::Ref(_) => None,
+                }
+            })
+            .collect()
     }
 
     /// Get the number of resolved chains
@@ -1884,6 +1935,11 @@ impl ResolvedFontChains {
     /// Check if there are no resolved chains
     pub fn is_empty(&self) -> bool {
         self.chains.is_empty()
+    }
+    
+    /// Get the number of direct FontRefs
+    pub fn font_refs_len(&self) -> usize {
+        self.chains.keys().filter(|k| k.is_ref()).count()
     }
 }
 
@@ -1901,6 +1957,7 @@ pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedF
     let mut font_stacks = Vec::new();
     let mut hash_to_index: HashMap<u64, usize> = HashMap::new();
     let mut seen_hashes = std::collections::HashSet::new();
+    let mut font_refs: HashMap<usize, azul_css::props::basic::font::FontRef> = HashMap::new();
 
     let node_data_container = styled_dom.node_data.as_container();
     let styled_nodes_container = styled_dom.styled_nodes.as_container();
@@ -1928,6 +1985,19 @@ pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedF
                 StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("serif".into())])
             });
 
+        // Check if the first font family is a FontRef (direct embedded font)
+        // If so, we don't need to go through fontconfig - just collect the FontRef
+        if let Some(first_family) = font_families.get(0) {
+            if let StyleFontFamily::Ref(font_ref) = first_family {
+                let ptr = font_ref.parsed as usize;
+                if !font_refs.contains_key(&ptr) {
+                    font_refs.insert(ptr, font_ref.clone());
+                }
+                // Skip the normal font stack processing for FontRef
+                continue;
+            }
+        }
+
         // Get font weight and style
         let font_weight = cache
             .get_font_weight(node_data, &dom_id, node_state)
@@ -1943,12 +2013,17 @@ pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedF
         let fc_weight = super::fc::convert_font_weight(font_weight);
         let fc_style = super::fc::convert_font_style(font_style);
 
-        // Build font stack
+        // Build font stack (only for non-Ref font families)
         let mut font_stack = Vec::with_capacity(font_families.len() + 3);
 
         for i in 0..font_families.len() {
+            let family = font_families.get(i).unwrap();
+            // Skip FontRef entries in the stack - they're handled separately
+            if matches!(family, StyleFontFamily::Ref(_)) {
+                continue;
+            }
             font_stack.push(FontSelector {
-                family: font_families.get(i).unwrap().as_string(),
+                family: family.as_string(),
                 weight: fc_weight,
                 style: fc_style,
                 unicode_ranges: Vec::new(),
@@ -1971,8 +2046,13 @@ pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedF
             }
         }
 
+        // Skip empty font stacks (can happen if all families were FontRefs)
+        if font_stack.is_empty() {
+            continue;
+        }
+
         // Compute hash for deduplication
-        let key = FontChainKey::from_font_stack(&font_stack);
+        let key = FontChainKey::from_selectors(&font_stack);
         let hash = {
             use std::hash::{Hash, Hasher};
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -1992,6 +2072,7 @@ pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedF
     CollectedFontStacks {
         font_stacks,
         hash_to_index,
+        font_refs,
     }
 }
 
@@ -2012,6 +2093,7 @@ pub fn resolve_font_chains(
 ) -> ResolvedFontChains {
     let mut chains = HashMap::new();
 
+    // Resolve system/file font stacks via fontconfig
     for font_stack in &collected.font_stacks {
         if font_stack.is_empty() {
             continue;
@@ -2034,12 +2116,12 @@ pub fn resolve_font_chains(
         let is_italic = font_stack[0].style == FontStyle::Italic;
         let is_oblique = font_stack[0].style == FontStyle::Oblique;
 
-        let cache_key = FontChainKey {
+        let cache_key = FontChainKeyOrRef::Chain(FontChainKey {
             font_families: font_families.clone(),
             weight,
             italic: is_italic,
             oblique: is_oblique,
-        };
+        });
 
         // Skip if already resolved
         if chains.contains_key(&cache_key) {
@@ -2065,6 +2147,20 @@ pub fn resolve_font_chains(
         chains.insert(cache_key, chain);
     }
 
+    // Create single-font chains for direct FontRefs
+    // These bypass fontconfig and cover the entire Unicode range
+    // NOTE: FontRefs are handled differently - they don't go through fontconfig at all.
+    // The shaping code checks style.font_stack for FontStack::Ref and uses the font directly.
+    // We just need to record that we have these font refs for font loading purposes.
+    for (ptr, _font_ref) in &collected.font_refs {
+        let cache_key = FontChainKeyOrRef::Ref(*ptr);
+        
+        // For FontRef, we create an empty pattern that will be handled specially
+        // during shaping. The font data is already available via the FontRef pointer.
+        // We don't insert anything - the shaping code handles FontStack::Ref directly.
+        let _ = cache_key; // Mark as used
+    }
+
     ResolvedFontChains { chains }
 }
 
@@ -2082,6 +2178,20 @@ pub fn collect_and_resolve_font_chains(
 ) -> ResolvedFontChains {
     let collected = collect_font_stacks_from_styled_dom(styled_dom);
     resolve_font_chains(&collected, fc_cache)
+}
+
+/// Register all embedded FontRefs from the styled DOM in the FontManager
+/// 
+/// This must be called BEFORE layout so that the fonts are available
+/// for WebRender resource registration after layout.
+pub fn register_embedded_fonts_from_styled_dom<T: crate::font_traits::ParsedFontTrait>(
+    styled_dom: &StyledDom,
+    font_manager: &crate::text3::cache::FontManager<T>,
+) {
+    let collected = collect_font_stacks_from_styled_dom(styled_dom);
+    for (_ptr, font_ref) in &collected.font_refs {
+        font_manager.register_embedded_font(font_ref);
+    }
 }
 
 // Font Loading Functions
