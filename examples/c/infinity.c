@@ -118,7 +118,7 @@ int main() {
     window.window_state.size.dimensions.width = 800.0;
     window.window_state.size.dimensions.height = 600.0;
     
-    AzAppConfig config = AzAppConfig_default();
+    AzAppConfig config = AzAppConfig_create();
     AzApp app = AzApp_create(data, config);
     AzApp_run(&app, window);
     AzApp_delete(&app);

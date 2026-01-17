@@ -130,7 +130,7 @@ int main() {
     AzCallback on_create_cb = { .cb = (AzCallbackType)on_startup, .ctx = { .Some = { .tag = AzOptionRefAny_Tag_Some, .payload = AzRefAny_clone(&data) } } };
     window.create_callback = (AzOptionCallback){ .Some = { .tag = AzOptionCallback_Tag_Some, .payload = on_create_cb } };
     
-    AzAppConfig config = AzAppConfig_default();
+    AzAppConfig config = AzAppConfig_create();
     AzApp app = AzApp_create(data, config);
     AzApp_run(&app, window);
     AzApp_delete(&app);

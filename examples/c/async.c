@@ -229,7 +229,7 @@ int main(int argc, char** argv) {
     window.window_state.size.dimensions.height = 300.0;
     
     // Run application
-    AzAppConfig config = AzAppConfig_default();
+    AzAppConfig config = AzAppConfig_create();
     AzApp app = AzApp_create(data, config);
     AzApp_run(&app, window);
     AzApp_delete(&app);

@@ -1214,64 +1214,40 @@ impl CGenerator {
 
     /// Generate the C-API patch (additional macros for convenience)
     fn generate_capi_patch(&self, builder: &mut CodeBuilder) {
+        // NOTE: Most compile-time initializer macros (AzNodeData_new, AzDom_newStatic, 
+        // AzAppConfig_default) were REMOVED because they can easily get out of sync 
+        // with the actual Rust struct definitions.
+        //
+        // Users MUST call the corresponding _create() or _new() functions instead:
+        // - AzNodeData_createDiv() etc.
+        // - AzDom_createDiv() etc.
+        // - AzAppConfig_create()
+        //
+        // These functions properly initialize all fields via the Rust runtime and
+        // will always stay in sync with the struct definitions.
+        //
+        // EXCEPTION: AzString_fromConstStr is kept because it's only used internally
+        // by the AZ_REFLECT macro for type name debugging strings.
+
         builder.line("/* C99 Designated Initializers - only available in C, not C++ */");
         builder.line("#ifndef __cplusplus");
         builder.blank();
 
-        // AzString_fromConstStr macro
+        // AzString_fromConstStr macro - kept for AZ_REFLECT macro only
         builder.line("/* Macro to turn a compile-time string into a compile-time AzString");
+        builder.line(" * WARNING: Only use this for compile-time constant strings!");
+        builder.line(" * For runtime strings, use AzString_copyFromBytes() instead.");
         builder.line(" *");
         builder.line(" * static AzString foo = AzString_fromConstStr(\"MyString\");");
         builder.line(" */");
         builder.line("#define AzString_fromConstStr(s) { \\");
         builder.line("    .vec = { \\");
-        builder.line("        .ptr = s, \\");
+        builder.line("        .ptr = (const uint8_t*)(s), \\");
         builder.line("        .len = sizeof(s) - 1, \\");
         builder.line("        .cap = sizeof(s) - 1, \\");
         builder.line("        .destructor = { .NoDestructor = { .tag = AzU8VecDestructor_Tag_NoDestructor } }, \\");
+        builder.line("        .run_destructor = false, \\");
         builder.line("    } \\");
-        builder.line("}");
-        builder.blank();
-
-        // AzNodeData_new macro
-        builder.line("/* Macro to initialize a compile-time AzNodeData struct");
-        builder.line(" *");
-        builder.line(" * static AzNodeData foo = AzNodeData_new(AzNodeType_Div);");
-        builder.line(" */");
-        builder.line("#define AzNodeData_new(nt) { \\");
-        builder.line("    .node_type = nt, \\");
-        builder.line("    .dataset = AzOptionRefAny_None, \\");
-        builder.line("    .ids_and_classes = AzIdOrClassVec_empty, \\");
-        builder.line("    .attributes = AzAttributeVec_empty, \\");
-        builder.line("    .callbacks = AzCoreCallbackDataVec_empty, \\");
-        builder.line("    .inline_css_props = AzNodeDataInlineCssPropertyVec_empty, \\");
-        builder.line("    .tab_index = AzOptionTabIndex_None, \\");
-        builder.line("}");
-        builder.blank();
-
-        // AzDom_new macro (compile-time version)
-        builder.line("/* Macro to initialize a compile-time AzDom struct");
-        builder.line(" *");
-        builder.line(" * static AzDom foo = AzDom_new(AzNodeType_Div);");
-        builder.line(" */");
-        builder.line("#define AzDom_newStatic(nt) { \\");
-        builder.line("    .root = AzNodeData_new(nt),\\");
-        builder.line("    .children = AzDomVec_empty, \\");
-        builder.line("    .estimated_total_children = 0, \\");
-        builder.line("}");
-        builder.blank();
-
-        // AzAppConfig_default macro
-        builder.line("/* Macro to initialize the default AppConfig struct");
-        builder.line(" *");
-        builder.line(" * AzAppConfig foo = AzAppConfig_default();");
-        builder.line(" */");
-        builder.line("#define AzAppConfig_default(...) { \\");
-        builder.line("    .log_level = AzAppLogLevel_Error, \\");
-        builder.line("    .enable_visual_panic_hook = false, \\");
-        builder.line("    .enable_logging_on_panic = true, \\");
-        builder.line("    .enable_tab_navigation = true, \\");
-        builder.line("    .termination_behavior = AzAppTerminationBehavior_EndProcess, \\");
         builder.line("}");
         builder.blank();
 

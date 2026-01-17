@@ -17,7 +17,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 int main() {
     AzString empty_type = AzString_copyFromBytes((const uint8_t*)"", 0, 0);
     AzRefAny empty_data = AzRefAny_newC((AzGlVoidPtrConst){.ptr = NULL}, 0, 1, 0, empty_type, NULL);
-    AzAppConfig config = AzAppConfig_default();
+    AzAppConfig config = AzAppConfig_create();
     AzApp app = AzApp_create(empty_data, config);
     
     AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
