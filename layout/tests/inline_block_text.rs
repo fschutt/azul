@@ -383,3 +383,393 @@ fn test_text_wraps_at_constrained_width() {
     );
     println!("Text appears to wrap correctly (height indicates multiple lines)");
 }
+
+/// Test that inline text and inline-block elements are positioned horizontally
+/// This verifies the IFC (Inline Formatting Context) positions inline and inline-block
+/// elements on the same line.
+#[test]
+fn test_inline_text_and_inline_block_on_same_line() {
+    // HTML structure: inline text "5" followed by inline-block button
+    // Expected: both should be on the same horizontal line
+    //
+    // This test specifically checks that:
+    // 1. inline text and inline-block are on the same line
+    // 2. The button's X position is after the text (not at the left margin)
+    // 3. calculated_positions contains absolute positions (not relative)
+    let html = r#"
+    <html>
+        <head>
+            <style>
+                body { margin: 8px; }
+                .counter { font-size: 50px; display: inline; }
+                .button { 
+                    display: inline-block; 
+                    padding: 5px 10px;
+                    background: #efefef;
+                }
+            </style>
+        </head>
+        <body>
+            <span class="counter">5</span>
+            <span class="button">Increase counter</span>
+        </body>
+    </html>
+    "#;
+
+    let styled_dom = Dom::from_xml_string(html);
+
+    // Create font cache and font manager
+    let fc_cache = build_font_cache();
+    let mut font_manager = FontManager::new(fc_cache).expect("Failed to create font manager");
+
+    // Create layout cache and text cache
+    let mut layout_cache = Solver3LayoutCache {
+        tree: None,
+        calculated_positions: BTreeMap::new(),
+        viewport: None,
+        scroll_ids: BTreeMap::new(),
+        scroll_id_to_node_id: BTreeMap::new(),
+        counters: BTreeMap::new(),
+        float_cache: BTreeMap::new(),
+    };
+    let mut text_cache = TextLayoutCache::new();
+
+    let content_size = LogicalSize::new(400.0, 300.0);
+    let fragmentation_context = FragmentationContext::new_paged(content_size);
+
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: content_size,
+    };
+
+    let renderer_resources = RendererResources::default();
+    let mut debug_messages = Some(Vec::new());
+
+    let loader = PathLoader::new();
+    let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
+    let page_config = FakePageConfig::new();
+
+    let display_lists = layout_document_paged_with_config(
+        &mut layout_cache,
+        &mut text_cache,
+        fragmentation_context,
+        styled_dom,
+        viewport,
+        &mut font_manager,
+        &BTreeMap::new(),
+        &BTreeMap::new(),
+        &mut debug_messages,
+        None,
+        &renderer_resources,
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+        font_loader,
+        page_config,
+    )
+    .expect("Layout should succeed");
+
+    // Print debug messages
+    if let Some(msgs) = &debug_messages {
+        println!("\n=== Layout Debug Messages ===");
+        for msg in msgs.iter().take(50) {
+            println!("{}", msg.message);
+        }
+    }
+
+    // ===== CRITICAL: Check calculated_positions contains ABSOLUTE positions =====
+    // This is the data structure that get_node_position uses
+    println!("\n=== Calculated Positions (ABSOLUTE) ===");
+    for (layout_idx, pos) in &layout_cache.calculated_positions {
+        println!("Layout node {}: x={:.2}, y={:.2}", layout_idx, pos.x, pos.y);
+    }
+
+    // ===== Check the layout tree structure =====
+    if let Some(tree) = &layout_cache.tree {
+        println!("\n=== Layout Tree ===");
+        for (idx, node) in tree.nodes.iter().enumerate() {
+            let dom_idx = node.dom_node_id.map(|id| id.index() as i64).unwrap_or(-1);
+            let rel_pos = node.relative_position.map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
+            let abs_pos = layout_cache.calculated_positions.get(&idx).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
+            let fc = format!("{:?}", node.formatting_context);
+            
+            println!(
+                "  [{}] dom={:2}, fc={:20}, rel_pos={:15}, ABS_pos={}",
+                idx, dom_idx, fc, rel_pos, abs_pos
+            );
+        }
+    }
+
+    // Find all Text items
+    let text_items: Vec<_> = display_lists
+        .iter()
+        .flat_map(|dl| dl.items.iter())
+        .filter_map(|item| {
+            if let DisplayListItem::Text { glyphs, clip_rect, font_size_px, .. } = item {
+                Some((glyphs.len(), clip_rect.clone(), *font_size_px))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    println!("\n=== Text Items ===");
+    for (i, (glyph_count, clip_rect, font_size)) in text_items.iter().enumerate() {
+        println!(
+            "Text[{}]: {} glyphs, font_size={}, clip_rect=({}, {}) {}x{}",
+            i, glyph_count, font_size, 
+            clip_rect.origin.x, clip_rect.origin.y,
+            clip_rect.size.width, clip_rect.size.height
+        );
+    }
+
+    // Find Rect items (backgrounds)
+    let rect_items: Vec<_> = display_lists
+        .iter()
+        .flat_map(|dl| dl.items.iter())
+        .filter_map(|item| {
+            if let DisplayListItem::Rect { bounds, color, .. } = item {
+                Some((bounds.clone(), *color))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    println!("\n=== Rect Items ===");
+    for (i, (bounds, color)) in rect_items.iter().enumerate() {
+        println!(
+            "Rect[{}]: ({}, {}) {}x{} color=#{:02x}{:02x}{:02x}",
+            i, bounds.origin.x, bounds.origin.y,
+            bounds.size.width, bounds.size.height,
+            color.r, color.g, color.b
+        );
+    }
+
+    // The counter text (font-size 50px) and button should be on the same line
+    // "Same line" means they should have overlapping Y ranges or be very close
+    
+    assert!(text_items.len() >= 2, "Should have at least 2 text items (counter '5' and button text)");
+    
+    // The first text should be the counter "5" (1 glyph, font-size 50)
+    // The second should be "Increase counter" (16 glyphs, font-size ~16)
+    let counter_text = &text_items[0];
+    let button_text = &text_items[1];
+    
+    println!("\nCounter text: y={}", counter_text.1.origin.y);
+    println!("Button text: y={}", button_text.1.origin.y);
+    
+    // Find the button background (should be #efefef)
+    let button_bg = rect_items.iter().find(|(_, color)| {
+        color.r == 0xef && color.g == 0xef && color.b == 0xef
+    });
+    
+    if let Some((button_bounds, _)) = button_bg {
+        println!("Button background: x={}, y={}", button_bounds.origin.x, button_bounds.origin.y);
+        
+        // The button's X position should be after the counter text
+        // Counter is at body margin (8px) + counter width
+        // If inline/inline-block works correctly, button.x should be > 8 + counter_width
+        // NOT at x=8 which would indicate a new line
+        
+        // The counter "5" at 50px font size is roughly 25-35px wide
+        // So the button should be at x > 30 if on same line
+        // If button is at x < 20, it's on a new line (just body margin)
+        
+        // CRITICAL ASSERTION: Button should NOT be at the left margin
+        // If it is, the inline-block is being placed on a new line incorrectly
+        assert!(
+            button_bounds.origin.x > 30.0,
+            "FAIL: Button is at x={}, should be > 30 if on same line as counter. \
+             The inline-block is being placed on a NEW LINE instead of inline with the text!",
+            button_bounds.origin.x
+        );
+        
+        // Also check that button is NOT below the counter's baseline
+        // The counter at 50px has a line height of ~50px, starting at y=8 (margin)
+        // So counter occupies roughly y=8 to y=58
+        // Button should be within this range, not below it
+        let counter_y_start = 8.0; // body margin
+        let counter_line_height = 50.0;
+        let counter_y_end = counter_y_start + counter_line_height;
+        
+        assert!(
+            button_bounds.origin.y < counter_y_end + 10.0, // allow small tolerance
+            "FAIL: Button is at y={}, should be < {} (within counter's line). \
+             The inline-block is being placed BELOW the inline text!",
+            button_bounds.origin.y, counter_y_end
+        );
+        
+        println!("\nSUCCESS: Button is positioned inline with the counter text!");
+    } else {
+        panic!("Could not find button background rect");
+    }
+}
+
+/// Test for Live-App DOM structure: Body as root WITHOUT HTML wrapper
+/// This simulates what happens with Dom::create_body().with_child(text).with_child(button)
+#[test]
+fn test_body_as_root_inline_block_positioning() {
+    // Simulates the Live-App structure using the DOM API directly:
+    // Dom::create_body()
+    //   .with_child(label) // Text "5" with font-size: 50px
+    //   .with_child(button) // inline-block button
+    //
+    // NO HTML wrapper - body is the root node (DOM index 0)
+    use azul_core::dom::NodeData;
+    use azul_core::styled_dom::StyledDom;
+    
+    // Create the DOM structure programmatically (like the Live-App does)
+    let mut label = Dom::create_text("5");
+    label.set_inline_style("font-size: 50px; display: inline;");
+
+    let mut button = Dom::create_text("Increase counter");
+    button.set_inline_style("display: inline-block; padding: 5px 10px; background: #efefef;");
+
+    let styled_dom = Dom::create_body()
+        .with_child(label)
+        .with_child(button)
+        .style(azul_css::css::Css::empty());
+
+    // Create font cache and font manager
+    let fc_cache = build_font_cache();
+    let mut font_manager = FontManager::new(fc_cache).expect("Failed to create font manager");
+
+    // Create layout cache and text cache
+    let mut layout_cache = Solver3LayoutCache {
+        tree: None,
+        calculated_positions: BTreeMap::new(),
+        viewport: None,
+        scroll_ids: BTreeMap::new(),
+        scroll_id_to_node_id: BTreeMap::new(),
+        counters: BTreeMap::new(),
+        float_cache: BTreeMap::new(),
+    };
+    let mut text_cache = TextLayoutCache::new();
+
+    let content_size = LogicalSize::new(400.0, 300.0);
+    let fragmentation_context = FragmentationContext::new_paged(content_size);
+
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: content_size,
+    };
+
+    let renderer_resources = RendererResources::default();
+    let mut debug_messages = Some(Vec::new());
+
+    let loader = PathLoader::new();
+    let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
+    let page_config = FakePageConfig::new();
+
+    let display_lists = layout_document_paged_with_config(
+        &mut layout_cache,
+        &mut text_cache,
+        fragmentation_context,
+        styled_dom,
+        viewport,
+        &mut font_manager,
+        &BTreeMap::new(),
+        &BTreeMap::new(),
+        &mut debug_messages,
+        None,
+        &renderer_resources,
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+        font_loader,
+        page_config,
+    )
+    .expect("Layout should succeed");
+
+    // Print debug messages
+    if let Some(msgs) = &debug_messages {
+        println!("\n=== Layout Debug Messages ===");
+        for msg in msgs.iter().take(30) {
+            println!("{}", msg.message);
+        }
+    }
+
+    // ===== Check calculated_positions =====
+    println!("\n=== Calculated Positions (ABSOLUTE) ===");
+    for (layout_idx, pos) in &layout_cache.calculated_positions {
+        println!("Layout node {}: x={:.2}, y={:.2}", layout_idx, pos.x, pos.y);
+    }
+
+    // ===== Check the layout tree structure =====
+    if let Some(tree) = &layout_cache.tree {
+        println!("\n=== Layout Tree (Body as Root) ===");
+        for (idx, node) in tree.nodes.iter().enumerate() {
+            let dom_idx = node.dom_node_id.map(|id| id.index() as i64).unwrap_or(-1);
+            let rel_pos = node.relative_position.map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
+            let abs_pos = layout_cache.calculated_positions.get(&idx).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
+            let fc = format!("{:?}", node.formatting_context);
+            
+            println!(
+                "  [{}] dom={:2}, fc={:20}, rel_pos={:15}, ABS_pos={}",
+                idx, dom_idx, fc, rel_pos, abs_pos
+            );
+        }
+    }
+
+    // Find the button background rect
+    let rect_items: Vec<_> = display_lists
+        .iter()
+        .flat_map(|dl| dl.items.iter())
+        .filter_map(|item| {
+            if let DisplayListItem::Rect { bounds, color, .. } = item {
+                Some((bounds.clone(), *color))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    println!("\n=== Rect Items ===");
+    for (i, (bounds, color)) in rect_items.iter().enumerate() {
+        println!(
+            "Rect[{}]: ({}, {}) {}x{} color=#{:02x}{:02x}{:02x}",
+            i, bounds.origin.x, bounds.origin.y,
+            bounds.size.width, bounds.size.height,
+            color.r, color.g, color.b
+        );
+    }
+
+    // Find button background (#efefef)
+    let button_bg = rect_items.iter().find(|(_, color)| {
+        color.r == 0xef && color.g == 0xef && color.b == 0xef
+    });
+
+    if let Some((button_bounds, _)) = button_bg {
+        println!("\nButton background: x={}, y={}", button_bounds.origin.x, button_bounds.origin.y);
+
+        // CRITICAL: Button should be at x > 30 (after margin 8 + text ~25)
+        // If button is at x ~= 25 (just text width, no margin), the bug exists!
+        assert!(
+            button_bounds.origin.x > 30.0,
+            "BUG: Button is at x={:.1}, expected > 30 (margin 8 + text ~25). \
+             Body margin is NOT being applied to calculated_positions!",
+            button_bounds.origin.x
+        );
+
+        println!("\nSUCCESS: Body margin is correctly applied!");
+    } else {
+        println!("\nWARNING: Could not find button background rect (this may be ok if using different styling)");
+        // Still check calculated_positions for the inline-block node
+        if let Some(tree) = &layout_cache.tree {
+            // Find the inline-block node
+            for (idx, node) in tree.nodes.iter().enumerate() {
+                if matches!(node.formatting_context, azul_core::dom::FormattingContext::InlineBlock) {
+                    if let Some(pos) = layout_cache.calculated_positions.get(&idx) {
+                        println!("InlineBlock at layout idx {}: x={:.1}, y={:.1}", idx, pos.x, pos.y);
+                        assert!(
+                            pos.x > 30.0,
+                            "BUG: InlineBlock is at x={:.1}, expected > 30. Body margin not applied!",
+                            pos.x
+                        );
+                        println!("\nSUCCESS: Body margin is correctly applied!");
+                        return;
+                    }
+                }
+            }
+        }
+    }
+}

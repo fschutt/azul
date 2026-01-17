@@ -464,9 +464,25 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 viewport,
             );
 
+            // For ROOT nodes (no parent), we need to account for their margin.
+            // The containing block position from viewport is (0, 0), but the root's
+            // content starts at (margin + border + padding, margin + border + padding).
+            // We pass margin-adjusted position so calculate_content_box_pos works correctly.
+            let root_node = &new_tree.nodes[root_idx];
+            let is_root_with_margin = root_node.parent.is_none()
+                && (root_node.box_props.margin.left != 0.0 || root_node.box_props.margin.top != 0.0);
+
+            let adjusted_cb_pos = if is_root_with_margin {
+                LogicalPosition::new(
+                    cb_pos.x + root_node.box_props.margin.left,
+                    cb_pos.y + root_node.box_props.margin.top,
+                )
+            } else {
+                cb_pos
+            };
+
             // DEBUG: Log containing block info for this root
             if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
-                let root_node = &new_tree.nodes[root_idx];
                 let dom_name = root_node
                     .dom_node_id
                     .and_then(|id| new_dom.node_data.as_container().internal.get(id.index()))
@@ -476,16 +492,20 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 debug_msgs.push(LayoutDebugMessage::new(
                     LayoutDebugMessageType::PositionCalculation,
                     format!(
-                        "[LAYOUT ROOT {}] {} - CB pos=({:.2}, {:.2}), CB size=({:.2}x{:.2}), \
-                         viewport=({:.2}x{:.2})",
+                        "[LAYOUT ROOT {}] {} - CB pos=({:.2}, {:.2}), adjusted=({:.2}, {:.2}), \
+                         CB size=({:.2}x{:.2}), viewport=({:.2}x{:.2}), margin=({:.2}, {:.2})",
                         root_idx,
                         dom_name,
                         cb_pos.x,
                         cb_pos.y,
+                        adjusted_cb_pos.x,
+                        adjusted_cb_pos.y,
                         cb_size.width,
                         cb_size.height,
                         viewport.size.width,
-                        viewport.size.height
+                        viewport.size.height,
+                        root_node.box_props.margin.left,
+                        root_node.box_props.margin.top
                     ),
                 ));
             }
@@ -495,7 +515,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 &mut new_tree,
                 text_cache,
                 root_idx,
-                cb_pos,
+                adjusted_cb_pos,
                 cb_size,
                 &mut calculated_positions,
                 &mut reflow_needed_for_scrollbars,
@@ -505,8 +525,20 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // CRITICAL: Insert the root node's own position into calculated_positions
             // This is necessary because calculate_layout_for_subtree only inserts
             // positions for children, not for the root itself.
+            //
+            // For root nodes, the position should be at (margin.left, margin.top) relative
+            // to the viewport origin, because the margin creates space between the viewport
+            // edge and the element's border-box.
             if !calculated_positions.contains_key(&root_idx) {
                 let root_node = &new_tree.nodes[root_idx];
+
+                // Calculate the root's border-box position by adding margins to viewport origin
+                // This is different from non-root nodes which inherit their position from
+                // their containing block.
+                let root_position = LogicalPosition::new(
+                    cb_pos.x + root_node.box_props.margin.left,
+                    cb_pos.y + root_node.box_props.margin.top,
+                );
 
                 // DEBUG: Log root positioning
                 if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
@@ -519,12 +551,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     debug_msgs.push(LayoutDebugMessage::new(
                         LayoutDebugMessageType::PositionCalculation,
                         format!(
-                            "[ROOT POSITION {}] {} - Inserting position=({:.2}, {:.2}), \
+                            "[ROOT POSITION {}] {} - Inserting position=({:.2}, {:.2}) (viewport origin + margin), \
                              margin=({:.2}, {:.2}, {:.2}, {:.2})",
                             root_idx,
                             dom_name,
-                            cb_pos.x,
-                            cb_pos.y,
+                            root_position.x,
+                            root_position.y,
                             root_node.box_props.margin.top,
                             root_node.box_props.margin.right,
                             root_node.box_props.margin.bottom,
@@ -533,7 +565,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     ));
                 }
 
-                calculated_positions.insert(root_idx, cb_pos);
+                calculated_positions.insert(root_idx, root_position);
             }
         }
 

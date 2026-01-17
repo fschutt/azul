@@ -426,20 +426,44 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
                 viewport,
             );
 
+            // For ROOT nodes (no parent), we need to account for their margin.
+            // The containing block position from viewport is (0, 0), but the root's
+            // content starts at (margin + border + padding, margin + border + padding).
+            let root_node = &new_tree.nodes[root_idx];
+            let is_root_with_margin = root_node.parent.is_none()
+                && (root_node.box_props.margin.left != 0.0 || root_node.box_props.margin.top != 0.0);
+
+            let adjusted_cb_pos = if is_root_with_margin {
+                LogicalPosition::new(
+                    cb_pos.x + root_node.box_props.margin.left,
+                    cb_pos.y + root_node.box_props.margin.top,
+                )
+            } else {
+                cb_pos
+            };
+
             cache::calculate_layout_for_subtree(
                 &mut ctx,
                 &mut new_tree,
                 text_cache,
                 root_idx,
-                cb_pos,
+                adjusted_cb_pos,
                 cb_size,
                 &mut calculated_positions,
                 &mut reflow_needed_for_scrollbars,
                 &mut cache.float_cache,
             )?;
 
+            // For root nodes, the position should be at (margin.left, margin.top) relative
+            // to the viewport origin, because the margin creates space between the viewport
+            // edge and the element's border-box.
             if !calculated_positions.contains_key(&root_idx) {
-                calculated_positions.insert(root_idx, cb_pos);
+                let root_position = if is_root_with_margin {
+                    adjusted_cb_pos
+                } else {
+                    cb_pos
+                };
+                calculated_positions.insert(root_idx, root_position);
             }
         }
 
