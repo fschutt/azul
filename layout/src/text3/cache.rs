@@ -485,7 +485,6 @@ impl<T: ParsedFontTrait> FontManager<T> {
         let hash = font_ref.get_hash();
         let mut embedded = self.embedded_fonts.lock().unwrap();
         embedded.insert(hash, font_ref.clone());
-        eprintln!("[FontManager] Registered embedded font with hash {}", hash);
     }
 
     /// Get a snapshot of all currently loaded fonts
@@ -4681,16 +4680,13 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 let shaped_clusters_result: Result<Vec<ShapedCluster>, LayoutError> = match &style.font_stack {
                     FontStack::Ref(font_ref) => {
                         // For FontRef, use the font directly without fontconfig
-                        eprintln!("[FONTREF SHAPING] Using direct FontRef for text: '{}' (codepoints: {:?})", 
-                            item.text.chars().take(30).collect::<String>(),
-                            item.text.chars().take(5).map(|c| format!("U+{:04X}", c as u32)).collect::<Vec<_>>());
                         if let Some(msgs) = debug_messages {
                             msgs.push(LayoutDebugMessage::info(format!(
                                 "[TextLayout] Using direct FontRef for text: '{}'",
                                 item.text.chars().take(30).collect::<String>()
                             )));
                         }
-                        let result = shape_text_correctly(
+                        shape_text_correctly(
                             &item.text,
                             item.script,
                             language,
@@ -4698,23 +4694,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             font_ref,
                             style,
                             *source,
-                        );
-                        match &result {
-                            Ok(clusters) => {
-                                let glyph_count: usize = clusters.iter().map(|c| c.glyphs.len()).sum();
-                                eprintln!("[FONTREF SHAPING] Shaped {} clusters with {} total glyphs", 
-                                    clusters.len(), glyph_count);
-                                for (i, cluster) in clusters.iter().enumerate().take(3) {
-                                    eprintln!("[FONTREF SHAPING]   Cluster {}: {} glyphs, text='{}', glyph_ids={:?}",
-                                        i, cluster.glyphs.len(), cluster.text,
-                                        cluster.glyphs.iter().map(|g| g.glyph_id).collect::<Vec<_>>());
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("[FONTREF SHAPING] ERROR: {:?}", e);
-                            }
-                        }
-                        result
+                        )
                     }
                     FontStack::Stack(selectors) => {
                         // Build FontChainKey and resolve through fontconfig

@@ -728,15 +728,10 @@ pub fn collect_image_resource_updates(
         // Scan display list for Image items - now contains ImageRef directly
         for item in &layout_result.display_list.items {
             if let DisplayListItem::Image { image, .. } = item {
-                #[cfg(feature = "std")]
-                eprintln!("[IMAGE DEBUG] Found Image in display list with hash {:?}", image.get_hash());
                 images_in_display_list.insert(image.clone());
             }
         }
     }
-
-    #[cfg(feature = "std")]
-    eprintln!("[IMAGE DEBUG] Total images in display lists: {}", images_in_display_list.len());
 
     log_debug!(
         LogCategory::Rendering,
@@ -753,9 +748,6 @@ pub fn collect_image_resource_updates(
         &images_in_display_list,
         crate::desktop::gl_texture_integration::insert_into_active_gl_textures,
     );
-
-    #[cfg(feature = "std")]
-    eprintln!("[IMAGE DEBUG] build_add_image_resource_updates returned {} updates", image_updates.len());
 
     log_debug!(
         LogCategory::Rendering,
@@ -1201,20 +1193,12 @@ pub fn generate_frame(
     render_api: &mut WrRenderApi,
     display_list_was_rebuilt: bool,
 ) {
-    #[cfg(feature = "std")]
-    eprintln!("[GENERATE_FRAME] called with display_list_was_rebuilt={}", display_list_was_rebuilt);
-    
     let physical_size = layout_window.current_window_state.size.get_physical_size();
     let framebuffer_size =
         DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
 
-    #[cfg(feature = "std")]
-    eprintln!("[GENERATE_FRAME] framebuffer_size: {}x{}", framebuffer_size.width, framebuffer_size.height);
-
     // Don't render if window is minimized (width/height = 0)
     if framebuffer_size.width == 0 || framebuffer_size.height == 0 {
-        #[cfg(feature = "std")]
-        eprintln!("[GENERATE_FRAME] returning early - window minimized");
         return;
     }
 
@@ -1224,9 +1208,6 @@ pub fn generate_frame(
 
     // If display list was rebuilt, add resources and display lists to this transaction FIRST
     if display_list_was_rebuilt {
-        #[cfg(feature = "std")]
-        eprintln!("[GENERATE_FRAME] display_list_was_rebuilt=true, collecting resources");
-        
         log_debug!(
             LogCategory::Rendering,
             "[generate_frame] Display list was rebuilt - adding resources and display lists to \
@@ -2145,12 +2126,7 @@ pub fn build_webrender_transaction(
             })
             .collect();
         
-        #[cfg(feature = "std")]
-        eprintln!("[IMAGE DEBUG] wr_image_resources count: {}", wr_image_resources.len());
-        
         if !wr_image_resources.is_empty() {
-            #[cfg(feature = "std")]
-            eprintln!("[IMAGE DEBUG] Adding {} images to WebRender transaction!", wr_image_resources.len());
             log_debug!(
                 LogCategory::Rendering,
                 "[build_atomic_txn] Adding {} WebRender image resources to transaction",

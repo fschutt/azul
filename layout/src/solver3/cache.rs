@@ -1320,13 +1320,6 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
                 content_box_pos.x + child_rel_pos.x,
                 content_box_pos.y + child_rel_pos.y,
             );
-            
-            println!("[POSITION FLEX CHILD] child_index={} relative_pos=({}, {}) content_box_pos=({}, {}) => absolute_pos=({}, {})",
-                child_index,
-                child_rel_pos.x, child_rel_pos.y,
-                content_box_pos.x, content_box_pos.y,
-                child_abs_pos.x, child_abs_pos.y
-            );
 
             // Insert position
             calculated_positions.insert(child_index, child_abs_pos);
