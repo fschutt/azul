@@ -1510,10 +1510,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                 child_index
             );
 
-            // Merge positions from IFC output (inline-block children, etc.)
-            for (idx, pos) in ifc_result.output.positions {
-                output.positions.insert(idx, pos);
-            }
+            // NOTE: Do NOT merge positions from IFC output to parent BFC!
+            // The inline-block children are positioned by their direct layout parent
+            // (the IFC root node), not by this BFC. Merging would cause them to be
+            // positioned relative to the wrong parent's content-box.
         }
 
         output.positions.insert(child_index, final_pos);
@@ -2069,18 +2069,49 @@ fn layout_ifc<T: ParsedFontTrait>(
                     positioned_item.position.y
                 );
                 if let Some(&child_node_index) = child_map.get(source) {
+                    // FIX: Only insert positions for children that are direct layout children
+                    // of this IFC root. DOM traversal may find children that belong to
+                    // anonymous wrapper nodes in the layout tree, and those should be
+                    // positioned by their actual layout parent, not the DOM parent.
+                    let is_direct_layout_child = tree
+                        .get(node_index)
+                        .map(|n| n.children.contains(&child_node_index))
+                        .unwrap_or(false);
+
+                    if !is_direct_layout_child {
+                        debug_info!(
+                            ctx,
+                            "[layout_ifc] SKIPPING Object source=({}, {}) -> child_node_index={} (not a direct layout child of node {})",
+                            source.run_index,
+                            source.item_index,
+                            child_node_index,
+                            node_index
+                        );
+                        continue;
+                    }
+
+                    // FIX: text3 returns margin-box origin, but LayoutNode expects border-box origin.
+                    // We need to add margin-left and margin-top to convert coordinates.
+                    let (margin_left, margin_top) = if let Some(child_node) = tree.get(child_node_index) {
+                        (child_node.box_props.margin.left, child_node.box_props.margin.top)
+                    } else {
+                        (0.0, 0.0)
+                    };
+
                     let new_relative_pos = LogicalPosition {
-                        x: positioned_item.position.x,
-                        y: positioned_item.position.y,
+                        x: positioned_item.position.x + margin_left,
+                        y: positioned_item.position.y + margin_top,
                     };
                     debug_info!(
                         ctx,
-                        "[layout_ifc] Mapping Object source=({}, {}) to child_node_index={}, pos=({:.2}, {:.2})",
+                        "[layout_ifc] Mapping Object source=({}, {}) to child_node_index={}, pos=({:.2}, {:.2}) (margin: +{:.2}, +{:.2})",
                         source.run_index,
                         source.item_index,
                         child_node_index,
                         new_relative_pos.x,
-                        new_relative_pos.y
+                        new_relative_pos.y,
+                        margin_left,
+                        margin_top
                     );
                     output.positions.insert(child_node_index, new_relative_pos);
                 } else {
