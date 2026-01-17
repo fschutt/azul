@@ -91,38 +91,21 @@ pub extern "C" fn default_icon_resolver(
     original_icon_dom: &StyledDom,
     system_style: &SystemStyle,
 ) -> StyledDom {
-    #[cfg(feature = "std")]
-    eprintln!("[ICON DEBUG] default_icon_resolver called");
-    
     // No icon found → empty div
     let Some(mut data) = icon_data else {
-        #[cfg(feature = "std")]
-        eprintln!("[ICON DEBUG] icon_data is None - icon not found in registry");
         let mut dom = Dom::create_div();
         return StyledDom::create(&mut dom, Css::empty());
     };
     
-    #[cfg(feature = "std")]
-    eprintln!("[ICON DEBUG] icon_data found, type_name = '{}'", data.get_type_name().as_str());
-    
     // Try ImageIconData
     if let Some(img) = data.downcast_ref::<ImageIconData>() {
-        #[cfg(feature = "std")]
-        eprintln!("[ICON DEBUG] Matched ImageIconData: {}x{}", 
-            img.width, img.height);
         return create_image_icon_from_original(&*img, original_icon_dom, system_style);
     }
     
     // Try FontIconData
     if let Some(font_icon) = data.downcast_ref::<FontIconData>() {
-        #[cfg(feature = "std")]
-        eprintln!("[ICON DEBUG] Matched FontIconData: char='{}'", 
-            font_icon.icon_char);
         return create_font_icon_from_original(&*font_icon, original_icon_dom, system_style);
     }
-    
-    #[cfg(feature = "std")]
-    eprintln!("[ICON DEBUG] Unknown data type - returning empty div");
     
     // Unknown data type → empty div
     let mut dom = Dom::create_div();
@@ -504,8 +487,6 @@ pub fn register_embedded_material_icons(provider: &mut IconProviderHandle) -> bo
     let parsed_font = match ParsedFont::from_bytes(font_bytes, 0, &mut warnings) {
         Some(f) => f,
         None => {
-            #[cfg(feature = "std")]
-            eprintln!("[ICON] Failed to parse embedded Material Icons font");
             return false;
         }
     };
@@ -515,9 +496,6 @@ pub fn register_embedded_material_icons(provider: &mut IconProviderHandle) -> bo
     
     // Register all material icons
     register_material_icons(provider, font_ref);
-    
-    #[cfg(feature = "std")]
-    eprintln!("[ICON] Registered embedded Material Icons font with {} icons", 55);
     
     true
 }

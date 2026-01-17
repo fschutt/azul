@@ -207,7 +207,6 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                 let size = image_ref.get_size();
                 let width = if size.width > 0.0 { size.width } else { 100.0 };
                 let height = if size.height > 0.0 { size.height } else { 100.0 };
-                println!("[SIZING] Image node {} intrinsic size: {}x{}", node_index, width, height);
                 return Ok(IntrinsicSizes {
                     min_content_width: width,
                     max_content_width: width,

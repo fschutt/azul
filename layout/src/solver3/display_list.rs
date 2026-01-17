@@ -2105,13 +2105,6 @@ where
             // This node might be a simple replaced element, like an <img> tag.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             if let NodeType::Image(image_ref) = node_data.get_node_type() {
-                println!("[DISPLAY_LIST] Painting image for node {} at bounds: x={}, y={}, w={}, h={}",
-                    node_index,
-                    paint_rect.origin.x,
-                    paint_rect.origin.y,
-                    paint_rect.size.width,
-                    paint_rect.size.height
-                );
                 debug_info!(
                     self.ctx,
                     "Painting image for node {} at {:?}",

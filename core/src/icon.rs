@@ -560,27 +560,14 @@ pub fn resolve_icons_in_styled_dom_with_log(
 ) {
     use crate::log_debug;
     
-    #[cfg(feature = "std")]
-    eprintln!("[ICON RESOLVE] resolve_icons_in_styled_dom_with_log called");
-    
     // Step 1: Collect all icon nodes
     let icons = collect_icon_nodes(styled_dom);
-    
-    #[cfg(feature = "std")]
-    eprintln!("[ICON RESOLVE] Found {} icon nodes in StyledDom", icons.len());
     
     if icons.is_empty() {
         if let Some(ref mut log) = debug_log {
             log_debug!(log, Icon, "No icon nodes found in StyledDom");
         }
         return;
-    }
-    
-    #[cfg(feature = "std")]
-    for icon in &icons {
-        let has_icon = provider.has_icon(icon.icon_name.as_str());
-        eprintln!("[ICON RESOLVE]   - Icon '{}' at node {}: in_registry={}", 
-            icon.icon_name.as_str(), icon.node_idx, has_icon);
     }
     
     if let Some(ref mut log) = debug_log {
@@ -595,17 +582,6 @@ pub fn resolve_icons_in_styled_dom_with_log(
     // Step 2: Resolve all icons to their StyledDom representations
     // Note: We pass styled_dom to extract each icon's original node
     let replacements = resolve_collected_icons(&icons, styled_dom, provider, system_style);
-    
-    #[cfg(feature = "std")]
-    for replacement in &replacements {
-        let node_count = replacement.replacement.node_data.as_ref().len();
-        let node_type = replacement.replacement.node_data.as_ref()
-            .first()
-            .map(|n| format!("{:?}", n.get_node_type()))
-            .unwrap_or_else(|| "empty".to_string());
-        eprintln!("[ICON RESOLVE]   - Replacement at node {}: {} nodes, root type: {}", 
-            replacement.node_idx, node_count, node_type);
-    }
     
     if let Some(ref mut log) = debug_log {
         for replacement in &replacements {

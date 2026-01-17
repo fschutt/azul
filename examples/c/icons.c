@@ -20,70 +20,60 @@ AzString az_str(const char* s) {
 }
 
 AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
-    // Main container
+    // Simple vertical layout using just block elements
     AzDom root = AzDom_createDiv();
-    AzDom_setInlineStyle(&root, az_str("padding: 20px; flex-direction: column; gap: 16px;"));
+    AzDom_setInlineStyle(&root, az_str("padding: 20px; background-color: #fff;"));
     
     // Title
-    AzDom title = AzDom_createText(az_str("Icon System Demo"));
-    AzDom_setInlineStyle(&title, az_str("font-size: 24px; font-weight: bold; margin-bottom: 16px;"));
+    AzDom title = AzDom_createDiv();
+    AzDom title_text = AzDom_createText(az_str("Icon System Demo"));
+    AzDom_setInlineStyle(&title_text, az_str("font-size: 24px; font-weight: bold;"));
+    AzDom_addChild(&title, title_text);
     AzDom_addChild(&root, title);
     
-    // Description
-    AzDom desc = AzDom_createText(az_str("The favicon icon below is loaded from favicon.ico and registered via IconProviderHandle."));
-    AzDom_setInlineStyle(&desc, az_str("font-size: 14px; color: #666; margin-bottom: 20px;"));
+    // Description  
+    AzDom desc = AzDom_createDiv();
+    AzDom_setInlineStyle(&desc, az_str("margin-top: 16px;"));
+    AzDom desc_text = AzDom_createText(az_str("The favicon icon below is loaded from favicon.ico."));
+    AzDom_setInlineStyle(&desc_text, az_str("font-size: 14px; color: #666;"));
+    AzDom_addChild(&desc, desc_text);
     AzDom_addChild(&root, desc);
     
-    // Row with the registered favicon icon
-    AzDom icon_row = AzDom_createDiv();
-    AzDom_setInlineStyle(&icon_row, az_str("flex-direction: row; gap: 24px; align-items: center;"));
+    // Simple icon display - just the favicon
+    AzDom icon_container = AzDom_createDiv();
+    AzDom_setInlineStyle(&icon_container, az_str("margin-top: 20px; padding: 16px; background-color: #e8f4fd;"));
     
-    // Card for favicon
-    AzDom card = AzDom_createDiv();
-    AzDom_setInlineStyle(&card, az_str(
-        "flex-direction: column; align-items: center; padding: 16px; "
-        "background-color: #e8f4fd; border-radius: 8px; min-width: 100px;"
-    ));
-    
-    // Create the icon node - this will be resolved to the registered favicon
     AzDom favicon_icon = AzDom_createIcon(az_str("favicon"));
-    AzDom_setInlineStyle(&favicon_icon, az_str("width: 48px; height: 48px; margin-bottom: 8px;"));
-    AzDom_addChild(&card, favicon_icon);
+    AzDom_setInlineStyle(&favicon_icon, az_str("width: 48px; height: 48px;"));
+    AzDom_addChild(&icon_container, favicon_icon);
     
-    AzDom label = AzDom_createText(az_str("favicon"));
-    AzDom_setInlineStyle(&label, az_str("font-size: 12px; color: #666;"));
-    AzDom_addChild(&card, label);
+    AzDom_addChild(&root, icon_container);
     
-    AzDom_addChild(&icon_row, card);
+    // Material icons row
+    AzDom icons_label = AzDom_createDiv();
+    AzDom_setInlineStyle(&icons_label, az_str("margin-top: 20px;"));
+    AzDom icons_label_text = AzDom_createText(az_str("Material Icons:"));
+    AzDom_setInlineStyle(&icons_label_text, az_str("font-size: 14px;"));
+    AzDom_addChild(&icons_label, icons_label_text);
+    AzDom_addChild(&root, icons_label);
     
-    // Add some placeholder icons that won't resolve (no font pack registered)
-    const char* other_icons[] = {"home", "settings", "search"};
-    for (int i = 0; i < 3; i++) {
-        AzDom other_card = AzDom_createDiv();
-        AzDom_setInlineStyle(&other_card, az_str(
-            "flex-direction: column; align-items: center; padding: 16px; "
-            "background-color: #f0f0f0; border-radius: 8px; min-width: 80px;"
-        ));
-        
-        AzDom other_icon = AzDom_createIcon(az_str(other_icons[i]));
-        AzDom_setInlineStyle(&other_icon, az_str("font-size: 32px; margin-bottom: 8px;"));
-        AzDom_addChild(&other_card, other_icon);
-        
-        AzDom other_label = AzDom_createText(az_str(other_icons[i]));
-        AzDom_setInlineStyle(&other_label, az_str("font-size: 12px; color: #999;"));
-        AzDom_addChild(&other_card, other_label);
-        
-        AzDom_addChild(&icon_row, other_card);
-    }
+    // Icons in a simple container
+    AzDom icons_container = AzDom_createDiv();
+    AzDom_setInlineStyle(&icons_container, az_str("margin-top: 8px; padding: 16px; background-color: #f0f0f0;"));
     
-    AzDom_addChild(&root, icon_row);
+    AzDom home_icon = AzDom_createIcon(az_str("home"));
+    AzDom_setInlineStyle(&home_icon, az_str("font-size: 32px;"));
+    AzDom_addChild(&icons_container, home_icon);
     
-    // Note
-    AzDom note = AzDom_createText(az_str(
-        "Note: Only 'favicon' is registered. Other icons show as empty placeholders."
-    ));
-    AzDom_setInlineStyle(&note, az_str("font-size: 12px; color: #999; margin-top: 20px;"));
-    AzDom_addChild(&root, note);
+    AzDom settings_icon = AzDom_createIcon(az_str("settings"));
+    AzDom_setInlineStyle(&settings_icon, az_str("font-size: 32px;"));
+    AzDom_addChild(&icons_container, settings_icon);
+    
+    AzDom search_icon = AzDom_createIcon(az_str("search"));
+    AzDom_setInlineStyle(&search_icon, az_str("font-size: 32px;"));
+    AzDom_addChild(&icons_container, search_icon);
+    
+    AzDom_addChild(&root, icons_container);
     
     // Convert to StyledDom
     AzCss css = AzCss_empty();
