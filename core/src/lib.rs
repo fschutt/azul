@@ -49,6 +49,8 @@ pub mod glconst;
 pub mod gpu;
 /// Hit-testing module
 pub mod hit_test;
+/// Type-safe hit-test tag system for WebRender integration
+pub mod hit_test_tag;
 /// Internal, arena-based storage for Dom nodes
 pub mod id;
 /// Types for handling menus (context menu, menubar)

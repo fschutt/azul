@@ -20,7 +20,10 @@ extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> StyledD
     let mut button = button.dom();
     button.set_inline_style("flex-grow: 1");
 
-    Dom::create_body()
+    let mut body = Dom::create_body();
+    body.set_inline_style("background-color: green");
+    
+    body
         .with_child(label)
         .with_child(button)
         .style(Css::empty())

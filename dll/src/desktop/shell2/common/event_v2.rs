@@ -1108,6 +1108,8 @@ pub trait PlatformWindowV2 {
     /// Recursively processes events with depth limiting (max 5 levels) to prevent
     /// infinite loops from callbacks that regenerate the DOM.
     fn process_window_events_recursive_v2(&mut self, depth: usize) -> ProcessEventResult {
+        eprintln!("[DEBUG process_window_events_recursive_v2] depth={}", depth);
+        
         if depth >= MAX_EVENT_RECURSION_DEPTH {
             log_warn!(
                 super::debug_server::LogCategory::EventLoop,
@@ -1125,6 +1127,15 @@ pub trait PlatformWindowV2 {
             .unwrap_or(self.get_current_window_state());
 
         let current_state = self.get_current_window_state();
+
+        // DEBUG: Print state comparison for mouse buttons
+        eprintln!(
+            "[DEBUG process_window_events_recursive_v2] has_previous={}, \
+             prev.left_down={}, curr.left_down={}",
+            has_previous,
+            previous_state.mouse_state.left_down,
+            current_state.mouse_state.left_down
+        );
 
         // Get gesture manager for gesture detection (if available)
         let gesture_manager = self.get_layout_window().map(|lw| &lw.gesture_drag_manager);
@@ -1171,11 +1182,21 @@ pub trait PlatformWindowV2 {
                 timestamp,
             )
         } else {
+            eprintln!("[DEBUG process_window_events_recursive_v2] Missing managers!");
             // Fallback: no events if managers not available
             Vec::new()
         };
 
+        eprintln!(
+            "[DEBUG process_window_events_recursive_v2] synthetic_events.len()={}", 
+            synthetic_events.len()
+        );
+        for (i, ev) in synthetic_events.iter().enumerate() {
+            eprintln!("  Event[{}]: {:?}", i, ev.event_type);
+        }
+
         if synthetic_events.is_empty() {
+            eprintln!("[DEBUG process_window_events_recursive_v2] No events, returning DoNothing");
             return ProcessEventResult::DoNothing;
         }
 
@@ -1560,13 +1581,48 @@ pub trait PlatformWindowV2 {
 
         // EVENT FILTERING AND CALLBACK DISPATCH
 
+        // DEBUG: Log user events
+        eprintln!(
+            "[DEBUG process_window_events_recursive_v2] user_events.len()={}",
+            pre_filter.user_events.len()
+        );
+        for (i, ev) in pre_filter.user_events.iter().enumerate() {
+            eprintln!("  UserEvent[{}]: {:?}", i, ev.event_type);
+        }
+        
+        // DEBUG: Check hit test
+        if let Some(ref ht) = hit_test_for_dispatch {
+            eprintln!("[DEBUG process_window_events_recursive_v2] hit_test_for_dispatch: {} DOMs", ht.hovered_nodes.len());
+            for (dom_id, dom_ht) in &ht.hovered_nodes {
+                eprintln!("  DOM {} has {} nodes", dom_id.inner, dom_ht.regular_hit_test_nodes.len());
+                for (node_id, _) in dom_ht.regular_hit_test_nodes.iter() {
+                    eprintln!("    - NodeId={}", node_id.index());
+                }
+            }
+        } else {
+            eprintln!("[DEBUG process_window_events_recursive_v2] hit_test_for_dispatch is NONE!");
+        }
+
         // Dispatch user events to callbacks (internal events already processed)
         let dispatch_result = azul_core::events::dispatch_synthetic_events(
             &pre_filter.user_events,
             hit_test_for_dispatch.as_ref(),
         );
 
+        eprintln!(
+            "[DEBUG process_window_events_recursive_v2] dispatch_result: is_empty={}, callbacks.len()={}",
+            dispatch_result.is_empty(),
+            dispatch_result.callbacks.len()
+        );
+        for (i, cb) in dispatch_result.callbacks.iter().enumerate() {
+            eprintln!(
+                "  Callback[{}]: filter={:?}, target={:?}",
+                i, cb.event_filter, cb.target
+            );
+        }
+
         if dispatch_result.is_empty() {
+            eprintln!("[DEBUG process_window_events_recursive_v2] dispatch_result is empty, returning DoNothing");
             return ProcessEventResult::DoNothing;
         }
 
@@ -1584,6 +1640,11 @@ pub trait PlatformWindowV2 {
                 }
             })
             .collect();
+
+        eprintln!(
+            "[DEBUG process_window_events_recursive_v2] user_callbacks.len()={}",
+            user_callbacks.len()
+        );
 
         // USER CALLBACK INVOCATION
 

@@ -5340,6 +5340,19 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
 ) -> Result<UnifiedLayout, LayoutError> {
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(
+            "\n--- Entering perform_fragment_layout ---".to_string(),
+        ));
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Constraints: available_width={:?}, available_height={:?}, columns={}, text_wrap={:?}",
+            fragment_constraints.available_width,
+            fragment_constraints.available_height,
+            fragment_constraints.columns,
+            fragment_constraints.text_wrap
+        )));
+    }
+
     // For TextWrap::Balance, use Knuth-Plass algorithm for optimal line breaking
     // This produces more visually balanced lines at the cost of more computation
     if fragment_constraints.text_wrap == TextWrap::Balance {
@@ -5404,13 +5417,32 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         }
     };
     let mut current_column = 0;
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Column width calculated: {}",
+            column_width
+        )));
+    }
 
     // Use the CSS direction from constraints instead of auto-detecting from text
     // This ensures that mixed-direction text (e.g., "مرحبا - Hello") uses the
     // correct paragraph-level direction for alignment purposes
     let base_direction = fragment_constraints.direction.unwrap_or(BidiDirection::Ltr);
 
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "[PFLayout] Base direction: {:?} (from CSS), Text align: {:?}",
+            base_direction, fragment_constraints.text_align
+        )));
+    }
+
     'column_loop: while current_column < num_columns {
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "\n-- Starting Column {} --",
+                current_column
+            )));
+        }
         let column_start_x =
             (column_width + fragment_constraints.column_gap) * current_column as f32;
         let mut line_top_y = 0.0;
@@ -5537,6 +5569,19 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                 break;
             }
 
+            let line_text_before_rev: String = line_items
+                .iter()
+                .filter_map(|i| i.as_cluster())
+                .map(|c| c.text.as_str())
+                .collect();
+            if let Some(msgs) = debug_messages {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    // FIX: The log message was misleading. Items are in visual order.
+                    "[PFLayout] Line items from breaker (visual order): [{}]",
+                    line_text_before_rev
+                )));
+            }
+
             let (mut line_pos_items, line_height) = position_one_line(
                 line_items,
                 &line_constraints,
@@ -5561,13 +5606,26 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         current_column += 1;
     }
 
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "--- Exiting perform_fragment_layout, positioned {} items ---",
+            positioned_items.len()
+        )));
+    }
+
     let layout = UnifiedLayout {
         items: positioned_items,
         overflow: OverflowInfo::default(),
     };
 
     // Calculate bounds on demand via the bounds() method
-    let _calculated_bounds = layout.bounds();
+    let calculated_bounds = layout.bounds();
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "--- Calculated bounds: width={}, height={} ---",
+            calculated_bounds.width, calculated_bounds.height
+        )));
+    }
 
     Ok(layout)
 }
@@ -5967,6 +6025,17 @@ pub fn position_one_line<T: ParsedFontTrait>(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
 ) -> (Vec<PositionedItem>, f32) {
+    let line_text: String = line_items
+        .iter()
+        .filter_map(|i| i.as_cluster())
+        .map(|c| c.text.as_str())
+        .collect();
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "\n--- Entering position_one_line for line: [{}] ---",
+            line_text
+        )));
+    }
     // NEW: Resolve the final physical alignment here, inside the function.
     let physical_align = match (text_align, base_direction) {
         (TextAlign::Start, BidiDirection::Ltr) => TextAlign::Left,
@@ -5976,6 +6045,13 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // Physical alignments are returned as-is, regardless of direction.
         (other, _) => other,
     };
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "[Pos1Line] Physical align: {:?}",
+            physical_align
+        )));
+    }
+
     if line_items.is_empty() {
         return (Vec::new(), 0.0);
     }
@@ -6082,6 +6158,13 @@ pub fn position_one_line<T: ParsedFontTrait>(
         };
 
         let mut main_axis_pen = segment.start_x + alignment_offset;
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[Pos1Line] Segment width: {}, Item width: {}, Remaining space: {}, Initial pen: \
+                 {}",
+                segment.width, final_segment_width, remaining_space, main_axis_pen
+            )));
+        }
 
         // Apply text-indent only to the very first segment of the first line.
         if is_first_line_of_para && segment_idx == 0 {
@@ -6156,11 +6239,26 @@ pub fn position_one_line<T: ParsedFontTrait>(
                     y: main_axis_pen,
                 }
             } else {
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[Pos1Line] is_vertical=false, main_axis_pen={}, item_baseline_pos={}, \
+                         item_ascent={}",
+                        main_axis_pen, item_baseline_pos, item_ascent
+                    )));
+                }
+
                 // Check if this is an outside marker - if so, position it in the padding gutter
                 let x_position = if let ShapedItem::Cluster(cluster) = &item {
                     if cluster.marker_position_outside == Some(true) {
                         // Use marker_pen for sequential marker positioning
                         let marker_width = item_measure;
+                        if let Some(msgs) = debug_messages {
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "[Pos1Line] Outside marker detected! width={}, positioning at \
+                                 marker_pen={}",
+                                marker_width, marker_pen
+                            )));
+                        }
                         let pos = marker_pen;
                         marker_pen += marker_width; // Advance marker pen for next marker cluster
                         pos
@@ -6177,6 +6275,17 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 }
             };
 
+            // item_measure is calculated above for marker positioning
+            let item_text = item
+                .as_cluster()
+                .map(|c| c.text.as_str())
+                .unwrap_or("[OBJ]");
+            if let Some(msgs) = debug_messages {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "[Pos1Line] Positioning item '{}' at pen_x={}",
+                    item_text, main_axis_pen
+                )));
+            }
             positioned.push(PositionedItem {
                 item: item.clone(),
                 position,
@@ -6632,6 +6741,13 @@ fn get_line_constraints(
     constraints: &UnifiedConstraints,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> LineConstraints {
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "\n--- Entering get_line_constraints for y={} ---",
+            line_y
+        )));
+    }
+
     let mut available_segments = Vec::new();
     if constraints.shape_boundaries.is_empty() {
         // For MaxContent, use a very large width but NOT infinite
@@ -6649,6 +6765,13 @@ fn get_line_constraints(
         });
     } else {
         // ... complex boundary logic ...
+    }
+
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Initial available segments: {:?}",
+            available_segments
+        )));
     }
 
     for (idx, exclusion) in constraints.shape_exclusions.iter().enumerate() {
@@ -6702,9 +6825,24 @@ fn get_line_constraints(
             available_segments = merge_segments(next_segments);
             next_segments = Vec::new();
         }
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "  Segments after exclusion #{}: {:?}",
+                idx, available_segments
+            )));
+        }
     }
 
     let total_width = available_segments.iter().map(|s| s.width).sum();
+    if let Some(msgs) = debug_messages {
+        msgs.push(LayoutDebugMessage::info(format!(
+            "Final segments: {:?}, total available width: {}",
+            available_segments, total_width
+        )));
+        msgs.push(LayoutDebugMessage::info(
+            "--- Exiting get_line_constraints ---".to_string(),
+        ));
+    }
 
     LineConstraints {
         segments: available_segments,

@@ -84,6 +84,7 @@ use azul_css::{
         style::{
             border::{BorderStyle, LayoutBorderTopWidth, StyleBorderTopColor, StyleBorderTopStyle},
             content::CounterReset,
+            effects::StyleCursor,
             lists::StyleListStyleType,
             StyleTextAlign, StyleVerticalAlign,
         },
@@ -157,6 +158,14 @@ static DISPLAY_TABLE_COLUMN: CssProperty =
 /// display: list-item
 static DISPLAY_LIST_ITEM: CssProperty =
     CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::ListItem));
+
+/// cursor: pointer (for clickable elements like buttons, links)
+static CURSOR_POINTER: CssProperty =
+    CssProperty::Cursor(CssPropertyValue::Exact(StyleCursor::Pointer));
+
+/// cursor: text (for selectable text elements)
+static CURSOR_TEXT: CssProperty =
+    CssProperty::Cursor(CssPropertyValue::Exact(StyleCursor::Text));
 
 /// margin-top: 0
 static MARGIN_TOP_ZERO: CssProperty =
@@ -653,6 +662,7 @@ pub fn get_ua_property(
         (NT::Form, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Input, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::Button, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
+        (NT::Button, PT::Cursor) => Some(&CURSOR_POINTER),
         (NT::Select, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::TextArea, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::Label, PT::Display) => Some(&DISPLAY_INLINE),

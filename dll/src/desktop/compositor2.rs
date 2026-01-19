@@ -906,11 +906,24 @@ pub fn translate_displaylist_to_wr(
             DisplayListItem::HitTestArea { bounds, tag } => {
                 let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
 
-                // Create a hit test item with the provided tag
-                // The tag is a tuple of (u64, u16) where:
-                // - u64 encodes DomId and NodeId
-                // - u16 is for additional data (usually 0)
-                let item_tag: ItemTag = (*tag, 0);
+                // DEBUG: Draw a semi-transparent red rectangle to visualize hit-test areas
+                #[cfg(debug_assertions)]
+                {
+                    let debug_color = ColorF::new(1.0, 0.0, 0.0, 0.3); // Red with 30% opacity
+                    let debug_info = CommonItemProperties {
+                        clip_rect: rect,
+                        clip_chain_id: current_clip!(),
+                        spatial_id: current_spatial!(),
+                        flags: Default::default(),
+                    };
+                    builder.push_rect(&debug_info, rect, debug_color);
+                }
+
+                // Use the tag directly - it's already a (u64, u16) tuple
+                // where u16 contains the namespace marker:
+                // - 0x0100 = DOM Node (regular interactive elements)
+                // - 0x0200 = Scrollbar component
+                let item_tag: ItemTag = *tag;
 
                 // Use WebRender's push_hit_test to create a hittable area
                 // This is required for the hit tester to find items at cursor position

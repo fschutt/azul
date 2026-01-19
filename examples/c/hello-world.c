@@ -34,7 +34,9 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, label);
     AzDom_addChild(&body, button_dom);
 
-    AzCss css = AzCss_empty();
+    // DEBUG: Make body background green to check margin behavior
+    AzString css_string = AzString_copyFromBytes("body { background-color: green; }", 0, 33);
+    AzCss css = AzCss_fromString(css_string);
     return AzDom_style(&body, css);
 }
 

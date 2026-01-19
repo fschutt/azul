@@ -187,6 +187,10 @@ pub struct HitTestItem {
     pub is_focusable: bool,
     /// If this hit is an IFrame node, stores the IFrames DomId + the origin of the IFrame
     pub is_iframe_hit: Option<(DomId, LogicalPosition)>,
+    /// Z-order depth from WebRender hit test (0 = frontmost/topmost in z-order).
+    /// Lower values are closer to the user. This preserves the ordering from
+    /// WebRender's hit test results which returns items front-to-back.
+    pub hit_depth: u32,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]

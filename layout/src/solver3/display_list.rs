@@ -641,7 +641,11 @@ impl BorderRadius {
 
 // Dummy types for compilation
 pub type LocalScrollId = u64;
-pub type DisplayListTagId = u64;
+/// Display list tag ID as (payload, type_marker) tuple.
+/// The u16 field is used as a namespace marker:
+/// - 0x0100 = DOM Node (regular interactive elements)
+/// - 0x0200 = Scrollbar component
+pub type DisplayListTagId = (u64, u16);
 
 /// Internal builder to accumulate display list items during generation.
 #[derive(Debug, Default)]
@@ -2804,7 +2808,9 @@ fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<DisplayListTagId> {
     let styled_nodes = dom.styled_nodes.as_container();
     let styled_node = styled_nodes.get(node_id)?;
     let tag_id = styled_node.tag_id.into_option()?;
-    Some(tag_id.inner)
+    // Use TAG_TYPE_DOM_NODE (0x0100) as namespace marker in u16 field
+    // This distinguishes DOM nodes from scrollbars (0x0200) and other tag types
+    Some((tag_id.inner, 0x0100))
 }
 
 fn get_image_ref_for_image_source(

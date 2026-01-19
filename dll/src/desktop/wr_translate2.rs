@@ -339,7 +339,7 @@ pub fn translate_hit_test_result(
 
     let mut hovered_nodes: BTreeMap<DomId, HitTest> = BTreeMap::new();
 
-    for item in wr_result.items {
+    for (depth, item) in wr_result.items.into_iter().enumerate() {
         // Extract DomId and NodeId from tag
         // Tag encoding: (tag_value, tag_type)
         // For DOM nodes, we encode: (dom_id << 32) | node_id
@@ -366,6 +366,7 @@ pub fn translate_hit_test_result(
             point_relative_to_item,
             is_focusable: false, // TODO: Determine from node data
             is_iframe_hit: None, // IFrames handled via DisplayListItem::IFrame
+            hit_depth: depth as u32,
         };
 
         hovered_nodes
@@ -383,43 +384,60 @@ pub fn translate_hit_test_result(
 
 /// Translate ScrollbarHitId to WebRender ItemTag
 ///
-/// Encoding scheme:
-/// - Bits 0-31: NodeId.index() (32 bits)
-/// - Bits 32-61: DomId.inner (30 bits)
-/// - Bits 62-63: Component type (2 bits)
-///   - 00 = VerticalTrack
-///   - 01 = VerticalThumb
-///   - 10 = HorizontalTrack
-///   - 11 = HorizontalThumb
+/// Encoding scheme using the type-safe hit_test_tag system:
+/// - tag.0 (u64): DomId (upper 32 bits) | NodeId (lower 32 bits)
+/// - tag.1 (u16): TAG_TYPE_SCROLLBAR (0x0200) | component type (lower byte)
+///   - 0x0200 = Vertical Track
+///   - 0x0201 = Vertical Thumb
+///   - 0x0202 = Horizontal Track
+///   - 0x0203 = Horizontal Thumb
 pub fn wr_translate_scrollbar_hit_id(
     hit_id: azul_core::hit_test::ScrollbarHitId,
 ) -> (webrender::api::ItemTag, webrender::api::units::LayoutPoint) {
     use azul_core::hit_test::ScrollbarHitId;
 
+    // TAG_TYPE_SCROLLBAR namespace marker
+    const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
+
     let (dom_id, node_id, component_type) = match hit_id {
-        ScrollbarHitId::VerticalTrack(dom_id, node_id) => (dom_id, node_id, 0u64),
-        ScrollbarHitId::VerticalThumb(dom_id, node_id) => (dom_id, node_id, 1u64),
-        ScrollbarHitId::HorizontalTrack(dom_id, node_id) => (dom_id, node_id, 2u64),
-        ScrollbarHitId::HorizontalThumb(dom_id, node_id) => (dom_id, node_id, 3u64),
+        ScrollbarHitId::VerticalTrack(dom_id, node_id) => (dom_id, node_id, 0u16),
+        ScrollbarHitId::VerticalThumb(dom_id, node_id) => (dom_id, node_id, 1u16),
+        ScrollbarHitId::HorizontalTrack(dom_id, node_id) => (dom_id, node_id, 2u16),
+        ScrollbarHitId::HorizontalThumb(dom_id, node_id) => (dom_id, node_id, 3u16),
     };
 
-    let tag = (dom_id.inner as u64) << 32 | (node_id.index() as u64) | (component_type << 62);
+    // tag.0 = DomId (upper 32 bits) | NodeId (lower 32 bits)
+    let tag_value = ((dom_id.inner as u64) << 32) | (node_id.index() as u64);
+    // tag.1 = TAG_TYPE_SCROLLBAR | component type
+    let tag_type = TAG_TYPE_SCROLLBAR | component_type;
 
     // Return tag as (u64, u16) tuple
-    ((tag, 0), webrender::api::units::LayoutPoint::zero())
+    ((tag_value, tag_type), webrender::api::units::LayoutPoint::zero())
 }
 
 /// Translate WebRender ItemTag back to ScrollbarHitId
 ///
 /// Returns None if the tag doesn't represent a scrollbar hit.
+/// Scrollbar tags are identified by tag.1 having TAG_TYPE_SCROLLBAR (0x0200) in upper byte.
 pub fn translate_item_tag_to_scrollbar_hit_id(
     tag: webrender::api::ItemTag,
 ) -> Option<azul_core::hit_test::ScrollbarHitId> {
     use azul_core::{dom::DomId, hit_test::ScrollbarHitId, id::NodeId};
 
-    let (tag_value, _) = tag;
-    let component_type = (tag_value >> 62) & 0x3;
-    let dom_id_value = ((tag_value >> 32) & 0x3FFFFFFF) as usize;
+    const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
+
+    let (tag_value, tag_type) = tag;
+    
+    // Check if this is a scrollbar tag by examining the upper byte of tag.1
+    if (tag_type & 0xFF00) != TAG_TYPE_SCROLLBAR {
+        // Not a scrollbar tag - it's a DOM node or other type
+        return None;
+    }
+    
+    // Extract component type from lower byte of tag.1
+    let component_type = tag_type & 0x00FF;
+    // Extract DomId and NodeId from tag.0
+    let dom_id_value = ((tag_value >> 32) & 0xFFFFFFFF) as usize;
     let node_id_value = (tag_value & 0xFFFFFFFF) as usize;
 
     let dom_id = DomId {
@@ -496,10 +514,13 @@ pub fn fullhittest_new_webrender(
             let wr_result = wr_hittester.hit_test(physical_pos);
 
             // Convert WebRender hit test results to azul hit test items
+            // WebRender returns items in z-order (front to back), so we use
+            // enumerate() to capture this ordering in hit_depth.
             let hit_items = wr_result
                 .items
                 .iter()
-                .filter_map(|i| {
+                .enumerate()
+                .filter_map(|(depth, i)| {
                     // Map WebRender tag to DOM node ID
                     let node_id = layout_result
                         .styled_dom
@@ -529,6 +550,7 @@ pub fn fullhittest_new_webrender(
                                 .get(node_id)?
                                 .get_tab_index()
                                 .is_some(),
+                            hit_depth: depth as u32,
                         },
                     ))
                 })

@@ -1134,9 +1134,10 @@ impl LayoutWindow {
         let tag_id = styled_nodes.get(nid)?.tag_id.into_option()?.inner;
 
         // Search the display list for a HitTestArea with matching tag
+        // Note: tag is now (u64, u16) tuple where tag.0 is the TagId.inner
         for item in &layout_result.display_list.items {
             if let DisplayListItem::HitTestArea { bounds, tag } = item {
-                if *tag == tag_id && bounds.size.width > 0.0 && bounds.size.height > 0.0 {
+                if tag.0 == tag_id && bounds.size.width > 0.0 && bounds.size.height > 0.0 {
                     return Some(*bounds);
                 }
             }
@@ -5493,7 +5494,30 @@ impl LayoutWindow {
                 // Use layout tree from layout_result, not layout_cache
                 let tree = &layout_result.layout_tree;
                 
-                for (node_id, hit_item) in &hit.regular_hit_test_nodes {
+                // Sort by DOM depth (deepest first) to prefer specific text nodes over containers.
+                // We count the actual number of parents to determine DOM depth properly.
+                // Secondary sort by NodeId for deterministic ordering within the same depth.
+                let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+                let get_dom_depth = |node_id: &NodeId| -> usize {
+                    let mut depth = 0;
+                    let mut current = *node_id;
+                    while let Some(parent) = node_hierarchy.get(current).and_then(|h| h.parent_id()) {
+                        depth += 1;
+                        current = parent;
+                    }
+                    depth
+                };
+                
+                let mut sorted_hits: Vec<_> = hit.regular_hit_test_nodes.iter().collect();
+                sorted_hits.sort_by(|(a_id, _), (b_id, _)| {
+                    let depth_a = get_dom_depth(a_id);
+                    let depth_b = get_dom_depth(b_id);
+                    // Higher depth = deeper in DOM = should come first
+                    // Then sort by NodeId for deterministic order within same depth
+                    depth_b.cmp(&depth_a).then_with(|| a_id.index().cmp(&b_id.index()))
+                });
+                
+                for (node_id, hit_item) in sorted_hits {
                     // Check if text is selectable
                     if !self.is_text_selectable(&layout_result.styled_dom, *node_id) {
                         continue;

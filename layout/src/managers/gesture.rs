@@ -527,6 +527,12 @@ impl GestureAndDragManager {
         tilt: (f32, f32),
         touch_radius: (f32, f32),
     ) -> u64 {
+        // Clear all ended sessions before starting a new one.
+        // This prevents multiple sequential mouse clicks from being
+        // misinterpreted as multi-touch gestures (pinch, rotate).
+        // Only keep sessions that are still active (not ended).
+        self.input_sessions.retain(|session| !session.ended);
+
         let session_id = self.next_session_id;
         self.next_session_id += 1;
 

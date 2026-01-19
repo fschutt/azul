@@ -2883,7 +2883,7 @@ fn process_debug_event(
                                 y: Some(bounds.origin.y),
                                 width: Some(bounds.size.width),
                                 height: Some(bounds.size.height),
-                                debug_info: Some(format!("tag:{}", tag)),
+                                debug_info: Some(format!("tag:({},0x{:04X})", tag.0, tag.1)),
                                 clip_depth: Some(clip_depth),
                                 scroll_depth: Some(scroll_depth),
                                 ..Default::default()

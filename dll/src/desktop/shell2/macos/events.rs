@@ -110,21 +110,38 @@ impl MacOSWindow {
 
         // DEBUG: Log mouse down event details
         eprintln!(
-            "[DEBUG handle_mouse_down] raw_location=({:.1}, {:.1}), window_height={:.1}, \
-             converted_position=({:.1}, {:.1}), button={:?}",
-            location.x, location.y, window_height, position.x, position.y, button
+            "\n[DEBUG handle_mouse_down] =========================================="
+        );
+        eprintln!(
+            "[DEBUG handle_mouse_down] raw_location=({:.1}, {:.1}), window_height={:.1}",
+            location.x, location.y, window_height
+        );
+        eprintln!(
+            "[DEBUG handle_mouse_down] converted_position=({:.1}, {:.1}), button={:?}",
+            position.x, position.y, button
+        );
+        eprintln!(
+            "[DEBUG handle_mouse_down] BEFORE: left_down={}, right_down={}, middle_down={}",
+            self.current_window_state.mouse_state.left_down,
+            self.current_window_state.mouse_state.right_down,
+            self.current_window_state.mouse_state.middle_down
         );
 
         // Check for scrollbar hit FIRST (before state changes)
         // Use trait method from PlatformWindowV2
         if let Some(scrollbar_hit_id) = PlatformWindowV2::perform_scrollbar_hit_test(self, position)
         {
+            eprintln!("[DEBUG handle_mouse_down] HIT SCROLLBAR, returning early");
             let result = PlatformWindowV2::handle_scrollbar_click(self, scrollbar_hit_id, position);
             return Self::convert_process_result(result);
         }
 
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
+        eprintln!(
+            "[DEBUG handle_mouse_down] Saved previous_state, prev.left_down={}",
+            self.previous_window_state.as_ref().map(|s| s.mouse_state.left_down).unwrap_or(false)
+        );
 
         // Update mouse state
         self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
@@ -136,6 +153,13 @@ impl MacOSWindow {
             MouseButton::Middle => self.current_window_state.mouse_state.middle_down = true,
             _ => {}
         }
+        
+        eprintln!(
+            "[DEBUG handle_mouse_down] AFTER: left_down={}, right_down={}, middle_down={}",
+            self.current_window_state.mouse_state.left_down,
+            self.current_window_state.mouse_state.right_down,
+            self.current_window_state.mouse_state.middle_down
+        );
 
         // Record input sample for gesture detection (button down starts new session)
         let button_state = match button {
@@ -148,13 +172,33 @@ impl MacOSWindow {
 
         // Perform hit testing and update last_hit_test
         self.update_hit_test(position);
+        
+        // DEBUG: Print hit test results
+        if let Some(ref lw) = self.layout_window {
+            use azul_layout::managers::hover::InputPointId;
+            if let Some(ht) = lw.hover_manager.get_current(&InputPointId::Mouse) {
+                eprintln!("[DEBUG handle_mouse_down] Hit test results:");
+                for (dom_id, dom_ht) in &ht.hovered_nodes {
+                    for (node_id, _) in dom_ht.regular_hit_test_nodes.iter() {
+                        eprintln!("  - DomId={}, NodeId={}", dom_id.inner, node_id.index());
+                    }
+                }
+            } else {
+                eprintln!("[DEBUG handle_mouse_down] No hit test result from hover_manager!");
+            }
+        } else {
+            eprintln!("[DEBUG handle_mouse_down] No layout_window!");
+        }
 
         // Use V2 cross-platform event system - it will automatically:
         // - Detect MouseDown event (left/right/middle)
         // - Dispatch to hovered nodes (including CSD buttons with callbacks)
         // - Handle event propagation
         // - Process callback results recursively
+        eprintln!("[DEBUG handle_mouse_down] Calling process_window_events_recursive_v2(0)...");
         let result = self.process_window_events_recursive_v2(0);
+        eprintln!("[DEBUG handle_mouse_down] Result: {:?}", result);
+        eprintln!("[DEBUG handle_mouse_down] ==========================================\n");
 
         Self::convert_process_result(result)
     }
