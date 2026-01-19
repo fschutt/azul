@@ -1510,10 +1510,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                 child_index
             );
 
-            // NOTE: Do NOT merge positions from IFC output to parent BFC!
-            // The inline-block children are positioned by their direct layout parent
-            // (the IFC root node), not by this BFC. Merging would cause them to be
-            // positioned relative to the wrong parent's content-box.
+            // Merge positions from IFC output (inline-block children, etc.)
+            for (idx, pos) in ifc_result.output.positions {
+                output.positions.insert(idx, pos);
+            }
         }
 
         output.positions.insert(child_index, final_pos);
@@ -2052,87 +2052,16 @@ fn layout_ifc<T: ParsedFontTrait>(
         node.baseline = output.baseline;
 
         // Position all the inline-block children based on text3's calculations.
-        debug_info!(
-            ctx,
-            "[layout_ifc] Processing {} positioned items, child_map has {} entries",
-            main_frag.items.len(),
-            child_map.len()
-        );
         for positioned_item in &main_frag.items {
             if let ShapedItem::Object { source, content, .. } = &positioned_item.item {
-                debug_info!(
-                    ctx,
-                    "[layout_ifc] Found Object with source=({}, {}), position=({:.2}, {:.2})",
-                    source.run_index,
-                    source.item_index,
-                    positioned_item.position.x,
-                    positioned_item.position.y
-                );
                 if let Some(&child_node_index) = child_map.get(source) {
-                    // FIX: Only insert positions for children that are direct layout children
-                    // of this IFC root. DOM traversal may find children that belong to
-                    // anonymous wrapper nodes in the layout tree, and those should be
-                    // positioned by their actual layout parent, not the DOM parent.
-                    let is_direct_layout_child = tree
-                        .get(node_index)
-                        .map(|n| n.children.contains(&child_node_index))
-                        .unwrap_or(false);
-
-                    if !is_direct_layout_child {
-                        debug_info!(
-                            ctx,
-                            "[layout_ifc] SKIPPING Object source=({}, {}) -> child_node_index={} (not a direct layout child of node {})",
-                            source.run_index,
-                            source.item_index,
-                            child_node_index,
-                            node_index
-                        );
-                        continue;
-                    }
-
-                    // FIX: text3 returns margin-box origin, but LayoutNode expects border-box origin.
-                    // We need to add margin-left and margin-top to convert coordinates.
-                    let (margin_left, margin_top) = if let Some(child_node) = tree.get(child_node_index) {
-                        (child_node.box_props.margin.left, child_node.box_props.margin.top)
-                    } else {
-                        (0.0, 0.0)
-                    };
-
                     let new_relative_pos = LogicalPosition {
-                        x: positioned_item.position.x + margin_left,
-                        y: positioned_item.position.y + margin_top,
+                        x: positioned_item.position.x,
+                        y: positioned_item.position.y,
                     };
-                    debug_info!(
-                        ctx,
-                        "[layout_ifc] Mapping Object source=({}, {}) to child_node_index={}, pos=({:.2}, {:.2}) (margin: +{:.2}, +{:.2})",
-                        source.run_index,
-                        source.item_index,
-                        child_node_index,
-                        new_relative_pos.x,
-                        new_relative_pos.y,
-                        margin_left,
-                        margin_top
-                    );
                     output.positions.insert(child_node_index, new_relative_pos);
-                } else {
-                    debug_warning!(
-                        ctx,
-                        "[layout_ifc] Object source=({}, {}) NOT FOUND in child_map!",
-                        source.run_index,
-                        source.item_index
-                    );
                 }
             }
-        }
-        // Debug: print child_map contents
-        for (idx, &node_idx) in &child_map {
-            debug_info!(
-                ctx,
-                "[layout_ifc] child_map entry: ({}, {}) -> node_idx={}",
-                idx.run_index,
-                idx.item_index,
-                node_idx
-            );
         }
     }
 
@@ -2319,8 +2248,22 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             })
             .collect()
     } else {
+        debug_info!(
+            ctx,
+            "[translate_to_text3] dom_id={:?}, NO bfc_state - no float exclusions",
+            dom_id
+        );
         Vec::new()
     };
+
+    debug_info!(
+        ctx,
+        "[translate_to_text3] dom_id={:?}, available_size={}x{}, shape_exclusions.len()={}",
+        dom_id,
+        constraints.available_size.width,
+        constraints.available_size.height,
+        shape_exclusions.len()
+    );
 
     // Map text-align and justify-content from CSS to text3 enums.
     let id = dom_id;
@@ -2368,35 +2311,71 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     };
 
     // shape-inside: Text flows within the shape boundary
+    debug_info!(ctx, "Checking shape-inside for node {:?}", id);
+    debug_info!(
+        ctx,
+        "Reference box: {:?} (available_size height was: {})",
+        reference_box,
+        constraints.available_size.height
+    );
+
     let shape_boundaries = styled_dom
         .css_property_cache
         .ptr
         .get_shape_inside(node_data, &id, node_state)
-        .and_then(|v| v.get_property())
+        .and_then(|v| {
+            debug_info!(ctx, "Got shape-inside value: {:?}", v);
+            v.get_property()
+        })
         .and_then(|shape_inside| {
+            debug_info!(ctx, "shape-inside property: {:?}", shape_inside);
             if let ShapeInside::Shape(css_shape) = shape_inside {
+                debug_info!(
+                    ctx,
+                    "Converting CSS shape to ShapeBoundary: {:?}",
+                    css_shape
+                );
                 let boundary =
                     ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
+                debug_info!(ctx, "Created ShapeBoundary: {:?}", boundary);
                 Some(vec![boundary])
             } else {
+                debug_info!(ctx, "shape-inside is None");
                 None
             }
         })
         .unwrap_or_default();
 
+    debug_info!(
+        ctx,
+        "Final shape_boundaries count: {}",
+        shape_boundaries.len()
+    );
+
     // shape-outside: Text wraps around the shape (adds to exclusions)
+    debug_info!(ctx, "Checking shape-outside for node {:?}", id);
     if let Some(shape_outside_value) = styled_dom
         .css_property_cache
         .ptr
         .get_shape_outside(node_data, &id, node_state)
     {
+        debug_info!(ctx, "Got shape-outside value: {:?}", shape_outside_value);
         if let Some(shape_outside) = shape_outside_value.get_property() {
+            debug_info!(ctx, "shape-outside property: {:?}", shape_outside);
             if let ShapeOutside::Shape(css_shape) = shape_outside {
+                debug_info!(
+                    ctx,
+                    "Converting CSS shape-outside to ShapeBoundary: {:?}",
+                    css_shape
+                );
                 let boundary =
                     ShapeBoundary::from_css_shape(css_shape, reference_box, ctx.debug_messages);
+                debug_info!(ctx, "Created ShapeBoundary (exclusion): {:?}", boundary);
                 shape_exclusions.push(boundary);
             }
         }
+    } else {
+        debug_info!(ctx, "No shape-outside value found");
     }
 
     // TODO: clip-path will be used for rendering clipping (not text layout)
@@ -5119,6 +5098,16 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     // an IFC and should collect ALL inline content, including text nodes.
     // Text nodes exist in the DOM but might not have their own layout tree nodes.
 
+    // Debug: Check what the node_hierarchy says about this node
+    let node_hier_item = &ctx.styled_dom.node_hierarchy.as_container()[ifc_root_dom_id];
+    debug_info!(
+        ctx,
+        "[collect_and_measure_inline_content] DEBUG: node_hier_item.first_child={:?}, \
+         last_child={:?}",
+        node_hier_item.first_child_id(ifc_root_dom_id),
+        node_hier_item.last_child_id()
+    );
+
     let dom_children: Vec<NodeId> = ifc_root_dom_id
         .az_children(&ctx.styled_dom.node_hierarchy.as_container())
         .collect();
@@ -5315,7 +5304,43 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
             // Update the node in the tree with its now-known used size.
             tree.get_mut(child_index).unwrap().used_size = Some(final_size);
 
-            let baseline_offset = layout_result.output.baseline.unwrap_or(final_height);
+            // CSS 2.2 § 10.8.1: For inline-block elements, the baseline is the baseline of the
+            // last line box in the normal flow, unless it has no in-flow line boxes, in which
+            // case the baseline is the bottom margin edge.
+            //
+            // `layout_result.output.baseline` returns the Y-position of the baseline measured
+            // from the TOP of the content box. But `get_item_vertical_metrics` expects
+            // `baseline_offset` to be the distance from the BOTTOM to the baseline.
+            //
+            // Conversion: baseline_offset_from_bottom = height - baseline_from_top
+            //
+            // If no baseline is found (e.g., the inline-block has no text), we fall back to
+            // the bottom margin edge (baseline_offset = 0, meaning baseline at bottom).
+            let baseline_from_top = layout_result.output.baseline;
+            let baseline_offset = match baseline_from_top {
+                Some(baseline_y) => {
+                    // baseline_y is measured from top of content box
+                    // We need to add padding and border to get the position within the border-box
+                    let content_box_top = box_props.padding.top + box_props.border.top;
+                    let baseline_from_border_box_top = baseline_y + content_box_top;
+                    // Convert to distance from bottom
+                    (final_height - baseline_from_border_box_top).max(0.0)
+                }
+                None => {
+                    // No baseline found - use bottom margin edge (baseline at bottom)
+                    0.0
+                }
+            };
+            
+            debug_info!(
+                ctx,
+                "[collect_and_measure_inline_content] Inline-block NodeId({:?}): \
+                 baseline_from_top={:?}, final_height={}, baseline_offset_from_bottom={}",
+                dom_id,
+                baseline_from_top,
+                final_height,
+                baseline_offset
+            );
 
             // Get margins for inline-block positioning
             // For inline-blocks, we need to include margins in the shape size
