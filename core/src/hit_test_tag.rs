@@ -51,8 +51,18 @@ pub const TAG_TYPE_DOM_NODE: u16 = 0x0100;
 /// Marker for scrollbar component tags
 pub const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
 
-/// Reserved for future use (e.g., selection handles, resize handles)
-pub const TAG_TYPE_RESERVED: u16 = 0x0300;
+/// Marker for cursor hit-test areas (determines which cursor icon to show)
+/// These are separate from DOM node tags to allow efficient cursor resolution
+/// without iterating over all DOM nodes.
+pub const TAG_TYPE_CURSOR: u16 = 0x0300;
+
+/// Marker for text selection hit-test areas (determines text selection regions)
+/// These are pushed for text runs to enable text selection without affecting
+/// other hit-test logic.
+pub const TAG_TYPE_SELECTION: u16 = 0x0400;
+
+/// Reserved for future use (e.g., resize handles, drag-drop targets)
+pub const TAG_TYPE_RESERVED: u16 = 0x0500;
 
 // ============================================================================
 // Scrollbar Component Types (stored in lower byte of ItemTag.1 for scrollbar tags)
@@ -121,11 +131,25 @@ impl ScrollbarComponent {
 ///
 /// This enum represents all possible types of hit-test targets. Each variant
 /// can be encoded to and decoded from WebRender's `(u64, u16)` ItemTag format.
+///
+/// ## Namespace Separation
+///
+/// Different tag types are kept in separate namespaces to:
+/// - Enable efficient hit-test queries (only iterate over relevant tags)
+/// - Get automatic depth sorting from WebRender per namespace
+/// - Prevent accidental collisions between different hit-test purposes
+///
+/// | Namespace | Purpose                              |
+/// |-----------|--------------------------------------|
+/// | 0x0100    | DOM nodes (callbacks, focus, hover)  |
+/// | 0x0200    | Scrollbar components                 |
+/// | 0x0300    | Cursor areas (cursor icon display)   |
+/// | 0x0400    | Selection areas (text selection)     |
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum HitTestTag {
     /// A regular DOM node (button, div, text container, etc.)
     ///
-    /// These are nodes that have callbacks, are focusable, or have cursor styles.
+    /// These are nodes that have callbacks, are focusable, or have hover styles.
     /// The TagId is a sequential counter assigned during DOM styling.
     DomNode {
         /// The unique tag ID assigned to this DOM node
@@ -144,6 +168,92 @@ pub enum HitTestTag {
         /// Which component of the scrollbar was hit
         component: ScrollbarComponent,
     },
+
+    /// A cursor hit-test area (determines which cursor icon to display)
+    ///
+    /// These are pushed separately from DOM nodes to allow efficient cursor
+    /// resolution. The cursor type is encoded in the lower byte of tag.1.
+    Cursor {
+        /// The DOM node this cursor area belongs to
+        dom_id: DomId,
+        /// The NodeId of the element with the cursor property
+        node_id: NodeId,
+        /// The cursor type to display when hovering over this area
+        cursor_type: CursorType,
+    },
+
+    /// A text selection hit-test area
+    ///
+    /// These are pushed for text runs to enable text selection.
+    /// Separate from DOM nodes to prevent interference with other hit-testing.
+    Selection {
+        /// The DOM containing the text
+        dom_id: DomId,
+        /// The NodeId of the text container (not the Text node itself)
+        container_node_id: NodeId,
+        /// The index of the text run within the container (for multi-line text)
+        text_run_index: u16,
+    },
+}
+
+/// Cursor type encoded in cursor hit-test tags.
+/// Stored in the lower byte of the ItemTag.1 field.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
+#[repr(u8)]
+pub enum CursorType {
+    #[default]
+    Default = 0,
+    Pointer = 1,
+    Text = 2,
+    Crosshair = 3,
+    Move = 4,
+    NotAllowed = 5,
+    Grab = 6,
+    Grabbing = 7,
+    EResize = 8,
+    WResize = 9,
+    NResize = 10,
+    SResize = 11,
+    EwResize = 12,
+    NsResize = 13,
+    NeswResize = 14,
+    NwseResize = 15,
+    ColResize = 16,
+    RowResize = 17,
+    Wait = 18,
+    Help = 19,
+    Progress = 20,
+    // Add more as needed, up to 255
+}
+
+impl CursorType {
+    /// Convert from raw u8 value
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            0 => CursorType::Default,
+            1 => CursorType::Pointer,
+            2 => CursorType::Text,
+            3 => CursorType::Crosshair,
+            4 => CursorType::Move,
+            5 => CursorType::NotAllowed,
+            6 => CursorType::Grab,
+            7 => CursorType::Grabbing,
+            8 => CursorType::EResize,
+            9 => CursorType::WResize,
+            10 => CursorType::NResize,
+            11 => CursorType::SResize,
+            12 => CursorType::EwResize,
+            13 => CursorType::NsResize,
+            14 => CursorType::NeswResize,
+            15 => CursorType::NwseResize,
+            16 => CursorType::ColResize,
+            17 => CursorType::RowResize,
+            18 => CursorType::Wait,
+            19 => CursorType::Help,
+            20 => CursorType::Progress,
+            _ => CursorType::Default,
+        }
+    }
 }
 
 impl HitTestTag {
@@ -167,6 +277,28 @@ impl HitTestTag {
                 // tag.1 = TAG_TYPE_SCROLLBAR | component type in lower byte
                 let tag_type = TAG_TYPE_SCROLLBAR | (*component as u16);
                 (tag_value, tag_type)
+            }
+            HitTestTag::Cursor {
+                dom_id,
+                node_id,
+                cursor_type,
+            } => {
+                // tag.0 = DomId (upper 32 bits) | NodeId (lower 32 bits)
+                let tag_value = ((dom_id.inner as u64) << 32) | (node_id.index() as u64);
+                // tag.1 = TAG_TYPE_CURSOR | cursor type in lower byte
+                let tag_type = TAG_TYPE_CURSOR | (*cursor_type as u16);
+                (tag_value, tag_type)
+            }
+            HitTestTag::Selection {
+                dom_id,
+                container_node_id,
+                text_run_index,
+            } => {
+                // tag.0 = DomId (upper 16 bits) | NodeId (middle 32 bits) | text_run_index (lower 16 bits)
+                let tag_value = ((dom_id.inner as u64) << 48)
+                    | ((container_node_id.index() as u64) << 16)
+                    | (*text_run_index as u64);
+                (tag_value, TAG_TYPE_SELECTION)
             }
         }
     }
@@ -202,6 +334,35 @@ impl HitTestTag {
                     component,
                 })
             }
+            TAG_TYPE_CURSOR => {
+                // Cursor tag: decode DomId, NodeId, and cursor type
+                let dom_id = DomId {
+                    inner: ((tag_value >> 32) & 0xFFFFFFFF) as usize,
+                };
+                let node_id = NodeId::new((tag_value & 0xFFFFFFFF) as usize);
+                let cursor_value = (tag_type & 0x00FF) as u8;
+                let cursor_type = CursorType::from_u8(cursor_value);
+
+                Some(HitTestTag::Cursor {
+                    dom_id,
+                    node_id,
+                    cursor_type,
+                })
+            }
+            TAG_TYPE_SELECTION => {
+                // Selection tag: decode DomId, NodeId, and text run index
+                let dom_id = DomId {
+                    inner: ((tag_value >> 48) & 0xFFFF) as usize,
+                };
+                let container_node_id = NodeId::new(((tag_value >> 16) & 0xFFFFFFFF) as usize);
+                let text_run_index = (tag_value & 0xFFFF) as u16;
+
+                Some(HitTestTag::Selection {
+                    dom_id,
+                    container_node_id,
+                    text_run_index,
+                })
+            }
             _ => {
                 // Unknown tag type - could be a legacy tag or corruption
                 // For backwards compatibility, treat tags with tag_type == 0
@@ -227,10 +388,44 @@ impl HitTestTag {
         matches!(self, HitTestTag::Scrollbar { .. })
     }
 
+    /// Check if this is a cursor tag
+    pub fn is_cursor(&self) -> bool {
+        matches!(self, HitTestTag::Cursor { .. })
+    }
+
+    /// Check if this is a selection tag
+    pub fn is_selection(&self) -> bool {
+        matches!(self, HitTestTag::Selection { .. })
+    }
+
     /// Get the TagId if this is a DOM node tag
     pub fn as_dom_node(&self) -> Option<TagId> {
         match self {
             HitTestTag::DomNode { tag_id } => Some(*tag_id),
+            _ => None,
+        }
+    }
+
+    /// Get cursor info if this is a cursor tag
+    pub fn as_cursor(&self) -> Option<(DomId, NodeId, CursorType)> {
+        match self {
+            HitTestTag::Cursor {
+                dom_id,
+                node_id,
+                cursor_type,
+            } => Some((*dom_id, *node_id, *cursor_type)),
+            _ => None,
+        }
+    }
+
+    /// Get selection info if this is a selection tag
+    pub fn as_selection(&self) -> Option<(DomId, NodeId, u16)> {
+        match self {
+            HitTestTag::Selection {
+                dom_id,
+                container_node_id,
+                text_run_index,
+            } => Some((*dom_id, *container_node_id, *text_run_index)),
             _ => None,
         }
     }
@@ -265,6 +460,32 @@ impl fmt::Display for HitTestTag {
                     dom_id.inner,
                     node_id.index(),
                     component
+                )
+            }
+            HitTestTag::Cursor {
+                dom_id,
+                node_id,
+                cursor_type,
+            } => {
+                write!(
+                    f,
+                    "Cursor(dom:{}, node:{}, {:?})",
+                    dom_id.inner,
+                    node_id.index(),
+                    cursor_type
+                )
+            }
+            HitTestTag::Selection {
+                dom_id,
+                container_node_id,
+                text_run_index,
+            } => {
+                write!(
+                    f,
+                    "Selection(dom:{}, container:{}, run:{})",
+                    dom_id.inner,
+                    container_node_id.index(),
+                    text_run_index
                 )
             }
         }

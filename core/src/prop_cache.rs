@@ -901,10 +901,11 @@ impl CssPropertyCache {
                         break;
                     }
 
-                    // check for selectable text - nodes that contain text children and user-select != none
-                    // need hit-test tags for text selection support
-                    // NOTE: The inline_layout_result is stored on the PARENT (container) node,
-                    // not on the text node itself. So we tag the container, not the text node.
+                    // Check for selectable text - nodes that contain text children and
+                    // user-select != none need hit-test tags for text selection support.
+                    // The cursor resolution algorithm in CursorTypeHitTest ensures that
+                    // explicit cursor properties (e.g., cursor:pointer on button) take
+                    // precedence over the implicit I-beam from text children.
                     let node_has_selectable_text = {
                         use azul_css::props::style::StyleUserSelect;
                         use crate::dom::NodeType;

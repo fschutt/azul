@@ -2653,6 +2653,13 @@ where
             style_border_radius,
         );
 
+        // Push hit-test area for this inline-block element
+        // This is critical for buttons and other inline-block elements to receive
+        // mouse events and display the correct cursor (e.g., cursor: pointer)
+        if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, Some(node_id)) {
+            builder.push_hit_test_area(border_box_bounds, tag_id);
+        }
+
         Ok(())
     }
 

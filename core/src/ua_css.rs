@@ -663,10 +663,14 @@ pub fn get_ua_property(
         (NT::Input, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::Button, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::Button, PT::Cursor) => Some(&CURSOR_POINTER),
-        // Text nodes get I-beam cursor by default (like browser behavior)
+        // Text nodes get I-beam cursor for text selection
+        // The cursor resolution algorithm ensures that explicit cursor properties
+        // on parent elements (e.g., cursor:pointer on button) take precedence
         (NT::Text(_), PT::Cursor) => Some(&CURSOR_TEXT),
         (NT::Select, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::TextArea, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
+        // TextArea gets I-beam cursor since it's an editable text field
+        (NT::TextArea, PT::Cursor) => Some(&CURSOR_TEXT),
         (NT::Label, PT::Display) => Some(&DISPLAY_INLINE),
         // Hidden Elements
         (NT::Head, PT::Display) => Some(&DISPLAY_NONE),
