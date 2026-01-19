@@ -663,6 +663,8 @@ pub fn get_ua_property(
         (NT::Input, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::Button, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::Button, PT::Cursor) => Some(&CURSOR_POINTER),
+        // Text nodes get I-beam cursor by default (like browser behavior)
+        (NT::Text(_), PT::Cursor) => Some(&CURSOR_TEXT),
         (NT::Select, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::TextArea, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::Label, PT::Display) => Some(&DISPLAY_INLINE),

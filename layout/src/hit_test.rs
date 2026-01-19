@@ -29,10 +29,16 @@ impl CursorTypeHitTest {
     /// Create a new cursor type hit-test from a full hit-test and layout window
     ///
     /// This scans all hovered nodes for CSS cursor properties and returns the
-    /// cursor type of the closest node with a non-default cursor.
+    /// cursor type of the deepest node with a non-default cursor.
+    /// 
+    /// For text selection support, we also check if the hovered node contains
+    /// text children - if so, we use the text node's cursor (typically I-beam).
     pub fn new(hit_test: &FullHitTest, layout_window: &LayoutWindow) -> Self {
+        use azul_core::dom::NodeType;
+        
         let mut cursor_node = None;
         let mut cursor_icon = MouseCursorType::Default;
+        let mut best_depth: u32 = 0;
 
         // Iterate through all hovered nodes across all DOMs
         for (dom_id, hit_nodes) in hit_test.hovered_nodes.iter() {
@@ -45,20 +51,57 @@ impl CursorTypeHitTest {
             let styled_dom = &layout_result.styled_dom;
             let node_data_container = styled_dom.node_data.as_container();
             let styled_nodes = styled_dom.styled_nodes.as_container();
+            let node_hierarchy = styled_dom.node_hierarchy.as_container();
 
             // Check each hit node for a cursor property
-            for (node_id, _hit_item) in hit_nodes.regular_hit_test_nodes.iter() {
+            // We want to find the DEEPEST node that has a cursor property
+            for (node_id, hit_item) in hit_nodes.regular_hit_test_nodes.iter() {
+                let node_depth = hit_item.hit_depth;
+                
+                // First, check if this node has text children
+                // Text nodes don't get hit-test areas themselves (they are inline),
+                // so we need to check the container's children for text nodes
+                let hier = &node_hierarchy[*node_id];
+                if let Some(first_child) = hier.first_child_id(*node_id) {
+                    let mut child_id = Some(first_child);
+                    while let Some(cid) = child_id {
+                        let child_data = &node_data_container[cid];
+                        if matches!(child_data.get_node_type(), NodeType::Text(_)) {
+                            // Found a text child - get cursor from the text node's UA CSS
+                            // Text children are one level deeper than the container
+                            let text_depth = node_depth + 1;
+                            if text_depth > best_depth {
+                                if let Some(cursor_prop) = styled_dom.get_css_property_cache().get_cursor(
+                                    child_data,
+                                    &cid,
+                                    &styled_nodes[cid].styled_node_state,
+                                ) {
+                                    let css_cursor = cursor_prop.get_property().copied().unwrap_or_default();
+                                    let new_cursor = translate_cursor(css_cursor);
+                                    cursor_node = Some((*dom_id, cid));
+                                    cursor_icon = new_cursor;
+                                    best_depth = text_depth;
+                                }
+                            }
+                        }
+                        child_id = node_hierarchy[cid].next_sibling_id();
+                    }
+                }
+                
                 // Query the CSS cursor property for this node
-                if let Some(cursor_prop) = styled_dom.get_css_property_cache().get_cursor(
-                    &node_data_container[*node_id],
-                    node_id,
-                    &styled_nodes[*node_id].styled_node_state,
-                ) {
-                    cursor_node = Some((*dom_id, *node_id));
-                    let css_cursor = cursor_prop.get_property().copied().unwrap_or_default();
-                    cursor_icon = translate_cursor(css_cursor);
-                    // Found a node with a cursor property, use it
-                    // (we could break here, but iterating all ensures we get the topmost)
+                // Only use it if this node is DEEPER than what we've found so far
+                if node_depth > best_depth {
+                    if let Some(cursor_prop) = styled_dom.get_css_property_cache().get_cursor(
+                        &node_data_container[*node_id],
+                        node_id,
+                        &styled_nodes[*node_id].styled_node_state,
+                    ) {
+                        let css_cursor = cursor_prop.get_property().copied().unwrap_or_default();
+                        let translated = translate_cursor(css_cursor);
+                        cursor_node = Some((*dom_id, *node_id));
+                        cursor_icon = translated;
+                        best_depth = node_depth;
+                    }
                 }
             }
         }

@@ -495,6 +495,17 @@ define_class!(
             // Event will be handled by MacOSWindow
         }
 
+        #[unsafe(method(mouseMoved:))]
+        fn mouse_moved(&self, event: &NSEvent) {
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_mouse_move(event);
+                }
+            }
+        }
+
         // NSTextInputClient Protocol
         // Basic IME support for Unicode composition (e.g., Japanese, Chinese, accented characters)
 
@@ -962,9 +973,10 @@ define_class!(
                 }
             }
 
-            // Create new tracking area for mouse enter/exit events
+            // Create new tracking area for mouse enter/exit/move events
             let bounds = unsafe { self.bounds() };
             let options = NSTrackingAreaOptions::MouseEnteredAndExited
+                | NSTrackingAreaOptions::MouseMoved
                 | NSTrackingAreaOptions::ActiveInKeyWindow
                 | NSTrackingAreaOptions::InVisibleRect;
 
@@ -993,6 +1005,17 @@ define_class!(
         #[unsafe(method(mouseExited:))]
         fn mouse_exited(&self, _event: &NSEvent) {
             // Event will be handled by MacOSWindow
+        }
+
+        #[unsafe(method(mouseMoved:))]
+        fn mouse_moved(&self, event: &NSEvent) {
+            // Forward to MacOSWindow for handling
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    macos_window.handle_mouse_move(event);
+                }
+            }
         }
 
         // NSTextInputClient Protocol
@@ -2365,6 +2388,10 @@ impl MacOSWindow {
         unsafe {
             let delegate_obj = ProtocolObject::from_ref(&*window_delegate);
             window.setDelegate(Some(delegate_obj));
+            
+            // Enable mouse moved events - required for cursor updates on hover
+            // Without this, macOS only sends mouse events when a button is pressed
+            window.setAcceptsMouseMovedEvents(true);
         }
 
         // Query actual HiDPI factor from NSWindow's screen

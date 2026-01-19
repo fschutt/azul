@@ -521,6 +521,11 @@ pub fn fullhittest_new_webrender(
                 .iter()
                 .enumerate()
                 .filter_map(|(depth, i)| {
+                    // Skip scrollbar tags (tag.1 has 0x0200 in upper byte)
+                    if (i.tag.1 & 0xFF00) == 0x0200 {
+                        return None;
+                    }
+                    
                     // Map WebRender tag to DOM node ID
                     let node_id = layout_result
                         .styled_dom
