@@ -3991,43 +3991,34 @@ impl MacOSWindow {
     }
 
     /// Process an NSEvent and dispatch to appropriate handler
+    /// 
+    /// NOTE: Mouse events (mouseDown, mouseUp, mouseMoved, etc.) are NOT processed here.
+    /// They are handled by the NSView subclass (GLView/CPUView) via Cocoa's responder chain.
+    /// Calling sendEvent() forwards the event to the view, which then calls our handlers.
+    /// Processing mouse events here would result in DOUBLE processing.
     pub fn process_event(&mut self, event: &NSEvent, macos_event: &MacOSEvent) {
         use azul_core::events::MouseButton;
 
         let event_type = event.r#type();
 
         match event_type {
-            NSEventType::LeftMouseDown => {
-                let _ = self.handle_mouse_down(event, MouseButton::Left);
-            }
-            NSEventType::LeftMouseUp => {
-                let _ = self.handle_mouse_up(event, MouseButton::Left);
-            }
-            NSEventType::RightMouseDown => {
-                let _ = self.handle_mouse_down(event, MouseButton::Right);
-            }
-            NSEventType::RightMouseUp => {
-                let _ = self.handle_mouse_up(event, MouseButton::Right);
-            }
-            NSEventType::OtherMouseDown => {
-                let _ = self.handle_mouse_down(event, MouseButton::Middle);
-            }
-            NSEventType::OtherMouseUp => {
-                let _ = self.handle_mouse_up(event, MouseButton::Middle);
-            }
-            NSEventType::MouseMoved
+            // Mouse events are handled by NSView's responder methods (mouseDown:, etc.)
+            // They will be dispatched to our handlers via sendEvent() -> NSView -> handle_mouse_*
+            // Do NOT process them here to avoid double-processing.
+            NSEventType::LeftMouseDown
+            | NSEventType::LeftMouseUp
+            | NSEventType::RightMouseDown
+            | NSEventType::RightMouseUp
+            | NSEventType::OtherMouseDown
+            | NSEventType::OtherMouseUp
+            | NSEventType::MouseMoved
             | NSEventType::LeftMouseDragged
-            | NSEventType::RightMouseDragged => {
-                let _ = self.handle_mouse_move(event);
-            }
-            NSEventType::MouseEntered => {
-                let _ = self.handle_mouse_entered(event);
-            }
-            NSEventType::MouseExited => {
-                let _ = self.handle_mouse_exited(event);
-            }
-            NSEventType::ScrollWheel => {
-                let _ = self.handle_scroll_wheel(event);
+            | NSEventType::RightMouseDragged
+            | NSEventType::MouseEntered
+            | NSEventType::MouseExited
+            | NSEventType::ScrollWheel => {
+                // These events are processed by the NSView responder chain
+                // via app.sendEvent() -> NSView.mouseDown:/mouseUp:/etc.
             }
             NSEventType::KeyDown => {
                 let _ = self.handle_key_down(event);

@@ -108,6 +108,13 @@ impl MacOSWindow {
         let window_height = self.current_window_state.size.dimensions.height;
         let position = macos_to_azul_coords(location, window_height);
 
+        // DEBUG: Log mouse down event details
+        eprintln!(
+            "[DEBUG handle_mouse_down] raw_location=({:.1}, {:.1}), window_height={:.1}, \
+             converted_position=({:.1}, {:.1}), button={:?}",
+            location.x, location.y, window_height, position.x, position.y, button
+        );
+
         // Check for scrollbar hit FIRST (before state changes)
         // Use trait method from PlatformWindowV2
         if let Some(scrollbar_hit_id) = PlatformWindowV2::perform_scrollbar_hit_test(self, position)
