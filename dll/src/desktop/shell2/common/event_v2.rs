@@ -1622,8 +1622,11 @@ pub trait PlatformWindowV2 {
         }
 
         if dispatch_result.is_empty() {
-            eprintln!("[DEBUG process_window_events_recursive_v2] dispatch_result is empty, returning DoNothing");
-            return ProcessEventResult::DoNothing;
+            eprintln!("[DEBUG process_window_events_recursive_v2] dispatch_result is empty, returning accumulated result={:?}", result);
+            // Return accumulated result from internal processing, not DoNothing
+            // Internal events (text selection, keyboard shortcuts) may have set
+            // result to ShouldReRenderCurrentWindow even if no user callbacks exist.
+            return result;
         }
 
         // Filter out system internal events as a safety check
