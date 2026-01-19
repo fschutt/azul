@@ -51,15 +51,15 @@ pub const TAG_TYPE_DOM_NODE: u16 = 0x0100;
 /// Marker for scrollbar component tags
 pub const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
 
-/// Marker for cursor hit-test areas (determines which cursor icon to show)
-/// These are separate from DOM node tags to allow efficient cursor resolution
-/// without iterating over all DOM nodes.
-pub const TAG_TYPE_CURSOR: u16 = 0x0300;
-
 /// Marker for text selection hit-test areas (determines text selection regions)
 /// These are pushed for text runs to enable text selection without affecting
-/// other hit-test logic.
-pub const TAG_TYPE_SELECTION: u16 = 0x0400;
+/// other hit-test logic. Selection may trigger re-rendering.
+pub const TAG_TYPE_SELECTION: u16 = 0x0300;
+
+/// Marker for cursor hit-test areas (determines which cursor icon to show)
+/// These are separate from DOM node tags to allow efficient cursor resolution
+/// without iterating over all DOM nodes. Cursor changes never require re-rendering.
+pub const TAG_TYPE_CURSOR: u16 = 0x0400;
 
 /// Reserved for future use (e.g., resize handles, drag-drop targets)
 pub const TAG_TYPE_RESERVED: u16 = 0x0500;
@@ -143,8 +143,8 @@ impl ScrollbarComponent {
 /// |-----------|--------------------------------------|
 /// | 0x0100    | DOM nodes (callbacks, focus, hover)  |
 /// | 0x0200    | Scrollbar components                 |
-/// | 0x0300    | Cursor areas (cursor icon display)   |
-/// | 0x0400    | Selection areas (text selection)     |
+/// | 0x0300    | Selection areas (text selection)     |
+/// | 0x0400    | Cursor areas (cursor icon display)     |
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum HitTestTag {
     /// A regular DOM node (button, div, text container, etc.)
