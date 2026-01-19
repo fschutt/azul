@@ -7,6 +7,7 @@ use core::{
 use crate::{
     dom::{DomId, DomNodeHash, DomNodeId, OptionDomNodeId, ScrollTagId, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
+    hit_test_tag::CursorType,
     id::NodeId,
     resources::IdNamespace,
     styled_dom::NodeHierarchyItemId,
@@ -20,6 +21,18 @@ pub struct HitTest {
     pub scroll_hit_test_nodes: BTreeMap<NodeId, ScrollHitTestItem>,
     /// Hit test results for scrollbar components.
     pub scrollbar_hit_test_nodes: BTreeMap<ScrollbarHitId, ScrollbarHitTestItem>,
+    /// Hit test results for cursor areas (text runs with cursor property).
+    /// Maps NodeId to (CursorType, hit_depth) - the cursor type and z-depth of the hit.
+    pub cursor_hit_test_nodes: BTreeMap<NodeId, CursorHitTestItem>,
+}
+
+/// Hit test item for cursor areas (determines which cursor icon to show).
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct CursorHitTestItem {
+    pub cursor_type: CursorType,
+    pub hit_depth: u32,
+    pub point_in_viewport: LogicalPosition,
 }
 
 impl HitTest {
@@ -28,12 +41,14 @@ impl HitTest {
             regular_hit_test_nodes: BTreeMap::new(),
             scroll_hit_test_nodes: BTreeMap::new(),
             scrollbar_hit_test_nodes: BTreeMap::new(),
+            cursor_hit_test_nodes: BTreeMap::new(),
         }
     }
     pub fn is_empty(&self) -> bool {
         self.regular_hit_test_nodes.is_empty()
             && self.scroll_hit_test_nodes.is_empty()
             && self.scrollbar_hit_test_nodes.is_empty()
+            && self.cursor_hit_test_nodes.is_empty()
     }
 }
 

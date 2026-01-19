@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use azul_core::{
+    dom::NodeId,
     geom::{LogicalPosition, LogicalSize},
     ui_solver::GlyphInstance,
 };
@@ -47,6 +48,8 @@ pub struct SimpleGlyphRun {
     pub text_decoration: crate::text3::cache::TextDecoration,
     /// Whether this is an IME composition preview (should be rendered with special styling)
     pub is_ime_preview: bool,
+    /// The source DOM node that generated this text run (for hit-testing)
+    pub source_node_id: Option<NodeId>,
 }
 
 #[derive(Debug, Clone)]
@@ -80,7 +83,8 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
         let mut process_glyphs =
             |positioned_glyphs: &[ShapedGlyph],
              item_origin_x: f32,
-             writing_mode: crate::text3::cache::WritingMode| {
+             writing_mode: crate::text3::cache::WritingMode,
+             source_node_id: Option<NodeId>| {
                 let mut pen_x = item_origin_x;
 
                 for glyph in positioned_glyphs {
@@ -101,7 +105,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                         glyph.into_glyph_instance_at_simple(writing_mode, absolute_position);
 
                     if let Some(run) = current_run.as_mut() {
-                        // Break run if any style property changes (including background, gradient, border)
+                        // Break run if any style property changes (including background, gradient, border, or source node)
                         if run.font_hash == font_hash
                             && run.color == glyph_color
                             && run.background_color == glyph_background
@@ -109,6 +113,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             && run.border == glyph_border
                             && run.font_size_px == font_size_px
                             && run.text_decoration == text_decoration
+                            && run.source_node_id == source_node_id
                         {
                             run.glyphs.push(instance);
                         } else {
@@ -123,6 +128,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                                 font_size_px,
                                 text_decoration: text_decoration.clone(),
                                 is_ime_preview: false,
+                                source_node_id,
                             });
                         }
                     } else {
@@ -136,6 +142,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             font_size_px,
                             text_decoration: text_decoration.clone(),
                             is_ime_preview: false,
+                            source_node_id,
                         });
                     }
 
@@ -146,12 +153,13 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
         match &item.item {
             ShapedItem::Cluster(cluster) => {
                 let writing_mode = cluster.style.writing_mode;
-                process_glyphs(&cluster.glyphs, item.position.x, writing_mode);
+                process_glyphs(&cluster.glyphs, item.position.x, writing_mode, cluster.source_node_id);
             }
             ShapedItem::CombinedBlock { glyphs, .. } => {
                 for g in glyphs {
                     let writing_mode = g.style.writing_mode;
-                    process_glyphs(&[g.clone()], item.position.x, writing_mode);
+                    // CombinedBlock is for tate-chu-yoko, use None for source_node_id
+                    process_glyphs(&[g.clone()], item.position.x, writing_mode, None);
                 }
             }
             _ => {}

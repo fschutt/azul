@@ -198,7 +198,7 @@ pub enum HitTestTag {
 
 /// Cursor type encoded in cursor hit-test tags.
 /// Stored in the lower byte of the ItemTag.1 field.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(u8)]
 pub enum CursorType {
     #[default]

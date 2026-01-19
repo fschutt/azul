@@ -4797,6 +4797,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                     text: text_content.to_string(),
                     style: Arc::new(get_style_properties(ctx.styled_dom, dom_id)),
                     logical_start_byte: 0,
+                    source_node_id: Some(dom_id),
                 }));
                 child_map.insert(content_index, child_index);
                 
@@ -5121,6 +5122,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
             text: text_content.to_string(),
             style: Arc::new(get_style_properties(ctx.styled_dom, ifc_root_dom_id)),
             logical_start_byte: 0,
+            source_node_id: Some(ifc_root_dom_id),
         }));
         return Ok((content, child_map));
     }
@@ -5161,6 +5163,7 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 text: text_content.to_string(),
                 style: Arc::new(get_style_properties(ctx.styled_dom, dom_child_id)),
                 logical_start_byte: 0,
+                source_node_id: Some(dom_child_id),
             }));
             
             // Set IFC membership on the text node's layout node (if it exists)
@@ -5537,6 +5540,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                 text: text_content.to_string(),
                 style: Arc::new(span_style.clone()),
                 logical_start_byte: 0,
+                source_node_id: Some(child_dom_id),
             }));
             continue;
         }
@@ -6142,9 +6146,11 @@ fn generate_list_marker_segments(
     }
 
     // Return single segment - font fallback happens during shaping
+    // List markers are generated content, not from DOM nodes
     vec![StyledRun {
         text: marker_text,
         style: base_style,
         logical_start_byte: 0,
+        source_node_id: None,
     }]
 }

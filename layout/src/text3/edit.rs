@@ -222,6 +222,7 @@ pub fn delete_backward(
                     text: merged_text,
                     style: prev_run.style,
                     logical_start_byte: prev_run.logical_start_byte,
+                    source_node_id: prev_run.source_node_id,
                 });
                 new_content.remove(run_idx);
 
@@ -270,6 +271,7 @@ pub fn delete_forward(
                     text: merged_text,
                     style: run.style.clone(),
                     logical_start_byte: run.logical_start_byte,
+                    source_node_id: run.source_node_id,
                 });
                 new_content.remove(run_idx + 1);
 

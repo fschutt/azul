@@ -1483,6 +1483,7 @@ pub trait PlatformWindowV2 {
                                                     // TODO: Preserve original style
                                                     style: Arc::new(StyleProperties::default()),
                                                     logical_start_byte: 0,
+                                                    source_node_id: None, // Undo operation - node context not available
                                                 })];
 
                                             // Update text cache with pre-state content

@@ -301,6 +301,7 @@ fn test_bug1_shaping_across_style_boundaries() {
         text: "first fish".into(),
         style: default_style(),
         logical_start_byte: 0,
+        source_node_id: None, // Test content, no DOM node
     })];
 
     let overrides = vec![StyleOverride {

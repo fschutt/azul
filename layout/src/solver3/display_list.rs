@@ -8,6 +8,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     gpu::GpuValueCache,
     hit_test::ScrollPosition,
+    hit_test_tag::{CursorType, TAG_TYPE_CURSOR},
     resources::{
         IdNamespace, ImageRef, OpacityKey, RendererResources,
     },
@@ -1254,6 +1255,62 @@ where
             .get(dom_id)
             .map(|n| n.styled_node_state.clone())
             .unwrap_or_default()
+    }
+
+    /// Gets the cursor type for a text node from its CSS properties.
+    /// Defaults to Text (I-beam) cursor if no explicit cursor is set.
+    fn get_cursor_type_for_text_node(&self, node_id: NodeId) -> CursorType {
+        use azul_css::props::style::effects::StyleCursor;
+        
+        let styled_node_state = self.get_styled_node_state(node_id);
+        let node_data_container = self.ctx.styled_dom.node_data.as_container();
+        let node_data = node_data_container.get(node_id);
+        
+        // Query the cursor CSS property for this text node
+        if let Some(node_data) = node_data {
+            if let Some(cursor_value) = self.ctx.styled_dom.get_css_property_cache().get_cursor(
+                node_data,
+                &node_id,
+                &styled_node_state,
+            ) {
+                if let CssPropertyValue::Exact(cursor) = cursor_value {
+                    return match cursor {
+                        StyleCursor::Default => CursorType::Default,
+                        StyleCursor::Pointer => CursorType::Pointer,
+                        StyleCursor::Text => CursorType::Text,
+                        StyleCursor::Crosshair => CursorType::Crosshair,
+                        StyleCursor::Move => CursorType::Move,
+                        StyleCursor::Help => CursorType::Help,
+                        StyleCursor::Wait => CursorType::Wait,
+                        StyleCursor::Progress => CursorType::Progress,
+                        StyleCursor::NsResize => CursorType::NsResize,
+                        StyleCursor::EwResize => CursorType::EwResize,
+                        StyleCursor::NeswResize => CursorType::NeswResize,
+                        StyleCursor::NwseResize => CursorType::NwseResize,
+                        StyleCursor::NResize => CursorType::NResize,
+                        StyleCursor::SResize => CursorType::SResize,
+                        StyleCursor::EResize => CursorType::EResize,
+                        StyleCursor::WResize => CursorType::WResize,
+                        StyleCursor::Grab => CursorType::Grab,
+                        StyleCursor::Grabbing => CursorType::Grabbing,
+                        StyleCursor::RowResize => CursorType::RowResize,
+                        StyleCursor::ColResize => CursorType::ColResize,
+                        // Map less common cursors to closest available
+                        StyleCursor::SeResize | StyleCursor::NeswResize => CursorType::NeswResize,
+                        StyleCursor::ZoomIn | StyleCursor::ZoomOut => CursorType::Default,
+                        StyleCursor::Copy | StyleCursor::Alias => CursorType::Default,
+                        StyleCursor::Cell => CursorType::Crosshair,
+                        StyleCursor::AllScroll => CursorType::Move,
+                        StyleCursor::ContextMenu => CursorType::Default,
+                        StyleCursor::VerticalText => CursorType::Text,
+                        StyleCursor::Unset => CursorType::Text, // Default to text for text nodes
+                    };
+                }
+            }
+        }
+        
+        // Default: Text cursor (I-beam) for text nodes
+        CursorType::Text
     }
 
     /// Emits drawing commands for selection and cursor, if any.
@@ -2527,6 +2584,52 @@ where
                         builder.push_overline(overline_bounds, glyph_run.color, thickness);
                     }
                 }
+            }
+        }
+
+        // THIRD PASS: Generate hit-test areas for text runs
+        // This enables cursor resolution directly on text nodes instead of their containers
+        for glyph_run in glyph_runs.iter() {
+            // Only generate hit-test areas for runs with a source node id
+            let Some(source_node_id) = glyph_run.source_node_id else {
+                continue;
+            };
+
+            // Calculate the bounding box for this glyph run
+            if let (Some(first_glyph), Some(last_glyph)) =
+                (glyph_run.glyphs.first(), glyph_run.glyphs.last())
+            {
+                let run_start_x = container_rect.origin.x + first_glyph.point.x;
+                let run_end_x = container_rect.origin.x + last_glyph.point.x;
+                let run_width = (run_end_x - run_start_x).max(0.0);
+
+                // Skip if run has no width
+                if run_width <= 0.0 {
+                    continue;
+                }
+
+                // Calculate run bounds using font metrics
+                let baseline_y = container_rect.origin.y + first_glyph.point.y;
+                let font_size = glyph_run.font_size_px;
+                let ascent = font_size * 0.8; // Approximate ascent
+
+                let run_bounds = LogicalRect::new(
+                    LogicalPosition::new(run_start_x, baseline_y - ascent),
+                    LogicalSize::new(run_width, font_size),
+                );
+
+                // Query the cursor type for this text node from the CSS property cache
+                // Default to Text cursor (I-beam) for text nodes
+                let cursor_type = self.get_cursor_type_for_text_node(source_node_id);
+
+                // Construct the hit-test tag for cursor resolution
+                // tag.0 = DomId (upper 32 bits) | NodeId (lower 32 bits)
+                // tag.1 = TAG_TYPE_CURSOR | cursor_type
+                let tag_value = ((self.dom_id.inner as u64) << 32) | (source_node_id.index() as u64);
+                let tag_type = TAG_TYPE_CURSOR | (cursor_type as u16);
+                let tag_id = (tag_value, tag_type);
+
+                builder.push_hit_test_area(run_bounds, tag_id);
             }
         }
 

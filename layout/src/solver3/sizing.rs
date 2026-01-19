@@ -527,6 +527,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
             text,
             style: Arc::new(style_props),
             logical_start_byte: 0,
+            source_node_id: Some(dom_id),
         }));
     }
 
@@ -547,6 +548,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
                 text,
                 style: Arc::new(style_props),
                 logical_start_byte: 0,
+                source_node_id: Some(child_id),
             }));
         }
     }
@@ -1190,6 +1192,7 @@ fn collect_text_recursive(
                 text,
                 style: std::sync::Arc::new(StyleProperties::default()),
                 logical_start_byte: 0,
+                source_node_id: Some(dom_id),
             }));
         }
     }

@@ -513,7 +513,39 @@ pub fn fullhittest_new_webrender(
             );
             let wr_result = wr_hittester.hit_test(physical_pos);
 
-            // Convert WebRender hit test results to azul hit test items
+            // TAG_TYPE constants for filtering hit test results
+            const TAG_TYPE_DOM_NODE: u16 = 0x0100;
+            const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
+            const TAG_TYPE_CURSOR: u16 = 0x0400;
+
+            // First pass: Process cursor tags (TAG_TYPE_CURSOR = 0x0400)
+            // These are hit-test areas for text runs with cursor properties
+            for (depth, i) in wr_result.items.iter().enumerate() {
+                let tag_type_marker = i.tag.1 & 0xFF00;
+                if tag_type_marker != TAG_TYPE_CURSOR {
+                    continue;
+                }
+
+                // Decode cursor tag: tag.0 = DomId (upper 32) | NodeId (lower 32)
+                let node_id_value = (i.tag.0 & 0xFFFFFFFF) as usize;
+                let node_id = azul_core::id::NodeId::new(node_id_value);
+                
+                // Decode cursor type from lower byte of tag.1
+                let cursor_type_value = (i.tag.1 & 0x00FF) as u8;
+                let cursor_type = azul_core::hit_test_tag::CursorType::from_u8(cursor_type_value);
+
+                ret.hovered_nodes
+                    .entry(*dom_id)
+                    .or_insert_with(|| azul_core::hit_test::HitTest::empty())
+                    .cursor_hit_test_nodes
+                    .insert(node_id, azul_core::hit_test::CursorHitTestItem {
+                        cursor_type,
+                        hit_depth: depth as u32,
+                        point_in_viewport: *cursor_relative_to_dom,
+                    });
+            }
+
+            // Second pass: Convert regular DOM node hit test results
             // WebRender returns items in z-order (front to back), so we use
             // enumerate() to capture this ordering in hit_depth.
             let hit_items = wr_result
@@ -521,8 +553,9 @@ pub fn fullhittest_new_webrender(
                 .iter()
                 .enumerate()
                 .filter_map(|(depth, i)| {
-                    // Skip scrollbar tags (tag.1 has 0x0200 in upper byte)
-                    if (i.tag.1 & 0xFF00) == 0x0200 {
+                    let tag_type_marker = i.tag.1 & 0xFF00;
+                    // Skip scrollbar tags (0x0200) and cursor tags (0x0400)
+                    if tag_type_marker == TAG_TYPE_SCROLLBAR || tag_type_marker == TAG_TYPE_CURSOR {
                         return None;
                     }
                     

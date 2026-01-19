@@ -4919,6 +4919,7 @@ impl LayoutWindow {
                     text: text.as_str().to_string(),
                     style,
                     logical_start_byte: 0,
+                    source_node_id: Some(node_id),
                 })]
             }
             NodeType::Div | NodeType::Body | NodeType::IFrame(_) => {

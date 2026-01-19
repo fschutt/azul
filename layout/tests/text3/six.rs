@@ -27,6 +27,7 @@ fn test_available_width_should_produce_nonzero_bounds() {
         text: text.to_string(),
         style: default_style(),
         logical_start_byte: 0,
+        source_node_id: None, // Test content, no DOM node
     })];
 
     println!("Input text: '{}'", text);
@@ -149,6 +150,7 @@ fn test_available_width_zero_should_produce_zero_bounds() {
         text: "Hello".to_string(),
         style: default_style(),
         logical_start_byte: 0,
+        source_node_id: None, // Test content, no DOM node
     })];
 
     let constraints = UnifiedConstraints {
@@ -185,6 +187,7 @@ fn test_available_width_infinite_should_produce_full_width() {
         text: text.to_string(),
         style: default_style(),
         logical_start_byte: 0,
+        source_node_id: None, // Test content, no DOM node
     })];
 
     let constraints = UnifiedConstraints {

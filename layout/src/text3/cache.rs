@@ -13,6 +13,7 @@ use std::{
 
 pub use azul_core::selection::{ContentIndex, GraphemeClusterId};
 use azul_core::{
+    dom::NodeId,
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     resources::ImageRef,
     selection::{CursorAffinity, SelectionRange, TextCursor},
@@ -813,6 +814,9 @@ pub struct StyledRun {
     pub style: Arc<StyleProperties>,
     /// Byte index in the original logical paragraph text
     pub logical_start_byte: usize,
+    /// The DOM NodeId of the Text node this run came from.
+    /// None for generated content (e.g., list markers, ::before/::after).
+    pub source_node_id: Option<NodeId>,
 }
 
 // Stage 2: Bidi Analysis - Visual runs in display order
@@ -2759,6 +2763,9 @@ pub enum LogicalItem {
         /// (in the padding gutter) or inside (inline with content).
         /// None for non-marker content.
         marker_position_outside: Option<bool>,
+        /// The DOM NodeId of the Text node this item originated from.
+        /// None for generated content (list markers, ::before/::after, etc.)
+        source_node_id: Option<NodeId>,
     },
     /// Tate-chu-yoko: Run of text to be laid out horizontally within a vertical context.
     CombinedText {
@@ -2799,11 +2806,13 @@ impl Hash for LogicalItem {
                 text,
                 style,
                 marker_position_outside,
+                source_node_id,
             } => {
                 source.hash(state);
                 text.hash(state);
                 style.as_ref().hash(state); // Hash the content, not the Arc pointer
                 marker_position_outside.hash(state);
+                source_node_id.hash(state);
             }
             LogicalItem::CombinedText {
                 source,
@@ -2940,6 +2949,9 @@ pub struct ShapedCluster {
     pub source_cluster_id: GraphemeClusterId,
     /// The source `ContentIndex` for mapping back to logical items.
     pub source_content_index: ContentIndex,
+    /// The DOM NodeId of the Text node this cluster originated from.
+    /// None for generated content (list markers, ::before/::after, etc.)
+    pub source_node_id: Option<NodeId>,
     /// The glyphs that make up this cluster.
     pub glyphs: Vec<ShapedGlyph>,
     /// The total advance width (horizontal) or height (vertical) of the cluster.
@@ -4475,6 +4487,7 @@ pub fn create_logical_items(
                             text: text_slice.to_string(),
                             style: style_to_use,
                             marker_position_outside,
+                            source_node_id: run.source_node_id,
                         });
                     }
                 }
@@ -4666,6 +4679,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 style,
                 source,
                 marker_position_outside,
+                source_node_id,
                 ..
             } => {
                 let direction = if item.bidi_level.is_rtl() {
@@ -4694,6 +4708,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             font_ref,
                             style,
                             *source,
+                            *source_node_id,
                         )
                     }
                     FontStack::Stack(selectors) => {
@@ -4742,6 +4757,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                     font,
                                     style,
                                     *source,
+                                    *source_node_id,
                                 )
                             }
                             None => {
@@ -4820,6 +4836,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         text: base_text.clone(),
                         style: style.clone(),
                         logical_start_byte: 0,
+                        source_node_id: None, // Ruby text is generated, not from DOM
                     }),
                 });
             }
@@ -4981,6 +4998,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
     font: &T, // Changed from &Arc<T>
     style: &Arc<StyleProperties>,
     source_index: ContentIndex,
+    source_node_id: Option<NodeId>,
 ) -> Result<Vec<ShapedCluster>, LayoutError> {
     let glyphs = font.shape_text(text, script, language, direction, style.as_ref())?;
 
@@ -5019,6 +5037,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                     start_byte_in_run: cluster_id,
                 },
                 source_content_index: source_index,
+                source_node_id,
                 glyphs: current_cluster_glyphs
                     .iter()
                     .map(|g| {
@@ -5078,6 +5097,7 @@ fn shape_text_correctly<T: ParsedFontTrait>(
                 start_byte_in_run: cluster_id,
             },
             source_content_index: source_index,
+            source_node_id,
             glyphs: current_cluster_glyphs
                 .iter()
                 .map(|g| {
@@ -5876,6 +5896,7 @@ pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
                 run_index: u32::MAX,
                 item_index: u32::MAX,
             },
+            source_node_id: None, // Hyphen is generated, not from DOM
             glyphs: vec![ShapedGlyph {
                 kind: GlyphKind::Hyphen,
                 glyph_id: hyphen_glyph_id,
@@ -6616,6 +6637,7 @@ pub fn justify_kashida_and_rebuild<T: ParsedFontTrait>(
                 run_index: u32::MAX,
                 item_index: u32::MAX,
             },
+            source_node_id: None, // Kashida is generated, not from DOM
             glyphs: vec![kashida_glyph],
             advance: kashida_advance,
             direction: BidiDirection::Ltr,

@@ -51,28 +51,20 @@ pub struct CursorTypeHitTest {
 impl CursorTypeHitTest {
     /// Create a new cursor type hit-test from a full hit-test and layout window
     ///
-    /// Finds the frontmost (lowest depth) node with a CSS `cursor` property
-    /// and returns the corresponding cursor type. If no node has a cursor property
-    /// directly, we check if the node has text children that have `cursor:text`.
+    /// Finds the frontmost (lowest depth) node with a cursor property.
     ///
     /// ## Algorithm
     ///
-    /// 1. Sort hit nodes by depth (frontmost first)
-    /// 2. For each hit node (in front-to-back order):
-    ///    a. If the node has an explicit cursor property → use it and stop
-    ///    b. If the node has text children → check their cursor property
-    /// 3. The first match wins (frontmost node with a cursor)
+    /// 1. First, check cursor_hit_test_nodes (direct text run hits with TAG_TYPE_CURSOR)
+    ///    - These are hit-test areas pushed for text runs with source_node_id
+    ///    - The cursor type is encoded directly in the hit-test tag
+    /// 2. Then, check regular_hit_test_nodes (DOM nodes with explicit cursor property)
+    /// 3. The frontmost (lowest depth) cursor wins
     ///
-    /// ## Text Child Detection
-    ///
-    /// Text nodes are inline and don't get their own hit-test areas. When hovering
-    /// over text, the hit-test returns the text's container node. We need to check
-    /// if the container has text children and use their cursor (typically I-beam).
-    ///
-    /// This detection ONLY applies to the frontmost hit node. If a button with
-    /// `cursor:pointer` is in front, its cursor wins regardless of text behind it.
+    /// This approach eliminates the need for text-child-detection hacks because
+    /// text runs now have their own hit-test areas with the correct cursor type.
     pub fn new(hit_test: &FullHitTest, layout_window: &LayoutWindow) -> Self {
-        use azul_core::dom::NodeType;
+        use azul_core::hit_test_tag::CursorType;
         
         let mut cursor_node = None;
         let mut cursor_icon = MouseCursorType::Default;
@@ -90,15 +82,35 @@ impl CursorTypeHitTest {
             let styled_dom = &layout_result.styled_dom;
             let node_data_container = styled_dom.node_data.as_container();
             let styled_nodes = styled_dom.styled_nodes.as_container();
-            let node_hierarchy = styled_dom.node_hierarchy.as_container();
 
-            // Check each hit node for a cursor property
-            // We want the FRONTMOST node (lowest depth) that has a cursor property
+            // PHASE 1: Check cursor_hit_test_nodes first (direct text run hits)
+            // These are hit-test areas for text runs that have the cursor type
+            // encoded directly in the tag, eliminating the need for CSS lookups.
+            for (node_id, cursor_hit) in hit_nodes.cursor_hit_test_nodes.iter() {
+                let node_depth = cursor_hit.hit_depth;
+                
+                // Only consider if it's in front of our current best
+                if node_depth >= best_depth {
+                    continue;
+                }
+                
+                // Convert CursorType to MouseCursorType
+                let mouse_cursor = translate_cursor_type(cursor_hit.cursor_type);
+                
+                // Only use this cursor if it's not the default
+                // (allows containers behind text to show their cursor if text has default)
+                if mouse_cursor != MouseCursorType::Default {
+                    cursor_node = Some((*dom_id, *node_id));
+                    cursor_icon = mouse_cursor;
+                    best_depth = node_depth;
+                }
+            }
+
+            // PHASE 2: Check regular_hit_test_nodes (DOM nodes with CSS cursor property)
             for (node_id, hit_item) in hit_nodes.regular_hit_test_nodes.iter() {
                 let node_depth = hit_item.hit_depth;
                 
                 // Only consider this node if it's in front of our current best
-                // (lower depth = closer to user = higher priority)
                 if node_depth >= best_depth {
                     continue;
                 }
@@ -116,35 +128,6 @@ impl CursorTypeHitTest {
                     cursor_node = Some((*dom_id, *node_id));
                     cursor_icon = translate_cursor(css_cursor);
                     best_depth = node_depth;
-                    continue;
-                }
-                
-                // No explicit cursor on this node - check if it has text children
-                // Text nodes are inline and don't get hit-test areas, so we need to
-                // check the container's children to see if we're over text.
-                let hier = &node_hierarchy[*node_id];
-                if let Some(first_child) = hier.first_child_id(*node_id) {
-                    let mut child_id = Some(first_child);
-                    while let Some(cid) = child_id {
-                        let child_data = &node_data_container[cid];
-                        if matches!(child_data.get_node_type(), NodeType::Text(_)) {
-                            // Found a text child - check its cursor property
-                            let child_cursor = styled_dom.get_css_property_cache().get_cursor(
-                                child_data,
-                                &cid,
-                                &styled_nodes[cid].styled_node_state,
-                            );
-                            
-                            if let Some(child_cursor_prop) = child_cursor {
-                                let css_cursor = child_cursor_prop.get_property().copied().unwrap_or_default();
-                                cursor_node = Some((*dom_id, cid));
-                                cursor_icon = translate_cursor(css_cursor);
-                                best_depth = node_depth;
-                                break;
-                            }
-                        }
-                        child_id = node_hierarchy[cid].next_sibling_id();
-                    }
                 }
             }
         }
@@ -153,6 +136,35 @@ impl CursorTypeHitTest {
             cursor_node,
             cursor_icon,
         }
+    }
+}
+
+/// Translate CursorType (from hit-test tag) to MouseCursorType
+fn translate_cursor_type(cursor_type: azul_core::hit_test_tag::CursorType) -> MouseCursorType {
+    use azul_core::hit_test_tag::CursorType;
+    
+    match cursor_type {
+        CursorType::Default => MouseCursorType::Default,
+        CursorType::Pointer => MouseCursorType::Hand,
+        CursorType::Text => MouseCursorType::Text,
+        CursorType::Crosshair => MouseCursorType::Crosshair,
+        CursorType::Move => MouseCursorType::Move,
+        CursorType::NotAllowed => MouseCursorType::NotAllowed,
+        CursorType::Grab => MouseCursorType::Grab,
+        CursorType::Grabbing => MouseCursorType::Grabbing,
+        CursorType::EResize => MouseCursorType::EResize,
+        CursorType::WResize => MouseCursorType::WResize,
+        CursorType::NResize => MouseCursorType::NResize,
+        CursorType::SResize => MouseCursorType::SResize,
+        CursorType::EwResize => MouseCursorType::EwResize,
+        CursorType::NsResize => MouseCursorType::NsResize,
+        CursorType::NeswResize => MouseCursorType::NeswResize,
+        CursorType::NwseResize => MouseCursorType::NwseResize,
+        CursorType::ColResize => MouseCursorType::ColResize,
+        CursorType::RowResize => MouseCursorType::RowResize,
+        CursorType::Wait => MouseCursorType::Wait,
+        CursorType::Help => MouseCursorType::Help,
+        CursorType::Progress => MouseCursorType::Progress,
     }
 }
 
