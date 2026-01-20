@@ -129,7 +129,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::{DocumentId, ScrollPosition},
     resources::RendererResources,
-    selection::SelectionState,
+    selection::{SelectionState, TextSelection},
     styled_dom::StyledDom,
 };
 use azul_css::{
@@ -166,7 +166,10 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub font_manager: &'a crate::font_traits::FontManager<T>,
     #[cfg(not(feature = "text_layout"))]
     pub font_manager: core::marker::PhantomData<&'a T>,
+    /// Legacy per-node selection state (for backward compatibility)
     pub selections: &'a BTreeMap<DomId, SelectionState>,
+    /// New multi-node text selection with anchor/focus model
+    pub text_selections: &'a BTreeMap<DomId, TextSelection>,
     pub debug_messages: &'a mut Option<Vec<LayoutDebugMessage>>,
     pub counters: &'a mut BTreeMap<(usize, String), i32>,
     pub viewport_size: LogicalSize,
@@ -350,6 +353,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     font_manager: &crate::font_traits::FontManager<T>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     selections: &BTreeMap<DomId, SelectionState>,
+    text_selections: &BTreeMap<DomId, TextSelection>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
     renderer_resources: &azul_core::resources::RendererResources,
@@ -377,6 +381,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         styled_dom: &new_dom,
         font_manager,
         selections,
+        text_selections,
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
@@ -404,6 +409,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         styled_dom: &new_dom,
         font_manager,
         selections,
+        text_selections,
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,

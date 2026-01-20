@@ -17,7 +17,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::ScrollPosition,
     resources::RendererResources,
-    selection::SelectionState,
+    selection::{SelectionState, TextSelection},
     styled_dom::StyledDom,
 };
 use azul_css::LayoutDebugMessage;
@@ -219,10 +219,12 @@ where
 
     // Create temporary context for display list generation
     let mut counter_values = cache.counters.clone();
+    let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx = LayoutContext {
         styled_dom: &new_dom,
         font_manager: &*font_manager,
         selections,
+        text_selections: &empty_text_selections,
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
@@ -341,10 +343,12 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
     // Create temporary context without counters for tree generation
     let mut counter_values = BTreeMap::new();
+    let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx_temp = LayoutContext {
         styled_dom: &new_dom,
         font_manager,
         selections,
+        text_selections: &empty_text_selections,
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
@@ -370,6 +374,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         styled_dom: &new_dom,
         font_manager,
         selections,
+        text_selections: &empty_text_selections,
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
