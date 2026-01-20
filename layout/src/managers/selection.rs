@@ -1,16 +1,20 @@
 //! Text selection state management
 //!
-//! Manages text selection ranges across all DOMs.
+//! Manages text selection ranges across all DOMs using the browser-style
+//! anchor/focus model for multi-node selection.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::time::Duration;
 
 use azul_core::{
-    dom::{DomId, DomNodeId},
+    dom::{DomId, DomNodeId, NodeId},
     events::SelectionManagerQuery,
-    geom::LogicalPosition,
-    selection::{Selection, SelectionRange, SelectionState, SelectionVec, TextCursor},
+    geom::{LogicalPosition, LogicalRect},
+    selection::{
+        Selection, SelectionAnchor, SelectionFocus, SelectionRange, SelectionState, SelectionVec,
+        TextCursor, TextSelection,
+    },
 };
 use azul_css::{impl_option, impl_option_inner, AzString, OptionString};
 
@@ -39,11 +43,20 @@ impl Default for ClickState {
 }
 
 /// Manager for text selections across all DOMs
+///
+/// This manager supports both the legacy per-node selection model and the new
+/// browser-style anchor/focus model for multi-node selection.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectionManager {
-    /// Selection state for each DOM
+    /// Legacy selection state for each DOM (per-node model)
     /// Maps DomId -> SelectionState
+    /// TODO: Deprecate once multi-node selection is fully implemented
     pub selections: BTreeMap<DomId, SelectionState>,
+    
+    /// New multi-node selection state using anchor/focus model
+    /// Maps DomId -> TextSelection
+    pub text_selections: BTreeMap<DomId, TextSelection>,
+    
     /// Click state for multi-click detection
     pub click_state: ClickState,
 }
@@ -64,6 +77,7 @@ impl SelectionManager {
     pub fn new() -> Self {
         Self {
             selections: BTreeMap::new(),
+            text_selections: BTreeMap::new(),
             click_state: ClickState::default(),
         }
     }
@@ -285,6 +299,130 @@ impl SelectionManager {
         } else {
             Some(next_count)
         }
+    }
+    
+    // ========================================================================
+    // NEW: Anchor/Focus model for multi-node selection
+    // ========================================================================
+    
+    /// Start a new text selection with an anchor point.
+    ///
+    /// This is called on MouseDown. It creates a collapsed selection (cursor)
+    /// at the anchor position. The focus will be updated during drag.
+    ///
+    /// ## Parameters
+    /// * `dom_id` - The DOM this selection belongs to
+    /// * `ifc_root_node_id` - The IFC root node where the click occurred
+    /// * `cursor` - The cursor position within the IFC's UnifiedLayout
+    /// * `char_bounds` - Visual bounds of the clicked character
+    /// * `mouse_position` - Mouse position in viewport coordinates
+    pub fn start_selection(
+        &mut self,
+        dom_id: DomId,
+        ifc_root_node_id: NodeId,
+        cursor: TextCursor,
+        char_bounds: LogicalRect,
+        mouse_position: LogicalPosition,
+    ) {
+        let selection = TextSelection::new_collapsed(
+            dom_id,
+            ifc_root_node_id,
+            cursor,
+            char_bounds,
+            mouse_position,
+        );
+        self.text_selections.insert(dom_id, selection);
+    }
+    
+    /// Update the focus point of an ongoing selection.
+    ///
+    /// This is called during MouseMove/Drag. It updates the focus position
+    /// and recomputes the affected nodes between anchor and focus.
+    ///
+    /// ## Parameters
+    /// * `dom_id` - The DOM this selection belongs to
+    /// * `ifc_root_node_id` - The IFC root node where the focus is now
+    /// * `cursor` - The cursor position within the IFC's UnifiedLayout
+    /// * `mouse_position` - Current mouse position in viewport coordinates
+    /// * `affected_nodes` - Pre-computed map of affected IFC roots to their SelectionRanges
+    /// * `is_forward` - Whether anchor comes before focus in document order
+    ///
+    /// ## Returns
+    /// * `true` if the selection was updated
+    /// * `false` if no selection exists for this DOM
+    pub fn update_selection_focus(
+        &mut self,
+        dom_id: &DomId,
+        ifc_root_node_id: NodeId,
+        cursor: TextCursor,
+        mouse_position: LogicalPosition,
+        affected_nodes: BTreeMap<NodeId, SelectionRange>,
+        is_forward: bool,
+    ) -> bool {
+        if let Some(selection) = self.text_selections.get_mut(dom_id) {
+            selection.focus = SelectionFocus {
+                ifc_root_node_id,
+                cursor,
+                mouse_position,
+            };
+            selection.affected_nodes = affected_nodes;
+            selection.is_forward = is_forward;
+            true
+        } else {
+            false
+        }
+    }
+    
+    /// Get the current text selection for a DOM.
+    pub fn get_text_selection(&self, dom_id: &DomId) -> Option<&TextSelection> {
+        self.text_selections.get(dom_id)
+    }
+    
+    /// Get mutable reference to the current text selection for a DOM.
+    pub fn get_text_selection_mut(&mut self, dom_id: &DomId) -> Option<&mut TextSelection> {
+        self.text_selections.get_mut(dom_id)
+    }
+    
+    /// Check if a DOM has an active text selection (new model).
+    pub fn has_text_selection(&self, dom_id: &DomId) -> bool {
+        self.text_selections.contains_key(dom_id)
+    }
+    
+    /// Get the selection range for a specific IFC root node.
+    ///
+    /// This is used by the renderer to quickly look up if a node is selected
+    /// and get its selection range for `get_selection_rects()`.
+    ///
+    /// ## Parameters
+    /// * `dom_id` - The DOM to check
+    /// * `ifc_root_node_id` - The IFC root node to look up
+    ///
+    /// ## Returns
+    /// * `Some(&SelectionRange)` if this node is part of the selection
+    /// * `None` if not selected
+    pub fn get_range_for_ifc_root(
+        &self,
+        dom_id: &DomId,
+        ifc_root_node_id: &NodeId,
+    ) -> Option<&SelectionRange> {
+        self.text_selections
+            .get(dom_id)?
+            .get_range_for_node(ifc_root_node_id)
+    }
+    
+    /// Clear the text selection for a DOM (new model).
+    pub fn clear_text_selection(&mut self, dom_id: &DomId) {
+        self.text_selections.remove(dom_id);
+    }
+    
+    /// Clear all text selections (new model).
+    pub fn clear_all_text_selections(&mut self) {
+        self.text_selections.clear();
+    }
+    
+    /// Get all text selections.
+    pub fn get_all_text_selections(&self) -> &BTreeMap<DomId, TextSelection> {
+        &self.text_selections
     }
 }
 
