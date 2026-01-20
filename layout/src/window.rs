@@ -33,9 +33,13 @@ use azul_core::{
         OpacityKey, RendererResources,
     },
     selection::{
-        CursorAffinity, GraphemeClusterId, Selection, SelectionRange, SelectionState, TextCursor,
+        CursorAffinity, GraphemeClusterId, Selection, SelectionAnchor, SelectionFocus,
+        SelectionRange, SelectionState, TextCursor, TextSelection,
     },
-    styled_dom::{NodeHierarchyItemId, StyledDom},
+    styled_dom::{
+        collect_nodes_in_document_order, is_before_in_document_order, NodeHierarchyItemId,
+        StyledDom,
+    },
     task::{
         Duration, Instant, SystemTickDiff, SystemTimeDiff, TerminateTimer, ThreadId, ThreadIdVec,
         ThreadSendMsg, TimerId, TimerIdVec,
@@ -700,6 +704,7 @@ impl LayoutWindow {
             &self.font_manager,
             &scroll_offsets,
             &self.selection_manager.selections,
+            &self.selection_manager.text_selections,
             debug_messages,
             Some(&gpu_cache),
             &self.renderer_resources,
@@ -5699,7 +5704,33 @@ impl LayoutWindow {
             initial_range
         };
 
-        // Clear existing selections and set new one
+        // Clear existing selections and set new one using the NEW anchor/focus model
+        // First, get the cursor bounds for the anchor
+        let char_bounds = {
+            let layout_result = self.layout_results.get(&dom_id)?;
+            let tree = &layout_result.layout_tree;
+            let layout_node = tree.nodes.iter().find(|n| n.dom_node_id == Some(ifc_root_node_id))?;
+            let cached_layout = layout_node.inline_layout_result.as_ref()?;
+            cached_layout.layout.get_cursor_rect(&final_range.start)
+                .unwrap_or(azul_core::geom::LogicalRect {
+                    origin: position,
+                    size: azul_core::geom::LogicalSize { width: 1.0, height: 16.0 },
+                })
+        };
+        
+        // Clear any existing text selection for this DOM
+        self.selection_manager.clear_text_selection(&dom_id);
+        
+        // Start a new selection with the anchor at the clicked position
+        self.selection_manager.start_selection(
+            dom_id,
+            ifc_root_node_id,
+            final_range.start,
+            char_bounds,
+            position,
+        );
+        
+        // Also update the legacy selection state for backward compatibility with rendering
         self.selection_manager.clear_selection(&dom_id);
 
         let state = SelectionState {
@@ -5719,61 +5750,68 @@ impl LayoutWindow {
     /// Process mouse drag for text selection extension.
     ///
     /// This method handles drag-to-select by extending the selection from
-    /// the initial click position to the current drag position.
+    /// the anchor (mousedown position) to the current focus (drag position).
+    ///
+    /// Uses the anchor/focus model:
+    /// - Anchor is fixed at the initial click position (set by process_mouse_click_for_selection)
+    /// - Focus moves with the mouse during drag
+    /// - Affected nodes between anchor and focus are computed in DOM order
     ///
     /// ## Parameters
-    /// * `start_position` - Initial click position in logical coordinates
+    /// * `start_position` - Initial click position in logical coordinates (unused, anchor is stored)
     /// * `current_position` - Current mouse position in logical coordinates
     ///
     /// ## Returns
     /// * `Option<Vec<DomNodeId>>` - Affected nodes that need re-rendering
     pub fn process_mouse_drag_for_selection(
         &mut self,
-        start_position: azul_core::geom::LogicalPosition,
+        _start_position: azul_core::geom::LogicalPosition,
         current_position: azul_core::geom::LogicalPosition,
     ) -> Option<Vec<azul_core::dom::DomNodeId>> {
         use crate::managers::hover::InputPointId;
 
         #[cfg(feature = "std")]
-        eprintln!("[DEBUG] process_mouse_drag_for_selection: start=({:.1},{:.1}), current=({:.1},{:.1})",
-            start_position.x, start_position.y, current_position.x, current_position.y);
+        eprintln!("[DEBUG] process_mouse_drag_for_selection: current=({:.1},{:.1})",
+            current_position.x, current_position.y);
+
+        // Find which DOM has an active text selection with an anchor
+        let dom_id = self.selection_manager.get_all_text_selections()
+            .keys()
+            .next()
+            .copied()?;
+        
+        // Get the existing anchor from the text selection
+        let anchor = {
+            let text_selection = self.selection_manager.get_text_selection(&dom_id)?;
+            text_selection.anchor.clone()
+        };
+        
+        #[cfg(feature = "std")]
+        eprintln!("[DEBUG] Found anchor at IFC root {:?}, cursor {:?}", 
+            anchor.ifc_root_node_id, anchor.cursor.cluster_id);
 
         // Get the current hit test from HoverManager
-        // WebRender provides point_relative_to_item which is the local position within the hit node
         let hit_test = self.hover_manager.get_current(&InputPointId::Mouse)?;
 
-        #[cfg(feature = "std")]
-        eprintln!("[DEBUG] process_mouse_drag_for_selection: hit_test has {} doms", hit_test.hovered_nodes.len());
-
-        let mut affected_nodes = Vec::new();
-        let mut selection_ranges = Vec::new();
-        let mut selection_dom_id = None;
-        let mut selection_dom_node_id = None;
-
-        for (dom_id, hit) in &hit_test.hovered_nodes {
-            #[cfg(feature = "std")]
-            eprintln!("[DEBUG]   dom {:?}: {} regular_hit_test_nodes, {} cursor_hit_test_nodes",
-                dom_id, hit.regular_hit_test_nodes.len(), hit.cursor_hit_test_nodes.len());
-
-            let layout_result = match self.layout_results.get(dom_id) {
+        // Find the focus position (current cursor under mouse)
+        let mut focus_info: Option<(NodeId, TextCursor, azul_core::geom::LogicalPosition)> = None;
+        
+        for (hit_dom_id, hit) in &hit_test.hovered_nodes {
+            if *hit_dom_id != dom_id {
+                continue;
+            }
+            
+            let layout_result = match self.layout_results.get(hit_dom_id) {
                 Some(lr) => lr,
                 None => continue,
             };
-            // Use layout tree from layout_result, not layout_cache
             let tree = &layout_result.layout_tree;
             
             for (node_id, hit_item) in &hit.regular_hit_test_nodes {
-                #[cfg(feature = "std")]
-                eprintln!("[DEBUG]     checking regular_hit_test node {:?}", node_id);
-
-                // Check if text is selectable
                 if !self.is_text_selectable(&layout_result.styled_dom, *node_id) {
-                    #[cfg(feature = "std")]
-                    eprintln!("[DEBUG]       -> NOT selectable");
                     continue;
                 }
 
-                // Find the layout node for this DOM node
                 let layout_node_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(*node_id));
                 let layout_node_idx = match layout_node_idx {
                     Some(idx) => idx,
@@ -5782,12 +5820,9 @@ impl LayoutWindow {
                 let layout_node = &tree.nodes[layout_node_idx];
                 
                 // Get the IFC layout and IFC root NodeId
-                // Selection must be stored on the IFC root, not on text nodes
                 let (cached_layout, ifc_root_node_id) = if let Some(ref cached) = layout_node.inline_layout_result {
-                    // This node IS an IFC root - use its own NodeId
                     (cached, *node_id)
                 } else if let Some(ref membership) = layout_node.ifc_membership {
-                    // This node participates in an IFC - get layout and NodeId from IFC root
                     match tree.nodes.get(membership.ifc_root_layout_index) {
                         Some(ifc_root) => match (ifc_root.inline_layout_result.as_ref(), ifc_root.dom_node_id) {
                             (Some(cached), Some(root_dom_id)) => (cached, root_dom_id),
@@ -5796,85 +5831,150 @@ impl LayoutWindow {
                         None => continue,
                     }
                 } else {
-                    // No IFC involvement - not a text node
                     continue;
                 };
                 
-                let layout = &cached_layout.layout;
-
-                // Use point_relative_to_item - this is the local position within the hit node
-                // NOTE: This should already be in logical coordinates (device pixels / hidpi_factor)
-                // If selection moves 2x faster than cursor, check if WebRender returns device pixels
                 let local_pos = hit_item.point_relative_to_item;
                 
-                #[cfg(feature = "std")]
-                eprintln!("[DEBUG]       local_pos (point_relative_to_item)=({:.1},{:.1}), point_in_viewport=({:.1},{:.1})",
-                    local_pos.x, local_pos.y, hit_item.point_in_viewport.x, hit_item.point_in_viewport.y);
-                
-                // For drag selection, we use the current selection state to extend
-                // Get existing selection start, or use the current position
-                let existing_selection = self.selection_manager.get_selection(dom_id);
-                
-                if let Some(state) = existing_selection {
-                    if let Some(Selection::Range(range)) = state.selections.as_ref().first() {
-                        // Extend from existing start to current position
-                        if let Some(current_cursor) = layout.hittest_cursor(local_pos) {
-                            #[cfg(feature = "std")]
-                            eprintln!("[DEBUG]       hittest_cursor SUCCESS: cluster_id={:?}", current_cursor.cluster_id);
-                            
-                            let new_range = SelectionRange {
-                                start: range.start.clone(),
-                                end: current_cursor,
-                            };
-                            #[cfg(feature = "std")]
-                            eprintln!("[DEBUG]       new_range: start={:?} end={:?}", 
-                                new_range.start.cluster_id, new_range.end.cluster_id);
-                            
-                            selection_ranges.push(new_range);
-                            selection_dom_id = Some(*dom_id);
-                            let node_hierarchy_id =
-                                NodeHierarchyItemId::from_crate_internal(Some(ifc_root_node_id));
-                            let dom_node_id = azul_core::dom::DomNodeId {
-                                dom: *dom_id,
-                                node: node_hierarchy_id,
-                            };
-                            selection_dom_node_id = Some(dom_node_id);
-                            affected_nodes.push(dom_node_id);
-                        } else {
-                            #[cfg(feature = "std")]
-                            eprintln!("[DEBUG]       hittest_cursor FAILED for local_pos=({:.1},{:.1})", 
-                                local_pos.x, local_pos.y);
-                        }
-                    }
+                if let Some(cursor) = cached_layout.layout.hittest_cursor(local_pos) {
+                    focus_info = Some((ifc_root_node_id, cursor, current_position));
+                    break;
                 }
             }
-        }
-
-        // Update selection manager with new selection
-        // BUG: This clears the selection every drag frame, which breaks cross-node selection!
-        // TODO: We should only update the selection, not clear it first
-        if let (Some(dom_id), Some(dom_node_id)) = (selection_dom_id, selection_dom_node_id) {
-            #[cfg(feature = "std")]
-            eprintln!("[DEBUG] process_mouse_drag_for_selection: CLEARING selection for dom {:?}", dom_id);
             
-            self.selection_manager.clear_selection(&dom_id);
-            if !selection_ranges.is_empty() {
-                #[cfg(feature = "std")]
-                eprintln!("[DEBUG] process_mouse_drag_for_selection: SETTING {} selection ranges on node {:?}", 
-                    selection_ranges.len(), dom_node_id);
-                    
-                let state = SelectionState {
-                    selections: selection_ranges.into_iter().map(Selection::Range).collect(),
-                    node_id: dom_node_id,
-                };
-                self.selection_manager.set_selection(dom_id, state);
+            if focus_info.is_some() {
+                break;
             }
         }
+        
+        let (focus_ifc_root, focus_cursor, focus_mouse_pos) = focus_info?;
+        
+        #[cfg(feature = "std")]
+        eprintln!("[DEBUG] Found focus at IFC root {:?}, cursor {:?}", 
+            focus_ifc_root, focus_cursor.cluster_id);
 
-        if affected_nodes.is_empty() {
+        // Compute affected nodes between anchor and focus
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let hierarchy = &layout_result.styled_dom.node_hierarchy;
+        
+        // Determine document order
+        let is_forward = if anchor.ifc_root_node_id == focus_ifc_root {
+            // Same IFC - compare cursors
+            anchor.cursor <= focus_cursor
+        } else {
+            // Different IFCs - use document order
+            is_before_in_document_order(hierarchy, anchor.ifc_root_node_id, focus_ifc_root)
+        };
+        
+        let (start_node, end_node) = if is_forward {
+            (anchor.ifc_root_node_id, focus_ifc_root)
+        } else {
+            (focus_ifc_root, anchor.ifc_root_node_id)
+        };
+        
+        // Collect all IFC roots between start and end
+        let nodes_in_range = collect_nodes_in_document_order(hierarchy, start_node, end_node);
+        
+        #[cfg(feature = "std")]
+        eprintln!("[DEBUG] Nodes in range: {:?}, is_forward: {}", 
+            nodes_in_range.iter().map(|n| n.index()).collect::<Vec<_>>(), is_forward);
+        
+        // Build the affected_nodes map with SelectionRanges for each IFC root
+        let mut affected_nodes_map = std::collections::BTreeMap::new();
+        let tree = &layout_result.layout_tree;
+        
+        for node_id in &nodes_in_range {
+            // Check if this node is an IFC root (has inline_layout_result)
+            let layout_node = tree.nodes.iter().find(|n| n.dom_node_id == Some(*node_id));
+            let layout_node = match layout_node {
+                Some(ln) if ln.inline_layout_result.is_some() => ln,
+                _ => continue, // Skip non-IFC-root nodes
+            };
+            
+            let cached_layout = layout_node.inline_layout_result.as_ref()?;
+            let layout = &cached_layout.layout;
+            
+            let range = if *node_id == anchor.ifc_root_node_id && *node_id == focus_ifc_root {
+                // Both anchor and focus in same IFC
+                SelectionRange {
+                    start: if is_forward { anchor.cursor } else { focus_cursor },
+                    end: if is_forward { focus_cursor } else { anchor.cursor },
+                }
+            } else if *node_id == anchor.ifc_root_node_id {
+                // Anchor node - select from anchor to end (if forward) or start to anchor (if backward)
+                if is_forward {
+                    let end_cursor = layout.get_last_cluster_cursor()
+                        .unwrap_or(anchor.cursor);
+                    SelectionRange { start: anchor.cursor, end: end_cursor }
+                } else {
+                    let start_cursor = layout.get_first_cluster_cursor()
+                        .unwrap_or(anchor.cursor);
+                    SelectionRange { start: start_cursor, end: anchor.cursor }
+                }
+            } else if *node_id == focus_ifc_root {
+                // Focus node - select from start to focus (if forward) or focus to end (if backward)
+                if is_forward {
+                    let start_cursor = layout.get_first_cluster_cursor()
+                        .unwrap_or(focus_cursor);
+                    SelectionRange { start: start_cursor, end: focus_cursor }
+                } else {
+                    let end_cursor = layout.get_last_cluster_cursor()
+                        .unwrap_or(focus_cursor);
+                    SelectionRange { start: focus_cursor, end: end_cursor }
+                }
+            } else {
+                // Middle node - fully selected
+                let start_cursor = layout.get_first_cluster_cursor()?;
+                let end_cursor = layout.get_last_cluster_cursor()?;
+                SelectionRange { start: start_cursor, end: end_cursor }
+            };
+            
+            affected_nodes_map.insert(*node_id, range);
+        }
+        
+        #[cfg(feature = "std")]
+        eprintln!("[DEBUG] Affected IFC roots: {:?}", 
+            affected_nodes_map.keys().map(|n| n.index()).collect::<Vec<_>>());
+        
+        // Update the text selection with new focus and affected nodes
+        // This does NOT clear the anchor!
+        self.selection_manager.update_selection_focus(
+            &dom_id,
+            focus_ifc_root,
+            focus_cursor,
+            focus_mouse_pos,
+            affected_nodes_map.clone(),
+            is_forward,
+        );
+        
+        // Also update the legacy selection state for backward compatibility with rendering
+        // For now, we just update the anchor's IFC root with the visible range
+        if let Some(anchor_range) = affected_nodes_map.get(&anchor.ifc_root_node_id) {
+            let node_hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(anchor.ifc_root_node_id));
+            let dom_node_id = azul_core::dom::DomNodeId {
+                dom: dom_id,
+                node: node_hierarchy_id,
+            };
+            
+            let state = SelectionState {
+                selections: vec![Selection::Range(*anchor_range)].into(),
+                node_id: dom_node_id,
+            };
+            self.selection_manager.set_selection(dom_id, state);
+        }
+
+        // Return affected nodes for dirty tracking
+        let affected_dom_nodes: Vec<azul_core::dom::DomNodeId> = affected_nodes_map.keys()
+            .map(|node_id| azul_core::dom::DomNodeId {
+                dom: dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+            })
+            .collect();
+        
+        if affected_dom_nodes.is_empty() {
             None
         } else {
-            Some(affected_nodes)
+            Some(affected_dom_nodes)
         }
     }
 
