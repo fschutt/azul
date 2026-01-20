@@ -5803,7 +5803,13 @@ impl LayoutWindow {
                 let layout = &cached_layout.layout;
 
                 // Use point_relative_to_item - this is the local position within the hit node
+                // NOTE: This should already be in logical coordinates (device pixels / hidpi_factor)
+                // If selection moves 2x faster than cursor, check if WebRender returns device pixels
                 let local_pos = hit_item.point_relative_to_item;
+                
+                #[cfg(feature = "std")]
+                eprintln!("[DEBUG]       local_pos (point_relative_to_item)=({:.1},{:.1}), point_in_viewport=({:.1},{:.1})",
+                    local_pos.x, local_pos.y, hit_item.point_in_viewport.x, hit_item.point_in_viewport.y);
                 
                 // For drag selection, we use the current selection state to extend
                 // Get existing selection start, or use the current position
@@ -5813,10 +5819,17 @@ impl LayoutWindow {
                     if let Some(Selection::Range(range)) = state.selections.as_ref().first() {
                         // Extend from existing start to current position
                         if let Some(current_cursor) = layout.hittest_cursor(local_pos) {
+                            #[cfg(feature = "std")]
+                            eprintln!("[DEBUG]       hittest_cursor SUCCESS: cluster_id={:?}", current_cursor.cluster_id);
+                            
                             let new_range = SelectionRange {
                                 start: range.start.clone(),
                                 end: current_cursor,
                             };
+                            #[cfg(feature = "std")]
+                            eprintln!("[DEBUG]       new_range: start={:?} end={:?}", 
+                                new_range.start.cluster_id, new_range.end.cluster_id);
+                            
                             selection_ranges.push(new_range);
                             selection_dom_id = Some(*dom_id);
                             let node_hierarchy_id =
@@ -5827,6 +5840,10 @@ impl LayoutWindow {
                             };
                             selection_dom_node_id = Some(dom_node_id);
                             affected_nodes.push(dom_node_id);
+                        } else {
+                            #[cfg(feature = "std")]
+                            eprintln!("[DEBUG]       hittest_cursor FAILED for local_pos=({:.1},{:.1})", 
+                                local_pos.x, local_pos.y);
                         }
                     }
                 }
@@ -5834,9 +5851,18 @@ impl LayoutWindow {
         }
 
         // Update selection manager with new selection
+        // BUG: This clears the selection every drag frame, which breaks cross-node selection!
+        // TODO: We should only update the selection, not clear it first
         if let (Some(dom_id), Some(dom_node_id)) = (selection_dom_id, selection_dom_node_id) {
+            #[cfg(feature = "std")]
+            eprintln!("[DEBUG] process_mouse_drag_for_selection: CLEARING selection for dom {:?}", dom_id);
+            
             self.selection_manager.clear_selection(&dom_id);
             if !selection_ranges.is_empty() {
+                #[cfg(feature = "std")]
+                eprintln!("[DEBUG] process_mouse_drag_for_selection: SETTING {} selection ranges on node {:?}", 
+                    selection_ranges.len(), dom_node_id);
+                    
                 let state = SelectionState {
                     selections: selection_ranges.into_iter().map(Selection::Range).collect(),
                     node_id: dom_node_id,

@@ -569,10 +569,14 @@ pub fn fullhittest_new_webrender(
                         .into_crate_internal()?;
 
                     // Use point_relative_to_item from WebRender - this correctly accounts for
-                    // all CSS transforms, scroll offsets, and stacking contexts
+                    // all CSS transforms, scroll offsets, and stacking contexts.
+                    // NOTE: WebRender returns point_relative_to_item in device pixels (because
+                    // we passed physical_pos = logical * hidpi_factor to hit_test), so we must
+                    // convert back to logical pixels by dividing by hidpi_factor.
+                    let hidpi = hidpi_factor.inner.get();
                     let point_relative_to_item = LogicalPosition::new(
-                        i.point_relative_to_item.x,
-                        i.point_relative_to_item.y,
+                        i.point_relative_to_item.x / hidpi,
+                        i.point_relative_to_item.y / hidpi,
                     );
 
                     Some((
@@ -689,6 +693,8 @@ pub fn fullhittest_new_webrender(
                     },
                 };
 
+                // NOTE: item.point_relative_to_item is already in logical pixels
+                // because it was converted during the DOM node hit test processing above.
                 ret.hovered_nodes
                     .entry(*dom_id)
                     .or_insert_with(|| HitTest::empty())
