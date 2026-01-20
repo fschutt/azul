@@ -1041,6 +1041,10 @@ impl CssPropertyType {
             BorderCollapse | BorderSpacing | CaptionSide | EmptyCells |
 
             // Other inherited properties
+            // NOTE: Cursor is inheritable per CSS spec (https://developer.mozilla.org/en-US/docs/Web/CSS/cursor)
+            // This means a Button with cursor:pointer will pass that to child Text nodes.
+            // This is correct behavior - if you want text inside a button to show I-beam,
+            // the Text node needs an explicit cursor:text style that overrides the inherited value.
             Visibility | Cursor | Widows | Orphans |
 
             // Writing mode

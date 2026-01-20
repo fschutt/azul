@@ -5729,14 +5729,21 @@ impl LayoutWindow {
     /// * `Option<Vec<DomNodeId>>` - Affected nodes that need re-rendering
     pub fn process_mouse_drag_for_selection(
         &mut self,
-        _start_position: azul_core::geom::LogicalPosition,
-        _current_position: azul_core::geom::LogicalPosition,
+        start_position: azul_core::geom::LogicalPosition,
+        current_position: azul_core::geom::LogicalPosition,
     ) -> Option<Vec<azul_core::dom::DomNodeId>> {
         use crate::managers::hover::InputPointId;
+
+        #[cfg(feature = "std")]
+        eprintln!("[DEBUG] process_mouse_drag_for_selection: start=({:.1},{:.1}), current=({:.1},{:.1})",
+            start_position.x, start_position.y, current_position.x, current_position.y);
 
         // Get the current hit test from HoverManager
         // WebRender provides point_relative_to_item which is the local position within the hit node
         let hit_test = self.hover_manager.get_current(&InputPointId::Mouse)?;
+
+        #[cfg(feature = "std")]
+        eprintln!("[DEBUG] process_mouse_drag_for_selection: hit_test has {} doms", hit_test.hovered_nodes.len());
 
         let mut affected_nodes = Vec::new();
         let mut selection_ranges = Vec::new();
@@ -5744,20 +5751,55 @@ impl LayoutWindow {
         let mut selection_dom_node_id = None;
 
         for (dom_id, hit) in &hit_test.hovered_nodes {
-            let layout_result = self.layout_results.get(dom_id)?;
-            let tree = self.layout_cache.tree.as_ref()?;
+            #[cfg(feature = "std")]
+            eprintln!("[DEBUG]   dom {:?}: {} regular_hit_test_nodes, {} cursor_hit_test_nodes",
+                dom_id, hit.regular_hit_test_nodes.len(), hit.cursor_hit_test_nodes.len());
+
+            let layout_result = match self.layout_results.get(dom_id) {
+                Some(lr) => lr,
+                None => continue,
+            };
+            // Use layout tree from layout_result, not layout_cache
+            let tree = &layout_result.layout_tree;
             
             for (node_id, hit_item) in &hit.regular_hit_test_nodes {
+                #[cfg(feature = "std")]
+                eprintln!("[DEBUG]     checking regular_hit_test node {:?}", node_id);
+
                 // Check if text is selectable
                 if !self.is_text_selectable(&layout_result.styled_dom, *node_id) {
+                    #[cfg(feature = "std")]
+                    eprintln!("[DEBUG]       -> NOT selectable");
                     continue;
                 }
 
                 // Find the layout node for this DOM node
-                let layout_node = tree.nodes.iter().find(|n| n.dom_node_id == Some(*node_id))?;
+                let layout_node_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(*node_id));
+                let layout_node_idx = match layout_node_idx {
+                    Some(idx) => idx,
+                    None => continue,
+                };
+                let layout_node = &tree.nodes[layout_node_idx];
                 
-                // Check if this node has an inline layout (text content)
-                let cached_layout = layout_node.inline_layout_result.as_ref()?;
+                // Get the IFC layout and IFC root NodeId
+                // Selection must be stored on the IFC root, not on text nodes
+                let (cached_layout, ifc_root_node_id) = if let Some(ref cached) = layout_node.inline_layout_result {
+                    // This node IS an IFC root - use its own NodeId
+                    (cached, *node_id)
+                } else if let Some(ref membership) = layout_node.ifc_membership {
+                    // This node participates in an IFC - get layout and NodeId from IFC root
+                    match tree.nodes.get(membership.ifc_root_layout_index) {
+                        Some(ifc_root) => match (ifc_root.inline_layout_result.as_ref(), ifc_root.dom_node_id) {
+                            (Some(cached), Some(root_dom_id)) => (cached, root_dom_id),
+                            _ => continue,
+                        },
+                        None => continue,
+                    }
+                } else {
+                    // No IFC involvement - not a text node
+                    continue;
+                };
+                
                 let layout = &cached_layout.layout;
 
                 // Use point_relative_to_item - this is the local position within the hit node
@@ -5778,7 +5820,7 @@ impl LayoutWindow {
                             selection_ranges.push(new_range);
                             selection_dom_id = Some(*dom_id);
                             let node_hierarchy_id =
-                                NodeHierarchyItemId::from_crate_internal(Some(*node_id));
+                                NodeHierarchyItemId::from_crate_internal(Some(ifc_root_node_id));
                             let dom_node_id = azul_core::dom::DomNodeId {
                                 dom: *dom_id,
                                 node: node_hierarchy_id,
