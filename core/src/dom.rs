@@ -1383,6 +1383,10 @@ pub struct NodeDataExt {
     /// by the layout engine to satisfy table layout requirements (e.g., wrapping
     /// non-table children of table elements in anonymous table-row/table-cell boxes).
     pub is_anonymous: bool,
+    /// Stable key for reconciliation. If provided, allows the framework to track
+    /// this node across frames even if its position in the array changes.
+    /// This is crucial for correct lifecycle events when lists are reordered.
+    pub key: Option<u64>,
     // ... insert further API extensions here...
 }
 
@@ -2484,6 +2488,32 @@ impl NodeData {
             .context_menu = Some(Box::new(context_menu));
     }
 
+    /// Sets a stable key for this node used in reconciliation.
+    ///
+    /// This key is used to track node identity across DOM updates, enabling
+    /// the framework to distinguish between "moving" a node and "destroying/creating" one.
+    /// This is crucial for correct lifecycle events when lists are reordered.
+    ///
+    /// # Example
+    /// ```rust
+    /// node_data.set_key("user-123");
+    /// ```
+    #[inline]
+    pub fn set_key<K: core::hash::Hash>(&mut self, key: K) {
+        use highway::{HighwayHash, HighwayHasher, Key};
+        let mut hasher = HighwayHasher::new(Key([0; 4]));
+        key.hash(&mut hasher);
+        self.extra
+            .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+            .key = Some(hasher.finalize64());
+    }
+
+    /// Gets the key for this node, if set.
+    #[inline]
+    pub fn get_key(&self) -> Option<u64> {
+        self.extra.as_ref().and_then(|ext| ext.key)
+    }
+
     #[inline]
     pub fn with_menu_bar(mut self, menu_bar: Menu) -> Self {
         self.set_menu_bar(menu_bar);
@@ -2638,6 +2668,23 @@ impl NodeData {
     #[inline(always)]
     pub fn with_css_props(mut self, css_props: CssPropertyWithConditionsVec) -> Self {
         self.css_props = css_props;
+        self
+    }
+
+    /// Assigns a stable key to this node for reconciliation.
+    ///
+    /// This is crucial for performance and correct state preservation when
+    /// lists of items change order or items are inserted/removed. Without keys,
+    /// the reconciliation algorithm falls back to hash-based matching.
+    ///
+    /// # Example
+    /// ```rust
+    /// NodeData::create_div()
+    ///     .with_key("user-avatar-123")
+    /// ```
+    #[inline]
+    pub fn with_key<K: core::hash::Hash>(mut self, key: K) -> Self {
+        self.set_key(key);
         self
     }
 
@@ -4475,6 +4522,22 @@ impl Dom {
     #[inline(always)]
     pub fn with_css_props(mut self, css_props: CssPropertyWithConditionsVec) -> Self {
         self.root.css_props = css_props;
+        self
+    }
+
+    /// Assigns a stable key to the root node of this DOM for reconciliation.
+    ///
+    /// This is crucial for performance and correct state preservation when
+    /// lists of items change order or items are inserted/removed.
+    ///
+    /// # Example
+    /// ```rust
+    /// Dom::create_div()
+    ///     .with_key("user-avatar-123")
+    /// ```
+    #[inline]
+    pub fn with_key<K: core::hash::Hash>(mut self, key: K) -> Self {
+        self.root.set_key(key);
         self
     }
 

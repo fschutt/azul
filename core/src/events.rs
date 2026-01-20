@@ -1014,6 +1014,10 @@ fn matches_window_filter(
 
 /// Detect lifecycle events by comparing old and new DOM state.
 ///
+/// This is the simple, index-based lifecycle detection that doesn't account for
+/// node reordering. For more sophisticated reconciliation that can detect moves,
+/// use `detect_lifecycle_events_with_reconciliation`.
+///
 /// Generates Mount, Unmount, and Resize events by comparing DOM hierarchies.
 pub fn detect_lifecycle_events(
     old_dom_id: DomId,
@@ -1153,6 +1157,95 @@ fn create_resize_event(
             current_bounds: new_bounds,
         },
     ))
+}
+
+/// Result of lifecycle event detection with reconciliation.
+///
+/// Contains both the generated lifecycle events and a mapping from old to new
+/// node IDs for state migration (focus, scroll, etc.).
+#[derive(Debug, Clone, Default)]
+pub struct LifecycleEventResult {
+    /// Lifecycle events (Mount, Unmount, Resize, Update)
+    pub events: Vec<SyntheticEvent>,
+    /// Maps old NodeId -> new NodeId for matched nodes.
+    /// Use this to migrate focus, scroll state, and other node-specific state.
+    pub node_id_mapping: crate::FastHashMap<NodeId, NodeId>,
+}
+
+/// Detect lifecycle events using reconciliation with stable keys and content hashing.
+///
+/// This is the advanced lifecycle detection that can correctly identify:
+/// - **Moves**: When a node changes position but keeps its identity (via key or hash)
+/// - **Mounts**: When a new node appears
+/// - **Unmounts**: When an existing node disappears
+/// - **Resizes**: When a node's layout bounds change
+/// - **Updates**: When a keyed node's content changes
+///
+/// The reconciliation strategy is:
+/// 1. **Stable Key Match:** Nodes with `.with_reconciliation_key()` are matched by key (O(1))
+/// 2. **Hash Match:** Nodes without keys are matched by content hash (enables reorder detection)
+/// 3. **Fallback:** Unmatched nodes generate Mount/Unmount events
+///
+/// # Arguments
+/// * `dom_id` - The DOM identifier
+/// * `old_node_data` - Node data from the previous frame
+/// * `new_node_data` - Node data from the current frame
+/// * `old_layout` - Layout bounds from the previous frame
+/// * `new_layout` - Layout bounds from the current frame
+/// * `timestamp` - Current timestamp for events
+///
+/// # Returns
+/// A `LifecycleEventResult` containing:
+/// - `events`: Lifecycle events to dispatch
+/// - `node_id_mapping`: Mapping from old to new NodeIds for state migration
+///
+/// # Example
+/// ```rust
+/// let result = detect_lifecycle_events_with_reconciliation(
+///     dom_id,
+///     &old_node_data,
+///     &new_node_data,
+///     &old_layout,
+///     &new_layout,
+///     timestamp,
+/// );
+///
+/// // Dispatch lifecycle events
+/// for event in result.events {
+///     dispatch_event(event);
+/// }
+///
+/// // Migrate focus to new node ID
+/// if let Some(focused) = focus_manager.focused_node {
+///     if let Some(&new_id) = result.node_id_mapping.get(&focused) {
+///         focus_manager.focused_node = Some(new_id);
+///     } else {
+///         // Focused node was unmounted
+///         focus_manager.focused_node = None;
+///     }
+/// }
+/// ```
+pub fn detect_lifecycle_events_with_reconciliation(
+    dom_id: DomId,
+    old_node_data: &[crate::dom::NodeData],
+    new_node_data: &[crate::dom::NodeData],
+    old_layout: &crate::FastHashMap<NodeId, LogicalRect>,
+    new_layout: &crate::FastHashMap<NodeId, LogicalRect>,
+    timestamp: Instant,
+) -> LifecycleEventResult {
+    let diff_result = crate::diff::reconcile_dom(
+        old_node_data,
+        new_node_data,
+        old_layout,
+        new_layout,
+        dom_id,
+        timestamp,
+    );
+
+    LifecycleEventResult {
+        events: diff_result.events,
+        node_id_mapping: crate::diff::create_migration_map(&diff_result.node_moves),
+    }
 }
 
 // Phase 3.5: Event Filter System

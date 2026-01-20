@@ -31,8 +31,8 @@ pub mod glyph;
 pub mod resources;
 /// Primitives for cursor and text selection handling
 pub mod selection;
-// Algorithms to create git-like diffs between two doms in linear time
-// pub mod diff;
+/// Algorithms to create git-like diffs between two doms in linear time
+pub mod diff;
 /// Animation system
 pub mod animation;
 /// Event handling (mouse, keyboard, window events)
