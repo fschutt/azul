@@ -2105,3 +2105,138 @@ fn recursive_get_last_child(
         }
     }
 }
+
+// ============================================================================
+// DOM TRAVERSAL FOR MULTI-NODE SELECTION
+// ============================================================================
+
+/// Determine if node_a comes before node_b in document order.
+///
+/// Document order is defined as pre-order depth-first traversal order.
+/// This is equivalent to the order nodes appear in HTML source.
+///
+/// ## Algorithm
+/// 1. Find the path from root to each node
+/// 2. Find the Lowest Common Ancestor (LCA)
+/// 3. At the divergence point, the child that appears first in sibling order comes first
+pub fn is_before_in_document_order(
+    hierarchy: &NodeHierarchyItemVec,
+    node_a: NodeId,
+    node_b: NodeId,
+) -> bool {
+    if node_a == node_b {
+        return false;
+    }
+    
+    let hierarchy = hierarchy.as_container();
+    
+    // Get paths from root to each node (stored as root-first order)
+    let path_a = get_path_to_root(&hierarchy, node_a);
+    let path_b = get_path_to_root(&hierarchy, node_b);
+    
+    // Find divergence point (last common ancestor)
+    let min_len = path_a.len().min(path_b.len());
+    
+    for i in 0..min_len {
+        if path_a[i] != path_b[i] {
+            // Found divergence - check which sibling comes first
+            let child_towards_a = path_a[i];
+            let child_towards_b = path_b[i];
+            
+            // A smaller NodeId index means it was created earlier in DOM construction,
+            // which means it comes first in document order for siblings
+            return child_towards_a.index() < child_towards_b.index();
+        }
+    }
+    
+    // One path is a prefix of the other - the shorter path (ancestor) comes first
+    path_a.len() < path_b.len()
+}
+
+/// Get the path from root to a node, returned in root-first order.
+fn get_path_to_root(
+    hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    node: NodeId,
+) -> Vec<NodeId> {
+    let mut path = Vec::new();
+    let mut current = Some(node);
+    
+    while let Some(node_id) = current {
+        path.push(node_id);
+        current = hierarchy.get(node_id).and_then(|h| h.parent_id());
+    }
+    
+    // Reverse to get root-first order
+    path.reverse();
+    path
+}
+
+/// Collect all nodes between start and end (inclusive) in document order.
+///
+/// This performs a pre-order depth-first traversal starting from the root,
+/// collecting nodes once we've seen `start` and stopping at `end`.
+///
+/// ## Parameters
+/// * `hierarchy` - The node hierarchy
+/// * `start_node` - First node in document order
+/// * `end_node` - Last node in document order
+///
+/// ## Returns
+/// Vector of NodeIds in document order, from start to end (inclusive)
+pub fn collect_nodes_in_document_order(
+    hierarchy: &NodeHierarchyItemVec,
+    start_node: NodeId,
+    end_node: NodeId,
+) -> Vec<NodeId> {
+    if start_node == end_node {
+        return vec![start_node];
+    }
+    
+    let hierarchy_container = hierarchy.as_container();
+    let hierarchy_slice = hierarchy.as_ref();
+    
+    let mut result = Vec::new();
+    let mut in_range = false;
+    
+    // Pre-order DFS using a stack
+    // We need to traverse in document order, which is pre-order DFS
+    let mut stack: Vec<NodeId> = vec![NodeId::ZERO]; // Start from root
+    
+    while let Some(current) = stack.pop() {
+        // Check if we've entered the range
+        if current == start_node {
+            in_range = true;
+        }
+        
+        // Collect if in range
+        if in_range {
+            result.push(current);
+        }
+        
+        // Check if we've exited the range
+        if current == end_node {
+            break;
+        }
+        
+        // Push children in reverse order so they pop in correct order
+        // (first child should be processed first)
+        if let Some(item) = hierarchy_container.get(current) {
+            // Get first child
+            if let Some(first_child) = item.first_child_id(current) {
+                // Collect all children by following next_sibling
+                let mut children = Vec::new();
+                let mut child = Some(first_child);
+                while let Some(child_id) = child {
+                    children.push(child_id);
+                    child = hierarchy_container.get(child_id).and_then(|h| h.next_sibling_id());
+                }
+                // Push in reverse order for correct DFS order
+                for child_id in children.into_iter().rev() {
+                    stack.push(child_id);
+                }
+            }
+        }
+    }
+    
+    result
+}
