@@ -12,7 +12,7 @@ use azul_core::{
     resources::{
         IdNamespace, ImageRef, OpacityKey, RendererResources,
     },
-    selection::{Selection, SelectionState},
+    selection::{Selection, SelectionRange, SelectionState, TextSelection},
     styled_dom::StyledDom,
     ui_solver::GlyphInstance,
 };
@@ -1332,7 +1332,52 @@ where
         };
         let layout = &cached_layout.layout;
 
-        // Get the selection state for this DOM
+        // Get the absolute position of this node
+        let node_pos = self
+            .positioned_tree
+            .calculated_positions
+            .get(&node_index)
+            .copied()
+            .unwrap_or_default();
+
+        // === NEW: Check text_selections first (multi-node selection support) ===
+        // The new TextSelection uses a BTreeMap<NodeId, SelectionRange> for O(log N) lookup
+        if let Some(text_selection) = self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id) {
+            // dom_id is already a NodeId from node.dom_node_id
+            if let Some(range) = text_selection.affected_nodes.get(&dom_id) {
+                // This node is part of a multi-node selection
+                let rects = layout.get_selection_rects(range);
+                let style = get_selection_style(self.ctx.styled_dom, Some(dom_id));
+
+                let border_radius = BorderRadius {
+                    top_left: style.radius,
+                    top_right: style.radius,
+                    bottom_left: style.radius,
+                    bottom_right: style.radius,
+                };
+
+                for mut rect in rects {
+                    rect.origin.x += node_pos.x;
+                    rect.origin.y += node_pos.y;
+                    builder.push_selection_rect(rect, style.bg_color, border_radius);
+                }
+
+                // Also draw cursor at the focus position if this is the focus node
+                if text_selection.focus.ifc_root_node_id == dom_id {
+                    if let Some(mut rect) = layout.get_cursor_rect(&text_selection.focus.cursor) {
+                        let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
+                        rect.origin.x += node_pos.x;
+                        rect.origin.y += node_pos.y;
+                        builder.push_cursor_rect(rect, style.color);
+                    }
+                }
+
+                // We handled this node via text_selections, skip legacy path
+                return Ok(());
+            }
+        }
+
+        // === LEGACY: Fall back to old selections for backward compatibility ===
         let Some(selection_state) = self.ctx.selections.get(&self.ctx.styled_dom.dom_id) else {
             return Ok(());
         };
@@ -1341,14 +1386,6 @@ where
         if selection_state.node_id.node.into_crate_internal() != Some(dom_id) {
             return Ok(());
         }
-
-        // Get the absolute position of this node
-        let node_pos = self
-            .positioned_tree
-            .calculated_positions
-            .get(&node_index)
-            .copied()
-            .unwrap_or_default();
 
         // Iterate through all selections (multi-cursor/multi-selection support)
         for selection in selection_state.selections.as_slice() {
