@@ -101,6 +101,51 @@ pub fn regenerate_layout(
     // This must happen after the user's layout callback and before CSD injection
     azul_core::icon::resolve_icons_in_styled_dom(&mut user_styled_dom, icon_provider, system_style);
 
+    // 2.5. STATE MIGRATION: Transfer heavy resources from old DOM to new DOM
+    // This allows components like video players to preserve their decoder handles
+    // across frame updates without polluting the application data model.
+    if let Some(old_layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
+        // Get old node data (from previous frame)
+        let old_node_data_vec = &old_layout_result.styled_dom.node_data;
+        let old_node_data: Vec<azul_core::dom::NodeData> = old_node_data_vec.as_ref().to_vec();
+        
+        // Get new node data (from current frame, mutable)
+        let mut new_node_data: Vec<azul_core::dom::NodeData> = user_styled_dom.node_data.as_ref().to_vec();
+        
+        // Build layout maps for reconciliation (empty for now - we just need node moves)
+        let old_layout_map = azul_core::FastHashMap::default();
+        let new_layout_map = azul_core::FastHashMap::default();
+        
+        // Run reconciliation to find matched nodes
+        let diff_result = azul_core::diff::reconcile_dom(
+            &old_node_data,
+            &new_node_data,
+            &old_layout_map,
+            &new_layout_map,
+            azul_core::dom::DomId::ROOT_ID,
+            azul_core::task::Instant::now(),
+        );
+        
+        // Execute state migration for matched nodes with merge callbacks
+        if !diff_result.node_moves.is_empty() {
+            let mut old_node_data_mut = old_node_data;
+            azul_core::diff::transfer_states(
+                &mut old_node_data_mut,
+                &mut new_node_data,
+                &diff_result.node_moves,
+            );
+            
+            // Update the styled_dom with the merged node data
+            user_styled_dom.node_data = new_node_data.into();
+            
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] State migration: {} node moves processed",
+                diff_result.node_moves.len()
+            );
+        }
+    }
+
     // 3. Conditionally inject Client-Side Decorations (CSD)
     let styled_dom = if csd::should_inject_csd(
         current_window_state.flags.has_decorations,

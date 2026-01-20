@@ -7662,6 +7662,22 @@
                 "type": "StyledDom"
               }
             }
+          },
+          "DatasetMergeCallbackType": {
+            "external": "azul_core::dom::DatasetMergeCallbackType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "RefAny"
+                },
+                {
+                  "type": "RefAny"
+                }
+              ],
+              "returns": {
+                "type": "RefAny"
+              }
+            }
           }
         }
       },
@@ -10013,6 +10029,30 @@
                   "type": "usize"
                 },
                 "fn_body": "object.fixup_children_estimated()"
+              },
+              "with_merge_callback": {
+                "doc": [
+                  "Registers a callback to merge dataset state from the previous frame.",
+                  "",
+                  "This is used for components that maintain heavy internal state (video players,",
+                  "WebGL contexts, network connections) that should not be destroyed and recreated",
+                  "on every render frame.",
+                  "",
+                  "The callback receives both datasets as `RefAny` (cheap shallow clones) and",
+                  "returns the `RefAny` that should be used for the new node."
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "callback": "DatasetMergeCallback"
+                  }
+                ],
+                "returns": {
+                  "type": "Dom"
+                },
+                "fn_body": "object.with_merge_callback(callback)"
               }
             },
             "repr": "C"
@@ -10396,6 +10436,111 @@
                   "type": "String"
                 },
                 "fn_body": "object.debug_print_end().into()"
+              },
+              "set_merge_callback": {
+                "doc": [
+                  "Sets a dataset merge callback for this node.",
+                  "",
+                  "The merge callback is invoked during reconciliation when a node from the",
+                  "previous frame is matched with a node in the new frame. It allows heavy",
+                  "resources (video decoders, GL textures, network connections) to be",
+                  "transferred from the old node to the new node instead of being destroyed.",
+                  "",
+                  "# Type Safety",
+                  "",
+                  "The callback stores the `TypeId` of `T`. During execution, both the old",
+                  "and new datasets must match this type, otherwise the merge is skipped.",
+                  "",
+                  "# Example",
+                  "```rust",
+                  "struct VideoPlayer {",
+                  "    url: String,",
+                  "    decoder: Option<DecoderHandle>,",
+                  "}",
+                  "",
+                  "extern \"C\" fn merge_video(new_data: RefAny, old_data: RefAny) -> RefAny {",
+                  "    // Transfer the heavy decoder handle from old to new",
+                  "    if let (Some(mut new), Some(old)) = (",
+                  "        new_data.downcast_mut::<VideoPlayer>(),",
+                  "        old_data.downcast_ref::<VideoPlayer>()",
+                  "    ) {",
+                  "        new.decoder = old.decoder.take();",
+                  "    }",
+                  "    new_data",
+                  "}",
+                  "",
+                  "node_data.set_merge_callback(merge_video);",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "callback": "DatasetMergeCallback"
+                  }
+                ],
+                "fn_body": "object.set_merge_callback(callback)"
+              },
+              "get_merge_callback": {
+                "doc": [
+                  "Gets the merge callback for this node, if set."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionDatasetMergeCallback"
+                },
+                "fn_body": "object.get_merge_callback().into()"
+              },
+              "with_merge_callback": {
+                "doc": [
+                  "Registers a callback to merge dataset state from the previous frame.",
+                  "",
+                  "This is used for components that maintain heavy internal state (video players,",
+                  "WebGL contexts, network connections) that should not be destroyed and recreated",
+                  "on every render frame.",
+                  "",
+                  "The callback receives both datasets as `RefAny` (cheap shallow clones) and",
+                  "returns the `RefAny` that should be used for the new node.",
+                  "",
+                  "# Example",
+                  "```rust",
+                  "struct VideoPlayer {",
+                  "    url: String,",
+                  "    decoder_handle: Option<DecoderHandle>,",
+                  "}",
+                  "",
+                  "extern \"C\" fn merge_video(new_data: RefAny, old_data: RefAny) -> RefAny {",
+                  "    if let (Some(mut new), Some(old)) = (",
+                  "        new_data.downcast_mut::<VideoPlayer>(),",
+                  "        old_data.downcast_ref::<VideoPlayer>()",
+                  "    ) {",
+                  "        new.decoder_handle = old.decoder_handle.take();",
+                  "    }",
+                  "    new_data",
+                  "}",
+                  "",
+                  "NodeData::create_div()",
+                  "    .with_dataset(RefAny::new(VideoPlayer::new(\"movie.mp4\")).into())",
+                  "    .with_merge_callback(merge_video)",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "callback": "DatasetMergeCallback"
+                  }
+                ],
+                "returns": {
+                  "type": "NodeData"
+                },
+                "fn_body": "object.with_merge_callback(callback)"
               }
             },
             "repr": "C"
@@ -14190,6 +14335,54 @@
               }
             ],
             "repr": "C, u8"
+          },
+          "DatasetMergeCallback": {
+            "external": "azul_core::dom::DatasetMergeCallback",
+            "derive": [
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Hash",
+              "PartialOrd",
+              "Ord"
+            ],
+            "struct_fields": [
+              {
+                "cb": {
+                  "type": "DatasetMergeCallbackType"
+                },
+                "callable": {
+                  "type": "OptionRefAny"
+                }
+              }
+            ],
+            "constructors": {
+              "from": {
+                "fn_args": [
+                  {
+                    "cb": "DatasetMergeCallbackType"
+                  }
+                ],
+                "fn_body": "azul_core::dom::DatasetMergeCallback::from(cb)"
+              }
+            },
+            "functions": {
+              "fmt": {
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "f": "Formatter"
+                  }
+                ],
+                "returns": {
+                  "type": "Result"
+                },
+                "fn_body": "object.fmt(f)"
+              }
+            },
+            "repr": "C"
           }
         }
       },

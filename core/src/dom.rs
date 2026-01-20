@@ -1387,8 +1387,75 @@ pub struct NodeDataExt {
     /// this node across frames even if its position in the array changes.
     /// This is crucial for correct lifecycle events when lists are reordered.
     pub key: Option<u64>,
+    /// Callback to merge dataset state from a previous frame's node into the current node.
+    /// This enables heavy resource preservation (video decoders, GL textures) across frames.
+    pub dataset_merge_callback: Option<DatasetMergeCallback>,
     // ... insert further API extensions here...
 }
+
+/// A callback function used to merge the state of an old dataset into a new one.
+///
+/// This enables components with heavy internal state (video players, WebGL contexts)
+/// to preserve their resources across frames, while the DOM tree is recreated.
+///
+/// The callback receives both the old and new datasets as `RefAny` (cheap shallow clones)
+/// and returns the dataset that should be used for the new node.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// fn merge_video_state(new_data: RefAny, old_data: RefAny) -> RefAny {
+///     // Transfer heavy resources from old to new
+///     if let (Some(mut new), Some(old)) = (
+///         new_data.downcast_mut::<VideoState>(),
+///         old_data.downcast_ref::<VideoState>()
+///     ) {
+///         new.decoder = old.decoder.take();
+///         new.gl_texture = old.gl_texture.take();
+///     }
+///     new_data // Return the merged state
+/// }
+/// ```
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub struct DatasetMergeCallback {
+    /// The function pointer that performs the merge.
+    /// Signature: `fn(new_data: RefAny, old_data: RefAny) -> RefAny`
+    pub cb: DatasetMergeCallbackType,
+    /// Optional callable for FFI language bindings (Python, etc.)
+    /// When set, the FFI layer can invoke this instead of `cb`.
+    pub callable: OptionRefAny,
+}
+
+impl core::fmt::Debug for DatasetMergeCallback {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DatasetMergeCallback")
+            .field("cb", &(self.cb as usize))
+            .field("callable", &self.callable)
+            .finish()
+    }
+}
+
+/// Allow creating DatasetMergeCallback from a raw function pointer.
+/// This enables the `Into<DatasetMergeCallback>` pattern for Python bindings.
+impl From<DatasetMergeCallbackType> for DatasetMergeCallback {
+    fn from(cb: DatasetMergeCallbackType) -> Self {
+        DatasetMergeCallback { 
+            cb,
+            callable: OptionRefAny::None,
+        }
+    }
+}
+
+/// Function pointer type for dataset merge callbacks.
+/// 
+/// Arguments:
+/// - `new_data`: The new node's dataset (shallow clone, cheap)
+/// - `old_data`: The old node's dataset (shallow clone, cheap)
+/// 
+/// Returns:
+/// - The `RefAny` that should be used as the dataset for the new node
+pub type DatasetMergeCallbackType = extern "C" fn(RefAny, RefAny) -> RefAny;
 
 /// Holds information about a UI element for accessibility purposes (e.g., screen readers).
 /// This is a wrapper for platform-specific accessibility APIs like MSAA.
@@ -2514,6 +2581,51 @@ impl NodeData {
         self.extra.as_ref().and_then(|ext| ext.key)
     }
 
+    /// Sets a dataset merge callback for this node.
+    ///
+    /// The merge callback is invoked during reconciliation when a node from the
+    /// previous frame is matched with a node in the new frame. It allows heavy
+    /// resources (video decoders, GL textures, network connections) to be
+    /// transferred from the old node to the new node instead of being destroyed.
+    ///
+    /// # Type Safety
+    ///
+    /// The callback stores the `TypeId` of `T`. During execution, both the old
+    /// and new datasets must match this type, otherwise the merge is skipped.
+    ///
+    /// # Example
+    /// ```rust
+    /// struct VideoPlayer {
+    ///     url: String,
+    ///     decoder: Option<DecoderHandle>,
+    /// }
+    /// 
+    /// extern "C" fn merge_video(new_data: RefAny, old_data: RefAny) -> RefAny {
+    ///     // Transfer the heavy decoder handle from old to new
+    ///     if let (Some(mut new), Some(old)) = (
+    ///         new_data.downcast_mut::<VideoPlayer>(),
+    ///         old_data.downcast_ref::<VideoPlayer>()
+    ///     ) {
+    ///         new.decoder = old.decoder.take();
+    ///     }
+    ///     new_data
+    /// }
+    /// 
+    /// node_data.set_merge_callback(merge_video);
+    /// ```
+    #[inline]
+    pub fn set_merge_callback<C: Into<DatasetMergeCallback>>(&mut self, callback: C) {
+        self.extra
+            .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+            .dataset_merge_callback = Some(callback.into());
+    }
+
+    /// Gets the merge callback for this node, if set.
+    #[inline]
+    pub fn get_merge_callback(&self) -> Option<DatasetMergeCallback> {
+        self.extra.as_ref().and_then(|ext| ext.dataset_merge_callback.clone())
+    }
+
     #[inline]
     pub fn with_menu_bar(mut self, menu_bar: Menu) -> Self {
         self.set_menu_bar(menu_bar);
@@ -2685,6 +2797,42 @@ impl NodeData {
     #[inline]
     pub fn with_key<K: core::hash::Hash>(mut self, key: K) -> Self {
         self.set_key(key);
+        self
+    }
+
+    /// Registers a callback to merge dataset state from the previous frame.
+    ///
+    /// This is used for components that maintain heavy internal state (video players,
+    /// WebGL contexts, network connections) that should not be destroyed and recreated
+    /// on every render frame.
+    ///
+    /// The callback receives both datasets as `RefAny` (cheap shallow clones) and
+    /// returns the `RefAny` that should be used for the new node.
+    ///
+    /// # Example
+    /// ```rust
+    /// struct VideoPlayer {
+    ///     url: String,
+    ///     decoder_handle: Option<DecoderHandle>,
+    /// }
+    ///
+    /// extern "C" fn merge_video(new_data: RefAny, old_data: RefAny) -> RefAny {
+    ///     if let (Some(mut new), Some(old)) = (
+    ///         new_data.downcast_mut::<VideoPlayer>(),
+    ///         old_data.downcast_ref::<VideoPlayer>()
+    ///     ) {
+    ///         new.decoder_handle = old.decoder_handle.take();
+    ///     }
+    ///     new_data
+    /// }
+    ///
+    /// NodeData::create_div()
+    ///     .with_dataset(RefAny::new(VideoPlayer::new("movie.mp4")).into())
+    ///     .with_merge_callback(merge_video)
+    /// ```
+    #[inline]
+    pub fn with_merge_callback<C: Into<DatasetMergeCallback>>(mut self, callback: C) -> Self {
+        self.set_merge_callback(callback);
         self
     }
 
@@ -4538,6 +4686,20 @@ impl Dom {
     #[inline]
     pub fn with_key<K: core::hash::Hash>(mut self, key: K) -> Self {
         self.root.set_key(key);
+        self
+    }
+
+    /// Registers a callback to merge dataset state from the previous frame.
+    ///
+    /// This is used for components that maintain heavy internal state (video players,
+    /// WebGL contexts, network connections) that should not be destroyed and recreated
+    /// on every render frame.
+    ///
+    /// The callback receives both datasets as `RefAny` (cheap shallow clones) and
+    /// returns the `RefAny` that should be used for the new node.
+    #[inline]
+    pub fn with_merge_callback<C: Into<DatasetMergeCallback>>(mut self, callback: C) -> Self {
+        self.root.set_merge_callback(callback);
         self
     }
 
