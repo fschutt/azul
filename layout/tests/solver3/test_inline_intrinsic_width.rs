@@ -69,6 +69,7 @@ mod inline_intrinsic_width_tests {
         let font_manager = create_test_font_manager().expect("Failed to create font manager");
         let scroll_offsets = BTreeMap::new();
         let selections = BTreeMap::new();
+        let text_selections = BTreeMap::new();
         let mut debug_messages = None;
 
         let result = layout_document(
@@ -79,6 +80,7 @@ mod inline_intrinsic_width_tests {
             &font_manager,
             &scroll_offsets,
             &selections,
+            &text_selections,
             &mut debug_messages,
             None,
             &azul_core::resources::RendererResources::default(),
@@ -175,6 +177,7 @@ mod inline_intrinsic_width_tests {
         let font_manager = create_test_font_manager().expect("Failed to create font manager");
         let scroll_offsets = BTreeMap::new();
         let selections = BTreeMap::new();
+        let text_selections = BTreeMap::new();
         let mut debug_messages = Some(Vec::new());
 
         let result = layout_document(
@@ -185,6 +188,7 @@ mod inline_intrinsic_width_tests {
             &font_manager,
             &scroll_offsets,
             &selections,
+            &text_selections,
             &mut debug_messages,
             None,
             &azul_core::resources::RendererResources::default(),
