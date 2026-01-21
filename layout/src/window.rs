@@ -1391,10 +1391,6 @@ impl LayoutWindow {
     ) -> CallbackChangeResult {
         use crate::callbacks::CallbackChange;
 
-        if !changes.is_empty() {
-            eprintln!("[DEBUG] apply_callback_changes: {} changes", changes.len());
-        }
-
         let mut result = CallbackChangeResult {
             modified_window_state: current_window_state.clone(),
             ..Default::default()
