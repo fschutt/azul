@@ -745,10 +745,9 @@ pub trait PlatformWindowV2 {
                 let dom_id = DomId {
                     inner: node.dom_id as usize,
                 };
-                let node_id = match NodeId::from_usize(node.node_id as usize) {
-                    Some(nid) => nid,
-                    None => return Vec::new(),
-                };
+                // Note: node.node_id is 0-based, use NodeId::new() directly instead of from_usize
+                // from_usize expects 1-based encoding (0=None, n=NodeId(n-1))
+                let node_id = NodeId::new(node.node_id as usize);
 
                 let layout_result = match layout_window.layout_results.get(&dom_id) {
                     Some(lr) => lr,
@@ -1108,7 +1107,6 @@ pub trait PlatformWindowV2 {
     /// Recursively processes events with depth limiting (max 5 levels) to prevent
     /// infinite loops from callbacks that regenerate the DOM.
     fn process_window_events_recursive_v2(&mut self, depth: usize) -> ProcessEventResult {
-        eprintln!("[DEBUG process_window_events_recursive_v2] depth={}", depth);
         
         if depth >= MAX_EVENT_RECURSION_DEPTH {
             log_warn!(
@@ -1129,13 +1127,6 @@ pub trait PlatformWindowV2 {
         let current_state = self.get_current_window_state();
 
         // DEBUG: Print state comparison for mouse buttons
-        eprintln!(
-            "[DEBUG process_window_events_recursive_v2] has_previous={}, \
-             prev.left_down={}, curr.left_down={}",
-            has_previous,
-            previous_state.mouse_state.left_down,
-            current_state.mouse_state.left_down
-        );
 
         // Get gesture manager for gesture detection (if available)
         let gesture_manager = self.get_layout_window().map(|lw| &lw.gesture_drag_manager);
@@ -1182,21 +1173,14 @@ pub trait PlatformWindowV2 {
                 timestamp,
             )
         } else {
-            eprintln!("[DEBUG process_window_events_recursive_v2] Missing managers!");
             // Fallback: no events if managers not available
             Vec::new()
         };
 
-        eprintln!(
-            "[DEBUG process_window_events_recursive_v2] synthetic_events.len()={}", 
-            synthetic_events.len()
-        );
         for (i, ev) in synthetic_events.iter().enumerate() {
-            eprintln!("  Event[{}]: {:?}", i, ev.event_type);
         }
 
         if synthetic_events.is_empty() {
-            eprintln!("[DEBUG process_window_events_recursive_v2] No events, returning DoNothing");
             return ProcessEventResult::DoNothing;
         }
 
@@ -1583,25 +1567,16 @@ pub trait PlatformWindowV2 {
         // EVENT FILTERING AND CALLBACK DISPATCH
 
         // DEBUG: Log user events
-        eprintln!(
-            "[DEBUG process_window_events_recursive_v2] user_events.len()={}",
-            pre_filter.user_events.len()
-        );
         for (i, ev) in pre_filter.user_events.iter().enumerate() {
-            eprintln!("  UserEvent[{}]: {:?}", i, ev.event_type);
         }
         
         // DEBUG: Check hit test
         if let Some(ref ht) = hit_test_for_dispatch {
-            eprintln!("[DEBUG process_window_events_recursive_v2] hit_test_for_dispatch: {} DOMs", ht.hovered_nodes.len());
             for (dom_id, dom_ht) in &ht.hovered_nodes {
-                eprintln!("  DOM {} has {} nodes", dom_id.inner, dom_ht.regular_hit_test_nodes.len());
                 for (node_id, _) in dom_ht.regular_hit_test_nodes.iter() {
-                    eprintln!("    - NodeId={}", node_id.index());
                 }
             }
         } else {
-            eprintln!("[DEBUG process_window_events_recursive_v2] hit_test_for_dispatch is NONE!");
         }
 
         // Dispatch user events to callbacks (internal events already processed)
@@ -1610,20 +1585,10 @@ pub trait PlatformWindowV2 {
             hit_test_for_dispatch.as_ref(),
         );
 
-        eprintln!(
-            "[DEBUG process_window_events_recursive_v2] dispatch_result: is_empty={}, callbacks.len()={}",
-            dispatch_result.is_empty(),
-            dispatch_result.callbacks.len()
-        );
         for (i, cb) in dispatch_result.callbacks.iter().enumerate() {
-            eprintln!(
-                "  Callback[{}]: filter={:?}, target={:?}",
-                i, cb.event_filter, cb.target
-            );
         }
 
         if dispatch_result.is_empty() {
-            eprintln!("[DEBUG process_window_events_recursive_v2] dispatch_result is empty, returning accumulated result={:?}", result);
             // Return accumulated result from internal processing, not DoNothing
             // Internal events (text selection, keyboard shortcuts) may have set
             // result to ShouldReRenderCurrentWindow even if no user callbacks exist.
@@ -1645,10 +1610,6 @@ pub trait PlatformWindowV2 {
             })
             .collect();
 
-        eprintln!(
-            "[DEBUG process_window_events_recursive_v2] user_callbacks.len()={}",
-            user_callbacks.len()
-        );
 
         // USER CALLBACK INVOCATION
 
@@ -1985,12 +1946,264 @@ pub trait PlatformWindowV2 {
             }
         }
 
+        // KEYBOARD DEFAULT ACTIONS (Tab navigation, Enter/Space activation, Escape)
+        // Process keyboard default actions if not prevented by callbacks
+        // This implements W3C focus navigation and element activation behavior
+        let mut default_action_focus_changed = false;
+        let mut synthetic_click_target: Option<azul_core::dom::DomNodeId> = None;
+        
+        if !prevent_default {
+            // Check if we have a keyboard event (KeyDown specifically)
+            let has_key_event = pre_filter.user_events.iter().any(|e| {
+                matches!(e.event_type, azul_core::events::EventType::KeyDown)
+            });
+
+
+            if has_key_event {
+                // Get keyboard state and focused node for default action determination
+                let keyboard_state = &self.get_current_window_state().keyboard_state;
+                let focused_node = old_focus;
+
+
+                // Get layout results for querying node properties
+                let layout_results = self.get_layout_window()
+                    .map(|lw| &lw.layout_results);
+
+                if let Some(layout_results) = layout_results {
+                    
+                    // Determine what default action should occur
+                    let default_action_result = azul_layout::default_actions::determine_keyboard_default_action(
+                        keyboard_state,
+                        focused_node,
+                        layout_results,
+                        prevent_default,
+                    );
+
+
+                    // Process the default action if not prevented
+                    if default_action_result.has_action() {
+                        use azul_core::events::DefaultAction;
+                        use azul_core::callbacks::FocusTarget;
+                        use azul_layout::managers::focus_cursor::resolve_focus_target;
+
+                        match &default_action_result.action {
+                            DefaultAction::FocusNext | DefaultAction::FocusPrevious |
+                            DefaultAction::FocusFirst | DefaultAction::FocusLast => {
+                                // Convert DefaultAction to FocusTarget
+                                let focus_target = azul_layout::default_actions::default_action_to_focus_target(&default_action_result.action);
+                                
+                                
+                                if let Some(focus_target) = focus_target {
+                                    // Resolve the focus target to an actual node
+                                    let resolve_result = resolve_focus_target(
+                                        &focus_target,
+                                        layout_results,
+                                        focused_node,
+                                    );
+                                    
+                                    
+                                    if let Ok(new_focus_node) = resolve_result {
+                                        // Get the old focus node ID for restyle
+                                        let old_focus_node_id = focused_node.and_then(|f| f.node.into_crate_internal());
+                                        let new_focus_node_id = new_focus_node.and_then(|f| f.node.into_crate_internal());
+                                        
+                                        // Update focus manager
+                                        if let Some(layout_window) = self.get_layout_window_mut() {
+                                            layout_window.focus_manager.set_focused_node(new_focus_node);
+                                            default_action_focus_changed = true;
+                                            
+                                            println!("[DEBUG event_v2] Focus changed! old={:?}, new={:?}", old_focus_node_id, new_focus_node_id);
+                                            
+                                            // RESTYLE: Update StyledNodeState and compute CSS changes
+                                            // This is the critical fix - sync FocusManager state with StyledNodeState
+                                            if old_focus_node_id != new_focus_node_id {
+                                                println!("[DEBUG event_v2] Focus IDs differ, calling restyle_on_state_change");
+                                                if let Some((dom_id, layout_result)) = layout_window.layout_results.iter_mut().next() {
+                                                    use azul_core::styled_dom::FocusChange;
+                                                    
+                                                    println!("[DEBUG event_v2] Calling restyle_on_state_change with lost={:?}, gained={:?}", old_focus_node_id, new_focus_node_id);
+                                                    let restyle_result = layout_result.styled_dom.restyle_on_state_change(
+                                                        Some(FocusChange {
+                                                            lost_focus: old_focus_node_id,
+                                                            gained_focus: new_focus_node_id,
+                                                        }),
+                                                        None, // hover
+                                                        None, // active
+                                                    );
+                                                    
+                                                    println!("[DEBUG event_v2] restyle_result: needs_layout={}, needs_display_list={}, changed_nodes={}", 
+                                                        restyle_result.needs_layout, restyle_result.needs_display_list, restyle_result.changed_nodes.len());
+                                                    
+                                                    // Determine ProcessEventResult based on what changed
+                                                    let old_result = result;
+                                                    if restyle_result.needs_layout {
+                                                        result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                                                        println!("[DEBUG event_v2] Setting result to ShouldRegenerateDomCurrentWindow");
+                                                    } else if restyle_result.needs_display_list {
+                                                        result = result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                                                        println!("[DEBUG event_v2] Setting result to ShouldUpdateDisplayListCurrentWindow (was {:?})", old_result);
+                                                    } else {
+                                                        result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                                                    }
+                                                    println!("[DEBUG event_v2] Final result after restyle: {:?}", result);
+                                                    
+                                                    log_debug!(
+                                                        super::debug_server::LogCategory::Input,
+                                                        "[Event V2] Restyle result: needs_layout={}, needs_display_list={}, gpu_only={}, changed_nodes={}",
+                                                        restyle_result.needs_layout,
+                                                        restyle_result.needs_display_list,
+                                                        restyle_result.gpu_only_changes,
+                                                        restyle_result.changed_nodes.len()
+                                                    );
+                                                } else {
+                                                    result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                                                }
+                                            } else {
+                                                result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                                            }
+                                        }
+
+                                        log_debug!(
+                                            super::debug_server::LogCategory::Input,
+                                            "[Event V2] Default action: {:?} -> {:?}",
+                                            default_action_result.action,
+                                            new_focus_node
+                                        );
+                                    }
+                                }
+                            }
+
+                            DefaultAction::ClearFocus => {
+                                // Clear focus (Escape key)
+                                // Get old focus before clearing
+                                let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
+                                
+                                if let Some(layout_window) = self.get_layout_window_mut() {
+                                    layout_window.focus_manager.set_focused_node(None);
+                                    default_action_focus_changed = true;
+                                    
+                                    // RESTYLE: Update StyledNodeState when focus is cleared
+                                    if old_focus_node_id.is_some() {
+                                        if let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() {
+                                            use azul_core::styled_dom::FocusChange;
+                                            
+                                            let restyle_result = layout_result.styled_dom.restyle_on_state_change(
+                                                Some(FocusChange {
+                                                    lost_focus: old_focus_node_id,
+                                                    gained_focus: None,
+                                                }),
+                                                None,
+                                                None,
+                                            );
+                                            
+                                            if restyle_result.needs_layout {
+                                                result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                                            } else if restyle_result.needs_display_list {
+                                                result = result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                                            } else {
+                                                result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                                            }
+                                        } else {
+                                            result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                                        }
+                                    } else {
+                                        result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                                    }
+                                }
+
+                                log_debug!(
+                                    super::debug_server::LogCategory::Input,
+                                    "[Event V2] Default action: ClearFocus"
+                                );
+                            }
+
+                            DefaultAction::ActivateFocusedElement { target } => {
+                                // Queue synthetic click for later dispatch
+                                synthetic_click_target = Some(target.clone());
+
+                                log_debug!(
+                                    super::debug_server::LogCategory::Input,
+                                    "[Event V2] Default action: ActivateFocusedElement -> {:?}",
+                                    target
+                                );
+                            }
+
+                            DefaultAction::ScrollFocusedContainer { direction, amount } => {
+                                // TODO: Implement keyboard scrolling
+                                log_debug!(
+                                    super::debug_server::LogCategory::Input,
+                                    "[Event V2] Default action: ScrollFocusedContainer {:?} {:?} (not yet implemented)",
+                                    direction,
+                                    amount
+                                );
+                            }
+
+                            DefaultAction::None => {}
+                            
+                            // Additional default actions not yet implemented
+                            DefaultAction::SubmitForm { .. } |
+                            DefaultAction::CloseModal { .. } |
+                            DefaultAction::SelectAllText => {
+                                // These are placeholder for future implementation
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // SYNTHETIC CLICK DISPATCH (for Enter/Space activation)
+        // Process synthetic clicks from keyboard activation
+        if let Some(click_target) = synthetic_click_target {
+            if depth + 1 < MAX_EVENT_RECURSION_DEPTH {
+                // Dispatch the synthetic click event directly to callbacks
+                if let Some(internal_node_id) = click_target.node.into_crate_internal() {
+                    let target = CallbackTarget::Node(HitTestNode {
+                        dom_id: click_target.dom.inner as u64,
+                        node_id: internal_node_id.index() as u64,
+                    });
+
+                    // Invoke click callbacks on the target
+                    // Note: In Azul, "click" is typically LeftMouseUp
+                    let click_results = self.invoke_callbacks_v2(target, EventFilter::Hover(
+                        azul_core::events::HoverEventFilter::LeftMouseUp
+                    ));
+
+                    for callback_result in click_results {
+                        let event_result = self.process_callback_result_v2(&callback_result);
+                        result = result.max(event_result);
+
+                        // Check if we need to recurse (DOM was regenerated)
+                        use azul_core::callbacks::Update;
+                        if matches!(
+                            callback_result.callbacks_update_screen,
+                            Update::RefreshDom | Update::RefreshDomAllWindows
+                        ) {
+                            should_recurse = true;
+                        }
+                    }
+                }
+
+                log_debug!(
+                    super::debug_server::LogCategory::Input,
+                    "[Event V2] Dispatched synthetic click for element activation: {:?}",
+                    click_target
+                );
+            }
+        }
+
         // Handle focus changes: generate synthetic FocusIn/FocusOut events
-        if focus_changed && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
+        if (focus_changed || default_action_focus_changed) && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
             // Clear selections when focus changes (standard UI behavior)
             if let Some(layout_window) = self.get_layout_window_mut() {
                 layout_window.selection_manager.clear_all();
             }
+
+            // CRITICAL: Update previous_state BEFORE recursing to prevent the same
+            // keyboard events from being detected again. Without this, a Tab key
+            // would trigger FocusNext on every recursion level.
+            let current = self.get_current_window_state().clone();
+            self.set_previous_window_state(current);
 
             // Recurse to process synthetic focus events
             // This will trigger FocusIn/FocusOut callbacks, which may request another focus change
@@ -2063,6 +2276,7 @@ pub trait PlatformWindowV2 {
 
         let mut event_result = ProcessEventResult::DoNothing;
         let mut mouse_state_changed = false;
+        let mut keyboard_state_changed = false;
 
         // Handle window state modifications
         if let Some(ref modified_state) = result.modified_window_state {
@@ -2077,6 +2291,17 @@ pub trait PlatformWindowV2 {
                 let old_state = self.get_current_window_state().clone();
                 self.set_previous_window_state(old_state);
             }
+            
+            // Check if keyboard_state changed (for synthetic keyboard events)
+            let old_keyboard_state = self.get_current_window_state().keyboard_state.clone();
+            if old_keyboard_state != modified_state.keyboard_state {
+                keyboard_state_changed = true;
+                // Save current state as previous BEFORE updating (if not already saved for mouse)
+                if !mouse_state_changed {
+                    let old_state = self.get_current_window_state().clone();
+                    self.set_previous_window_state(old_state);
+                }
+            }
 
             // Now update current state
             let current_state = self.get_current_window_state_mut();
@@ -2087,6 +2312,8 @@ pub trait PlatformWindowV2 {
             current_state.background_color = modified_state.background_color;
             // Also copy mouse_state for synthetic event injection
             current_state.mouse_state = modified_state.mouse_state.clone();
+            // Also copy keyboard_state for synthetic keyboard events
+            current_state.keyboard_state = modified_state.keyboard_state.clone();
 
             // Check if window should close
             if modified_state.flags.close_requested {
@@ -2117,6 +2344,15 @@ pub trait PlatformWindowV2 {
             let nested_result = self.process_window_events_recursive_v2(0);
             event_result = event_result.max(nested_result);
         }
+        
+        // If keyboard_state changed, trigger event processing to invoke callbacks
+        // This enables synthetic keyboard events from debug API (Tab, Enter, etc.)
+        if keyboard_state_changed && !mouse_state_changed {
+            // Re-process events with the new keyboard state
+            // This will detect the keyboard state change and invoke appropriate callbacks
+            let nested_result = self.process_window_events_recursive_v2(0);
+            event_result = event_result.max(nested_result);
+        }
 
         // Handle queued window state sequence (for simulating clicks, etc.)
         // Each state is applied in order, with event processing between states
@@ -2130,6 +2366,7 @@ pub trait PlatformWindowV2 {
                 // Apply the queued state
                 let current_state = self.get_current_window_state_mut();
                 current_state.mouse_state = queued_state.mouse_state.clone();
+                current_state.keyboard_state = queued_state.keyboard_state.clone();
                 current_state.title = queued_state.title.clone();
                 current_state.size = queued_state.size;
                 current_state.position = queued_state.position;
