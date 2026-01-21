@@ -104,6 +104,9 @@ pub fn regenerate_layout(
     // 2.5. STATE MIGRATION: Transfer heavy resources from old DOM to new DOM
     // This allows components like video players to preserve their decoder handles
     // across frame updates without polluting the application data model.
+    // 
+    // ALSO: Update FocusManager, ScrollManager, etc. with new NodeIds!
+    // The node_moves tell us: old NodeId X is now new NodeId Y
     if let Some(old_layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
         // Get old node data (from previous frame)
         let old_node_data_vec = &old_layout_result.styled_dom.node_data;
@@ -144,6 +147,16 @@ pub fn regenerate_layout(
                 diff_result.node_moves.len()
             );
         }
+        
+        // 2.6. UPDATE MANAGERS WITH NEW NODE IDS
+        // The node_moves tell us which old NodeIds map to which new NodeIds.
+        // We need to update FocusManager, ScrollManager, etc. so they point to
+        // the correct nodes in the new DOM.
+        update_managers_with_node_moves(
+            layout_window,
+            &diff_result.node_moves,
+            azul_core::dom::DomId::ROOT_ID,
+        );
     }
 
     // 3. Conditionally inject Client-Side Decorations (CSD)
@@ -174,7 +187,17 @@ pub fn regenerate_layout(
         styled_dom.node_hierarchy.len()
     );
 
-    // 3. Perform layout with solver3
+    // 3.5 CRITICAL: Apply focus/hover/active states BEFORE layout
+    // The layout callback creates a fresh StyledDom with default states (focused=false, etc.)
+    // We need to synchronize the StyledNodeState with the current runtime state
+    // (FocusManager.focused_node, mouse hover position, etc.) BEFORE the display list is generated
+    let styled_dom = apply_runtime_states_before_layout(
+        styled_dom,
+        layout_window,
+        current_window_state,
+    );
+
+    // 4. Perform layout with solver3
     log_debug!(
         LogCategory::Layout,
         "[regenerate_layout] Calling layout_and_generate_display_list"
@@ -195,7 +218,7 @@ pub fn regenerate_layout(
         layout_window.layout_results.len()
     );
 
-    // 4. Register scrollable nodes with scroll_manager
+    // 5. Register scrollable nodes with scroll_manager
     // This must happen AFTER layout but BEFORE calculate_scrollbar_states
     let now: azul_core::task::Instant = std::time::Instant::now().into();
     for (dom_id, layout_result) in &layout_window.layout_results {
@@ -254,6 +277,196 @@ pub fn regenerate_layout(
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
 
     Ok(())
+}
+
+/// Apply runtime states (focus, hover, active) to the StyledDom BEFORE layout
+///
+/// The layout callback creates a fresh StyledDom where all StyledNodeState fields
+/// are set to their defaults (focused=false, hover=false, active=false).
+/// This function synchronizes those states with the current runtime state from
+/// the various managers (FocusManager, mouse state, etc.) BEFORE the display list
+/// is generated.
+///
+/// This is critical for `:focus`, `:hover`, `:active` CSS pseudo-class styling
+/// to work correctly - the display list generation reads these states to determine
+/// which CSS properties to apply.
+fn apply_runtime_states_before_layout(
+    mut styled_dom: azul_core::styled_dom::StyledDom,
+    layout_window: &LayoutWindow,
+    current_window_state: &FullWindowState,
+) -> azul_core::styled_dom::StyledDom {
+    use azul_core::dom::DomId;
+    
+    // The styled_dom is the ROOT_ID DOM (after CSD injection)
+    let dom_id = DomId::ROOT_ID;
+    
+    // 1. Apply focus state
+    if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
+        // Only apply if the focused node is in the same DOM we're processing
+        if focused_node.dom == dom_id {
+            if let Some(node_id) = focused_node.node.into_crate_internal() {
+                let mut styled_nodes = styled_dom.styled_nodes.as_container_mut();
+                if let Some(styled_node) = styled_nodes.get_mut(node_id) {
+                    styled_node.styled_node_state.focused = true;
+                    log_debug!(
+                        LogCategory::Layout,
+                        "[apply_runtime_states_before_layout] Set focused=true for node {:?}",
+                        node_id
+                    );
+                }
+            }
+        }
+    }
+    
+    // 2. Apply hover state based on hover manager
+    if let Some(last_hit_test) = layout_window.hover_manager.get_current_mouse() {
+        if let Some(hit_test) = last_hit_test.hovered_nodes.get(&dom_id) {
+            let mut styled_nodes = styled_dom.styled_nodes.as_container_mut();
+            for (node_id, _hit_item) in hit_test.regular_hit_test_nodes.iter() {
+                if let Some(styled_node) = styled_nodes.get_mut(*node_id) {
+                    styled_node.styled_node_state.hover = true;
+                }
+            }
+        }
+    }
+    
+    // 3. Apply active state (mouse button down on a hovered element)
+    if current_window_state.mouse_state.left_down {
+        if let Some(last_hit_test) = layout_window.hover_manager.get_current_mouse() {
+            if let Some(hit_test) = last_hit_test.hovered_nodes.get(&dom_id) {
+                let mut styled_nodes = styled_dom.styled_nodes.as_container_mut();
+                for (node_id, _hit_item) in hit_test.regular_hit_test_nodes.iter() {
+                    if let Some(styled_node) = styled_nodes.get_mut(*node_id) {
+                        styled_node.styled_node_state.active = true;
+                    }
+                }
+            }
+        }
+    }
+    
+    styled_dom
+}
+
+/// Apply runtime states (focus, hover, active) to the StyledDom after layout
+/// (DEPRECATED - use apply_runtime_states_before_layout instead)
+///
+/// The layout callback creates a fresh StyledDom where all StyledNodeState fields
+/// are set to their defaults (focused=false, hover=false, active=false).
+/// This function synchronizes those states with the current runtime state from
+/// the various managers (FocusManager, mouse state, etc.).
+///
+/// This is critical for `:focus`, `:hover`, `:active` CSS pseudo-class styling
+/// to work correctly after a DOM refresh.
+#[allow(dead_code)]
+fn apply_runtime_states_to_styled_dom(
+    layout_window: &mut LayoutWindow,
+    current_window_state: &FullWindowState,
+) {
+    // 1. Apply focus state
+    if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
+        if let Some(layout_result) = layout_window.layout_results.get_mut(&focused_node.dom) {
+            if let Some(node_id) = focused_node.node.into_crate_internal() {
+                let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
+                if let Some(styled_node) = styled_nodes.get_mut(node_id) {
+                    styled_node.styled_node_state.focused = true;
+                    log_debug!(
+                        LogCategory::Layout,
+                        "[apply_runtime_states] Set focused=true for node {:?}",
+                        node_id
+                    );
+                }
+            }
+        }
+    }
+    
+    // 2. Apply hover state based on hover manager
+    // hovered_nodes is BTreeMap<DomId, HitTest>, and HitTest contains regular_hit_test_nodes
+    if let Some(last_hit_test) = layout_window.hover_manager.get_current_mouse() {
+        for (dom_id, hit_test) in last_hit_test.hovered_nodes.iter() {
+            if let Some(layout_result) = layout_window.layout_results.get_mut(dom_id) {
+                let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
+                for (node_id, _hit_item) in hit_test.regular_hit_test_nodes.iter() {
+                    if let Some(styled_node) = styled_nodes.get_mut(*node_id) {
+                        styled_node.styled_node_state.hover = true;
+                    }
+                }
+            }
+        }
+    }
+    
+    // 3. Apply active state (mouse button down on a hovered element)
+    if current_window_state.mouse_state.left_down {
+        if let Some(last_hit_test) = layout_window.hover_manager.get_current_mouse() {
+            for (dom_id, hit_test) in last_hit_test.hovered_nodes.iter() {
+                if let Some(layout_result) = layout_window.layout_results.get_mut(dom_id) {
+                    let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
+                    for (node_id, _hit_item) in hit_test.regular_hit_test_nodes.iter() {
+                        if let Some(styled_node) = styled_nodes.get_mut(*node_id) {
+                            styled_node.styled_node_state.active = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Update managers (FocusManager, ScrollManager, etc.) with new NodeIds after DOM reconciliation
+///
+/// When the DOM is regenerated, NodeIds can change. The `node_moves` from reconciliation
+/// tell us which old NodeId maps to which new NodeId. We use this to update all managers
+/// that track NodeIds so they point to the correct nodes in the new DOM.
+fn update_managers_with_node_moves(
+    layout_window: &mut LayoutWindow,
+    node_moves: &[azul_core::diff::NodeMove],
+    dom_id: azul_core::dom::DomId,
+) {
+    use azul_core::dom::{DomNodeId, NodeId};
+    use azul_core::styled_dom::NodeHierarchyItemId;
+    
+    // Build a quick lookup map: old_node_id -> new_node_id
+    let mut node_id_map: std::collections::BTreeMap<NodeId, NodeId> = std::collections::BTreeMap::new();
+    for node_move in node_moves {
+        node_id_map.insert(node_move.old_node_id, node_move.new_node_id);
+    }
+    
+    // 1. Update FocusManager
+    if let Some(focused) = layout_window.focus_manager.get_focused_node() {
+        if focused.dom == dom_id {
+            if let Some(old_node_id) = focused.node.into_crate_internal() {
+                if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
+                    // Update the focused node to point to the new NodeId
+                    layout_window.focus_manager.set_focused_node(Some(DomNodeId {
+                        dom: dom_id,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(new_node_id)),
+                    }));
+                    log_debug!(
+                        LogCategory::Layout,
+                        "[update_managers] FocusManager: updated focus from {:?} to {:?}",
+                        old_node_id, new_node_id
+                    );
+                } else {
+                    // The focused node was not found in the new DOM - clear focus
+                    layout_window.focus_manager.clear_focus();
+                    log_debug!(
+                        LogCategory::Layout,
+                        "[update_managers] FocusManager: focused node {:?} not found in new DOM, clearing focus",
+                        old_node_id
+                    );
+                }
+            }
+        }
+    }
+    
+    // 2. Update ScrollManager
+    // The ScrollManager tracks scroll offsets by DomNodeId, which also needs to be updated
+    layout_window.scroll_manager.remap_node_ids(dom_id, &node_id_map);
+    
+    // 3. Update CursorManager (text cursor position)
+    layout_window.cursor_manager.remap_node_ids(dom_id, &node_id_map);
+    
+    // 4. Update SelectionManager
+    layout_window.selection_manager.remap_node_ids(dom_id, &node_id_map);
 }
 
 /// Helper function to generate WebRender frame
