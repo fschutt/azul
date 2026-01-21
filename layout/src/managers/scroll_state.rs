@@ -920,3 +920,64 @@ impl EventProvider for ScrollManager {
         events
     }
 }
+
+impl ScrollManager {
+    /// Remap NodeIds after DOM reconciliation
+    ///
+    /// When the DOM is regenerated, NodeIds can change. This method updates all
+    /// internal state to use the new NodeIds based on the provided mapping.
+    pub fn remap_node_ids(
+        &mut self,
+        dom_id: DomId,
+        node_id_map: &std::collections::BTreeMap<NodeId, NodeId>,
+    ) {
+        // Remap states
+        let states_to_update: Vec<_> = self.states.keys()
+            .filter(|(d, _)| *d == dom_id)
+            .cloned()
+            .collect();
+        
+        for (d, old_node_id) in states_to_update {
+            if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
+                if let Some(state) = self.states.remove(&(d, old_node_id)) {
+                    self.states.insert((d, new_node_id), state);
+                }
+            } else {
+                // Node was removed, remove its scroll state
+                self.states.remove(&(d, old_node_id));
+            }
+        }
+        
+        // Remap external_scroll_ids
+        let scroll_ids_to_update: Vec<_> = self.external_scroll_ids.keys()
+            .filter(|(d, _)| *d == dom_id)
+            .cloned()
+            .collect();
+        
+        for (d, old_node_id) in scroll_ids_to_update {
+            if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
+                if let Some(scroll_id) = self.external_scroll_ids.remove(&(d, old_node_id)) {
+                    self.external_scroll_ids.insert((d, new_node_id), scroll_id);
+                }
+            } else {
+                self.external_scroll_ids.remove(&(d, old_node_id));
+            }
+        }
+        
+        // Remap scrollbar_states
+        let scrollbar_states_to_update: Vec<_> = self.scrollbar_states.keys()
+            .filter(|(d, _, _)| *d == dom_id)
+            .cloned()
+            .collect();
+        
+        for (d, old_node_id, orientation) in scrollbar_states_to_update {
+            if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
+                if let Some(state) = self.scrollbar_states.remove(&(d, old_node_id, orientation)) {
+                    self.scrollbar_states.insert((d, new_node_id, orientation), state);
+                }
+            } else {
+                self.scrollbar_states.remove(&(d, old_node_id, orientation));
+            }
+        }
+    }
+}

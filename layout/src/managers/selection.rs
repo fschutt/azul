@@ -554,3 +554,79 @@ impl SelectionManagerQuery for SelectionManager {
         false
     }
 }
+
+impl SelectionManager {
+    /// Remap NodeIds after DOM reconciliation
+    ///
+    /// When the DOM is regenerated, NodeIds can change. This method updates all
+    /// internal state to use the new NodeIds based on the provided mapping.
+    pub fn remap_node_ids(
+        &mut self,
+        dom_id: DomId,
+        node_id_map: &std::collections::BTreeMap<azul_core::dom::NodeId, azul_core::dom::NodeId>,
+    ) {
+        use azul_core::styled_dom::NodeHierarchyItemId;
+        
+        // Update legacy selection state
+        if let Some(selection_state) = self.selections.get_mut(&dom_id) {
+            if let Some(old_node_id) = selection_state.node_id.node.into_crate_internal() {
+                if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
+                    selection_state.node_id.node = NodeHierarchyItemId::from_crate_internal(Some(new_node_id));
+                } else {
+                    // Node was removed, clear selection for this DOM
+                    self.selections.remove(&dom_id);
+                    return;
+                }
+            }
+        }
+        
+        // Update text_selections (new multi-node model)
+        if let Some(text_selection) = self.text_selections.get_mut(&dom_id) {
+            // Update anchor ifc_root_node_id
+            let old_anchor_id = text_selection.anchor.ifc_root_node_id;
+            if let Some(&new_node_id) = node_id_map.get(&old_anchor_id) {
+                text_selection.anchor.ifc_root_node_id = new_node_id;
+            } else {
+                // Anchor node removed, clear selection
+                self.text_selections.remove(&dom_id);
+                return;
+            }
+            
+            // Update focus ifc_root_node_id
+            let old_focus_id = text_selection.focus.ifc_root_node_id;
+            if let Some(&new_node_id) = node_id_map.get(&old_focus_id) {
+                text_selection.focus.ifc_root_node_id = new_node_id;
+            } else {
+                // Focus node removed, clear selection
+                self.text_selections.remove(&dom_id);
+                return;
+            }
+            
+            // Update affected_nodes map with remapped NodeIds
+            let old_affected: Vec<_> = text_selection.affected_nodes.keys().cloned().collect();
+            let mut new_affected = std::collections::BTreeMap::new();
+            for old_node_id in old_affected {
+                if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
+                    if let Some(range) = text_selection.affected_nodes.remove(&old_node_id) {
+                        new_affected.insert(new_node_id, range);
+                    }
+                }
+            }
+            text_selection.affected_nodes = new_affected;
+        }
+        
+        // Update click_state last_node if it's in the affected DOM
+        if let Some(last_node) = &mut self.click_state.last_node {
+            if last_node.dom == dom_id {
+                if let Some(old_node_id) = last_node.node.into_crate_internal() {
+                    if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
+                        last_node.node = NodeHierarchyItemId::from_crate_internal(Some(new_node_id));
+                    } else {
+                        // Node removed, reset click state
+                        self.click_state = ClickState::default();
+                    }
+                }
+            }
+        }
+    }
+}

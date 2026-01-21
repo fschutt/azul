@@ -199,4 +199,48 @@ impl CursorManager {
             .map(|loc| loc.dom_id == dom_id && loc.node_id == node_id)
             .unwrap_or(false)
     }
+    
+    /// Get the DomNodeId where the cursor is located (for cross-frame tracking)
+    pub fn get_cursor_node(&self) -> Option<azul_core::dom::DomNodeId> {
+        self.cursor_location.as_ref().map(|loc| {
+            azul_core::dom::DomNodeId {
+                dom: loc.dom_id,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(loc.node_id)),
+            }
+        })
+    }
+    
+    /// Update the NodeId for the cursor location (after DOM reconciliation)
+    ///
+    /// This is called when the DOM is regenerated and NodeIds change.
+    /// The cursor position within the text is preserved.
+    pub fn update_node_id(&mut self, new_node: azul_core::dom::DomNodeId) {
+        if let Some(ref mut loc) = self.cursor_location {
+            if let Some(new_id) = new_node.node.into_crate_internal() {
+                loc.dom_id = new_node.dom;
+                loc.node_id = new_id;
+            }
+        }
+    }
+    
+    /// Remap NodeIds after DOM reconciliation
+    ///
+    /// When the DOM is regenerated, NodeIds can change. This method updates
+    /// the cursor location to use the new NodeId based on the provided mapping.
+    pub fn remap_node_ids(
+        &mut self,
+        dom_id: DomId,
+        node_id_map: &std::collections::BTreeMap<NodeId, NodeId>,
+    ) {
+        if let Some(ref mut loc) = self.cursor_location {
+            if loc.dom_id == dom_id {
+                if let Some(&new_node_id) = node_id_map.get(&loc.node_id) {
+                    loc.node_id = new_node_id;
+                } else {
+                    // Node was removed, clear cursor location
+                    self.cursor_location = None;
+                }
+            }
+        }
+    }
 }
