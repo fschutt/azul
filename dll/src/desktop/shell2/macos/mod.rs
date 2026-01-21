@@ -294,8 +294,13 @@ define_class!(
             // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_key_down(event);
+                    let result = macos_window.handle_key_down(event);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
                 }
             }
         }
@@ -305,8 +310,13 @@ define_class!(
             // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_key_up(event);
+                    let result = macos_window.handle_key_up(event);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
                 }
             }
         }
@@ -316,8 +326,13 @@ define_class!(
             // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_flags_changed(event);
+                    let result = macos_window.handle_flags_changed(event);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
                 }
             }
         }
@@ -808,8 +823,13 @@ define_class!(
             // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_key_down(event);
+                    let result = macos_window.handle_key_down(event);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
                 }
             }
         }
@@ -819,8 +839,13 @@ define_class!(
             // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_key_up(event);
+                    let result = macos_window.handle_key_up(event);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
                 }
             }
         }
@@ -830,8 +855,13 @@ define_class!(
             // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_flags_changed(event);
+                    let result = macos_window.handle_flags_changed(event);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
                 }
             }
         }
@@ -4051,13 +4081,25 @@ impl MacOSWindow {
                 // via app.sendEvent() -> NSView.mouseDown:/mouseUp:/etc.
             }
             NSEventType::KeyDown => {
-                let _ = self.handle_key_down(event);
+                use crate::desktop::shell2::macos::events::EventProcessResult;
+                let result = self.handle_key_down(event);
+                if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                    self.frame_needs_regeneration = true;
+                }
             }
             NSEventType::KeyUp => {
-                let _ = self.handle_key_up(event);
+                use crate::desktop::shell2::macos::events::EventProcessResult;
+                let result = self.handle_key_up(event);
+                if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                    self.frame_needs_regeneration = true;
+                }
             }
             NSEventType::FlagsChanged => {
-                let _ = self.handle_flags_changed(event);
+                use crate::desktop::shell2::macos::events::EventProcessResult;
+                let result = self.handle_flags_changed(event);
+                if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                    self.frame_needs_regeneration = true;
+                }
             }
             _ => {
                 // Other events not handled yet
