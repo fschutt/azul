@@ -334,6 +334,7 @@ pub struct WindowStateSnapshot {
     pub hidpi_factor: f32,
     pub focused: bool,
     pub dom_node_count: usize,
+    pub focused_node: Option<u64>,
 }
 
 #[cfg(feature = "std")]
@@ -343,7 +344,7 @@ impl serde::Serialize for WindowStateSnapshot {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("WindowStateSnapshot", 9)?;
+        let mut s = serializer.serialize_struct("WindowStateSnapshot", 10)?;
         s.serialize_field("window_id", &self.window_id)?;
         s.serialize_field("logical_width", &self.logical_width)?;
         s.serialize_field("logical_height", &self.logical_height)?;
@@ -353,6 +354,7 @@ impl serde::Serialize for WindowStateSnapshot {
         s.serialize_field("hidpi_factor", &self.hidpi_factor)?;
         s.serialize_field("focused", &self.focused)?;
         s.serialize_field("dom_node_count", &self.dom_node_count)?;
+        s.serialize_field("focused_node", &self.focused_node)?;
         s.end()
     }
 }
@@ -517,7 +519,7 @@ pub struct ClipOperation {
 
 /// Display list item info
 #[cfg(feature = "std")]
-#[derive(Debug, Clone, Default, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct DisplayListItemInfo {
     pub index: usize,
     #[serde(rename = "type")]
@@ -553,6 +555,40 @@ pub struct DisplayListItemInfo {
     /// Debug info string (for debugging scrollbar bounds, etc.)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub debug_info: Option<String>,
+    /// Border colors per side (for border items)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub border_colors: Option<BorderColorsJson>,
+    /// Border widths per side (for border items)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub border_widths: Option<BorderWidthsJson>,
+}
+
+/// Border colors for all four sides (JSON output)
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BorderColorsJson {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub right: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bottom: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub left: Option<String>,
+}
+
+/// Border widths for all four sides (JSON output)
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct BorderWidthsJson {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub right: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bottom: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub left: Option<f32>,
 }
 
 /// Response for GetScrollStates
@@ -1294,9 +1330,6 @@ pub fn start_debug_server(port: u16) -> DebugServerHandle {
     let listener = match TcpListener::bind(format!("127.0.0.1:{}", port)) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("ERROR: Debug server failed to bind to port {}: {}", port, e);
-            eprintln!("       Another process may be using this port.");
-            eprintln!("       Try a different port: AZUL_DEBUG=<other_port>");
             std::process::exit(1);
         }
     };
@@ -1469,10 +1502,6 @@ pub fn send_ok(
     let _ = take_logs();
     let response = DebugResponseData::Ok { window_state, data };
     if let Err(e) = request.response_tx.send(response) {
-        eprintln!(
-            "[DEBUG] ERROR sending response {}: {:?}",
-            request.request_id, e
-        );
     }
 }
 
@@ -1483,10 +1512,6 @@ pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
     let _ = take_logs();
     let response = DebugResponseData::Err(message.into());
     if let Err(e) = request.response_tx.send(response) {
-        eprintln!(
-            "[DEBUG] ERROR sending response {}: {:?}",
-            request.request_id, e
-        );
     }
 }
 
@@ -1598,12 +1623,6 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
                 bytes_written += chunk.len();
             }
             Err(e) => {
-                eprintln!(
-                    "[DebugServer] Error writing chunk to stream after {} of {} bytes: {:?}",
-                    bytes_written,
-                    body_bytes.len(),
-                    e
-                );
                 return;
             }
         }
@@ -1889,6 +1908,99 @@ fn build_clip_analysis(
     }
 }
 
+/// Parse a key string to a VirtualKeyCode
+#[cfg(feature = "std")]
+fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode> {
+    use azul_core::window::VirtualKeyCode;
+    
+    match key.to_lowercase().as_str() {
+        // Letters
+        "a" => Some(VirtualKeyCode::A),
+        "b" => Some(VirtualKeyCode::B),
+        "c" => Some(VirtualKeyCode::C),
+        "d" => Some(VirtualKeyCode::D),
+        "e" => Some(VirtualKeyCode::E),
+        "f" => Some(VirtualKeyCode::F),
+        "g" => Some(VirtualKeyCode::G),
+        "h" => Some(VirtualKeyCode::H),
+        "i" => Some(VirtualKeyCode::I),
+        "j" => Some(VirtualKeyCode::J),
+        "k" => Some(VirtualKeyCode::K),
+        "l" => Some(VirtualKeyCode::L),
+        "m" => Some(VirtualKeyCode::M),
+        "n" => Some(VirtualKeyCode::N),
+        "o" => Some(VirtualKeyCode::O),
+        "p" => Some(VirtualKeyCode::P),
+        "q" => Some(VirtualKeyCode::Q),
+        "r" => Some(VirtualKeyCode::R),
+        "s" => Some(VirtualKeyCode::S),
+        "t" => Some(VirtualKeyCode::T),
+        "u" => Some(VirtualKeyCode::U),
+        "v" => Some(VirtualKeyCode::V),
+        "w" => Some(VirtualKeyCode::W),
+        "x" => Some(VirtualKeyCode::X),
+        "y" => Some(VirtualKeyCode::Y),
+        "z" => Some(VirtualKeyCode::Z),
+        
+        // Numbers
+        "0" | "key0" => Some(VirtualKeyCode::Key0),
+        "1" | "key1" => Some(VirtualKeyCode::Key1),
+        "2" | "key2" => Some(VirtualKeyCode::Key2),
+        "3" | "key3" => Some(VirtualKeyCode::Key3),
+        "4" | "key4" => Some(VirtualKeyCode::Key4),
+        "5" | "key5" => Some(VirtualKeyCode::Key5),
+        "6" | "key6" => Some(VirtualKeyCode::Key6),
+        "7" | "key7" => Some(VirtualKeyCode::Key7),
+        "8" | "key8" => Some(VirtualKeyCode::Key8),
+        "9" | "key9" => Some(VirtualKeyCode::Key9),
+        
+        // Special keys
+        "tab" => Some(VirtualKeyCode::Tab),
+        "enter" | "return" => Some(VirtualKeyCode::Return),
+        "space" | " " => Some(VirtualKeyCode::Space),
+        "escape" | "esc" => Some(VirtualKeyCode::Escape),
+        "backspace" | "back" => Some(VirtualKeyCode::Back),
+        "delete" => Some(VirtualKeyCode::Delete),
+        "insert" => Some(VirtualKeyCode::Insert),
+        "home" => Some(VirtualKeyCode::Home),
+        "end" => Some(VirtualKeyCode::End),
+        "pageup" | "page_up" => Some(VirtualKeyCode::PageUp),
+        "pagedown" | "page_down" => Some(VirtualKeyCode::PageDown),
+        
+        // Arrow keys
+        "arrowup" | "up" => Some(VirtualKeyCode::Up),
+        "arrowdown" | "down" => Some(VirtualKeyCode::Down),
+        "arrowleft" | "left" => Some(VirtualKeyCode::Left),
+        "arrowright" | "right" => Some(VirtualKeyCode::Right),
+        
+        // Function keys
+        "f1" => Some(VirtualKeyCode::F1),
+        "f2" => Some(VirtualKeyCode::F2),
+        "f3" => Some(VirtualKeyCode::F3),
+        "f4" => Some(VirtualKeyCode::F4),
+        "f5" => Some(VirtualKeyCode::F5),
+        "f6" => Some(VirtualKeyCode::F6),
+        "f7" => Some(VirtualKeyCode::F7),
+        "f8" => Some(VirtualKeyCode::F8),
+        "f9" => Some(VirtualKeyCode::F9),
+        "f10" => Some(VirtualKeyCode::F10),
+        "f11" => Some(VirtualKeyCode::F11),
+        "f12" => Some(VirtualKeyCode::F12),
+        
+        // Modifier keys (for explicit key presses)
+        "shift" | "lshift" => Some(VirtualKeyCode::LShift),
+        "rshift" => Some(VirtualKeyCode::RShift),
+        "ctrl" | "control" | "lctrl" | "lcontrol" => Some(VirtualKeyCode::LControl),
+        "rctrl" | "rcontrol" => Some(VirtualKeyCode::RControl),
+        "alt" | "lalt" => Some(VirtualKeyCode::LAlt),
+        "ralt" => Some(VirtualKeyCode::RAlt),
+        "meta" | "super" | "lwin" | "lmeta" => Some(VirtualKeyCode::LWin),
+        "rwin" | "rmeta" => Some(VirtualKeyCode::RWin),
+        
+        _ => None,
+    }
+}
+
 /// Process a single debug event
 #[cfg(feature = "std")]
 fn process_debug_event(
@@ -1907,6 +2019,12 @@ fn process_debug_event(
             let physical = size.get_physical_size();
             let hidpi = size.get_hidpi_factor();
             let window_id_str = window_state.window_id.as_str();
+            
+            // Get the focused node from the focus manager
+            let focused_node_raw = callback_info.get_focused_node();
+            let focused_node = focused_node_raw
+                .and_then(|dom_node_id| dom_node_id.node.into_crate_internal())
+                .map(|node_id| node_id.index() as u64);
 
             let snapshot = WindowStateSnapshot {
                 window_id: window_id_str.to_string(),
@@ -1918,6 +2036,7 @@ fn process_debug_event(
                 hidpi_factor: hidpi.inner.get(),
                 focused: window_state.flags.has_focus,
                 dom_node_count: 0,
+                focused_node,
             };
 
             send_ok(request, Some(snapshot), None);
@@ -2803,9 +2922,16 @@ fn process_debug_event(
                                 width: Some(bounds.size.width),
                                 height: Some(bounds.size.height),
                                 color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
                                 clip_depth: Some(clip_depth),
                                 scroll_depth: Some(scroll_depth),
-                                ..Default::default()
+                                content_size: None,
+                                scroll_id: None,
+                                debug_info: None,
+                                border_colors: None,
+                                border_widths: None,
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::Text { glyphs, font_size_px, color, clip_rect, .. } => {
@@ -2820,9 +2946,14 @@ fn process_debug_event(
                                 color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
                                 font_size: Some(*font_size_px),
                                 glyph_count: Some(glyphs.len()),
+                                z_index: None,
                                 clip_depth: Some(clip_depth),
                                 scroll_depth: Some(scroll_depth),
-                                ..Default::default()
+                                content_size: None,
+                                scroll_id: None,
+                                debug_info: None,
+                                border_colors: None,
+                                border_widths: None,
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::TextLayout { bounds, font_size_px, color, .. } => {
@@ -2836,13 +2967,67 @@ fn process_debug_event(
                                 height: Some(bounds.size.height),
                                 color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
                                 font_size: Some(*font_size_px),
+                                glyph_count: None,
+                                z_index: None,
                                 clip_depth: Some(clip_depth),
                                 scroll_depth: Some(scroll_depth),
-                                ..Default::default()
+                                content_size: None,
+                                scroll_id: None,
+                                debug_info: None,
+                                border_colors: None,
+                                border_widths: None,
                             }
                         }
-                        azul_layout::solver3::display_list::DisplayListItem::Border { bounds, .. } => {
+                        azul_layout::solver3::display_list::DisplayListItem::Border { bounds, colors, widths, .. } => {
                             border_count += 1;
+                            // Extract border colors from each side
+                            let extract_top_color = colors.top.as_ref().and_then(|c| match c {
+                                azul_css::css::CssPropertyValue::Exact(c) => Some(format!("#{:02x}{:02x}{:02x}{:02x}", c.inner.r, c.inner.g, c.inner.b, c.inner.a)),
+                                _ => None,
+                            });
+                            let extract_right_color = colors.right.as_ref().and_then(|c| match c {
+                                azul_css::css::CssPropertyValue::Exact(c) => Some(format!("#{:02x}{:02x}{:02x}{:02x}", c.inner.r, c.inner.g, c.inner.b, c.inner.a)),
+                                _ => None,
+                            });
+                            let extract_bottom_color = colors.bottom.as_ref().and_then(|c| match c {
+                                azul_css::css::CssPropertyValue::Exact(c) => Some(format!("#{:02x}{:02x}{:02x}{:02x}", c.inner.r, c.inner.g, c.inner.b, c.inner.a)),
+                                _ => None,
+                            });
+                            let extract_left_color = colors.left.as_ref().and_then(|c| match c {
+                                azul_css::css::CssPropertyValue::Exact(c) => Some(format!("#{:02x}{:02x}{:02x}{:02x}", c.inner.r, c.inner.g, c.inner.b, c.inner.a)),
+                                _ => None,
+                            });
+                            // Extract border widths from each side
+                            let extract_top_width = widths.top.as_ref().and_then(|c| match c {
+                                azul_css::css::CssPropertyValue::Exact(c) => Some(c.inner.to_pixels_internal(0.0, 16.0)),
+                                _ => None,
+                            });
+                            let extract_right_width = widths.right.as_ref().and_then(|c| match c {
+                                azul_css::css::CssPropertyValue::Exact(c) => Some(c.inner.to_pixels_internal(0.0, 16.0)),
+                                _ => None,
+                            });
+                            let extract_bottom_width = widths.bottom.as_ref().and_then(|c| match c {
+                                azul_css::css::CssPropertyValue::Exact(c) => Some(c.inner.to_pixels_internal(0.0, 16.0)),
+                                _ => None,
+                            });
+                            let extract_left_width = widths.left.as_ref().and_then(|c| match c {
+                                azul_css::css::CssPropertyValue::Exact(c) => Some(c.inner.to_pixels_internal(0.0, 16.0)),
+                                _ => None,
+                            });
+                            let border_colors = BorderColorsJson {
+                                top: extract_top_color.clone(),
+                                right: extract_right_color,
+                                bottom: extract_bottom_color,
+                                left: extract_left_color,
+                            };
+                            let border_widths = BorderWidthsJson {
+                                top: extract_top_width,
+                                right: extract_right_width,
+                                bottom: extract_bottom_width,
+                                left: extract_left_width,
+                            };
+                            // Use top color as main color for backwards compatibility
+                            let color_str = extract_top_color;
                             DisplayListItemInfo {
                                 index: idx,
                                 item_type: "border".to_string(),
@@ -2850,9 +3035,17 @@ fn process_debug_event(
                                 y: Some(bounds.origin.y),
                                 width: Some(bounds.size.width),
                                 height: Some(bounds.size.height),
+                                color: color_str,
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
                                 clip_depth: Some(clip_depth),
                                 scroll_depth: Some(scroll_depth),
-                                ..Default::default()
+                                content_size: None,
+                                scroll_id: None,
+                                debug_info: None,
+                                border_colors: Some(border_colors),
+                                border_widths: Some(border_widths),
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::Image { bounds, .. } => {
@@ -2864,9 +3057,17 @@ fn process_debug_event(
                                 y: Some(bounds.origin.y),
                                 width: Some(bounds.size.width),
                                 height: Some(bounds.size.height),
+                                color: None,
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
                                 clip_depth: Some(clip_depth),
                                 scroll_depth: Some(scroll_depth),
-                                ..Default::default()
+                                content_size: None,
+                                scroll_id: None,
+                                debug_info: None,
+                                border_colors: None,
+                                border_widths: None,
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::ScrollBar { bounds, color, orientation, .. } => {
@@ -2883,9 +3084,16 @@ fn process_debug_event(
                                 width: Some(bounds.size.width),
                                 height: Some(bounds.size.height),
                                 color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
                                 clip_depth: Some(clip_depth),
                                 scroll_depth: Some(scroll_depth),
-                                ..Default::default()
+                                content_size: None,
+                                scroll_id: None,
+                                debug_info: None,
+                                border_colors: None,
+                                border_widths: None,
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::ScrollBarStyled { info } => {
@@ -2895,7 +3103,7 @@ fn process_debug_event(
                                 azul_core::dom::ScrollbarOrientation::Horizontal => "horizontal_styled",
                             };
                             // Debug: include track and thumb bounds in the output
-                            let debug_info = format!(
+                            let debug_info_str = format!(
                                 "track:({:.1},{:.1},{:.1}x{:.1}) thumb:({:.1},{:.1},{:.1}x{:.1}) track_color:#{:02x}{:02x}{:02x}{:02x} thumb_color:#{:02x}{:02x}{:02x}{:02x}",
                                 info.track_bounds.origin.x, info.track_bounds.origin.y,
                                 info.track_bounds.size.width, info.track_bounds.size.height,
@@ -2913,10 +3121,16 @@ fn process_debug_event(
                                 height: Some(info.bounds.size.height),
                                 color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", 
                                     info.thumb_color.r, info.thumb_color.g, info.thumb_color.b, info.thumb_color.a)),
-                                debug_info: Some(debug_info),
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
                                 clip_depth: Some(clip_depth),
                                 scroll_depth: Some(scroll_depth),
-                                ..Default::default()
+                                content_size: None,
+                                scroll_id: None,
+                                debug_info: Some(debug_info_str),
+                                border_colors: None,
+                                border_widths: None,
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::PushStackingContext { z_index, bounds } => {
@@ -2928,10 +3142,17 @@ fn process_debug_event(
                                 y: Some(bounds.origin.y),
                                 width: Some(bounds.size.width),
                                 height: Some(bounds.size.height),
+                                color: None,
+                                font_size: None,
+                                glyph_count: None,
                                 z_index: Some(*z_index),
                                 clip_depth: Some(clip_depth),
                                 scroll_depth: Some(scroll_depth),
-                                ..Default::default()
+                                content_size: None,
+                                scroll_id: None,
+                                debug_info: None,
+                                border_colors: None,
+                                border_widths: None,
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::PopStackingContext => {
@@ -2939,9 +3160,21 @@ fn process_debug_event(
                             DisplayListItemInfo {
                                 index: idx,
                                 item_type: "pop_stacking_context".to_string(),
+                                x: None,
+                                y: None,
+                                width: None,
+                                height: None,
+                                color: None,
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
                                 clip_depth: Some(clip_depth),
                                 scroll_depth: Some(scroll_depth),
-                                ..Default::default()
+                                content_size: None,
+                                scroll_id: None,
+                                debug_info: None,
+                                border_colors: None,
+                                border_widths: None,
                             }
                         }
                         azul_layout::solver3::display_list::DisplayListItem::HitTestArea { bounds, tag } => {
@@ -2953,10 +3186,17 @@ fn process_debug_event(
                                 y: Some(bounds.origin.y),
                                 width: Some(bounds.size.width),
                                 height: Some(bounds.size.height),
-                                debug_info: Some(format!("tag:({},0x{:04X})", tag.0, tag.1)),
+                                color: None,
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
                                 clip_depth: Some(clip_depth),
                                 scroll_depth: Some(scroll_depth),
-                                ..Default::default()
+                                content_size: None,
+                                scroll_id: None,
+                                debug_info: Some(format!("tag:({},0x{:04X})", tag.0, tag.1)),
+                                border_colors: None,
+                                border_widths: None,
                             }
                         }
                         _ => {
@@ -2964,9 +3204,21 @@ fn process_debug_event(
                             DisplayListItemInfo {
                                 index: idx,
                                 item_type: "unknown".to_string(),
+                                x: None,
+                                y: None,
+                                width: None,
+                                height: None,
+                                color: None,
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
                                 clip_depth: Some(clip_depth),
                                 scroll_depth: Some(scroll_depth),
-                                ..Default::default()
+                                content_size: None,
+                                scroll_id: None,
+                                debug_info: None,
+                                border_colors: None,
+                                border_widths: None,
                             }
                         }
                     };
@@ -3560,10 +3812,7 @@ fn process_debug_event(
             let selection_manager = &layout_window.selection_manager;
             let all_selections = selection_manager.get_all_selections();
             
-            eprintln!("[DEBUG] GetSelectionState: selection_manager has {} selections", all_selections.len());
             for (dom_id, sel_state) in all_selections.iter() {
-                eprintln!("[DEBUG]   dom_id={:?}, node_id={:?}, selections={}", 
-                    dom_id, sel_state.node_id, sel_state.selections.as_slice().len());
             }
 
             let mut selections = Vec::new();
@@ -3778,6 +4027,93 @@ fn process_debug_event(
                     }
                 }
             }
+        }
+
+        DebugEvent::KeyDown { key, modifiers } => {
+            use azul_core::window::{VirtualKeyCode, VirtualKeyCodeVec};
+            
+            log(
+                LogLevel::Debug,
+                LogCategory::EventLoop,
+                format!("Debug key down: {} (shift={}, ctrl={}, alt={})", key, modifiers.shift, modifiers.ctrl, modifiers.alt),
+                None,
+            );
+
+            let mut new_state = callback_info.get_current_window_state().clone();
+            
+            // Collect current keys into a Vec
+            let mut pressed_keys: alloc::vec::Vec<VirtualKeyCode> = new_state.keyboard_state.pressed_virtual_keycodes.iter().copied().collect();
+            
+            // Parse the key string to VirtualKeyCode
+            if let Some(keycode) = parse_virtual_keycode(key) {
+                // Add the key to pressed keys if not already present
+                if !pressed_keys.iter().any(|k| *k == keycode) {
+                    pressed_keys.push(keycode);
+                }
+                new_state.keyboard_state.current_virtual_keycode = Some(keycode).into();
+            }
+            
+            // Set modifier keys based on modifiers struct
+            if modifiers.shift && !pressed_keys.iter().any(|k| *k == VirtualKeyCode::LShift) {
+                pressed_keys.push(VirtualKeyCode::LShift);
+            }
+            if modifiers.ctrl && !pressed_keys.iter().any(|k| *k == VirtualKeyCode::LControl) {
+                pressed_keys.push(VirtualKeyCode::LControl);
+            }
+            if modifiers.alt && !pressed_keys.iter().any(|k| *k == VirtualKeyCode::LAlt) {
+                pressed_keys.push(VirtualKeyCode::LAlt);
+            }
+            if modifiers.meta && !pressed_keys.iter().any(|k| *k == VirtualKeyCode::LWin) {
+                pressed_keys.push(VirtualKeyCode::LWin);
+            }
+            
+            new_state.keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(pressed_keys);
+            callback_info.modify_window_state(new_state);
+            needs_update = true;
+
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::KeyUp { key, modifiers } => {
+            use azul_core::window::{VirtualKeyCode, VirtualKeyCodeVec};
+            
+            log(
+                LogLevel::Debug,
+                LogCategory::EventLoop,
+                format!("Debug key up: {} (shift={}, ctrl={}, alt={})", key, modifiers.shift, modifiers.ctrl, modifiers.alt),
+                None,
+            );
+
+            let mut new_state = callback_info.get_current_window_state().clone();
+            
+            // Collect current keys into a Vec
+            let mut pressed_keys: alloc::vec::Vec<VirtualKeyCode> = new_state.keyboard_state.pressed_virtual_keycodes.iter().copied().collect();
+            
+            // Parse the key string to VirtualKeyCode and remove it
+            if let Some(keycode) = parse_virtual_keycode(key) {
+                pressed_keys.retain(|k| *k != keycode);
+                new_state.keyboard_state.current_virtual_keycode = None.into();
+            }
+            
+            // Remove modifier keys if modifiers struct says they should be released
+            if !modifiers.shift {
+                pressed_keys.retain(|k| *k != VirtualKeyCode::LShift && *k != VirtualKeyCode::RShift);
+            }
+            if !modifiers.ctrl {
+                pressed_keys.retain(|k| *k != VirtualKeyCode::LControl && *k != VirtualKeyCode::RControl);
+            }
+            if !modifiers.alt {
+                pressed_keys.retain(|k| *k != VirtualKeyCode::LAlt && *k != VirtualKeyCode::RAlt);
+            }
+            if !modifiers.meta {
+                pressed_keys.retain(|k| *k != VirtualKeyCode::LWin && *k != VirtualKeyCode::RWin);
+            }
+            
+            new_state.keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(pressed_keys);
+            callback_info.modify_window_state(new_state);
+            needs_update = true;
+
+            send_ok(request, None, None);
         }
 
         _ => {
