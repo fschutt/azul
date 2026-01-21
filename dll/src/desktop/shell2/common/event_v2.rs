@@ -2046,7 +2046,6 @@ pub trait PlatformWindowV2 {
                                 // Convert DefaultAction to FocusTarget
                                 let focus_target = azul_layout::default_actions::default_action_to_focus_target(&default_action_result.action);
                                 
-                                
                                 if let Some(focus_target) = focus_target {
                                     // Resolve the focus target to an actual node
                                     let resolve_result = resolve_focus_target(

@@ -81,12 +81,6 @@ pub fn determine_keyboard_default_action(
     let shift_down = keyboard_state.shift_down();
     let ctrl_down = keyboard_state.ctrl_down();
     let alt_down = keyboard_state.alt_down();
-    
-    // Debug: Log the keyboard state
-    #[cfg(feature = "std")]
-    eprintln!("[DEBUG determine_keyboard_default_action] key={:?}, shift={}, ctrl={}, alt={}, pressed_keys={:?}", 
-        current_key, shift_down, ctrl_down, alt_down, 
-        keyboard_state.pressed_virtual_keycodes.iter().collect::<Vec<_>>());
 
     // Determine action based on key
     let action = match current_key {

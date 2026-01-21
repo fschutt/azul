@@ -525,7 +525,14 @@ pub fn resolve_focus_target(
             // Wrap around: if no previous focusable found, go to last focusable
             if result.is_none() {
                 let (last_dom_id, last_node_id) = get_last_start(layout_results)?;
-                search_focusable_node(&ctx, last_dom_id, last_node_id, SearchDirection::Backward)
+                // First check if the last node itself is focusable
+                let last_layout = ctx.get_layout(&last_dom_id)?;
+                if ctx.is_focusable(last_layout, last_node_id) {
+                    Ok(Some(ctx.make_dom_node_id(last_dom_id, last_node_id)))
+                } else {
+                    // Otherwise search backward from last node
+                    search_focusable_node(&ctx, last_dom_id, last_node_id, SearchDirection::Backward)
+                }
             } else {
                 Ok(result)
             }
@@ -536,19 +543,37 @@ pub fn resolve_focus_target(
             let result = search_focusable_node(&ctx, dom_id, node_id, SearchDirection::Forward)?;
             // Wrap around: if no next focusable found, go to first focusable
             if result.is_none() {
-                search_focusable_node(&ctx, DomId::ROOT_ID, NodeId::ZERO, SearchDirection::Forward)
+                // First check if the first node itself is focusable
+                let first_layout = ctx.get_layout(&DomId::ROOT_ID)?;
+                if ctx.is_focusable(first_layout, NodeId::ZERO) {
+                    Ok(Some(ctx.make_dom_node_id(DomId::ROOT_ID, NodeId::ZERO)))
+                } else {
+                    search_focusable_node(&ctx, DomId::ROOT_ID, NodeId::ZERO, SearchDirection::Forward)
+                }
             } else {
                 Ok(result)
             }
         }
 
         First => {
-            search_focusable_node(&ctx, DomId::ROOT_ID, NodeId::ZERO, SearchDirection::Forward)
+            // First check if the first node itself is focusable
+            let first_layout = ctx.get_layout(&DomId::ROOT_ID)?;
+            if ctx.is_focusable(first_layout, NodeId::ZERO) {
+                Ok(Some(ctx.make_dom_node_id(DomId::ROOT_ID, NodeId::ZERO)))
+            } else {
+                search_focusable_node(&ctx, DomId::ROOT_ID, NodeId::ZERO, SearchDirection::Forward)
+            }
         }
 
         Last => {
             let (dom_id, node_id) = get_last_start(layout_results)?;
-            search_focusable_node(&ctx, dom_id, node_id, SearchDirection::Backward)
+            // First check if the last node itself is focusable
+            let last_layout = ctx.get_layout(&dom_id)?;
+            if ctx.is_focusable(last_layout, node_id) {
+                Ok(Some(ctx.make_dom_node_id(dom_id, node_id)))
+            } else {
+                search_focusable_node(&ctx, dom_id, node_id, SearchDirection::Backward)
+            }
         }
 
         NoFocus => Ok(None),
