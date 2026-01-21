@@ -510,12 +510,25 @@ pub fn resolve_focus_target(
 
         Previous => {
             let (dom_id, node_id) = get_previous_start(layout_results, current_focus)?;
-            search_focusable_node(&ctx, dom_id, node_id, SearchDirection::Backward)
+            let result = search_focusable_node(&ctx, dom_id, node_id, SearchDirection::Backward)?;
+            // Wrap around: if no previous focusable found, go to last focusable
+            if result.is_none() {
+                let (last_dom_id, last_node_id) = get_last_start(layout_results)?;
+                search_focusable_node(&ctx, last_dom_id, last_node_id, SearchDirection::Backward)
+            } else {
+                Ok(result)
+            }
         }
 
         Next => {
             let (dom_id, node_id) = get_next_start(layout_results, current_focus);
-            search_focusable_node(&ctx, dom_id, node_id, SearchDirection::Forward)
+            let result = search_focusable_node(&ctx, dom_id, node_id, SearchDirection::Forward)?;
+            // Wrap around: if no next focusable found, go to first focusable
+            if result.is_none() {
+                search_focusable_node(&ctx, DomId::ROOT_ID, NodeId::ZERO, SearchDirection::Forward)
+            } else {
+                Ok(result)
+            }
         }
 
         First => {
@@ -524,7 +537,7 @@ pub fn resolve_focus_target(
 
         Last => {
             let (dom_id, node_id) = get_last_start(layout_results)?;
-            search_focusable_node(&ctx, dom_id, node_id, SearchDirection::Forward)
+            search_focusable_node(&ctx, dom_id, node_id, SearchDirection::Backward)
         }
 
         NoFocus => Ok(None),
