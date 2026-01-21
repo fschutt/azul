@@ -68,6 +68,15 @@ pub type RefAnyDestructorType = extern "C" fn(*mut c_void);
 #[derive(Debug)]
 #[repr(C)]
 pub struct RefCountInner {
+    /// Type-erased pointer to heap-allocated data.
+    ///
+    /// SAFETY: Must be properly aligned for the stored type (guaranteed by
+    /// `Layout::from_size_align` in `new_c`). Never null for non-ZST types.
+    ///
+    /// This pointer is shared by all RefAny clones, so replace_contents
+    /// updates are visible to all clones.
+    pub _internal_ptr: *const c_void,
+
     /// Number of `RefAny` instances sharing the same data.
     /// When this reaches 0, the data is deallocated.
     pub num_copies: AtomicUsize,
@@ -422,15 +431,11 @@ impl<'a, T> core::ops::DerefMut for RefMut<'a, T> {
 #[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(C)]
 pub struct RefAny {
-    /// Type-erased pointer to heap-allocated data.
-    ///
-    /// SAFETY: Must be properly aligned for the stored type (guaranteed by
-    /// `Layout::from_size_align` in `new_c`). Never null for non-ZST types.
-    pub _internal_ptr: *const c_void,
-
-    /// Shared metadata: reference counts, type info, destructor.
+    /// Shared metadata: reference counts, type info, destructor, AND data pointer.
     ///
     /// All `RefAny` clones point to the same `RefCountInner` via this field.
+    /// The data pointer is stored in RefCountInner so all clones see the same
+    /// pointer, even after replace_contents() is called.
     pub sharing_info: RefCount,
 
     /// Unique ID for this specific clone (root = 0, subsequent clones increment).
@@ -656,6 +661,7 @@ impl RefAny {
         };
 
         let ref_count_inner = RefCountInner {
+            _internal_ptr: _internal_ptr as *const c_void,
             num_copies: AtomicUsize::new(1),       // This is the first instance
             num_refs: AtomicUsize::new(0),         // No borrows yet
             num_mutable_refs: AtomicUsize::new(0), // No mutable borrows yet
@@ -672,7 +678,6 @@ impl RefAny {
         let sharing_info = RefCount::new(ref_count_inner);
 
         Self {
-            _internal_ptr: _internal_ptr as *const c_void,
             sharing_info,
             instance_id: 0, // Root instance
             run_destructor: true,
@@ -760,8 +765,11 @@ impl RefAny {
             return None;
         }
 
+        // Get data pointer from shared RefCountInner
+        let data_ptr = self.sharing_info.downcast()._internal_ptr;
+
         // Null check: ZSTs or uninitialized
-        if self._internal_ptr.is_null() {
+        if data_ptr.is_null() {
             return None;
         }
 
@@ -770,7 +778,7 @@ impl RefAny {
 
         Some(Ref {
             // SAFETY: Type check passed, pointer is non-null and properly aligned
-            ptr: unsafe { &*(self._internal_ptr as *const U) },
+            ptr: unsafe { &*(data_ptr as *const U) },
             sharing_info: self.sharing_info.clone(),
         })
     }
@@ -820,8 +828,11 @@ impl RefAny {
             return None;
         }
 
+        // Get data pointer from shared RefCountInner
+        let data_ptr = self.sharing_info.downcast()._internal_ptr;
+
         // Null check
-        if self._internal_ptr.is_null() {
+        if data_ptr.is_null() {
             return None;
         }
 
@@ -830,7 +841,7 @@ impl RefAny {
 
         Some(RefMut {
             // SAFETY: Type and borrow checks passed, exclusive access guaranteed
-            ptr: unsafe { &mut *(self._internal_ptr as *mut U) },
+            ptr: unsafe { &mut *(data_ptr as *mut U) },
             sharing_info: self.sharing_info.clone(),
         })
     }
@@ -954,10 +965,13 @@ impl RefAny {
     /// Replaces the contents of this RefAny with a new value from another RefAny.
     ///
     /// This method:
-    /// 1. Calls the destructor on the old value
-    /// 2. Deallocates the old memory
-    /// 3. Copies the new value's memory
-    /// 4. Updates metadata (type_id, type_name, destructor, serialize/deserialize fns)
+    /// 1. Atomically acquires a mutable "lock" via compare_exchange
+    /// 2. Calls the destructor on the old value
+    /// 3. Deallocates the old memory
+    /// 4. Copies the new value's memory
+    /// 5. Updates metadata (type_id, type_name, destructor, serialize/deserialize fns)
+    /// 6. Updates the shared _internal_ptr so ALL clones see the new data
+    /// 7. Releases the lock
     ///
     /// Since all clones of a RefAny share the same `RefCountInner`, this change
     /// will be visible to ALL clones of this RefAny.
@@ -967,49 +981,80 @@ impl RefAny {
     /// - `true` if the replacement was successful
     /// - `false` if there are active borrows (would cause UB)
     ///
+    /// # Thread Safety
+    ///
+    /// Uses compare_exchange to atomically acquire exclusive access, preventing
+    /// any race condition between checking for borrows and modifying the data.
+    ///
     /// # Safety
     ///
     /// Safe because:
-    /// - We check for active borrows before modifying
+    /// - We atomically acquire exclusive access before modifying
     /// - The old destructor is called before deallocation
     /// - Memory is properly allocated with correct alignment
-    /// - All metadata is updated atomically (via &mut self)
+    /// - All metadata is updated while holding the lock
     pub fn replace_contents(&mut self, new_value: RefAny) -> bool {
         use core::ptr;
 
-        // Check if we can safely modify (no active borrows)
-        if !self.sharing_info.can_be_shared_mut() {
-            return false;
-        }
-
         let inner = self.sharing_info.ptr as *mut RefCountInner;
         
+        // Atomically acquire exclusive access by setting num_mutable_refs to 1.
+        // This uses compare_exchange to ensure no race condition:
+        // - If num_mutable_refs is 0, set it to 1 (success)
+        // - If num_mutable_refs is not 0, someone else has it (fail)
+        // We also need to check num_refs == 0 atomically.
+        let inner_ref = self.sharing_info.downcast();
+        
+        // First, try to acquire the mutable lock
+        let mutable_lock_result = inner_ref.num_mutable_refs.compare_exchange(
+            0,  // expected: no mutable refs
+            1,  // desired: we take the mutable ref
+            AtomicOrdering::SeqCst,
+            AtomicOrdering::SeqCst,
+        );
+        
+        if mutable_lock_result.is_err() {
+            // Someone else has a mutable reference
+            return false;
+        }
+        
+        // Now check that there are no shared references
+        // Note: We hold the mutable lock, so no new shared refs can be acquired
+        if inner_ref.num_refs.load(AtomicOrdering::SeqCst) != 0 {
+            // Release the lock and fail
+            inner_ref.num_mutable_refs.store(0, AtomicOrdering::SeqCst);
+            return false;
+        }
+        
+        // We now have exclusive access - perform the replacement
         unsafe {
             // Get old layout info before we overwrite it
+            let old_ptr = (*inner)._internal_ptr;
             let old_len = (*inner)._internal_len;
             let old_layout_size = (*inner)._internal_layout_size;
             let old_layout_align = (*inner)._internal_layout_align;
             let old_destructor = (*inner).custom_destructor;
 
             // Step 1: Call destructor on old value (if non-ZST)
-            if old_len > 0 && !self._internal_ptr.is_null() {
-                old_destructor(self._internal_ptr as *mut c_void);
+            if old_len > 0 && !old_ptr.is_null() {
+                old_destructor(old_ptr as *mut c_void);
             }
 
             // Step 2: Deallocate old memory (if non-ZST)
-            if old_layout_size > 0 && !self._internal_ptr.is_null() {
+            if old_layout_size > 0 && !old_ptr.is_null() {
                 let old_layout = Layout::from_size_align_unchecked(old_layout_size, old_layout_align);
-                alloc::alloc::dealloc(self._internal_ptr as *mut u8, old_layout);
+                alloc::alloc::dealloc(old_ptr as *mut u8, old_layout);
             }
 
             // Get new value's metadata
             let new_inner = new_value.sharing_info.downcast();
+            let new_ptr = new_inner._internal_ptr;
             let new_len = new_inner._internal_len;
             let new_layout_size = new_inner._internal_layout_size;
             let new_layout_align = new_inner._internal_layout_align;
 
             // Step 3: Allocate new memory and copy data
-            let new_ptr = if new_len == 0 {
+            let allocated_ptr = if new_len == 0 {
                 ptr::null_mut()
             } else {
                 let new_layout = Layout::from_size_align(new_len, new_layout_align)
@@ -1020,15 +1065,16 @@ impl RefAny {
                 }
                 // Copy data from new_value
                 ptr::copy_nonoverlapping(
-                    new_value._internal_ptr as *const u8,
+                    new_ptr as *const u8,
                     heap_ptr,
                     new_len,
                 );
                 heap_ptr
             };
 
-            // Step 4: Update our internal pointer
-            self._internal_ptr = new_ptr as *const c_void;
+            // Step 4: Update the shared internal pointer in RefCountInner
+            // All clones will see this new pointer!
+            (*inner)._internal_ptr = allocated_ptr as *const c_void;
 
             // Step 5: Update metadata in RefCountInner
             (*inner)._internal_len = new_len;
@@ -1040,6 +1086,9 @@ impl RefAny {
             (*inner).serialize_fn = new_inner.serialize_fn;
             (*inner).deserialize_fn = new_inner.deserialize_fn;
         }
+
+        // Release the mutable lock
+        self.sharing_info.downcast().num_mutable_refs.store(0, AtomicOrdering::SeqCst);
 
         // Prevent new_value from running its destructor (we copied the data)
         core::mem::forget(new_value);
@@ -1089,9 +1138,9 @@ impl Clone for RefAny {
         let new_instance_id = inner.num_copies.load(AtomicOrdering::SeqCst) as u64;
 
         Self {
-            _internal_ptr: self._internal_ptr, // Share the same data pointer
+            // Data pointer is now in RefCountInner, shared automatically
             sharing_info: RefCount {
-                ptr: self.sharing_info.ptr, // Share the same metadata
+                ptr: self.sharing_info.ptr, // Share the same metadata (and data pointer)
                 run_destructor: true,
             },
             // Give this clone a unique ID based on the updated count
@@ -1184,10 +1233,13 @@ impl Drop for RefAny {
         let sharing_info = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };
         let sharing_info = *sharing_info; // Box deallocates here
 
+        // Get the data pointer from the shared RefCountInner
+        let data_ptr = sharing_info._internal_ptr;
+
         // Handle zero-sized types specially
         if sharing_info._internal_len == 0
             || sharing_info._internal_layout_size == 0
-            || self._internal_ptr.is_null()
+            || data_ptr.is_null()
         {
             let mut _dummy: [u8; 0] = [];
             // Call destructor even for ZSTs (may have side effects)
@@ -1204,12 +1256,12 @@ impl Drop for RefAny {
 
             // Phase 1: Run the custom destructor (runs T::drop)
             // SAFETY: ptr points to valid data of the type expected by the destructor
-            (sharing_info.custom_destructor)(self._internal_ptr as *mut c_void);
+            (sharing_info.custom_destructor)(data_ptr as *mut c_void);
 
             // Phase 2: Deallocate the memory
             // SAFETY: ptr and layout match the original allocation in new_c
             unsafe {
-                alloc::alloc::dealloc(self._internal_ptr as *mut u8, layout);
+                alloc::alloc::dealloc(data_ptr as *mut u8, layout);
             }
         }
     }
