@@ -27632,6 +27632,29 @@
               }
             ],
             "repr": "C, u8"
+          },
+          "ScrollLogicalPosition": {
+            "external": "azul_core::events::ScrollLogicalPosition",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash",
+              "PartialOrd",
+              "Ord",
+              "Default"
+            ],
+            "enum_fields": [
+              {
+                "Start": {},
+                "Center": {},
+                "End": {},
+                "Nearest": {}
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -54314,6 +54337,93 @@
               }
             ],
             "repr": "C, u8"
+          },
+          "ScrollIntoViewOptions": {
+            "external": "azul_core::events::ScrollIntoViewOptions",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash",
+              "Default"
+            ],
+            "struct_fields": [
+              {
+                "block": {
+                  "type": "ScrollLogicalPosition"
+                },
+                "inline_": {
+                  "type": "ScrollLogicalPosition",
+                  "rust_alias": "inline"
+                },
+                "behavior": {
+                  "type": "ScrollIntoViewBehavior"
+                }
+              }
+            ],
+            "constructors": {
+              "nearest": {
+                "doc": [
+                  "Create options with \"nearest\" alignment for both axes"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_core::events::ScrollIntoViewOptions::nearest()"
+              },
+              "center": {
+                "doc": [
+                  "Create options with \"center\" alignment for both axes"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_core::events::ScrollIntoViewOptions::center()"
+              },
+              "start": {
+                "doc": [
+                  "Create options with \"start\" alignment for both axes"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_core::events::ScrollIntoViewOptions::start()"
+              },
+              "end": {
+                "doc": [
+                  "Create options to align the end of the target with the end of the viewport"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_core::events::ScrollIntoViewOptions::end()"
+              }
+            },
+            "functions": {
+              "with_instant": {
+                "doc": [
+                  "Set instant scroll behavior"
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  }
+                ],
+                "returns": {
+                  "type": "ScrollIntoViewOptions"
+                },
+                "fn_body": "object.with_instant()"
+              },
+              "with_smooth": {
+                "doc": [
+                  "Set smooth scroll behavior"
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  }
+                ],
+                "returns": {
+                  "type": "ScrollIntoViewOptions"
+                },
+                "fn_body": "object.with_smooth()"
+              }
+            },
+            "repr": "C"
           }
         }
       },
@@ -57847,6 +57957,28 @@
                 "border_width": {
                   "type": "OptionPixelValue"
                 }
+              }
+            ],
+            "repr": "C"
+          },
+          "ScrollIntoViewBehavior": {
+            "external": "azul_core::events::ScrollIntoViewBehavior",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash",
+              "PartialOrd",
+              "Ord",
+              "Default"
+            ],
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Instant": {},
+                "Smooth": {}
               }
             ],
             "repr": "C"
