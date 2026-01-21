@@ -1320,6 +1320,9 @@ pub struct NodeData {
     pub css_props: CssPropertyWithConditionsVec,
     /// Tab index (commonly used property).
     pub tab_index: OptionTabIndex,
+    /// Whether this node is contenteditable (accepts text input).
+    /// Equivalent to HTML `contenteditable="true"` attribute.
+    pub contenteditable: bool,
     /// Stores "extra", not commonly used data of the node: accessibility, clip-mask, tab-index,
     /// etc.
     ///
@@ -1334,6 +1337,7 @@ impl Hash for NodeData {
         self.dataset.hash(state);
         self.ids_and_classes.as_ref().hash(state);
         self.attributes.as_ref().hash(state);
+        self.contenteditable.hash(state);
 
         // NOTE: callbacks are NOT hashed regularly, otherwise
         // they'd cause inconsistencies because of the scroll callback
@@ -2214,6 +2218,7 @@ impl Clone for NodeData {
             css_props: self.css_props.clone(),
             callbacks: self.callbacks.clone(),
             tab_index: self.tab_index,
+            contenteditable: self.contenteditable,
             extra: self.extra.clone(),
         }
     }
@@ -2367,6 +2372,7 @@ impl NodeData {
             callbacks: CoreCallbackDataVec::from_const_slice(&[]),
             css_props: CssPropertyWithConditionsVec::from_const_slice(&[]),
             tab_index: OptionTabIndex::None,
+            contenteditable: false,
             extra: None,
         }
     }
@@ -2534,6 +2540,14 @@ impl NodeData {
     #[inline]
     pub fn set_tab_index(&mut self, tab_index: TabIndex) {
         self.tab_index = Some(tab_index).into();
+    }
+    #[inline]
+    pub fn set_contenteditable(&mut self, contenteditable: bool) {
+        self.contenteditable = contenteditable;
+    }
+    #[inline]
+    pub fn is_contenteditable(&self) -> bool {
+        self.contenteditable
     }
     #[inline]
     pub fn set_accessibility_info(&mut self, accessibility_info: AccessibilityInfo) {
@@ -2755,6 +2769,11 @@ impl NodeData {
         self
     }
     #[inline(always)]
+    pub fn with_contenteditable(mut self, contenteditable: bool) -> Self {
+        self.set_contenteditable(contenteditable);
+        self
+    }
+    #[inline(always)]
     pub fn with_node_type(mut self, node_type: NodeType) -> Self {
         self.set_node_type(node_type);
         self
@@ -2929,6 +2948,7 @@ impl NodeData {
             css_props: self.css_props.clone(),
             callbacks: self.callbacks.clone(),
             tab_index: self.tab_index,
+            contenteditable: self.contenteditable,
             extra: self.extra.clone(),
         }
     }
@@ -4744,6 +4764,11 @@ impl Dom {
     #[inline(always)]
     pub fn with_tab_index(mut self, tab_index: TabIndex) -> Self {
         self.root.set_tab_index(tab_index);
+        self
+    }
+    #[inline(always)]
+    pub fn with_contenteditable(mut self, contenteditable: bool) -> Self {
+        self.root.set_contenteditable(contenteditable);
         self
     }
     #[inline(always)]

@@ -9973,6 +9973,34 @@
                 },
                 "fn_body": "object.with_tab_index(tab_index)"
               },
+              "set_contenteditable": {
+                "doc": [
+                  "Sets the contenteditable flag for the DOM root node."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "contenteditable": "bool"
+                  }
+                ],
+                "fn_body": "dom.root.set_contenteditable(contenteditable)"
+              },
+              "with_contenteditable": {
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "contenteditable": "bool"
+                  }
+                ],
+                "returns": {
+                  "type": "Dom"
+                },
+                "fn_body": "object.with_contenteditable(contenteditable)"
+              },
               "set_accessibility_info": {
                 "doc": [
                   "Sets accessibility attributes for the DOM root node."
@@ -10224,6 +10252,9 @@
                 "tab_index": {
                   "type": "OptionTabIndex"
                 },
+                "contenteditable": {
+                  "type": "bool"
+                },
                 "extra": {
                   "type": "c_void",
                   "ref_kind": "mutptr"
@@ -10380,6 +10411,51 @@
                   }
                 ],
                 "fn_body": "object.set_tab_index(tab_index)"
+              },
+              "set_contenteditable": {
+                "doc": [
+                  "Sets the contenteditable flag for this node, enabling inline text editing."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "contenteditable": "bool"
+                  }
+                ],
+                "fn_body": "object.set_contenteditable(contenteditable)"
+              },
+              "is_contenteditable": {
+                "doc": [
+                  "Returns whether this node is marked as contenteditable."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_contenteditable()"
+              },
+              "with_contenteditable": {
+                "doc": [
+                  "Builder method to set contenteditable and return self."
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "contenteditable": "bool"
+                  }
+                ],
+                "returns": {
+                  "type": "NodeData"
+                },
+                "fn_body": "object.with_contenteditable(contenteditable)"
               },
               "set_accessibility_info": {
                 "fn_args": [
