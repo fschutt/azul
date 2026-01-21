@@ -370,7 +370,10 @@ pub fn determine_all_events(
         .current_virtual_keycode
         .into_option();
 
-    if current_key.is_some() && current_key != previous_key {
+    // KeyDown: Fires when a new key is pressed
+    // Case 1: New key pressed (current != previous)
+    // Case 2: Same key pressed again after release (current.is_some() && previous.is_none())
+    if current_key.is_some() && (current_key != previous_key || previous_key.is_none()) {
         events.push(SyntheticEvent::new(
             EventType::KeyDown,
             EventSource::User,

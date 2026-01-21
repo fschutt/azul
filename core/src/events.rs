@@ -773,6 +773,7 @@ impl Default for PropagationResult {
 /// Default actions are processed AFTER all event callbacks have been invoked,
 /// and only if `event.prevent_default()` was NOT called.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[repr(C, u8)]
 pub enum DefaultAction {
     /// Move focus to the next focusable element (Tab key)
     FocusNext,
@@ -810,6 +811,7 @@ pub enum DefaultAction {
 
 /// Amount to scroll for keyboard-based scrolling
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub enum ScrollAmount {
     /// Scroll by one line (arrow keys)
     Line,
@@ -826,6 +828,7 @@ pub enum ScrollAmount {
 /// 2. The target element's type/role
 /// 3. Whether `prevent_default()` was called
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct DefaultActionResult {
     /// The default action to perform (if any)
     pub action: DefaultAction,

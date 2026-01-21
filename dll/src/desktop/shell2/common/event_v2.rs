@@ -297,6 +297,60 @@ extern "C" fn auto_scroll_timer_callback(
     azul_core::callbacks::TimerCallbackReturn::continue_unchanged()
 }
 
+// Focus Restyle Helper
+
+/// Apply focus change restyle and determine the ProcessEventResult.
+///
+/// This helper function consolidates the duplicated restyle logic that was
+/// previously repeated for FocusNext/Previous/First/Last and ClearFocus handlers.
+///
+/// # Arguments
+/// * `layout_window` - Mutable reference to the layout window
+/// * `old_focus` - The node that is losing focus (if any)
+/// * `new_focus` - The node that is gaining focus (if any)
+///
+/// # Returns
+/// The appropriate ProcessEventResult based on what CSS properties changed.
+fn apply_focus_restyle(
+    layout_window: &mut LayoutWindow,
+    old_focus: Option<NodeId>,
+    new_focus: Option<NodeId>,
+) -> ProcessEventResult {
+    use azul_core::styled_dom::FocusChange;
+    
+    // Get the first (primary) layout result
+    let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() else {
+        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    };
+    
+    // Apply restyle for focus change
+    let restyle_result = layout_result.styled_dom.restyle_on_state_change(
+        Some(FocusChange {
+            lost_focus: old_focus,
+            gained_focus: new_focus,
+        }),
+        None, // hover
+        None, // active
+    );
+    
+    log_debug!(
+        super::debug_server::LogCategory::Input,
+        "[Event V2] Focus restyle: needs_layout={}, needs_display_list={}, changed_nodes={}",
+        restyle_result.needs_layout,
+        restyle_result.needs_display_list,
+        restyle_result.changed_nodes.len()
+    );
+    
+    // Determine ProcessEventResult based on what changed
+    if restyle_result.needs_layout {
+        ProcessEventResult::ShouldRegenerateDomCurrentWindow
+    } else if restyle_result.needs_display_list {
+        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+    } else {
+        ProcessEventResult::ShouldReRenderCurrentWindow
+    }
+}
+
 // Platform-Specific Timer Management
 
 /// Hit test node structure for event routing.
@@ -2012,52 +2066,14 @@ pub trait PlatformWindowV2 {
                                             layout_window.focus_manager.set_focused_node(new_focus_node);
                                             default_action_focus_changed = true;
                                             
-                                            println!("[DEBUG event_v2] Focus changed! old={:?}, new={:?}", old_focus_node_id, new_focus_node_id);
-                                            
                                             // RESTYLE: Update StyledNodeState and compute CSS changes
-                                            // This is the critical fix - sync FocusManager state with StyledNodeState
                                             if old_focus_node_id != new_focus_node_id {
-                                                println!("[DEBUG event_v2] Focus IDs differ, calling restyle_on_state_change");
-                                                if let Some((dom_id, layout_result)) = layout_window.layout_results.iter_mut().next() {
-                                                    use azul_core::styled_dom::FocusChange;
-                                                    
-                                                    println!("[DEBUG event_v2] Calling restyle_on_state_change with lost={:?}, gained={:?}", old_focus_node_id, new_focus_node_id);
-                                                    let restyle_result = layout_result.styled_dom.restyle_on_state_change(
-                                                        Some(FocusChange {
-                                                            lost_focus: old_focus_node_id,
-                                                            gained_focus: new_focus_node_id,
-                                                        }),
-                                                        None, // hover
-                                                        None, // active
-                                                    );
-                                                    
-                                                    println!("[DEBUG event_v2] restyle_result: needs_layout={}, needs_display_list={}, changed_nodes={}", 
-                                                        restyle_result.needs_layout, restyle_result.needs_display_list, restyle_result.changed_nodes.len());
-                                                    
-                                                    // Determine ProcessEventResult based on what changed
-                                                    let old_result = result;
-                                                    if restyle_result.needs_layout {
-                                                        result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-                                                        println!("[DEBUG event_v2] Setting result to ShouldRegenerateDomCurrentWindow");
-                                                    } else if restyle_result.needs_display_list {
-                                                        result = result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
-                                                        println!("[DEBUG event_v2] Setting result to ShouldUpdateDisplayListCurrentWindow (was {:?})", old_result);
-                                                    } else {
-                                                        result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-                                                    }
-                                                    println!("[DEBUG event_v2] Final result after restyle: {:?}", result);
-                                                    
-                                                    log_debug!(
-                                                        super::debug_server::LogCategory::Input,
-                                                        "[Event V2] Restyle result: needs_layout={}, needs_display_list={}, gpu_only={}, changed_nodes={}",
-                                                        restyle_result.needs_layout,
-                                                        restyle_result.needs_display_list,
-                                                        restyle_result.gpu_only_changes,
-                                                        restyle_result.changed_nodes.len()
-                                                    );
-                                                } else {
-                                                    result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-                                                }
+                                                let restyle_result = apply_focus_restyle(
+                                                    layout_window,
+                                                    old_focus_node_id,
+                                                    new_focus_node_id,
+                                                );
+                                                result = result.max(restyle_result);
                                             } else {
                                                 result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
                                             }
@@ -2084,28 +2100,12 @@ pub trait PlatformWindowV2 {
                                     
                                     // RESTYLE: Update StyledNodeState when focus is cleared
                                     if old_focus_node_id.is_some() {
-                                        if let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() {
-                                            use azul_core::styled_dom::FocusChange;
-                                            
-                                            let restyle_result = layout_result.styled_dom.restyle_on_state_change(
-                                                Some(FocusChange {
-                                                    lost_focus: old_focus_node_id,
-                                                    gained_focus: None,
-                                                }),
-                                                None,
-                                                None,
-                                            );
-                                            
-                                            if restyle_result.needs_layout {
-                                                result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-                                            } else if restyle_result.needs_display_list {
-                                                result = result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
-                                            } else {
-                                                result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-                                            }
-                                        } else {
-                                            result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-                                        }
+                                        let restyle_result = apply_focus_restyle(
+                                            layout_window,
+                                            old_focus_node_id,
+                                            None,
+                                        );
+                                        result = result.max(restyle_result);
                                     } else {
                                         result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
                                     }

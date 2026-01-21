@@ -14465,7 +14465,8 @@
           "DatasetMergeCallback": {
             "external": "azul_core::dom::DatasetMergeCallback",
             "custom_impls": [
-              "Debug"
+              "Debug",
+              "From"
             ],
             "derive": [
               "Clone",
@@ -55026,30 +55027,6 @@
                 }
               }
             ],
-            "constructors": {
-              "ok": {
-                "doc": [
-                  "Create a successful result with a RefAny"
-                ],
-                "fn_args": [
-                  {
-                    "refany": "RefAny"
-                  }
-                ],
-                "fn_body": "azul_layout::json::ResultRefAnyString::ok_result(refany)"
-              },
-              "err": {
-                "doc": [
-                  "Create an error result with an error message"
-                ],
-                "fn_args": [
-                  {
-                    "message": "String"
-                  }
-                ],
-                "fn_body": "azul_layout::json::ResultRefAnyString::err_result(message)"
-              }
-            },
             "repr": "C, u8"
           },
           "ResultU8VecString": {

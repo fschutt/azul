@@ -336,9 +336,15 @@ impl Json {
             JsonType::Null => serde_json::Value::Null,
             JsonType::Bool => serde_json::Value::Bool(self.internal.bool_value),
             JsonType::Number => {
-                serde_json::Number::from_f64(self.internal.number_value)
-                    .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::Null)
+                let num = self.internal.number_value;
+                // Check if the number is an integer (no fractional part)
+                if num.fract() == 0.0 && num >= i64::MIN as f64 && num <= i64::MAX as f64 {
+                    serde_json::Value::Number(serde_json::Number::from(num as i64))
+                } else {
+                    serde_json::Number::from_f64(num)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or(serde_json::Value::Null)
+                }
             }
             JsonType::String => serde_json::Value::String(self.internal.string_value.as_str().to_string()),
             JsonType::Array | JsonType::Object => {
@@ -536,7 +542,15 @@ impl Json {
         match self.value_type {
             JsonType::Null => AzString::from("null".to_string()),
             JsonType::Bool => AzString::from(if self.internal.bool_value { "true" } else { "false" }.to_string()),
-            JsonType::Number => AzString::from(self.internal.number_value.to_string()),
+            JsonType::Number => {
+                let num = self.internal.number_value;
+                // Serialize integers without decimal point
+                if num.fract() == 0.0 && num >= i64::MIN as f64 && num <= i64::MAX as f64 {
+                    AzString::from((num as i64).to_string())
+                } else {
+                    AzString::from(num.to_string())
+                }
+            }
             JsonType::String => {
                 // Properly escape the string
                 let escaped = serde_json::to_string(self.internal.string_value.as_str()).unwrap_or_default();

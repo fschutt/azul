@@ -81,6 +81,12 @@ pub fn determine_keyboard_default_action(
     let shift_down = keyboard_state.shift_down();
     let ctrl_down = keyboard_state.ctrl_down();
     let alt_down = keyboard_state.alt_down();
+    
+    // Debug: Log the keyboard state
+    #[cfg(feature = "std")]
+    eprintln!("[DEBUG determine_keyboard_default_action] key={:?}, shift={}, ctrl={}, alt={}, pressed_keys={:?}", 
+        current_key, shift_down, ctrl_down, alt_down, 
+        keyboard_state.pressed_virtual_keycodes.iter().collect::<Vec<_>>());
 
     // Determine action based on key
     let action = match current_key {
@@ -235,17 +241,13 @@ fn is_element_activatable(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, 
     let Some(layout) = layout_results.get(&node_id.dom) else {
         return false;
     };
-
     let Some(internal_id) = node_id.node.into_crate_internal() else {
         return false;
     };
-
-    let node_data = layout.styled_dom.node_data.as_container();
-    let Some(node) = node_data.get(internal_id) else {
-        return false;
-    };
-
-    node.is_activatable()
+    layout.styled_dom.node_data.as_container()
+        .get(internal_id)
+        .map(|node| node.is_activatable())
+        .unwrap_or(false)
 }
 
 /// Check if an element is a text input (where Space should insert text, not activate).
@@ -253,11 +255,9 @@ fn is_text_input(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, DomLayout
     let Some(layout) = layout_results.get(&node_id.dom) else {
         return false;
     };
-
     let Some(internal_id) = node_id.node.into_crate_internal() else {
         return false;
     };
-
     let node_data = layout.styled_dom.node_data.as_container();
     let Some(node) = node_data.get(internal_id) else {
         return false;

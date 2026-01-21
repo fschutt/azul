@@ -329,14 +329,25 @@ fn search_focusable_node(
                 .max(min_node)
                 .min(max_node);
 
-            // Check for focusable node
+            // If we couldn't make progress (next_node == node_id due to clamping),
+            // we've hit the boundary of this DOM
+            if next_node == node_id {
+                if direction.is_at_dom_boundary(dom_id, ctx.min_dom_id, ctx.max_dom_id) {
+                    return Ok(None); // Reached end of all DOMs
+                }
+                direction.step_dom(&mut dom_id);
+                let next_layout = ctx.get_layout(&dom_id)?;
+                node_id = direction.initial_node_for_next_dom(next_layout);
+                break; // Continue outer loop with new DOM
+            }
+
+            // Check for focusable node (we made progress, so this is a different node)
             if ctx.is_focusable(layout, next_node) {
                 return Ok(Some(ctx.make_dom_node_id(dom_id, next_node)));
             }
 
-            // Detect if we've hit the boundary (no progress possible in this DOM)
-            let at_boundary = direction.is_at_boundary(next_node, node_id, min_node, max_node)
-                || next_node == node_id; // Safety: detect stuck condition
+            // Detect if we've hit the boundary (at min/max node)
+            let at_boundary = direction.is_at_boundary(next_node, node_id, min_node, max_node);
 
             if at_boundary {
                 if direction.is_at_dom_boundary(dom_id, ctx.min_dom_id, ctx.max_dom_id) {
