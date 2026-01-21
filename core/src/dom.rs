@@ -2942,6 +2942,111 @@ impl NodeData {
                 .any(|cb| cb.event.is_focus_callback())
     }
 
+    /// Returns true if this element has "activation behavior" per HTML5 spec.
+    ///
+    /// Elements with activation behavior can be activated via Enter or Space key
+    /// when focused, which generates a synthetic click event.
+    ///
+    /// Per HTML5 spec, elements with activation behavior include:
+    /// - Button elements
+    /// - Input elements (submit, button, reset, checkbox, radio)
+    /// - Anchor elements with href
+    /// - Any element with a click callback (implicit activation)
+    ///
+    /// See: https://html.spec.whatwg.org/multipage/interaction.html#activation-behavior
+    pub fn has_activation_behavior(&self) -> bool {
+        use crate::events::{EventFilter, HoverEventFilter};
+        
+        // Check for click callback (most common case for Azul)
+        // In Azul, "click" is typically LeftMouseUp
+        let has_click_callback = self
+            .get_callbacks()
+            .iter()
+            .any(|cb| matches!(
+                cb.event, 
+                EventFilter::Hover(HoverEventFilter::MouseUp) 
+                | EventFilter::Hover(HoverEventFilter::LeftMouseUp)
+            ));
+
+        if has_click_callback {
+            return true;
+        }
+
+        // Check accessibility role for button-like elements
+        if let Some(ref ext) = self.extra {
+            if let Some(ref accessibility) = ext.accessibility {
+                use crate::dom::AccessibilityRole;
+                match accessibility.role {
+                    AccessibilityRole::PushButton  // Button
+                    | AccessibilityRole::Link
+                    | AccessibilityRole::CheckButton  // Checkbox
+                    | AccessibilityRole::RadioButton  // Radio
+                    | AccessibilityRole::MenuItem
+                    | AccessibilityRole::PageTab  // Tab
+                    => return true,
+                    _ => {}
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Returns true if this element is currently activatable.
+    ///
+    /// An element is activatable if it has activation behavior AND is not disabled.
+    /// This checks for common disability patterns (aria-disabled, disabled attribute).
+    pub fn is_activatable(&self) -> bool {
+        if !self.has_activation_behavior() {
+            return false;
+        }
+
+        // Check for disabled state in accessibility info
+        if let Some(ref ext) = self.extra {
+            if let Some(ref accessibility) = ext.accessibility {
+                // Check if explicitly marked as unavailable
+                if accessibility
+                    .states
+                    .as_ref()
+                    .iter()
+                    .any(|s| matches!(s, AccessibilityState::Unavailable))
+                {
+                    return false;
+                }
+            }
+        }
+
+        // Not disabled, so activatable
+        true
+    }
+
+    /// Returns the tab index for this element.
+    ///
+    /// Tab index determines keyboard navigation order:
+    /// - `None`: Not in tab order (unless naturally focusable)
+    /// - `Some(-1)`: Focusable programmatically but not via Tab
+    /// - `Some(0)`: In natural tab order
+    /// - `Some(n > 0)`: In tab order with priority n (higher = later)
+    pub fn get_effective_tabindex(&self) -> Option<i32> {
+        match self.tab_index {
+            OptionTabIndex::None => {
+                // Check if naturally focusable (has focus callback)
+                if self.get_callbacks().iter().any(|cb| cb.event.is_focus_callback()) {
+                    Some(0)
+                } else {
+                    None
+                }
+            }
+            OptionTabIndex::Some(tab_idx) => {
+                match tab_idx {
+                    TabIndex::Auto => Some(0),
+                    TabIndex::OverrideInParent(n) => Some(n as i32),
+                    TabIndex::NoKeyboardFocus => Some(-1),
+                }
+            }
+        }
+    }
+
     pub fn get_iframe_node(&mut self) -> Option<&mut IFrameNode> {
         match &mut self.node_type {
             NodeType::IFrame(i) => Some(i),

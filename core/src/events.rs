@@ -754,6 +754,158 @@ impl Default for PropagationResult {
     }
 }
 
+// =============================================================================
+// DEFAULT ACTIONS (W3C UI Events / HTML5 Activation Behavior)
+// =============================================================================
+
+/// Default actions are built-in behaviors that occur in response to events.
+///
+/// Per W3C DOM Event specification:
+/// > A default action is an action that the implementation is expected to take
+/// > in response to an event, unless that action is cancelled by the script.
+///
+/// Examples:
+/// - Tab key → move focus to next focusable element
+/// - Enter/Space on button → activate (click) the button
+/// - Escape → clear focus or close modal
+/// - Arrow keys in listbox → move selection
+///
+/// Default actions are processed AFTER all event callbacks have been invoked,
+/// and only if `event.prevent_default()` was NOT called.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DefaultAction {
+    /// Move focus to the next focusable element (Tab key)
+    FocusNext,
+    /// Move focus to the previous focusable element (Shift+Tab)
+    FocusPrevious,
+    /// Move focus to the first focusable element
+    FocusFirst,
+    /// Move focus to the last focusable element
+    FocusLast,
+    /// Clear focus from the currently focused element (Escape key)
+    ClearFocus,
+    /// Activate the focused element (Enter/Space on activatable elements)
+    /// This generates a synthetic Click event on the target
+    ActivateFocusedElement {
+        target: DomNodeId,
+    },
+    /// Submit the form containing the focused element (Enter in form input)
+    SubmitForm {
+        form_node: DomNodeId,
+    },
+    /// Close the current modal/dialog (Escape key when modal is open)
+    CloseModal {
+        modal_node: DomNodeId,
+    },
+    /// Scroll the focused scrollable container
+    ScrollFocusedContainer {
+        direction: ScrollDirection,
+        amount: ScrollAmount,
+    },
+    /// Select all text in the focused text input (Ctrl+A / Cmd+A)
+    SelectAllText,
+    /// No default action for this event
+    None,
+}
+
+/// Amount to scroll for keyboard-based scrolling
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ScrollAmount {
+    /// Scroll by one line (arrow keys)
+    Line,
+    /// Scroll by one page (Page Up/Down)
+    Page,
+    /// Scroll to start/end (Home/End)
+    Document,
+}
+
+/// Result of determining what default action should occur for an event.
+///
+/// This is computed AFTER event dispatch, based on:
+/// 1. The event type
+/// 2. The target element's type/role
+/// 3. Whether `prevent_default()` was called
+#[derive(Debug, Clone)]
+pub struct DefaultActionResult {
+    /// The default action to perform (if any)
+    pub action: DefaultAction,
+    /// Whether the action was prevented by a callback
+    pub prevented: bool,
+}
+
+impl Default for DefaultActionResult {
+    fn default() -> Self {
+        Self {
+            action: DefaultAction::None,
+            prevented: false,
+        }
+    }
+}
+
+impl DefaultActionResult {
+    /// Create a new result with a specific action
+    pub fn new(action: DefaultAction) -> Self {
+        Self {
+            action,
+            prevented: false,
+        }
+    }
+
+    /// Create a prevented result (callback called prevent_default)
+    pub fn prevented() -> Self {
+        Self {
+            action: DefaultAction::None,
+            prevented: true,
+        }
+    }
+
+    /// Check if there's an action to perform
+    pub fn has_action(&self) -> bool {
+        !self.prevented && !matches!(self.action, DefaultAction::None)
+    }
+}
+
+/// Trait for elements that have activation behavior (can be "clicked" via keyboard).
+///
+/// Per HTML5 spec, elements with activation behavior include:
+/// - `<button>` elements
+/// - `<input type="submit">`, `<input type="button">`, `<input type="reset">`
+/// - `<a>` elements with href
+/// - `<area>` elements with href
+/// - Any element with a click handler (implicit activation)
+///
+/// When an element with activation behavior is focused and the user presses
+/// Enter or Space, a synthetic click event is generated.
+pub trait ActivationBehavior {
+    /// Returns true if this element can be activated via keyboard (Enter/Space)
+    fn has_activation_behavior(&self) -> bool;
+
+    /// Returns true if this element is currently activatable
+    /// (e.g., not disabled, not aria-disabled="true")
+    fn is_activatable(&self) -> bool;
+}
+
+/// Trait to query if a node is focusable for tab navigation
+pub trait Focusable {
+    /// Returns the tabindex value for this element (-1, 0, or positive)
+    fn get_tabindex(&self) -> Option<i32>;
+
+    /// Returns true if this element can receive focus
+    fn is_focusable(&self) -> bool;
+
+    /// Returns true if this element should be in the tab order
+    fn is_in_tab_order(&self) -> bool {
+        match self.get_tabindex() {
+            None => self.is_naturally_focusable(),
+            Some(i) => i >= 0,
+        }
+    }
+
+    /// Returns true if this element type is naturally focusable
+    /// (button, input, select, textarea, a[href])
+    fn is_naturally_focusable(&self) -> bool;
+}
+
 /// Check if an event filter matches the given event in the current phase.
 ///
 /// This is used during event propagation to determine which callbacks
