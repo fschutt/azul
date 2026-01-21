@@ -94,6 +94,64 @@ impl_vec_clone!(
 );
 impl_vec_partialeq!(ChangedCssProperty, ChangedCssPropertyVec);
 
+/// Focus state change for restyle operations
+#[derive(Debug, Clone, PartialEq)]
+pub struct FocusChange {
+    /// Node that lost focus (if any)
+    pub lost_focus: Option<NodeId>,
+    /// Node that gained focus (if any)
+    pub gained_focus: Option<NodeId>,
+}
+
+/// Hover state change for restyle operations
+#[derive(Debug, Clone, PartialEq)]
+pub struct HoverChange {
+    /// Nodes that the mouse left
+    pub left_nodes: Vec<NodeId>,
+    /// Nodes that the mouse entered
+    pub entered_nodes: Vec<NodeId>,
+}
+
+/// Active (mouse down) state change for restyle operations
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActiveChange {
+    /// Nodes that were deactivated (mouse up)
+    pub deactivated: Vec<NodeId>,
+    /// Nodes that were activated (mouse down)
+    pub activated: Vec<NodeId>,
+}
+
+/// Result of a restyle operation, indicating what needs to be updated
+#[derive(Debug, Clone, Default)]
+pub struct RestyleResult {
+    /// Nodes whose CSS properties changed, with details of the changes
+    pub changed_nodes: BTreeMap<NodeId, Vec<ChangedCssProperty>>,
+    /// Whether layout needs to be recalculated (layout properties changed)
+    pub needs_layout: bool,
+    /// Whether display list needs regeneration (visual properties changed)
+    pub needs_display_list: bool,
+    /// Whether only GPU-level properties changed (opacity, transform)
+    /// If true and needs_display_list is false, we can update via GPU without display list rebuild
+    pub gpu_only_changes: bool,
+}
+
+impl RestyleResult {
+    /// Returns true if any changes occurred
+    pub fn has_changes(&self) -> bool {
+        !self.changed_nodes.is_empty()
+    }
+
+    /// Merge another RestyleResult into this one
+    pub fn merge(&mut self, other: RestyleResult) {
+        for (node_id, changes) in other.changed_nodes {
+            self.changed_nodes.entry(node_id).or_default().extend(changes);
+        }
+        self.needs_layout = self.needs_layout || other.needs_layout;
+        self.needs_display_list = self.needs_display_list || other.needs_display_list;
+        self.gpu_only_changes = self.gpu_only_changes && other.gpu_only_changes;
+    }
+}
+
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Hash, PartialOrd, Eq, Ord)]
 pub enum CssPropertySource {
@@ -1441,13 +1499,17 @@ impl StyledDom {
         nodes: &[NodeId],
         new_focus_state: bool,
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
+        println!("[DEBUG restyle_nodes_focus] ENTER: nodes={:?}, new_focus_state={}", nodes, new_focus_state);
+        
         // save the old node state
         let old_node_states = nodes
             .iter()
             .map(|nid| {
-                self.styled_nodes.as_container()[*nid]
+                let state = self.styled_nodes.as_container()[*nid]
                     .styled_node_state
-                    .clone()
+                    .clone();
+                println!("[DEBUG restyle_nodes_focus] Old state for node {:?}: focused={}", nid, state.focused);
+                state
             })
             .collect::<Vec<_>>();
 
@@ -1455,6 +1517,7 @@ impl StyledDom {
             self.styled_nodes.as_container_mut()[*nid]
                 .styled_node_state
                 .focused = new_focus_state;
+            println!("[DEBUG restyle_nodes_focus] Set node {:?} focused={}", nid, new_focus_state);
         }
 
         let css_property_cache = self.get_css_property_cache();
@@ -1474,6 +1537,8 @@ impl StyledDom {
                     .unwrap_or(&default_map)
                     .keys()
                     .collect();
+                
+                println!("[DEBUG restyle_nodes_focus] Node {:?} css_focus_props keys: {:?}", node_id, keys_normal);
 
                 let mut keys_inherited: Vec<_> = css_property_cache
                     .cascaded_focus_props
@@ -1481,6 +1546,8 @@ impl StyledDom {
                     .unwrap_or(&default_map)
                     .keys()
                     .collect();
+                
+                println!("[DEBUG restyle_nodes_focus] Node {:?} cascaded_focus_props keys: {:?}", node_id, keys_inherited);
 
                 let keys_inline: Vec<CssPropertyType> = {
                     use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
@@ -1492,6 +1559,7 @@ impl StyledDom {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::Focus))
                             });
                             if is_focus {
+                                println!("[DEBUG restyle_nodes_focus] Found inline :focus CSS for node {:?}: {:?}", node_id, prop.property.get_type());
                                 Some(prop.property.get_type())
                             } else {
                                 None
@@ -1505,13 +1573,21 @@ impl StyledDom {
                 keys_normal.append(&mut keys_inline_ref);
 
                 let node_properties_that_could_have_changed = keys_normal;
+                
+                println!("[DEBUG restyle_nodes_focus] Node {:?} properties that could change: {:?}", node_id, node_properties_that_could_have_changed);
 
                 if node_properties_that_could_have_changed.is_empty() {
+                    println!("[DEBUG restyle_nodes_focus] Node {:?} has NO :focus CSS properties!", node_id);
                     return None;
                 }
 
                 let new_node_state = &styled_nodes[*node_id].styled_node_state;
                 let node_data = &node_data[*node_id];
+                
+                println!("[DEBUG restyle_nodes_focus] old_node_state: focused={}, hover={}, active={}", 
+                    old_node_state.focused, old_node_state.hover, old_node_state.active);
+                println!("[DEBUG restyle_nodes_focus] new_node_state: focused={}, hover={}, active={}", 
+                    new_node_state.focused, new_node_state.hover, new_node_state.active);
 
                 let changes = node_properties_that_could_have_changed
                     .into_iter()
@@ -1529,9 +1605,13 @@ impl StyledDom {
                             new_node_state,
                             prop,
                         );
+                        println!("[DEBUG restyle_nodes_focus] checking prop {:?}: old_exists={}, new_exists={}, equal={}", 
+                            prop, old.is_some(), new.is_some(), old == new);
                         if old == new {
+                            println!("[DEBUG restyle_nodes_focus]   -> NO CHANGE for {:?}", prop);
                             None
                         } else {
+                            println!("[DEBUG restyle_nodes_focus]   -> CHANGED {:?}!", prop);
                             Some(ChangedCssProperty {
                                 previous_state: old_node_state.clone(),
                                 previous_prop: match old {
@@ -1548,6 +1628,7 @@ impl StyledDom {
                     })
                     .collect::<Vec<_>>();
 
+                println!("[DEBUG restyle_nodes_focus] Total changes for node {:?}: {}", node_id, changes.len());
                 if changes.is_empty() {
                     None
                 } else {
@@ -1556,7 +1637,117 @@ impl StyledDom {
             })
             .collect::<Vec<_>>();
 
+        println!("[DEBUG restyle_nodes_focus] EXIT: returning {} nodes with changes", v.len());
         v.into_iter().collect()
+    }
+
+    /// Unified entry point for all CSS restyle operations.
+    ///
+    /// This function synchronizes the StyledNodeState with runtime state
+    /// and computes which CSS properties have changed. It determines whether
+    /// layout, display list, or GPU-only updates are needed.
+    ///
+    /// # Arguments
+    /// * `focus_changes` - Nodes gaining/losing focus
+    /// * `hover_changes` - Nodes gaining/losing hover
+    /// * `active_changes` - Nodes gaining/losing active (mouse down)
+    ///
+    /// # Returns
+    /// * `RestyleResult` containing changed nodes and what needs updating
+    #[must_use]
+    pub fn restyle_on_state_change(
+        &mut self,
+        focus_changes: Option<FocusChange>,
+        hover_changes: Option<HoverChange>,
+        active_changes: Option<ActiveChange>,
+    ) -> RestyleResult {
+        println!("[DEBUG restyle_on_state_change] ENTER: focus={:?}, hover={:?}, active={:?}", focus_changes, hover_changes, active_changes);
+        
+        let mut result = RestyleResult::default();
+        result.gpu_only_changes = true; // Start with GPU-only assumption
+
+        // Helper closure to merge changes and analyze property categories
+        let mut process_changes = |changes: BTreeMap<NodeId, Vec<ChangedCssProperty>>| {
+            println!("[DEBUG restyle_on_state_change] process_changes: {} nodes with changes", changes.len());
+            for (node_id, props) in changes {
+                for change in &props {
+                    let prop_type = change.current_prop.get_type();
+                    
+                    // Check if this property triggers relayout
+                    if prop_type.can_trigger_relayout() {
+                        result.needs_layout = true;
+                        result.gpu_only_changes = false;
+                    }
+                    
+                    // Check if this is a GPU-only property
+                    if !prop_type.is_gpu_only_property() {
+                        result.gpu_only_changes = false;
+                    }
+                    
+                    // Any visual change needs display list update (unless GPU-only)
+                    result.needs_display_list = true;
+                }
+                
+                result.changed_nodes.entry(node_id).or_default().extend(props);
+            }
+        };
+
+        // 1. Process focus changes
+        if let Some(focus) = focus_changes {
+            println!("[DEBUG restyle_on_state_change] Processing focus changes: lost={:?}, gained={:?}", focus.lost_focus, focus.gained_focus);
+            if let Some(old) = focus.lost_focus {
+                println!("[DEBUG restyle_on_state_change] Calling restyle_nodes_focus for LOST focus: {:?}", old);
+                let changes = self.restyle_nodes_focus(&[old], false);
+                println!("[DEBUG restyle_on_state_change] Lost focus changes: {} nodes", changes.len());
+                process_changes(changes);
+            }
+            if let Some(new) = focus.gained_focus {
+                println!("[DEBUG restyle_on_state_change] Calling restyle_nodes_focus for GAINED focus: {:?}", new);
+                let changes = self.restyle_nodes_focus(&[new], true);
+                println!("[DEBUG restyle_on_state_change] Gained focus changes: {} nodes", changes.len());
+                process_changes(changes);
+            }
+        }
+
+        // 2. Process hover changes
+        if let Some(hover) = hover_changes {
+            if !hover.left_nodes.is_empty() {
+                let changes = self.restyle_nodes_hover(&hover.left_nodes, false);
+                process_changes(changes);
+            }
+            if !hover.entered_nodes.is_empty() {
+                let changes = self.restyle_nodes_hover(&hover.entered_nodes, true);
+                process_changes(changes);
+            }
+        }
+
+        // 3. Process active changes
+        if let Some(active) = active_changes {
+            if !active.deactivated.is_empty() {
+                let changes = self.restyle_nodes_active(&active.deactivated, false);
+                process_changes(changes);
+            }
+            if !active.activated.is_empty() {
+                let changes = self.restyle_nodes_active(&active.activated, true);
+                process_changes(changes);
+            }
+        }
+
+        // If no changes, reset display_list flag
+        if result.changed_nodes.is_empty() {
+            result.needs_display_list = false;
+            result.gpu_only_changes = false;
+        }
+        
+        // If layout is needed, display list is also needed
+        if result.needs_layout {
+            result.needs_display_list = true;
+            result.gpu_only_changes = false;
+        }
+
+        println!("[DEBUG restyle_on_state_change] EXIT: changed_nodes={}, needs_layout={}, needs_display_list={}, gpu_only={}", 
+            result.changed_nodes.len(), result.needs_layout, result.needs_display_list, result.gpu_only_changes);
+        result
     }
 
     /// Overrides CSS properties for a node and returns changed properties.
