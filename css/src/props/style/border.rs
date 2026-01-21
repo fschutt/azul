@@ -597,6 +597,211 @@ pub fn parse_border_left_color<'a>(
     parse_css_color(input).map(|inner| StyleBorderLeftColor { inner })
 }
 
+// --- Border Color Shorthand ---
+
+/// Parsed result of `border-color` shorthand (1-4 color values)
+#[cfg(feature = "parser")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderColors {
+    pub top: ColorU,
+    pub right: ColorU,
+    pub bottom: ColorU,
+    pub left: ColorU,
+}
+
+/// Parses `border-color` shorthand: 1-4 color values
+/// - 1 value: all sides
+/// - 2 values: top/bottom, left/right
+/// - 3 values: top, left/right, bottom
+/// - 4 values: top, right, bottom, left
+#[cfg(feature = "parser")]
+pub fn parse_style_border_color<'a>(
+    input: &'a str,
+) -> Result<StyleBorderColors, CssColorParseError<'a>> {
+    let input = input.trim();
+    let parts: Vec<&str> = input.split_whitespace().collect();
+
+    match parts.len() {
+        1 => {
+            let color = parse_css_color(parts[0])?;
+            Ok(StyleBorderColors {
+                top: color,
+                right: color,
+                bottom: color,
+                left: color,
+            })
+        }
+        2 => {
+            let top_bottom = parse_css_color(parts[0])?;
+            let left_right = parse_css_color(parts[1])?;
+            Ok(StyleBorderColors {
+                top: top_bottom,
+                right: left_right,
+                bottom: top_bottom,
+                left: left_right,
+            })
+        }
+        3 => {
+            let top = parse_css_color(parts[0])?;
+            let left_right = parse_css_color(parts[1])?;
+            let bottom = parse_css_color(parts[2])?;
+            Ok(StyleBorderColors {
+                top,
+                right: left_right,
+                bottom,
+                left: left_right,
+            })
+        }
+        4 => {
+            let top = parse_css_color(parts[0])?;
+            let right = parse_css_color(parts[1])?;
+            let bottom = parse_css_color(parts[2])?;
+            let left = parse_css_color(parts[3])?;
+            Ok(StyleBorderColors {
+                top,
+                right,
+                bottom,
+                left,
+            })
+        }
+        _ => Err(CssColorParseError::InvalidColor(input)),
+    }
+}
+
+// --- Border Style Shorthand ---
+
+/// Parsed result of `border-style` shorthand (1-4 style values)
+#[cfg(feature = "parser")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderStyles {
+    pub top: BorderStyle,
+    pub right: BorderStyle,
+    pub bottom: BorderStyle,
+    pub left: BorderStyle,
+}
+
+/// Parses `border-style` shorthand: 1-4 style values
+#[cfg(feature = "parser")]
+pub fn parse_style_border_style<'a>(
+    input: &'a str,
+) -> Result<StyleBorderStyles, CssBorderStyleParseError<'a>> {
+    let input = input.trim();
+    let parts: Vec<&str> = input.split_whitespace().collect();
+
+    match parts.len() {
+        1 => {
+            let style = parse_border_style(parts[0])?;
+            Ok(StyleBorderStyles {
+                top: style,
+                right: style,
+                bottom: style,
+                left: style,
+            })
+        }
+        2 => {
+            let top_bottom = parse_border_style(parts[0])?;
+            let left_right = parse_border_style(parts[1])?;
+            Ok(StyleBorderStyles {
+                top: top_bottom,
+                right: left_right,
+                bottom: top_bottom,
+                left: left_right,
+            })
+        }
+        3 => {
+            let top = parse_border_style(parts[0])?;
+            let left_right = parse_border_style(parts[1])?;
+            let bottom = parse_border_style(parts[2])?;
+            Ok(StyleBorderStyles {
+                top,
+                right: left_right,
+                bottom,
+                left: left_right,
+            })
+        }
+        4 => {
+            let top = parse_border_style(parts[0])?;
+            let right = parse_border_style(parts[1])?;
+            let bottom = parse_border_style(parts[2])?;
+            let left = parse_border_style(parts[3])?;
+            Ok(StyleBorderStyles {
+                top,
+                right,
+                bottom,
+                left,
+            })
+        }
+        _ => Err(CssBorderStyleParseError::InvalidStyle(input)),
+    }
+}
+
+// --- Border Width Shorthand ---
+
+/// Parsed result of `border-width` shorthand (1-4 width values)
+#[cfg(feature = "parser")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StyleBorderWidths {
+    pub top: PixelValue,
+    pub right: PixelValue,
+    pub bottom: PixelValue,
+    pub left: PixelValue,
+}
+
+/// Parses `border-width` shorthand: 1-4 width values
+#[cfg(feature = "parser")]
+pub fn parse_style_border_width<'a>(
+    input: &'a str,
+) -> Result<StyleBorderWidths, CssPixelValueParseError<'a>> {
+    let input = input.trim();
+    let parts: Vec<&str> = input.split_whitespace().collect();
+
+    match parts.len() {
+        1 => {
+            let width = parse_pixel_value(parts[0])?;
+            Ok(StyleBorderWidths {
+                top: width,
+                right: width,
+                bottom: width,
+                left: width,
+            })
+        }
+        2 => {
+            let top_bottom = parse_pixel_value(parts[0])?;
+            let left_right = parse_pixel_value(parts[1])?;
+            Ok(StyleBorderWidths {
+                top: top_bottom,
+                right: left_right,
+                bottom: top_bottom,
+                left: left_right,
+            })
+        }
+        3 => {
+            let top = parse_pixel_value(parts[0])?;
+            let left_right = parse_pixel_value(parts[1])?;
+            let bottom = parse_pixel_value(parts[2])?;
+            Ok(StyleBorderWidths {
+                top,
+                right: left_right,
+                bottom,
+                left: left_right,
+            })
+        }
+        4 => {
+            let top = parse_pixel_value(parts[0])?;
+            let right = parse_pixel_value(parts[1])?;
+            let bottom = parse_pixel_value(parts[2])?;
+            let left = parse_pixel_value(parts[3])?;
+            Ok(StyleBorderWidths {
+                top,
+                right,
+                bottom,
+                left,
+            })
+        }
+        _ => Err(CssPixelValueParseError::InvalidPixelValue(input)),
+    }
+}
+
 // Compatibility alias
 #[cfg(feature = "parser")]
 pub fn parse_style_border<'a>(input: &'a str) -> Result<StyleBorderSide, CssBorderParseError<'a>> {

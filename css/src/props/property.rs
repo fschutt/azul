@@ -45,7 +45,7 @@ use crate::{
     },
 };
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 20] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 23] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
     (CombinedCssPropertyType::Padding, "padding"),
@@ -55,6 +55,9 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::BorderRight, "border-right"),
     (CombinedCssPropertyType::BorderTop, "border-top"),
     (CombinedCssPropertyType::BorderBottom, "border-bottom"),
+    (CombinedCssPropertyType::BorderColor, "border-color"),
+    (CombinedCssPropertyType::BorderStyle, "border-style"),
+    (CombinedCssPropertyType::BorderWidth, "border-width"),
     (CombinedCssPropertyType::BoxShadow, "box-shadow"),
     (CombinedCssPropertyType::BackgroundColor, "background-color"),
     (CombinedCssPropertyType::BackgroundImage, "background-image"),
@@ -426,6 +429,9 @@ pub enum CombinedCssPropertyType {
     BorderRight,
     BorderTop,
     BorderBottom,
+    BorderColor,
+    BorderStyle,
+    BorderWidth,
     Padding,
     BoxShadow,
     BackgroundColor, // BackgroundContent::Color
@@ -2688,6 +2694,30 @@ pub fn parse_combined_css_property<'a>(
                 CssPropertyType::BorderBottomWidth,
             ]
         }
+        BorderColor => {
+            vec![
+                CssPropertyType::BorderTopColor,
+                CssPropertyType::BorderRightColor,
+                CssPropertyType::BorderBottomColor,
+                CssPropertyType::BorderLeftColor,
+            ]
+        }
+        BorderStyle => {
+            vec![
+                CssPropertyType::BorderTopStyle,
+                CssPropertyType::BorderRightStyle,
+                CssPropertyType::BorderBottomStyle,
+                CssPropertyType::BorderLeftStyle,
+            ]
+        }
+        BorderWidth => {
+            vec![
+                CssPropertyType::BorderTopWidth,
+                CssPropertyType::BorderRightWidth,
+                CssPropertyType::BorderBottomWidth,
+                CssPropertyType::BorderLeftWidth,
+            ]
+        }
         BoxShadow => {
             vec![
                 CssPropertyType::BoxShadowLeft,
@@ -2987,6 +3017,57 @@ pub fn parse_combined_css_property<'a>(
                         inner: border.border_width,
                     }
                     .into(),
+                ),
+            ])
+        }
+        BorderColor => {
+            let colors = parse_style_border_color(value)?;
+            Ok(vec![
+                CssProperty::BorderTopColor(
+                    StyleBorderTopColor { inner: colors.top }.into(),
+                ),
+                CssProperty::BorderRightColor(
+                    StyleBorderRightColor { inner: colors.right }.into(),
+                ),
+                CssProperty::BorderBottomColor(
+                    StyleBorderBottomColor { inner: colors.bottom }.into(),
+                ),
+                CssProperty::BorderLeftColor(
+                    StyleBorderLeftColor { inner: colors.left }.into(),
+                ),
+            ])
+        }
+        BorderStyle => {
+            let styles = parse_style_border_style(value)?;
+            Ok(vec![
+                CssProperty::BorderTopStyle(
+                    StyleBorderTopStyle { inner: styles.top }.into(),
+                ),
+                CssProperty::BorderRightStyle(
+                    StyleBorderRightStyle { inner: styles.right }.into(),
+                ),
+                CssProperty::BorderBottomStyle(
+                    StyleBorderBottomStyle { inner: styles.bottom }.into(),
+                ),
+                CssProperty::BorderLeftStyle(
+                    StyleBorderLeftStyle { inner: styles.left }.into(),
+                ),
+            ])
+        }
+        BorderWidth => {
+            let widths = parse_style_border_width(value)?;
+            Ok(vec![
+                CssProperty::BorderTopWidth(
+                    LayoutBorderTopWidth { inner: widths.top }.into(),
+                ),
+                CssProperty::BorderRightWidth(
+                    LayoutBorderRightWidth { inner: widths.right }.into(),
+                ),
+                CssProperty::BorderBottomWidth(
+                    LayoutBorderBottomWidth { inner: widths.bottom }.into(),
+                ),
+                CssProperty::BorderLeftWidth(
+                    LayoutBorderLeftWidth { inner: widths.left }.into(),
                 ),
             ])
         }
