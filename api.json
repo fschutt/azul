@@ -7186,7 +7186,7 @@
             "constructors": {
               "new_c": {
                 "doc": [
-                  "Creates a new RefAny from a raw pointer wrapper, size, alignment, type_id, type_name and destructor"
+                  "Creates a new RefAny from a raw pointer wrapper, size, alignment, type_id, type_name, destructor, and optional JSON serialization function pointers"
                 ],
                 "fn_args": [
                   {
@@ -7206,12 +7206,18 @@
                   },
                   {
                     "destructor": "RefAnyDestructorType"
+                  },
+                  {
+                    "serialize_fn": "usize"
+                  },
+                  {
+                    "deserialize_fn": "usize"
                   }
                 ],
                 "returns": {
                   "type": "RefAny"
                 },
-                "fn_body": "RefAny::new_c(ptr.ptr, len, align, type_id, type_name, destructor)"
+                "fn_body": "RefAny::new_c(ptr.ptr, len, align, type_id, type_name, destructor, serialize_fn, deserialize_fn)"
               }
             },
             "functions": {
@@ -7245,6 +7251,126 @@
                   "type": "bool"
                 },
                 "fn_body": "self.get_type_id() == type_id"
+              },
+              "set_serialize_fn": {
+                "doc": [
+                  "Sets the serialization function pointer for JSON export"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "serialize_fn": "usize"
+                  }
+                ],
+                "fn_body": "self.set_serialize_fn(serialize_fn)"
+              },
+              "set_deserialize_fn": {
+                "doc": [
+                  "Sets the deserialization function pointer for JSON import"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "deserialize_fn": "usize"
+                  }
+                ],
+                "fn_body": "self.set_deserialize_fn(deserialize_fn)"
+              },
+              "replace_contents": {
+                "doc": [
+                  "Replaces the contents of this RefAny with a new value.",
+                  "This properly destroys the old value and updates all metadata.",
+                  "Since all clones share the same internal data, this change is visible to ALL clones.",
+                  "Returns true if successful, false if there are active borrows."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "new_value": "RefAny"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "self.replace_contents(new_value)"
+              },
+              "can_serialize": {
+                "doc": [
+                  "Returns true if this RefAny has a serialization function set"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "self.can_serialize()"
+              },
+              "can_deserialize": {
+                "doc": [
+                  "Returns true if this RefAny has a deserialization function set"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "self.can_deserialize()"
+              },
+              "get_serialize_fn": {
+                "doc": [
+                  "Returns the serialization function pointer (0 if not set)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "self.get_serialize_fn()"
+              },
+              "get_deserialize_fn": {
+                "doc": [
+                  "Returns the deserialization function pointer (0 if not set)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "self.get_deserialize_fn()"
+              },
+              "serialize_to_json": {
+                "doc": [
+                  "Serialize this RefAny to JSON using its registered serialize function.",
+                  "",
+                  "Returns Some(Json) on success, or None if serialization is not supported."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionJson"
+                },
+                "fn_body": "azul_layout::json::refany_serialize_to_json(refany)"
               }
             },
             "repr": "C"
@@ -14338,6 +14464,9 @@
           },
           "DatasetMergeCallback": {
             "external": "azul_core::dom::DatasetMergeCallback",
+            "custom_impls": [
+              "Debug"
+            ],
             "derive": [
               "Clone",
               "PartialEq",
@@ -14364,22 +14493,6 @@
                   }
                 ],
                 "fn_body": "azul_core::dom::DatasetMergeCallback::from(cb)"
-              }
-            },
-            "functions": {
-              "fmt": {
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "f": "Formatter"
-                  }
-                ],
-                "returns": {
-                  "type": "Result"
-                },
-                "fn_body": "object.fmt(f)"
               }
             },
             "repr": "C"
@@ -51832,6 +51945,22 @@
                 }
               }
             ],
+            "constructors": {
+              "copy_from_array": {
+                "doc": [
+                  "Creates a new, heap-allocated JsonVec by copying elements from a C array"
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const Json"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "fn_body": "azul_layout::json::JsonVec::copy_from_array(ptr, len)"
+              }
+            },
             "repr": "C"
           },
           "JsonVecDestructor": {
@@ -51968,6 +52097,22 @@
                 }
               }
             ],
+            "constructors": {
+              "copy_from_array": {
+                "doc": [
+                  "Creates a new, heap-allocated JsonKeyValueVec by copying elements from a C array"
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const JsonKeyValue"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "fn_body": "azul_layout::json::JsonKeyValueVec::copy_from_array(ptr, len)"
+              }
+            },
             "repr": "C"
           },
           "OptionJsonVec": {
@@ -53210,6 +53355,69 @@
             ],
             "repr": "C, u8"
           },
+          "OptionF64": {
+            "external": "azul_css::corety::OptionF64",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialOrd",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "f64"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "OptionBool": {
+            "external": "azul_layout::json::OptionBool",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialOrd",
+              "PartialEq",
+              "Eq",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "OptionI64": {
+            "external": "azul_layout::json::OptionI64",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialOrd",
+              "PartialEq",
+              "Eq",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "i64"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
           "OptionWaylandTheme": {
             "external": "azul_core::window::OptionWaylandTheme",
             "derive": [
@@ -54013,6 +54221,22 @@
               }
             ],
             "repr": "C"
+          },
+          "OptionDatasetMergeCallback": {
+            "external": "azul_core::dom::OptionDatasetMergeCallback",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "DatasetMergeCallback"
+                }
+              }
+            ],
+            "repr": "C, u8"
           }
         }
       },
@@ -54781,6 +55005,51 @@
                 }
               }
             ],
+            "repr": "C, u8"
+          },
+          "ResultRefAnyString": {
+            "external": "azul_layout::json::ResultRefAnyString",
+            "custom_impls": [
+              "From"
+            ],
+            "derive": [
+              "Clone",
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "Ok": {
+                  "type": "RefAny"
+                },
+                "Err": {
+                  "type": "String"
+                }
+              }
+            ],
+            "constructors": {
+              "ok": {
+                "doc": [
+                  "Create a successful result with a RefAny"
+                ],
+                "fn_args": [
+                  {
+                    "refany": "RefAny"
+                  }
+                ],
+                "fn_body": "azul_layout::json::ResultRefAnyString::ok_result(refany)"
+              },
+              "err": {
+                "doc": [
+                  "Create an error result with an error message"
+                ],
+                "fn_args": [
+                  {
+                    "message": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::json::ResultRefAnyString::err_result(message)"
+              }
+            },
             "repr": "C, u8"
           },
           "ResultU8VecString": {
@@ -56908,9 +57177,9 @@
                 ],
                 "fn_body": "azul_layout::json::Json::bool(value)"
               },
-              "number": {
+              "float": {
                 "doc": [
-                  "Create a number JSON value"
+                  "Create a floating-point JSON value"
                 ],
                 "fn_args": [
                   {
@@ -56918,6 +57187,17 @@
                   }
                 ],
                 "fn_body": "azul_layout::json::Json::number(value)"
+              },
+              "int": {
+                "doc": [
+                  "Create an integer JSON value"
+                ],
+                "fn_args": [
+                  {
+                    "value": "i64"
+                  }
+                ],
+                "fn_body": "azul_layout::json::Json::integer(value)"
               },
               "string": {
                 "doc": [
@@ -56929,6 +57209,28 @@
                   }
                 ],
                 "fn_body": "azul_layout::json::Json::string(value.as_str())"
+              },
+              "array": {
+                "doc": [
+                  "Create a JSON array from a vector of JSON values"
+                ],
+                "fn_args": [
+                  {
+                    "values": "JsonVec"
+                  }
+                ],
+                "fn_body": "azul_layout::json::Json::array(values)"
+              },
+              "object": {
+                "doc": [
+                  "Create a JSON object from key-value pairs"
+                ],
+                "fn_args": [
+                  {
+                    "entries": "JsonKeyValueVec"
+                  }
+                ],
+                "fn_body": "azul_layout::json::Json::object(entries)"
               }
             },
             "functions": {
@@ -56960,9 +57262,9 @@
                 },
                 "fn_body": "object.is_bool()"
               },
-              "is_number": {
+              "is_float": {
                 "doc": [
-                  "Check if this is a number"
+                  "Check if this is a floating-point number"
                 ],
                 "fn_args": [
                   {
@@ -57015,6 +57317,62 @@
                   "type": "bool"
                 },
                 "fn_body": "object.is_object()"
+              },
+              "as_bool": {
+                "doc": [
+                  "Get as boolean (returns None if not a bool)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionBool"
+                },
+                "fn_body": "object.as_bool()"
+              },
+              "as_float": {
+                "doc": [
+                  "Get as float (returns None if not a number)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionF64"
+                },
+                "fn_body": "object.as_number()"
+              },
+              "as_int": {
+                "doc": [
+                  "Get as integer (returns None if not a number or not an integer)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionI64"
+                },
+                "fn_body": "object.as_i64()"
+              },
+              "as_string": {
+                "doc": [
+                  "Get as string (returns None if not a string)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionString"
+                },
+                "fn_body": "object.as_string()"
               },
               "len": {
                 "doc": [
@@ -57120,7 +57478,7 @@
                 },
                 "fn_body": "object.to_object().into()"
               },
-              "to_json_string": {
+              "to_string": {
                 "doc": [
                   "Serialize to JSON string"
                 ],
@@ -57132,9 +57490,9 @@
                 "returns": {
                   "type": "String"
                 },
-                "fn_body": "object.to_json_string().into()"
+                "fn_body": "object.to_string().into()"
               },
-              "to_json_string_pretty": {
+              "to_string_pretty": {
                 "doc": [
                   "Serialize to pretty-printed JSON string"
                 ],
@@ -57146,7 +57504,7 @@
                 "returns": {
                   "type": "String"
                 },
-                "fn_body": "object.to_json_string_pretty().into()"
+                "fn_body": "object.to_string_pretty().into()"
               },
               "jq": {
                 "doc": [
@@ -57211,6 +57569,28 @@
                   "type": "JsonVec"
                 },
                 "fn_body": "object.jq_all(path.as_str())"
+              },
+              "deserialize_to_refany": {
+                "doc": [
+                  "Deserialize this JSON into a RefAny using the provided deserialize function pointer.",
+                  "",
+                  "The deserialize_fn should be obtained from an existing RefAny of the target type",
+                  "via RefAny::get_deserialize_fn().",
+                  "",
+                  "Returns Ok(RefAny) on success, or Err(String) with an error message on failure."
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "deserialize_fn": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ResultRefAnyString"
+                },
+                "fn_body": "object.deserialize_to_refany(deserialize_fn)"
               }
             },
             "repr": "C"
@@ -57380,6 +57760,22 @@
                 }
               }
             ],
+            "constructors": {
+              "create": {
+                "doc": [
+                  "Create a new key-value pair"
+                ],
+                "fn_args": [
+                  {
+                    "key": "String"
+                  },
+                  {
+                    "value": "Json"
+                  }
+                ],
+                "fn_body": "azul_layout::json::JsonKeyValue::create(key, value)"
+              }
+            },
             "repr": "C"
           },
           "SystemMetrics": {

@@ -6,6 +6,7 @@ infinity
 jq
 opengl
 widgets
+json-serde
 icons
 simple_image
 fluent
@@ -16,3 +17,4 @@ hello-world
 azul.h
 *.dSYM
 *.xhtml
+*.dylib

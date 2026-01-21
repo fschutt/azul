@@ -346,6 +346,100 @@ curl -X POST http://localhost:8765/ -d '{"op": "redraw"}'
 curl -X POST http://localhost:8765/ -d '{"op": "wait_frame"}'
 # wait - Wait for a specific duration
 curl -X POST http://localhost:8765/ -d '{"op": "wait", "ms": 1000}'
+```
+
+### App State (JSON Serialization)
+
+These endpoints allow reading and modifying the application state as JSON at runtime.
+This requires the app to use `AZ_REFLECT_JSON` (C) or equivalent to register JSON 
+serialization/deserialization functions for the app state type.
+
+```bash
+# get_app_state - Get the current app state as JSON with metadata
+curl -X POST http://localhost:8765/ -d '{"op": "get_app_state"}'
+
+# set_app_state - Set the app state from JSON (triggers relayout)
+curl -X POST http://localhost:8765/ -d '{"op": "set_app_state", "state": {"counter": 42}}'
+```
+
+#### GetAppState Response
+
+The `get_app_state` response includes full metadata about the RefAny type:
+
+```json
+{
+  "status": "ok",
+  "request_id": 1,
+  "data": {
+    "type": "app_state",
+    "value": {
+      "metadata": {
+        "type_id": 4375150160,
+        "type_name": "MyDataModel",
+        "can_serialize": true,
+        "can_deserialize": true,
+      },
+      "state": {
+        "counter": 42.0
+      }
+    }
+  }
+}
+```
+
+If serialization is not supported, the response includes an error:
+
+```json
+{
+  "data": {
+    "type": "app_state",
+    "value": {
+      "metadata": { ... },
+      "state": null,
+      "error": { "error_type": "not_serializable" }
+    }
+  }
+}
+```
+
+#### SetAppState Response
+
+```json
+{
+  "status": "ok",
+  "request_id": 2,
+  "data": {
+    "type": "app_state_set",
+    "value": {
+      "success": true
+    }
+  }
+}
+```
+
+On error:
+
+```json
+{
+  "data": {
+    "type": "app_state_set",
+    "value": {
+      "success": false,
+      "error": { "error_type": "type_construction_error", "message": "Missing field: name" }
+    }
+  }
+}
+```
+
+Error types:
+- `not_serializable`: Type doesn't have a serialize function registered
+- `not_deserializable`: Type doesn't have a deserialize function registered
+- `serde_error`: JSON parsing or serialization failed
+- `type_construction_error`: Valid JSON but couldn't create the target type
+
+### Screenshots
+
+```bash
 # take_screenshot - Capture a screenshot (software rendered), similar to reftest
 # Returns base64-encoded PNG in the response
 curl -X POST http://localhost:8765/ -d '{"op": "take_screenshot"}'

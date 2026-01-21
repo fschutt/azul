@@ -1,9 +1,50 @@
 #include "azul.h"
 #include <stdio.h>
+#include <string.h>
+
+// Helper macro to avoid -Wpointer-sign warnings
+#define AZ_STR(s) AzString_copyFromBytes((const uint8_t*)(s), 0, strlen(s))
 
 typedef struct { uint32_t counter; } MyDataModel;
 void MyDataModel_destructor(void* m) { }
-AZ_REFLECT(MyDataModel, MyDataModel_destructor);
+
+// Forward declarations for JSON serialization/deserialization
+AzJson MyDataModel_toJson(AzRefAny refany);
+AzResultRefAnyString MyDataModel_fromJson(AzJson json);
+
+// Use AZ_REFLECT_JSON to enable HTTP GetAppState/SetAppState debugging
+AZ_REFLECT_JSON(MyDataModel, MyDataModel_destructor, MyDataModel_toJson, MyDataModel_fromJson);
+
+// ============================================================================
+// JSON Serialization
+// ============================================================================
+
+AzJson MyDataModel_toJson(AzRefAny refany) {
+    MyDataModelRef ref = MyDataModelRef_create(&refany);
+    if (!MyDataModel_downcastRef(&refany, &ref)) {
+        return AzJson_null();
+    }
+    
+    int64_t counter = (int64_t)ref.ptr->counter;
+    MyDataModelRef_delete(&ref);
+    
+    return AzJson_int(counter);
+}
+
+AzResultRefAnyString MyDataModel_fromJson(AzJson json) {
+    AzOptionI64 counter_opt = AzJson_asInt(&json);
+    
+    if (counter_opt.None.tag == AzOptionI64_Tag_None) {
+        return AzResultRefAnyString_err(AZ_STR("Expected integer"));
+    }
+    
+    MyDataModel model = {
+        .counter = (uint32_t)counter_opt.Some.payload
+    };
+    
+    AzRefAny refany = MyDataModel_upcast(model);
+    return AzResultRefAnyString_ok(refany);
+}
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 

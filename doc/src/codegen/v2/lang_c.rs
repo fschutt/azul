@@ -168,6 +168,9 @@ impl LanguageGenerator for CGenerator {
         let functions = self.generate_functions(ir, config)?;
         builder.raw(&functions);
 
+        // Enum variant checker functions (is{Variant}())
+        self.generate_enum_variant_checkers(&mut builder, ir, config);
+
         // Union match helper functions
         self.generate_union_match_helpers(&mut builder, ir, config);
 
@@ -1051,6 +1054,57 @@ impl CGenerator {
         builder.blank();
     }
 
+    /// Generate is{Variant}() helper functions for all enums (both simple and tagged unions)
+    /// These provide a cleaner API for checking enum variants in C:
+    ///   if (AzOptionJson_isSome(&opt)) { ... }
+    ///   if (AzOptionJson_isNone(&opt)) { ... }
+    fn generate_enum_variant_checkers(
+        &self,
+        builder: &mut CodeBuilder,
+        ir: &CodegenIR,
+        config: &CodegenConfig,
+    ) {
+        builder.line("/* Enum variant checker functions */");
+        builder.blank();
+
+        for enum_def in &ir.enums {
+            if !config.should_include_type(&enum_def.name) {
+                continue;
+            }
+            // Skip generic enums - they need to be monomorphized first
+            if !enum_def.generic_params.is_empty() {
+                continue;
+            }
+
+            let name = config.apply_prefix(&enum_def.name);
+            
+            // Get the first variant name to access the tag for unions
+            // (all variants share the same tag at the same offset due to repr(C, u8))
+            let first_variant_name = enum_def.variants.first().map(|v| &v.name);
+
+            for variant in &enum_def.variants {
+                // Generate is{Variant}() function
+                // For unions, we check the tag via the first variant's struct
+                // (the tag is at the same offset in all variant structs)
+                // For simple enums, we compare the value directly
+                if enum_def.is_union {
+                    if let Some(first_name) = first_variant_name {
+                        builder.line(&format!(
+                            "#define {}_is{}(value) ((value)->{}.tag == {}_Tag_{})",
+                            name, variant.name, first_name, name, variant.name
+                        ));
+                    }
+                } else {
+                    builder.line(&format!(
+                        "#define {}_is{}(value) (*(value) == {}_{})",
+                        name, variant.name, name, variant.name
+                    ));
+                }
+            }
+            builder.blank();
+        }
+    }
+
     /// Generate union match helper functions for tagged unions
     /// These help with pattern matching in C:
     /// - matchRef: immutable pattern match, returns pointer to payload
@@ -1301,8 +1355,20 @@ impl CGenerator {
         builder.line(" *     AZ_REFLECT(foo, fooDestructor)");
         builder.line("*/");
 
-        // The actual macro definition
+        // The actual macro definition - basic version without JSON support
         builder.line("#define AZ_REFLECT(structName, destructor) \\");
+        builder.line("    AZ_REFLECT_FULL(structName, destructor, 0, 0)");
+        builder.line("");
+        
+        // Full macro with JSON support
+        builder.line("/* Full reflection with optional JSON support */");
+        builder.line("#define AZ_REFLECT_JSON(structName, destructor, toJsonFn, fromJsonFn) \\");
+        builder.line("    AZ_REFLECT_FULL(structName, destructor, (uintptr_t)(toJsonFn), (uintptr_t)(fromJsonFn))");
+        builder.line("");
+        
+        // Internal macro with all parameters
+        builder.line("/* Internal macro with all parameters */");
+        builder.line("#define AZ_REFLECT_FULL(structName, destructor, serializeFn, deserializeFn) \\");
         builder.line("    /* in C all statics are guaranteed to have a unique address, use that address as a TypeId */ \\");
         builder.line("    static uint64_t const structName##_RttiTypePtrId = 0; \\");
         builder.line("    static uint64_t const structName##_RttiTypeId = (uint64_t)(&structName##_RttiTypePtrId); \\");
@@ -1310,7 +1376,7 @@ impl CGenerator {
         builder.line("    \\");
         builder.line("    AzRefAny structName##_upcast(structName const s) { \\");
         builder.line("        AzGlVoidPtrConst ptr_wrapper = { .ptr = (const void*)&s, .run_destructor = false }; \\");
-        builder.line("        return AzRefAny_newC(ptr_wrapper, sizeof(structName), AZ_ALIGNOF(structName), structName##_RttiTypeId, structName##_Type_RttiString, destructor); \\");
+        builder.line("        return AzRefAny_newC(ptr_wrapper, sizeof(structName), AZ_ALIGNOF(structName), structName##_RttiTypeId, structName##_Type_RttiString, destructor, serializeFn, deserializeFn); \\");
         builder.line("    } \\");
         builder.line("    \\");
         builder.line("    /* generate structNameRef and structNameRefMut structs*/ \\");

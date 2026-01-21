@@ -485,6 +485,104 @@ pub struct PyObjectWrapper {
     pub py_obj: Py<PyAny>,
 }
 
+// --- Python JSON Serialization Support for RefAny ---
+
+/// Trampoline for Python object serialization to JSON
+/// 
+/// This is called when `RefAny.serialize_to_json()` is invoked.
+/// It checks for a custom `__az_to_json__` method first, then falls back
+/// to using Python's `json.dumps()`.
+extern "C" fn py_serialize_refany_trampoline(
+    refany: azul_core::refany::RefAny
+) -> azul_layout::json::Json {
+    use azul_layout::json::Json;
+    
+    // Get the PyDataWrapper from RefAny
+    let wrapper_opt = refany.downcast_ref::<PyDataWrapper>();
+    let wrapper = match wrapper_opt {
+        Some(w) => w,
+        None => return Json::null(),
+    };
+    
+    let py_data = match &wrapper._py_data {
+        Some(d) => d,
+        None => return Json::null(),
+    };
+    
+    Python::with_gil(|py| {
+        let py_obj = py_data.as_ref(py);
+        
+        // Try custom __az_to_json__ method first
+        if let Ok(method) = py_obj.getattr("__az_to_json__") {
+            if let Ok(result) = method.call0() {
+                if let Ok(json_str) = result.extract::<String>() {
+                    if let Ok(json) = Json::parse(&json_str) {
+                        return json;
+                    }
+                }
+            }
+        }
+        
+        // Fallback to json.dumps
+        if let Ok(json_module) = py.import("json") {
+            if let Ok(json_str_obj) = json_module.call_method1("dumps", (py_obj,)) {
+                if let Ok(json_str) = json_str_obj.extract::<String>() {
+                    if let Ok(json) = Json::parse(&json_str) {
+                        return json;
+                    }
+                }
+            }
+        }
+        
+        Json::null()
+    })
+}
+
+/// Trampoline for Python object deserialization from JSON
+/// 
+/// This is called when `Json.deserialize_to_refany()` is invoked.
+/// It uses Python's `json.loads()` to convert JSON to a Python dict,
+/// then checks if the user's type has a `__az_from_json__` classmethod.
+extern "C" fn py_deserialize_refany_trampoline(
+    json: azul_layout::json::Json
+) -> azul_layout::json::ResultRefAnyString {
+    use azul_layout::json::ResultRefAnyString;
+    use azul_css::AzString;
+    
+    Python::with_gil(|py| {
+        let json_string = json.to_json_string();
+        
+        // Parse JSON using Python's json module
+        let json_module = match py.import("json") {
+            Ok(m) => m,
+            Err(e) => return ResultRefAnyString::Err(
+                AzString::from(format!("Failed to import json module: {}", e))
+            ),
+        };
+        
+        let py_obj = match json_module.call_method1("loads", (json_string.as_str(),)) {
+            Ok(obj) => obj,
+            Err(e) => return ResultRefAnyString::Err(
+                AzString::from(format!("Failed to parse JSON: {}", e))
+            ),
+        };
+        
+        // Wrap the parsed Python object in PyDataWrapper
+        let wrapper = PyDataWrapper {
+            _py_data: Some(py_obj.unbind()),
+        };
+        
+        // Create RefAny with JSON callbacks
+        let refany = create_py_refany_with_json(wrapper);
+        ResultRefAnyString::Ok(refany)
+    })
+}
+
+/// Create a RefAny for a Python object with JSON serialization support
+fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefAny {
+    azul_core::refany::RefAny::new(wrapper)
+}
+
 "#,
         );
     }
@@ -1447,16 +1545,16 @@ extern "C" fn invoke_py_layout_callback(
 
         // Convert arguments to external types
         for arg in &args {
-            // RefAny is ALWAYS converted from Py<PyAny> to RefAny
+            // RefAny is ALWAYS converted from Py<PyAny> to RefAny with JSON support
             if arg.type_name == "RefAny" {
-                // Wrap Python data in RefAny via PyDataWrapper
+                // Wrap Python data in RefAny via PyDataWrapper with JSON serialization
                 // Use the SAME name as the parameter so fn_body can use it unchanged
                 builder.line(&format!(
                     "let __py_{}_wrapper = PyDataWrapper {{ _py_data: Some({}.clone_ref(py)) }};",
                     arg.name, arg.name
                 ));
                 builder.line(&format!(
-                    "let {}: azul_core::refany::RefAny = azul_core::refany::RefAny::new(__py_{}_wrapper);",
+                    "let {}: azul_core::refany::RefAny = create_py_refany_with_json(__py_{}_wrapper);",
                     arg.name, arg.name
                 ));
                 // No fn_body replacement needed - we used the same variable name as the parameter
@@ -1470,8 +1568,9 @@ extern "C" fn invoke_py_layout_callback(
                     "let __py_{}_wrapper = PyCallableWrapper {{ _py_callable: Some({}.clone_ref(py)) }};",
                     arg.name, arg.name
                 ));
+                // Use create_py_refany_with_json for callable wrappers too
                 builder.line(&format!(
-                    "let __py_{}_refany = azul_core::refany::RefAny::new(__py_{}_wrapper);",
+                    "let __py_{}_refany = create_py_refany_with_json(PyDataWrapper {{ _py_data: __py_{}_wrapper._py_callable.clone() }});",
                     arg.name, arg.name
                 ));
 

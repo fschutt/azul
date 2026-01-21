@@ -1447,6 +1447,13 @@ impl From<DatasetMergeCallbackType> for DatasetMergeCallback {
     }
 }
 
+impl_option!(
+    DatasetMergeCallback,
+    OptionDatasetMergeCallback,
+    copy = false,
+    [Debug, Clone]
+);
+
 /// Function pointer type for dataset merge callbacks.
 /// 
 /// Arguments:

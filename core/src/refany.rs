@@ -30,6 +30,7 @@
 //! race conditions where one thread doesn't see another's reference count updates.
 
 use alloc::boxed::Box;
+use alloc::string::String;
 use core::{
     alloc::Layout,
     ffi::c_void,
@@ -42,6 +43,12 @@ use azul_css::AzString;
 /// C-compatible destructor function type for RefAny.
 /// Called when the last reference to a RefAny is dropped.
 pub type RefAnyDestructorType = extern "C" fn(*mut c_void);
+
+// NOTE: JSON serialization/deserialization callback types are defined in azul_layout::json
+// The actual types are:
+//   RefAnySerializeFnType = extern "C" fn(RefAny) -> Json
+//   RefAnyDeserializeFnType = extern "C" fn(Json) -> ResultRefAnyString
+// In azul_core, we only store function pointers as usize (0 = not set).
 
 /// Internal reference counting metadata for `RefAny`.
 ///
@@ -93,6 +100,16 @@ pub struct RefCountInner {
     /// Function pointer to correctly drop the type-erased data.
     /// SAFETY: Must be called with a pointer to data of the correct type.
     pub custom_destructor: extern "C" fn(*mut c_void),
+
+    /// Function pointer to serialize RefAny to JSON (0 = not set).
+    /// Cast to RefAnySerializeFnType (defined in azul_layout::json) when called.
+    /// Type: extern "C" fn(RefAny) -> Json
+    pub serialize_fn: usize,
+
+    /// Function pointer to deserialize JSON to new RefAny (0 = not set).
+    /// Cast to RefAnyDeserializeFnType (defined in azul_layout::json) when called.
+    /// Type: extern "C" fn(Json) -> ResultRefAnyString
+    pub deserialize_fn: usize,
 }
 
 /// Wrapper around a heap-allocated `RefCountInner`.
@@ -146,6 +163,10 @@ pub struct RefCountInnerDebug {
     pub type_id: u64,
     pub type_name: AzString,
     pub custom_destructor: usize,
+    /// Serialization function pointer (0 = not set)
+    pub serialize_fn: usize,
+    /// Deserialization function pointer (0 = not set)
+    pub deserialize_fn: usize,
 }
 
 impl RefCount {
@@ -192,6 +213,8 @@ impl RefCount {
             type_id: dc.type_id,
             type_name: dc.type_name.clone(),
             custom_destructor: dc.custom_destructor as usize,
+            serialize_fn: dc.serialize_fn,
+            deserialize_fn: dc.deserialize_fn,
         }
     }
 
@@ -532,6 +555,8 @@ impl RefAny {
             type_id,
             st,
             default_custom_destructor::<T>,
+            0, // serialize_fn: not set for Rust types by default
+            0, // deserialize_fn: not set for Rust types by default
         );
         ::core::mem::forget(value); // Prevent double-drop
         s
@@ -549,6 +574,8 @@ impl RefAny {
     /// - `type_id`: Unique identifier for the type (for downcast safety)
     /// - `type_name`: Human-readable type name (for debugging)
     /// - `custom_destructor`: Function to call when the last reference is dropped
+    /// - `serialize_fn`: Function pointer for JSON serialization (0 = not set)
+    /// - `deserialize_fn`: Function pointer for JSON deserialization (0 = not set)
     ///
     /// # Safety
     ///
@@ -557,6 +584,10 @@ impl RefAny {
     /// - `type_id` uniquely identifies the type
     /// - `custom_destructor` correctly drops the type at `ptr`
     /// - `len` and `align` match the actual type's layout
+    /// - If `serialize_fn != 0`, it must be a valid function pointer of type
+    ///   `extern "C" fn(RefAny) -> Json`
+    /// - If `deserialize_fn != 0`, it must be a valid function pointer of type
+    ///   `extern "C" fn(Json) -> ResultRefAnyString`
     ///
     /// # Zero-Sized Types
     ///
@@ -574,6 +605,10 @@ impl RefAny {
         // name of the class such as "app::MyData", usually compiler- or macro-generated
         type_name: AzString,
         custom_destructor: extern "C" fn(*mut c_void),
+        // function pointer for JSON serialization (0 = not set)
+        serialize_fn: usize,
+        // function pointer for JSON deserialization (0 = not set)
+        deserialize_fn: usize,
     ) -> Self {
         use core::ptr;
 
@@ -630,6 +665,8 @@ impl RefAny {
             type_id,
             type_name,
             custom_destructor,
+            serialize_fn,
+            deserialize_fn,
         };
 
         let sharing_info = RefCount::new(ref_count_inner);
@@ -850,6 +887,164 @@ impl RefAny {
     /// Returns the human-readable type name for debugging.
     pub fn get_type_name(&self) -> AzString {
         self.sharing_info.downcast().type_name.clone()
+    }
+
+    /// Returns the current reference count (number of `RefAny` clones sharing this data).
+    ///
+    /// This is useful for debugging and metadata purposes.
+    pub fn get_ref_count(&self) -> usize {
+        self.sharing_info
+            .downcast()
+            .num_copies
+            .load(AtomicOrdering::SeqCst)
+    }
+
+    /// Returns the serialize function pointer (0 = not set).
+    /// 
+    /// This is used for JSON serialization of RefAny contents.
+    pub fn get_serialize_fn(&self) -> usize {
+        self.sharing_info.downcast().serialize_fn
+    }
+
+    /// Returns the deserialize function pointer (0 = not set).
+    /// 
+    /// This is used for JSON deserialization to create a new RefAny.
+    pub fn get_deserialize_fn(&self) -> usize {
+        self.sharing_info.downcast().deserialize_fn
+    }
+
+    /// Sets the serialize function pointer.
+    /// 
+    /// # Safety
+    /// 
+    /// The caller must ensure the function pointer is valid and has the correct
+    /// signature: `extern "C" fn(RefAny) -> Json`
+    pub fn set_serialize_fn(&mut self, serialize_fn: usize) {
+        // Safety: We have &mut self, so we have exclusive access
+        let inner = self.sharing_info.ptr as *mut RefCountInner;
+        unsafe {
+            (*inner).serialize_fn = serialize_fn;
+        }
+    }
+
+    /// Sets the deserialize function pointer.
+    /// 
+    /// # Safety
+    /// 
+    /// The caller must ensure the function pointer is valid and has the correct
+    /// signature: `extern "C" fn(Json) -> ResultRefAnyString`
+    pub fn set_deserialize_fn(&mut self, deserialize_fn: usize) {
+        // Safety: We have &mut self, so we have exclusive access
+        let inner = self.sharing_info.ptr as *mut RefCountInner;
+        unsafe {
+            (*inner).deserialize_fn = deserialize_fn;
+        }
+    }
+
+    /// Returns true if this RefAny supports JSON serialization.
+    pub fn can_serialize(&self) -> bool {
+        self.get_serialize_fn() != 0
+    }
+
+    /// Returns true if this RefAny type supports JSON deserialization.
+    pub fn can_deserialize(&self) -> bool {
+        self.get_deserialize_fn() != 0
+    }
+
+    /// Replaces the contents of this RefAny with a new value from another RefAny.
+    ///
+    /// This method:
+    /// 1. Calls the destructor on the old value
+    /// 2. Deallocates the old memory
+    /// 3. Copies the new value's memory
+    /// 4. Updates metadata (type_id, type_name, destructor, serialize/deserialize fns)
+    ///
+    /// Since all clones of a RefAny share the same `RefCountInner`, this change
+    /// will be visible to ALL clones of this RefAny.
+    ///
+    /// # Returns
+    ///
+    /// - `true` if the replacement was successful
+    /// - `false` if there are active borrows (would cause UB)
+    ///
+    /// # Safety
+    ///
+    /// Safe because:
+    /// - We check for active borrows before modifying
+    /// - The old destructor is called before deallocation
+    /// - Memory is properly allocated with correct alignment
+    /// - All metadata is updated atomically (via &mut self)
+    pub fn replace_contents(&mut self, new_value: RefAny) -> bool {
+        use core::ptr;
+
+        // Check if we can safely modify (no active borrows)
+        if !self.sharing_info.can_be_shared_mut() {
+            return false;
+        }
+
+        let inner = self.sharing_info.ptr as *mut RefCountInner;
+        
+        unsafe {
+            // Get old layout info before we overwrite it
+            let old_len = (*inner)._internal_len;
+            let old_layout_size = (*inner)._internal_layout_size;
+            let old_layout_align = (*inner)._internal_layout_align;
+            let old_destructor = (*inner).custom_destructor;
+
+            // Step 1: Call destructor on old value (if non-ZST)
+            if old_len > 0 && !self._internal_ptr.is_null() {
+                old_destructor(self._internal_ptr as *mut c_void);
+            }
+
+            // Step 2: Deallocate old memory (if non-ZST)
+            if old_layout_size > 0 && !self._internal_ptr.is_null() {
+                let old_layout = Layout::from_size_align_unchecked(old_layout_size, old_layout_align);
+                alloc::alloc::dealloc(self._internal_ptr as *mut u8, old_layout);
+            }
+
+            // Get new value's metadata
+            let new_inner = new_value.sharing_info.downcast();
+            let new_len = new_inner._internal_len;
+            let new_layout_size = new_inner._internal_layout_size;
+            let new_layout_align = new_inner._internal_layout_align;
+
+            // Step 3: Allocate new memory and copy data
+            let new_ptr = if new_len == 0 {
+                ptr::null_mut()
+            } else {
+                let new_layout = Layout::from_size_align(new_len, new_layout_align)
+                    .expect("Failed to create layout");
+                let heap_ptr = alloc::alloc::alloc(new_layout);
+                if heap_ptr.is_null() {
+                    alloc::alloc::handle_alloc_error(new_layout);
+                }
+                // Copy data from new_value
+                ptr::copy_nonoverlapping(
+                    new_value._internal_ptr as *const u8,
+                    heap_ptr,
+                    new_len,
+                );
+                heap_ptr
+            };
+
+            // Step 4: Update our internal pointer
+            self._internal_ptr = new_ptr as *const c_void;
+
+            // Step 5: Update metadata in RefCountInner
+            (*inner)._internal_len = new_len;
+            (*inner)._internal_layout_size = new_layout_size;
+            (*inner)._internal_layout_align = new_layout_align;
+            (*inner).type_id = new_inner.type_id;
+            (*inner).type_name = new_inner.type_name.clone();
+            (*inner).custom_destructor = new_inner.custom_destructor;
+            (*inner).serialize_fn = new_inner.serialize_fn;
+            (*inner).deserialize_fn = new_inner.deserialize_fn;
+        }
+
+        // Prevent new_value from running its destructor (we copied the data)
+        core::mem::forget(new_value);
+
+        true
     }
 }
 

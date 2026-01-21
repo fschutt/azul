@@ -102,6 +102,65 @@ pub enum ResponseData {
     SelectionState(SelectionStateResponse),
     /// Full selection manager dump
     SelectionManagerDump(SelectionManagerDump),
+    /// App state as JSON
+    AppState(AppStateResponse),
+    /// App state set result
+    AppStateSet(AppStateSetResponse),
+}
+
+/// Metadata about a RefAny's type
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RefAnyMetadata {
+    /// The compiler-generated type ID
+    pub type_id: u64,
+    /// Human-readable type name (e.g., "app::MyStruct")
+    pub type_name: String,
+    /// Whether this RefAny supports JSON serialization
+    pub can_serialize: bool,
+    /// Whether this RefAny type supports JSON deserialization
+    pub can_deserialize: bool,
+    /// Number of active references to this data
+    pub ref_count: usize,
+}
+
+/// Error information for RefAny operations
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "error_type", content = "message", rename_all = "snake_case")]
+pub enum RefAnyError {
+    /// Type does not support JSON serialization
+    NotSerializable,
+    /// Type does not support JSON deserialization
+    NotDeserializable,
+    /// Serde serialization/deserialization failed
+    SerdeError(String),
+    /// Valid JSON but cannot construct RefAny (type mismatch, missing fields, etc.)
+    TypeConstructionError(String),
+}
+
+/// App state response (JSON serialized) with full metadata
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AppStateResponse {
+    /// Metadata about the RefAny type
+    pub metadata: RefAnyMetadata,
+    /// The serialized JSON data (null if serialization failed or not supported)
+    pub state: serde_json::Value,
+    /// Error message if serialization failed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<RefAnyError>,
+}
+
+/// App state set result
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AppStateSetResponse {
+    /// Whether the operation succeeded
+    pub success: bool,
+    /// Optional error details
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<RefAnyError>,
 }
 
 /// Screenshot response data
@@ -939,6 +998,15 @@ pub enum DebugEvent {
     // Screenshots
     TakeScreenshot,
     TakeNativeScreenshot,
+
+    // App State (JSON Serialization)
+    /// Get the global app state as JSON (requires RefAny with serialize_fn)
+    GetAppState,
+    /// Set the global app state from JSON (requires RefAny with deserialize_fn)
+    SetAppState {
+        /// The JSON value to set as the new app state
+        state: serde_json::Value,
+    },
 }
 
 // ==================== Node Resolution Helper ====================
@@ -1646,7 +1714,7 @@ fn handle_event_request(body: &str) -> String {
 /// Called every ~16ms when debug mode is enabled.
 #[cfg(feature = "std")]
 pub extern "C" fn debug_timer_callback(
-    _timer_data: azul_core::refany::RefAny,
+    mut timer_data: azul_core::refany::RefAny,
     mut timer_info: azul_layout::timer::TimerCallbackInfo,
 ) -> azul_core::callbacks::TimerCallbackReturn {
     use azul_core::callbacks::{TimerCallbackReturn, Update};
@@ -1671,7 +1739,8 @@ pub extern "C" fn debug_timer_callback(
             request.window_id.as_deref(),
         );
 
-        let result = process_debug_event(&request, &mut timer_info.callback_info);
+        // Pass the app_data (stored in timer_data) to process_debug_event
+        let result = process_debug_event(&request, &mut timer_info.callback_info, &mut timer_data);
         needs_update = needs_update || result;
         _processed_count += 1;
     }
@@ -1825,6 +1894,7 @@ fn build_clip_analysis(
 fn process_debug_event(
     request: &DebugRequest,
     callback_info: &mut azul_layout::callbacks::CallbackInfo,
+    app_data: &mut azul_core::refany::RefAny,
 ) -> bool {
     use azul_core::geom::{LogicalPosition, LogicalSize};
 
@@ -3604,6 +3674,112 @@ fn process_debug_event(
             send_ok(request, None, Some(ResponseData::SelectionManagerDump(response)));
         }
 
+        // Note: GetAppState and SetAppState require access to the app's RefAny,
+        // which is now passed in via the timer_data parameter.
+        DebugEvent::GetAppState => {
+            use azul_layout::json::serialize_refany_to_json;
+
+            // Build metadata
+            let metadata = RefAnyMetadata {
+                type_id: app_data.get_type_id(),
+                type_name: app_data.get_type_name().as_str().to_string(),
+                can_serialize: app_data.can_serialize(),
+                can_deserialize: app_data.can_deserialize(),
+                ref_count: app_data.get_ref_count(),
+            };
+
+            if !app_data.can_serialize() {
+                let response = AppStateResponse {
+                    metadata,
+                    state: serde_json::Value::Null,
+                    error: Some(RefAnyError::NotSerializable),
+                };
+                send_ok(request, None, Some(ResponseData::AppState(response)));
+            } else {
+                match serialize_refany_to_json(app_data) {
+                    Some(json) => {
+                        // Convert our Json type to serde_json::Value for the response
+                        let json_string = json.to_string();
+                        match serde_json::from_str(&json_string.as_str()) {
+                            Ok(value) => {
+                                let response = AppStateResponse {
+                                    metadata,
+                                    state: value,
+                                    error: None,
+                                };
+                                send_ok(request, None, Some(ResponseData::AppState(response)));
+                            }
+                            Err(e) => {
+                                let response = AppStateResponse {
+                                    metadata,
+                                    state: serde_json::Value::Null,
+                                    error: Some(RefAnyError::SerdeError(e.to_string())),
+                                };
+                                send_ok(request, None, Some(ResponseData::AppState(response)));
+                            }
+                        }
+                    }
+                    None => {
+                        let response = AppStateResponse {
+                            metadata,
+                            state: serde_json::Value::Null,
+                            error: Some(RefAnyError::SerdeError("Serialization returned null".to_string())),
+                        };
+                        send_ok(request, None, Some(ResponseData::AppState(response)));
+                    }
+                }
+            }
+        }
+
+        DebugEvent::SetAppState { state } => {
+            use azul_layout::json::{deserialize_refany_from_json, Json};
+
+            // Get deserialize_fn from RefAny
+            let deserialize_fn = app_data.get_deserialize_fn();
+            
+            if deserialize_fn == 0 {
+                let response = AppStateSetResponse {
+                    success: false,
+                    error: Some(RefAnyError::NotDeserializable),
+                };
+                send_ok(request, None, Some(ResponseData::AppStateSet(response)));
+            } else {
+                // Convert serde_json::Value to our Json type
+                let json_string = state.to_string();
+                match Json::parse(&json_string) {
+                    Ok(json) => {
+                        match deserialize_refany_from_json(json, deserialize_fn) {
+                            Ok(new_app_data) => {
+                                // Replace the app data contents - this is visible to all clones
+                                let success = app_data.replace_contents(new_app_data);
+                                needs_update = success;
+                                
+                                let response = AppStateSetResponse {
+                                    success,
+                                    error: if success { None } else { Some(RefAnyError::TypeConstructionError("Failed to replace contents - active borrows exist".to_string())) },
+                                };
+                                send_ok(request, None, Some(ResponseData::AppStateSet(response)));
+                            }
+                            Err(e) => {
+                                let response = AppStateSetResponse {
+                                    success: false,
+                                    error: Some(RefAnyError::TypeConstructionError(e)),
+                                };
+                                send_ok(request, None, Some(ResponseData::AppStateSet(response)));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let response = AppStateSetResponse {
+                            success: false,
+                            error: Some(RefAnyError::SerdeError(alloc::format!("{:?}", e))),
+                        };
+                        send_ok(request, None, Some(ResponseData::AppStateSet(response)));
+                    }
+                }
+            }
+        }
+
         _ => {
             log(
                 LogLevel::Warn,
@@ -3619,15 +3795,21 @@ fn process_debug_event(
 }
 
 /// Create a Timer for the debug server polling
+/// 
+/// # Arguments
+/// * `app_data` - The application state (RefAny) that will be available in the timer callback
+///   for GetAppState/SetAppState operations
+/// * `get_system_time_fn` - Callback to get the current system time
 #[cfg(feature = "std")]
 pub fn create_debug_timer(
+    app_data: azul_core::refany::RefAny,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
 ) -> azul_layout::timer::Timer {
-    use azul_core::refany::RefAny;
     use azul_core::task::Duration;
     use azul_layout::timer::{Timer, TimerCallback};
 
-    let timer_data = RefAny::new(());
+    // Store the app_data in the timer so GetAppState/SetAppState can access it
+    let timer_data = app_data;
 
     Timer::create(
         timer_data,

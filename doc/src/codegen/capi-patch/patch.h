@@ -50,6 +50,14 @@
  *     AZ_REFLECT(foo, fooDestructor)
 */
 #define AZ_REFLECT(structName, destructor) \
+    AZ_REFLECT_FULL(structName, destructor, 0, 0)
+
+/* Full reflection with optional JSON support */
+#define AZ_REFLECT_JSON(structName, destructor, toJsonFn, fromJsonFn) \
+    AZ_REFLECT_FULL(structName, destructor, (uintptr_t)(toJsonFn), (uintptr_t)(fromJsonFn))
+
+/* Internal macro with all parameters */
+#define AZ_REFLECT_FULL(structName, destructor, serializeFn, deserializeFn) \
     /* in C all statics are guaranteed to have a unique address, use that address as a TypeId */ \
     static uint64_t const structName##_RttiTypePtrId = 0; \
     static uint64_t const structName##_RttiTypeId = (uint64_t)(&structName##_RttiTypePtrId); \
@@ -57,7 +65,7 @@
     \
     AzRefAny structName##_upcast(structName const s) { \
         AzGlVoidPtrConst ptr_wrapper = { .ptr = (const void*)&s, .run_destructor = false }; \
-        return AzRefAny_newC(ptr_wrapper, sizeof(structName), AZ_ALIGNOF(structName), structName##_RttiTypeId, structName##_Type_RttiString, destructor); \
+        return AzRefAny_newC(ptr_wrapper, sizeof(structName), AZ_ALIGNOF(structName), structName##_RttiTypeId, structName##_Type_RttiString, destructor, serializeFn, deserializeFn); \
     } \
     \
     /* generate structNameRef and structNameRefMut structs*/ \

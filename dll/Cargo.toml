@@ -148,6 +148,7 @@ build-dll = [
     "regex",
     "serde",
     "serde_json",
+    "serde-json",
     "backtrace",
     "font_loading",
     "text_layout",
@@ -195,6 +196,7 @@ link-static = [
     "regex",
     "serde",
     "serde_json",
+    "serde-json",
     "backtrace",
     "font_loading",
     "text_layout",
@@ -281,6 +283,10 @@ zip_support = ["azul-layout", "azul-layout/zip_support"]
 
 # JSON parsing and manipulation
 json = ["azul-layout", "azul-layout/json"]
+
+# JSON serialization for RefAny (enables RefAny::new_serde<T>)
+# Requires T: serde::Serialize + serde::de::DeserializeOwned
+serde-json = ["serde", "serde_json"]
 
 # -----------------------------------------------------------------------------
 # Logging Backends

@@ -1011,7 +1011,10 @@ impl X11Window {
                 use azul_layout::callbacks::ExternalSystemCallbacks;
 
                 let timer_id = TimerId { id: 0xDEBE }; // Special debug timer ID
+                // Clone app_data so GetAppState/SetAppState can access it in the timer callback
+                let app_data_for_timer = window.resources.app_data.borrow().clone();
                 let debug_timer = crate::desktop::shell2::common::debug_server::create_debug_timer(
+                    app_data_for_timer,
                     ExternalSystemCallbacks::rust_internal().get_system_time_fn,
                 );
                 layout_window.timers.insert(timer_id, debug_timer);

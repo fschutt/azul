@@ -127,7 +127,7 @@ int main() {
     
     // Create empty RefAny for layout callback
     AzString empty_type = az_str("");
-    AzRefAny empty_data = AzRefAny_newC((AzGlVoidPtrConst){.ptr = NULL}, 0, 1, 0, empty_type, NULL);
+    AzRefAny empty_data = AzRefAny_newC((AzGlVoidPtrConst){.ptr = NULL}, 0, 1, 0, empty_type, NULL, 0, 0);
     
     // Create app with our config
     AzApp app = AzApp_create(empty_data, config);

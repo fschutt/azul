@@ -6,7 +6,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
-use azul_css::{AzString, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq, impl_vec_mut, impl_result, impl_result_inner, impl_option, impl_option_inner};
+use azul_css::{AzString, OptionString, OptionF64, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq, impl_vec_mut, impl_result, impl_result_inner, impl_option, impl_option_inner};
 
 #[cfg(feature = "json")]
 use serde_json::Value;
@@ -101,10 +101,29 @@ pub struct JsonKeyValue {
     pub value: Json,
 }
 
+impl JsonKeyValue {
+    /// Create a new key-value pair
+    pub fn create(key: AzString, value: Json) -> Self {
+        Self { key, value }
+    }
+}
+
 /// Vec of JsonKeyValue (FFI-safe)
 impl_vec!(JsonKeyValue, JsonKeyValueVec, JsonKeyValueVecDestructor, JsonKeyValueVecDestructorType);
 impl_vec_clone!(JsonKeyValue, JsonKeyValueVec, JsonKeyValueVecDestructor);
 impl_vec_debug!(JsonKeyValue, JsonKeyValueVec);
+
+impl JsonKeyValueVec {
+    /// Creates a new, heap-allocated JsonKeyValueVec by copying elements from a C array
+    #[inline]
+    pub fn copy_from_array(ptr: *const JsonKeyValue, len: usize) -> Self {
+        if ptr.is_null() || len == 0 {
+            return Self::new();
+        }
+        let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
+        Self::from_vec(slice.iter().cloned().collect())
+    }
+}
 
 // FFI-safe JsonVec using impl_vec! macro
 impl_vec!(Json, JsonVec, JsonVecDestructor, JsonVecDestructorType);
@@ -112,6 +131,18 @@ impl_vec_clone!(Json, JsonVec, JsonVecDestructor);
 impl_vec_debug!(Json, JsonVec);
 impl_vec_partialeq!(Json, JsonVec);
 impl_vec_mut!(Json, JsonVec);
+
+impl JsonVec {
+    /// Creates a new, heap-allocated JsonVec by copying elements from a C array
+    #[inline]
+    pub fn copy_from_array(ptr: *const Json, len: usize) -> Self {
+        if ptr.is_null() || len == 0 {
+            return Self::new();
+        }
+        let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
+        Self::from_vec(slice.iter().cloned().collect())
+    }
+}
 
 // FFI-safe Result type for JSON parsing
 impl_result!(
@@ -126,6 +157,10 @@ impl_result!(
 impl_option!(Json, OptionJson, copy = false, [Clone, Debug, PartialEq]);
 impl_option!(JsonVec, OptionJsonVec, copy = false, [Clone, Debug]);
 impl_option!(JsonKeyValueVec, OptionJsonKeyValueVec, copy = false, [Clone, Debug]);
+
+// FFI-safe Option types for JSON value extraction
+impl_option!(bool, OptionBool, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(i64, OptionI64, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 // ============================================================================
 // JSON Parsing
@@ -215,13 +250,25 @@ impl Json {
         }
     }
     
-    /// Create a number JSON value
+    /// Create a number JSON value (floating-point)
     pub fn number(value: f64) -> Self {
         Self {
             value_type: JsonType::Number,
             internal: JsonInternal {
                 string_value: AzString::from(String::new()),
                 number_value: value,
+                bool_value: false,
+            },
+        }
+    }
+    
+    /// Create an integer JSON value
+    pub fn integer(value: i64) -> Self {
+        Self {
+            value_type: JsonType::Number,
+            internal: JsonInternal {
+                string_value: AzString::from(String::new()),
+                number_value: value as f64,
                 bool_value: false,
             },
         }
@@ -236,6 +283,69 @@ impl Json {
                 number_value: 0.0,
                 bool_value: false,
             },
+        }
+    }
+    
+    /// Create a JSON array from a vector of JSON values
+    #[cfg(feature = "json")]
+    pub fn array(values: JsonVec) -> Self {
+        // Convert JsonVec to serde_json::Value::Array for serialization
+        let serde_array: Vec<serde_json::Value> = values
+            .as_slice()
+            .iter()
+            .map(|j| j.to_serde_value())
+            .collect();
+        let json_str = serde_json::to_string(&serde_json::Value::Array(serde_array))
+            .unwrap_or_else(|_| "[]".to_string());
+        
+        Self {
+            value_type: JsonType::Array,
+            internal: JsonInternal {
+                string_value: AzString::from(json_str),
+                number_value: 0.0,
+                bool_value: false,
+            },
+        }
+    }
+    
+    /// Create a JSON object from key-value pairs
+    #[cfg(feature = "json")]
+    pub fn object(entries: JsonKeyValueVec) -> Self {
+        // Convert JsonKeyValueVec to serde_json::Value::Object for serialization
+        let mut map = serde_json::Map::new();
+        for kv in entries.as_slice() {
+            map.insert(kv.key.as_str().to_string(), kv.value.to_serde_value());
+        }
+        let json_str = serde_json::to_string(&serde_json::Value::Object(map))
+            .unwrap_or_else(|_| "{}".to_string());
+        
+        Self {
+            value_type: JsonType::Object,
+            internal: JsonInternal {
+                string_value: AzString::from(json_str),
+                number_value: 0.0,
+                bool_value: false,
+            },
+        }
+    }
+    
+    /// Convert this Json to a serde_json::Value (internal helper)
+    #[cfg(feature = "json")]
+    fn to_serde_value(&self) -> serde_json::Value {
+        match self.value_type {
+            JsonType::Null => serde_json::Value::Null,
+            JsonType::Bool => serde_json::Value::Bool(self.internal.bool_value),
+            JsonType::Number => {
+                serde_json::Number::from_f64(self.internal.number_value)
+                    .map(serde_json::Value::Number)
+                    .unwrap_or(serde_json::Value::Null)
+            }
+            JsonType::String => serde_json::Value::String(self.internal.string_value.as_str().to_string()),
+            JsonType::Array | JsonType::Object => {
+                // Parse the stored JSON string
+                serde_json::from_str(self.internal.string_value.as_str())
+                    .unwrap_or(serde_json::Value::Null)
+            }
         }
     }
     
@@ -270,43 +380,43 @@ impl Json {
     }
     
     /// Get as boolean (returns None if not a bool)
-    pub fn as_bool(&self) -> Option<bool> {
+    pub fn as_bool(&self) -> OptionBool {
         if self.value_type == JsonType::Bool {
-            Some(self.internal.bool_value)
+            OptionBool::Some(self.internal.bool_value)
         } else {
-            None
+            OptionBool::None
         }
     }
     
     /// Get as number (returns None if not a number)
-    pub fn as_number(&self) -> Option<f64> {
+    pub fn as_number(&self) -> OptionF64 {
         if self.value_type == JsonType::Number {
-            Some(self.internal.number_value)
+            OptionF64::Some(self.internal.number_value)
         } else {
-            None
+            OptionF64::None
         }
     }
     
     /// Get as integer (returns None if not a number or not an integer)
-    pub fn as_i64(&self) -> Option<i64> {
+    pub fn as_i64(&self) -> OptionI64 {
         if self.value_type == JsonType::Number {
             let n = self.internal.number_value;
             if n.fract() == 0.0 && n >= i64::MIN as f64 && n <= i64::MAX as f64 {
-                Some(n as i64)
+                OptionI64::Some(n as i64)
             } else {
-                None
+                OptionI64::None
             }
         } else {
-            None
+            OptionI64::None
         }
     }
     
     /// Get as string (returns None if not a string)
-    pub fn as_string(&self) -> Option<&str> {
+    pub fn as_string(&self) -> OptionString {
         if self.value_type == JsonType::String {
-            Some(self.internal.string_value.as_str())
+            OptionString::Some(self.internal.string_value.clone())
         } else {
-            None
+            OptionString::None
         }
     }
     
@@ -422,7 +532,7 @@ impl Json {
     
     /// Serialize to JSON string
     #[cfg(feature = "json")]
-    pub fn to_json_string(&self) -> AzString {
+    pub fn to_string(&self) -> AzString {
         match self.value_type {
             JsonType::Null => AzString::from("null".to_string()),
             JsonType::Bool => AzString::from(if self.internal.bool_value { "true" } else { "false" }.to_string()),
@@ -441,10 +551,10 @@ impl Json {
     
     /// Serialize to pretty-printed JSON string
     #[cfg(feature = "json")]
-    pub fn to_json_string_pretty(&self) -> AzString {
+    pub fn to_string_pretty(&self) -> AzString {
         match self.value_type {
             JsonType::Null | JsonType::Bool | JsonType::Number | JsonType::String => {
-                self.to_json_string()
+                self.to_string()
             }
             JsonType::Array | JsonType::Object => {
                 if let Ok(value) = serde_json::from_str::<Value>(self.internal.string_value.as_str()) {
@@ -598,7 +708,7 @@ impl fmt::Display for Json {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[cfg(feature = "json")]
         {
-            write!(f, "{}", self.to_json_string().as_str())
+            write!(f, "{}", self.to_string().as_str())
         }
         #[cfg(not(feature = "json"))]
         {
@@ -626,13 +736,13 @@ pub fn json_parse_bytes(bytes: &[u8]) -> Result<Json, JsonParseError> {
 /// Serialize JSON to string
 #[cfg(feature = "json")]
 pub fn json_stringify(json: &Json) -> AzString {
-    json.to_json_string()
+    json.to_string()
 }
 
 /// Serialize JSON to pretty string
 #[cfg(feature = "json")]
 pub fn json_stringify_pretty(json: &Json) -> AzString {
-    json.to_json_string_pretty()
+    json.to_string_pretty()
 }
 
 // ============================================================================
@@ -723,5 +833,233 @@ mod tests {
         
         let err = result.unwrap_err();
         assert!(err.line > 0);
+    }
+}
+
+// ============================================================================
+// RefAny JSON Serialization Support
+// ============================================================================
+
+use azul_core::refany::RefAny;
+
+/// Result type for RefAny deserialization
+#[derive(Debug, Clone)]
+#[repr(C, u8)]
+pub enum ResultRefAnyString {
+    /// Successfully deserialized RefAny
+    Ok(RefAny),
+    /// Error message describing the failure
+    Err(AzString),
+}
+
+impl_option!(ResultRefAnyString, OptionResultRefAnyString, copy = false, [Debug, Clone]);
+
+impl ResultRefAnyString {
+    /// Returns true if the result is Ok
+    pub fn is_ok(&self) -> bool {
+        matches!(self, ResultRefAnyString::Ok(_))
+    }
+    
+    /// Returns true if the result is Err
+    pub fn is_err(&self) -> bool {
+        matches!(self, ResultRefAnyString::Err(_))
+    }
+    
+    /// Converts to Option<RefAny>, discarding any error
+    pub fn ok(self) -> Option<RefAny> {
+        match self {
+            ResultRefAnyString::Ok(r) => Some(r),
+            ResultRefAnyString::Err(_) => None,
+        }
+    }
+    
+    /// Converts to Option<AzString>, discarding success value
+    pub fn err(self) -> Option<AzString> {
+        match self {
+            ResultRefAnyString::Ok(_) => None,
+            ResultRefAnyString::Err(e) => Some(e),
+        }
+    }
+}
+
+/// C-compatible function type for serializing a RefAny's contents to JSON.
+///
+/// The function receives a cloned RefAny (by value) and should return
+/// a `Json` value representing the serialized data.
+///
+/// Returns `Json::null()` on serialization failure.
+///
+/// # Example Implementation
+///
+/// ```ignore
+/// extern "C" fn my_serialize(refany: RefAny) -> Json {
+///     if let Some(data) = refany.downcast_ref::<MyData>() {
+///         // Build JSON from data
+///         Json::object(...)
+///     } else {
+///         Json::null()
+///     }
+/// }
+/// ```
+pub type RefAnySerializeFnType = extern "C" fn(RefAny) -> Json;
+
+/// C-compatible function type for deserializing JSON into a new RefAny.
+///
+/// The function receives a `Json` value and should return either:
+/// - `ResultRefAnyString::Ok(RefAny)` with the deserialized data
+/// - `ResultRefAnyString::Err(AzString)` with an error message describing the failure
+///
+/// Error messages should indicate whether the failure was due to:
+/// - Serde parsing error (invalid JSON structure)
+/// - Type construction error (valid JSON but cannot build RefAny)
+///
+/// # Note
+///
+/// This creates a NEW RefAny - it does not modify an existing one.
+///
+/// # Example Implementation
+///
+/// ```ignore
+/// extern "C" fn my_deserialize(json: Json) -> ResultRefAnyString {
+///     let name = match json.get_key("name") {
+///         Some(n) => n.as_string().unwrap_or_default(),
+///         None => return ResultRefAnyString::Err(AzString::from("Missing field: name")),
+///     };
+///     
+///     let data = MyData { name: name.to_string() };
+///     let refany = RefAny::new(data);
+///     ResultRefAnyString::Ok(refany)
+/// }
+/// ```
+pub type RefAnyDeserializeFnType = extern "C" fn(Json) -> ResultRefAnyString;
+
+/// Serialize a RefAny to JSON using its registered serialize function.
+///
+/// Returns `None` if:
+/// - Serialization is not supported (serialize_fn == 0)
+/// - The serialize function returns `Json::null()`
+///
+/// # Example
+///
+/// ```ignore
+/// let data = MyData::new();
+/// let refany = MyData_upcast(data); // Created with AZ_REFLECT_JSON
+/// 
+/// if let Some(json) = serialize_refany_to_json(&refany) {
+///     println!("JSON: {}", json.to_json_string());
+/// }
+/// ```
+#[cfg(feature = "json")]
+pub fn serialize_refany_to_json(refany: &RefAny) -> Option<Json> {
+    let serialize_fn = refany.get_serialize_fn();
+    if serialize_fn == 0 {
+        return None;
+    }
+    
+    let func: RefAnySerializeFnType = unsafe { 
+        core::mem::transmute(serialize_fn) 
+    };
+    let json = func(refany.clone());
+    
+    if json.is_null() {
+        None
+    } else {
+        Some(json)
+    }
+}
+
+/// Deserialize JSON into a RefAny using the provided deserialize function.
+/// 
+/// # Parameters
+///
+/// - `json`: The JSON data to deserialize
+/// - `deserialize_fn`: Function pointer obtained from a RefAny of the target type
+///                     (via `refany.get_deserialize_fn()`)
+/// 
+/// # Returns
+///
+/// - `Ok(RefAny)` on success
+/// - `Err(String)` with error message on failure
+///
+/// # Example
+///
+/// ```ignore
+/// // Get the deserialize function from an existing RefAny of the target type
+/// let template_refany = MyData_upcast(MyData::default());
+/// let deserialize_fn = template_refany.get_deserialize_fn();
+///
+/// // Deserialize new data from JSON
+/// let json = Json::parse(r#"{"name": "test"}"#).unwrap();
+/// match deserialize_refany_from_json(json, deserialize_fn) {
+///     Ok(refany) => { /* use refany */ },
+///     Err(e) => eprintln!("Failed: {}", e),
+/// }
+/// ```
+#[cfg(feature = "json")]
+pub fn deserialize_refany_from_json(
+    json: Json, 
+    deserialize_fn: usize
+) -> Result<RefAny, String> {
+    if deserialize_fn == 0 {
+        return Err("Type does not support JSON deserialization".to_string());
+    }
+    
+    let func: RefAnyDeserializeFnType = unsafe { 
+        core::mem::transmute(deserialize_fn) 
+    };
+    
+    match func(json) {
+        ResultRefAnyString::Ok(refany) => Ok(refany),
+        ResultRefAnyString::Err(msg) => Err(msg.as_str().to_string()),
+    }
+}
+
+impl From<Result<RefAny, String>> for ResultRefAnyString {
+    fn from(result: Result<RefAny, String>) -> Self {
+        match result {
+            Ok(refany) => ResultRefAnyString::Ok(refany),
+            Err(msg) => ResultRefAnyString::Err(AzString::from(msg)),
+        }
+    }
+}
+
+impl ResultRefAnyString {
+    /// FFI-friendly constructor for Ok variant
+    pub fn ok_result(refany: RefAny) -> Self {
+        ResultRefAnyString::Ok(refany)
+    }
+    
+    /// FFI-friendly constructor for Err variant
+    pub fn err_result(message: AzString) -> Self {
+        ResultRefAnyString::Err(message)
+    }
+}
+
+// ============================================================================
+// FFI-friendly wrappers for RefAny JSON serialization
+// ============================================================================
+
+/// Serialize a RefAny to JSON using its registered serialize function.
+/// Returns OptionJson::None if serialization is not supported or fails.
+#[cfg(feature = "json")]
+pub fn refany_serialize_to_json(refany: &RefAny) -> OptionJson {
+    match serialize_refany_to_json(refany) {
+        Some(json) => OptionJson::Some(json),
+        None => OptionJson::None,
+    }
+}
+
+impl Json {
+    /// Deserialize JSON into a RefAny using the provided deserialize function.
+    ///
+    /// # Parameters
+    /// - `deserialize_fn`: Function pointer obtained from `RefAny::get_deserialize_fn()`
+    ///
+    /// # Returns
+    /// - `Ok(RefAny)` on success
+    /// - `Err(String)` with error message on failure
+    #[cfg(feature = "json")]
+    pub fn deserialize_to_refany(self, deserialize_fn: usize) -> ResultRefAnyString {
+        deserialize_refany_from_json(self, deserialize_fn).into()
     }
 }

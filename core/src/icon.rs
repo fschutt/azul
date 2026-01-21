@@ -649,6 +649,8 @@ mod tests {
             0,
             "".into(),
             dummy_destructor,
+            0, // serialize_fn
+            0, // deserialize_fn
         );
         
         provider.register_icon("images", "home", dummy_data.clone());
@@ -670,6 +672,8 @@ mod tests {
             0,
             "".into(),
             dummy_destructor,
+            0, // serialize_fn
+            0, // deserialize_fn
         );
         
         provider.register_icon("images", "logo", dummy_data);
@@ -692,6 +696,8 @@ mod tests {
             0,
             "".into(),
             dummy_destructor,
+            0, // serialize_fn
+            0, // deserialize_fn
         );
         
         // Register icons in different packs

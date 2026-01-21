@@ -712,6 +712,10 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
 
     if standard.has_move_semantics() {
         code.push_str("#define AZ_REFLECT(structName) \\\r\n");
+        code.push_str("    AZ_REFLECT_FULL(structName, 0, 0)\r\n\r\n");
+        code.push_str("#define AZ_REFLECT_JSON(structName, toJsonFn, fromJsonFn) \\\r\n");
+        code.push_str("    AZ_REFLECT_FULL(structName, reinterpret_cast<uintptr_t>(toJsonFn), reinterpret_cast<uintptr_t>(fromJsonFn))\r\n\r\n");
+        code.push_str("#define AZ_REFLECT_FULL(structName, serializeFn, deserializeFn) \\\r\n");
         code.push_str("    namespace structName##_rtti { \\\r\n");
         code.push_str("        static const uint64_t type_id_storage = 0; \\\r\n");
         code.push_str("        inline uint64_t type_id() { return reinterpret_cast<uint64_t>(&type_id_storage); } \\\r\n");
@@ -724,7 +728,7 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         code.push_str("        AzGlVoidPtrConst ptr = { heap, true }; \\\r\n");
         code.push_str("        AzString name = az_string_from_literal(#structName); \\\r\n");
         code.push_str("        return azul::RefAny(AzRefAny_newC(ptr, sizeof(structName), alignof(structName), \\\r\n");
-        code.push_str("            structName##_rtti::type_id(), name, structName##_rtti::destructor)); \\\r\n");
+        code.push_str("            structName##_rtti::type_id(), name, structName##_rtti::destructor, serializeFn, deserializeFn)); \\\r\n");
         code.push_str("    } \\\r\n");
         code.push_str("    static inline structName const* structName##_downcast_ref(azul::RefAny& data) { \\\r\n");
         code.push_str("        if (!AzRefAny_isType(&data.inner(), structName##_rtti::type_id())) return nullptr; \\\r\n");
@@ -740,6 +744,10 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         code.push_str("    }\r\n\r\n");
     } else {
         code.push_str("#define AZ_REFLECT(structName) \\\r\n");
+        code.push_str("    AZ_REFLECT_FULL(structName, 0, 0)\r\n\r\n");
+        code.push_str("#define AZ_REFLECT_JSON(structName, toJsonFn, fromJsonFn) \\\r\n");
+        code.push_str("    AZ_REFLECT_FULL(structName, (uintptr_t)(toJsonFn), (uintptr_t)(fromJsonFn))\r\n\r\n");
+        code.push_str("#define AZ_REFLECT_FULL(structName, serializeFn, deserializeFn) \\\r\n");
         code.push_str("    static const uint64_t structName##_type_id_storage = 0; \\\r\n");
         code.push_str("    static uint64_t structName##_type_id() { return (uint64_t)(&structName##_type_id_storage); } \\\r\n");
         code.push_str("    static void structName##_destructor(void* ptr) { delete (structName*)ptr; } \\\r\n");
@@ -750,7 +758,7 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         );
         code.push_str("        AzString name = az_string_from_literal(#structName); \\\r\n");
         code.push_str("        return azul::RefAny(AzRefAny_newC(ptr, sizeof(structName), \\\r\n");
-        code.push_str("            sizeof(structName), structName##_type_id(), name, structName##_destructor)); \\\r\n");
+        code.push_str("            sizeof(structName), structName##_type_id(), name, structName##_destructor, serializeFn, deserializeFn)); \\\r\n");
         code.push_str("    } \\\r\n");
         code.push_str(
             "    static structName const* structName##_downcast_ref(azul::RefAny& data) { \\\r\n",

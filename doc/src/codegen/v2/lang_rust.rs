@@ -563,7 +563,130 @@ impl RustGenerator {
         // Generate VecRef<T> convenience methods (From<&[T]>, From<&Vec<T>>)
         self.generate_vec_ref_convenience_methods(&mut builder, ir, config);
 
+        // Generate serde support for RefAny (optional, requires "serde" feature)
+        self.generate_serde_support(&mut builder, config);
+
         Ok(builder.finish())
+    }
+
+    /// Generate serde-json support for RefAny.
+    ///
+    /// This generates `RefAny::new_serde<T>()` which creates a RefAny with
+    /// JSON serialization/deserialization callbacks. Uses Rust monomorphization
+    /// to generate type-specific trampolines - no wrapper struct needed.
+    ///
+    /// The generated code is gated behind `#[cfg(feature = "serde-json")]`.
+    /// Requires both `serde` and `serde_json` dependencies.
+    fn generate_serde_support(&self, builder: &mut CodeBuilder, config: &CodegenConfig) {
+        let prefix = &config.type_prefix;
+
+        // Check if we're using external bindings (link-dynamic)
+        // serde support requires internal bindings for transmute
+        let is_external_bindings = matches!(
+            &config.cabi_functions,
+            CAbiFunctionMode::ExternalBindings { .. }
+        );
+
+        if is_external_bindings {
+            // For link-dynamic: serde support is not available
+            return;
+        }
+
+        builder.line("// --- Serde-JSON Support for RefAny ---");
+        builder.line(&format!("#[cfg(feature = \"serde-json\")]"));
+        builder.line(&format!("impl {}RefAny {{", prefix));
+        builder.indent();
+
+        // new_serde<T> - main entry point
+        builder.line("/// Creates a new RefAny with JSON serialization support.");
+        builder.line("///");
+        builder.line("/// Unlike `new()`, this version stores function pointers for");
+        builder.line("/// serializing/deserializing the value to/from JSON. This enables");
+        builder.line("/// the debug HTTP API to inspect and modify app state.");
+        builder.line("///");
+        builder.line("/// Requires the `serde-json` feature and `T: Serialize + DeserializeOwned`.");
+        builder.line("///");
+        builder.line("/// # Example");
+        builder.line("///");
+        builder.line("/// ```ignore");
+        builder.line("/// use azul::RefAny;");
+        builder.line("///");
+        builder.line("/// #[derive(serde::Serialize, serde::Deserialize)]");
+        builder.line("/// struct AppState { counter: i32 }");
+        builder.line("///");
+        builder.line("/// let state = AppState { counter: 0 };");
+        builder.line("/// let refany = RefAny::new_serde(state);");
+        builder.line("/// ```");
+        builder.line("pub fn new_serde<T>(value: T) -> Self");
+        builder.line("where");
+        builder.indent();
+        builder.line("T: serde::Serialize + serde::de::DeserializeOwned + 'static,");
+        builder.dedent();
+        builder.line("{");
+        builder.indent();
+
+        // Serialize trampoline - monomorphized for type T
+        builder.line("// Serialize trampoline - compiler generates one per T");
+        builder.line(&format!("extern \"C\" fn serialize<U: serde::Serialize + 'static>(mut refany: {}RefAny) -> {}Json {{", prefix, prefix));
+        builder.indent();
+        builder.line("match refany.downcast_ref::<U>() {");
+        builder.indent();
+        builder.line("Some(val) => {");
+        builder.indent();
+        builder.line("match serde_json::to_string(&*val) {");
+        builder.indent();
+        builder.line(&format!("Ok(s) => match {}Json::parse(s.as_str()) {{", prefix));
+        builder.indent();
+        builder.line(&format!("{}ResultJsonJsonParseError::Ok(json) => json,", prefix));
+        builder.line(&format!("{}ResultJsonJsonParseError::Err(_) => {}Json::null(),", prefix, prefix));
+        builder.dedent();
+        builder.line("},");
+        builder.line(&format!("Err(_) => {}Json::null(),", prefix));
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.line(&format!("None => {}Json::null(),", prefix));
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+
+        // Deserialize trampoline - monomorphized for type T
+        builder.line("// Deserialize trampoline - compiler generates one per T");
+        builder.line(&format!("extern \"C\" fn deserialize<U: serde::Serialize + serde::de::DeserializeOwned + 'static>(json: {}Json) -> {}ResultRefAnyString {{", prefix, prefix));
+        builder.indent();
+        builder.line("let json_str = json.to_string();");
+        builder.line("match serde_json::from_str::<U>(json_str.as_str()) {");
+        builder.indent();
+        builder.line("Ok(value) => {");
+        builder.indent();
+        builder.line("// Recursively create with serde support so re-serialization works");
+        builder.line(&format!("let refany = {}RefAny::new_serde(value);", prefix));
+        builder.line(&format!("{}ResultRefAnyString::Ok(refany)", prefix));
+        builder.dedent();
+        builder.line("}");
+        builder.line(&format!("Err(e) => {}ResultRefAnyString::Err({}String::from(e.to_string())),", prefix, prefix));
+        builder.dedent();
+        builder.line("}");
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
+
+        // Create RefAny with the trampolines
+        builder.line("// Create RefAny using internal new() then set the function pointers");
+        builder.line("let mut refany = Self::new(value);");
+        builder.line("refany.set_serialize_fn(serialize::<T> as usize);");
+        builder.line("refany.set_deserialize_fn(deserialize::<T> as usize);");
+        builder.line("refany");
+
+        builder.dedent();
+        builder.line("}");
+
+        builder.dedent();
+        builder.line("}");
+        builder.blank();
     }
 
     /// Generate automatic From<A> for B implementations when A::method(self) -> B exists

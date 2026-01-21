@@ -58,7 +58,7 @@ int main() {
     AzAppConfig config = AzAppConfig_create();
     
     AzString empty_type = az_str("");
-    AzRefAny empty_data = AzRefAny_newC((AzGlVoidPtrConst){.ptr = NULL}, 0, 1, 0, empty_type, NULL);
+    AzRefAny empty_data = AzRefAny_newC((AzGlVoidPtrConst){.ptr = NULL}, 0, 1, 0, empty_type, NULL, 0, 0);
     
     AzApp app = AzApp_create(empty_data, config);
     
