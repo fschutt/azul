@@ -108,6 +108,10 @@ pub enum ResponseData {
     AppState(AppStateResponse),
     /// App state set result
     AppStateSet(AppStateSetResponse),
+    /// Drag state from unified drag system
+    DragState(DragStateResponse),
+    /// Detailed drag context
+    DragContext(DragContextResponse),
 }
 
 /// Metadata about a RefAny's type
@@ -844,6 +848,59 @@ pub struct ClickStateDump {
     pub click_count: u8,
 }
 
+/// Response for GetDragState - current drag state from unified drag system
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DragStateResponse {
+    /// Whether any drag is currently active
+    pub is_dragging: bool,
+    /// Type of active drag (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drag_type: Option<String>,
+    /// Brief description of the drag state
+    pub description: String,
+}
+
+/// Response for GetDragContext - detailed drag context information
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DragContextResponse {
+    /// Whether any drag is currently active
+    pub is_dragging: bool,
+    /// Type of active drag (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drag_type: Option<String>,
+    /// Start position of the drag
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_position: Option<LogicalPositionJson>,
+    /// Current position of the drag
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_position: Option<LogicalPositionJson>,
+    /// Target node ID (for node drags)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_node_id: Option<u64>,
+    /// Target DOM ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_dom_id: Option<u32>,
+    /// Scrollbar axis (for scrollbar drags)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scrollbar_axis: Option<String>,
+    /// Window resize edge (for window resize drags)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resize_edge: Option<String>,
+    /// Files being dragged (for file drops)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files: Option<Vec<String>>,
+    /// Drag data (MIME type -> data)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drag_data: Option<std::collections::BTreeMap<String, String>>,
+    /// Current drag effect
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drag_effect: Option<String>,
+    /// Full debug representation
+    pub debug: String,
+}
+
 // ==================== Debug Events ====================
 
 #[derive(Debug, Clone)]
@@ -1050,6 +1107,12 @@ pub enum DebugEvent {
     GetSelectionState,
     /// Dump the entire selection manager state for debugging
     DumpSelectionManager,
+
+    // Drag State
+    /// Get the current drag state from the unified drag system
+    GetDragState,
+    /// Get detailed drag context information (for debugging drag operations)
+    GetDragContext,
 
     // Control
     Relayout,
@@ -4107,6 +4170,119 @@ fn process_debug_event(
                 },
             };
             send_ok(request, None, Some(ResponseData::SelectionManagerDump(response)));
+        }
+
+        DebugEvent::GetDragState => {
+            // Get current drag state from unified drag system
+            let layout_window = callback_info.get_layout_window();
+            let gesture_manager = &layout_window.gesture_drag_manager;
+            
+            let (is_dragging, drag_type, description) = if let Some(drag_ctx) = gesture_manager.get_drag_context() {
+                use azul_core::drag::ActiveDragType;
+                let type_str = match &drag_ctx.drag_type {
+                    ActiveDragType::TextSelection(_) => "text_selection",
+                    ActiveDragType::ScrollbarThumb(_) => "scrollbar_thumb", 
+                    ActiveDragType::Node(_) => "node",
+                    ActiveDragType::WindowMove(_) => "window_move",
+                    ActiveDragType::WindowResize(_) => "window_resize",
+                    ActiveDragType::FileDrop(_) => "file_drop",
+                };
+                let desc = alloc::format!("{} drag from {:?}", type_str, drag_ctx.start_position());
+                (true, Some(type_str.to_string()), desc)
+            } else {
+                (false, None, "No active drag".to_string())
+            };
+            
+            let response = DragStateResponse {
+                is_dragging,
+                drag_type,
+                description,
+            };
+            send_ok(request, None, Some(ResponseData::DragState(response)));
+        }
+
+        DebugEvent::GetDragContext => {
+            // Get detailed drag context from unified drag system
+            let layout_window = callback_info.get_layout_window();
+            let gesture_manager = &layout_window.gesture_drag_manager;
+            
+            let response = if let Some(drag_ctx) = gesture_manager.get_drag_context() {
+                use azul_core::drag::ActiveDragType;
+                let (type_str, scrollbar_axis, resize_edge, files, target_node_id, target_dom_id) = 
+                    match &drag_ctx.drag_type {
+                        ActiveDragType::TextSelection(sel) => {
+                            ("text_selection", None, None, None, 
+                             Some(sel.anchor_ifc_node.index() as u64),
+                             Some(sel.dom_id.inner as u32))
+                        }
+                        ActiveDragType::ScrollbarThumb(sb) => {
+                            let axis = match sb.axis {
+                                azul_core::drag::ScrollbarAxis::Horizontal => "horizontal",
+                                azul_core::drag::ScrollbarAxis::Vertical => "vertical",
+                            };
+                            ("scrollbar_thumb", Some(axis.to_string()), None, None,
+                             Some(sb.scroll_container_node.index() as u64),
+                             None) // ScrollbarThumbDrag doesn't have dom_id
+                        }
+                        ActiveDragType::Node(nd) => {
+                            ("node", None, None, None,
+                             Some(nd.node_id.index() as u64),
+                             Some(nd.dom_id.inner as u32))
+                        }
+                        ActiveDragType::WindowMove(_) => {
+                            ("window_move", None, None, None, None, None)
+                        }
+                        ActiveDragType::WindowResize(wr) => {
+                            let edge = alloc::format!("{:?}", wr.edge);
+                            ("window_resize", None, Some(edge), None, None, None)
+                        }
+                        ActiveDragType::FileDrop(fd) => {
+                            let file_list: Vec<String> = fd.files
+                                .as_slice()
+                                .iter()
+                                .map(|f| f.as_str().to_string())
+                                .collect();
+                            ("file_drop", None, None, Some(file_list), None, None)
+                        }
+                    };
+                
+                DragContextResponse {
+                    is_dragging: true,
+                    drag_type: Some(type_str.to_string()),
+                    start_position: Some(LogicalPositionJson {
+                        x: drag_ctx.start_position().x,
+                        y: drag_ctx.start_position().y,
+                    }),
+                    current_position: Some(LogicalPositionJson {
+                        x: drag_ctx.current_position().x,
+                        y: drag_ctx.current_position().y,
+                    }),
+                    target_node_id,
+                    target_dom_id,
+                    scrollbar_axis,
+                    resize_edge,
+                    files,
+                    drag_data: None, // TODO: convert DragData to BTreeMap
+                    drag_effect: None, // TODO: convert DragEffect
+                    debug: alloc::format!("{:?}", drag_ctx),
+                }
+            } else {
+                DragContextResponse {
+                    is_dragging: false,
+                    drag_type: None,
+                    start_position: None,
+                    current_position: None,
+                    target_node_id: None,
+                    target_dom_id: None,
+                    scrollbar_axis: None,
+                    resize_edge: None,
+                    files: None,
+                    drag_data: None,
+                    drag_effect: None,
+                    debug: "No active drag".to_string(),
+                }
+            };
+            send_ok(request, None, Some(ResponseData::DragContext(response)));
         }
 
         // Note: GetAppState and SetAppState require access to the app's RefAny,
