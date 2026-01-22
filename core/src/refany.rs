@@ -124,13 +124,21 @@ pub struct RefCountInner {
 /// Wrapper around a heap-allocated `RefCountInner`.
 ///
 /// This is the shared metadata that all `RefAny` clones point to.
-/// When the last `RefCount` is dropped, the `RefCountInner` is deallocated,
-/// but the actual data deallocation is handled by `RefAny::drop`.
+/// The `RefCount` is responsible for all memory management:
+///
+/// - `RefCount::clone()` increments `num_copies` in RefCountInner
+/// - `RefCount::drop()` decrements `num_copies` and, if it reaches 0:
+///   1. Frees the RefCountInner
+///   2. Calls the custom destructor on the data
+///   3. Deallocates the data memory
 ///
 /// # Why `run_destructor: bool`
 ///
-/// This flag prevents double-free when a `RefAny` clones the `RefCount`.
-/// Only the owning `RefAny` should handle data deallocation.
+/// This flag tracks whether this `RefCount` instance should decrement
+/// `num_copies` when dropped. Set to `true` for all clones (including
+/// those created by `RefAny::clone()` and `AZ_REFLECT` macros).
+/// Set to `false` after the decrement has been performed to prevent
+/// double-decrement.
 #[derive(Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(C)]
 pub struct RefCount {
@@ -145,7 +153,23 @@ impl fmt::Debug for RefCount {
 }
 
 impl Clone for RefCount {
+    /// Clones the RefCount and increments the reference count.
+    ///
+    /// # Safety
+    ///
+    /// This is safe because:
+    /// - The ptr is valid (created from Box::into_raw)
+    /// - num_copies is atomically incremented with SeqCst ordering
+    /// - This ensures the RefCountInner is not freed while clones exist
     fn clone(&self) -> Self {
+        // CRITICAL: Must increment num_copies so the RefCountInner is not freed
+        // while this clone exists. The C macros (AZ_REFLECT) use AzRefCount_clone
+        // to create Ref/RefMut guards, and those guards must keep the data alive.
+        if !self.ptr.is_null() {
+            unsafe {
+                (*self.ptr).num_copies.fetch_add(1, AtomicOrdering::SeqCst);
+            }
+        }
         Self {
             ptr: self.ptr,
             run_destructor: true,
@@ -154,9 +178,61 @@ impl Clone for RefCount {
 }
 
 impl Drop for RefCount {
+    /// Decrements the reference count when a RefCount clone is dropped.
+    ///
+    /// If this was the last reference (num_copies reaches 0), this will also
+    /// free the RefCountInner and call the custom destructor.
     fn drop(&mut self) {
+        // Only decrement if run_destructor is true (meaning this is a clone)
+        // and the pointer is valid
+        if !self.run_destructor || self.ptr.is_null() {
+            return;
+        }
         self.run_destructor = false;
-        // note: the owning struct of the RefCount has to do the dropping!
+
+        // Atomically decrement and get the PREVIOUS value
+        let current_copies = unsafe {
+            (*self.ptr).num_copies.fetch_sub(1, AtomicOrdering::SeqCst)
+        };
+
+        // If previous value wasn't 1, other references still exist
+        if current_copies != 1 {
+            return;
+        }
+
+        // We're the last reference! Clean up.
+        // SAFETY: ptr came from Box::into_raw, and we're the last reference
+        let sharing_info = unsafe { Box::from_raw(self.ptr as *mut RefCountInner) };
+        let sharing_info = *sharing_info; // Box deallocates RefCountInner here
+
+        // Get the data pointer
+        let data_ptr = sharing_info._internal_ptr;
+
+        // Handle zero-sized types specially
+        if sharing_info._internal_len == 0
+            || sharing_info._internal_layout_size == 0
+            || data_ptr.is_null()
+        {
+            let mut _dummy: [u8; 0] = [];
+            // Call destructor even for ZSTs (may have side effects)
+            (sharing_info.custom_destructor)(_dummy.as_ptr() as *mut c_void);
+        } else {
+            // Reconstruct the layout used during allocation
+            let layout = unsafe {
+                Layout::from_size_align_unchecked(
+                    sharing_info._internal_layout_size,
+                    sharing_info._internal_layout_align,
+                )
+            };
+
+            // Phase 1: Run the custom destructor
+            (sharing_info.custom_destructor)(data_ptr as *mut c_void);
+
+            // Phase 2: Deallocate the memory
+            unsafe {
+                alloc::alloc::dealloc(data_ptr as *mut u8, layout);
+            }
+        }
     }
 }
 
@@ -436,17 +512,15 @@ pub struct RefAny {
     /// All `RefAny` clones point to the same `RefCountInner` via this field.
     /// The data pointer is stored in RefCountInner so all clones see the same
     /// pointer, even after replace_contents() is called.
+    ///
+    /// The `run_destructor` flag on `RefCount` controls whether dropping this
+    /// RefAny should decrement the reference count and potentially free memory.
     pub sharing_info: RefCount,
 
     /// Unique ID for this specific clone (root = 0, subsequent clones increment).
     ///
     /// Used to distinguish between the original and clones for debugging.
     pub instance_id: u64,
-
-    /// Whether this instance should run the destructor on drop.
-    ///
-    /// Set to false when data is moved out or explicitly prevented.
-    pub run_destructor: bool,
 }
 
 impl_option!(
@@ -680,8 +754,21 @@ impl RefAny {
         Self {
             sharing_info,
             instance_id: 0, // Root instance
-            run_destructor: true,
         }
+    }
+
+    /// Returns the raw data pointer for FFI downcasting.
+    ///
+    /// This is used by the AZ_REFLECT macros in C/C++ to access the
+    /// type-erased data pointer for downcasting operations.
+    ///
+    /// # Safety
+    ///
+    /// The returned pointer must only be dereferenced after verifying
+    /// the type ID matches the expected type. Callers are responsible
+    /// for proper type safety checks.
+    pub fn get_data_ptr(&self) -> *const c_void {
+        self.sharing_info.downcast()._internal_ptr
     }
 
     /// Checks if this is the only `RefAny` instance with no active borrows.
@@ -1141,129 +1228,42 @@ impl Clone for RefAny {
             // Data pointer is now in RefCountInner, shared automatically
             sharing_info: RefCount {
                 ptr: self.sharing_info.ptr, // Share the same metadata (and data pointer)
-                run_destructor: true,
+                run_destructor: true,       // This clone should decrement num_copies on drop
             },
             // Give this clone a unique ID based on the updated count
             instance_id: new_instance_id,
-            run_destructor: true,
         }
     }
 }
 
 impl Drop for RefAny {
-    /// Decrements the reference count and deallocates if this is the last reference.
+    /// Empty drop implementation - all cleanup is handled by `RefCount::drop`.
     ///
-    /// This is the critical function that ensures memory is freed exactly once.
+    /// When a `RefAny` is dropped, its `sharing_info: RefCount` field is automatically
+    /// dropped by Rust. The `RefCount::drop` implementation handles all cleanup:
     ///
-    /// # Algorithm
+    /// 1. Atomically decrements `num_copies` with `fetch_sub`
+    /// 2. If the previous value was 1 (we're the last reference):
+    ///    - Reclaims the `RefCountInner` via `Box::from_raw`
+    ///    - Calls the custom destructor to run `T::drop()`
+    ///    - Deallocates the heap memory with the stored layout
     ///
-    /// 1. Atomically decrement `num_copies` with `fetch_sub`
-    /// 2. Check if the *previous* value was 1 (meaning we're the last reference)
-    /// 3. If not the last, return early (another reference still exists)
-    /// 4. If last, reclaim the metadata and run the destructor
-    /// 5. Deallocate the heap memory
+    /// # Why No Code Here?
     ///
-    /// # Why `fetch_sub` Returns Previous Value
+    /// Previously, `RefAny::drop` handled cleanup, but this caused issues with the
+    /// C API where `Ref<T>` and `RefMut<T>` guards (which clone the `RefCount`) need
+    /// to keep the data alive even after the original `RefAny` is dropped.
     ///
-    /// `fetch_sub(1)` returns the value *before* subtraction. If it returns `1`,
-    /// that means we decremented from `1` to `0`, making us the last reference.
+    /// By moving all cleanup to `RefCount::drop`, we ensure that:
+    /// - `RefAny::clone()` creates a `RefCount` with `run_destructor = true`
+    /// - `AZ_REFLECT` macros create `Ref`/`RefMut` guards that clone `RefCount`
+    /// - Each `RefCount` drop decrements the counter
+    /// - Only the LAST drop (when `num_copies` was 1) cleans up memory
     ///
-    /// This is the standard reference counting pattern and prevents the
-    /// "drop twice" or "never drop" bug.
-    ///
-    /// # Memory Ordering: SeqCst Prevents Races
-    ///
-    /// Example race without proper ordering:
-    ///
-    /// ```no_run,ignore
-    /// Thread A: fetch_sub(1) -> sees 2, returns
-    /// Thread B: fetch_sub(1) -> sees 1, starts cleanup
-    /// Thread A: (much later) actually writes the decremented value
-    /// ```
-    ///
-    /// With `SeqCst`, this cannot happen:
-    ///
-    /// - Both threads see a globally consistent order
-    /// - If Thread B sees `1`, Thread A's decrement has already happened
-    /// - Exactly one thread will see `1` and run cleanup
-    ///
-    /// # Two-Phase Destruction
-    ///
-    /// 1. **Custom Destructor**: Runs the type's `Drop` implementation
-    ///    - Copies data from heap to stack
-    ///    - Calls `mem::drop` to run `T::drop()`
-    ///    - This is where side effects (file closing, etc.) happen
-    ///
-    /// 2. **Memory Deallocation**: Frees the heap memory
-    ///    - Uses the stored `Layout` to deallocate correctly
-    ///    - Must match the layout used in `alloc` (size + alignment)
-    ///
-    /// # Safety
-    ///
-    /// Multiple `unsafe` blocks, all justified:
-    ///
-    /// - `Box::from_raw(ptr)`: Safe because ptr came from `Box::into_raw` in `RefCount::new`
-    /// - `Layout::from_size_align_unchecked`: Safe because values came from `Layout` in `new_c`
-    /// - `custom_destructor(ptr)`: Safe because ptr has the type expected by the destructor
-    /// - `alloc::dealloc(ptr, layout)`: Safe because ptr and layout match the original allocation
-    ///
-    /// # ZST Handling
-    ///
-    /// Zero-sized types have `_internal_len == 0` and null pointer.
-    /// We still call the destructor (it may have side effects) but skip deallocation.
+    /// See `RefCount::drop` for the full algorithm and safety documentation.
     fn drop(&mut self) {
-        use core::ptr;
-
-        self.run_destructor = false;
-
-        // Atomically decrement and get the PREVIOUS value
-        let current_copies = self
-            .sharing_info
-            .downcast()
-            .num_copies
-            .fetch_sub(1, AtomicOrdering::SeqCst);
-
-        // If previous value wasn't 1, other references still exist
-        if current_copies != 1 {
-            return;
-        }
-
-        // We're the last reference! Reclaim the metadata.
-        // SAFETY: ptr came from Box::into_raw, and we're the last reference
-        let sharing_info = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };
-        let sharing_info = *sharing_info; // Box deallocates here
-
-        // Get the data pointer from the shared RefCountInner
-        let data_ptr = sharing_info._internal_ptr;
-
-        // Handle zero-sized types specially
-        if sharing_info._internal_len == 0
-            || sharing_info._internal_layout_size == 0
-            || data_ptr.is_null()
-        {
-            let mut _dummy: [u8; 0] = [];
-            // Call destructor even for ZSTs (may have side effects)
-            (sharing_info.custom_destructor)(_dummy.as_ptr() as *mut c_void);
-        } else {
-            // Reconstruct the layout used during allocation
-            // SAFETY: These values came from a valid Layout in new_c
-            let layout = unsafe {
-                Layout::from_size_align_unchecked(
-                    sharing_info._internal_layout_size,
-                    sharing_info._internal_layout_align,
-                )
-            };
-
-            // Phase 1: Run the custom destructor (runs T::drop)
-            // SAFETY: ptr points to valid data of the type expected by the destructor
-            (sharing_info.custom_destructor)(data_ptr as *mut c_void);
-
-            // Phase 2: Deallocate the memory
-            // SAFETY: ptr and layout match the original allocation in new_c
-            unsafe {
-                alloc::alloc::dealloc(data_ptr as *mut u8, layout);
-            }
-        }
+        // RefCount::drop handles everything automatically.
+        // The sharing_info field is dropped by Rust, triggering RefCount::drop.
     }
 }
 

@@ -7168,18 +7168,11 @@
             ],
             "struct_fields": [
               {
-                "_internal_ptr": {
-                  "type": "c_void",
-                  "ref_kind": "constptr"
-                },
                 "sharing_info": {
                   "type": "RefCount"
                 },
                 "instance_id": {
                   "type": "u64"
-                },
-                "run_destructor": {
-                  "type": "bool"
                 }
               }
             ],
@@ -7221,6 +7214,20 @@
               }
             },
             "functions": {
+              "get_data_ptr": {
+                "doc": [
+                  "Returns the internal data pointer. Used by AZ_REFLECT macros for downcasting."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const c_void"
+                },
+                "fn_body": "self.get_data_ptr()"
+              },
               "get_type_id": {
                 "doc": [
                   "Returns the type ID of this RefAny"

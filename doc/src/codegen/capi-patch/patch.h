@@ -87,7 +87,7 @@
         if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } else { \
             if (!AzRefCount_canBeShared(&refany->sharing_info)) { return false; } else {\
                 AzRefCount_increaseRef(&refany->sharing_info); \
-                result->ptr = (structName* const)(refany->_internal_ptr); \
+                result->ptr = (structName* const)(AzRefAny_getDataPtr(refany)); \
                 return true; \
             } \
         } \
@@ -98,7 +98,7 @@
         if (!AzRefAny_isType(refany, structName##_RttiTypeId)) { return false; } else { \
             if (!AzRefCount_canBeSharedMut(&refany->sharing_info)) { return false; }  else {\
                 AzRefCount_increaseRefmut(&refany->sharing_info); \
-                result->ptr = (structName* restrict)(refany->_internal_ptr); \
+                result->ptr = (structName* restrict)(AzRefAny_getDataPtr(refany)); \
                 return true; \
             } \
         } \

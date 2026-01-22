@@ -733,14 +733,14 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         code.push_str("    static inline structName const* structName##_downcast_ref(azul::RefAny& data) { \\\r\n");
         code.push_str("        if (!AzRefAny_isType(&data.inner(), structName##_rtti::type_id())) return nullptr; \\\r\n");
         code.push_str(
-            "        return static_cast<structName const*>(data.inner()._internal_ptr); \\\r\n",
+            "        return static_cast<structName const*>(AzRefAny_getDataPtr(&data.inner())); \\\r\n",
         );
         code.push_str("    } \\\r\n");
         code.push_str(
             "    static inline structName* structName##_downcast_mut(azul::RefAny& data) { \\\r\n",
         );
         code.push_str("        if (!AzRefAny_isType(&data.inner(), structName##_rtti::type_id())) return nullptr; \\\r\n");
-        code.push_str("        return static_cast<structName*>(const_cast<void*>(data.inner()._internal_ptr)); \\\r\n");
+        code.push_str("        return static_cast<structName*>(const_cast<void*>(AzRefAny_getDataPtr(&data.inner()))); \\\r\n");
         code.push_str("    }\r\n\r\n");
     } else {
         code.push_str("#define AZ_REFLECT(structName) \\\r\n");
@@ -766,7 +766,7 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         code.push_str(
             "        if (!AzRefAny_isType(&data.inner(), structName##_type_id())) return 0; \\\r\n",
         );
-        code.push_str("        return (structName const*)(data.inner()._internal_ptr); \\\r\n");
+        code.push_str("        return (structName const*)(AzRefAny_getDataPtr(&data.inner())); \\\r\n");
         code.push_str("    } \\\r\n");
         code.push_str(
             "    static structName* structName##_downcast_mut(azul::RefAny& data) { \\\r\n",
@@ -774,7 +774,7 @@ pub fn generate_reflect_macro(standard: CppStandard) -> String {
         code.push_str(
             "        if (!AzRefAny_isType(&data.inner(), structName##_type_id())) return 0; \\\r\n",
         );
-        code.push_str("        return (structName*)(data.inner()._internal_ptr); \\\r\n");
+        code.push_str("        return (structName*)(AzRefAny_getDataPtr(&data.inner())); \\\r\n");
         code.push_str("    }\r\n\r\n");
     }
 

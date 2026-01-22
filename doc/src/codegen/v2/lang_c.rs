@@ -1400,7 +1400,7 @@ impl CGenerator {
         builder.line("            if (!AzRefCount_canBeShared(&refany->sharing_info)) { return false; } else {\\");
         builder.line("                AzRefCount_increaseRef(&refany->sharing_info); \\");
         builder
-            .line("                result->ptr = (structName* const)(refany->_internal_ptr); \\");
+            .line("                result->ptr = (structName* const)(AzRefAny_getDataPtr(refany)); \\");
         builder.line("                return true; \\");
         builder.line("            } \\");
         builder.line("        } \\");
@@ -1412,7 +1412,7 @@ impl CGenerator {
         builder.line("            if (!AzRefCount_canBeSharedMut(&refany->sharing_info)) { return false; }  else {\\");
         builder.line("                AzRefCount_increaseRefmut(&refany->sharing_info); \\");
         builder.line(
-            "                result->ptr = (structName* restrict)(refany->_internal_ptr); \\",
+            "                result->ptr = (structName* restrict)(AzRefAny_getDataPtr(refany)); \\",
         );
         builder.line("                return true; \\");
         builder.line("            } \\");
@@ -1422,11 +1422,13 @@ impl CGenerator {
         builder.line("    /* releases a structNameRef (decreases the RefCount) */ \\");
         builder.line("    void structName##Ref_delete(structName##Ref* restrict value) { \\");
         builder.line("        AzRefCount_decreaseRef(&value->sharing_info); \\");
+        builder.line("        AzRefCount_delete(&value->sharing_info); \\");
         builder.line("    }\\");
         builder.line("    \\");
         builder.line("    /* releases a structNameRefMut (decreases the mutable RefCount) */ \\");
         builder.line("    void structName##RefMut_delete(structName##RefMut* restrict value) { \\");
         builder.line("        AzRefCount_decreaseRefmut(&value->sharing_info); \\");
+        builder.line("        AzRefCount_delete(&value->sharing_info); \\");
         builder.line("    }\\");
         builder.line("    /* releases a structNameRefAny (checks if the RefCount is 0 and calls the destructor) */ \\");
         builder.line("    bool structName##RefAny_delete(AzRefAny* restrict refany) { \\");
