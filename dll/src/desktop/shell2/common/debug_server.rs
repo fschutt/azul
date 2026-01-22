@@ -84,6 +84,8 @@ pub enum ResponseData {
     ScrollNodeBy(ScrollNodeByResponse),
     /// Scroll node to position result
     ScrollNodeTo(ScrollNodeToResponse),
+    /// Scroll node into view result
+    ScrollIntoView(ScrollIntoViewResponse),
     /// Hit test result
     HitTest(HitTestResponse),
     /// HTML string
@@ -654,6 +656,15 @@ pub struct ScrollNodeToResponse {
     pub y: f32,
 }
 
+/// Response for ScrollIntoView
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct ScrollIntoViewResponse {
+    pub scrolled: bool,
+    pub node_id: u64,
+    pub adjustments_count: usize,
+}
+
 /// Response for GetScrollbarInfo - detailed scrollbar geometry and state
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
@@ -987,6 +998,25 @@ pub enum DebugEvent {
         text: Option<String>,
         x: f32,
         y: f32,
+    },
+    /// Scroll a node into view (W3C scrollIntoView API)
+    /// Scrolls the element into the visible area of its scroll container
+    ScrollIntoView {
+        #[serde(default)]
+        node_id: Option<u64>,
+        #[serde(default)]
+        selector: Option<String>,
+        #[serde(default)]
+        text: Option<String>,
+        /// Vertical alignment: "start", "center", "end", "nearest" (default)
+        #[serde(default)]
+        block: Option<String>,
+        /// Horizontal alignment: "start", "center", "end", "nearest" (default)
+        #[serde(default)]
+        inline: Option<String>,
+        /// Animation: "auto" (default), "instant", "smooth"
+        #[serde(default)]
+        behavior: Option<String>,
     },
 
     // Node Finding
@@ -3437,6 +3467,94 @@ fn process_debug_event(
                 y: *y,
             };
             send_ok(request, None, Some(ResponseData::ScrollNodeTo(response)));
+        }
+
+        DebugEvent::ScrollIntoView {
+            node_id,
+            selector,
+            text,
+            block,
+            inline,
+            behavior,
+        } => {
+            use azul_core::dom::{DomId, DomNodeId};
+            use azul_core::events::{ScrollIntoViewBehavior, ScrollIntoViewOptions, ScrollLogicalPosition};
+            use azul_core::id::NodeId;
+            use azul_core::styled_dom::NodeHierarchyItemId;
+            use azul_core::task::Instant;
+
+            let resolved_node_id = resolve_node_target(
+                callback_info,
+                selector.as_deref(),
+                *node_id,
+                text.as_deref(),
+            );
+
+            let nid = match resolved_node_id {
+                Some(n) => n.index() as u64,
+                None => {
+                    send_err(request, "No node found matching the specified target");
+                    return needs_update;
+                }
+            };
+
+            // Parse alignment options
+            let block_align = match block.as_deref() {
+                Some("start") => ScrollLogicalPosition::Start,
+                Some("center") => ScrollLogicalPosition::Center,
+                Some("end") => ScrollLogicalPosition::End,
+                _ => ScrollLogicalPosition::Nearest,
+            };
+
+            let inline_align = match inline.as_deref() {
+                Some("start") => ScrollLogicalPosition::Start,
+                Some("center") => ScrollLogicalPosition::Center,
+                Some("end") => ScrollLogicalPosition::End,
+                _ => ScrollLogicalPosition::Nearest,
+            };
+
+            let scroll_behavior = match behavior.as_deref() {
+                Some("instant") => ScrollIntoViewBehavior::Instant,
+                Some("smooth") => ScrollIntoViewBehavior::Smooth,
+                _ => ScrollIntoViewBehavior::Auto,
+            };
+
+            let options = ScrollIntoViewOptions {
+                block: block_align,
+                inline: inline_align,
+                behavior: scroll_behavior,
+            };
+
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                format!(
+                    "Scrolling node {} into view (block: {:?}, inline: {:?}, behavior: {:?})",
+                    nid, block_align, inline_align, scroll_behavior
+                ),
+                None,
+            );
+
+            let dom_id = DomId { inner: 0 };
+            let node = NodeId::new(nid as usize);
+            let dom_node_id = DomNodeId {
+                dom: dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+            };
+
+            // Call scroll_node_into_view on CallbackInfo (queues the scroll change)
+            callback_info.scroll_node_into_view(dom_node_id, options);
+
+            // The scroll will be processed after the callback returns
+            needs_update = true;
+
+            let response = ScrollIntoViewResponse {
+                scrolled: true,
+                node_id: nid,
+                adjustments_count: 0, // Count is not known until change is processed
+            };
+            
+            send_ok(request, None, Some(ResponseData::ScrollIntoView(response)));
         }
 
         DebugEvent::FindNodeByText { text } => {

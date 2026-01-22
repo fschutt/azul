@@ -130,8 +130,8 @@ impl AppInternal {
             debug_server::LogLevel::Debug,
             debug_server::LogCategory::General,
             format!(
-                "initial_data._internal_ptr: {:?}",
-                initial_data._internal_ptr
+                "initial_data sharing_info: {:?}",
+                initial_data.sharing_info
             ),
             None,
         );
