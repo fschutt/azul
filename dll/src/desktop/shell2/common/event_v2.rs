@@ -143,7 +143,7 @@ use azul_core::{
     callbacks::LayoutCallbackInfo,
     dom::{DomId, NodeId},
     events::{
-        CallbackTarget as CoreCallbackTarget, EventFilter, PreCallbackFilterResult,
+        CallbackTarget as CoreCallbackTarget, EventFilter, FocusEventFilter, PreCallbackFilterResult,
         ProcessEventResult, SyntheticEvent,
     },
     geom::LogicalPosition,
@@ -2065,6 +2065,17 @@ pub trait PlatformWindowV2 {
                                             layout_window.focus_manager.set_focused_node(new_focus_node);
                                             default_action_focus_changed = true;
                                             
+                                            // SCROLL INTO VIEW: Scroll newly focused node into visible area
+                                            if let Some(focus_node) = new_focus_node {
+                                                use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
+                                                let now = azul_core::task::Instant::now();
+                                                layout_window.scroll_node_into_view(
+                                                    focus_node,
+                                                    ScrollIntoViewOptions::nearest(),
+                                                    now,
+                                                );
+                                            }
+                                            
                                             // RESTYLE: Update StyledNodeState and compute CSS changes
                                             if old_focus_node_id != new_focus_node_id {
                                                 let restyle_result = apply_focus_restyle(
@@ -2192,10 +2203,86 @@ pub trait PlatformWindowV2 {
         }
 
         // Handle focus changes: generate synthetic FocusIn/FocusOut events
+        log_debug!(
+            super::debug_server::LogCategory::Input,
+            "[Event V2] Focus check: focus_changed={}, default_action_focus_changed={}, depth={}, old_focus={:?}",
+            focus_changed,
+            default_action_focus_changed,
+            depth,
+            old_focus
+        );
+        
         if (focus_changed || default_action_focus_changed) && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
+            // Get the new focus BEFORE clearing selections
+            let new_focus = self
+                .get_layout_window()
+                .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+            
+            log_debug!(
+                super::debug_server::LogCategory::Input,
+                "[Event V2] Focus changed! old_focus={:?}, new_focus={:?}",
+                old_focus,
+                new_focus
+            );
+            
             // Clear selections when focus changes (standard UI behavior)
             if let Some(layout_window) = self.get_layout_window_mut() {
                 layout_window.selection_manager.clear_all();
+            }
+            
+            // DISPATCH FOCUS CALLBACKS: FocusLost on old node, FocusReceived on new node
+            // This is where we actually invoke the user-registered FocusReceived/FocusLost callbacks
+            
+            // Dispatch FocusLost to old node (if any)
+            if let Some(old_node) = old_focus {
+                if let Some(internal_node_id) = old_node.node.into_crate_internal() {
+                    let target = CallbackTarget::Node(HitTestNode {
+                        dom_id: old_node.dom.inner as u64,
+                        node_id: internal_node_id.index() as u64,
+                    });
+                    
+                    log_debug!(
+                        super::debug_server::LogCategory::Input,
+                        "[Event V2] Dispatching FocusLost to node {:?}",
+                        old_node
+                    );
+                    
+                    let focus_lost_results = self.invoke_callbacks_v2(
+                        target,
+                        EventFilter::Focus(FocusEventFilter::FocusLost)
+                    );
+                    
+                    for callback_result in focus_lost_results {
+                        let event_result = self.process_callback_result_v2(&callback_result);
+                        result = result.max(event_result);
+                    }
+                }
+            }
+            
+            // Dispatch FocusReceived to new node (if any)
+            if let Some(new_node) = new_focus {
+                if let Some(internal_node_id) = new_node.node.into_crate_internal() {
+                    let target = CallbackTarget::Node(HitTestNode {
+                        dom_id: new_node.dom.inner as u64,
+                        node_id: internal_node_id.index() as u64,
+                    });
+                    
+                    log_debug!(
+                        super::debug_server::LogCategory::Input,
+                        "[Event V2] Dispatching FocusReceived to node {:?}",
+                        new_node
+                    );
+                    
+                    let focus_received_results = self.invoke_callbacks_v2(
+                        target,
+                        EventFilter::Focus(FocusEventFilter::FocusReceived)
+                    );
+                    
+                    for callback_result in focus_received_results {
+                        let event_result = self.process_callback_result_v2(&callback_result);
+                        result = result.max(event_result);
+                    }
+                }
             }
 
             // CRITICAL: Update previous_state BEFORE recursing to prevent the same
@@ -2204,8 +2291,7 @@ pub trait PlatformWindowV2 {
             let current = self.get_current_window_state().clone();
             self.set_previous_window_state(current);
 
-            // Recurse to process synthetic focus events
-            // This will trigger FocusIn/FocusOut callbacks, which may request another focus change
+            // Recurse to process any further events that may have been triggered
             let focus_result = self.process_window_events_recursive_v2(depth + 1);
             result = result.max(focus_result);
         }
@@ -2392,6 +2478,15 @@ pub trait PlatformWindowV2 {
                     layout_window
                         .focus_manager
                         .set_focused_node(Some(new_focus));
+                    
+                    // SCROLL INTO VIEW: Scroll newly focused node into visible area
+                    use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
+                    let now = azul_core::task::Instant::now();
+                    layout_window.scroll_node_into_view(
+                        new_focus,
+                        ScrollIntoViewOptions::nearest(),
+                        now,
+                    );
                 }
                 event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
             }

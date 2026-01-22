@@ -307,7 +307,7 @@ mod tests {
     #[test]
     fn test_tab_focus_next() {
         let mut keyboard_state = KeyboardState::default();
-        keyboard_state.current_virtual_keycode = VirtualKeyCode::Tab.into();
+        keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();
         
         let result = determine_keyboard_default_action(
             &keyboard_state,
@@ -323,8 +323,9 @@ mod tests {
     #[test]
     fn test_shift_tab_focus_previous() {
         let mut keyboard_state = KeyboardState::default();
-        keyboard_state.current_virtual_keycode = VirtualKeyCode::Tab.into();
-        keyboard_state.shift_down = true;
+        keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();
+        // Add LShift to pressed keys to simulate Shift being held
+        keyboard_state.pressed_virtual_keycodes = vec![VirtualKeyCode::LShift, VirtualKeyCode::Tab].into();
         
         let result = determine_keyboard_default_action(
             &keyboard_state,
@@ -339,7 +340,7 @@ mod tests {
     #[test]
     fn test_escape_clears_focus() {
         let mut keyboard_state = KeyboardState::default();
-        keyboard_state.current_virtual_keycode = VirtualKeyCode::Escape.into();
+        keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Escape).into();
         
         let focused = Some(DomNodeId {
             dom: DomId { inner: 0 },
@@ -359,7 +360,7 @@ mod tests {
     #[test]
     fn test_prevented_returns_no_action() {
         let mut keyboard_state = KeyboardState::default();
-        keyboard_state.current_virtual_keycode = VirtualKeyCode::Tab.into();
+        keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::Tab).into();
         
         let result = determine_keyboard_default_action(
             &keyboard_state,

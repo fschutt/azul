@@ -11,3 +11,4 @@ libazul.dylib
 contenteditable_test
 focus_nested
 focus
+refany_test
