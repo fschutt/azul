@@ -222,15 +222,27 @@ pub fn regenerate_layout(
     // This must happen AFTER layout but BEFORE calculate_scrollbar_states
     let now: azul_core::task::Instant = std::time::Instant::now().into();
     for (dom_id, layout_result) in &layout_window.layout_results {
-        for (_node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
+        for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
             // Check if this node needs scrollbars (has scrollbar_info with needs_v or needs_h)
             if let Some(ref scrollbar_info) = node.scrollbar_info {
                 if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
                     if let Some(dom_node_id) = node.dom_node_id {
                         // Get container size from used_size
                         let container_size = node.used_size.unwrap_or_default();
+                        
+                        // Get absolute position from calculated_positions map
+                        // IMPORTANT: container_rect must use absolute window coordinates,
+                        // not (0,0), so scroll_into_view calculations are correct.
+                        // All rects in the scroll system use absolute window coordinates
+                        // in logical pixels.
+                        let container_origin = layout_result
+                            .calculated_positions
+                            .get(&node_idx)
+                            .copied()
+                            .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
+                        
                         let container_rect = azul_core::geom::LogicalRect {
-                            origin: azul_core::geom::LogicalPosition::zero(),
+                            origin: container_origin,
                             size: container_size,
                         };
 
