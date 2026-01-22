@@ -59,7 +59,7 @@ AzJson ScrollTestData_toJson(AzRefAny refany) {
     AzJsonKeyValue entries[3] = {
         AzJsonKeyValue_create(AZ_STR("last_focused_item"), AzJson_int(ref.ptr->last_focused_item)),
         AzJsonKeyValue_create(AZ_STR("focus_count"), AzJson_int(ref.ptr->focus_count)),
-        AzJsonKeyValue_create(AZ_STR("scroll_position"), AzJson_number(ref.ptr->scroll_position))
+        AzJsonKeyValue_create(AZ_STR("scroll_position"), AzJson_float((double)ref.ptr->scroll_position))
     };
     
     ScrollTestDataRef_delete(&ref);
@@ -128,7 +128,7 @@ AzDom create_item(int item_num, AzRefAny data) {
     // Add text label
     char label[64];
     snprintf(label, sizeof(label), "Item %d - Focusable Element", item_num);
-    AzDom text = AzDom_createTextNode(AZ_STR(label));
+    AzDom text = AzDom_createText(AZ_STR(label));
     AzDom_addChild(&item, text);
     
     return item;
