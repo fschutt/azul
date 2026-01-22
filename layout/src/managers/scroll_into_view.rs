@@ -123,13 +123,6 @@ pub fn scroll_rect_into_view(
             ancestor.scroll_y,
         );
         
-        eprintln!(
-            "[scroll_into_view] target_rect: {:?}, container_visible: {:?}, delta: {:?}",
-            current_rect,
-            ancestor.visible_rect,
-            delta
-        );
-        
         // Only add adjustment if there's actual scrolling to do
         if delta.x.abs() > 0.5 || delta.y.abs() > 0.5 {
             // Resolve scroll behavior

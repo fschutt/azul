@@ -1499,7 +1499,6 @@ impl StyledDom {
         nodes: &[NodeId],
         new_focus_state: bool,
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        println!("[DEBUG restyle_nodes_focus] ENTER: nodes={:?}, new_focus_state={}", nodes, new_focus_state);
         
         // save the old node state
         let old_node_states = nodes
@@ -1508,7 +1507,6 @@ impl StyledDom {
                 let state = self.styled_nodes.as_container()[*nid]
                     .styled_node_state
                     .clone();
-                println!("[DEBUG restyle_nodes_focus] Old state for node {:?}: focused={}", nid, state.focused);
                 state
             })
             .collect::<Vec<_>>();
@@ -1517,7 +1515,6 @@ impl StyledDom {
             self.styled_nodes.as_container_mut()[*nid]
                 .styled_node_state
                 .focused = new_focus_state;
-            println!("[DEBUG restyle_nodes_focus] Set node {:?} focused={}", nid, new_focus_state);
         }
 
         let css_property_cache = self.get_css_property_cache();
@@ -1538,7 +1535,6 @@ impl StyledDom {
                     .keys()
                     .collect();
                 
-                println!("[DEBUG restyle_nodes_focus] Node {:?} css_focus_props keys: {:?}", node_id, keys_normal);
 
                 let mut keys_inherited: Vec<_> = css_property_cache
                     .cascaded_focus_props
@@ -1547,7 +1543,6 @@ impl StyledDom {
                     .keys()
                     .collect();
                 
-                println!("[DEBUG restyle_nodes_focus] Node {:?} cascaded_focus_props keys: {:?}", node_id, keys_inherited);
 
                 let keys_inline: Vec<CssPropertyType> = {
                     use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
@@ -1559,7 +1554,6 @@ impl StyledDom {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::Focus))
                             });
                             if is_focus {
-                                println!("[DEBUG restyle_nodes_focus] Found inline :focus CSS for node {:?}: {:?}", node_id, prop.property.get_type());
                                 Some(prop.property.get_type())
                             } else {
                                 None
@@ -1574,20 +1568,13 @@ impl StyledDom {
 
                 let node_properties_that_could_have_changed = keys_normal;
                 
-                println!("[DEBUG restyle_nodes_focus] Node {:?} properties that could change: {:?}", node_id, node_properties_that_could_have_changed);
 
                 if node_properties_that_could_have_changed.is_empty() {
-                    println!("[DEBUG restyle_nodes_focus] Node {:?} has NO :focus CSS properties!", node_id);
                     return None;
                 }
 
                 let new_node_state = &styled_nodes[*node_id].styled_node_state;
                 let node_data = &node_data[*node_id];
-                
-                println!("[DEBUG restyle_nodes_focus] old_node_state: focused={}, hover={}, active={}", 
-                    old_node_state.focused, old_node_state.hover, old_node_state.active);
-                println!("[DEBUG restyle_nodes_focus] new_node_state: focused={}, hover={}, active={}", 
-                    new_node_state.focused, new_node_state.hover, new_node_state.active);
 
                 let changes = node_properties_that_could_have_changed
                     .into_iter()
@@ -1605,13 +1592,9 @@ impl StyledDom {
                             new_node_state,
                             prop,
                         );
-                        println!("[DEBUG restyle_nodes_focus] checking prop {:?}: old_exists={}, new_exists={}, equal={}", 
-                            prop, old.is_some(), new.is_some(), old == new);
                         if old == new {
-                            println!("[DEBUG restyle_nodes_focus]   -> NO CHANGE for {:?}", prop);
                             None
                         } else {
-                            println!("[DEBUG restyle_nodes_focus]   -> CHANGED {:?}!", prop);
                             Some(ChangedCssProperty {
                                 previous_state: old_node_state.clone(),
                                 previous_prop: match old {
@@ -1628,7 +1611,6 @@ impl StyledDom {
                     })
                     .collect::<Vec<_>>();
 
-                println!("[DEBUG restyle_nodes_focus] Total changes for node {:?}: {}", node_id, changes.len());
                 if changes.is_empty() {
                     None
                 } else {
@@ -1637,7 +1619,6 @@ impl StyledDom {
             })
             .collect::<Vec<_>>();
 
-        println!("[DEBUG restyle_nodes_focus] EXIT: returning {} nodes with changes", v.len());
         v.into_iter().collect()
     }
 
@@ -1661,14 +1642,12 @@ impl StyledDom {
         hover_changes: Option<HoverChange>,
         active_changes: Option<ActiveChange>,
     ) -> RestyleResult {
-        println!("[DEBUG restyle_on_state_change] ENTER: focus={:?}, hover={:?}, active={:?}", focus_changes, hover_changes, active_changes);
         
         let mut result = RestyleResult::default();
         result.gpu_only_changes = true; // Start with GPU-only assumption
 
         // Helper closure to merge changes and analyze property categories
         let mut process_changes = |changes: BTreeMap<NodeId, Vec<ChangedCssProperty>>| {
-            println!("[DEBUG restyle_on_state_change] process_changes: {} nodes with changes", changes.len());
             for (node_id, props) in changes {
                 for change in &props {
                     let prop_type = change.current_prop.get_type();
@@ -1694,17 +1673,12 @@ impl StyledDom {
 
         // 1. Process focus changes
         if let Some(focus) = focus_changes {
-            println!("[DEBUG restyle_on_state_change] Processing focus changes: lost={:?}, gained={:?}", focus.lost_focus, focus.gained_focus);
             if let Some(old) = focus.lost_focus {
-                println!("[DEBUG restyle_on_state_change] Calling restyle_nodes_focus for LOST focus: {:?}", old);
                 let changes = self.restyle_nodes_focus(&[old], false);
-                println!("[DEBUG restyle_on_state_change] Lost focus changes: {} nodes", changes.len());
                 process_changes(changes);
             }
             if let Some(new) = focus.gained_focus {
-                println!("[DEBUG restyle_on_state_change] Calling restyle_nodes_focus for GAINED focus: {:?}", new);
                 let changes = self.restyle_nodes_focus(&[new], true);
-                println!("[DEBUG restyle_on_state_change] Gained focus changes: {} nodes", changes.len());
                 process_changes(changes);
             }
         }
@@ -1745,8 +1719,6 @@ impl StyledDom {
             result.gpu_only_changes = false;
         }
 
-        println!("[DEBUG restyle_on_state_change] EXIT: changed_nodes={}, needs_layout={}, needs_display_list={}, gpu_only={}", 
-            result.changed_nodes.len(), result.needs_layout, result.needs_display_list, result.gpu_only_changes);
         result
     }
 
