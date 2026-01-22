@@ -2160,7 +2160,7 @@ where
         // Add a hit-test area for this node if it's interactive.
         // NOTE: For scrollable containers (overflow: scroll/auto), the hit-test area
         // was already pushed in generate_for_stacking_context BEFORE the scroll frame,
-        // so we skip it here to avoid duplicate hit-test areas.
+        // so we skip it here to avoid duplicate hit-test areas that would scroll with content.
         if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
             let is_scrollable = if let Some(dom_id) = node.dom_node_id {
                 let styled_node_state = self.get_styled_node_state(dom_id);
@@ -2171,10 +2171,14 @@ where
                 false
             };
 
-            // Push hit-test area for this node
-            // For scrollable containers, this is pushed BEFORE the scroll frame in push_node_clips
-            // to ensure the hit-test covers the entire container, not just scrolled content
-            builder.push_hit_test_area(paint_rect, tag_id);
+            // Push hit-test area for this node ONLY if it's not a scrollable container.
+            // Scrollable containers already have their hit-test area pushed BEFORE the scroll frame
+            // in generate_for_stacking_context, ensuring the hit-test stays stationary in parent space
+            // while content scrolls. Pushing it again here would create a duplicate that scrolls
+            // with content, causing hit-test failures when scrolled to the bottom.
+            if !is_scrollable {
+                builder.push_hit_test_area(paint_rect, tag_id);
+            }
         }
 
         // Paint the node's visible content.
@@ -2313,25 +2317,10 @@ where
             .unwrap_or((0.0, 0.0));
 
         // Get content size for thumb proportional sizing
-        let content_size = if let Some(ref inline_layout) = node.inline_layout_result {
-            let bounds = inline_layout.layout.bounds();
-            LogicalSize::new(bounds.width, bounds.height)
-        } else {
-            // Fallback: estimate from scrollbar requirements
-            let container = node.used_size.unwrap_or_default();
-            LogicalSize::new(
-                if scrollbar_info.needs_horizontal {
-                    container.width * 2.0
-                } else {
-                    container.width
-                },
-                if scrollbar_info.needs_vertical {
-                    container.height * 2.0
-                } else {
-                    container.height
-                },
-            )
-        };
+        // Use the node's get_content_size() method which returns the actual content size
+        // from overflow_content_size (set during layout) or computes it from text/children.
+        // This is critical for correct thumb sizing - we must NOT use arbitrary multipliers.
+        let content_size = node.get_content_size();
 
         // Calculate thumb border-radius (half the scrollbar width for pill-shaped thumb)
         let thumb_radius = scrollbar_style.width_px / 2.0;
