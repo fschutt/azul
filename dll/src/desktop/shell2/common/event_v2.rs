@@ -2000,6 +2000,97 @@ pub trait PlatformWindowV2 {
             }
         }
 
+        // MOUSE CLICK-TO-FOCUS (W3C default behavior)
+        // When the user clicks on a focusable element, focus should move to that element.
+        // We check for MouseDown events and find the deepest focusable ancestor.
+        let mut mouse_click_focus_changed = false;
+        if !prevent_default {
+            let has_mouse_down = synthetic_events.iter().any(|e| {
+                matches!(e.event_type, azul_core::events::EventType::MouseDown)
+            });
+            
+            if has_mouse_down {
+                // Get the hit test data to find which node was clicked
+                if let Some(ref hit_test) = hit_test_for_dispatch {
+                    // Find the deepest focusable node in the hit chain
+                    let mut clicked_focusable_node: Option<azul_core::dom::DomNodeId> = None;
+                    
+                    for (dom_id, hit_test_data) in &hit_test.hovered_nodes {
+                        // Find deepest hit node first
+                        let deepest = hit_test_data.regular_hit_test_nodes
+                            .iter()
+                            .max_by_key(|(_, hit_item)| {
+                                // Higher hit_depth = further from camera, so we want lowest
+                                // But we actually want the topmost (frontmost) which is depth 0
+                                std::cmp::Reverse(hit_item.hit_depth)
+                            });
+                        
+                        if let Some((node_id, _)) = deepest {
+                            if let Some(layout_window) = self.get_layout_window() {
+                                if let Some(layout_result) = layout_window.layout_results.get(dom_id) {
+                                    let node_data = layout_result.styled_dom.node_data.as_container();
+                                    let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+                                    
+                                    // Walk from clicked node to root, find first focusable
+                                    let mut current = Some(*node_id);
+                                    while let Some(nid) = current {
+                                        if let Some(nd) = node_data.get(nid) {
+                                            if nd.is_focusable() {
+                                                clicked_focusable_node = Some(azul_core::dom::DomNodeId {
+                                                    dom: *dom_id,
+                                                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(nid)),
+                                                });
+                                                break;
+                                            }
+                                        }
+                                        current = node_hierarchy.get(nid).and_then(|h| h.parent_id());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // If we found a focusable node, set focus to it
+                    if let Some(new_focus) = clicked_focusable_node {
+                        let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
+                        let new_focus_node_id = new_focus.node.into_crate_internal();
+                        
+                        // Only change focus if clicking on a different node
+                        if old_focus_node_id != new_focus_node_id {
+                            if let Some(layout_window) = self.get_layout_window_mut() {
+                                layout_window.focus_manager.set_focused_node(Some(new_focus));
+                                mouse_click_focus_changed = true;
+                                
+                                // SCROLL INTO VIEW: Scroll newly focused node into visible area
+                                use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
+                                let now = azul_core::task::Instant::now();
+                                layout_window.scroll_node_into_view(
+                                    new_focus,
+                                    ScrollIntoViewOptions::nearest(),
+                                    now,
+                                );
+                                
+                                // RESTYLE: Update StyledNodeState and compute CSS changes
+                                let restyle_result = apply_focus_restyle(
+                                    layout_window,
+                                    old_focus_node_id,
+                                    new_focus_node_id,
+                                );
+                                result = result.max(restyle_result);
+                            }
+                            
+                            log_debug!(
+                                super::debug_server::LogCategory::Input,
+                                "[Event V2] Click-to-focus: {:?} -> {:?}",
+                                old_focus,
+                                new_focus
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         // KEYBOARD DEFAULT ACTIONS (Tab navigation, Enter/Space activation, Escape)
         // Process keyboard default actions if not prevented by callbacks
         // This implements W3C focus navigation and element activation behavior
@@ -2205,14 +2296,15 @@ pub trait PlatformWindowV2 {
         // Handle focus changes: generate synthetic FocusIn/FocusOut events
         log_debug!(
             super::debug_server::LogCategory::Input,
-            "[Event V2] Focus check: focus_changed={}, default_action_focus_changed={}, depth={}, old_focus={:?}",
+            "[Event V2] Focus check: focus_changed={}, default_action_focus_changed={}, mouse_click_focus_changed={}, depth={}, old_focus={:?}",
             focus_changed,
             default_action_focus_changed,
+            mouse_click_focus_changed,
             depth,
             old_focus
         );
         
-        if (focus_changed || default_action_focus_changed) && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
+        if (focus_changed || default_action_focus_changed || mouse_click_focus_changed) && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
             // Get the new focus BEFORE clearing selections
             let new_focus = self
                 .get_layout_window()
