@@ -236,6 +236,12 @@ pub enum CallbackChange {
         node_id: NodeHierarchyItemId,
         position: LogicalPosition,
     },
+    /// Scroll a node into view (W3C scrollIntoView API)
+    /// The scroll adjustments are calculated and applied when the change is processed
+    ScrollIntoView {
+        node_id: DomNodeId,
+        options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
+    },
 
     // Image Cache Management
     /// Add an image to the image cache
@@ -1009,6 +1015,32 @@ impl CallbackInfo {
             dom_id,
             node_id,
             position,
+        });
+    }
+
+    /// Scroll a node into view (W3C scrollIntoView API)
+    ///
+    /// Scrolls the element into the visible area of its scroll container.
+    /// This is the recommended way to programmatically scroll elements into view.
+    ///
+    /// # Arguments
+    ///
+    /// * `node_id` - The node to scroll into view
+    /// * `options` - Scroll alignment and animation options
+    ///
+    /// # Note
+    ///
+    /// This uses the transactional change system - the scroll is queued and applied
+    /// after the callback returns. The actual scroll adjustments are calculated
+    /// during change processing.
+    pub fn scroll_node_into_view(
+        &mut self,
+        node_id: DomNodeId,
+        options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
+    ) {
+        self.push_change(CallbackChange::ScrollIntoView {
+            node_id,
+            options,
         });
     }
 

@@ -1265,6 +1265,60 @@ impl LayoutWindow {
         nested
     }
 
+    // Scroll Into View
+    
+    /// Scroll a DOM node into view
+    ///
+    /// This is the main API for scrolling elements into view. It handles:
+    /// - Finding scroll ancestors
+    /// - Calculating scroll deltas
+    /// - Applying scroll animations
+    ///
+    /// # Arguments
+    ///
+    /// * `node_id` - The DOM node to scroll into view
+    /// * `options` - Scroll alignment and animation options
+    /// * `now` - Current timestamp for animations
+    ///
+    /// # Returns
+    ///
+    /// A vector of scroll adjustments that were applied
+    pub fn scroll_node_into_view(
+        &mut self,
+        node_id: DomNodeId,
+        options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
+        now: azul_core::task::Instant,
+    ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
+        crate::managers::scroll_into_view::scroll_node_into_view(
+            node_id,
+            &self.layout_results,
+            &mut self.scroll_manager,
+            options,
+            now,
+        )
+    }
+    
+    /// Scroll a text cursor into view
+    ///
+    /// Used when the cursor moves within a contenteditable element.
+    /// The cursor rect should be in node-local coordinates.
+    pub fn scroll_cursor_into_view(
+        &mut self,
+        cursor_rect: LogicalRect,
+        node_id: DomNodeId,
+        options: crate::managers::scroll_into_view::ScrollIntoViewOptions,
+        now: azul_core::task::Instant,
+    ) -> Vec<crate::managers::scroll_into_view::ScrollAdjustment> {
+        crate::managers::scroll_into_view::scroll_cursor_into_view(
+            cursor_rect,
+            node_id,
+            &self.layout_results,
+            &mut self.scroll_manager,
+            options,
+            now,
+        )
+    }
+
     // Timer Management
 
     /// Add a timer to this window
@@ -1504,6 +1558,34 @@ impl LayoutWindow {
                         .entry(dom_id)
                         .or_insert_with(BTreeMap::new)
                         .insert(node_id, position);
+                }
+                CallbackChange::ScrollIntoView { node_id, options } => {
+                    // Use the scroll_into_view module to calculate and apply scroll adjustments
+                    use crate::managers::scroll_into_view;
+                    let now = azul_core::task::Instant::now();
+                    let adjustments = scroll_into_view::scroll_node_into_view(
+                        node_id,
+                        &self.layout_results,
+                        &mut self.scroll_manager,
+                        options,
+                        now,
+                    );
+                    // Record the scroll changes in nodes_scrolled
+                    // The scroll_manager was already updated by scroll_node_into_view,
+                    // but we need to report the new absolute positions for event processing
+                    for adj in adjustments {
+                        // Get the current scroll position from scroll_manager (now updated)
+                        let current_pos = self.scroll_manager
+                            .get_current_offset(adj.scroll_container_dom_id, adj.scroll_container_node_id)
+                            .unwrap_or(LogicalPosition::zero());
+                        
+                        let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(adj.scroll_container_node_id));
+                        result
+                            .nodes_scrolled
+                            .entry(adj.scroll_container_dom_id)
+                            .or_insert_with(BTreeMap::new)
+                            .insert(hierarchy_id, current_pos);
+                    }
                 }
                 CallbackChange::AddImageToCache { id, image } => {
                     image_cache.add_css_image_id(id, image);

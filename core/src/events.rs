@@ -176,6 +176,109 @@ pub enum ScrollDirection {
     Right,
 }
 
+// ============================================================================
+// W3C CSSOM View Module - Scroll Into View Types
+// ============================================================================
+
+/// W3C-compliant scroll-into-view options
+///
+/// These options control how an element is scrolled into view, following
+/// the CSSOM View Module specification.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct ScrollIntoViewOptions {
+    /// Vertical alignment: start, center, end, nearest (default: nearest)
+    pub block: ScrollLogicalPosition,
+    /// Horizontal alignment: start, center, end, nearest (default: nearest)
+    pub inline: ScrollLogicalPosition,
+    /// Animation behavior: auto, instant, smooth (default: auto)
+    pub behavior: ScrollIntoViewBehavior,
+}
+
+impl ScrollIntoViewOptions {
+    /// Create options with "nearest" alignment for both axes
+    pub fn nearest() -> Self {
+        Self {
+            block: ScrollLogicalPosition::Nearest,
+            inline: ScrollLogicalPosition::Nearest,
+            behavior: ScrollIntoViewBehavior::Auto,
+        }
+    }
+    
+    /// Create options with "center" alignment for both axes
+    pub fn center() -> Self {
+        Self {
+            block: ScrollLogicalPosition::Center,
+            inline: ScrollLogicalPosition::Center,
+            behavior: ScrollIntoViewBehavior::Auto,
+        }
+    }
+    
+    /// Create options with "start" alignment for both axes
+    pub fn start() -> Self {
+        Self {
+            block: ScrollLogicalPosition::Start,
+            inline: ScrollLogicalPosition::Start,
+            behavior: ScrollIntoViewBehavior::Auto,
+        }
+    }
+    
+    /// Create options to align the end of the target with the end of the viewport
+    pub fn end() -> Self {
+        Self {
+            block: ScrollLogicalPosition::End,
+            inline: ScrollLogicalPosition::End,
+            behavior: ScrollIntoViewBehavior::Auto,
+        }
+    }
+    
+    /// Set instant scroll behavior
+    pub fn with_instant(mut self) -> Self {
+        self.behavior = ScrollIntoViewBehavior::Instant;
+        self
+    }
+    
+    /// Set smooth scroll behavior
+    pub fn with_smooth(mut self) -> Self {
+        self.behavior = ScrollIntoViewBehavior::Smooth;
+        self
+    }
+}
+
+/// Scroll alignment for vertical (block) or horizontal (inline) axis
+///
+/// Determines where the target element should be positioned within
+/// the scroll container's visible area.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub enum ScrollLogicalPosition {
+    /// Align target's start edge with container's start edge
+    Start,
+    /// Center target within container
+    Center,
+    /// Align target's end edge with container's end edge
+    End,
+    /// Minimum scroll distance to make target fully visible (default)
+    #[default]
+    Nearest,
+}
+
+/// Scroll animation behavior for scrollIntoView API
+///
+/// This is distinct from the CSS `scroll-behavior` property, as it also
+/// supports the `Instant` option which CSS does not have.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub enum ScrollIntoViewBehavior {
+    /// Respect CSS scroll-behavior property (default)
+    #[default]
+    Auto,
+    /// Immediate jump without animation
+    Instant,
+    /// Animated smooth scroll
+    Smooth,
+}
+
 /// Reason why a lifecycle event was triggered.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
