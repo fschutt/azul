@@ -227,8 +227,20 @@ pub fn regenerate_layout(
             if let Some(ref scrollbar_info) = node.scrollbar_info {
                 if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
                     if let Some(dom_node_id) = node.dom_node_id {
-                        // Get container size from used_size
-                        let container_size = node.used_size.unwrap_or_default();
+                        // Get container size from used_size (border-box)
+                        // Convert to content-box by subtracting padding and border
+                        // This is critical: content_size is content-box, so container must match
+                        let border_box_size = node.used_size.unwrap_or_default();
+                        let padding = &node.box_props.padding;
+                        let border = &node.box_props.border;
+                        let container_size = azul_core::geom::LogicalSize {
+                            width: (border_box_size.width 
+                                    - padding.left - padding.right
+                                    - border.left - border.right).max(0.0),
+                            height: (border_box_size.height 
+                                     - padding.top - padding.bottom
+                                     - border.top - border.bottom).max(0.0),
+                        };
                         
                         // Get absolute position from calculated_positions map
                         // IMPORTANT: container_rect must use absolute window coordinates,
