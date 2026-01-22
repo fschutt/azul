@@ -2394,6 +2394,10 @@ fn process_debug_event(
             delta_x,
             delta_y,
         } => {
+            use azul_core::dom::DomId;
+            use azul_core::id::NodeId;
+            use azul_core::styled_dom::NodeHierarchyItemId;
+
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
@@ -2404,12 +2408,76 @@ fn process_debug_event(
                 None,
             );
 
-            // Scroll events are handled differently - just move cursor and log for now
-            // TODO: Implement scroll state modification when available
+            // Update cursor position
             let mut new_state = callback_info.get_current_window_state().clone();
             new_state.mouse_state.cursor_position =
                 azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
             callback_info.modify_window_state(new_state);
+
+            // Find scrollable node that contains the point (x, y)
+            // We iterate through scroll manager states and check if the point is inside
+            let layout_window = callback_info.get_layout_window();
+            let cursor_pos = LogicalPosition { x: *x, y: *y };
+            
+            let mut scroll_node: Option<(DomId, NodeId)> = None;
+            for (dom_id, layout_result) in &layout_window.layout_results {
+                for (scroll_id, &node_id) in &layout_result.scroll_id_to_node_id {
+                    // Get node bounds from layout tree
+                    if let Some(layout_indices) = layout_result.layout_tree.dom_to_layout.get(&node_id) {
+                        if let Some(&layout_idx) = layout_indices.first() {
+                            if let Some(layout_node) = layout_result.layout_tree.get(layout_idx) {
+                                let node_pos = layout_result
+                                    .calculated_positions
+                                    .get(&layout_idx)
+                                    .copied()
+                                    .unwrap_or_default();
+                                let node_size = layout_node.used_size.unwrap_or_default();
+                                
+                                // Check if cursor is inside this node
+                                if cursor_pos.x >= node_pos.x
+                                    && cursor_pos.x <= node_pos.x + node_size.width
+                                    && cursor_pos.y >= node_pos.y
+                                    && cursor_pos.y <= node_pos.y + node_size.height
+                                {
+                                    scroll_node = Some((*dom_id, node_id));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if scroll_node.is_some() {
+                    break;
+                }
+            }
+
+            if let Some((dom_id, node_id)) = scroll_node {
+                let current = callback_info
+                    .get_scroll_offset_for_node(dom_id, node_id)
+                    .unwrap_or(LogicalPosition { x: 0.0, y: 0.0 });
+                let new_pos = LogicalPosition {
+                    x: current.x + *delta_x,
+                    y: current.y + *delta_y,
+                };
+                let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
+                callback_info.scroll_to(dom_id, hierarchy_id, new_pos);
+                log(
+                    LogLevel::Debug,
+                    LogCategory::EventLoop,
+                    format!(
+                        "Scrolled node {:?}/{:?} from ({:.1}, {:.1}) to ({:.1}, {:.1})",
+                        dom_id, node_id, current.x, current.y, new_pos.x, new_pos.y
+                    ),
+                    None,
+                );
+            } else {
+                log(
+                    LogLevel::Debug,
+                    LogCategory::EventLoop,
+                    format!("No scrollable node found at ({}, {})", x, y),
+                    None,
+                );
+            }
             needs_update = true;
 
             send_ok(request, None, None);
