@@ -1822,10 +1822,26 @@ where
         Ok(())
     }
 
-    /// Calculates the final paint-time rectangle for a node, accounting for parent scroll offsets.
+    /// Calculates the final paint-time rectangle for a node.
+    /// 
+    /// ## Coordinate Space
+    /// 
+    /// Returns the node's position in **absolute window coordinates** (logical pixels).
+    /// This is the coordinate space used throughout the display list:
+    /// 
+    /// - Origin: Top-left corner of the window
+    /// - Units: Logical pixels (HiDPI scaling happens in compositor2.rs)
+    /// - Scroll: NOT applied here - WebRender scroll frames handle scroll offset
+    ///   transformation internally via `define_scroll_frame()`
+    /// 
+    /// ## Important
+    /// 
+    /// Do NOT manually subtract scroll offset here! WebRender's scroll spatial
+    /// transforms handle this. Subtracting here would cause double-offset and
+    /// parallax effects (backgrounds and text moving at different speeds).
     fn get_paint_rect(&self, node_index: usize) -> Option<LogicalRect> {
         let node = self.positioned_tree.tree.get(node_index)?;
-        let mut pos = self
+        let pos = self
             .positioned_tree
             .calculated_positions
             .get(&node_index)
@@ -1833,17 +1849,9 @@ where
             .unwrap_or_default();
         let size = node.used_size.unwrap_or_default();
 
-        // Apply scroll offset from parent if present
-        let scroll_offset = node
-            .parent
-            .and_then(|parent_idx| self.positioned_tree.tree.get(parent_idx))
-            .and_then(|p| p.dom_node_id)
-            .and_then(|parent_dom_id| self.scroll_offsets.get(&parent_dom_id));
-
-        if let Some(scroll) = scroll_offset {
-            pos.x -= scroll.children_rect.origin.x;
-            pos.y -= scroll.children_rect.origin.y;
-        }
+        // NOTE: Scroll offset is NOT applied here!
+        // WebRender scroll frames handle scroll transformation.
+        // See compositor2.rs PushScrollFrame for details.
 
         Some(LogicalRect::new(pos, size))
     }
