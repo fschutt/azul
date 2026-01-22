@@ -1606,6 +1606,11 @@ pub fn generate_frame(
 pub fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
     use webrender::api::{units::LayoutVector2D as WrLayoutVector2D, SampledScrollOffset};
 
+    // Get HiDPI factor for scaling scroll offsets
+    // Display list coordinates are in physical pixels (scaled by DPI), so scroll
+    // offsets must also be scaled to match.
+    let hidpi_factor = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
+
     // Iterate through all DOMs
     for (dom_id, layout_result) in &layout_window.layout_results {
         let pipeline_id = PipelineId(dom_id.inner as u32, layout_window.document_id.id);
@@ -1633,9 +1638,10 @@ pub fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
             );
 
             // Calculate scroll offset (origin of children_rect within parent_rect)
+            // Scale by HiDPI factor to match physical pixel coordinates in display list
             let scroll_offset = WrLayoutVector2D::new(
-                scroll_position.children_rect.origin.x,
-                scroll_position.children_rect.origin.y,
+                scroll_position.children_rect.origin.x * hidpi_factor,
+                scroll_position.children_rect.origin.y * hidpi_factor,
             );
 
             // WebRender expects scroll offsets as sampled offsets
