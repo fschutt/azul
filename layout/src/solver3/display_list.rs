@@ -2380,6 +2380,22 @@ where
             let hit_id = node_id
                 .map(|nid| azul_core::hit_test::ScrollbarHitId::VerticalThumb(self.dom_id, nid));
 
+            // Add page-scroll buttons at top/bottom of scrollbar track (green for debug)
+            let button_size = scrollbar_style.width_px;
+            let button_decrement_bounds = Some(LogicalRect {
+                origin: LogicalPosition::new(track_bounds.origin.x, track_bounds.origin.y),
+                size: LogicalSize::new(button_size, button_size),
+            });
+            let button_increment_bounds = Some(LogicalRect {
+                origin: LogicalPosition::new(
+                    track_bounds.origin.x,
+                    track_bounds.origin.y + track_height - button_size,
+                ),
+                size: LogicalSize::new(button_size, button_size),
+            });
+            // Light green color for debug visibility
+            let debug_button_color = ColorU { r: 144, g: 238, b: 144, a: 255 };
+
             builder.push_scrollbar_styled(ScrollbarDrawInfo {
                 bounds: track_bounds,
                 orientation: ScrollbarOrientation::Vertical,
@@ -2388,9 +2404,9 @@ where
                 thumb_bounds,
                 thumb_color: scrollbar_style.thumb_color,
                 thumb_border_radius,
-                button_decrement_bounds: None, // No buttons for modern scrollbars
-                button_increment_bounds: None,
-                button_color: scrollbar_style.button_color,
+                button_decrement_bounds,
+                button_increment_bounds,
+                button_color: debug_button_color,
                 opacity_key,
                 hit_id,
                 clip_to_container_border: scrollbar_style.clip_to_container_border,
@@ -2435,8 +2451,8 @@ where
             } else {
                 0.0
             };
-            let thumb_x =
-                track_bounds.origin.x + (track_width - thumb_width) * scroll_ratio.clamp(0.0, 1.0);
+            let thumb_x = track_bounds.origin.x
+                + (track_width - thumb_width) * scroll_ratio.clamp(0.0, 1.0);
 
             let thumb_bounds = LogicalRect {
                 origin: LogicalPosition::new(thumb_x, track_bounds.origin.y),
@@ -2447,6 +2463,22 @@ where
             let hit_id = node_id
                 .map(|nid| azul_core::hit_test::ScrollbarHitId::HorizontalThumb(self.dom_id, nid));
 
+            // Add page-scroll buttons at left/right of scrollbar track (green for debug)
+            let button_size = scrollbar_style.width_px;
+            let button_decrement_bounds = Some(LogicalRect {
+                origin: LogicalPosition::new(track_bounds.origin.x, track_bounds.origin.y),
+                size: LogicalSize::new(button_size, button_size),
+            });
+            let button_increment_bounds = Some(LogicalRect {
+                origin: LogicalPosition::new(
+                    track_bounds.origin.x + track_width - button_size,
+                    track_bounds.origin.y,
+                ),
+                size: LogicalSize::new(button_size, button_size),
+            });
+            // Light green color for debug visibility
+            let debug_button_color = ColorU { r: 144, g: 238, b: 144, a: 255 };
+
             builder.push_scrollbar_styled(ScrollbarDrawInfo {
                 bounds: track_bounds,
                 orientation: ScrollbarOrientation::Horizontal,
@@ -2455,9 +2487,9 @@ where
                 thumb_bounds,
                 thumb_color: scrollbar_style.thumb_color,
                 thumb_border_radius,
-                button_decrement_bounds: None,
-                button_increment_bounds: None,
-                button_color: scrollbar_style.button_color,
+                button_decrement_bounds,
+                button_increment_bounds,
+                button_color: debug_button_color,
                 opacity_key,
                 hit_id,
                 clip_to_container_border: scrollbar_style.clip_to_container_border,

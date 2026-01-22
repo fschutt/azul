@@ -335,7 +335,7 @@ impl MacOSWindow {
                 use azul_layout::managers::hover::InputPointId;
 
                 let now = Instant::from(std::time::Instant::now());
-                let _scroll_node = layout_window.scroll_manager.record_sample(
+                let _scroll_result = layout_window.scroll_manager.record_sample(
                     -delta_x as f32, // Invert for natural scrolling
                     -delta_y as f32,
                     &layout_window.hover_manager,
