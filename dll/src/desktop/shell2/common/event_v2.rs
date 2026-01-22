@@ -1253,19 +1253,13 @@ pub trait PlatformWindowV2 {
         {
             if let Some(layout_window) = self.get_layout_window_mut() {
                 // Extract first hit from current state (the hovered DOM node)
-                let hit_test_clone = hit_test_for_dispatch.as_ref().and_then(|ht| {
+                // NOTE: With the unified DragContext system, hit tests are stored
+                // directly in the DragContext when the drag is activated.
+                // No need for separate update_*_hit_test() calls.
+                let _hit_test_clone = hit_test_for_dispatch.as_ref().and_then(|ht| {
                     // Get first hovered node's hit test
                     ht.hovered_nodes.values().next().cloned()
                 });
-
-                // Store hit test in gesture manager for query access
-                // Both node and window drags can use this
-                layout_window
-                    .gesture_drag_manager
-                    .update_node_drag_hit_test(hit_test_clone.clone());
-                layout_window
-                    .gesture_drag_manager
-                    .update_window_drag_hit_test(hit_test_clone);
             }
         }
 

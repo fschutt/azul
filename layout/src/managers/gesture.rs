@@ -2,6 +2,16 @@
 //!
 //! Collects input samples, detects drags, double-clicks, long presses, swipes,
 //! pinch/rotate gestures, and manages drag state for nodes, windows, and file drops.
+//!
+//! ## Unified Drag System
+//!
+//! This module uses the `DragContext` from `azul_core::drag` to provide a unified
+//! interface for all drag operations:
+//! - Text selection drag
+//! - Scrollbar thumb drag
+//! - Node drag-and-drop
+//! - Window drag/resize
+//! - File drop from OS
 
 use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 #[cfg(feature = "std")]
@@ -9,13 +19,26 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use azul_core::{
     dom::{DomId, NodeId, OptionDomNodeId},
+    drag::{
+        ActiveDragType, AutoScrollDirection, DragContext, DragData, DragEffect, DropEffect,
+        FileDropDrag, NodeDrag, ScrollbarAxis, ScrollbarThumbDrag, TextSelectionDrag,
+        WindowMoveDrag, WindowResizeDrag, WindowResizeEdge,
+    },
     geom::{LogicalPosition, PhysicalPositionI32},
     hit_test::HitTest,
+    selection::TextCursor,
     task::{Duration as CoreDuration, Instant as CoreInstant},
     window::WindowPosition,
 };
 use azul_css::AzString;
 use azul_css::{impl_option, impl_option_inner, StringVec};
+
+// Re-export drag types for convenience
+pub use azul_core::drag::{
+    ActiveDragType as DragType, AutoScrollDirection as AutoScroll, DragContext as UnifiedDragContext,
+    DragData as UnifiedDragData, DragEffect as UnifiedDragEffect, DropEffect as UnifiedDropEffect,
+    ScrollbarAxis as ScrollAxis, ScrollbarThumbDrag as ScrollbarDrag,
+};
 
 #[cfg(feature = "std")]
 static NEXT_EVENT_ID: AtomicU64 = AtomicU64::new(1);
@@ -270,55 +293,21 @@ pub struct DetectedRotation {
     pub duration_ms: u64,
 }
 
+// NOTE: NodeDragState, WindowDragState, FileDropState, DropEffect, DragData, DragEffect
+// are now defined in azul_core::drag and imported above.
+// The old types are kept as type aliases for backwards compatibility.
+
 /// State of an active node drag (after detection)
-#[derive(Debug, Clone, PartialEq)]
-pub struct NodeDragState {
-    /// DOM ID of the node being dragged
-    pub dom_id: DomId,
-    /// Node ID being dragged
-    pub node_id: NodeId,
-    /// Position where drag started
-    pub start_position: LogicalPosition,
-    /// Current drag position
-    pub current_position: LogicalPosition,
-    /// Optional: DOM node currently under cursor (drop target)
-    pub current_drop_target: Option<(DomId, NodeId)>,
-    /// Hit-test result at drag start (to track what's under cursor during drag)
-    pub start_hit_test: Option<HitTest>,
-    /// Drag data (MIME types and content)
-    pub drag_data: DragData,
-    /// Session ID this drag was promoted from
-    pub session_id: u64,
-}
+/// DEPRECATED: Use `DragContext` with `ActiveDragType::Node` instead.
+pub type NodeDragState = NodeDrag;
 
 /// State of window being dragged (titlebar drag)
-#[derive(Debug, Clone, PartialEq)]
-pub struct WindowDragState {
-    /// Position where window drag started
-    pub start_position: LogicalPosition,
-    /// Current drag position
-    pub current_position: LogicalPosition,
-    /// Initial window position before drag
-    pub initial_window_position: WindowPosition,
-    /// Hit-test result at drag start (e.g., to verify we're still on titlebar)
-    pub start_hit_test: Option<HitTest>,
-    /// Session ID this drag was promoted from
-    pub session_id: u64,
-}
+/// DEPRECATED: Use `DragContext` with `ActiveDragType::WindowMove` instead.
+pub type WindowDragState = WindowMoveDrag;
 
 /// State of file(s) being dragged from OS over the window
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C)]
-pub struct FileDropState {
-    /// Files being dragged (as string paths)
-    pub files: StringVec,
-    /// Current position of drag cursor
-    pub position: LogicalPosition,
-    /// DOM node under cursor (potential drop target)
-    pub drop_target: OptionDomNodeId,
-    /// Allowed drop effect
-    pub drop_effect: DropEffect,
-}
+/// DEPRECATED: Use `DragContext` with `ActiveDragType::FileDrop` instead.
+pub type FileDropState = FileDropDrag;
 
 /// State of pen/stylus input
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -359,101 +348,27 @@ impl Default for PenState {
     }
 }
 
-/// Drop effect (what happens when dropped)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(C)]
-pub enum DropEffect {
-    /// No effect
-    None,
-    /// Copy the data
-    Copy,
-    /// Move the data
-    Move,
-    /// Create link
-    Link,
-}
-
-/// Drag data (like HTML5 DataTransfer)
-#[derive(Debug, Clone, PartialEq)]
-pub struct DragData {
-    /// MIME type -> data mapping
-    ///
-    /// e.g., "text/plain" -> "Hello World"
-    pub data: BTreeMap<AzString, Vec<u8>>,
-    /// Allowed drag operations
-    pub effect_allowed: DragEffect,
-}
-
-/// Drag/drop effect (like HTML5 dropEffect)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DragEffect {
-    /// No drop allowed
-    None,
-    /// Copy operation
-    Copy,
-    /// Move operation
-    Move,
-    /// Link/shortcut operation
-    Link,
-}
-
-impl Default for DragData {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl DragData {
-    /// Create new empty drag data
-    pub fn new() -> Self {
-        Self {
-            data: BTreeMap::new(),
-            effect_allowed: DragEffect::Copy,
-        }
-    }
-
-    /// Set data for a MIME type
-    pub fn set_data(&mut self, mime_type: impl Into<azul_css::AzString>, data: Vec<u8>) {
-        self.data.insert(mime_type.into(), data);
-    }
-
-    /// Get data for a MIME type
-    pub fn get_data(&self, mime_type: &str) -> Option<&[u8]> {
-        self.data
-            .get(&azul_css::AzString::from(mime_type))
-            .map(|v| v.as_slice())
-    }
-
-    /// Set plain text data
-    pub fn set_text(&mut self, text: impl Into<azul_css::AzString>) {
-        let text_str = text.into();
-        self.set_data("text/plain", text_str.as_str().as_bytes().to_vec());
-    }
-
-    /// Get plain text data
-    pub fn get_text(&self) -> Option<azul_css::AzString> {
-        self.get_data("text/plain")
-            .map(|bytes| azul_css::AzString::from(core::str::from_utf8(bytes).unwrap_or("")))
-    }
-}
-
 /// Manager for multi-frame gestures and drag operations
 ///
 /// This collects raw input samples and analyzes them to detect gestures.
 /// Designed for testability and clear separation of input collection
 /// vs. detection.
+///
+/// ## Unified Drag System
+///
+/// The manager now uses `DragContext` to unify all drag types:
+/// - `active_drag`: The unified drag context (replaces individual drag states)
+///
+/// For backwards compatibility, the old `node_drag`, `window_drag`, `file_drop`
+/// fields are still accessible but deprecated.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GestureAndDragManager {
     /// Configuration for gesture detection
     pub config: GestureDetectionConfig,
     /// All recorded input sessions (multiple button press sequences)
     pub input_sessions: Vec<InputSession>,
-    /// Current active node drag state (after promotion from detected drag)
-    pub node_drag: Option<NodeDragState>,
-    /// Current window drag state (titlebar drag)
-    pub window_drag: Option<WindowDragState>,
-    /// Current file drag/drop state (from OS)
-    pub file_drop: Option<FileDropState>,
+    /// **NEW**: Unified drag context for all drag types
+    pub active_drag: Option<DragContext>,
     /// Current pen/stylus state
     pub pen_state: Option<PenState>,
     /// Session IDs where long press callback has been invoked
@@ -461,6 +376,9 @@ pub struct GestureAndDragManager {
     /// Counter for generating unique session IDs
     next_session_id: u64,
 }
+
+/// Type alias for backwards compatibility
+pub type GestureManager = GestureAndDragManager;
 
 impl Default for GestureAndDragManager {
     fn default() -> Self {
@@ -475,9 +393,7 @@ impl GestureAndDragManager {
             config: GestureDetectionConfig::default(),
             input_sessions: Vec::new(),
             next_session_id: 1,
-            node_drag: None,
-            window_drag: None,
-            file_drop: None,
+            active_drag: None,
             pen_state: None,
             long_press_callbacks_invoked: Vec::new(),
         }
@@ -1011,150 +927,187 @@ impl GestureAndDragManager {
             .map(|sample| sample.position)
     }
 
-    // Active State Management (promote detected gestures to active state)
+    // ========================================================================
+    // UNIFIED DRAG CONTEXT API (NEW)
+    // ========================================================================
 
-    /// Promote detected drag to active node drag
-    ///
-    /// Call this after detect_drag() returns Some and you've determined
-    /// which DOM node is being dragged.
+    /// Get the active drag context (if any)
+    pub fn get_drag_context(&self) -> Option<&DragContext> {
+        self.active_drag.as_ref()
+    }
+
+    /// Get the active drag context mutably (if any)
+    pub fn get_drag_context_mut(&mut self) -> Option<&mut DragContext> {
+        self.active_drag.as_mut()
+    }
+
+    /// Activate a text selection drag
+    pub fn activate_text_selection_drag(
+        &mut self,
+        dom_id: DomId,
+        anchor_ifc_node: NodeId,
+        start_mouse_position: LogicalPosition,
+    ) {
+        let session_id = self.current_session_id().unwrap_or(0);
+        self.active_drag = Some(DragContext::text_selection(
+            dom_id,
+            anchor_ifc_node,
+            start_mouse_position,
+            session_id,
+        ));
+    }
+
+    /// Activate a scrollbar thumb drag
+    pub fn activate_scrollbar_drag(
+        &mut self,
+        scroll_container_node: NodeId,
+        axis: ScrollbarAxis,
+        start_mouse_position: LogicalPosition,
+        start_scroll_offset: f32,
+        track_length_px: f32,
+        content_length_px: f32,
+        viewport_length_px: f32,
+    ) {
+        let session_id = self.current_session_id().unwrap_or(0);
+        self.active_drag = Some(DragContext::scrollbar_thumb(
+            scroll_container_node,
+            axis,
+            start_mouse_position,
+            start_scroll_offset,
+            track_length_px,
+            content_length_px,
+            viewport_length_px,
+            session_id,
+        ));
+    }
+
+    /// Activate a node drag-and-drop
     pub fn activate_node_drag(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
         drag_data: DragData,
-        start_hit_test: Option<HitTest>,
+        _start_hit_test: Option<HitTest>,
     ) {
         if let Some(detected) = self.detect_drag() {
-            self.node_drag = Some(NodeDragState {
+            self.active_drag = Some(DragContext::node_drag(
                 dom_id,
                 node_id,
-                start_position: detected.start_position,
-                current_position: detected.current_position,
-                current_drop_target: None,
-                start_hit_test,
+                detected.start_position,
                 drag_data,
-                session_id: detected.session_id,
-            });
+                detected.session_id,
+            ));
         }
     }
 
-    /// Promote detected drag to window drag (titlebar)
+    /// Activate a window move drag (titlebar)
     pub fn activate_window_drag(
         &mut self,
         initial_window_position: WindowPosition,
-        start_hit_test: Option<HitTest>,
+        _start_hit_test: Option<HitTest>,
     ) {
         if let Some(detected) = self.detect_drag() {
-            self.window_drag = Some(WindowDragState {
-                start_position: detected.start_position,
-                current_position: detected.current_position,
+            self.active_drag = Some(DragContext::window_move(
+                detected.start_position,
                 initial_window_position,
-                start_hit_test,
-                session_id: detected.session_id,
-            });
+                detected.session_id,
+            ));
         }
-    }
-
-    /// Update positions for active drags (call on mouse move)
-    pub fn update_active_drag_positions(&mut self, position: LogicalPosition) {
-        if let Some(ref mut node_drag) = self.node_drag {
-            node_drag.current_position = position;
-        }
-
-        if let Some(ref mut window_drag) = self.window_drag {
-            window_drag.current_position = position;
-        }
-
-        if let Some(ref mut file_drop) = self.file_drop {
-            file_drop.position = position;
-        }
-    }
-
-    /// Update drop target for node drag
-    pub fn update_node_drag_target(&mut self, target: Option<(DomId, NodeId)>) {
-        if let Some(ref mut node_drag) = self.node_drag {
-            node_drag.current_drop_target = target;
-        }
-    }
-
-    /// Update hit-test for active node drag
-    pub fn update_node_drag_hit_test(&mut self, hit_test: Option<HitTest>) {
-        if let Some(ref mut node_drag) = self.node_drag {
-            node_drag.start_hit_test = hit_test;
-        }
-    }
-
-    /// Update drop target for file drop
-    pub fn update_file_drop_target(&mut self, target: Option<azul_core::dom::DomNodeId>) {
-        if let Some(ref mut file_drop) = self.file_drop {
-            file_drop.drop_target = target.into();
-        }
-    }
-
-    /// Update hit-test for active window drag
-    pub fn update_window_drag_hit_test(&mut self, hit_test: Option<HitTest>) {
-        if let Some(ref mut window_drag) = self.window_drag {
-            window_drag.start_hit_test = hit_test;
-        }
-    }
-
-    /// End node drag (returns final state for drop event generation)
-    pub fn end_node_drag(&mut self) -> Option<NodeDragState> {
-        self.node_drag.take()
-    }
-
-    /// End window drag
-    pub fn end_window_drag(&mut self) -> Option<WindowDragState> {
-        self.window_drag.take()
     }
 
     /// Start file drop from OS
-    pub fn start_file_drop(&mut self, files: Vec<azul_css::AzString>, position: LogicalPosition) {
-        self.file_drop = Some(FileDropState {
-            files: files.into(),
-            position,
-            drop_target: OptionDomNodeId::None,
-            drop_effect: DropEffect::Copy,
-        });
+    pub fn start_file_drop(&mut self, files: Vec<AzString>, position: LogicalPosition) {
+        let session_id = self.current_session_id().unwrap_or(0);
+        self.active_drag = Some(DragContext::file_drop(files, position, session_id));
     }
 
-    /// End file drop (returns final state for file handling)
-    pub fn end_file_drop(&mut self) -> Option<FileDropState> {
-        self.file_drop.take()
+    /// Update positions for active drag (call on mouse move)
+    pub fn update_active_drag_positions(&mut self, position: LogicalPosition) {
+        if let Some(ref mut drag) = self.active_drag {
+            drag.update_position(position);
+        }
     }
 
-    /// Cancel file drop (drag left window)
-    pub fn cancel_file_drop(&mut self) {
-        self.file_drop = None;
+    /// Update drop target for node or file drag
+    pub fn update_drop_target(&mut self, target: Option<azul_core::dom::DomNodeId>) {
+        if let Some(ref mut drag) = self.active_drag {
+            match &mut drag.drag_type {
+                ActiveDragType::Node(ref mut node_drag) => {
+                    node_drag.current_drop_target = target.into();
+                }
+                ActiveDragType::FileDrop(ref mut file_drop) => {
+                    file_drop.drop_target = target.into();
+                }
+                _ => {}
+            }
+        }
     }
 
-    // Query Methods (read-only access for callbacks)
+    /// Update auto-scroll direction for text selection drag
+    pub fn update_auto_scroll_direction(&mut self, direction: AutoScrollDirection) {
+        if let Some(ref mut drag) = self.active_drag {
+            if let Some(text_drag) = drag.as_text_selection_mut() {
+                text_drag.auto_scroll_direction = direction;
+            }
+        }
+    }
+
+    /// End the current drag and return the context
+    pub fn end_drag(&mut self) -> Option<DragContext> {
+        self.active_drag.take()
+    }
+
+    /// Cancel the current drag
+    pub fn cancel_drag(&mut self) {
+        if let Some(ref mut drag) = self.active_drag {
+            drag.cancelled = true;
+        }
+        self.active_drag = None;
+    }
+
+    // ========================================================================
+    // QUERY METHODS
+    // ========================================================================
 
     /// Check if any drag operation is in progress
     pub fn is_dragging(&self) -> bool {
-        self.node_drag.is_some() || self.window_drag.is_some()
+        self.active_drag.is_some()
     }
 
-    /// Get current node drag state (if any)
-    pub fn get_node_drag(&self) -> Option<&NodeDragState> {
-        self.node_drag.as_ref()
+    /// Check if a text selection drag is active
+    pub fn is_text_selection_dragging(&self) -> bool {
+        self.active_drag.as_ref().is_some_and(|d| d.is_text_selection())
     }
 
-    /// Get current window drag state (if any)
-    pub fn get_window_drag(&self) -> Option<&WindowDragState> {
-        self.window_drag.as_ref()
+    /// Check if a scrollbar thumb drag is active
+    pub fn is_scrollbar_dragging(&self) -> bool {
+        self.active_drag.as_ref().is_some_and(|d| d.is_scrollbar_thumb())
     }
 
-    /// Get current file drop state (if any)
-    pub fn get_file_drop(&self) -> Option<&FileDropState> {
-        self.file_drop.as_ref()
+    /// Check if a node drag is active
+    pub fn is_node_dragging_any(&self) -> bool {
+        self.active_drag.as_ref().is_some_and(|d| d.is_node_drag())
     }
 
-    /// Check if a specific node is being dragged.
+    /// Check if a specific node is being dragged
     pub fn is_node_dragging(&self, dom_id: DomId, node_id: NodeId) -> bool {
-        self.node_drag
-            .as_ref()
-            .is_some_and(|d| d.dom_id == dom_id && d.node_id == node_id)
+        self.active_drag.as_ref().is_some_and(|d| {
+            if let Some(node_drag) = d.as_node_drag() {
+                node_drag.dom_id == dom_id && node_drag.node_id == node_id
+            } else {
+                false
+            }
+        })
+    }
+
+    /// Check if window drag is active
+    pub fn is_window_dragging(&self) -> bool {
+        self.active_drag.as_ref().is_some_and(|d| d.is_window_move())
+    }
+
+    /// Check if file drop is active
+    pub fn is_file_dropping(&self) -> bool {
+        self.active_drag.as_ref().is_some_and(|d| d.is_file_drop())
     }
 
     /// Get number of active input sessions
@@ -1167,21 +1120,82 @@ impl GestureAndDragManager {
         self.get_current_session().map(|s| s.session_id)
     }
 
-    // Window Drag Helper Methods
+    // ========================================================================
+    // BACKWARDS COMPATIBILITY (DEPRECATED)
+    // ========================================================================
+
+    /// Get current node drag state (if any)
+    /// DEPRECATED: Use `get_drag_context()` and check for `ActiveDragType::Node`
+    pub fn get_node_drag(&self) -> Option<&NodeDrag> {
+        self.active_drag.as_ref().and_then(|d| d.as_node_drag())
+    }
+
+    /// Get current window drag state (if any)
+    /// DEPRECATED: Use `get_drag_context()` and check for `ActiveDragType::WindowMove`
+    pub fn get_window_drag(&self) -> Option<&WindowMoveDrag> {
+        self.active_drag.as_ref().and_then(|d| d.as_window_move())
+    }
+
+    /// Get current file drop state (if any)
+    /// DEPRECATED: Use `get_drag_context()` and check for `ActiveDragType::FileDrop`
+    pub fn get_file_drop(&self) -> Option<&FileDropDrag> {
+        self.active_drag.as_ref().and_then(|d| d.as_file_drop())
+    }
+
+    /// End node drag (returns None - use end_drag() instead)
+    /// DEPRECATED: Use `end_drag()` instead
+    pub fn end_node_drag(&mut self) -> Option<DragContext> {
+        if self.active_drag.as_ref().is_some_and(|d| d.is_node_drag()) {
+            self.end_drag()
+        } else {
+            None
+        }
+    }
+
+    /// End window drag (returns None - use end_drag() instead)
+    /// DEPRECATED: Use `end_drag()` instead
+    pub fn end_window_drag(&mut self) -> Option<DragContext> {
+        if self.active_drag.as_ref().is_some_and(|d| d.is_window_move()) {
+            self.end_drag()
+        } else {
+            None
+        }
+    }
+
+    /// End file drop (returns None - use end_drag() instead)
+    /// DEPRECATED: Use `end_drag()` instead
+    pub fn end_file_drop(&mut self) -> Option<DragContext> {
+        if self.active_drag.as_ref().is_some_and(|d| d.is_file_drop()) {
+            self.end_drag()
+        } else {
+            None
+        }
+    }
+
+    /// Cancel file drop
+    /// DEPRECATED: Use `cancel_drag()` instead
+    pub fn cancel_file_drop(&mut self) {
+        if self.active_drag.as_ref().is_some_and(|d| d.is_file_drop()) {
+            self.cancel_drag();
+        }
+    }
+
+    // ========================================================================
+    // WINDOW DRAG HELPER METHODS
+    // ========================================================================
 
     /// Calculate window position delta from current drag state
     ///
     /// Returns (delta_x, delta_y) to apply to window position.
     /// Returns None if no window drag is active or drag hasn't moved.
     pub fn get_window_drag_delta(&self) -> Option<(i32, i32)> {
-        let drag = self.window_drag.as_ref()?;
+        let drag = self.active_drag.as_ref()?.as_window_move()?;
 
         let delta_x = drag.current_position.x - drag.start_position.x;
         let delta_y = drag.current_position.y - drag.start_position.y;
 
-        // Apply to initial window position
         match drag.initial_window_position {
-            WindowPosition::Initialized(initial_pos) => Some((delta_x as i32, delta_y as i32)),
+            WindowPosition::Initialized(_initial_pos) => Some((delta_x as i32, delta_y as i32)),
             _ => None,
         }
     }
@@ -1190,7 +1204,7 @@ impl GestureAndDragManager {
     ///
     /// Returns the absolute window position to set.
     pub fn get_window_position_from_drag(&self) -> Option<WindowPosition> {
-        let drag = self.window_drag.as_ref()?;
+        let drag = self.active_drag.as_ref()?.as_window_move()?;
 
         let delta_x = drag.current_position.x - drag.start_position.x;
         let delta_y = drag.current_position.y - drag.start_position.y;
@@ -1206,8 +1220,8 @@ impl GestureAndDragManager {
         }
     }
 
-    /// Check if window drag is active
-    pub fn is_window_dragging(&self) -> bool {
-        self.window_drag.is_some()
+    /// Calculate the new scroll offset for scrollbar thumb drag
+    pub fn get_scrollbar_scroll_offset(&self) -> Option<f32> {
+        self.active_drag.as_ref()?.calculate_scrollbar_scroll_offset()
     }
 }

@@ -5215,7 +5215,7 @@
                 "returns": {
                   "type": "OptionDragState"
                 },
-                "fn_body": "object.get_drag_state().cloned().into()"
+                "fn_body": "object.get_drag_state().into()"
               },
               "get_scroll_offset_for_node": {
                 "doc": [

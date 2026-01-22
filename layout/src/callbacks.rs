@@ -55,7 +55,7 @@ use crate::icu::{
 use crate::{
     hit_test::FullHitTest,
     managers::{
-        drag_drop::{DragDropManager, DragState, DragType},
+        drag_drop::DragDropManager,
         file_drop::FileDropManager,
         focus_cursor::FocusManager,
         gesture::{GestureAndDragManager, InputSample, PenState},
@@ -2590,9 +2590,18 @@ impl CallbackInfo {
 
     /// Get the current drag/drop state (if any)
     ///
-    /// Returns None if no drag is active, or Some with drag details.
-    pub fn get_drag_state(&self) -> Option<&DragState> {
+    /// Returns None if no drag is active, or Some with drag state.
+    /// Uses legacy DragState type for backwards compatibility.
+    pub fn get_drag_state(&self) -> Option<crate::managers::drag_drop::DragState> {
         self.get_layout_window().drag_drop_manager.get_drag_state()
+    }
+
+    /// Get the current drag context (if any)
+    ///
+    /// Returns None if no drag is active, or Some with drag context.
+    /// Prefer this over get_drag_state for new code.
+    pub fn get_drag_context(&self) -> Option<&azul_core::drag::DragContext> {
+        self.get_layout_window().drag_drop_manager.get_drag_context()
     }
 
     // Hover Manager Access
@@ -2643,26 +2652,25 @@ impl CallbackInfo {
     /// Get the node being dragged (if any)
     pub fn get_dragged_node(&self) -> Option<DomNodeId> {
         self.get_drag_drop_manager()
-            .get_drag_state()
-            .and_then(|state| {
-                if state.drag_type == DragType::Node {
-                    state.source_node.into_option()
-                } else {
-                    None
-                }
+            .get_drag_context()
+            .and_then(|ctx| {
+                ctx.as_node_drag().map(|node_drag| {
+                    DomNodeId {
+                        dom: node_drag.dom_id,
+                        node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_drag.node_id)),
+                    }
+                })
             })
     }
 
     /// Get the file path being dragged (if any)
     pub fn get_dragged_file(&self) -> Option<&AzString> {
         self.get_drag_drop_manager()
-            .get_drag_state()
-            .and_then(|state| {
-                if state.drag_type == DragType::File {
-                    state.file_path.as_ref()
-                } else {
-                    None
-                }
+            .get_drag_context()
+            .and_then(|ctx| {
+                ctx.as_file_drop().and_then(|file_drop| {
+                    file_drop.files.as_ref().first()
+                })
             })
     }
 
