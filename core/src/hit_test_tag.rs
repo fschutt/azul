@@ -61,8 +61,13 @@ pub const TAG_TYPE_SELECTION: u16 = 0x0300;
 /// without iterating over all DOM nodes. Cursor changes never require re-rendering.
 pub const TAG_TYPE_CURSOR: u16 = 0x0400;
 
+/// Marker for scroll container hit-test areas (for trackpad/wheel scrolling)
+/// These identify scrollable containers even when no DOM node callbacks are registered.
+/// Scroll containers push this tag so the scroll manager can find them during wheel events.
+pub const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;
+
 /// Reserved for future use (e.g., resize handles, drag-drop targets)
-pub const TAG_TYPE_RESERVED: u16 = 0x0500;
+pub const TAG_TYPE_RESERVED: u16 = 0x0600;
 
 // ============================================================================
 // Scrollbar Component Types (stored in lower byte of ItemTag.1 for scrollbar tags)

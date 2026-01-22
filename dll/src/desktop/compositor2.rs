@@ -861,6 +861,26 @@ pub fn translate_displaylist_to_wr(
 
                 clip_stack.push(scroll_clip_chain);
 
+                // Push a hit-test area for this scroll container so the scroll manager can find it
+                // during wheel/trackpad events. This uses TAG_TYPE_SCROLL_CONTAINER (0x0500).
+                // The tag encodes: tag.0 = scroll_id, tag.1 = 0x0500
+                const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;
+                let scroll_container_tag: ItemTag = (*scroll_id, TAG_TYPE_SCROLL_CONTAINER);
+                builder.push_hit_test(
+                    adjusted_frame_rect,
+                    scroll_clip_chain, // Use the scroll clip chain we just created
+                    parent_space,       // Push in parent space (stationary viewport)
+                    WrPrimitiveFlags::default(),
+                    scroll_container_tag,
+                );
+
+                log_debug!(
+                    LogCategory::DisplayList,
+                    "[compositor2] PushScrollFrame: pushed scroll container hit-test tag=({}, 0x{:04x})",
+                    scroll_id,
+                    TAG_TYPE_SCROLL_CONTAINER
+                );
+
                 log_debug!(
                     LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame DONE: spatial_stack.len={}, clip_stack.len={}",

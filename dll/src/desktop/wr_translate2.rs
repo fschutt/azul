@@ -517,8 +517,85 @@ pub fn fullhittest_new_webrender(
             const TAG_TYPE_DOM_NODE: u16 = 0x0100;
             const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
             const TAG_TYPE_CURSOR: u16 = 0x0400;
+            const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;
 
-            // First pass: Process cursor tags (TAG_TYPE_CURSOR = 0x0400)
+            // First pass: Process scroll container tags (TAG_TYPE_SCROLL_CONTAINER = 0x0500)
+            // These are hit-test areas for scrollable containers, enabling trackpad/wheel scrolling
+            for (depth, i) in wr_result.items.iter().enumerate() {
+                let tag_type_marker = i.tag.1 & 0xFF00;
+                if tag_type_marker != TAG_TYPE_SCROLL_CONTAINER {
+                    continue;
+                }
+
+                // Decode scroll container tag: tag.0 = scroll_id (used to find the NodeId)
+                let scroll_id = i.tag.0;
+                
+                // Look up the NodeId from the scroll_id_to_node_id mapping
+                let node_id = match layout_result.scroll_id_to_node_id.get(&scroll_id) {
+                    Some(&nid) => nid,
+                    None => continue,
+                };
+
+                // Get node's layout position and size
+                let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&node_id) {
+                    Some(indices) => indices,
+                    None => continue,
+                };
+                let layout_idx = match layout_indices.first() {
+                    Some(&idx) => idx,
+                    None => continue,
+                };
+                let layout_node = match layout_result.layout_tree.get(layout_idx) {
+                    Some(node) => node,
+                    None => continue,
+                };
+                let node_pos = layout_result
+                    .calculated_positions
+                    .get(&layout_idx)
+                    .copied()
+                    .unwrap_or_default();
+                let node_size = layout_node.used_size.unwrap_or_default();
+                let parent_rect = LogicalRect::new(node_pos, node_size);
+                let child_rect = parent_rect; // TODO: Calculate actual content bounds
+
+                use azul_core::hit_test::{OverflowingScrollNode, ScrollHitTestItem};
+                let scroll_node = OverflowingScrollNode {
+                    parent_rect,
+                    child_rect,
+                    virtual_child_rect: child_rect,
+                    parent_external_scroll_id: azul_core::hit_test::ExternalScrollId(
+                        scroll_id,
+                        pipeline_id,
+                    ),
+                    parent_dom_hash: azul_core::dom::DomNodeHash {
+                        inner: node_id.index() as u64,
+                    },
+                    scroll_tag_id: azul_core::dom::ScrollTagId {
+                        inner: azul_core::dom::TagId {
+                            inner: node_id.index() as u64,
+                        },
+                    },
+                };
+
+                // Convert point_relative_to_item from device to logical pixels
+                let hidpi = hidpi_factor.inner.get();
+                let point_relative_to_item = LogicalPosition::new(
+                    i.point_relative_to_item.x / hidpi,
+                    i.point_relative_to_item.y / hidpi,
+                );
+
+                ret.hovered_nodes
+                    .entry(*dom_id)
+                    .or_insert_with(|| azul_core::hit_test::HitTest::empty())
+                    .scroll_hit_test_nodes
+                    .insert(node_id, ScrollHitTestItem {
+                        point_in_viewport: *cursor_relative_to_dom,
+                        point_relative_to_item,
+                        scroll_node,
+                    });
+            }
+
+            // Second pass: Process cursor tags (TAG_TYPE_CURSOR = 0x0400)
             // These are hit-test areas for text runs with cursor properties
             for (depth, i) in wr_result.items.iter().enumerate() {
                 let tag_type_marker = i.tag.1 & 0xFF00;
@@ -545,7 +622,7 @@ pub fn fullhittest_new_webrender(
                     });
             }
 
-            // Second pass: Convert regular DOM node hit test results
+            // Third pass: Convert regular DOM node hit test results
             // WebRender returns items in z-order (front to back), so we use
             // enumerate() to capture this ordering in hit_depth.
             let hit_items = wr_result
@@ -554,8 +631,8 @@ pub fn fullhittest_new_webrender(
                 .enumerate()
                 .filter_map(|(depth, i)| {
                     let tag_type_marker = i.tag.1 & 0xFF00;
-                    // Skip scrollbar tags (0x0200) and cursor tags (0x0400)
-                    if tag_type_marker == TAG_TYPE_SCROLLBAR || tag_type_marker == TAG_TYPE_CURSOR {
+                    // Skip scrollbar tags (0x0200), cursor tags (0x0400), and scroll container tags (0x0500)
+                    if tag_type_marker == TAG_TYPE_SCROLLBAR || tag_type_marker == TAG_TYPE_CURSOR || tag_type_marker == TAG_TYPE_SCROLL_CONTAINER {
                         return None;
                     }
                     

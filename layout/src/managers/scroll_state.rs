@@ -325,9 +325,8 @@ impl ScrollManager {
         input_point_id: &InputPointId,
         now: Instant,
     ) -> Option<(DomId, NodeId)> {
-        let hit_test = hover_manager.get_current(input_point_id);
-        let hit_test = hit_test?;
-
+        let hit_test = hover_manager.get_current(input_point_id)?;
+        
         // Find first scrollable node in hit test hierarchy
         for (dom_id, hit_node) in &hit_test.hovered_nodes {
             for (node_id, _scroll_item) in &hit_node.scroll_hit_test_nodes {
