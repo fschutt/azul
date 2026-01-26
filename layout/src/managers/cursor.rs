@@ -248,6 +248,7 @@ impl CursorManager {
                 affinity: CursorAffinity::Trailing,
             });
             self.cursor_location = Some(CursorLocation { dom_id, node_id });
+            self.is_visible = true; // Make cursor visible immediately
             eprintln!("[DEBUG] Cursor set: {:?}", self.cursor);
             return true;
         };
@@ -275,6 +276,7 @@ impl CursorManager {
         });
 
         self.cursor_location = Some(CursorLocation { dom_id, node_id });
+        self.is_visible = true; // Make cursor visible immediately
         eprintln!("[DEBUG] Cursor initialized: cursor={:?}, location={:?}", self.cursor, self.cursor_location);
 
         true
