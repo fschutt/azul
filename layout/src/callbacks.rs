@@ -391,6 +391,21 @@ pub enum CallbackChange {
         position: LogicalPosition,
         time_ms: u64,
     },
+
+    // Cursor Blinking (System Timer Control)
+    /// Set the cursor visibility state (called by blink timer)
+    SetCursorVisibility { visible: bool },
+    /// Reset cursor blink state on user input (makes cursor visible, records time)
+    ResetCursorBlink,
+    /// Start the cursor blink timer for the focused contenteditable element
+    StartCursorBlinkTimer,
+    /// Stop the cursor blink timer (when focus leaves contenteditable)
+    StopCursorBlinkTimer,
+    
+    // Scroll cursor/selection into view
+    /// Scroll the active text cursor into view within its scrollable container
+    /// This is automatically triggered after text input or cursor movement
+    ScrollActiveCursorIntoView,
 }
 
 /// Main callback type for UI event handling
@@ -1093,6 +1108,48 @@ impl CallbackInfo {
     /// Useful for custom validation, filtering, or text transformation.
     pub fn prevent_default(&mut self) {
         self.push_change(CallbackChange::PreventDefault);
+    }
+
+    // Cursor Blinking Api (for system timer control)
+    
+    /// Set cursor visibility state
+    ///
+    /// This is primarily used internally by the cursor blink timer callback.
+    /// User code typically doesn't need to call this directly.
+    pub fn set_cursor_visibility(&mut self, visible: bool) {
+        self.push_change(CallbackChange::SetCursorVisibility { visible });
+    }
+    
+    /// Reset cursor blink state on user input
+    ///
+    /// This makes the cursor visible and records the current time, so the blink
+    /// timer knows to keep the cursor solid for a while before blinking.
+    /// Called automatically on keyboard input, but can be called manually.
+    pub fn reset_cursor_blink(&mut self) {
+        self.push_change(CallbackChange::ResetCursorBlink);
+    }
+    
+    /// Start the cursor blink timer
+    ///
+    /// Called automatically when focus lands on a contenteditable element.
+    /// The timer will toggle cursor visibility at ~530ms intervals.
+    pub fn start_cursor_blink_timer(&mut self) {
+        self.push_change(CallbackChange::StartCursorBlinkTimer);
+    }
+    
+    /// Stop the cursor blink timer
+    ///
+    /// Called automatically when focus leaves a contenteditable element.
+    pub fn stop_cursor_blink_timer(&mut self) {
+        self.push_change(CallbackChange::StopCursorBlinkTimer);
+    }
+    
+    /// Scroll the active cursor into view
+    ///
+    /// This scrolls the focused text element's cursor into the visible area
+    /// of any scrollable ancestor. Called automatically after text input.
+    pub fn scroll_active_cursor_into_view(&mut self) {
+        self.push_change(CallbackChange::ScrollActiveCursorIntoView);
     }
 
     /// Open a menu (context menu or dropdown)
