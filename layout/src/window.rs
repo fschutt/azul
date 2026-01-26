@@ -141,10 +141,78 @@ pub struct NoCursorDestination {
     pub reason: String,
 }
 
+/// Action to take for the cursor blink timer when focus changes
+///
+/// This enum is returned by `LayoutWindow::handle_focus_change_for_cursor_blink()`
+/// to tell the platform layer what timer action to take.
+#[derive(Debug, Clone)]
+pub enum CursorBlinkTimerAction {
+    /// Start the cursor blink timer with the given timer configuration
+    Start(crate::timer::Timer),
+    /// Stop the cursor blink timer
+    Stop,
+    /// No change needed (timer already in correct state)
+    NoChange,
+}
+
 /// Helper function to create a unique IdNamespace
 fn new_id_namespace() -> IdNamespace {
     let id = ID_NAMESPACE_COUNTER.fetch_add(1, Ordering::Relaxed) as u32;
     IdNamespace(id)
+}
+
+// ============================================================================
+// Cursor Blink Timer Callback
+// ============================================================================
+
+/// Destructor for cursor blink timer RefAny (no-op since we use null pointer)
+extern "C" fn cursor_blink_timer_destructor(_: RefAny) {
+    // No cleanup needed - we use a null pointer RefAny
+}
+
+/// Callback for the cursor blink timer
+///
+/// This function is called every ~530ms to toggle cursor visibility.
+/// It checks if enough time has passed since the last user input before blinking,
+/// to avoid blinking while the user is actively typing.
+///
+/// The callback returns:
+/// - `TerminateTimer::Continue` + `Update::RefreshDom` if cursor toggled
+/// - `TerminateTimer::Terminate` if focus is no longer on a contenteditable element
+pub extern "C" fn cursor_blink_timer_callback(
+    _data: RefAny,
+    mut info: crate::timer::TimerCallbackInfo,
+) -> azul_core::callbacks::TimerCallbackReturn {
+    use azul_core::callbacks::{TimerCallbackReturn, Update};
+    use azul_core::task::TerminateTimer;
+    
+    // Get current time
+    let now = info.get_current_time();
+    
+    // We need to access the LayoutWindow through the info
+    // The timer callback needs to:
+    // 1. Check if focus is still on a contenteditable element
+    // 2. Check time since last input
+    // 3. Toggle visibility or keep solid
+    
+    // For now, we'll queue changes via the CallbackInfo system
+    // The actual state modification happens in apply_callback_changes
+    
+    // Check if we should blink or stay solid
+    // This is done by checking CursorManager.should_blink(now) in the layout window
+    
+    // Since we can't access LayoutWindow directly here (it's not passed to timer callbacks),
+    // we use a different approach: the timer callback always toggles, and the visibility
+    // check is done in display_list.rs based on CursorManager state.
+    
+    // Simply toggle cursor visibility
+    info.set_cursor_visibility_toggle();
+    
+    // Continue the timer and request a redraw
+    TimerCallbackReturn {
+        should_update: Update::RefreshDom,
+        should_terminate: TerminateTimer::Continue,
+    }
 }
 
 /// Result of a layout pass for a single DOM, before display list generation
@@ -695,6 +763,9 @@ impl LayoutWindow {
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
         let styled_dom_clone = styled_dom.clone();
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
+        
+        // Get cursor visibility from cursor manager for display list generation
+        let cursor_is_visible = self.cursor_manager.should_draw_cursor();
 
         let mut display_list = solver3::layout_document(
             &mut self.layout_cache,
@@ -710,6 +781,7 @@ impl LayoutWindow {
             &self.renderer_resources,
             self.id_namespace,
             dom_id,
+            cursor_is_visible,
         )?;
 
         let tree = self
@@ -1426,6 +1498,290 @@ impl LayoutWindow {
     pub fn get_thread_ids(&self) -> ThreadIdVec {
         self.threads.keys().copied().collect::<Vec<_>>().into()
     }
+    
+    // Cursor Blinking Timer
+    
+    /// Create the cursor blink timer
+    ///
+    /// This timer toggles cursor visibility at ~530ms intervals.
+    /// It checks if enough time has passed since the last user input before blinking,
+    /// to avoid blinking while the user is actively typing.
+    pub fn create_cursor_blink_timer(&self, _window_state: &FullWindowState) -> crate::timer::Timer {
+        use azul_core::task::{Duration, SystemTimeDiff};
+        use crate::timer::{Timer, TimerCallback};
+        use azul_core::refany::RefAny;
+        
+        let interval_ms = crate::managers::cursor::CURSOR_BLINK_INTERVAL_MS;
+        
+        // Create a RefAny with a unit type - the timer callback doesn't need any data
+        // The actual cursor state is in LayoutWindow.cursor_manager
+        let refany = RefAny::new(());
+        
+        Timer {
+            refany,
+            node_id: None.into(),
+            created: azul_core::task::Instant::now(),
+            run_count: 0,
+            last_run: azul_core::task::OptionInstant::None,
+            delay: azul_core::task::OptionDuration::None,
+            interval: azul_core::task::OptionDuration::Some(Duration::System(SystemTimeDiff::from_millis(interval_ms))),
+            timeout: azul_core::task::OptionDuration::None,
+            callback: TimerCallback::create(cursor_blink_timer_callback),
+        }
+    }
+    
+    /// Scroll the active text cursor into view within its scrollable container
+    ///
+    /// This finds the focused contenteditable node, gets the cursor rectangle,
+    /// and scrolls any scrollable ancestor to ensure the cursor is visible.
+    pub fn scroll_active_cursor_into_view(&mut self, result: &mut CallbackChangeResult) {
+        use crate::managers::scroll_into_view;
+        
+        // Get the focused node
+        let focused_node = match self.focus_manager.get_focused_node() {
+            Some(node) => *node,
+            None => return,
+        };
+        
+        let Some(node_id_internal) = focused_node.node.into_crate_internal() else {
+            return;
+        };
+        
+        // Check if node is contenteditable
+        if !self.is_node_contenteditable_internal(focused_node.dom, node_id_internal) {
+            return;
+        }
+        
+        // Get the cursor location
+        let cursor_location = match self.cursor_manager.get_cursor_location() {
+            Some(loc) if loc.dom_id == focused_node.dom && loc.node_id == node_id_internal => loc,
+            _ => return,
+        };
+        
+        // Get the cursor position
+        let cursor = match self.cursor_manager.get_cursor() {
+            Some(c) => c.clone(),
+            None => return,
+        };
+        
+        // Get the inline layout to find the cursor rectangle
+        let layout = match self.get_inline_layout_for_node(focused_node.dom, node_id_internal) {
+            Some(l) => l,
+            None => return,
+        };
+        
+        // Get cursor rectangle (node-local coordinates)
+        let cursor_rect = match layout.get_cursor_rect(&cursor) {
+            Some(r) => r,
+            None => return,
+        };
+        
+        // Use scroll_into_view to scroll the cursor rect into view
+        let now = azul_core::task::Instant::now();
+        let options = scroll_into_view::ScrollIntoViewOptions::nearest();
+        
+        // Calculate scroll adjustments
+        let adjustments = scroll_into_view::scroll_rect_into_view(
+            cursor_rect,
+            focused_node.dom,
+            node_id_internal,
+            &self.layout_results,
+            &mut self.scroll_manager,
+            options,
+            now,
+        );
+        
+        // Record the scroll changes
+        for adj in adjustments {
+            let current_pos = self.scroll_manager
+                .get_current_offset(adj.scroll_container_dom_id, adj.scroll_container_node_id)
+                .unwrap_or(LogicalPosition::zero());
+            
+            let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(adj.scroll_container_node_id));
+            result
+                .nodes_scrolled
+                .entry(adj.scroll_container_dom_id)
+                .or_insert_with(BTreeMap::new)
+                .insert(hierarchy_id, current_pos);
+        }
+    }
+    
+    /// Check if a node is contenteditable (internal version using NodeId)
+    fn is_node_contenteditable_internal(&self, dom_id: DomId, node_id: NodeId) -> bool {
+        use crate::solver3::getters::is_node_contenteditable;
+        
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return false;
+        };
+        
+        is_node_contenteditable(&layout_result.styled_dom, node_id)
+    }
+    
+    /// Check if a node is contenteditable with W3C-conformant inheritance.
+    ///
+    /// This traverses up the DOM tree to check if the node or any ancestor
+    /// has `contenteditable="true"` set, respecting `contenteditable="false"`
+    /// to stop inheritance.
+    fn is_node_contenteditable_inherited_internal(&self, dom_id: DomId, node_id: NodeId) -> bool {
+        use crate::solver3::getters::is_node_contenteditable_inherited;
+        
+        let Some(layout_result) = self.layout_results.get(&dom_id) else {
+            return false;
+        };
+        
+        is_node_contenteditable_inherited(&layout_result.styled_dom, node_id)
+    }
+    
+    /// Handle focus change for cursor blink timer management (W3C "flag and defer" pattern)
+    ///
+    /// This method implements the W3C focus/selection model:
+    /// 1. Focus change is handled immediately (timer start/stop)
+    /// 2. Cursor initialization is DEFERRED until after layout (via flag)
+    ///
+    /// The cursor is NOT initialized here because text layout may not be available
+    /// during focus event handling. Instead, we set a flag that is consumed by
+    /// `finalize_pending_focus_changes()` after the layout pass.
+    ///
+    /// # Parameters
+    ///
+    /// * `new_focus` - The newly focused node (None if focus is being cleared)
+    /// * `current_window_state` - Current window state for timer creation
+    ///
+    /// # Returns
+    ///
+    /// A `CursorBlinkTimerAction` indicating what timer action the platform
+    /// layer should take.
+    pub fn handle_focus_change_for_cursor_blink(
+        &mut self,
+        new_focus: Option<azul_core::dom::DomNodeId>,
+        current_window_state: &FullWindowState,
+    ) -> CursorBlinkTimerAction {
+        eprintln!("[DEBUG] handle_focus_change_for_cursor_blink called with new_focus={:?}", new_focus);
+        
+        // Check if the new focus is on a contenteditable element
+        // Use the inherited check for W3C conformance
+        let contenteditable_info = match new_focus {
+            Some(focus_node) => {
+                if let Some(node_id) = focus_node.node.into_crate_internal() {
+                    // Check if this node or any ancestor is contenteditable
+                    if self.is_node_contenteditable_inherited_internal(focus_node.dom, node_id) {
+                        // Find the text node where the cursor should be placed
+                        let text_node_id = self.find_last_text_child(focus_node.dom, node_id)
+                            .unwrap_or(node_id);
+                        Some((focus_node.dom, node_id, text_node_id))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            None => None,
+        };
+        
+        // Determine the action based on current state and new focus
+        let timer_was_active = self.cursor_manager.is_blink_timer_active();
+        eprintln!("[DEBUG] is_contenteditable={}, timer_was_active={}", contenteditable_info.is_some(), timer_was_active);
+        
+        if let Some((dom_id, container_node_id, text_node_id)) = contenteditable_info {
+            eprintln!("[DEBUG] Setting pending contenteditable focus: dom={:?}, container={:?}, text={:?}", dom_id, container_node_id, text_node_id);
+            
+            // W3C "flag and defer" pattern:
+            // Set flag for cursor initialization AFTER layout pass
+            self.focus_manager.set_pending_contenteditable_focus(
+                dom_id,
+                container_node_id,
+                text_node_id,
+            );
+            
+            // Make cursor visible and record current time (even before actual initialization)
+            let now = azul_core::task::Instant::now();
+            self.cursor_manager.reset_blink_on_input(now);
+            self.cursor_manager.set_blink_timer_active(true);
+            
+            if !timer_was_active {
+                // Need to start the timer
+                let timer = self.create_cursor_blink_timer(current_window_state);
+                eprintln!("[DEBUG] Returning CursorBlinkTimerAction::Start");
+                return CursorBlinkTimerAction::Start(timer);
+            } else {
+                // Timer already active, just continue
+                eprintln!("[DEBUG] Returning CursorBlinkTimerAction::NoChange (timer already active)");
+                return CursorBlinkTimerAction::NoChange;
+            }
+        } else {
+            // Focus is moving away from contenteditable or being cleared
+            eprintln!("[DEBUG] Focus is NOT contenteditable, clearing cursor and pending focus");
+            
+            // Clear the cursor AND the pending focus flag
+            self.cursor_manager.clear();
+            self.focus_manager.clear_pending_contenteditable_focus();
+            
+            if timer_was_active {
+                // Need to stop the timer
+                self.cursor_manager.set_blink_timer_active(false);
+                eprintln!("[DEBUG] Returning CursorBlinkTimerAction::Stop");
+                return CursorBlinkTimerAction::Stop;
+            } else {
+                eprintln!("[DEBUG] Returning CursorBlinkTimerAction::NoChange (timer was not active)");
+                return CursorBlinkTimerAction::NoChange;
+            }
+        }
+    }
+    
+    /// Finalize pending focus changes after layout pass (W3C "flag and defer" pattern)
+    ///
+    /// This method should be called AFTER the layout pass completes. It checks if
+    /// there's a pending contenteditable focus and initializes the cursor now that
+    /// text layout information is available.
+    ///
+    /// # W3C Conformance
+    ///
+    /// In the W3C model:
+    /// 1. Focus event fires during event handling (layout may not be ready)
+    /// 2. Selection/cursor placement happens after layout is computed
+    /// 3. The cursor is drawn at the position specified by the Selection
+    ///
+    /// This function implements step 2+3 by:
+    /// - Checking the `cursor_needs_initialization` flag
+    /// - Getting the (now available) text layout
+    /// - Initializing the cursor at the correct position
+    ///
+    /// # Returns
+    ///
+    /// `true` if cursor was initialized, `false` if no pending focus or initialization failed.
+    pub fn finalize_pending_focus_changes(&mut self) -> bool {
+        eprintln!("[DEBUG] finalize_pending_focus_changes called, needs_init={}", 
+            self.focus_manager.needs_cursor_initialization());
+        
+        // Take the pending focus info (this clears the flag)
+        let pending = match self.focus_manager.take_pending_contenteditable_focus() {
+            Some(p) => p,
+            None => {
+                eprintln!("[DEBUG] No pending contenteditable focus");
+                return false;
+            }
+        };
+        
+        eprintln!("[DEBUG] Initializing cursor for pending focus: dom={:?}, text_node={:?}", 
+            pending.dom_id, pending.text_node_id);
+        
+        // Now we can safely get the text layout (layout pass has completed)
+        let text_layout = self.get_inline_layout_for_node(pending.dom_id, pending.text_node_id).cloned();
+        eprintln!("[DEBUG] text_layout available: {}", text_layout.is_some());
+        
+        // Initialize cursor at end of text
+        let cursor_initialized = self.cursor_manager.initialize_cursor_at_end(
+            pending.dom_id,
+            pending.text_node_id,
+            text_layout.as_ref(),
+        );
+        
+        eprintln!("[DEBUG] Cursor initialized: {}, cursor={:?}, location={:?}", 
+            cursor_initialized, self.cursor_manager.cursor, self.cursor_manager.cursor_location);
+        
+        cursor_initialized
+    }
 
     // CallbackChange Processing
 
@@ -1877,6 +2233,41 @@ impl LayoutWindow {
                     // This is used by the Debug API to trigger text selection directly
                     // The selection update will cause the display list to be regenerated
                     let _ = self.process_mouse_click_for_selection(position, time_ms);
+                }
+                CallbackChange::SetCursorVisibility { visible: _ } => {
+                    // Timer callback sets visibility - check if we should blink or stay solid
+                    let now = azul_core::task::Instant::now();
+                    if self.cursor_manager.should_blink(&now) {
+                        // Enough time has passed since last input - toggle visibility
+                        self.cursor_manager.toggle_visibility();
+                    } else {
+                        // User is actively typing - keep cursor visible
+                        self.cursor_manager.set_visibility(true);
+                    }
+                }
+                CallbackChange::ResetCursorBlink => {
+                    // Reset cursor blink state on user input
+                    let now = azul_core::task::Instant::now();
+                    self.cursor_manager.reset_blink_on_input(now);
+                }
+                CallbackChange::StartCursorBlinkTimer => {
+                    // Start the cursor blink timer if not already active
+                    if !self.cursor_manager.is_blink_timer_active() {
+                        let timer = self.create_cursor_blink_timer(current_window_state);
+                        result.timers.insert(azul_core::task::CURSOR_BLINK_TIMER_ID, timer);
+                        self.cursor_manager.set_blink_timer_active(true);
+                    }
+                }
+                CallbackChange::StopCursorBlinkTimer => {
+                    // Stop the cursor blink timer
+                    if self.cursor_manager.is_blink_timer_active() {
+                        result.timers_removed.insert(azul_core::task::CURSOR_BLINK_TIMER_ID);
+                        self.cursor_manager.set_blink_timer_active(false);
+                    }
+                }
+                CallbackChange::ScrollActiveCursorIntoView => {
+                    // Scroll the active text cursor into view
+                    self.scroll_active_cursor_into_view(&mut result);
                 }
             }
         }
@@ -4127,6 +4518,38 @@ impl LayoutWindow {
         }
 
         None
+    }
+
+    /// Find the last text child node of a given node.
+    /// 
+    /// For contenteditable elements, the text is usually in a child Text node,
+    /// not the contenteditable div itself. This function finds the last Text node
+    /// so the cursor defaults to the end position.
+    fn find_last_text_child(&self, dom_id: DomId, parent_node_id: NodeId) -> Option<NodeId> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let styled_dom = &layout_result.styled_dom;
+        let node_data_container = styled_dom.node_data.as_container();
+        let hierarchy_container = styled_dom.node_hierarchy.as_container();
+        
+        // Check if parent itself is a text node
+        let parent_type = node_data_container[parent_node_id].get_node_type();
+        if matches!(parent_type, NodeType::Text(_)) {
+            return Some(parent_node_id);
+        }
+        
+        // Find the last text child by iterating through all children
+        let parent_item = &hierarchy_container[parent_node_id];
+        let mut last_text_child: Option<NodeId> = None;
+        let mut current_child = parent_item.first_child_id(parent_node_id);
+        while let Some(child_id) = current_child {
+            let child_type = node_data_container[child_id].get_node_type();
+            if matches!(child_type, NodeType::Text(_)) {
+                last_text_child = Some(child_id);
+            }
+            current_child = hierarchy_container[child_id].next_sibling_id();
+        }
+        
+        last_text_child
     }
 
     /// Checks if a node has text content.
