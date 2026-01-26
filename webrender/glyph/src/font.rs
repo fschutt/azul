@@ -107,6 +107,14 @@ impl FontContext {
             .map(azul_layout::font_ref_to_parsed_font)
             .ok_or(GlyphRasterError::LoadFailed)?;
         let glyph_id = key.index() as u16;
+        
+        // Fix: Glyph not found should return an ERROR, not an empty glyph.
+        // Returning Ok() with empty bytes prevents the font fallback mechanism from working.
+        // When a glyph is missing from this font, we need to signal the glyph manager
+        // to try the next font in the fallback chain.
+        //
+        // The ONLY case where we return an empty glyph is for glyphs that EXIST but have
+        // no outline (like space characters) - this is handled below in build_path_from_outline.
         let owned_glyph = parsed_font
             .glyph_records_decoded
             .get(&glyph_id)
@@ -119,8 +127,18 @@ impl FontContext {
 
         let scale = font.size.to_f32_px() / units_per_em;
 
+        // Check if glyph has an outline - glyphs without outlines (like spaces) return empty
         let Some(path) = build_path_from_outline(owned_glyph) else {
-            return Err(GlyphRasterError::LoadFailed);
+            // Glyph exists but has no outline (e.g., space character)
+            return Ok(RasterizedGlyph {
+                left: 0.0,
+                top: 0.0,
+                width: 0,
+                height: 0,
+                scale: 1.0,
+                format: GlyphFormat::Alpha,
+                bytes: Vec::new(),
+            });
         };
 
         let bb = &owned_glyph.bounding_box;
@@ -135,8 +153,17 @@ impl FontContext {
         let left = (bb.min_x as f32 * scale).floor();
         let top = (bb.max_y as f32 * scale).ceil();
 
+        // Glyphs with zero dimensions are valid (e.g., some diacritics or control chars)
         if pixel_width == 0 || pixel_height == 0 || pixel_width > 4096 || pixel_height > 4096 {
-            return Err(GlyphRasterError::LoadFailed);
+            return Ok(RasterizedGlyph {
+                left: 0.0,
+                top: 0.0,
+                width: 0,
+                height: 0,
+                scale: 1.0,
+                format: GlyphFormat::Alpha,
+                bytes: Vec::new(),
+            });
         }
 
         let mut pixmap =

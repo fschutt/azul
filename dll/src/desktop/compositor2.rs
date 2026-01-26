@@ -808,20 +808,28 @@ pub fn translate_displaylist_to_wr(
                 // Push the new spatial ID onto the stack
                 spatial_stack.push(scroll_spatial_id);
 
-                // DO NOT push a new offset for scroll frames!
-                // WebRender expects primitives to keep their absolute coordinates (relative to window origin).
-                // The scroll_spatial_id handles the scroll offset transformation internally.
-                // Previously we subtracted frame_rect.origin here, which caused children to be
-                // positioned incorrectly (too far top-left) by the frame origin amount.
+                // Fix: Push the scroll frame's origin onto the offset stack.
+                // 
+                // The layout engine produces primitives with ABSOLUTE WINDOW coordinates.
+                // However, WebRender's scroll frame creates a NEW SPATIAL NODE with its own
+                // coordinate system, where (0,0) is the top-left of the scrollable content.
+                // 
+                // To correctly position primitives inside the scroll frame, we need to
+                // SUBTRACT the scroll frame's origin from all child coordinates.
+                // The apply_offset function does this by subtracting the stacked offsets.
                 //
-                // Keep the current offset on the stack unchanged - just push the same value
-                // so push/pop remain balanced.
-                let current = current_offset;
-                offset_stack.push(current);
+                // Previous approach (keeping same offset) caused content to appear at
+                // absolute window position inside the scroll frame, which means the first
+                // ~N pixels of content were "above" the scroll frame's viewport.
+                //
+                // CoordinateSpace transformation: Window -> ScrollFrame
+                // Formula: scroll_frame_pos = window_pos - scroll_frame_origin
+                let frame_origin_offset = (adjusted_frame_rect.min.x, adjusted_frame_rect.min.y);
+                offset_stack.push(frame_origin_offset);
 
                 log_debug!(LogCategory::DisplayList,
-                    "[CLIP DEBUG] PushScrollFrame: keeping offset={:?} (not offsetting for scroll frame)",
-                    current
+                    "[CLIP DEBUG] PushScrollFrame: NEW offset={:?} (scroll frame origin) [CoordinateSpace::Window -> ScrollFrame]",
+                    frame_origin_offset
                 );
 
                 // Define clip for the scroll frame in PARENT SPACE (where the viewport is)
