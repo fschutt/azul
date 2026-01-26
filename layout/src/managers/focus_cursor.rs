@@ -17,18 +17,53 @@ use crate::window::DomLayoutResult;
 /// CSS path for selecting elements (placeholder - needs proper implementation)
 pub type CssPathString = alloc::string::String;
 
+/// Information about a pending contenteditable focus that needs cursor initialization
+/// after layout is complete (W3C "flag and defer" pattern).
+///
+/// This is set during focus event handling and consumed after layout pass.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingContentEditableFocus {
+    /// The DOM where the contenteditable element is
+    pub dom_id: DomId,
+    /// The contenteditable container node that received focus
+    pub container_node_id: NodeId,
+    /// The text node where the cursor should be placed (often a child of the container)
+    pub text_node_id: NodeId,
+}
+
 /// Manager for keyboard focus and tab navigation
 ///
 /// Note: Text cursor management is now handled by the separate `CursorManager`.
 ///
 /// The `FocusManager` only tracks which node has focus, while `CursorManager`
 /// tracks the cursor position within that node (if it's contenteditable).
+///
+/// ## W3C Focus/Selection Model
+///
+/// The W3C model maintains a strict separation between **keyboard focus** and **selection**:
+///
+/// 1. **Focus** lands on the contenteditable container (`document.activeElement`)
+/// 2. **Selection/Cursor** is placed in a descendant text node (`Selection.focusNode`)
+///
+/// This separation requires a "flag and defer" pattern:
+/// - During focus event: Set `cursor_needs_initialization = true`
+/// - After layout pass: Call `finalize_pending_focus_changes()` to actually initialize the cursor
+///
+/// This is necessary because cursor positioning requires text layout information,
+/// which isn't available during the focus event handling phase.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FocusManager {
     /// Currently focused node (if any)
     pub focused_node: Option<DomNodeId>,
     /// Pending focus request from callback
     pub pending_focus_request: Option<FocusTarget>,
+    
+    // --- W3C "flag and defer" pattern fields ---
+    
+    /// Flag indicating that cursor initialization is pending (set during focus, consumed after layout)
+    pub cursor_needs_initialization: bool,
+    /// Information about the pending contenteditable focus
+    pub pending_contenteditable_focus: Option<PendingContentEditableFocus>,
 }
 
 impl Default for FocusManager {
@@ -43,6 +78,8 @@ impl FocusManager {
         Self {
             focused_node: None,
             pending_focus_request: None,
+            cursor_needs_initialization: false,
+            pending_contenteditable_focus: None,
         }
     }
 
@@ -78,6 +115,59 @@ impl FocusManager {
     /// Check if a specific node has focus
     pub fn has_focus(&self, node: &DomNodeId) -> bool {
         self.focused_node.as_ref() == Some(node)
+    }
+    
+    // --- W3C "flag and defer" pattern methods ---
+    
+    /// Mark that cursor initialization is needed for a contenteditable element.
+    ///
+    /// This is called during focus event handling. The actual cursor initialization
+    /// happens later in `finalize_pending_focus_changes()` after layout is complete.
+    ///
+    /// # W3C Conformance
+    ///
+    /// In the W3C model, when focus lands on a contenteditable element:
+    /// 1. The focus event fires on the container element
+    /// 2. The browser's editing engine modifies the Selection to place a caret
+    /// 3. The Selection's anchorNode/focusNode point to the child text node
+    ///
+    /// Since we need layout information to position the cursor, we defer step 2+3.
+    pub fn set_pending_contenteditable_focus(
+        &mut self,
+        dom_id: DomId,
+        container_node_id: NodeId,
+        text_node_id: NodeId,
+    ) {
+        self.cursor_needs_initialization = true;
+        self.pending_contenteditable_focus = Some(PendingContentEditableFocus {
+            dom_id,
+            container_node_id,
+            text_node_id,
+        });
+    }
+    
+    /// Clear the pending contenteditable focus (when focus moves away or is cleared).
+    pub fn clear_pending_contenteditable_focus(&mut self) {
+        self.cursor_needs_initialization = false;
+        self.pending_contenteditable_focus = None;
+    }
+    
+    /// Take the pending contenteditable focus (consumes the flag).
+    ///
+    /// Returns `Some(info)` if cursor initialization is pending, `None` otherwise.
+    /// After calling this, `cursor_needs_initialization` is set to `false`.
+    pub fn take_pending_contenteditable_focus(&mut self) -> Option<PendingContentEditableFocus> {
+        if self.cursor_needs_initialization {
+            self.cursor_needs_initialization = false;
+            self.pending_contenteditable_focus.take()
+        } else {
+            None
+        }
+    }
+    
+    /// Check if cursor initialization is pending.
+    pub fn needs_cursor_initialization(&self) -> bool {
+        self.cursor_needs_initialization
     }
 }
 
