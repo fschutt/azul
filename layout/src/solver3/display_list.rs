@@ -2207,10 +2207,21 @@ where
             // content-box. Use type-safe conversion to make this clear and avoid manual
             // calculations.
             let border_box = BorderBoxRect(paint_rect);
-            let content_box =
-                border_box.to_content_box(&node.box_props.padding, &node.box_props.border);
+            let mut content_box_rect =
+                border_box.to_content_box(&node.box_props.padding, &node.box_props.border).rect();
+            
+            // For scrollable containers, extend the content rect to the full content size.
+            // The scroll frame handles clipping - we need to paint ALL content, not just
+            // what fits in the viewport. Otherwise glyphs beyond the viewport are not rendered.
+            let content_size = get_scroll_content_size(node);
+            if content_size.height > content_box_rect.size.height {
+                content_box_rect.size.height = content_size.height;
+            }
+            if content_size.width > content_box_rect.size.width {
+                content_box_rect.size.width = content_size.width;
+            }
 
-            self.paint_inline_content(builder, content_box.rect(), inline_layout)?;
+            self.paint_inline_content(builder, content_box_rect, inline_layout)?;
         } else if let Some(dom_id) = node.dom_node_id {
             // This node might be a simple replaced element, like an <img> tag.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
