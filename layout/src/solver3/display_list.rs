@@ -1388,11 +1388,13 @@ where
                 // 1. This is the focus node AND
                 // 2. The element is contenteditable AND  
                 // 3. The selection is collapsed (insertion point, not range selection) AND
-                // 4. The element is selectable (user-select != none)
+                // 4. The element is selectable (user-select != none) AND
+                // 5. The cursor is in the "visible" phase of blinking (cursor_is_visible)
                 if text_selection.focus.ifc_root_node_id == dom_id 
                     && is_contenteditable 
                     && is_collapsed 
                     && is_selectable
+                    && self.ctx.cursor_is_visible
                 {
                     if let Some(mut rect) = layout.get_cursor_rect(&text_selection.focus.cursor) {
                         let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
@@ -1421,8 +1423,9 @@ where
         for selection in selection_state.selections.as_slice() {
             match &selection {
                 Selection::Cursor(cursor) => {
-                    // Only draw cursor if this element is contenteditable and selectable
-                    if !is_contenteditable || !is_selectable {
+                    // Only draw cursor if this element is contenteditable, selectable,
+                    // AND the cursor is in the "visible" phase of blinking
+                    if !is_contenteditable || !is_selectable || !self.ctx.cursor_is_visible {
                         continue;
                     }
                     // Draw cursor
@@ -1433,9 +1436,6 @@ where
                         rect.origin.x += content_box_offset_x;
                         rect.origin.y += content_box_offset_y;
 
-                        // TODO: The blinking logic would need to be handled by the renderer
-                        // using an opacity key or similar, or by the main loop toggling this.
-                        // For now, we just draw it.
                         builder.push_cursor_rect(rect, style.color);
                     }
                 }
