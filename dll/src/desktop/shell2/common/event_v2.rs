@@ -2145,8 +2145,8 @@ pub trait PlatformWindowV2 {
                                         let old_focus_node_id = focused_node.and_then(|f| f.node.into_crate_internal());
                                         let new_focus_node_id = new_focus_node.and_then(|f| f.node.into_crate_internal());
                                         
-                                        // Update focus manager
-                                        if let Some(layout_window) = self.get_layout_window_mut() {
+                                        // Update focus manager and get timer action
+                                        let timer_action = if let Some(layout_window) = self.get_layout_window_mut() {
                                             layout_window.focus_manager.set_focused_node(new_focus_node);
                                             default_action_focus_changed = true;
                                             
@@ -2161,6 +2161,13 @@ pub trait PlatformWindowV2 {
                                                 );
                                             }
                                             
+                                            // CURSOR BLINK TIMER: Start/stop timer based on contenteditable focus
+                                            let window_state = layout_window.current_window_state.clone();
+                                            let timer_action = layout_window.handle_focus_change_for_cursor_blink(
+                                                new_focus_node,
+                                                &window_state,
+                                            );
+                                            
                                             // RESTYLE: Update StyledNodeState and compute CSS changes
                                             if old_focus_node_id != new_focus_node_id {
                                                 let restyle_result = apply_focus_restyle(
@@ -2171,6 +2178,23 @@ pub trait PlatformWindowV2 {
                                                 result = result.max(restyle_result);
                                             } else {
                                                 result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                                            }
+                                            
+                                            Some(timer_action)
+                                        } else {
+                                            None
+                                        };
+                                        
+                                        // Apply timer action outside the layout_window borrow
+                                        if let Some(timer_action) = timer_action {
+                                            match timer_action {
+                                                azul_layout::CursorBlinkTimerAction::Start(timer) => {
+                                                    self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
+                                                }
+                                                azul_layout::CursorBlinkTimerAction::Stop => {
+                                                    self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
+                                                }
+                                                azul_layout::CursorBlinkTimerAction::NoChange => {}
                                             }
                                         }
 
@@ -2189,9 +2213,16 @@ pub trait PlatformWindowV2 {
                                 // Get old focus before clearing
                                 let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
                                 
-                                if let Some(layout_window) = self.get_layout_window_mut() {
+                                let timer_action = if let Some(layout_window) = self.get_layout_window_mut() {
                                     layout_window.focus_manager.set_focused_node(None);
                                     default_action_focus_changed = true;
+                                    
+                                    // CURSOR BLINK TIMER: Stop timer when focus is cleared
+                                    let window_state = layout_window.current_window_state.clone();
+                                    let timer_action = layout_window.handle_focus_change_for_cursor_blink(
+                                        None,
+                                        &window_state,
+                                    );
                                     
                                     // RESTYLE: Update StyledNodeState when focus is cleared
                                     if old_focus_node_id.is_some() {
@@ -2203,6 +2234,21 @@ pub trait PlatformWindowV2 {
                                         result = result.max(restyle_result);
                                     } else {
                                         result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                                    }
+                                    
+                                    Some(timer_action)
+                                } else {
+                                    None
+                                };
+                                
+                                // Apply timer action outside the layout_window borrow
+                                if let Some(timer_action) = timer_action {
+                                    match timer_action {
+                                        azul_layout::CursorBlinkTimerAction::Start(_) => {}
+                                        azul_layout::CursorBlinkTimerAction::Stop => {
+                                            self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
+                                        }
+                                        azul_layout::CursorBlinkTimerAction::NoChange => {}
                                     }
                                 }
 
@@ -2427,6 +2473,62 @@ pub trait PlatformWindowV2 {
             }
         }
 
+        // W3C "flag and defer" pattern: Finalize pending focus changes after all events processed
+        // 
+        // This is called at the end of event processing to initialize the cursor for
+        // contenteditable elements. The cursor wasn't initialized during focus event handling
+        // because text layout may not have been available. Now that all events have been
+        // processed and layout has had a chance to update, we can safely initialize the cursor.
+        //
+        // After successful cursor initialization, we also start the cursor blink timer.
+        // NOTE: We need to carefully manage borrows here - first do all layout_window work,
+        // then create the timer separately if needed.
+        let timer_creation_needed = if let Some(layout_window) = self.get_layout_window_mut() {
+            if layout_window.focus_manager.needs_cursor_initialization() {
+                let cursor_initialized = layout_window.finalize_pending_focus_changes();
+                if cursor_initialized {
+                    log_debug!(
+                        super::debug_server::LogCategory::Input,
+                        "[Event V2] Cursor initialized via finalize_pending_focus_changes"
+                    );
+                    result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                    
+                    // Check if blink timer is not already active
+                    if !layout_window.cursor_manager.is_blink_timer_active() {
+                        layout_window.cursor_manager.set_blink_timer_active(true);
+                        true // Signal that we need to create and start the timer
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        
+        // Create and start the blink timer outside of the mutable layout_window borrow
+        if timer_creation_needed {
+            // Now we can safely get both window_state and layout_window
+            let timer = if let Some(layout_window) = self.get_layout_window() {
+                let current_window_state = self.get_current_window_state();
+                Some(layout_window.create_cursor_blink_timer(current_window_state))
+            } else {
+                None
+            };
+            
+            if let Some(timer) = timer {
+                self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
+                log_debug!(
+                    super::debug_server::LogCategory::Input,
+                    "[Event V2] Started cursor blink timer after focus finalization"
+                );
+            }
+        }
+
         result
     }
 
@@ -2557,8 +2659,10 @@ pub trait PlatformWindowV2 {
 
         // Handle focus changes
         use azul_layout::callbacks::FocusUpdateRequest;
+        eprintln!("[DEBUG event_v2] update_focused_node = {:?}", result.update_focused_node);
         match result.update_focused_node {
             FocusUpdateRequest::FocusNode(new_focus) => {
+                eprintln!("[DEBUG event_v2] FocusUpdateRequest::FocusNode({:?})", new_focus);
                 // Update focus in the FocusManager (in LayoutWindow)
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     layout_window
@@ -2573,6 +2677,23 @@ pub trait PlatformWindowV2 {
                         ScrollIntoViewOptions::nearest(),
                         now,
                     );
+                    
+                    // CURSOR BLINK TIMER: Start/stop timer based on contenteditable focus
+                    let window_state = layout_window.current_window_state.clone();
+                    let timer_action = layout_window.handle_focus_change_for_cursor_blink(
+                        Some(new_focus),
+                        &window_state,
+                    );
+                    
+                    match timer_action {
+                        azul_layout::CursorBlinkTimerAction::Start(timer) => {
+                            self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
+                        }
+                        azul_layout::CursorBlinkTimerAction::Stop => {
+                            self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
+                        }
+                        azul_layout::CursorBlinkTimerAction::NoChange => {}
+                    }
                 }
                 event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
             }
@@ -2580,6 +2701,23 @@ pub trait PlatformWindowV2 {
                 // Clear focus in the FocusManager (in LayoutWindow)
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     layout_window.focus_manager.set_focused_node(None);
+                    
+                    // CURSOR BLINK TIMER: Stop timer when focus is cleared
+                    let window_state = layout_window.current_window_state.clone();
+                    let timer_action = layout_window.handle_focus_change_for_cursor_blink(
+                        None,
+                        &window_state,
+                    );
+                    
+                    match timer_action {
+                        azul_layout::CursorBlinkTimerAction::Start(_timer) => {
+                            // Shouldn't happen when clearing focus, but handle it
+                        }
+                        azul_layout::CursorBlinkTimerAction::Stop => {
+                            self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
+                        }
+                        azul_layout::CursorBlinkTimerAction::NoChange => {}
+                    }
                 }
                 event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
             }
