@@ -1328,10 +1328,13 @@ where
         let Some(dom_id) = node.dom_node_id else {
             return Ok(());
         };
-        let Some(cached_layout) = &node.inline_layout_result else {
+        
+        // Get inline layout using the unified helper that handles IFC membership
+        // This is critical: text nodes don't have their own inline_layout_result,
+        // but they have ifc_membership pointing to their IFC root
+        let Some(layout) = self.positioned_tree.tree.get_inline_layout_for_node(node_index) else {
             return Ok(());
         };
-        let layout = &cached_layout.layout;
 
         // Get the absolute position of this node (border-box position)
         let node_pos = self
@@ -1451,13 +1454,16 @@ where
             return Ok(());
         }
 
-        let Some(cached_layout) = &node.inline_layout_result else {
+        // Get inline layout using the unified helper that handles IFC membership
+        // This is critical: text nodes don't have their own inline_layout_result,
+        // but they have ifc_membership pointing to their IFC root
+        let Some(layout) = self.positioned_tree.tree.get_inline_layout_for_node(node_index) else {
             return Ok(());
         };
-        let layout = &cached_layout.layout;
 
-        // Check if this node is contenteditable
-        let is_contenteditable = super::getters::is_node_contenteditable(self.ctx.styled_dom, dom_id);
+        // Check if this node is contenteditable (or inherits contenteditable from ancestor)
+        // Text nodes don't have contenteditable directly, but inherit it from their container
+        let is_contenteditable = super::getters::is_node_contenteditable_inherited(self.ctx.styled_dom, dom_id);
         if !is_contenteditable {
             return Ok(());
         }
