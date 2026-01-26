@@ -486,6 +486,43 @@ impl LayoutTree {
             node.dirty_flag = DirtyFlag::None;
         }
     }
+
+    /// Get inline layout for a node, navigating through IFC membership if needed.
+    ///
+    /// For text nodes that participate in an IFC (Inline Formatting Context),
+    /// the actual `inline_layout_result` is stored on the IFC root node (the block
+    /// container), not on the text node itself. This method handles both cases:
+    ///
+    /// 1. If the node has its own `inline_layout_result`, return it directly
+    /// 2. If the node has `ifc_membership`, navigate to the IFC root and return its layout
+    ///
+    /// This mirrors the W3C Selection model where:
+    /// - Selection.focusNode points to the TEXT node
+    /// - But the layout data is owned by the containing block
+    ///
+    /// # Arguments
+    /// * `layout_index` - The index of the layout node in the tree
+    ///
+    /// # Returns
+    /// The inline layout for the node's IFC, or `None` if no layout is available
+    pub fn get_inline_layout_for_node(&self, layout_index: usize) -> Option<&std::sync::Arc<UnifiedLayout>> {
+        let layout_node = self.nodes.get(layout_index)?;
+
+        // First, check if this node has its own inline_layout_result (it's an IFC root)
+        if let Some(cached) = &layout_node.inline_layout_result {
+            return Some(cached.get_layout());
+        }
+
+        // For text nodes, check if they have ifc_membership pointing to the IFC root
+        if let Some(ifc_membership) = &layout_node.ifc_membership {
+            let ifc_root_node = self.nodes.get(ifc_membership.ifc_root_layout_index)?;
+            if let Some(cached) = &ifc_root_node.inline_layout_result {
+                return Some(cached.get_layout());
+            }
+        }
+
+        None
+    }
 }
 
 /// Generate layout tree from styled DOM with proper anonymous box generation
