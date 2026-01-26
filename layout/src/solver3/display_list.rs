@@ -1313,8 +1313,9 @@ where
         CursorType::Text
     }
 
-    /// Emits drawing commands for selection and cursor, if any.
-    fn paint_selection_and_cursor(
+    /// Emits drawing commands for text selections only (not cursor).
+    /// The cursor is drawn separately via `paint_cursor()`.
+    fn paint_selections(
         &self,
         builder: &mut DisplayListBuilder,
         node_index: usize,
@@ -1340,33 +1341,27 @@ where
             .copied()
             .unwrap_or_default();
 
-        // Selection rects from get_selection_rects() are relative to content-box origin,
-        // but node_pos is the border-box position. We need to add padding and border
-        // to convert from border-box to content-box coordinates.
+        // Selection rects are relative to content-box origin
         let padding = &node.box_props.padding;
         let border = &node.box_props.border;
         let content_box_offset_x = node_pos.x + padding.left + border.left;
         let content_box_offset_y = node_pos.y + padding.top + border.top;
 
-        // Check if this node is contenteditable (cursor should only appear on editable content)
-        let is_contenteditable = super::getters::is_node_contenteditable(self.ctx.styled_dom, dom_id);
-        
         // Check if text is selectable (respects CSS user-select property)
         let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
         let is_selectable = super::getters::is_text_selectable(self.ctx.styled_dom, dom_id, node_state);
+        
+        if !is_selectable {
+            return Ok(());
+        }
 
         // === NEW: Check text_selections first (multi-node selection support) ===
-        // The new TextSelection uses a BTreeMap<NodeId, SelectionRange> for O(log N) lookup
         if let Some(text_selection) = self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id) {
-            // dom_id is already a NodeId from node.dom_node_id
             if let Some(range) = text_selection.affected_nodes.get(&dom_id) {
                 let is_collapsed = text_selection.is_collapsed();
                 
-                // Only draw selection highlight if:
-                // 1. NOT collapsed (has actual range) AND
-                // 2. The element is selectable (user-select != none)
-                if !is_collapsed && is_selectable {
-                    // This node is part of a multi-node selection
+                // Only draw selection highlight if NOT collapsed
+                if !is_collapsed {
                     let rects = layout.get_selection_rects(range);
                     let style = get_selection_style(self.ctx.styled_dom, Some(dom_id));
 
@@ -1383,28 +1378,7 @@ where
                         builder.push_selection_rect(rect, style.bg_color, border_radius);
                     }
                 }
-
-                // Only draw cursor if:
-                // 1. This is the focus node AND
-                // 2. The element is contenteditable AND  
-                // 3. The selection is collapsed (insertion point, not range selection) AND
-                // 4. The element is selectable (user-select != none) AND
-                // 5. The cursor is in the "visible" phase of blinking (cursor_is_visible)
-                if text_selection.focus.ifc_root_node_id == dom_id 
-                    && is_contenteditable 
-                    && is_collapsed 
-                    && is_selectable
-                    && self.ctx.cursor_is_visible
-                {
-                    if let Some(mut rect) = layout.get_cursor_rect(&text_selection.focus.cursor) {
-                        let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
-                        rect.origin.x += content_box_offset_x;
-                        rect.origin.y += content_box_offset_y;
-                        builder.push_cursor_rect(rect, style.color);
-                    }
-                }
-
-                // We handled this node via text_selections, skip legacy path
+                
                 return Ok(());
             }
         }
@@ -1414,58 +1388,124 @@ where
             return Ok(());
         };
 
-        // Check if this selection state applies to the current node
         if selection_state.node_id.node.into_crate_internal() != Some(dom_id) {
             return Ok(());
         }
 
-        // Iterate through all selections (multi-cursor/multi-selection support)
         for selection in selection_state.selections.as_slice() {
-            match &selection {
-                Selection::Cursor(cursor) => {
-                    // Only draw cursor if this element is contenteditable, selectable,
-                    // AND the cursor is in the "visible" phase of blinking
-                    if !is_contenteditable || !is_selectable || !self.ctx.cursor_is_visible {
-                        continue;
-                    }
-                    // Draw cursor
-                    if let Some(mut rect) = layout.get_cursor_rect(cursor) {
-                        let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
+            if let Selection::Range(range) = &selection {
+                let rects = layout.get_selection_rects(range);
+                let style = get_selection_style(self.ctx.styled_dom, Some(dom_id));
 
-                        // Adjust rect to absolute content-box position
-                        rect.origin.x += content_box_offset_x;
-                        rect.origin.y += content_box_offset_y;
+                let border_radius = BorderRadius {
+                    top_left: style.radius,
+                    top_right: style.radius,
+                    bottom_left: style.radius,
+                    bottom_right: style.radius,
+                };
 
-                        builder.push_cursor_rect(rect, style.color);
-                    }
-                }
-                Selection::Range(range) => {
-                    // Only draw selection range if selectable (user-select != none)
-                    if !is_selectable {
-                        continue;
-                    }
-                    // Draw selection range
-                    let rects = layout.get_selection_rects(range);
-                    let style = get_selection_style(self.ctx.styled_dom, Some(dom_id));
-
-                    // Convert f32 radius to BorderRadius
-                    let border_radius = BorderRadius {
-                        top_left: style.radius,
-                        top_right: style.radius,
-                        bottom_left: style.radius,
-                        bottom_right: style.radius,
-                    };
-
-                    for mut rect in rects {
-                        // Adjust rect to absolute content-box position
-                        rect.origin.x += content_box_offset_x;
-                        rect.origin.y += content_box_offset_y;
-                        builder.push_selection_rect(rect, style.bg_color, border_radius);
-                    }
+                for mut rect in rects {
+                    rect.origin.x += content_box_offset_x;
+                    rect.origin.y += content_box_offset_y;
+                    builder.push_selection_rect(rect, style.bg_color, border_radius);
                 }
             }
         }
 
+        Ok(())
+    }
+
+    /// Emits drawing commands for the text cursor (caret) only.
+    /// This is separate from selections and reads from `ctx.cursor_location`.
+    fn paint_cursor(
+        &self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+    ) -> Result<()> {
+        // Early exit if cursor is not visible (blinking off phase)
+        if !self.ctx.cursor_is_visible {
+            return Ok(());
+        }
+        
+        // Early exit if no cursor location is set
+        let Some((cursor_dom_id, cursor_node_id, cursor)) = &self.ctx.cursor_location else {
+            return Ok(());
+        };
+
+        let node = self
+            .positioned_tree
+            .tree
+            .get(node_index)
+            .ok_or(LayoutError::InvalidTree)?;
+        let Some(dom_id) = node.dom_node_id else {
+            return Ok(());
+        };
+        
+        // Only paint cursor on the node that has the cursor
+        if dom_id != *cursor_node_id {
+            return Ok(());
+        }
+        
+        // Check DOM ID matches
+        if self.ctx.styled_dom.dom_id != *cursor_dom_id {
+            return Ok(());
+        }
+
+        let Some(cached_layout) = &node.inline_layout_result else {
+            return Ok(());
+        };
+        let layout = &cached_layout.layout;
+
+        // Check if this node is contenteditable
+        let is_contenteditable = super::getters::is_node_contenteditable(self.ctx.styled_dom, dom_id);
+        if !is_contenteditable {
+            return Ok(());
+        }
+        
+        // Check if text is selectable
+        let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+        let is_selectable = super::getters::is_text_selectable(self.ctx.styled_dom, dom_id, node_state);
+        if !is_selectable {
+            return Ok(());
+        }
+
+        // Get cursor rect from text layout
+        let Some(mut rect) = layout.get_cursor_rect(cursor) else {
+            return Ok(());
+        };
+
+        // Get the absolute position of this node (border-box position)
+        let node_pos = self
+            .positioned_tree
+            .calculated_positions
+            .get(&node_index)
+            .copied()
+            .unwrap_or_default();
+
+        // Adjust to content-box coordinates
+        let padding = &node.box_props.padding;
+        let border = &node.box_props.border;
+        let content_box_offset_x = node_pos.x + padding.left + border.left;
+        let content_box_offset_y = node_pos.y + padding.top + border.top;
+
+        rect.origin.x += content_box_offset_x;
+        rect.origin.y += content_box_offset_y;
+
+        let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
+        builder.push_cursor_rect(rect, style.color);
+
+        Ok(())
+    }
+
+    /// Emits drawing commands for selection and cursor.
+    /// Delegates to `paint_selections()` and `paint_cursor()`.
+    fn paint_selection_and_cursor(
+        &self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+    ) -> Result<()> {
+        self.paint_selections(builder, node_index)?;
+        self.paint_cursor(builder, node_index)?;
         Ok(())
     }
 
