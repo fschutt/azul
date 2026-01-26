@@ -234,12 +234,9 @@ impl CursorManager {
         node_id: NodeId,
         text_layout: Option<&alloc::sync::Arc<crate::text3::cache::UnifiedLayout>>,
     ) -> bool {
-        eprintln!("[DEBUG] initialize_cursor_at_end: dom_id={:?}, node_id={:?}, has_layout={}", dom_id, node_id, text_layout.is_some());
-        
         // Get the text layout for this node
         let Some(layout) = text_layout else {
             // No text layout - set cursor at start
-            eprintln!("[DEBUG] No text layout, setting cursor at start");
             self.cursor = Some(TextCursor {
                 cluster_id: GraphemeClusterId {
                     source_run: 0,
@@ -249,19 +246,16 @@ impl CursorManager {
             });
             self.cursor_location = Some(CursorLocation { dom_id, node_id });
             self.is_visible = true; // Make cursor visible immediately
-            eprintln!("[DEBUG] Cursor set: {:?}", self.cursor);
             return true;
         };
 
         // Find the last grapheme cluster in items
         let mut last_cluster_id: Option<GraphemeClusterId> = None;
-        eprintln!("[DEBUG] Layout has {} items", layout.items.len());
 
         // Iterate through all items to find the last cluster
         for item in layout.items.iter().rev() {
             if let crate::text3::cache::ShapedItem::Cluster(cluster) = &item.item {
                 last_cluster_id = Some(cluster.source_cluster_id);
-                eprintln!("[DEBUG] Found last cluster: {:?}", last_cluster_id);
                 break;
             }
         }
@@ -277,7 +271,6 @@ impl CursorManager {
 
         self.cursor_location = Some(CursorLocation { dom_id, node_id });
         self.is_visible = true; // Make cursor visible immediately
-        eprintln!("[DEBUG] Cursor initialized: cursor={:?}, location={:?}", self.cursor, self.cursor_location);
 
         true
     }
