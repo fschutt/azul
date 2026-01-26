@@ -176,6 +176,10 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// Fragmentation context for CSS Paged Media (PDF generation)
     /// When Some, layout respects page boundaries and generates one DisplayList per page
     pub fragmentation_context: Option<&'a mut crate::paged::FragmentationContext>,
+    /// Whether the text cursor should be drawn (managed by CursorManager blink timer)
+    /// When false, the cursor is in the "off" phase of blinking and should not be rendered.
+    /// When true (default), the cursor is visible.
+    pub cursor_is_visible: bool,
 }
 
 impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
@@ -359,6 +363,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     renderer_resources: &azul_core::resources::RendererResources,
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: azul_core::dom::DomId,
+    cursor_is_visible: bool,
 ) -> Result<DisplayList> {
     // Reset IFC ID counter at the start of each layout pass
     // This ensures IFCs get consistent IDs across frames when the DOM structure is stable
@@ -386,6 +391,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         counters: &mut counter_values,
         viewport_size: viewport.size,
         fragmentation_context: None,
+        cursor_is_visible, // Use the parameter
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
@@ -414,6 +420,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         counters: &mut counter_values,
         viewport_size: viewport.size,
         fragmentation_context: None,
+        cursor_is_visible, // Use the parameter
     };
 
     // --- Step 1.5: Early Exit Optimization ---

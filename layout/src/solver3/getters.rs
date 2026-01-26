@@ -2532,3 +2532,95 @@ pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool 
         matches!(attr, AttributeType::ContentEditable(_))
     })
 }
+
+/// W3C-conformant contenteditable inheritance check.
+///
+/// In the W3C model, the `contenteditable` attribute is **inherited**:
+/// - A node is editable if it has `contenteditable="true"` set directly
+/// - OR if its parent has `isContentEditable` as true
+/// - UNLESS the node explicitly sets `contenteditable="false"`
+///
+/// This function traverses up the DOM tree to determine editability.
+///
+/// # Returns
+///
+/// - `true` if the node is editable (either directly or via inheritance)
+/// - `false` if the node is not editable or has `contenteditable="false"`
+///
+/// # Example
+///
+/// ```html
+/// <div contenteditable="true">
+///   A                              <!-- editable (inherited) -->
+///   <div contenteditable="false">
+///     B                            <!-- NOT editable (explicitly false) -->
+///   </div>
+///   C                              <!-- editable (inherited) -->
+/// </div>
+/// ```
+pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    use azul_core::dom::AttributeType;
+    
+    let node_data_container = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    
+    let mut current_node_id = Some(node_id);
+    
+    while let Some(nid) = current_node_id {
+        let node_data = &node_data_container[nid];
+        
+        // Check for explicit contenteditable attribute on this node
+        for attr in node_data.attributes.as_ref().iter() {
+            if let AttributeType::ContentEditable(is_editable) = attr {
+                // If explicitly set to true, node is editable
+                // If explicitly set to false, node is NOT editable (blocks inheritance)
+                return *is_editable;
+            }
+        }
+        
+        // No explicit attribute, check parent
+        current_node_id = hierarchy.get(nid).and_then(|h| h.parent_id());
+    }
+    
+    // Reached root without finding contenteditable - not editable
+    false
+}
+
+/// Find the contenteditable ancestor of a node.
+///
+/// When focus lands on a text node inside a contenteditable container,
+/// we need to find the actual container that has the `contenteditable` attribute.
+///
+/// # Returns
+///
+/// - `Some(node_id)` of the contenteditable ancestor (may be the node itself)
+/// - `None` if no contenteditable ancestor exists
+pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) -> Option<NodeId> {
+    use azul_core::dom::AttributeType;
+    
+    let node_data_container = styled_dom.node_data.as_container();
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    
+    let mut current_node_id = Some(node_id);
+    
+    while let Some(nid) = current_node_id {
+        let node_data = &node_data_container[nid];
+        
+        // Check for contenteditable="true" on this node
+        for attr in node_data.attributes.as_ref().iter() {
+            if let AttributeType::ContentEditable(is_editable) = attr {
+                if *is_editable {
+                    return Some(nid);
+                } else {
+                    // Explicitly not editable - stop search
+                    return None;
+                }
+            }
+        }
+        
+        // Check parent
+        current_node_id = hierarchy.get(nid).and_then(|h| h.parent_id());
+    }
+    
+    None
+}
