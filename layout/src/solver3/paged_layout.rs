@@ -230,6 +230,7 @@ where
         viewport_size: viewport.size,
         fragmentation_context: Some(&mut fragmentation_context),
         cursor_is_visible: true, // Paged layout: cursor always visible
+        cursor_location: None,   // Paged layout: no cursor
     };
 
     // NEW: Use the commitment-based pagination approach with CSS break properties
@@ -355,6 +356,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         viewport_size: viewport.size,
         fragmentation_context: Some(fragmentation_context),
         cursor_is_visible: true, // Paged layout: cursor always visible
+        cursor_location: None,   // Paged layout: no cursor
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
@@ -382,6 +384,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         viewport_size: viewport.size,
         fragmentation_context: Some(fragmentation_context),
         cursor_is_visible: true, // Paged layout: cursor always visible
+        cursor_location: None,   // Paged layout: no cursor
     };
 
     // --- Step 1.5: Early Exit Optimization ---
