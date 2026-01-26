@@ -3428,6 +3428,50 @@ fn process_debug_event(
                                 border_widths: None,
                             }
                         }
+                        azul_layout::solver3::display_list::DisplayListItem::CursorRect { bounds, color } => {
+                            other_count += 1;
+                            DisplayListItemInfo {
+                                index: idx,
+                                item_type: "cursor".to_string(),
+                                x: Some(bounds.origin.x),
+                                y: Some(bounds.origin.y),
+                                width: Some(bounds.size.width),
+                                height: Some(bounds.size.height),
+                                color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
+                                clip_depth: Some(clip_depth),
+                                scroll_depth: Some(scroll_depth),
+                                content_size: None,
+                                scroll_id: None,
+                                debug_info: None,
+                                border_colors: None,
+                                border_widths: None,
+                            }
+                        }
+                        azul_layout::solver3::display_list::DisplayListItem::SelectionRect { bounds, color, .. } => {
+                            other_count += 1;
+                            DisplayListItemInfo {
+                                index: idx,
+                                item_type: "selection".to_string(),
+                                x: Some(bounds.origin.x),
+                                y: Some(bounds.origin.y),
+                                width: Some(bounds.size.width),
+                                height: Some(bounds.size.height),
+                                color: Some(format!("#{:02x}{:02x}{:02x}{:02x}", color.r, color.g, color.b, color.a)),
+                                font_size: None,
+                                glyph_count: None,
+                                z_index: None,
+                                clip_depth: Some(clip_depth),
+                                scroll_depth: Some(scroll_depth),
+                                content_size: None,
+                                scroll_id: None,
+                                debug_info: None,
+                                border_colors: None,
+                                border_widths: None,
+                            }
+                        }
                         _ => {
                             other_count += 1;
                             DisplayListItemInfo {
