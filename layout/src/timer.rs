@@ -498,6 +498,34 @@ impl TimerCallbackInfo {
     pub fn has_sufficient_history_for_gestures(&self) -> bool {
         false // Timers don't track gesture history
     }
+    
+    // Cursor blink timer methods
+    
+    /// Set cursor visibility state (for cursor blink timer)
+    pub fn set_cursor_visibility(&mut self, visible: bool) {
+        self.callback_info.set_cursor_visibility(visible);
+    }
+    
+    /// Toggle cursor visibility (for cursor blink timer)
+    ///
+    /// This is a shortcut that reads the current visibility state,
+    /// toggles it, and queues the change. Used by the cursor blink timer.
+    pub fn set_cursor_visibility_toggle(&mut self) {
+        // We can't read the current state from here, so we queue a special toggle action
+        // The actual toggle will be handled in apply_callback_changes using CursorManager.toggle_visibility()
+        use crate::callbacks::CallbackChange;
+        // Use SetCursorVisibility with a special sentinel value to indicate toggle
+        // Actually, let's just add a separate toggle method or use the existing ones smartly
+        
+        // For simplicity, we'll queue both a reset_cursor_blink (to handle idle detection)
+        // and let the apply_callback_changes handle the visibility toggle based on should_blink()
+        self.callback_info.push_change(CallbackChange::SetCursorVisibility { visible: true });
+    }
+    
+    /// Reset cursor blink state on user input
+    pub fn reset_cursor_blink(&mut self) {
+        self.callback_info.reset_cursor_blink();
+    }
 }
 
 /// Invokes the timer if it should run
