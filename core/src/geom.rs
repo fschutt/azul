@@ -536,3 +536,78 @@ impl PhysicalSize<u32> {
         }
     }
 }
+
+// =============================================================================
+// CoordinateSpace - Debug marker for documenting coordinate system contexts
+// =============================================================================
+//
+// This enum serves as DOCUMENTATION for which coordinate space a value is in.
+// It does NOT enforce type-safety at compile time (no PhantomData generics).
+// The purpose is to help developers understand and debug coordinate transformations.
+//
+// COORDINATE SPACES IN AZUL:
+//
+// 1. Window (absolute coordinates from window top-left)
+//    - All layout primitives are initially computed in this space
+//    - Origin: (0, 0) = top-left corner of the window content area
+//    - Used by: Layout engine output, display list items before compositor
+//
+// 2. ScrollFrame (relative to scroll container origin)
+//    - Used for primitives inside a WebRender scroll frame
+//    - Origin: (0, 0) = top-left of scrollable content area
+//    - Transformation: scroll_pos = window_pos - scroll_frame_origin
+//    - The scroll_frame_origin is the Window-space position of the scroll frame
+//
+// 3. Parent (relative to parent node origin)  
+//    - Used for relative positioning within a parent container
+//    - Origin: (0, 0) = top-left of parent's content box
+//
+// 4. ReferenceFrame (relative to a CSS transform origin)
+//    - Used for primitives inside a WebRender reference frame (transforms)
+//    - Origin: Defined by the transform-origin property
+//
+// COMMON BUG PATTERN:
+//
+// The Y-offset bug in text areas was caused by passing Window-space coordinates
+// to WebRender when it expected ScrollFrame-space coordinates. The scroll frame
+// creates a new spatial node, so primitives must be offset by the frame origin.
+//
+// WRONG:  Push same offset for scroll frames (content appears at window position)
+// RIGHT:  Push frame_origin as new offset (content positioned relative to frame)
+
+/// Marker enum documenting which coordinate space a geometric value is in.
+/// 
+/// This is for documentation and debugging purposes only - it does not enforce
+/// type safety at compile time. Use comments like `[CoordinateSpace::Window]`
+/// or `[CoordinateSpace::ScrollFrame]` in code to document coordinate contexts.
+/// 
+/// See the module-level documentation above for details on each space.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub enum CoordinateSpace {
+    /// Absolute coordinates from window top-left (0,0).
+    /// Layout engine output is in this space.
+    Window,
+    
+    /// Relative to scroll frame content origin.
+    /// Transformation: scroll_pos = window_pos - scroll_frame_origin
+    ScrollFrame,
+    
+    /// Relative to parent node's content box origin.
+    Parent,
+    
+    /// Relative to a CSS transform reference frame origin.
+    ReferenceFrame,
+}
+
+impl CoordinateSpace {
+    /// Returns a human-readable description of this coordinate space.
+    pub const fn description(&self) -> &'static str {
+        match self {
+            CoordinateSpace::Window => "Absolute window coordinates (layout engine output)",
+            CoordinateSpace::ScrollFrame => "Relative to scroll frame origin (for WebRender scroll nodes)",
+            CoordinateSpace::Parent => "Relative to parent node origin",
+            CoordinateSpace::ReferenceFrame => "Relative to CSS transform origin",
+        }
+    }
+}
