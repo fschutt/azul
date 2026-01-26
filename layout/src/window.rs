@@ -1664,8 +1664,6 @@ impl LayoutWindow {
         new_focus: Option<azul_core::dom::DomNodeId>,
         current_window_state: &FullWindowState,
     ) -> CursorBlinkTimerAction {
-        eprintln!("[DEBUG] handle_focus_change_for_cursor_blink called with new_focus={:?}", new_focus);
-        
         // Check if the new focus is on a contenteditable element
         // Use the inherited check for W3C conformance
         let contenteditable_info = match new_focus {
@@ -1689,10 +1687,8 @@ impl LayoutWindow {
         
         // Determine the action based on current state and new focus
         let timer_was_active = self.cursor_manager.is_blink_timer_active();
-        eprintln!("[DEBUG] is_contenteditable={}, timer_was_active={}", contenteditable_info.is_some(), timer_was_active);
         
         if let Some((dom_id, container_node_id, text_node_id)) = contenteditable_info {
-            eprintln!("[DEBUG] Setting pending contenteditable focus: dom={:?}, container={:?}, text={:?}", dom_id, container_node_id, text_node_id);
             
             // W3C "flag and defer" pattern:
             // Set flag for cursor initialization AFTER layout pass
@@ -1710,16 +1706,13 @@ impl LayoutWindow {
             if !timer_was_active {
                 // Need to start the timer
                 let timer = self.create_cursor_blink_timer(current_window_state);
-                eprintln!("[DEBUG] Returning CursorBlinkTimerAction::Start");
                 return CursorBlinkTimerAction::Start(timer);
             } else {
                 // Timer already active, just continue
-                eprintln!("[DEBUG] Returning CursorBlinkTimerAction::NoChange (timer already active)");
                 return CursorBlinkTimerAction::NoChange;
             }
         } else {
             // Focus is moving away from contenteditable or being cleared
-            eprintln!("[DEBUG] Focus is NOT contenteditable, clearing cursor and pending focus");
             
             // Clear the cursor AND the pending focus flag
             self.cursor_manager.clear();
@@ -1728,10 +1721,8 @@ impl LayoutWindow {
             if timer_was_active {
                 // Need to stop the timer
                 self.cursor_manager.set_blink_timer_active(false);
-                eprintln!("[DEBUG] Returning CursorBlinkTimerAction::Stop");
                 return CursorBlinkTimerAction::Stop;
             } else {
-                eprintln!("[DEBUG] Returning CursorBlinkTimerAction::NoChange (timer was not active)");
                 return CursorBlinkTimerAction::NoChange;
             }
         }
@@ -1759,36 +1750,21 @@ impl LayoutWindow {
     ///
     /// `true` if cursor was initialized, `false` if no pending focus or initialization failed.
     pub fn finalize_pending_focus_changes(&mut self) -> bool {
-        eprintln!("[DEBUG] finalize_pending_focus_changes called, needs_init={}", 
-            self.focus_manager.needs_cursor_initialization());
-        
         // Take the pending focus info (this clears the flag)
         let pending = match self.focus_manager.take_pending_contenteditable_focus() {
             Some(p) => p,
-            None => {
-                eprintln!("[DEBUG] No pending contenteditable focus");
-                return false;
-            }
+            None => return false,
         };
-        
-        eprintln!("[DEBUG] Initializing cursor for pending focus: dom={:?}, text_node={:?}", 
-            pending.dom_id, pending.text_node_id);
         
         // Now we can safely get the text layout (layout pass has completed)
         let text_layout = self.get_inline_layout_for_node(pending.dom_id, pending.text_node_id).cloned();
-        eprintln!("[DEBUG] text_layout available: {}", text_layout.is_some());
         
         // Initialize cursor at end of text
-        let cursor_initialized = self.cursor_manager.initialize_cursor_at_end(
+        self.cursor_manager.initialize_cursor_at_end(
             pending.dom_id,
             pending.text_node_id,
             text_layout.as_ref(),
-        );
-        
-        eprintln!("[DEBUG] Cursor initialized: {}, cursor={:?}, location={:?}", 
-            cursor_initialized, self.cursor_manager.cursor, self.cursor_manager.cursor_location);
-        
-        cursor_initialized
+        )
     }
 
     // CallbackChange Processing
@@ -2288,6 +2264,14 @@ impl LayoutWindow {
     }
 
     /// Helper: Get inline layout for a node
+    /// 
+    /// For text nodes that participate in an IFC, the inline layout is stored
+    /// on the IFC root node (the block container), not on the text node itself.
+    /// This method handles both cases:
+    /// 1. The node has its own `inline_layout_result` (IFC root)
+    /// 2. The node has `ifc_membership` pointing to the IFC root
+    ///
+    /// This is a thin wrapper around `LayoutTree::get_inline_layout_for_node`.
     fn get_inline_layout_for_node(
         &self,
         dom_id: DomId,
@@ -2298,11 +2282,8 @@ impl LayoutWindow {
         let layout_indices = layout_result.layout_tree.dom_to_layout.get(&node_id)?;
         let layout_index = *layout_indices.first()?;
 
-        let layout_node = layout_result.layout_tree.nodes.get(layout_index)?;
-        layout_node
-            .inline_layout_result
-            .as_ref()
-            .map(|c| c.get_layout())
+        // Use the centralized LayoutTree method that handles IFC membership
+        layout_result.layout_tree.get_inline_layout_for_node(layout_index)
     }
 
     /// Helper: Move cursor using a movement function and return the new cursor if it changed
