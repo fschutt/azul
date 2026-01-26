@@ -2097,19 +2097,16 @@ pub trait PlatformWindowV2 {
                 matches!(e.event_type, azul_core::events::EventType::KeyDown)
             });
 
-
             if has_key_event {
                 // Get keyboard state and focused node for default action determination
                 let keyboard_state = &self.get_current_window_state().keyboard_state;
                 let focused_node = old_focus;
-
 
                 // Get layout results for querying node properties
                 let layout_results = self.get_layout_window()
                     .map(|lw| &lw.layout_results);
 
                 if let Some(layout_results) = layout_results {
-                    
                     // Determine what default action should occur
                     let default_action_result = azul_layout::default_actions::determine_keyboard_default_action(
                         keyboard_state,
@@ -2117,7 +2114,6 @@ pub trait PlatformWindowV2 {
                         layout_results,
                         prevent_default,
                     );
-
 
                     // Process the default action if not prevented
                     if default_action_result.has_action() {
@@ -2138,7 +2134,6 @@ pub trait PlatformWindowV2 {
                                         layout_results,
                                         focused_node,
                                     );
-                                    
                                     
                                     if let Ok(new_focus_node) = resolve_result {
                                         // Get the old focus node ID for restyle
@@ -2484,7 +2479,8 @@ pub trait PlatformWindowV2 {
         // NOTE: We need to carefully manage borrows here - first do all layout_window work,
         // then create the timer separately if needed.
         let timer_creation_needed = if let Some(layout_window) = self.get_layout_window_mut() {
-            if layout_window.focus_manager.needs_cursor_initialization() {
+            let needs_init = layout_window.focus_manager.needs_cursor_initialization();
+            if needs_init {
                 let cursor_initialized = layout_window.finalize_pending_focus_changes();
                 if cursor_initialized {
                     log_debug!(
@@ -2659,10 +2655,8 @@ pub trait PlatformWindowV2 {
 
         // Handle focus changes
         use azul_layout::callbacks::FocusUpdateRequest;
-        eprintln!("[DEBUG event_v2] update_focused_node = {:?}", result.update_focused_node);
         match result.update_focused_node {
             FocusUpdateRequest::FocusNode(new_focus) => {
-                eprintln!("[DEBUG event_v2] FocusUpdateRequest::FocusNode({:?})", new_focus);
                 // Update focus in the FocusManager (in LayoutWindow)
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     layout_window
