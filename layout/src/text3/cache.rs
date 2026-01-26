@@ -4492,7 +4492,23 @@ pub fn create_logical_items(
                     }
                 }
             }
-            // Other cases...
+            // Handle explicit line breaks (from white-space: pre or <br>)
+            InlineContent::LineBreak(break_info) => {
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "  LineBreak: {:?}",
+                        break_info
+                    )));
+                }
+                items.push(LogicalItem::Break {
+                    source: ContentIndex {
+                        run_index: run_idx as u32,
+                        item_index: 0,
+                    },
+                    break_info: break_info.clone(),
+                });
+            }
+            // Other cases (Image, Shape, Space, Tab, Ruby)
             _ => {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(
@@ -5640,6 +5656,7 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
     // Calculate bounds on demand via the bounds() method
     let calculated_bounds = layout.bounds();
+    
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "--- Calculated bounds: width={}, height={} ---",
@@ -6772,14 +6789,18 @@ fn get_line_constraints(
 
     let mut available_segments = Vec::new();
     if constraints.shape_boundaries.is_empty() {
-        // For MaxContent, use a very large width but NOT infinite
-        // For MinContent, use 0.0 (will cause immediate line breaks)
-        // For Definite, use the specified width
+        // The segment_width is determined by available_width, NOT by TextWrap.
+        // TextWrap::NoWrap only affects whether the LineBreaker can insert soft breaks,
+        // it should NOT override a definite width constraint from CSS.
+        // CSS Text Level 3: For 'white-space: pre/nowrap', text overflows horizontally
+        // if it doesn't fit, rather than expanding the container.
         let segment_width = match constraints.available_width {
-            AvailableSpace::Definite(w) => w,
-            AvailableSpace::MaxContent => f32::MAX / 2.0,
-            AvailableSpace::MinContent => 0.0,
+            AvailableSpace::Definite(w) => w, // Respect definite width from CSS
+            AvailableSpace::MaxContent => f32::MAX / 2.0, // For intrinsic max-content sizing
+            AvailableSpace::MinContent => 0.0, // For intrinsic min-content sizing
         };
+        // Note: TextWrap::NoWrap is handled by the LineBreaker in break_one_line()
+        // to prevent soft wraps. The text will simply overflow if it exceeds segment_width.
         available_segments.push(LineSegment {
             start_x: 0.0,
             width: segment_width,

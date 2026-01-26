@@ -2641,7 +2641,12 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             LayoutOverflow::Auto => text3::cache::OverflowBehavior::Auto,
         },
         available_width: text3::cache::AvailableSpace::from_f32(constraints.available_size.width),
-        available_height: Some(constraints.available_size.height),
+        // For scrollable containers (overflow: scroll/auto), don't constrain height
+        // so that the full content is laid out and content_size is calculated correctly.
+        available_height: match overflow_behaviour {
+            LayoutOverflow::Scroll | LayoutOverflow::Auto => None,
+            _ => Some(constraints.available_size.height),
+        },
         shape_boundaries, // CSS shape-inside: text flows within shape
         shape_exclusions, // CSS shape-outside + floats: text wraps around shapes
         writing_mode: Some(match writing_mode {
@@ -4793,12 +4798,15 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
                 );
                 // Get style from the TEXT NODE itself (dom_id), not the IFC root
                 // This ensures inline styles like color: #666666 are applied to the text
-                content.push(InlineContent::Text(StyledRun {
-                    text: text_content.to_string(),
-                    style: Arc::new(get_style_properties(ctx.styled_dom, dom_id)),
-                    logical_start_byte: 0,
-                    source_node_id: Some(dom_id),
-                }));
+                // Uses split_text_for_whitespace to correctly handle white-space: pre with \n
+                let style = Arc::new(get_style_properties(ctx.styled_dom, dom_id));
+                let text_items = split_text_for_whitespace(
+                    ctx.styled_dom,
+                    dom_id,
+                    text_content.as_str(),
+                    style,
+                );
+                content.extend(text_items);
                 child_map.insert(content_index, child_index);
                 
                 // Set IFC membership on the text node - drop child_node borrow first
@@ -5117,13 +5125,16 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
 
     // SPECIAL CASE: If the IFC root itself is a text node (leaf node),
     // add its text content directly instead of iterating over children
+    // Uses split_text_for_whitespace to correctly handle white-space: pre with \n
     if let NodeType::Text(ref text_content) = ifc_root_node_data.get_node_type() {
-        content.push(InlineContent::Text(StyledRun {
-            text: text_content.to_string(),
-            style: Arc::new(get_style_properties(ctx.styled_dom, ifc_root_dom_id)),
-            logical_start_byte: 0,
-            source_node_id: Some(ifc_root_dom_id),
-        }));
+        let style = Arc::new(get_style_properties(ctx.styled_dom, ifc_root_dom_id));
+        let text_items = split_text_for_whitespace(
+            ctx.styled_dom,
+            ifc_root_dom_id,
+            text_content.as_str(),
+            style,
+        );
+        content.extend(text_items);
         return Ok((content, child_map));
     }
 
@@ -5150,21 +5161,24 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
 
         // Check if this is a text node
         if let NodeType::Text(ref text_content) = node_data.get_node_type() {
-            let style = get_style_properties(ctx.styled_dom, dom_child_id);
             debug_info!(
                 ctx,
                 "[collect_and_measure_inline_content] OK: Found text node (DOM child {:?}): '{}'",
                 dom_child_id,
                 text_content.as_str()
             );
+            
             // Get style from the TEXT NODE itself (dom_child_id), not the IFC root
             // This ensures inline styles like color: #666666 are applied to the text
-            content.push(InlineContent::Text(StyledRun {
-                text: text_content.to_string(),
-                style: Arc::new(get_style_properties(ctx.styled_dom, dom_child_id)),
-                logical_start_byte: 0,
-                source_node_id: Some(dom_child_id),
-            }));
+            // Uses split_text_for_whitespace to correctly handle white-space: pre with \n
+            let style = Arc::new(get_style_properties(ctx.styled_dom, dom_child_id));
+            let text_items = split_text_for_whitespace(
+                ctx.styled_dom,
+                dom_child_id,
+                text_content.as_str(),
+                style,
+            );
+            content.extend(text_items);
             
             // Set IFC membership on the text node's layout node (if it exists)
             // Text nodes may or may not have their own layout tree entry depending on
@@ -6153,4 +6167,97 @@ fn generate_list_marker_segments(
         logical_start_byte: 0,
         source_node_id: None,
     }]
+}
+
+/// Splits text content into InlineContent items based on white-space CSS property.
+///
+/// For `white-space: pre`, `pre-wrap`, and `pre-line`, newlines (`\n`) are treated as
+/// forced line breaks per CSS Text Level 3 specification:
+/// https://www.w3.org/TR/css-text-3/#white-space-property
+///
+/// This function:
+/// 1. Checks the white-space property of the node (or its parent for text nodes)
+/// 2. If `pre`, `pre-wrap`, or `pre-line`: splits text by `\n` and inserts `InlineContent::LineBreak`
+/// 3. Otherwise: returns the text as a single `InlineContent::Text`
+///
+/// Returns a Vec of InlineContent items that correctly represent line breaks.
+pub(crate) fn split_text_for_whitespace(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    text: &str,
+    style: Arc<StyleProperties>,
+) -> Vec<InlineContent> {
+    use crate::text3::cache::{BreakType, ClearType, InlineBreak};
+    
+    // Get the white-space property - TEXT NODES inherit from parent!
+    // We need to check the parent element's white-space, not the text node itself
+    let node_hierarchy = styled_dom.node_hierarchy.as_container();
+    let parent_id = node_hierarchy[dom_id].parent_id();
+    
+    // Try parent first, then fall back to the node itself
+    let white_space = if let Some(parent) = parent_id {
+        let parent_node_data = &styled_dom.node_data.as_container()[parent];
+        let styled_nodes = styled_dom.styled_nodes.as_container();
+        let parent_state = styled_nodes
+            .get(parent)
+            .map(|n| n.styled_node_state.clone())
+            .unwrap_or_default();
+        
+        styled_dom
+            .css_property_cache
+            .ptr
+            .get_white_space(parent_node_data, &parent, &parent_state)
+            .and_then(|s| s.get_property().cloned())
+            .unwrap_or(StyleWhiteSpace::Normal)
+    } else {
+        StyleWhiteSpace::Normal
+    };
+    
+    let mut result = Vec::new();
+    
+    // For `pre`, `pre-wrap`, and `pre-line`, newlines must be preserved as forced breaks
+    // CSS Text Level 3: "Newlines in the source will be honored as forced line breaks."
+    match white_space {
+        StyleWhiteSpace::Pre => {
+            // Split by newlines and insert LineBreak between parts
+            let mut lines = text.split('\n').peekable();
+            let mut content_index = 0;
+            
+            while let Some(line) = lines.next() {
+                // Add the text part if not empty
+                if !line.is_empty() {
+                    result.push(InlineContent::Text(StyledRun {
+                        text: line.to_string(),
+                        style: Arc::clone(&style),
+                        logical_start_byte: 0,
+                        source_node_id: Some(dom_id),
+                    }));
+                }
+                
+                // If there's more content, insert a forced line break
+                if lines.peek().is_some() {
+                    result.push(InlineContent::LineBreak(InlineBreak {
+                        break_type: BreakType::Hard,
+                        clear: ClearType::None,
+                        content_index,
+                    }));
+                    content_index += 1;
+                }
+            }
+        }
+        // TODO: Implement pre-wrap and pre-line when CSS parser supports them
+        StyleWhiteSpace::Normal | StyleWhiteSpace::Nowrap => {
+            // Normal behavior: newlines are collapsed to spaces
+            if !text.is_empty() {
+                result.push(InlineContent::Text(StyledRun {
+                    text: text.to_string(),
+                    style,
+                    logical_start_byte: 0,
+                    source_node_id: Some(dom_id),
+                }));
+            }
+        }
+    }
+    
+    result
 }

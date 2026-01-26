@@ -34,6 +34,7 @@ use crate::{
         StyleProperties, StyledRun, UnifiedConstraints,
     },
     solver3::{
+        fc::split_text_for_whitespace,
         geometry::{BoxProps, BoxSizing, IntrinsicSizes},
         getters::{
             get_css_box_sizing, get_css_height, get_css_width, get_display_property,
@@ -521,14 +522,16 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
 
     // First check if THIS node is a text node
     if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
-        let style_props = get_style_properties(ctx.styled_dom, dom_id);
+        let style_props = Arc::new(get_style_properties(ctx.styled_dom, dom_id));
         ctx.debug_log(&format!("Found text in node {}: '{}'", node_index, text));
-        content.push(InlineContent::Text(StyledRun {
-            text,
-            style: Arc::new(style_props),
-            logical_start_byte: 0,
-            source_node_id: Some(dom_id),
-        }));
+        // Use split_text_for_whitespace to correctly handle white-space: pre with \n
+        let text_items = split_text_for_whitespace(
+            ctx.styled_dom,
+            dom_id,
+            &text,
+            style_props,
+        );
+        content.extend(text_items);
     }
 
     // CRITICAL: Also check DOM children for text nodes!
@@ -539,17 +542,19 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         let child_dom_node = &ctx.styled_dom.node_data.as_container()[child_id];
         if let NodeType::Text(text_data) = child_dom_node.get_node_type() {
             let text = text_data.as_str().to_string();
-            let style_props = get_style_properties(ctx.styled_dom, child_id);
+            let style_props = Arc::new(get_style_properties(ctx.styled_dom, child_id));
             ctx.debug_log(&format!(
                 "Found text in DOM child of node {}: '{}'",
                 node_index, text
             ));
-            content.push(InlineContent::Text(StyledRun {
-                text,
-                style: Arc::new(style_props),
-                logical_start_byte: 0,
-                source_node_id: Some(child_id),
-            }));
+            // Use split_text_for_whitespace to correctly handle white-space: pre with \n
+            let text_items = split_text_for_whitespace(
+                ctx.styled_dom,
+                child_id,
+                &text,
+                style_props,
+            );
+            content.extend(text_items);
         }
     }
 
