@@ -112,6 +112,10 @@ pub enum ResponseData {
     DragState(DragStateResponse),
     /// Detailed drag context
     DragContext(DragContextResponse),
+    /// Focus state (which node has keyboard focus)
+    FocusState(FocusStateResponse),
+    /// Cursor state (cursor position and blink state)
+    CursorState(CursorStateResponse),
 }
 
 /// Metadata about a RefAny's type
@@ -901,6 +905,64 @@ pub struct DragContextResponse {
     pub debug: String,
 }
 
+/// Response for GetFocusState - which node has keyboard focus
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FocusStateResponse {
+    /// Whether any node has focus
+    pub has_focus: bool,
+    /// Focused node information (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focused_node: Option<FocusedNodeInfo>,
+}
+
+/// Information about the focused node
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FocusedNodeInfo {
+    /// DOM ID
+    pub dom_id: u32,
+    /// Node ID within the DOM
+    pub node_id: u64,
+    /// CSS selector for the node
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selector: Option<String>,
+    /// Whether the node is contenteditable
+    pub is_contenteditable: bool,
+    /// Text content of the node (if text node)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_content: Option<String>,
+}
+
+/// Response for GetCursorState - cursor position and blink state
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CursorStateResponse {
+    /// Whether a cursor is active
+    pub has_cursor: bool,
+    /// Cursor information (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<CursorInfo>,
+}
+
+/// Information about the text cursor
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CursorInfo {
+    /// DOM ID where cursor is located
+    pub dom_id: u32,
+    /// Node ID within the DOM
+    pub node_id: u64,
+    /// Cursor position (grapheme cluster index)
+    pub position: usize,
+    /// Cursor affinity ("upstream" or "downstream")
+    pub affinity: String,
+    /// Whether the cursor is currently visible (false during blink off phase)
+    pub is_visible: bool,
+    /// Whether the cursor blink timer is active
+    pub blink_timer_active: bool,
+}
+
 // ==================== Debug Events ====================
 
 #[derive(Debug, Clone)]
@@ -1136,6 +1198,12 @@ pub enum DebugEvent {
         /// The JSON value to set as the new app state
         state: serde_json::Value,
     },
+
+    // Focus and Cursor State
+    /// Get the current focus state (which node has keyboard focus)
+    GetFocusState,
+    /// Get the current cursor state (position, blink state)
+    GetCursorState,
 }
 
 // ==================== Node Resolution Helper ====================
@@ -4476,6 +4544,95 @@ fn process_debug_event(
             needs_update = true;
 
             send_ok(request, None, None);
+        }
+
+        DebugEvent::GetFocusState => {
+            let layout_window = callback_info.get_layout_window();
+            let focus_manager = &layout_window.focus_manager;
+            
+            let response = if let Some(focused_node) = focus_manager.get_focused_node() {
+                let dom_id = focused_node.dom;
+                let internal_node_id = focused_node.node.into_crate_internal();
+                
+                let focused_info = internal_node_id.map(|node_id| {
+                    // Get node info
+                    let selector = build_selector_for_node(&callback_info, dom_id, node_id);
+                    
+                    // Check if contenteditable
+                    let is_contenteditable = callback_info
+                        .get_layout_window()
+                        .layout_results
+                        .get(&dom_id)
+                        .and_then(|lr| lr.styled_dom.node_data.get(node_id.index()))
+                        .map(|nd| nd.is_contenteditable())
+                        .unwrap_or(false);
+                    
+                    // Get text content - extract from NodeType::Text if available
+                    let text_content = callback_info
+                        .get_layout_window()
+                        .layout_results
+                        .get(&dom_id)
+                        .and_then(|lr| lr.styled_dom.node_data.get(node_id.index()))
+                        .and_then(|nd| {
+                            match nd.get_node_type() {
+                                azul_core::dom::NodeType::Text(s) => Some(s.as_str().to_string()),
+                                _ => None,
+                            }
+                        });
+                    
+                    FocusedNodeInfo {
+                        dom_id: dom_id.inner as u32,
+                        node_id: node_id.index() as u64,
+                        selector,
+                        is_contenteditable,
+                        text_content,
+                    }
+                });
+                
+                FocusStateResponse {
+                    has_focus: focused_info.is_some(),
+                    focused_node: focused_info,
+                }
+            } else {
+                FocusStateResponse {
+                    has_focus: false,
+                    focused_node: None,
+                }
+            };
+            
+            send_ok(request, None, Some(ResponseData::FocusState(response)));
+        }
+
+        DebugEvent::GetCursorState => {
+            let layout_window = callback_info.get_layout_window();
+            let cursor_manager = &layout_window.cursor_manager;
+            
+            let response = if let (Some(cursor), Some(location)) = (&cursor_manager.cursor, &cursor_manager.cursor_location) {
+                let position = cursor.cluster_id.start_byte_in_run as usize;
+                let affinity = match cursor.affinity {
+                    azul_core::selection::CursorAffinity::Leading => "leading".to_string(),
+                    azul_core::selection::CursorAffinity::Trailing => "trailing".to_string(),
+                };
+                
+                CursorStateResponse {
+                    has_cursor: true,
+                    cursor: Some(CursorInfo {
+                        dom_id: location.dom_id.inner as u32,
+                        node_id: location.node_id.index() as u64,
+                        position,
+                        affinity,
+                        is_visible: cursor_manager.is_visible,
+                        blink_timer_active: cursor_manager.blink_timer_active,
+                    }),
+                }
+            } else {
+                CursorStateResponse {
+                    has_cursor: false,
+                    cursor: None,
+                }
+            };
+            
+            send_ok(request, None, Some(ResponseData::CursorState(response)));
         }
 
         _ => {
