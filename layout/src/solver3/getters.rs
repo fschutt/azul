@@ -2569,7 +2569,14 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
     while let Some(nid) = current_node_id {
         let node_data = &node_data_container[nid];
         
-        // Check for explicit contenteditable attribute on this node
+        // First check the direct contenteditable field (set via set_contenteditable())
+        // This takes precedence as it's the API-level setting
+        if node_data.is_contenteditable() {
+            return true;
+        }
+        
+        // Then check for explicit contenteditable attribute on this node
+        // This handles HTML-style contenteditable="true" or contenteditable="false"
         for attr in node_data.attributes.as_ref().iter() {
             if let AttributeType::ContentEditable(is_editable) = attr {
                 // If explicitly set to true, node is editable
@@ -2578,7 +2585,7 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
             }
         }
         
-        // No explicit attribute, check parent
+        // No explicit setting on this node, check parent for inheritance
         current_node_id = hierarchy.get(nid).and_then(|h| h.parent_id());
     }
     
@@ -2606,7 +2613,12 @@ pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) ->
     while let Some(nid) = current_node_id {
         let node_data = &node_data_container[nid];
         
-        // Check for contenteditable="true" on this node
+        // First check the direct contenteditable field (set via set_contenteditable())
+        if node_data.is_contenteditable() {
+            return Some(nid);
+        }
+        
+        // Then check for contenteditable attribute on this node
         for attr in node_data.attributes.as_ref().iter() {
             if let AttributeType::ContentEditable(is_editable) = attr {
                 if *is_editable {
