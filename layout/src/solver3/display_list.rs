@@ -1313,6 +1313,32 @@ where
         CursorType::Text
     }
 
+    /// Checks if a node is contenteditable.
+    fn is_node_contenteditable(&self, dom_id: NodeId) -> bool {
+        use azul_core::dom::AttributeType;
+        
+        let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+        node_data.attributes.as_ref().iter().any(|attr| {
+            matches!(attr, AttributeType::ContentEditable(_))
+        })
+    }
+
+    /// Checks if text in a node is selectable based on CSS user-select property.
+    fn is_text_selectable(&self, dom_id: NodeId) -> bool {
+        use azul_css::props::style::StyleUserSelect;
+
+        let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+        let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+
+        self.ctx.styled_dom
+            .css_property_cache
+            .ptr
+            .get_user_select(node_data, &dom_id, &node_state)
+            .and_then(|v| v.get_property())
+            .map(|us| *us != StyleUserSelect::None)
+            .unwrap_or(true) // Default: text is selectable
+    }
+
     /// Emits drawing commands for selection and cursor, if any.
     fn paint_selection_and_cursor(
         &self,
@@ -1332,7 +1358,7 @@ where
         };
         let layout = &cached_layout.layout;
 
-        // Get the absolute position of this node
+        // Get the absolute position of this node (border-box position)
         let node_pos = self
             .positioned_tree
             .calculated_positions
@@ -1340,34 +1366,63 @@ where
             .copied()
             .unwrap_or_default();
 
+        // Selection rects from get_selection_rects() are relative to content-box origin,
+        // but node_pos is the border-box position. We need to add padding and border
+        // to convert from border-box to content-box coordinates.
+        let padding = &node.box_props.padding;
+        let border = &node.box_props.border;
+        let content_box_offset_x = node_pos.x + padding.left + border.left;
+        let content_box_offset_y = node_pos.y + padding.top + border.top;
+
+        // Check if this node is contenteditable (cursor should only appear on editable content)
+        let is_contenteditable = self.is_node_contenteditable(dom_id);
+        
+        // Check if text is selectable (respects CSS user-select property)
+        let is_selectable = self.is_text_selectable(dom_id);
+
         // === NEW: Check text_selections first (multi-node selection support) ===
         // The new TextSelection uses a BTreeMap<NodeId, SelectionRange> for O(log N) lookup
         if let Some(text_selection) = self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id) {
             // dom_id is already a NodeId from node.dom_node_id
             if let Some(range) = text_selection.affected_nodes.get(&dom_id) {
-                // This node is part of a multi-node selection
-                let rects = layout.get_selection_rects(range);
-                let style = get_selection_style(self.ctx.styled_dom, Some(dom_id));
+                let is_collapsed = text_selection.is_collapsed();
+                
+                // Only draw selection highlight if:
+                // 1. NOT collapsed (has actual range) AND
+                // 2. The element is selectable (user-select != none)
+                if !is_collapsed && is_selectable {
+                    // This node is part of a multi-node selection
+                    let rects = layout.get_selection_rects(range);
+                    let style = get_selection_style(self.ctx.styled_dom, Some(dom_id));
 
-                let border_radius = BorderRadius {
-                    top_left: style.radius,
-                    top_right: style.radius,
-                    bottom_left: style.radius,
-                    bottom_right: style.radius,
-                };
+                    let border_radius = BorderRadius {
+                        top_left: style.radius,
+                        top_right: style.radius,
+                        bottom_left: style.radius,
+                        bottom_right: style.radius,
+                    };
 
-                for mut rect in rects {
-                    rect.origin.x += node_pos.x;
-                    rect.origin.y += node_pos.y;
-                    builder.push_selection_rect(rect, style.bg_color, border_radius);
+                    for mut rect in rects {
+                        rect.origin.x += content_box_offset_x;
+                        rect.origin.y += content_box_offset_y;
+                        builder.push_selection_rect(rect, style.bg_color, border_radius);
+                    }
                 }
 
-                // Also draw cursor at the focus position if this is the focus node
-                if text_selection.focus.ifc_root_node_id == dom_id {
+                // Only draw cursor if:
+                // 1. This is the focus node AND
+                // 2. The element is contenteditable AND  
+                // 3. The selection is collapsed (insertion point, not range selection) AND
+                // 4. The element is selectable (user-select != none)
+                if text_selection.focus.ifc_root_node_id == dom_id 
+                    && is_contenteditable 
+                    && is_collapsed 
+                    && is_selectable
+                {
                     if let Some(mut rect) = layout.get_cursor_rect(&text_selection.focus.cursor) {
                         let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
-                        rect.origin.x += node_pos.x;
-                        rect.origin.y += node_pos.y;
+                        rect.origin.x += content_box_offset_x;
+                        rect.origin.y += content_box_offset_y;
                         builder.push_cursor_rect(rect, style.color);
                     }
                 }
@@ -1391,13 +1446,17 @@ where
         for selection in selection_state.selections.as_slice() {
             match &selection {
                 Selection::Cursor(cursor) => {
+                    // Only draw cursor if this element is contenteditable and selectable
+                    if !is_contenteditable || !is_selectable {
+                        continue;
+                    }
                     // Draw cursor
                     if let Some(mut rect) = layout.get_cursor_rect(cursor) {
                         let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
 
-                        // Adjust rect to absolute position
-                        rect.origin.x += node_pos.x;
-                        rect.origin.y += node_pos.y;
+                        // Adjust rect to absolute content-box position
+                        rect.origin.x += content_box_offset_x;
+                        rect.origin.y += content_box_offset_y;
 
                         // TODO: The blinking logic would need to be handled by the renderer
                         // using an opacity key or similar, or by the main loop toggling this.
@@ -1406,6 +1465,10 @@ where
                     }
                 }
                 Selection::Range(range) => {
+                    // Only draw selection range if selectable (user-select != none)
+                    if !is_selectable {
+                        continue;
+                    }
                     // Draw selection range
                     let rects = layout.get_selection_rects(range);
                     let style = get_selection_style(self.ctx.styled_dom, Some(dom_id));
@@ -1419,9 +1482,9 @@ where
                     };
 
                     for mut rect in rects {
-                        // Adjust rect to absolute position
-                        rect.origin.x += node_pos.x;
-                        rect.origin.y += node_pos.y;
+                        // Adjust rect to absolute content-box position
+                        rect.origin.x += content_box_offset_x;
+                        rect.origin.y += content_box_offset_y;
                         builder.push_selection_rect(rect, style.bg_color, border_radius);
                     }
                 }
