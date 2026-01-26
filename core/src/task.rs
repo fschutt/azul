@@ -57,7 +57,28 @@ pub enum TerminateTimer {
     Continue,
 }
 
-static MAX_TIMER_ID: AtomicUsize = AtomicUsize::new(5);
+// ============================================================================
+// Reserved System Timer IDs (0x0000 - 0x00FF)
+// ============================================================================
+// User timers start at 0x0100 to avoid conflicts with system timers.
+// These constants define well-known timer IDs for internal framework use.
+
+/// Timer ID for cursor blinking in contenteditable elements (~530ms interval)
+pub const CURSOR_BLINK_TIMER_ID: TimerId = TimerId { id: 0x0001 };
+/// Timer ID for scroll momentum/inertia animation
+pub const SCROLL_MOMENTUM_TIMER_ID: TimerId = TimerId { id: 0x0002 };
+/// Timer ID for auto-scroll during drag operations near edges
+pub const DRAG_AUTOSCROLL_TIMER_ID: TimerId = TimerId { id: 0x0003 };
+/// Timer ID for tooltip show delay
+pub const TOOLTIP_DELAY_TIMER_ID: TimerId = TimerId { id: 0x0004 };
+/// Timer ID for double-click detection timeout
+pub const DOUBLE_CLICK_TIMER_ID: TimerId = TimerId { id: 0x0005 };
+
+/// First available ID for user-defined timers
+pub const USER_TIMER_ID_START: usize = 0x0100;
+
+// User timers start at 0x0100 to avoid conflicts with reserved system timer IDs
+static MAX_TIMER_ID: AtomicUsize = AtomicUsize::new(USER_TIMER_ID_START);
 
 /// ID for uniquely identifying a timer
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
