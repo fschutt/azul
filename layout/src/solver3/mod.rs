@@ -129,7 +129,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::{DocumentId, ScrollPosition},
     resources::RendererResources,
-    selection::{SelectionState, TextSelection},
+    selection::{SelectionState, TextCursor, TextSelection},
     styled_dom::StyledDom,
 };
 use azul_css::{
@@ -180,6 +180,10 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// When false, the cursor is in the "off" phase of blinking and should not be rendered.
     /// When true (default), the cursor is visible.
     pub cursor_is_visible: bool,
+    /// Current cursor location from CursorManager (dom_id, node_id, cursor)
+    /// This is separate from selections - the cursor represents the text insertion point
+    /// in a contenteditable element and should be painted independently.
+    pub cursor_location: Option<(DomId, NodeId, TextCursor)>,
 }
 
 impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
@@ -364,6 +368,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: azul_core::dom::DomId,
     cursor_is_visible: bool,
+    cursor_location: Option<(DomId, NodeId, TextCursor)>,
 ) -> Result<DisplayList> {
     // Reset IFC ID counter at the start of each layout pass
     // This ensures IFCs get consistent IDs across frames when the DOM structure is stable
@@ -391,7 +396,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         counters: &mut counter_values,
         viewport_size: viewport.size,
         fragmentation_context: None,
-        cursor_is_visible, // Use the parameter
+        cursor_is_visible,
+        cursor_location: cursor_location.clone(),
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
@@ -420,7 +426,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         counters: &mut counter_values,
         viewport_size: viewport.size,
         fragmentation_context: None,
-        cursor_is_visible, // Use the parameter
+        cursor_is_visible,
+        cursor_location,
     };
 
     // --- Step 1.5: Early Exit Optimization ---
