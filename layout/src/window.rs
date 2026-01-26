@@ -766,6 +766,13 @@ impl LayoutWindow {
         
         // Get cursor visibility from cursor manager for display list generation
         let cursor_is_visible = self.cursor_manager.should_draw_cursor();
+        
+        // Get cursor location from cursor manager for independent cursor rendering
+        let cursor_location = self.cursor_manager.get_cursor_location().and_then(|loc| {
+            self.cursor_manager.get_cursor().map(|cursor| {
+                (loc.dom_id, loc.node_id, cursor.clone())
+            })
+        });
 
         let mut display_list = solver3::layout_document(
             &mut self.layout_cache,
@@ -782,6 +789,7 @@ impl LayoutWindow {
             self.id_namespace,
             dom_id,
             cursor_is_visible,
+            cursor_location,
         )?;
 
         let tree = self
