@@ -4159,18 +4159,8 @@ impl LayoutWindow {
 
     /// Checks if text in a node is selectable based on CSS user-select property.
     fn is_text_selectable(&self, styled_dom: &StyledDom, node_id: NodeId) -> bool {
-        use azul_css::props::style::StyleUserSelect;
-
-        let node_data = &styled_dom.node_data.as_container()[node_id];
         let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
-
-        styled_dom
-            .css_property_cache
-            .ptr
-            .get_user_select(node_data, &node_id, node_state)
-            .and_then(|v| v.get_property())
-            .map(|us| *us != StyleUserSelect::None)
-            .unwrap_or(true) // Default: text is selectable
+        crate::solver3::getters::is_text_selectable(styled_dom, node_id, node_state)
     }
 
     /// Process an accessibility action from an assistive technology.

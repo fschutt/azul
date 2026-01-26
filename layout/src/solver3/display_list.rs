@@ -1313,32 +1313,6 @@ where
         CursorType::Text
     }
 
-    /// Checks if a node is contenteditable.
-    fn is_node_contenteditable(&self, dom_id: NodeId) -> bool {
-        use azul_core::dom::AttributeType;
-        
-        let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-        node_data.attributes.as_ref().iter().any(|attr| {
-            matches!(attr, AttributeType::ContentEditable(_))
-        })
-    }
-
-    /// Checks if text in a node is selectable based on CSS user-select property.
-    fn is_text_selectable(&self, dom_id: NodeId) -> bool {
-        use azul_css::props::style::StyleUserSelect;
-
-        let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-        let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-
-        self.ctx.styled_dom
-            .css_property_cache
-            .ptr
-            .get_user_select(node_data, &dom_id, &node_state)
-            .and_then(|v| v.get_property())
-            .map(|us| *us != StyleUserSelect::None)
-            .unwrap_or(true) // Default: text is selectable
-    }
-
     /// Emits drawing commands for selection and cursor, if any.
     fn paint_selection_and_cursor(
         &self,
@@ -1375,10 +1349,11 @@ where
         let content_box_offset_y = node_pos.y + padding.top + border.top;
 
         // Check if this node is contenteditable (cursor should only appear on editable content)
-        let is_contenteditable = self.is_node_contenteditable(dom_id);
+        let is_contenteditable = super::getters::is_node_contenteditable(self.ctx.styled_dom, dom_id);
         
         // Check if text is selectable (respects CSS user-select property)
-        let is_selectable = self.is_text_selectable(dom_id);
+        let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+        let is_selectable = super::getters::is_text_selectable(self.ctx.styled_dom, dom_id, node_state);
 
         // === NEW: Check text_selections first (multi-node selection support) ===
         // The new TextSelection uses a BTreeMap<NodeId, SelectionRange> for O(log N) lookup

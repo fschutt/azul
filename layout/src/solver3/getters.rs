@@ -26,7 +26,7 @@ use azul_css::{
         style::{
             border_radius::StyleBorderRadius,
             lists::{StyleListStylePosition, StyleListStyleType},
-            StyleTextAlign,
+            StyleTextAlign, StyleUserSelect,
         },
     },
 };
@@ -2498,4 +2498,37 @@ pub fn get_scrollbar_width_px(
 ) -> f32 {
     let style = get_scrollbar_style(styled_dom, node_id, node_state);
     style.width_px
+}
+
+/// Checks if text in a node is selectable based on CSS `user-select` property.
+///
+/// Returns `true` if the text can be selected (default behavior),
+/// `false` if `user-select: none` is set.
+pub fn is_text_selectable(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> bool {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_user_select(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(|us| *us != StyleUserSelect::None)
+        .unwrap_or(true) // Default: text is selectable
+}
+
+/// Checks if a node has the `contenteditable` attribute set.
+///
+/// Returns `true` if the node has `contenteditable` attribute (regardless of value),
+/// `false` otherwise.
+pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    use azul_core::dom::AttributeType;
+    
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    node_data.attributes.as_ref().iter().any(|attr| {
+        matches!(attr, AttributeType::ContentEditable(_))
+    })
 }
