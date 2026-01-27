@@ -968,7 +968,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
 
     // Get the text changeset (replaces old keyboard_state.current_char API)
     let changeset = info.get_text_changeset()?;
-    let inserted_text = changeset.inserted_text.clone();
+    let inserted_text = changeset.inserted_text.as_str().to_string();
 
     // Early return if no text to insert
     if inserted_text.is_empty() {
