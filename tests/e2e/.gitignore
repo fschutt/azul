@@ -14,6 +14,7 @@ focus
 refany_test
 focus_scroll
 focus_scroll_test
+text_area_test
 
 # New test binaries
 text_input
