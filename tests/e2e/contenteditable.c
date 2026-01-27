@@ -53,9 +53,45 @@ AzUpdate on_text_input(AzRefAny data, AzCallbackInfo info) {
         return AzUpdate_DoNothing;
     }
     
-    ref.ptr->text_change_count++;
+    // Get the text changeset from the callback info
+    AzOptionPendingTextEdit changeset = AzCallbackInfo_getTextChangeset(&info);
+    
+    if (changeset.Some.tag == AzOptionPendingTextEdit_Tag_Some) {
+        AzPendingTextEdit* edit = &changeset.Some.payload;
+        
+        // Print the changeset for debugging
+        printf("[TextInput] Changeset received:\n");
+        printf("  inserted_text: '%.*s'\n", 
+               (int)edit->inserted_text.vec.len, 
+               (const char*)edit->inserted_text.vec.ptr);
+        printf("  old_text: '%.*s' (len=%zu)\n", 
+               (int)(edit->old_text.vec.len > 50 ? 50 : edit->old_text.vec.len),
+               (const char*)edit->old_text.vec.ptr,
+               edit->old_text.vec.len);
+        
+        // Append the inserted text to our data model
+        // For single-line, we just append to the existing text
+        size_t current_len = strlen(ref.ptr->single_line_text);
+        size_t insert_len = edit->inserted_text.vec.len;
+        
+        if (current_len + insert_len < sizeof(ref.ptr->single_line_text) - 1) {
+            memcpy(ref.ptr->single_line_text + current_len, 
+                   edit->inserted_text.vec.ptr, 
+                   insert_len);
+            ref.ptr->single_line_text[current_len + insert_len] = '\0';
+            printf("  Updated single_line_text: '%s'\n", ref.ptr->single_line_text);
+        }
+        
+        ref.ptr->text_change_count++;
+    } else {
+        printf("[TextInput] No changeset available\n");
+    }
+    
     ContentEditableDataRefMut_delete(&ref);
-    return AzUpdate_RefreshDom;
+    
+    // Return DoNothing - the text input system handles the visual update internally
+    // RefreshDom would override the internal edit with the old data model state
+    return AzUpdate_DoNothing;
 }
 
 // Callback for key press events
@@ -132,10 +168,9 @@ const char* CSS_STYLE =
     "    background-color: #252525;\n"
     "}\n"
     "\n"
-    "/* Cursor styling */\n"
-    "::cursor {\n"
-    "    width: 3px;\n"
-    "    background-color: #ffffff;\n"
+    "/* Cursor styling - use caret-color for text cursor */\n"
+    ".single-line-input, .multi-line-textarea {\n"
+    "    caret-color: #ffffff;\n"
     "}\n"
     "\n"
     "/* Selection styling */\n"
@@ -162,10 +197,16 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&root, label1);
     
     // Single-line contenteditable input
-    AzDom single_input = AzDom_createText(AZ_STR(ref.ptr->single_line_text));
+    // Create a div with text child, set contenteditable on the div
+    AzDom single_input = AzDom_createDiv();
     AzDom_addClass(&single_input, AZ_STR("single-line-input"));
+    AzDom_setContenteditable(&single_input, true);
     AzTabIndex tab_auto = { .Auto = { .tag = AzTabIndex_Tag_Auto } };
     AzDom_setTabIndex(&single_input, tab_auto);
+    
+    // Add text as child
+    AzDom single_text = AzDom_createText(AZ_STR(ref.ptr->single_line_text));
+    AzDom_addChild(&single_input, single_text);
     
     // Add text input callback - use Focus filter for text input
     AzEventFilter text_filter = AzEventFilter_focus(AzFocusEventFilter_TextInput);
@@ -179,9 +220,15 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&root, label2);
     
     // Multi-line contenteditable textarea
-    AzDom multi_input = AzDom_createText(AZ_STR(ref.ptr->multi_line_text));
+    // Create a div with text child, set contenteditable on the div
+    AzDom multi_input = AzDom_createDiv();
     AzDom_addClass(&multi_input, AZ_STR("multi-line-textarea"));
+    AzDom_setContenteditable(&multi_input, true);
     AzDom_setTabIndex(&multi_input, tab_auto);
+    
+    // Add text as child
+    AzDom multi_text = AzDom_createText(AZ_STR(ref.ptr->multi_line_text));
+    AzDom_addChild(&multi_input, multi_text);
     
     // Add callbacks
     AzDom_addCallback(&multi_input, text_filter, AzRefAny_clone(&data), on_text_input);

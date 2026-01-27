@@ -1916,6 +1916,9 @@ fn layout_ifc<T: ParsedFontTrait>(
     let text3_constraints =
         translate_to_text3_constraints(ctx, constraints, ctx.styled_dom, ifc_root_dom_id);
 
+    // Clone constraints for caching (before they're moved into fragments)
+    let cached_constraints = text3_constraints.clone();
+
     debug_info!(
         ctx,
         "[layout_ifc] CALLING text_cache.layout_flow for node {} with {} exclusions",
@@ -2039,10 +2042,11 @@ fn layout_ifc<T: ParsedFontTrait>(
         };
 
         if should_store {
-            node.inline_layout_result = Some(CachedInlineLayout::new(
+            node.inline_layout_result = Some(CachedInlineLayout::new_with_constraints(
                 main_frag.clone(),
                 current_width_type,
                 has_floats,
+                cached_constraints,
             ));
         }
 

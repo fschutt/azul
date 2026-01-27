@@ -118,7 +118,7 @@ pub fn scroll_rect_into_view(
             current_rect,
             ancestor.visible_rect,
             options.block,
-            options.inline,
+            options.inline_axis,
             ancestor.scroll_x,
             ancestor.scroll_y,
         );

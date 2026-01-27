@@ -3764,7 +3764,7 @@ fn process_debug_event(
 
             let options = ScrollIntoViewOptions {
                 block: block_align,
-                inline: inline_align,
+                inline_axis: inline_align,
                 behavior: scroll_behavior,
             };
 
@@ -4590,6 +4590,40 @@ fn process_debug_event(
             send_ok(request, None, None);
         }
 
+        DebugEvent::TextInput { text } => {
+            log(
+                LogLevel::Debug,
+                LogCategory::EventLoop,
+                format!("[DEBUG TextInput] Received text input via debug server: '{}'", text),
+                None,
+            );
+            println!("[DEBUG TextInput] ============================================");
+            println!("[DEBUG TextInput] Step 1: Debug server received text: '{}'", text);
+            
+            // Get the focused node - text input only works on focused contenteditable
+            let layout_window = callback_info.get_layout_window();
+            let focused_node = layout_window.focus_manager.get_focused_node();
+            println!("[DEBUG TextInput] Step 2: Focused node: {:?}", focused_node);
+            
+            if focused_node.is_some() {
+                // Use the new create_text_input API which:
+                // 1. Records the changeset in TextInputManager
+                // 2. Triggers text input callbacks via recursive event processing
+                // 3. Applies the changeset if not rejected via preventDefault
+                // 4. Marks dirty nodes for re-render
+                callback_info.create_text_input(text.clone().into());
+                println!("[DEBUG TextInput] Step 3: Called callback_info.create_text_input()");
+                println!("[DEBUG TextInput] NOTE: Text input will be processed recursively");
+                println!("[DEBUG TextInput] NOTE: User callbacks can intercept via OnTextInput");
+                
+                needs_update = true;
+                send_ok(request, None, None);
+            } else {
+                println!("[DEBUG TextInput] ERROR: No focused node - text input requires focus on contenteditable");
+                send_err(request, "No focused node - text input requires focus on contenteditable");
+            }
+            println!("[DEBUG TextInput] ============================================");
+        }
         DebugEvent::GetFocusState => {
             let layout_window = callback_info.get_layout_window();
             let focus_manager = &layout_window.focus_manager;

@@ -190,7 +190,8 @@ pub struct ScrollIntoViewOptions {
     /// Vertical alignment: start, center, end, nearest (default: nearest)
     pub block: ScrollLogicalPosition,
     /// Horizontal alignment: start, center, end, nearest (default: nearest)
-    pub inline: ScrollLogicalPosition,
+    /// Note: Named `inline_axis` to avoid conflict with C keyword `inline`
+    pub inline_axis: ScrollLogicalPosition,
     /// Animation behavior: auto, instant, smooth (default: auto)
     pub behavior: ScrollIntoViewBehavior,
 }
@@ -200,7 +201,7 @@ impl ScrollIntoViewOptions {
     pub fn nearest() -> Self {
         Self {
             block: ScrollLogicalPosition::Nearest,
-            inline: ScrollLogicalPosition::Nearest,
+            inline_axis: ScrollLogicalPosition::Nearest,
             behavior: ScrollIntoViewBehavior::Auto,
         }
     }
@@ -209,7 +210,7 @@ impl ScrollIntoViewOptions {
     pub fn center() -> Self {
         Self {
             block: ScrollLogicalPosition::Center,
-            inline: ScrollLogicalPosition::Center,
+            inline_axis: ScrollLogicalPosition::Center,
             behavior: ScrollIntoViewBehavior::Auto,
         }
     }
@@ -218,7 +219,7 @@ impl ScrollIntoViewOptions {
     pub fn start() -> Self {
         Self {
             block: ScrollLogicalPosition::Start,
-            inline: ScrollLogicalPosition::Start,
+            inline_axis: ScrollLogicalPosition::Start,
             behavior: ScrollIntoViewBehavior::Auto,
         }
     }
@@ -227,7 +228,7 @@ impl ScrollIntoViewOptions {
     pub fn end() -> Self {
         Self {
             block: ScrollLogicalPosition::End,
-            inline: ScrollLogicalPosition::End,
+            inline_axis: ScrollLogicalPosition::End,
             behavior: ScrollIntoViewBehavior::Auto,
         }
     }

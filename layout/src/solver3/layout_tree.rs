@@ -10,6 +10,8 @@ use std::{
     },
 };
 
+use crate::text3::cache::UnifiedConstraints;
+
 /// Global counter for IFC IDs. Resets to 0 when layout() callback is invoked.
 static IFC_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -168,6 +170,9 @@ pub struct CachedInlineLayout {
     /// Whether this layout was computed with float exclusions.
     /// Float-aware layouts should not be overwritten by non-float layouts.
     pub has_floats: bool,
+    /// The full constraints used to compute this layout.
+    /// Used for quick relayout after text edits without rebuilding from CSS.
+    pub constraints: Option<UnifiedConstraints>,
 }
 
 impl CachedInlineLayout {
@@ -181,6 +186,22 @@ impl CachedInlineLayout {
             layout,
             available_width,
             has_floats,
+            constraints: None,
+        }
+    }
+
+    /// Creates a new cached inline layout with full constraints.
+    pub fn new_with_constraints(
+        layout: Arc<UnifiedLayout>,
+        available_width: AvailableSpace,
+        has_floats: bool,
+        constraints: UnifiedConstraints,
+    ) -> Self {
+        Self {
+            layout,
+            available_width,
+            has_floats,
+            constraints: Some(constraints),
         }
     }
 
