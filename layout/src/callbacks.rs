@@ -406,6 +406,20 @@ pub enum CallbackChange {
     /// Scroll the active text cursor into view within its scrollable container
     /// This is automatically triggered after text input or cursor movement
     ScrollActiveCursorIntoView,
+    
+    // Create Text Input Event (for Debug API / Programmatic Text Input)
+    /// Create a synthetic text input event
+    ///
+    /// This simulates receiving text input from the OS. The text input flow will:
+    /// 1. Record the text in TextInputManager (creating a PendingTextEdit)
+    /// 2. Generate synthetic TextInput events
+    /// 3. Invoke user callbacks (which can intercept/reject via preventDefault)
+    /// 4. Apply the changeset if not rejected
+    /// 5. Mark dirty nodes for re-render
+    CreateTextInput {
+        /// The text to insert
+        text: AzString,
+    },
 }
 
 /// Main callback type for UI event handling
@@ -1100,6 +1114,26 @@ impl CallbackInfo {
     /// * `changeset` - The modified text changeset to apply
     pub fn set_text_changeset(&mut self, changeset: PendingTextEdit) {
         self.push_change(CallbackChange::SetTextChangeset { changeset });
+    }
+
+    /// Create a synthetic text input event
+    ///
+    /// This simulates receiving text input from the OS. Use this to programmatically
+    /// insert text into contenteditable elements, for example from the debug server
+    /// or from accessibility APIs.
+    ///
+    /// The text input flow will:
+    /// 1. Record the text in TextInputManager (creating a PendingTextEdit)
+    /// 2. Generate synthetic TextInput events
+    /// 3. Invoke user callbacks (which can intercept/reject via preventDefault)
+    /// 4. Apply the changeset if not rejected
+    /// 5. Mark dirty nodes for re-render
+    ///
+    /// # Arguments
+    /// * `text` - The text to insert at the current cursor position
+    pub fn create_text_input(&mut self, text: AzString) {
+        println!("[CallbackInfo::create_text_input] Creating text input: '{}'", text.as_str());
+        self.push_change(CallbackChange::CreateTextInput { text });
     }
 
     /// Prevent the default text input from being applied
@@ -3500,6 +3534,10 @@ pub struct CallCallbacksResult {
     /// Queued window states to apply in sequence (for simulating clicks, etc.)
     /// The shell layer should apply these one at a time, processing events after each.
     pub queued_window_states: Vec<FullWindowState>,
+    /// Text input events triggered by CreateTextInput
+    /// These need to be processed by the recursive event loop to invoke user callbacks
+    /// Format: Vec<(DomNodeId, Vec<EventFilter>)>
+    pub text_input_triggered: Vec<(azul_core::dom::DomNodeId, Vec<azul_core::events::EventFilter>)>,
 }
 
 impl Default for CallCallbacksResult {
@@ -3528,6 +3566,7 @@ impl Default for CallCallbacksResult {
             prevent_default: false,
             hit_test_update_requested: None,
             queued_window_states: Vec::new(),
+            text_input_triggered: Vec::new(),
         }
     }
 }
