@@ -188,7 +188,7 @@ use azul_css::{
         layout::{LayoutDisplay, LayoutHeight, LayoutWidth},
         property::{
             BoxDecorationBreakValue, BreakInsideValue, CaretAnimationDurationValue,
-            CaretColorValue, ClipPathValue, ColumnCountValue, ColumnFillValue,
+            CaretColorValue, CaretWidthValue, ClipPathValue, ColumnCountValue, ColumnFillValue,
             ColumnRuleColorValue, ColumnRuleStyleValue, ColumnRuleWidthValue, ColumnSpanValue,
             ColumnWidthValue, ContentValue, CounterIncrementValue, CounterResetValue, CssProperty,
             CssPropertyType, FlowFromValue, FlowIntoValue, LayoutAlignContentValue,
@@ -1953,6 +1953,17 @@ impl CssPropertyCache {
     ) -> Option<&'a CaretColorValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::CaretColor)
             .and_then(|p| p.as_caret_color())
+    }
+
+    // Method for getting -azul-caret-width property
+    pub fn get_caret_width<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+    ) -> Option<&'a CaretWidthValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::CaretWidth)
+            .and_then(|p| p.as_caret_width())
     }
 
     // Method for getting caret-animation-duration property

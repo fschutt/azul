@@ -1498,6 +1498,10 @@ where
         rect.origin.y += content_box_offset_y;
 
         let style = get_caret_style(self.ctx.styled_dom, Some(dom_id));
+        
+        // Apply caret width from CSS (default is 2px, get_cursor_rect returns 1px)
+        rect.size.width = style.width;
+        
         builder.push_cursor_rect(rect, style.color);
 
         Ok(())

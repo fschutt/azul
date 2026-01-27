@@ -1256,6 +1256,7 @@ pub fn get_selection_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> S
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CaretStyle {
     pub color: ColorU,
+    pub width: f32,
     pub animation_duration: u32,
 }
 
@@ -1275,11 +1276,19 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
         .and_then(|c| c.get_property().cloned())
         .map(|c| c.inner)
         .unwrap_or(ColorU {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 255, // Black caret by default
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255, // White caret by default
         });
+
+    let width = styled_dom
+        .css_property_cache
+        .ptr
+        .get_caret_width(node_data, &node_id, node_state)
+        .and_then(|w| w.get_property().cloned())
+        .map(|w| w.inner.to_pixels_internal(0.0, 16.0)) // 16.0 as default em size
+        .unwrap_or(2.0); // 2px width by default
 
     let animation_duration = styled_dom
         .css_property_cache
@@ -1291,6 +1300,7 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
 
     CaretStyle {
         color,
+        width,
         animation_duration,
     }
 }

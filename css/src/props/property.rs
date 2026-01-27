@@ -71,7 +71,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 148] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 149] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -190,6 +190,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 148] = [
         CssPropertyType::CaretAnimationDuration,
         "caret-animation-duration",
     ),
+    (CssPropertyType::CaretWidth, "-azul-caret-width"),
     (
         CssPropertyType::SelectionBackgroundColor,
         "-azul-selection-background-color",
@@ -253,6 +254,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 148] = [
 // Type aliases for `CssPropertyValue<T>`
 pub type CaretColorValue = CssPropertyValue<CaretColor>;
 pub type CaretAnimationDurationValue = CssPropertyValue<CaretAnimationDuration>;
+pub type CaretWidthValue = CssPropertyValue<CaretWidth>;
 pub type SelectionBackgroundColorValue = CssPropertyValue<SelectionBackgroundColor>;
 pub type SelectionColorValue = CssPropertyValue<SelectionColor>;
 pub type SelectionRadiusValue = CssPropertyValue<SelectionRadius>;
@@ -492,6 +494,7 @@ impl CombinedCssPropertyType {
 pub enum CssProperty {
     CaretColor(CaretColorValue),
     CaretAnimationDuration(CaretAnimationDurationValue),
+    CaretWidth(CaretWidthValue),
     SelectionBackgroundColor(SelectionBackgroundColorValue),
     SelectionColor(SelectionColorValue),
     SelectionRadius(SelectionRadiusValue),
@@ -685,6 +688,7 @@ pub enum CssPropertyCategory {
 pub enum CssPropertyType {
     CaretColor,
     CaretAnimationDuration,
+    CaretWidth,
     SelectionBackgroundColor,
     SelectionColor,
     SelectionRadius,
@@ -875,6 +879,7 @@ impl CssPropertyType {
         match self {
             CssPropertyType::CaretColor => "caret-color",
             CssPropertyType::CaretAnimationDuration => "caret-animation-duration",
+            CssPropertyType::CaretWidth => "-azul-caret-width",
             CssPropertyType::SelectionBackgroundColor => "-azul-selection-background-color",
             CssPropertyType::SelectionColor => "-azul-selection-color",
             CssPropertyType::SelectionRadius => "-azul-selection-radius",
@@ -1200,6 +1205,7 @@ pub enum CssParsingError<'a> {
     Cursor(CursorParseError<'a>),
     CaretColor(CssColorParseError<'a>),
     CaretAnimationDuration(DurationParseError<'a>),
+    CaretWidth(CssPixelValueParseError<'a>),
     SelectionBackgroundColor(CssColorParseError<'a>),
     SelectionColor(CssColorParseError<'a>),
     SelectionRadius(CssPixelValueParseError<'a>),
@@ -1348,6 +1354,7 @@ pub enum CssParsingErrorOwned {
     Cursor(CursorParseErrorOwned),
     CaretColor(CssColorParseErrorOwned),
     CaretAnimationDuration(DurationParseErrorOwned),
+    CaretWidth(CssPixelValueParseErrorOwned),
     SelectionBackgroundColor(CssColorParseErrorOwned),
     SelectionColor(CssColorParseErrorOwned),
     SelectionRadius(CssPixelValueParseErrorOwned),
@@ -1444,6 +1451,7 @@ impl_debug_as_display!(CssParsingError<'a>);
 impl_display! { CssParsingError<'a>, {
     CaretColor(e) => format!("Invalid caret-color: {}", e),
     CaretAnimationDuration(e) => format!("Invalid caret-animation-duration: {}", e),
+    CaretWidth(e) => format!("Invalid -azul-caret-width: {}", e),
     SelectionBackgroundColor(e) => format!("Invalid -azul-selection-background-color: {}", e),
     SelectionColor(e) => format!("Invalid -azul-selection-color: {}", e),
     SelectionRadius(e) => format!("Invalid -azul-selection-radius: {}", e),
@@ -1820,6 +1828,7 @@ impl<'a> CssParsingError<'a> {
     pub fn to_contained(&self) -> CssParsingErrorOwned {
         match self {
             CssParsingError::CaretColor(e) => CssParsingErrorOwned::CaretColor(e.to_contained()),
+            CssParsingError::CaretWidth(e) => CssParsingErrorOwned::CaretWidth(e.to_contained()),
             CssParsingError::CaretAnimationDuration(e) => {
                 CssParsingErrorOwned::CaretAnimationDuration(e.to_contained())
             }
@@ -2034,6 +2043,7 @@ impl CssParsingErrorOwned {
     pub fn to_shared<'a>(&'a self) -> CssParsingError<'a> {
         match self {
             CssParsingErrorOwned::CaretColor(e) => CssParsingError::CaretColor(e.to_shared()),
+            CssParsingErrorOwned::CaretWidth(e) => CssParsingError::CaretWidth(e.to_shared()),
             CssParsingErrorOwned::CaretAnimationDuration(e) => {
                 CssParsingError::CaretAnimationDuration(e.to_shared())
             }
@@ -2253,6 +2263,7 @@ pub fn parse_css_property<'a>(
         "inherit" => CssProperty::inherit(key),
         value => match key {
             CssPropertyType::CaretColor => parse_caret_color(value)?.into(),
+            CssPropertyType::CaretWidth => parse_caret_width(value)?.into(),
             CssPropertyType::CaretAnimationDuration => {
                 parse_caret_animation_duration(value)?.into()
             }
@@ -3258,6 +3269,7 @@ macro_rules! impl_from_css_prop {
 }
 
 impl_from_css_prop!(CaretColor, CssProperty::CaretColor);
+impl_from_css_prop!(CaretWidth, CssProperty::CaretWidth);
 impl_from_css_prop!(CaretAnimationDuration, CssProperty::CaretAnimationDuration);
 impl_from_css_prop!(
     SelectionBackgroundColor,
@@ -3403,6 +3415,7 @@ impl CssProperty {
     pub fn value(&self) -> String {
         match self {
             CssProperty::CaretColor(v) => v.get_css_value_fmt(),
+            CssProperty::CaretWidth(v) => v.get_css_value_fmt(),
             CssProperty::CaretAnimationDuration(v) => v.get_css_value_fmt(),
             CssProperty::SelectionBackgroundColor(v) => v.get_css_value_fmt(),
             CssProperty::SelectionColor(v) => v.get_css_value_fmt(),
@@ -3844,6 +3857,7 @@ impl CssProperty {
     pub const fn get_type(&self) -> CssPropertyType {
         match &self {
             CssProperty::CaretColor(_) => CssPropertyType::CaretColor,
+            CssProperty::CaretWidth(_) => CssPropertyType::CaretWidth,
             CssProperty::CaretAnimationDuration(_) => CssPropertyType::CaretAnimationDuration,
             CssProperty::SelectionBackgroundColor(_) => CssPropertyType::SelectionBackgroundColor,
             CssProperty::SelectionColor(_) => CssPropertyType::SelectionColor,
@@ -4081,6 +4095,9 @@ impl CssProperty {
     }
     pub const fn caret_color(input: CaretColor) -> Self {
         CssProperty::CaretColor(CssPropertyValue::Exact(input))
+    }
+    pub const fn caret_width(input: CaretWidth) -> Self {
+        CssProperty::CaretWidth(CssPropertyValue::Exact(input))
     }
     pub const fn caret_animation_duration(input: CaretAnimationDuration) -> Self {
         CssProperty::CaretAnimationDuration(CssPropertyValue::Exact(input))
@@ -4496,6 +4513,12 @@ impl CssProperty {
     pub const fn as_caret_color(&self) -> Option<&CaretColorValue> {
         match self {
             CssProperty::CaretColor(f) => Some(f),
+            _ => None,
+        }
+    }
+    pub const fn as_caret_width(&self) -> Option<&CaretWidthValue> {
+        match self {
+            CssProperty::CaretWidth(f) => Some(f),
             _ => None,
         }
     }
@@ -5297,6 +5320,7 @@ impl CssProperty {
         use self::CssProperty::*;
         match self {
             CaretColor(c) => c.is_initial(),
+            CaretWidth(c) => c.is_initial(),
             CaretAnimationDuration(c) => c.is_initial(),
             SelectionBackgroundColor(c) => c.is_initial(),
             SelectionColor(c) => c.is_initial(),
@@ -5776,6 +5800,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::CaretColor(p) => format!(
             "CssProperty::CaretColor({})",
             print_css_property_value(p, tabs, "CaretColor")
+        ),
+        CssProperty::CaretWidth(p) => format!(
+            "CssProperty::CaretWidth({})",
+            print_css_property_value(p, tabs, "CaretWidth")
         ),
         CssProperty::CaretAnimationDuration(p) => format!(
             "CssProperty::CaretAnimationDuration({})",

@@ -1642,6 +1642,46 @@ pub fn parse_caret_animation_duration(
     parse_duration(input).map(|inner| CaretAnimationDuration { inner })
 }
 
+// --- CaretWidth ---
+
+/// Width of the text cursor (caret) in pixels.
+/// CSS doesn't have a standard property for this, so we use `-azul-caret-width`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct CaretWidth {
+    pub inner: PixelValue,
+}
+
+impl Default for CaretWidth {
+    fn default() -> Self {
+        Self {
+            inner: PixelValue::px(2.0), // Default 2px caret width
+        }
+    }
+}
+
+impl PrintAsCssValue for CaretWidth {
+    fn print_as_css_value(&self) -> String {
+        self.inner.print_as_css_value()
+    }
+}
+
+impl crate::format_rust_code::FormatAsRustCode for CaretWidth {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!(
+            "CaretWidth {{ inner: {} }}",
+            self.inner.format_as_rust_code(0)
+        )
+    }
+}
+
+#[cfg(feature = "parser")]
+pub fn parse_caret_width(input: &str) -> Result<CaretWidth, CssPixelValueParseError> {
+    use crate::props::basic::pixel::parse_pixel_value;
+
+    parse_pixel_value(input).map(|inner| CaretWidth { inner })
+}
+
 // --- From implementations for CssProperty ---
 
 impl From<StyleUserSelect> for crate::props::property::CssProperty {

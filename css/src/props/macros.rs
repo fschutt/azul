@@ -282,6 +282,7 @@ macro_rules! css_property_from_type {
     ($prop_type:expr, $content_type:ident) => {{
         match $prop_type {
             CssPropertyType::CaretColor => CssProperty::CaretColor(CssPropertyValue::$content_type),
+            CssPropertyType::CaretWidth => CssProperty::CaretWidth(CssPropertyValue::$content_type),
             CssPropertyType::CaretAnimationDuration => {
                 CssProperty::CaretAnimationDuration(CssPropertyValue::$content_type)
             }
