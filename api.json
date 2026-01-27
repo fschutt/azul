@@ -6438,6 +6438,26 @@
                   "type": "ResultStringString"
                 },
                 "fn_body": "object.take_screenshot_base64(dom_id).into()"
+              },
+              "get_text_changeset": {
+                "doc": [
+                  "Get the current text changeset being processed (if any)",
+                  "",
+                  "This allows callbacks to inspect what text input is about to be applied.",
+                  "Returns None if no text input is currently being processed.",
+                  "",
+                  "Use `set_text_changeset()` to modify the text that will be inserted,",
+                  "and `prevent_default()` to block the text input entirely."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionPendingTextEdit"
+                },
+                "fn_body": "object.get_text_changeset().into()"
               }
             },
             "repr": "C"
@@ -15023,6 +15043,9 @@
                 },
                 "CaretAnimationDuration": {
                   "type": "CaretAnimationDurationValue"
+                },
+                "CaretWidth": {
+                  "type": "CaretWidthValue"
                 },
                 "SelectionBackgroundColor": {
                   "type": "SelectionBackgroundColorValue"
@@ -26576,6 +26599,7 @@
               {
                 "CaretColor": {},
                 "CaretAnimationDuration": {},
+                "CaretWidth": {},
                 "SelectionBackgroundColor": {},
                 "SelectionColor": {},
                 "SelectionRadius": {},
@@ -27659,6 +27683,61 @@
                 "Center": {},
                 "End": {},
                 "Nearest": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "CaretWidthValue": {
+            "external": "azul_css::props::property::CaretWidthValue",
+            "repr": "C",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "CaretWidth"
+              ]
+            }
+          },
+          "CaretWidth": {
+            "external": "azul_css::props::style::text::CaretWidth",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "PixelValue"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "PendingTextEdit": {
+            "external": "azul_layout::managers::text_input::PendingTextEdit",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "node": {
+                  "type": "DomNodeId"
+                },
+                "inserted_text": {
+                  "type": "String"
+                },
+                "old_text": {
+                  "type": "String"
+                }
               }
             ],
             "repr": "C"
@@ -54361,9 +54440,8 @@
                 "block": {
                   "type": "ScrollLogicalPosition"
                 },
-                "inline_": {
-                  "type": "ScrollLogicalPosition",
-                  "rust_alias": "inline"
+                "inline_axis": {
+                  "type": "ScrollLogicalPosition"
                 },
                 "behavior": {
                   "type": "ScrollIntoViewBehavior"
@@ -54431,6 +54509,25 @@
               }
             },
             "repr": "C"
+          },
+          "OptionPendingTextEdit": {
+            "external": "azul_layout::managers::text_input::OptionPendingTextEdit",
+            "custom_impls": [
+              "From"
+            ],
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "PendingTextEdit"
+                }
+              }
+            ],
+            "repr": "C, u8"
           }
         }
       },

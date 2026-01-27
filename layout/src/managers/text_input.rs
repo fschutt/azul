@@ -40,16 +40,18 @@ use azul_core::{
     selection::TextCursor,
     task::Instant,
 };
+use azul_css::corety::AzString;
 
 /// Information about a pending text edit that hasn't been applied yet
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct PendingTextEdit {
     /// The node that was edited
     pub node: DomNodeId,
     /// The text that was inserted
-    pub inserted_text: String,
+    pub inserted_text: AzString,
     /// The old text before the edit (plain text extracted from InlineContent)
-    pub old_text: String,
+    pub old_text: AzString,
 }
 
 impl PendingTextEdit {
@@ -61,15 +63,50 @@ impl PendingTextEdit {
     /// NOTE: Actual text application is handled by apply_text_changeset() in window.rs
     /// which uses text3::edit::insert_text() for proper cursor-based insertion.
     /// This method is for preview/inspection purposes only.
-    pub fn resulting_text(&self, cursor: Option<&TextCursor>) -> String {
+    pub fn resulting_text(&self, cursor: Option<&TextCursor>) -> AzString {
         // For preview: append the inserted text
         // Actual insertion at cursor is done by text3::edit::insert_text()
-        let mut result = self.old_text.clone();
-        result.push_str(&self.inserted_text);
+        let mut result = self.old_text.as_str().to_string();
+        result.push_str(self.inserted_text.as_str());
 
         let _ = cursor; // Preview doesn't need cursor - actual insert does
 
-        result
+        result.into()
+    }
+}
+
+/// C-compatible Option type for PendingTextEdit
+#[derive(Debug, Clone)]
+#[repr(C, u8)]
+pub enum OptionPendingTextEdit {
+    None,
+    Some(PendingTextEdit),
+}
+
+impl OptionPendingTextEdit {
+    pub fn into_option(self) -> Option<PendingTextEdit> {
+        match self {
+            OptionPendingTextEdit::None => None,
+            OptionPendingTextEdit::Some(t) => Some(t),
+        }
+    }
+}
+
+impl From<Option<PendingTextEdit>> for OptionPendingTextEdit {
+    fn from(o: Option<PendingTextEdit>) -> Self {
+        match o {
+            Some(v) => OptionPendingTextEdit::Some(v),
+            None => OptionPendingTextEdit::None,
+        }
+    }
+}
+
+impl<'a> From<Option<&'a PendingTextEdit>> for OptionPendingTextEdit {
+    fn from(o: Option<&'a PendingTextEdit>) -> Self {
+        match o {
+            Some(v) => OptionPendingTextEdit::Some(v.clone()),
+            None => OptionPendingTextEdit::None,
+        }
     }
 }
 
@@ -127,30 +164,42 @@ impl TextInputManager {
         old_text: String,
         source: TextInputSource,
     ) -> DomNodeId {
+        println!("[TextInputManager::record_input] Recording input for node {:?}", node);
+        println!("[TextInputManager::record_input] Inserted text: '{}', old_text len: {}", inserted_text, old_text.len());
+        println!("[TextInputManager::record_input] Source: {:?}", source);
+
         // Clear any previous changeset
         self.pending_changeset = None;
 
         // Store the new changeset
         self.pending_changeset = Some(PendingTextEdit {
             node,
-            inserted_text,
-            old_text,
+            inserted_text: inserted_text.into(),
+            old_text: old_text.into(),
         });
 
         self.input_source = Some(source);
+        println!("[TextInputManager::record_input] Changeset stored successfully");
 
         node
     }
 
     /// Get the pending changeset (if any)
     pub fn get_pending_changeset(&self) -> Option<&PendingTextEdit> {
-        self.pending_changeset.as_ref()
+        let result = self.pending_changeset.as_ref();
+        if result.is_some() {
+            println!("[TextInputManager::get_pending_changeset] Returning pending changeset");
+        } else {
+            println!("[TextInputManager::get_pending_changeset] No pending changeset!");
+        }
+        result
     }
 
     /// Clear the pending changeset
     ///
     /// This is called after applying the changeset or if preventDefault was set.
     pub fn clear_changeset(&mut self) {
+        println!("[TextInputManager::clear_changeset] Clearing changeset");
         self.pending_changeset = None;
         self.input_source = None;
     }

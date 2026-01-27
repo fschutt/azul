@@ -183,6 +183,8 @@ pub use solver3::{LayoutContext, LayoutError, Result as LayoutResult3};
 pub use text3::cache::{FontManager, LayoutCache as TextLayoutCache};
 #[cfg(feature = "text_layout")]
 pub use window::{CursorBlinkTimerAction, LayoutWindow, ScrollbarDragState};
+#[cfg(feature = "text_layout")]
+pub use managers::text_input::{PendingTextEdit, OptionPendingTextEdit};
 
 // #[cfg(feature = "text_layout")]
 // pub use solver::{callback_info_shape_text, do_the_layout, do_the_relayout};
