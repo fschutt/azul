@@ -1279,7 +1279,11 @@ pub trait PlatformWindowV2 {
         // Process text input BEFORE event dispatch
         // If there's a focused contenteditable node and text input occurred,
         // apply the edit using cursor/selection managers and mark nodes dirty
-        let text_input_affected_nodes = if let Some(layout_window) = self.get_layout_window_mut() {
+        //
+        // NOTE: Debug server text input is now handled via CallbackChange::CreateTextInput
+        // which triggers text_input_triggered in CallCallbacksResult, processed in
+        // process_callback_result_v2()
+        let text_input_affected_nodes: BTreeMap<azul_core::dom::DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> = if let Some(_layout_window) = self.get_layout_window_mut() {
             // TODO: Get actual text input from platform (IME, composed chars, etc.)
             // Platform layer needs to provide text_input: &str when available
             // Example integration:
@@ -1287,12 +1291,10 @@ pub trait PlatformWindowV2 {
             // - Windows: WM_CHAR / WM_UNICHAR messages
             // - X11: XIM XLookupString with UTF-8
             // - Wayland: text-input protocol
-            let text_input = ""; // Placeholder
-            layout_window.process_text_input(text_input)
+            BTreeMap::new()
         } else {
             BTreeMap::new()
         };
-
         // TODO: Process accessibility events
         // if let Some(layout_window) = self.get_layout_window_mut() {
         //     layout_window.a11y_manager.record_state_changes(...);
@@ -2865,6 +2867,60 @@ pub trait PlatformWindowV2 {
         // without modifying mouse position
         if let Some(position) = result.hit_test_update_requested {
             self.update_hit_test_at(position);
+        }
+
+        // Process text_input_triggered from CreateTextInput
+        // This is how debug server text input flows:
+        // 1. debug_timer_callback calls callback_info.create_text_input(text)
+        // 2. apply_callback_changes processes CreateTextInput
+        // 3. process_text_input() is called, returning affected nodes
+        // 4. text_input_triggered is populated and forwarded here
+        // 5. We trigger recursive event processing to invoke user callbacks
+        if !result.text_input_triggered.is_empty() {
+            println!("[process_callback_result_v2] Processing {} text_input_triggered events", result.text_input_triggered.len());
+            
+            // For each affected node, invoke OnTextInput callbacks
+            // User callbacks can intercept via preventDefault
+            for (dom_node_id, event_filters) in &result.text_input_triggered {
+                println!("[process_callback_result_v2] Node {:?} triggered {} event filters", dom_node_id, event_filters.len());
+                
+                // Convert DomNodeId to CallbackTarget
+                if let Some(node_id) = dom_node_id.node.into_crate_internal() {
+                    let callback_target = CallbackTarget::Node(HitTestNode {
+                        dom_id: dom_node_id.dom.inner as u64,
+                        node_id: node_id.index() as u64,
+                    });
+                    
+                    // Invoke callbacks for each event filter (typically OnTextInput)
+                    for event_filter in event_filters {
+                        println!("[process_callback_result_v2] Invoking callback for {:?}", event_filter);
+                        let callback_results = self.invoke_callbacks_v2(callback_target.clone(), event_filter.clone());
+                        
+                        // Process callback results
+                        for callback_result in &callback_results {
+                            if callback_result.prevent_default {
+                                println!("[process_callback_result_v2] preventDefault called - text input will be rejected");
+                                // TODO: Clear the pending changeset if rejected
+                            }
+                            
+                            // Check if we need to update the screen
+                            if matches!(callback_result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                                event_result = event_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // After processing callbacks, apply the text changeset if not rejected
+            // This updates the visual cache
+            if let Some(layout_window) = self.get_layout_window_mut() {
+                let dirty_nodes = layout_window.apply_text_changeset();
+                if !dirty_nodes.is_empty() {
+                    println!("[process_callback_result_v2] Applied text changeset, {} dirty nodes", dirty_nodes.len());
+                    event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                }
+            }
         }
 
         // Process Update screen command
