@@ -5813,28 +5813,33 @@ pub fn check_scrollbar_necessity(
     overflow_x: OverflowBehavior,
     overflow_y: OverflowBehavior,
 ) -> ScrollbarRequirements {
+    // Use epsilon for float comparisons to avoid showing scrollbars due to 
+    // floating-point rounding errors. Without this, content that exactly fits
+    // may show scrollbars due to sub-pixel differences (e.g., 299.9999 vs 300.0).
+    const EPSILON: f32 = 1.0;
+    
     let mut needs_horizontal = match overflow_x {
         OverflowBehavior::Visible | OverflowBehavior::Hidden | OverflowBehavior::Clip => false,
         OverflowBehavior::Scroll => true,
-        OverflowBehavior::Auto => content_size.width > container_size.width,
+        OverflowBehavior::Auto => content_size.width > container_size.width + EPSILON,
     };
 
     let mut needs_vertical = match overflow_y {
         OverflowBehavior::Visible | OverflowBehavior::Hidden | OverflowBehavior::Clip => false,
         OverflowBehavior::Scroll => true,
-        OverflowBehavior::Auto => content_size.height > container_size.height,
+        OverflowBehavior::Auto => content_size.height > container_size.height + EPSILON,
     };
 
     // A classic layout problem: a vertical scrollbar can reduce horizontal space,
     // causing a horizontal scrollbar to appear, which can reduce vertical space...
     // A full solution involves a loop, but this two-pass check handles most cases.
     if needs_vertical && !needs_horizontal && overflow_x == OverflowBehavior::Auto {
-        if content_size.width > (container_size.width - SCROLLBAR_WIDTH_PX) {
+        if content_size.width > (container_size.width - SCROLLBAR_WIDTH_PX) + EPSILON {
             needs_horizontal = true;
         }
     }
     if needs_horizontal && !needs_vertical && overflow_y == OverflowBehavior::Auto {
-        if content_size.height > (container_size.height - SCROLLBAR_WIDTH_PX) {
+        if content_size.height > (container_size.height - SCROLLBAR_WIDTH_PX) + EPSILON {
             needs_vertical = true;
         }
     }
