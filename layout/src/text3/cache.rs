@@ -685,11 +685,13 @@ impl Default for UnifiedConstraints {
             shape_boundaries: Vec::new(),
             shape_exclusions: Vec::new(),
 
-            // IMPORTANT: This should be set to the containing block's inner width
-            // per CSS Inline-3 § 2.1, but defaults to Definite(0.0) which causes immediate line
-            // breaking. This value should be passed from the box layout solver (fc.rs)
-            // when creating UnifiedConstraints for text layout.
-            available_width: AvailableSpace::Definite(0.0),
+            // Use MaxContent as default to avoid premature line breaking.
+            // MaxContent means "use intrinsic width" which is appropriate when
+            // the containing block's width is not yet known.
+            // Previously this was Definite(0.0) which caused each character to
+            // wrap to its own line. The actual width should be passed from the 
+            // box layout solver (fc.rs) when creating UnifiedConstraints.
+            available_width: AvailableSpace::MaxContent,
             available_height: None,
             writing_mode: None,
             direction: None, // Will default to LTR if not specified
