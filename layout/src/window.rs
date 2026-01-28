@@ -6514,12 +6514,22 @@ impl LayoutWindow {
                 let mut current_node = Some(ifc_root_node_id);
                 while let Some(node_id) = current_node {
                     if let Some(styled_node) = node_data.get(node_id.index()) {
-                        let has_contenteditable = styled_node.attributes.as_ref().iter().any(|attr| {
+                        // Check BOTH: the contenteditable boolean field AND the attribute
+                        // NodeData has a direct `contenteditable: bool` field that should be
+                        // checked in addition to the attribute for robustness
+                        if styled_node.contenteditable {
+                            #[cfg(feature = "std")]
+                            eprintln!("[DEBUG] Found contenteditable=true on node {:?}", node_id);
+                            return true;
+                        }
+                        
+                        // Also check the attribute (for backwards compatibility)
+                        let has_contenteditable_attr = styled_node.attributes.as_ref().iter().any(|attr| {
                             matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
                         });
-                        if has_contenteditable {
+                        if has_contenteditable_attr {
                             #[cfg(feature = "std")]
-                            eprintln!("[DEBUG] Found contenteditable on node {:?}", node_id);
+                            eprintln!("[DEBUG] Found contenteditable attribute on node {:?}", node_id);
                             return true;
                         }
                     }
