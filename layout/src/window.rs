@@ -5482,10 +5482,22 @@ impl LayoutWindow {
     /// Returns InlineContent vector if the node has text.
     ///
     /// # Implementation Note
-    /// This function currently reconstructs InlineContent from the styled DOM.
-    /// A future optimization would be to cache the InlineContent during layout
-    /// and retrieve it directly from the text cache.
+    /// This function FIRST checks `dirty_text_nodes` for optimistic state (edits not yet
+    /// committed to StyledDom), then falls back to the StyledDom. This is critical for
+    /// correct text input handling - without this, each keystroke would read stale state.
     pub fn get_text_before_textinput(&self, dom_id: DomId, node_id: NodeId) -> Vec<InlineContent> {
+        // CRITICAL FIX: Check dirty_text_nodes first!
+        // If the node has been edited since last full layout, its most up-to-date
+        // content is in dirty_text_nodes, NOT in the StyledDom.
+        // Without this check, every keystroke reads the ORIGINAL text instead of
+        // the accumulated edits, causing bugs like double-input and wrong node affected.
+        if let Some(dirty_node) = self.dirty_text_nodes.get(&(dom_id, node_id)) {
+            #[cfg(feature = "std")]
+            eprintln!("[get_text_before_textinput] Using dirty_text_nodes content for ({:?}, {:?})", dom_id, node_id);
+            return dirty_node.content.clone();
+        }
+
+        // Fallback to committed state from StyledDom
         // Get the layout result for this DOM
         let layout_result = match self.layout_results.get(&dom_id) {
             Some(lr) => lr,
@@ -6485,6 +6497,61 @@ impl LayoutWindow {
         eprintln!("[DEBUG] Setting selection on dom_id={:?}, node_id={:?}", dom_id, ifc_root_node_id);
         
         self.selection_manager.set_selection(dom_id, state);
+
+        // CRITICAL FIX 1: Set focus on the clicked node
+        // Without this, clicking on a contenteditable element shows a cursor but
+        // text input doesn't work because record_text_input() checks focus_manager.get_focused_node()
+        // and returns early if there's no focus.
+        //
+        // Check if the node OR ANY ANCESTOR is contenteditable before setting focus
+        // The contenteditable attribute is typically on a parent div, not on the IFC root or text node
+        let is_contenteditable = self.layout_results.get(&dom_id)
+            .map(|lr| {
+                let node_hierarchy = lr.styled_dom.node_hierarchy.as_container();
+                let node_data = lr.styled_dom.node_data.as_ref();
+                
+                // Walk up the DOM tree to check if any ancestor has contenteditable
+                let mut current_node = Some(ifc_root_node_id);
+                while let Some(node_id) = current_node {
+                    if let Some(styled_node) = node_data.get(node_id.index()) {
+                        let has_contenteditable = styled_node.attributes.as_ref().iter().any(|attr| {
+                            matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
+                        });
+                        if has_contenteditable {
+                            #[cfg(feature = "std")]
+                            eprintln!("[DEBUG] Found contenteditable on node {:?}", node_id);
+                            return true;
+                        }
+                    }
+                    // Move to parent
+                    current_node = node_hierarchy.get(node_id).and_then(|h| h.parent_id());
+                }
+                false
+            })
+            .unwrap_or(false);
+        
+        // W3C conformance: contenteditable elements are implicitly focusable
+        if is_contenteditable {
+            self.focus_manager.set_focused_node(Some(dom_node_id));
+            #[cfg(feature = "std")]
+            eprintln!("[DEBUG] Set focus on contenteditable node {:?}", ifc_root_node_id);
+        }
+
+        // CRITICAL FIX 2: Initialize the CursorManager with the clicked position
+        // Without this, clicking on a contenteditable element sets focus (blue outline)
+        // but the text cursor doesn't appear because CursorManager is never told where to draw it.
+        let now = azul_core::task::Instant::now();
+        self.cursor_manager.move_cursor_to(
+            final_range.start.clone(),
+            dom_id,
+            ifc_root_node_id,
+        );
+        // Reset the blink timer so the cursor is immediately visible
+        self.cursor_manager.reset_blink_on_input(now);
+        self.cursor_manager.set_blink_timer_active(true);
+        
+        #[cfg(feature = "std")]
+        eprintln!("[DEBUG] Initialized cursor at {:?} for node {:?}", final_range.start, ifc_root_node_id);
 
         // Return the affected node for dirty tracking
         Some(vec![dom_node_id])
