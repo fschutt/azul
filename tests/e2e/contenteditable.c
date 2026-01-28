@@ -53,39 +53,10 @@ AzUpdate on_text_input(AzRefAny data, AzCallbackInfo info) {
         return AzUpdate_DoNothing;
     }
     
-    // Get the text changeset from the callback info
-    AzOptionPendingTextEdit changeset = AzCallbackInfo_getTextChangeset(&info);
-    
-    if (changeset.Some.tag == AzOptionPendingTextEdit_Tag_Some) {
-        AzPendingTextEdit* edit = &changeset.Some.payload;
-        
-        // Print the changeset for debugging
-        printf("[TextInput] Changeset received:\n");
-        printf("  inserted_text: '%.*s'\n", 
-               (int)edit->inserted_text.vec.len, 
-               (const char*)edit->inserted_text.vec.ptr);
-        printf("  old_text: '%.*s' (len=%zu)\n", 
-               (int)(edit->old_text.vec.len > 50 ? 50 : edit->old_text.vec.len),
-               (const char*)edit->old_text.vec.ptr,
-               edit->old_text.vec.len);
-        
-        // Append the inserted text to our data model
-        // For single-line, we just append to the existing text
-        size_t current_len = strlen(ref.ptr->single_line_text);
-        size_t insert_len = edit->inserted_text.vec.len;
-        
-        if (current_len + insert_len < sizeof(ref.ptr->single_line_text) - 1) {
-            memcpy(ref.ptr->single_line_text + current_len, 
-                   edit->inserted_text.vec.ptr, 
-                   insert_len);
-            ref.ptr->single_line_text[current_len + insert_len] = '\0';
-            printf("  Updated single_line_text: '%s'\n", ref.ptr->single_line_text);
-        }
-        
-        ref.ptr->text_change_count++;
-    } else {
-        printf("[TextInput] No changeset available\n");
-    }
+    // Just count the text input event - the framework handles the actual text update
+    // The contenteditable system uses its internal state for visual updates
+    ref.ptr->text_change_count++;
+    printf("[TextInput] Event received (count: %d)\n", ref.ptr->text_change_count);
     
     ContentEditableDataRefMut_delete(&ref);
     

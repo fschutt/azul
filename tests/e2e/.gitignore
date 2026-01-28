@@ -15,6 +15,8 @@ refany_test
 focus_scroll
 focus_scroll_test
 text_area_test
+simple_contenteditable
+simple_contenteditable_release
 
 # New test binaries
 text_input
