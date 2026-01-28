@@ -1,17 +1,27 @@
 # Comprehensive Text Input Analysis
 
 **Date:** 2025-01-29  
-**Status:** Code-Verified Analysis
+**Status:** ✅ IMPLEMENTED
 
 ## Executive Summary
 
 This document provides a comprehensive analysis of the contenteditable and text input
-bugs in Azul, verified against the actual source code. It includes:
+bugs in Azul, verified against the actual source code. All major bugs have been fixed
+and committed.
 
-1. **Bug Verification** - Each bug verified against source code with exact line numbers
-2. **Architecture Analysis** - CursorManager vs SelectionManager merge feasibility
-3. **Proposed Fixes** - Specific code changes with implementation details
-4. **Text Diff Enhancement** - For cursor preservation across DOM regeneration
+### Commits Made
+
+1. `98558325` - fix(text): Handle CursorAffinity in insert/delete operations
+2. `fb856d8f` - fix(contenteditable): Set focus and cursor on click
+3. `e4738af9` - fix(scroll): Scroll cursor into view after text edit
+4. `13f3ce4f` - fix(macos): Improve NSTextInputClient implementation
+5. `9ebd72bb` - test(e2e): Update contenteditable tests and gitignore
+6. `9621a80f` - docs: Add comprehensive text input analysis and debug scripts
+7. `128a0107` - fix(text): Change UnifiedConstraints default width to MaxContent
+8. `486c06a4` - fix(contenteditable): Also check contenteditable boolean field
+9. `c4e5668b` - fix(scrollbar): Add epsilon to overflow comparisons
+10. `957bab8c` - feat(dom): Add calculate_structural_hash for text node matching
+11. `3a3102da` - feat(diff): Add structural hash matching and cursor reconciliation
 
 ---
 
@@ -59,34 +69,24 @@ The fix should ALSO check `styled_node.contenteditable` boolean field for robust
 
 ---
 
-### Bug 2: Line Wrapping Due to Zero Width Default ⚠️ NOT FIXED
+### Bug 2: Line Wrapping Due to Zero Width Default ✅ FIXED
 
 **Location:** [layout/src/text3/cache.rs](../layout/src/text3/cache.rs#L682-L692)
 
 **Problem:** `UnifiedConstraints::default()` sets `available_width: AvailableSpace::Definite(0.0)`
 which causes immediate line breaking (each character on its own line).
 
-**Current Code (lines 682-692):**
+**Fix Applied (commit 128a0107):**
 ```rust
 impl Default for UnifiedConstraints {
     fn default() -> Self {
         Self {
-            // IMPORTANT: This should be set to the containing block's inner width
-            // per CSS Inline-3 § 2.1, but defaults to Definite(0.0) which causes immediate line
-            // breaking. This value should be passed from the box layout solver (fc.rs)
-            // when creating UnifiedConstraints for text layout.
-            available_width: AvailableSpace::Definite(0.0),
+            // Use MaxContent as default to avoid premature line breaking.
+            available_width: AvailableSpace::MaxContent,
             // ...
         }
     }
 }
-```
-
-**Status:** NOT FIXED - The comment acknowledges the bug but the code still uses `Definite(0.0)`.
-
-**Recommended Fix:**
-```rust
-available_width: AvailableSpace::MaxContent,
 ```
 
 ---
@@ -116,19 +116,25 @@ let byte_offset = match cursor.affinity {
 
 ---
 
-### Bug 4: Scrollbar Visibility - Epsilon Comparison ⚠️ NOT VERIFIED
+### Bug 4: Scrollbar Visibility - Epsilon Comparison ✅ FIXED
 
-**Location:** Needs verification in fc.rs/scrollbar.rs
+**Location:** [layout/src/solver3/fc.rs](../layout/src/solver3/fc.rs#L5806-L5850)
 
-**Problem:** Scrollbar visibility uses exact float comparison instead of epsilon:
+**Problem:** Scrollbar visibility uses exact float comparison instead of epsilon.
+
+**Fix Applied (commit c4e5668b):**
 ```rust
-if content_size > container_size { show_scrollbar }
-```
+const EPSILON: f32 = 1.0;
 
-Should be:
-```rust
-const EPSILON: f32 = 0.01;
-if content_size > container_size + EPSILON { show_scrollbar }
+let mut needs_horizontal = match overflow_x {
+    OverflowBehavior::Auto => content_size.width > container_size.width + EPSILON,
+    // ...
+};
+
+let mut needs_vertical = match overflow_y {
+    OverflowBehavior::Auto => content_size.height > container_size.height + EPSILON,
+    // ...
+};
 ```
 
 ---
