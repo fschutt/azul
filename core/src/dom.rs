@@ -2763,6 +2763,58 @@ impl NodeData {
         DomNodeHash { inner: h }
     }
 
+    /// Calculates a structural hash for DOM reconciliation that ignores text content.
+    /// 
+    /// This hash is used for matching nodes across DOM frames where the text content
+    /// may have changed (e.g., contenteditable text being edited). It hashes:
+    /// - Node type discriminant (but NOT the text content for Text nodes)
+    /// - IDs and classes
+    /// - Attributes (but NOT contenteditable state which may change with focus)
+    /// - Callback events and types
+    /// 
+    /// This allows a Text("Hello") node to match Text("Hello World") during reconciliation,
+    /// preserving cursor position and selection state.
+    pub fn calculate_structural_hash(&self) -> DomNodeHash {
+        use highway::{HighwayHash, HighwayHasher, Key};
+        use core::hash::Hasher as StdHasher;
+        
+        let mut hasher = HighwayHasher::new(Key([0; 4]));
+        
+        // Hash node type discriminant only, not content
+        // This means Text("A") and Text("B") have the same structural hash
+        core::mem::discriminant(&self.node_type).hash(&mut hasher);
+        
+        // For IFrame nodes, we do want to hash the source to distinguish different iframes
+        if let NodeType::IFrame(ref iframe) = self.node_type {
+            // Hash iframe-specific identifying information
+            iframe.source.hash(&mut hasher);
+        }
+        
+        // For Image nodes, hash the image reference to distinguish different images
+        if let NodeType::Image(ref img_ref) = self.node_type {
+            img_ref.hash(&mut hasher);
+        }
+        
+        // Hash IDs and classes - these are structural and shouldn't change
+        self.ids_and_classes.as_ref().hash(&mut hasher);
+        
+        // Hash attributes - but skip contenteditable since that might change
+        for attr in self.attributes.as_ref().iter() {
+            // Skip ContentEditable attribute - it's state, not structure
+            if !matches!(attr, AttributeType::ContentEditable(_)) {
+                attr.hash(&mut hasher);
+            }
+        }
+        
+        // Hash callback events (not the actual callback function pointers)
+        for callback in self.callbacks.as_ref().iter() {
+            callback.event.hash(&mut hasher);
+        }
+        
+        let h = hasher.finalize64();
+        DomNodeHash { inner: h }
+    }
+
     #[inline(always)]
     pub fn with_tab_index(mut self, tab_index: TabIndex) -> Self {
         self.set_tab_index(tab_index);
