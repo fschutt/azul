@@ -2919,6 +2919,14 @@ pub trait PlatformWindowV2 {
                 if !dirty_nodes.is_empty() {
                     println!("[process_callback_result_v2] Applied text changeset, {} dirty nodes", dirty_nodes.len());
                     event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                    
+                    // CRITICAL FIX: Scroll cursor into view after text edit
+                    // Without this, typing at the end of a long text doesn't scroll
+                    // the view to keep the cursor visible.
+                    layout_window.scroll_selection_into_view(
+                        azul_layout::window::SelectionScrollType::Cursor,
+                        azul_layout::window::ScrollMode::Instant,
+                    );
                 }
             }
         }
