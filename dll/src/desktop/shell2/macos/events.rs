@@ -373,11 +373,20 @@ impl MacOSWindow {
         // Update keyboard state with keycode
         self.update_keyboard_state(key_code, modifiers, true);
 
-        // Record text input if character is available
+        // Handle text input for printable characters
+        // On macOS, interpretKeyEvents SHOULD trigger insertText: via NSTextInputClient,
+        // but there seems to be an issue with protocol conformance in objc2.
+        // So we handle printable characters directly here.
+        // Control characters and modified keys (Cmd+X, Ctrl+C, etc.) are NOT inserted as text.
         if let Some(ch) = character {
-            if let Some(layout_window) = self.get_layout_window_mut() {
+            let is_control_char = ch.is_control();
+            let has_cmd = modifiers.contains(objc2_app_kit::NSEventModifierFlags::Command);
+            let has_ctrl = modifiers.contains(objc2_app_kit::NSEventModifierFlags::Control);
+            
+            // Only insert text for normal printable characters without Cmd/Ctrl
+            if !is_control_char && !has_cmd && !has_ctrl {
                 let text_input = ch.to_string();
-                layout_window.record_text_input(&text_input);
+                self.handle_text_input(&text_input);
             }
         }
 
@@ -410,19 +419,64 @@ impl MacOSWindow {
     /// This is the proper way to handle text input on macOS, as it respects
     /// the IME composition system for non-ASCII characters (accents, CJK, etc.)
     pub fn handle_text_input(&mut self, text: &str) {
+        use crate::desktop::shell2::common::event_v2::{CallbackTarget, HitTestNode};
+        use azul_core::events::ProcessEventResult;
+        
         // Save previous state BEFORE making changes
         self.previous_window_state = Some(self.current_window_state.clone());
 
-        // Record text input - V2 system will detect TextInput event from state diff
-        if let Some(layout_window) = self.get_layout_window_mut() {
-            layout_window.record_text_input(text);
+        // Record text input - this returns a map of nodes that need TextInput event dispatched
+        let affected_nodes = if let Some(layout_window) = self.get_layout_window_mut() {
+            layout_window.record_text_input(text)
+        } else {
+            return; // No layout window, nothing to do
+        };
+
+        if affected_nodes.is_empty() {
+            println!("[handle_text_input] No affected nodes returned from record_text_input");
+            return;
         }
 
-        // Process V2 events
-        let _ = self.process_window_events_recursive_v2(0);
+        // Manually process the generated text input event.
+        // We do NOT call process_window_events_recursive_v2() here, because that function
+        // is for discovering events from state diffs. Here, we already know the exact event.
+        let mut overall_result = ProcessEventResult::DoNothing;
+        
+        for (dom_node_id, (event_filters, _needs_relayout)) in affected_nodes {
+            // Convert DomNodeId to CallbackTarget
+            if let Some(node_id) = dom_node_id.node.into_crate_internal() {
+                let callback_target = CallbackTarget::Node(HitTestNode {
+                    dom_id: dom_node_id.dom.inner as u64,
+                    node_id: node_id.index() as u64,
+                });
+                
+                // Invoke callbacks for each event filter (typically OnTextInput)
+                for event_filter in &event_filters {
+                    println!("[handle_text_input] Invoking callback for {:?}", event_filter);
+                    let callback_results = self.invoke_callbacks_v2(callback_target.clone(), event_filter.clone());
+                    
+                    // Process each callback result
+                    for callback_result in &callback_results {
+                        let process_result = self.process_callback_result_v2(callback_result);
+                        overall_result = overall_result.max(process_result);
+                    }
+                }
+            }
+        }
+
+        // Apply text changeset after callbacks
+        if let Some(layout_window) = self.get_layout_window_mut() {
+            let dirty_nodes = layout_window.apply_text_changeset();
+            if !dirty_nodes.is_empty() {
+                println!("[handle_text_input] Applied text changeset, {} dirty nodes", dirty_nodes.len());
+                overall_result = overall_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+            }
+        }
 
         // Request redraw if needed
-        self.frame_needs_regeneration = true;
+        if overall_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+            self.frame_needs_regeneration = true;
+        }
     }
 
     /// Process a flags changed event (modifier keys).

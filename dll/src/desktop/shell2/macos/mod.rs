@@ -291,7 +291,12 @@ define_class!(
 
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
+            // CRITICAL: Call interpretKeyEvents to trigger NSTextInputClient insertText:
+            unsafe {
+                let events = objc2_foundation::NSArray::from_slice(&[event]);
+                self.interpretKeyEvents(&events);
+            }
+            // Forward to MacOSWindow for non-text keys
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
@@ -541,9 +546,11 @@ define_class!(
 
         #[unsafe(method(selectedRange))]
         fn selected_range(&self) -> NSRange {
-            // Return NSNotFound to indicate no selection
+            // CRITICAL: Return a valid cursor position (location 0, length 0 = cursor at position 0)
+            // Returning NSNotFound (usize::MAX) tells macOS there's no insertion point,
+            // and it will NOT call insertText:replacementRange:
             NSRange {
-                location: usize::MAX,
+                location: 0,
                 length: 0,
             }
         }
@@ -555,6 +562,7 @@ define_class!(
             _selected_range: NSRange,
             _replacement_range: NSRange,
         ) {
+            println!("[GLView::setMarkedText] Called");
             // Phase 2: OnCompositionStart callback - sync IME position
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
@@ -566,6 +574,7 @@ define_class!(
 
         #[unsafe(method(unmarkText))]
         fn unmark_text(&self) {
+            println!("[GLView::unmarkText] Called");
             // Called when IME composition is finished
         }
 
@@ -586,10 +595,15 @@ define_class!(
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
+            println!("[GLView::insert_text] Called!");
+            
             // Get the back-pointer to our MacOSWindow
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
-                None => return,
+                None => {
+                    println!("[GLView::insert_text] ERROR: No window pointer!");
+                    return;
+                }
             };
 
             // SAFETY: We trust that the window pointer is valid.
@@ -597,7 +611,10 @@ define_class!(
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 if let Some(ns_string) = string.downcast_ref::<NSString>() {
                     let text = ns_string.to_string();
+                    println!("[GLView::insert_text] Inserting text: '{}'", text);
                     macos_window.handle_text_input(&text);
+                } else {
+                    println!("[GLView::insert_text] ERROR: Could not downcast to NSString");
                 }
             }
         }
@@ -820,7 +837,12 @@ define_class!(
 
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
+            // CRITICAL: Call interpretKeyEvents to trigger NSTextInputClient insertText:
+            unsafe {
+                let events = objc2_foundation::NSArray::from_slice(&[event]);
+                self.interpretKeyEvents(&events);
+            }
+            // Forward to MacOSWindow for non-text keys
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
@@ -1066,8 +1088,11 @@ define_class!(
 
         #[unsafe(method(selectedRange))]
         fn selected_range(&self) -> NSRange {
+            // CRITICAL: Return a valid cursor position (location 0, length 0 = cursor at position 0)
+            // Returning NSNotFound (usize::MAX) tells macOS there's no insertion point,
+            // and it will NOT call insertText:replacementRange:
             NSRange {
-                location: usize::MAX,
+                location: 0,
                 length: 0,
             }
         }
@@ -1108,10 +1133,15 @@ define_class!(
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, _replacement_range: NSRange) {
+            println!("[CPUView::insert_text] Called!");
+            
             // Get the back-pointer to our MacOSWindow
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
-                None => return,
+                None => {
+                    println!("[CPUView::insert_text] ERROR: No window pointer!");
+                    return;
+                }
             };
 
             // SAFETY: We trust that the window pointer is valid.
@@ -1119,7 +1149,10 @@ define_class!(
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 if let Some(ns_string) = string.downcast_ref::<NSString>() {
                     let text = ns_string.to_string();
+                    println!("[CPUView::insert_text] Inserting text: '{}'", text);
                     macos_window.handle_text_input(&text);
+                } else {
+                    println!("[CPUView::insert_text] ERROR: Could not downcast to NSString");
                 }
             }
         }
