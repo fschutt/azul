@@ -80,9 +80,17 @@ pub fn reconcile_dom(
 
     // --- STEP 1: INDEX THE OLD DOM ---
     // Create lookups to find old nodes by Key or by Hash.
+    // 
+    // IMPORTANT: We use TWO hash indexes:
+    // 1. Content Hash (calculate_node_data_hash) - for exact matching including text content
+    // 2. Structural Hash (calculate_structural_hash) - for text nodes where content may change
+    //
+    // This allows Text("Hello") to match Text("Hello World") as a structural match,
+    // preserving cursor/selection state during text editing.
 
     let mut old_keyed: FastHashMap<u64, NodeId> = FastHashMap::default();
     let mut old_hashed: FastHashMap<DomNodeHash, VecDeque<NodeId>> = FastHashMap::default();
+    let mut old_structural: FastHashMap<DomNodeHash, VecDeque<NodeId>> = FastHashMap::default();
     let mut old_nodes_consumed = vec![false; old_node_data.len()];
 
     for (idx, node) in old_node_data.iter().enumerate() {
@@ -92,9 +100,13 @@ pub fn reconcile_dom(
             // Priority 1: Explicit Key
             old_keyed.insert(key, id);
         } else {
-            // Priority 2: Content Hash
+            // Priority 2: Content Hash (exact match)
             let hash = node.calculate_node_data_hash();
             old_hashed.entry(hash).or_default().push_back(id);
+            
+            // Priority 3: Structural Hash (for text node matching)
+            let structural_hash = node.calculate_structural_hash();
+            old_structural.entry(structural_hash).or_default().push_back(id);
         }
     }
 
@@ -112,7 +124,7 @@ pub fn reconcile_dom(
                 }
             }
         }
-        // B. Try Match by Content Hash (The "Automagic" Reordering)
+        // B. Try Match by Content Hash first (exact match - The "Automagic" Reordering)
         else {
             let hash = new_node.calculate_node_data_hash();
 
@@ -126,6 +138,22 @@ pub fn reconcile_dom(
                         break;
                     } else {
                         queue.pop_front();
+                    }
+                }
+            }
+            
+            // C. If no exact match, try Structural Hash (for text nodes with changed content)
+            if matched_old_id.is_none() {
+                let structural_hash = new_node.calculate_structural_hash();
+                if let Some(queue) = old_structural.get_mut(&structural_hash) {
+                    while let Some(old_id) = queue.front() {
+                        if !old_nodes_consumed[old_id.index()] {
+                            matched_old_id = Some(*old_id);
+                            queue.pop_front();
+                            break;
+                        } else {
+                            queue.pop_front();
+                        }
                     }
                 }
             }
@@ -395,6 +423,97 @@ pub fn transfer_states(
                 old_node_data[old_idx].dataset = old_ds;
             }
         }
+    }
+}
+
+/// Reconcile cursor byte position when text content changes.
+///
+/// This function maps a cursor position from old text to new text, preserving
+/// the cursor's logical position as much as possible:
+///
+/// 1. If cursor is in unchanged prefix → stays at same byte offset
+/// 2. If cursor is in unchanged suffix → adjusts by length difference
+/// 3. If cursor is in changed region → places at end of new content
+///
+/// # Arguments
+/// * `old_text` - The previous text content
+/// * `new_text` - The new text content
+/// * `old_cursor_byte` - Cursor byte offset in old text
+///
+/// # Returns
+/// The reconciled cursor byte offset in new text
+///
+/// # Example
+/// ```rust,ignore
+/// let old_text = "Hello";
+/// let new_text = "Hello World";
+/// let old_cursor = 5; // cursor at end of "Hello"
+/// let new_cursor = reconcile_cursor_position(old_text, new_text, old_cursor);
+/// assert_eq!(new_cursor, 5); // cursor stays at same position (prefix unchanged)
+/// ```
+pub fn reconcile_cursor_position(
+    old_text: &str,
+    new_text: &str,
+    old_cursor_byte: usize,
+) -> usize {
+    // If texts are equal, cursor is unchanged
+    if old_text == new_text {
+        return old_cursor_byte;
+    }
+    
+    // Empty old text - place cursor at end of new text
+    if old_text.is_empty() {
+        return new_text.len();
+    }
+    
+    // Empty new text - place cursor at 0
+    if new_text.is_empty() {
+        return 0;
+    }
+    
+    // Find common prefix (how many bytes from the start are identical)
+    let common_prefix_bytes = old_text
+        .bytes()
+        .zip(new_text.bytes())
+        .take_while(|(a, b)| a == b)
+        .count();
+    
+    // If cursor was in the unchanged prefix, it stays at the same byte offset
+    if old_cursor_byte <= common_prefix_bytes {
+        return old_cursor_byte.min(new_text.len());
+    }
+    
+    // Find common suffix (how many bytes from the end are identical)
+    let common_suffix_bytes = old_text
+        .bytes()
+        .rev()
+        .zip(new_text.bytes().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    
+    // Calculate where the suffix starts in old and new text
+    let old_suffix_start = old_text.len().saturating_sub(common_suffix_bytes);
+    let new_suffix_start = new_text.len().saturating_sub(common_suffix_bytes);
+    
+    // If cursor was in the unchanged suffix, adjust by length difference
+    if old_cursor_byte >= old_suffix_start {
+        let offset_from_end = old_text.len() - old_cursor_byte;
+        return new_text.len().saturating_sub(offset_from_end);
+    }
+    
+    // Cursor was in the changed region - place at end of inserted content
+    // This handles insertions (cursor moves with new text) and deletions (cursor at edit point)
+    new_suffix_start
+}
+
+/// Get the text content from a NodeData if it's a Text node.
+///
+/// Returns the text string if the node is `NodeType::Text`, otherwise `None`.
+pub fn get_node_text_content(node: &NodeData) -> Option<&str> {
+    if let crate::dom::NodeType::Text(ref text) = node.get_node_type() {
+        Some(text.as_str())
+    } else {
+        None
     }
 }
 
@@ -1614,4 +1733,115 @@ mod tests {
             panic!("Dataset missing");
         }
     }
-}
+    
+    // ========== CURSOR RECONCILIATION TESTS ==========
+    
+    #[test]
+    fn test_cursor_reconcile_identical_text() {
+        let result = reconcile_cursor_position("Hello", "Hello", 3);
+        assert_eq!(result, 3);
+    }
+    
+    #[test]
+    fn test_cursor_reconcile_text_appended() {
+        // Cursor at end of "Hello", text becomes "Hello World"
+        let result = reconcile_cursor_position("Hello", "Hello World", 5);
+        assert_eq!(result, 5); // Cursor stays at same position (in prefix)
+    }
+    
+    #[test]
+    fn test_cursor_reconcile_text_prepended() {
+        // Cursor at "H|ello", text becomes "Say Hello"
+        // The "H" is no longer at position 1, so cursor goes to changed region end
+        let result = reconcile_cursor_position("Hello", "Say Hello", 1);
+        assert_eq!(result, 4); // End of inserted content
+    }
+    
+    #[test]
+    fn test_cursor_reconcile_suffix_preserved() {
+        // Text: "Hello World" -> "Hi World", cursor at "World" (position 6)
+        // "World" is in suffix, so cursor should adjust
+        let result = reconcile_cursor_position("Hello World", "Hi World", 6);
+        // In old text: "Hello World" (11 chars), cursor at 6
+        // Suffix " World" (6 chars) is preserved
+        // Old suffix starts at 5 (11-6), new suffix starts at 2 (8-6)
+        // Cursor is at 6, which is in suffix (>= 5)
+        // Offset from end: 11-6 = 5, new position: 8-5 = 3
+        assert_eq!(result, 3);
+    }
+    
+    #[test]
+    fn test_cursor_reconcile_empty_to_text() {
+        let result = reconcile_cursor_position("", "Hello", 0);
+        assert_eq!(result, 5); // Cursor at end of new text
+    }
+    
+    #[test]
+    fn test_cursor_reconcile_text_to_empty() {
+        let result = reconcile_cursor_position("Hello", "", 3);
+        assert_eq!(result, 0); // Cursor at 0
+    }
+    
+    #[test]
+    fn test_cursor_reconcile_insert_at_cursor() {
+        // Typing 'X' at cursor position 3 in "Hello" -> "HelXlo"
+        let result = reconcile_cursor_position("Hello", "HelXlo", 3);
+        // Common prefix: "Hel" (3 bytes), cursor is at 3 (at end of prefix)
+        // Should stay at 3
+        assert_eq!(result, 3);
+    }
+    
+    #[test]
+    fn test_structural_hash_text_nodes_match() {
+        use azul_css::AzString;
+        
+        // Two text nodes with different content should have same structural hash
+        let text_a = NodeData::create_text(AzString::from("Hello"));
+        let text_b = NodeData::create_text(AzString::from("Hello World"));
+        
+        // Content hash should be different
+        assert_ne!(text_a.calculate_node_data_hash(), text_b.calculate_node_data_hash());
+        
+        // Structural hash should be the same (both are Text nodes)
+        assert_eq!(text_a.calculate_structural_hash(), text_b.calculate_structural_hash());
+    }
+    
+    #[test]
+    fn test_structural_hash_different_types() {
+        use azul_css::AzString;
+        
+        // Div and Text should have different structural hashes
+        let div = NodeData::create_div();
+        let text = NodeData::create_text(AzString::from("Hello"));
+        
+        assert_ne!(div.calculate_structural_hash(), text.calculate_structural_hash());
+    }
+    
+    #[test]
+    fn test_text_nodes_match_by_structural_hash() {
+        use azul_css::AzString;
+        
+        // Old DOM has Text("Hello"), new DOM has Text("Hello World")
+        // They should match by structural hash
+        let old_data = vec![NodeData::create_text(AzString::from("Hello"))];
+        let new_data = vec![NodeData::create_text(AzString::from("Hello World"))];
+        
+        let mut old_layout = FastHashMap::default();
+        old_layout.insert(NodeId::new(0), LogicalRect::zero());
+        let mut new_layout = FastHashMap::default();
+        new_layout.insert(NodeId::new(0), LogicalRect::zero());
+        
+        let result = reconcile_dom(
+            &old_data,
+            &new_data,
+            &old_layout,
+            &new_layout,
+            DomId { inner: 0 },
+            Instant::now(),
+        );
+        
+        // Should match by structural hash (same node, just different text content)
+        assert_eq!(result.node_moves.len(), 1);
+        assert_eq!(result.node_moves[0].old_node_id, NodeId::new(0));
+        assert_eq!(result.node_moves[0].new_node_id, NodeId::new(0));
+    }
