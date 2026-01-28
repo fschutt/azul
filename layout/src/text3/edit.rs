@@ -157,16 +157,45 @@ pub fn delete_range(
 }
 
 /// Inserts text at a cursor position.
+/// 
+/// The cursor's affinity determines the exact insertion point:
+/// - `Leading`: Insert at the start of the referenced cluster (start_byte_in_run)
+/// - `Trailing`: Insert at the end of the referenced cluster (after the grapheme)
 pub fn insert_text(
     content: &mut Vec<InlineContent>,
     cursor: &TextCursor,
     text_to_insert: &str,
 ) -> (Vec<InlineContent>, TextCursor) {
+    use unicode_segmentation::UnicodeSegmentation;
+    
     let mut new_content = content.clone();
     let run_idx = cursor.cluster_id.source_run as usize;
-    let byte_offset = cursor.cluster_id.start_byte_in_run as usize;
+    let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
 
     if let Some(InlineContent::Text(run)) = new_content.get_mut(run_idx) {
+        // Calculate the actual insertion byte offset based on affinity
+        let byte_offset = match cursor.affinity {
+            CursorAffinity::Leading => {
+                // Insert at the start of the cluster
+                cluster_start_byte
+            },
+            CursorAffinity::Trailing => {
+                // Insert at the end of the cluster - find the next grapheme boundary
+                // We need to find where this grapheme cluster ends
+                if cluster_start_byte >= run.text.len() {
+                    // Cursor is at/past end of run - insert at end
+                    run.text.len()
+                } else {
+                    // Find the grapheme that starts at cluster_start_byte and get its end
+                    run.text[cluster_start_byte..]
+                        .grapheme_indices(true)
+                        .next()
+                        .map(|(_, grapheme)| cluster_start_byte + grapheme.len())
+                        .unwrap_or(run.text.len())
+                }
+            },
+        };
+        
         if byte_offset <= run.text.len() {
             run.text.insert_str(byte_offset, text_to_insert);
 
@@ -186,6 +215,10 @@ pub fn insert_text(
 }
 
 /// Deletes one grapheme cluster backward from the cursor.
+/// 
+/// The cursor's affinity determines the actual cursor position:
+/// - `Leading`: Cursor is at start of cluster, delete the previous grapheme
+/// - `Trailing`: Cursor is at end of cluster, delete the current grapheme
 pub fn delete_backward(
     content: &mut Vec<InlineContent>,
     cursor: &TextCursor,
@@ -193,9 +226,26 @@ pub fn delete_backward(
     use unicode_segmentation::UnicodeSegmentation;
     let mut new_content = content.clone();
     let run_idx = cursor.cluster_id.source_run as usize;
-    let byte_offset = cursor.cluster_id.start_byte_in_run as usize;
+    let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
 
     if let Some(InlineContent::Text(run)) = new_content.get_mut(run_idx) {
+        // Calculate the actual cursor byte offset based on affinity
+        let byte_offset = match cursor.affinity {
+            CursorAffinity::Leading => cluster_start_byte,
+            CursorAffinity::Trailing => {
+                // Cursor is at end of cluster - find the next grapheme boundary
+                if cluster_start_byte >= run.text.len() {
+                    run.text.len()
+                } else {
+                    run.text[cluster_start_byte..]
+                        .grapheme_indices(true)
+                        .next()
+                        .map(|(_, grapheme)| cluster_start_byte + grapheme.len())
+                        .unwrap_or(run.text.len())
+                }
+            },
+        };
+        
         if byte_offset > 0 {
             let prev_grapheme_start = run.text[..byte_offset]
                 .grapheme_indices(true)
@@ -242,6 +292,10 @@ pub fn delete_backward(
 }
 
 /// Deletes one grapheme cluster forward from the cursor.
+/// 
+/// The cursor's affinity determines the actual cursor position:
+/// - `Leading`: Cursor is at start of cluster, delete the current grapheme
+/// - `Trailing`: Cursor is at end of cluster, delete the next grapheme
 pub fn delete_forward(
     content: &mut Vec<InlineContent>,
     cursor: &TextCursor,
@@ -249,9 +303,26 @@ pub fn delete_forward(
     use unicode_segmentation::UnicodeSegmentation;
     let mut new_content = content.clone();
     let run_idx = cursor.cluster_id.source_run as usize;
-    let byte_offset = cursor.cluster_id.start_byte_in_run as usize;
+    let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
 
     if let Some(InlineContent::Text(run)) = new_content.get_mut(run_idx) {
+        // Calculate the actual cursor byte offset based on affinity
+        let byte_offset = match cursor.affinity {
+            CursorAffinity::Leading => cluster_start_byte,
+            CursorAffinity::Trailing => {
+                // Cursor is at end of cluster - find the next grapheme boundary
+                if cluster_start_byte >= run.text.len() {
+                    run.text.len()
+                } else {
+                    run.text[cluster_start_byte..]
+                        .grapheme_indices(true)
+                        .next()
+                        .map(|(_, grapheme)| cluster_start_byte + grapheme.len())
+                        .unwrap_or(run.text.len())
+                }
+            },
+        };
+        
         if byte_offset < run.text.len() {
             let next_grapheme_end = run.text[byte_offset..]
                 .grapheme_indices(true)
@@ -259,8 +330,15 @@ pub fn delete_forward(
                 .map_or(run.text.len(), |(i, _)| byte_offset + i);
             run.text.drain(byte_offset..next_grapheme_end);
 
-            // Cursor position doesn't change
-            return (new_content, *cursor);
+            // Cursor position stays at the same byte offset but with Leading affinity
+            let new_cursor = TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: run_idx as u32,
+                    start_byte_in_run: byte_offset as u32,
+                },
+                affinity: CursorAffinity::Leading,
+            };
+            return (new_content, new_cursor);
         } else if run_idx < content.len() - 1 {
             // Handle deleting across run boundaries (merge with next run)
             if let Some(InlineContent::Text(next_run)) = content.get(run_idx + 1).cloned() {
