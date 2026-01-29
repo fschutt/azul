@@ -84,6 +84,31 @@ pub struct CursorManager {
 pub struct CursorLocation {
     pub dom_id: DomId,
     pub node_id: NodeId,
+    /// Stable key for the contenteditable element.
+    /// This is used to re-match the cursor to the correct node after DOM updates.
+    /// Calculated using `azul_core::diff::calculate_contenteditable_key`.
+    /// If 0, the key has not been calculated yet.
+    pub contenteditable_key: u64,
+}
+
+impl CursorLocation {
+    /// Create a new CursorLocation with just dom_id and node_id (key = 0)
+    pub fn new(dom_id: DomId, node_id: NodeId) -> Self {
+        Self {
+            dom_id,
+            node_id,
+            contenteditable_key: 0,
+        }
+    }
+    
+    /// Create a new CursorLocation with a stable key
+    pub fn with_key(dom_id: DomId, node_id: NodeId, contenteditable_key: u64) -> Self {
+        Self {
+            dom_id,
+            node_id,
+            contenteditable_key,
+        }
+    }
 }
 
 impl PartialEq for CursorManager {
@@ -244,7 +269,7 @@ impl CursorManager {
                 },
                 affinity: CursorAffinity::Trailing,
             });
-            self.cursor_location = Some(CursorLocation { dom_id, node_id });
+            self.cursor_location = Some(CursorLocation::new(dom_id, node_id));
             self.is_visible = true; // Make cursor visible immediately
             return true;
         };
@@ -269,7 +294,7 @@ impl CursorManager {
             affinity: CursorAffinity::Trailing,
         });
 
-        self.cursor_location = Some(CursorLocation { dom_id, node_id });
+        self.cursor_location = Some(CursorLocation::new(dom_id, node_id));
         self.is_visible = true; // Make cursor visible immediately
 
         true
@@ -287,7 +312,7 @@ impl CursorManager {
             affinity: CursorAffinity::Trailing,
         });
 
-        self.cursor_location = Some(CursorLocation { dom_id, node_id });
+        self.cursor_location = Some(CursorLocation::new(dom_id, node_id));
     }
 
     /// Move the cursor to a specific position
@@ -295,7 +320,7 @@ impl CursorManager {
     /// This is used by text editing operations and keyboard navigation.
     pub fn move_cursor_to(&mut self, cursor: TextCursor, dom_id: DomId, node_id: NodeId) {
         self.cursor = Some(cursor);
-        self.cursor_location = Some(CursorLocation { dom_id, node_id });
+        self.cursor_location = Some(CursorLocation::new(dom_id, node_id));
     }
 
     /// Check if the cursor is in a specific node

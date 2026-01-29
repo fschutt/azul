@@ -4677,22 +4677,28 @@ impl LayoutWindow {
                         .as_ref()
                         .get(node_id.index())
                     {
-                        let is_contenteditable =
-                            styled_node.attributes.as_ref().iter().any(|attr| {
+                        // Check BOTH: the contenteditable boolean field AND the attribute
+                        // NodeData has a direct `contenteditable: bool` field that should be
+                        // checked in addition to the attribute for robustness
+                        let is_contenteditable = styled_node.contenteditable
+                            || styled_node.attributes.as_ref().iter().any(|attr| {
                                 matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
                             });
-
+                        
                         if is_contenteditable {
-                            // Initialize cursor at end of text using CursorManager
-                            let inline_layout = self.get_node_inline_layout(dom_id, node_id);
-                            self.cursor_manager.initialize_cursor_at_end(
-                                dom_id,
-                                node_id,
-                                inline_layout.as_ref(),
-                            );
+                            // Get inline layout for cursor positioning
+                            // Clone the Arc to avoid borrow conflict
+                            let inline_layout = self.get_inline_layout_for_node(dom_id, node_id).cloned();
+                            if inline_layout.is_some() {
+                                self.cursor_manager.initialize_cursor_at_end(
+                                    dom_id,
+                                    node_id,
+                                    inline_layout.as_ref(),
+                                );
 
-                            // Scroll cursor into view if necessary
-                            self.scroll_cursor_into_view_if_needed(dom_id, node_id, now);
+                                // Scroll cursor into view if necessary
+                                self.scroll_cursor_into_view_if_needed(dom_id, node_id, now);
+                            }
                         } else {
                             // Not editable - clear cursor
                             self.cursor_manager.clear();
@@ -5277,11 +5283,13 @@ impl LayoutWindow {
             }
         };
 
-        let is_contenteditable = styled_node
-            .attributes
-            .as_ref()
-            .iter()
-            .any(|attr| matches!(attr, azul_core::dom::AttributeType::ContentEditable(_)));
+        // Check BOTH: the contenteditable boolean field AND the attribute
+        // NodeData has a direct `contenteditable: bool` field that should be
+        // checked in addition to the attribute for robustness
+        let is_contenteditable = styled_node.contenteditable
+            || styled_node.attributes.as_ref().iter().any(|attr| {
+                matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
+            });
 
         if !is_contenteditable {
             self.text_input_manager.clear_changeset();

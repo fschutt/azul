@@ -6,21 +6,24 @@
 //!
 //! The reconciliation strategy is:
 //! 1. **Stable Key Match:** If `.with_key()` is used, it's an absolute match (O(1)).
-//! 2. **Hash Match (Content Match):** If no key, check if there is an unused node in the old
-//!    list with the exact same `DomNodeHash`. This enables "automagic" reordering detection.
-//! 3. **Fallback:** Anything not matched is a `Mount` (new) or `Unmount` (old leftovers).
+//! 2. **CSS ID Match:** If no key, use the CSS ID as key.
+//! 3. **Structural Key Match:** nth-of-type-within-parent + parent's key (recursive).
+//! 4. **Hash Match (Content Match):** Check for identical `DomNodeHash`.
+//! 5. **Structural Hash Match:** For text nodes, match by structural hash (ignoring content).
+//! 6. **Fallback:** Anything not matched is a `Mount` (new) or `Unmount` (old leftovers).
 
 use alloc::{collections::VecDeque, vec::Vec};
+use core::hash::Hash;
 
 use crate::{
-    dom::{DomId, DomNodeHash, DomNodeId, NodeData},
+    dom::{DomId, DomNodeHash, DomNodeId, NodeData, IdOrClass},
     events::{
         ComponentEventFilter, EventData, EventFilter, EventPhase, EventSource, EventType,
         LifecycleEventData, LifecycleReason, SyntheticEvent,
     },
     geom::LogicalRect,
     id::NodeId,
-    styled_dom::NodeHierarchyItemId,
+    styled_dom::{NodeHierarchyItemId, NodeHierarchyItem},
     task::Instant,
     FastHashMap,
 };
@@ -50,6 +53,110 @@ impl Default for DiffResult {
             node_moves: Vec::new(),
         }
     }
+}
+
+/// Calculate the reconciliation key for a node using the priority hierarchy:
+/// 1. Explicit key (set via `.with_key()`)
+/// 2. CSS ID (set via `.with_id("my-id")`)
+/// 3. Structural key: nth-of-type-within-parent + parent's reconciliation key
+///
+/// The structural key prevents incorrect matching when nodes are inserted
+/// before existing nodes (e.g., prepending items to a list).
+///
+/// # Arguments
+/// * `node_data` - Slice of all node data
+/// * `hierarchy` - Slice of node hierarchy (parent/child relationships)
+/// * `node_id` - The node to calculate the key for
+///
+/// # Returns
+/// A 64-bit key that uniquely identifies this node's logical position in the tree.
+pub fn calculate_reconciliation_key(
+    node_data: &[NodeData],
+    hierarchy: &[NodeHierarchyItem],
+    node_id: NodeId,
+) -> u64 {
+    use highway::{HighwayHash, HighwayHasher, Key};
+    
+    let node = &node_data[node_id.index()];
+    
+    // Priority 1: Explicit key
+    if let Some(key) = node.get_key() {
+        return key;
+    }
+    
+    // Priority 2: CSS ID
+    for id_or_class in node.ids_and_classes.as_ref().iter() {
+        if let IdOrClass::Id(id) = id_or_class {
+            let mut hasher = HighwayHasher::new(Key([0; 4]));
+            id.as_str().hash(&mut hasher);
+            return hasher.finalize64();
+        }
+    }
+    
+    // Priority 3: Structural key = nth-of-type-within-parent + parent key
+    let mut hasher = HighwayHasher::new(Key([0; 4]));
+    
+    // Hash node type discriminant and classes (nth-of-type logic)
+    core::mem::discriminant(node.get_node_type()).hash(&mut hasher);
+    for id_or_class in node.ids_and_classes.as_ref().iter() {
+        if let IdOrClass::Class(class) = id_or_class {
+            class.as_str().hash(&mut hasher);
+        }
+    }
+    
+    // Calculate sibling index (nth-of-type within parent)
+    if let Some(hierarchy_item) = hierarchy.get(node_id.index()) {
+        if let Some(parent_id) = hierarchy_item.parent_id() {
+            // Count siblings of same type before this node
+            let mut sibling_index: usize = 0;
+            let parent_hierarchy = &hierarchy[parent_id.index()];
+            
+            // Walk siblings from first child to this node
+            let mut current = parent_hierarchy.first_child_id(parent_id);
+            while let Some(sibling_id) = current {
+                if sibling_id == node_id {
+                    break;
+                }
+                // Check if sibling has same type/classes
+                let sibling = &node_data[sibling_id.index()];
+                if core::mem::discriminant(sibling.get_node_type()) 
+                    == core::mem::discriminant(node.get_node_type()) 
+                {
+                    sibling_index += 1;
+                }
+                current = hierarchy[sibling_id.index()].next_sibling_id();
+            }
+            
+            sibling_index.hash(&mut hasher);
+            
+            // Recursively include parent's key
+            let parent_key = calculate_reconciliation_key(node_data, hierarchy, parent_id);
+            parent_key.hash(&mut hasher);
+        }
+    }
+    
+    hasher.finalize64()
+}
+
+/// Precompute reconciliation keys for all nodes in a DOM tree.
+///
+/// This should be called once before reconciliation to compute stable keys
+/// for all nodes. Keys are computed using the hierarchy:
+/// 1. Explicit key → 2. CSS ID → 3. Structural key (nth-of-type + parent key)
+///
+/// # Returns
+/// A map from NodeId to its reconciliation key.
+pub fn precompute_reconciliation_keys(
+    node_data: &[NodeData],
+    hierarchy: &[NodeHierarchyItem],
+) -> FastHashMap<NodeId, u64> {
+    let mut keys = FastHashMap::default();
+    for idx in 0..node_data.len() {
+        let node_id = NodeId::new(idx);
+        let key = calculate_reconciliation_key(node_data, hierarchy, node_id);
+        keys.insert(node_id, key);
+    }
+    keys
 }
 
 /// Calculates the difference between two DOM frames and generates lifecycle events.
@@ -424,6 +531,109 @@ pub fn transfer_states(
             }
         }
     }
+}
+
+/// Calculate a stable key for a contenteditable node using the hierarchy:
+///
+/// 1. **Explicit Key** - If `.with_key()` was called, use that
+/// 2. **CSS ID** - If the node has a CSS ID (e.g., `#my-editor`), hash that
+/// 3. **Structural Key** - Hash of `(nth-of-type, parent_key)` recursively
+///
+/// The structural key prevents shifting when elements are inserted before siblings.
+/// For example, in `<div><p>A</p><p contenteditable>B</p></div>`, if we insert
+/// a new `<p>` at the start, the contenteditable `<p>` becomes nth-child(3) but
+/// its nth-of-type stays stable (it's still the 2nd `<p>`).
+///
+/// # Arguments
+/// * `node_data` - All nodes in the DOM
+/// * `hierarchy` - Parent-child relationships
+/// * `node_id` - The node to calculate the key for
+///
+/// # Returns
+/// A stable u64 key for the node
+pub fn calculate_contenteditable_key(
+    node_data: &[NodeData],
+    hierarchy: &[crate::styled_dom::NodeHierarchyItem],
+    node_id: NodeId,
+) -> u64 {
+    use highway::{HighwayHash, HighwayHasher, Key};
+    use crate::dom::IdOrClass;
+    
+    let node = &node_data[node_id.index()];
+    
+    // Priority 1: Explicit key (from .with_key())
+    if let Some(explicit_key) = node.get_key() {
+        return explicit_key;
+    }
+    
+    // Priority 2: CSS ID
+    for id_or_class in node.get_ids_and_classes().as_ref().iter() {
+        if let IdOrClass::Id(id) = id_or_class {
+            let mut hasher = HighwayHasher::new(Key([1; 4])); // Different seed for ID keys
+            hasher.append(id.as_str().as_bytes());
+            return hasher.finalize64();
+        }
+    }
+    
+    // Priority 3: Structural key = (nth-of-type, classes, parent_key)
+    let mut hasher = HighwayHasher::new(Key([2; 4])); // Different seed for structural keys
+    
+    // Get parent and calculate its key recursively
+    let parent_key = if let Some(parent_id) = hierarchy.get(node_id.index()).and_then(|h| h.parent_id()) {
+        calculate_contenteditable_key(node_data, hierarchy, parent_id)
+    } else {
+        0u64 // Root node
+    };
+    hasher.append(&parent_key.to_le_bytes());
+    
+    // Calculate nth-of-type (count siblings of same node type before this one)
+    // We compare discriminants directly without hashing
+    let node_discriminant = core::mem::discriminant(node.get_node_type());
+    let nth_of_type = if let Some(parent_id) = hierarchy.get(node_id.index()).and_then(|h| h.parent_id()) {
+        // Count siblings with same node type that come before this node
+        let mut count = 0u32;
+        let mut sibling_id = hierarchy.get(parent_id.index()).and_then(|h| h.first_child_id(parent_id));
+        while let Some(sib_id) = sibling_id {
+            if sib_id == node_id {
+                break;
+            }
+            let sibling_discriminant = core::mem::discriminant(node_data[sib_id.index()].get_node_type());
+            if sibling_discriminant == node_discriminant {
+                count += 1;
+            }
+            sibling_id = hierarchy.get(sib_id.index()).and_then(|h| h.next_sibling_id());
+        }
+        count
+    } else {
+        0
+    };
+    
+    hasher.append(&nth_of_type.to_le_bytes());
+    
+    // Hash the node type using its Debug representation as a stable identifier
+    // This works because NodeType implements Debug
+    #[cfg(feature = "std")]
+    {
+        let type_str = format!("{:?}", node_discriminant);
+        hasher.append(type_str.as_bytes());
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        // For no_std, use the memory representation of the discriminant
+        // NodeType variants are numbered 0..N, and discriminant stores this
+        let discriminant_bytes: [u8; core::mem::size_of::<core::mem::Discriminant<crate::dom::NodeType>>()] = 
+            unsafe { core::mem::transmute(node_discriminant) };
+        hasher.append(&discriminant_bytes);
+    }
+    
+    // Also hash the classes for additional stability
+    for id_or_class in node.get_ids_and_classes().as_ref().iter() {
+        if let IdOrClass::Class(class) = id_or_class {
+            hasher.append(class.as_str().as_bytes());
+        }
+    }
+    
+    hasher.finalize64()
 }
 
 /// Reconcile cursor byte position when text content changes.
@@ -1845,3 +2055,4 @@ mod tests {
         assert_eq!(result.node_moves[0].old_node_id, NodeId::new(0));
         assert_eq!(result.node_moves[0].new_node_id, NodeId::new(0));
     }
+}

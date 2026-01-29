@@ -23,10 +23,7 @@ fn test_cursor_manager_basic_operations() {
         },
         affinity: CursorAffinity::Leading,
     };
-    let location = CursorLocation {
-        dom_id: DomId::ROOT_ID,
-        node_id: NodeId::new(1),
-    };
+    let location = CursorLocation::new(DomId::ROOT_ID, NodeId::new(1));
 
     manager.set_cursor(Some(cursor.clone()), Some(location.clone()));
 
@@ -76,10 +73,7 @@ fn test_move_cursor_to() {
     assert_eq!(manager.get_cursor(), Some(&cursor1));
     assert_eq!(
         manager.get_cursor_location(),
-        Some(&CursorLocation {
-            dom_id: DomId::ROOT_ID,
-            node_id: NodeId::new(1),
-        })
+        Some(&CursorLocation::new(DomId::ROOT_ID, NodeId::new(1)))
     );
 
     // Move to new position
@@ -95,10 +89,7 @@ fn test_move_cursor_to() {
     assert_eq!(manager.get_cursor(), Some(&cursor2));
     assert_eq!(
         manager.get_cursor_location(),
-        Some(&CursorLocation {
-            dom_id: DomId::ROOT_ID,
-            node_id: NodeId::new(2),
-        })
+        Some(&CursorLocation::new(DomId::ROOT_ID, NodeId::new(2)))
     );
 }
 
@@ -131,10 +122,7 @@ fn test_cursor_affinity() {
     };
     manager.set_cursor(
         Some(cursor_leading.clone()),
-        Some(CursorLocation {
-            dom_id: DomId::ROOT_ID,
-            node_id: NodeId::new(1),
-        }),
+        Some(CursorLocation::new(DomId::ROOT_ID, NodeId::new(1))),
     );
 
     assert_eq!(
@@ -152,10 +140,7 @@ fn test_cursor_affinity() {
     };
     manager.set_cursor(
         Some(cursor_trailing.clone()),
-        Some(CursorLocation {
-            dom_id: DomId::ROOT_ID,
-            node_id: NodeId::new(1),
-        }),
+        Some(CursorLocation::new(DomId::ROOT_ID, NodeId::new(1))),
     );
 
     assert_eq!(
@@ -176,10 +161,7 @@ fn test_cursor_manager_clear_resets_all_state() {
         },
         affinity: CursorAffinity::Leading,
     };
-    let location = CursorLocation {
-        dom_id: DomId { inner: 3 },
-        node_id: NodeId::new(42),
-    };
+    let location = CursorLocation::with_key(DomId { inner: 3 }, NodeId::new(42), 0);
     manager.set_cursor(Some(cursor), Some(location));
 
     // Verify state is set
@@ -198,22 +180,10 @@ fn test_cursor_manager_clear_resets_all_state() {
 
 #[test]
 fn test_cursor_location_equality() {
-    let loc1 = CursorLocation {
-        dom_id: DomId::ROOT_ID,
-        node_id: NodeId::new(5),
-    };
-    let loc2 = CursorLocation {
-        dom_id: DomId::ROOT_ID,
-        node_id: NodeId::new(5),
-    };
-    let loc3 = CursorLocation {
-        dom_id: DomId::ROOT_ID,
-        node_id: NodeId::new(6),
-    };
-    let loc4 = CursorLocation {
-        dom_id: DomId { inner: 1 },
-        node_id: NodeId::new(5),
-    };
+    let loc1 = CursorLocation::new(DomId::ROOT_ID, NodeId::new(5));
+    let loc2 = CursorLocation::new(DomId::ROOT_ID, NodeId::new(5));
+    let loc3 = CursorLocation::new(DomId::ROOT_ID, NodeId::new(6));
+    let loc4 = CursorLocation::new(DomId { inner: 1 }, NodeId::new(5));
 
     assert_eq!(loc1, loc2);
     assert_ne!(loc1, loc3);

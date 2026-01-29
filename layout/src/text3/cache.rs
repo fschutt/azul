@@ -2318,6 +2318,35 @@ impl Default for TextDecoration {
     }
 }
 
+impl TextDecoration {
+    /// Convert from CSS StyleTextDecoration enum to our internal representation.
+    /// 
+    /// Note: CSS text-decoration can have multiple values (underline line-through),
+    /// but the current azul-css parser only supports single values. This can be
+    /// extended in the future if CSS parsing is updated.
+    pub fn from_css(css: azul_css::props::style::text::StyleTextDecoration) -> Self {
+        use azul_css::props::style::text::StyleTextDecoration;
+        match css {
+            StyleTextDecoration::None => Self::default(),
+            StyleTextDecoration::Underline => Self {
+                underline: true,
+                strikethrough: false,
+                overline: false,
+            },
+            StyleTextDecoration::Overline => Self {
+                underline: false,
+                strikethrough: false,
+                overline: true,
+            },
+            StyleTextDecoration::LineThrough => Self {
+                underline: false,
+                strikethrough: true,
+                overline: false,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
 pub enum TextTransform {
     #[default]
@@ -2466,6 +2495,68 @@ impl Hash for StyleProperties {
         // For f32 fields, round and cast to usize before hashing.
         (self.font_size_px.round() as usize).hash(state);
         (self.line_height.round() as usize).hash(state);
+    }
+}
+
+impl StyleProperties {
+    /// Returns a hash that only includes properties that affect text layout.
+    /// 
+    /// Properties that DON'T affect layout (only rendering):
+    /// - color, background_color, background_content
+    /// - text_decoration (underline, etc.)
+    /// - border (for inline elements)
+    ///
+    /// Properties that DO affect layout:
+    /// - font_stack, font_size_px, font_features, font_variations
+    /// - letter_spacing, word_spacing, line_height, tab_size
+    /// - writing_mode, text_orientation, text_combine_upright
+    /// - text_transform
+    /// - font_variant_* (affects glyph selection)
+    ///
+    /// This allows the layout cache to reuse layouts when only rendering
+    /// properties change (e.g., color changes on hover).
+    pub fn layout_hash(&self) -> u64 {
+        use std::hash::Hasher;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        
+        // Font selection (affects shaping and metrics)
+        self.font_stack.hash(&mut hasher);
+        (self.font_size_px.round() as usize).hash(&mut hasher);
+        self.font_features.hash(&mut hasher);
+        // font_variations affects glyph outlines
+        for (tag, value) in &self.font_variations {
+            tag.hash(&mut hasher);
+            (value.round() as i32).hash(&mut hasher);
+        }
+        
+        // Spacing (affects glyph positions)
+        self.letter_spacing.hash(&mut hasher);
+        self.word_spacing.hash(&mut hasher);
+        (self.line_height.round() as usize).hash(&mut hasher);
+        (self.tab_size.round() as usize).hash(&mut hasher);
+        
+        // Writing mode (affects layout direction)
+        self.writing_mode.hash(&mut hasher);
+        self.text_orientation.hash(&mut hasher);
+        self.text_combine_upright.hash(&mut hasher);
+        
+        // Text transform (affects which characters are used)
+        self.text_transform.hash(&mut hasher);
+        
+        // Font variants (affect glyph selection)
+        self.font_variant_caps.hash(&mut hasher);
+        self.font_variant_numeric.hash(&mut hasher);
+        self.font_variant_ligatures.hash(&mut hasher);
+        self.font_variant_east_asian.hash(&mut hasher);
+        
+        hasher.finish()
+    }
+    
+    /// Check if two StyleProperties have the same layout-affecting properties.
+    /// 
+    /// Returns true if the layouts would be identical (only rendering differs).
+    pub fn layout_eq(&self, other: &Self) -> bool {
+        self.layout_hash() == other.layout_hash()
     }
 }
 
@@ -4053,6 +4144,93 @@ impl LayoutCache {
     /// Get all layout cache IDs (for iteration/debugging)
     pub fn get_all_layout_ids(&self) -> Vec<CacheId> {
         self.layouts.keys().copied().collect()
+    }
+    
+    /// Check if we can reuse an old layout based on layout-affecting parameters.
+    /// 
+    /// This function compares only the parameters that affect glyph positions,
+    /// not rendering-only parameters like color or text-decoration.
+    /// 
+    /// # Parameters
+    /// - `old_constraints`: The constraints used for the cached layout
+    /// - `new_constraints`: The constraints for the new layout request
+    /// - `old_content`: The content used for the cached layout
+    /// - `new_content`: The new content to layout
+    /// 
+    /// # Returns
+    /// - `true` if the old layout can be reused (only rendering changed)
+    /// - `false` if a new layout is needed (layout-affecting params changed)
+    pub fn use_old_layout(
+        old_constraints: &UnifiedConstraints,
+        new_constraints: &UnifiedConstraints,
+        old_content: &[InlineContent],
+        new_content: &[InlineContent],
+    ) -> bool {
+        // First check: constraints must match exactly for layout purposes
+        if old_constraints != new_constraints {
+            return false;
+        }
+        
+        // Second check: content length must match
+        if old_content.len() != new_content.len() {
+            return false;
+        }
+        
+        // Third check: each content item must have same layout properties
+        for (old, new) in old_content.iter().zip(new_content.iter()) {
+            if !Self::inline_content_layout_eq(old, new) {
+                return false;
+            }
+        }
+        
+        true
+    }
+    
+    /// Compare two InlineContent items for layout equality.
+    /// 
+    /// Returns true if the layouts would be identical (only rendering differs).
+    fn inline_content_layout_eq(old: &InlineContent, new: &InlineContent) -> bool {
+        use InlineContent::*;
+        match (old, new) {
+            (Text(old_run), Text(new_run)) => {
+                // Text must match exactly, but style only needs layout_eq
+                old_run.text == new_run.text 
+                    && old_run.style.layout_eq(&new_run.style)
+            }
+            (Image(old_img), Image(new_img)) => {
+                // Images: size affects layout, but not visual properties
+                old_img.intrinsic_size == new_img.intrinsic_size
+                    && old_img.display_size == new_img.display_size
+                    && old_img.baseline_offset == new_img.baseline_offset
+                    && old_img.alignment == new_img.alignment
+            }
+            (Space(old_sp), Space(new_sp)) => old_sp == new_sp,
+            (LineBreak(old_br), LineBreak(new_br)) => old_br == new_br,
+            (Tab, Tab) => true,
+            (Marker { run: old_run, position_outside: old_pos },
+             Marker { run: new_run, position_outside: new_pos }) => {
+                old_pos == new_pos
+                    && old_run.text == new_run.text
+                    && old_run.style.layout_eq(&new_run.style)
+            }
+            (Shape(old_shape), Shape(new_shape)) => {
+                // Shapes: shape_def affects layout, not fill/stroke
+                old_shape.shape_def == new_shape.shape_def
+                    && old_shape.baseline_offset == new_shape.baseline_offset
+            }
+            (Ruby { base: old_base, text: old_text, style: old_style },
+             Ruby { base: new_base, text: new_text, style: new_style }) => {
+                old_style.layout_eq(new_style)
+                    && old_base.len() == new_base.len()
+                    && old_text.len() == new_text.len()
+                    && old_base.iter().zip(new_base.iter())
+                        .all(|(o, n)| Self::inline_content_layout_eq(o, n))
+                    && old_text.iter().zip(new_text.iter())
+                        .all(|(o, n)| Self::inline_content_layout_eq(o, n))
+            }
+            // Different variants cannot have same layout
+            _ => false,
+        }
     }
 }
 
