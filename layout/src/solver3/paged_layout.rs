@@ -250,7 +250,7 @@ where
     // - CSS fragmentation properties are respected
 
     use crate::solver3::display_list::{
-        generate_display_list, paginate_display_list_with_slicer_and_breaks, BreakProperties,
+        generate_display_list, paginate_display_list_with_slicer_and_breaks,
         SlicerConfig,
     };
 
@@ -294,21 +294,12 @@ where
         table_headers: Default::default(),
     };
 
-    // Step 3: Create break property lookup closure
-    let styled_dom_ref = &new_dom;
-    let get_break_props = |node_id: Option<azul_core::dom::NodeId>| -> BreakProperties {
-        BreakProperties {
-            break_before: get_break_before(styled_dom_ref, node_id),
-            break_after: get_break_after(styled_dom_ref, node_id),
-            break_inside: get_break_inside(styled_dom_ref, node_id),
-        }
-    };
-
-    // Step 4: Paginate with CSS break property support
+    // Step 3: Paginate with CSS break property support
+    // Break properties (break-before, break-after) are now collected during display list
+    // generation and stored in DisplayList::forced_page_breaks
     let pages = paginate_display_list_with_slicer_and_breaks(
         full_display_list,
         &slicer_config,
-        get_break_props,
     )?;
 
     if let Some(msgs) = ctx.debug_messages {

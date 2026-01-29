@@ -1811,6 +1811,20 @@ pub fn get_break_after(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBr
         .unwrap_or(PageBreak::Auto)
 }
 
+/// Check if a PageBreak value forces a page break (always, page, left, right, etc.)
+pub fn is_forced_page_break(page_break: PageBreak) -> bool {
+    matches!(
+        page_break,
+        PageBreak::Always
+            | PageBreak::Page
+            | PageBreak::Left
+            | PageBreak::Right
+            | PageBreak::Recto
+            | PageBreak::Verso
+            | PageBreak::All
+    )
+}
+
 /// Get break-inside property for paged media
 pub fn get_break_inside(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> BreakInside {
     let Some(id) = dom_id else {
@@ -1877,19 +1891,6 @@ pub fn get_box_decoration_break(
 }
 
 // Helper functions for break properties
-
-/// Check if a PageBreak value forces a break
-pub fn is_forced_page_break(page_break: &PageBreak) -> bool {
-    matches!(
-        page_break,
-        PageBreak::Always
-            | PageBreak::Page
-            | PageBreak::Left
-            | PageBreak::Right
-            | PageBreak::Recto
-            | PageBreak::Verso
-    )
-}
 
 /// Check if a PageBreak value is avoid
 pub fn is_avoid_page_break(page_break: &PageBreak) -> bool {

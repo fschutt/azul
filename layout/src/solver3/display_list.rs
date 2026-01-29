@@ -50,9 +50,10 @@ use crate::{
     solver3::{
         getters::{
             get_background_color, get_background_contents, get_border_info, get_border_radius,
-            get_caret_style, get_overflow_x, get_overflow_y, get_scrollbar_info_from_layout,
-            get_scrollbar_style, get_selection_style, get_style_border_radius, get_z_index,
-            BorderInfo, CaretStyle, ComputedScrollbarStyle, SelectionStyle,
+            get_break_after, get_break_before, get_caret_style, get_overflow_x, get_overflow_y,
+            get_scrollbar_info_from_layout, get_scrollbar_style, get_selection_style,
+            get_style_border_radius, get_z_index, is_forced_page_break, BorderInfo, CaretStyle,
+            ComputedScrollbarStyle, SelectionStyle,
         },
         layout_tree::{LayoutNode, LayoutTree},
         positioning::get_position_type,
@@ -225,6 +226,10 @@ pub struct DisplayList {
     /// Used for pagination to look up CSS break properties.
     /// Not all items have a source node (e.g., synthesized decorations).
     pub node_mapping: Vec<Option<NodeId>>,
+    /// Y-positions where forced page breaks should occur (from break-before/break-after: always).
+    /// These are absolute Y coordinates in the infinite canvas coordinate system.
+    /// The slicer will ensure page boundaries align with these positions.
+    pub forced_page_breaks: Vec<f32>,
 }
 
 impl DisplayList {
@@ -659,6 +664,8 @@ struct DisplayListBuilder {
     debug_messages: Vec<LayoutDebugMessage>,
     /// Whether debug logging is enabled
     debug_enabled: bool,
+    /// Y-positions where forced page breaks should occur
+    forced_page_breaks: Vec<f32>,
 }
 
 impl DisplayListBuilder {
@@ -673,6 +680,7 @@ impl DisplayListBuilder {
             current_node: None,
             debug_messages: Vec::new(),
             debug_enabled,
+            forced_page_breaks: Vec::new(),
         }
     }
 
@@ -695,12 +703,23 @@ impl DisplayListBuilder {
         DisplayList {
             items: self.items,
             node_mapping: self.node_mapping,
+            forced_page_breaks: self.forced_page_breaks,
         }
     }
 
     /// Set the current node context for subsequent push operations
     pub fn set_current_node(&mut self, node_id: Option<NodeId>) {
         self.current_node = node_id;
+    }
+
+    /// Register a forced page break at the given Y position.
+    /// This is used for CSS break-before: always and break-after: always.
+    pub fn add_forced_page_break(&mut self, y_position: f32) {
+        // Avoid duplicates and keep sorted
+        if !self.forced_page_breaks.contains(&y_position) {
+            self.forced_page_breaks.push(y_position);
+            self.forced_page_breaks.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        }
     }
 
     /// Push an item and record its node mapping
@@ -713,6 +732,7 @@ impl DisplayListBuilder {
         DisplayList {
             items: self.items,
             node_mapping: self.node_mapping,
+            forced_page_breaks: self.forced_page_breaks,
         }
     }
 
@@ -1961,6 +1981,37 @@ where
 
         // Set current node for node mapping (for pagination break properties)
         builder.set_current_node(node.dom_node_id);
+
+        // Check for CSS break-before/break-after properties and register forced page breaks
+        // This is used by the pagination slicer to insert page breaks at correct positions
+        if let Some(dom_id) = node.dom_node_id {
+            let break_before = get_break_before(self.ctx.styled_dom, Some(dom_id));
+            let break_after = get_break_after(self.ctx.styled_dom, Some(dom_id));
+
+            // For break-before: always, insert a page break at the top of this element
+            if is_forced_page_break(break_before) {
+                let y_position = paint_rect.origin.y;
+                builder.add_forced_page_break(y_position);
+                debug_info!(
+                    self.ctx,
+                    "Registered forced page break BEFORE node {} at y={}",
+                    node_index,
+                    y_position
+                );
+            }
+
+            // For break-after: always, insert a page break at the bottom of this element
+            if is_forced_page_break(break_after) {
+                let y_position = paint_rect.origin.y + paint_rect.size.height;
+                builder.add_forced_page_break(y_position);
+                debug_info!(
+                    self.ctx,
+                    "Registered forced page break AFTER node {} at y={}",
+                    node_index,
+                    y_position
+                );
+            }
+        }
 
         // Skip inline and inline-block elements - they are rendered by text3 in paint_inline_content
         // Inline elements participate in inline formatting context and their backgrounds
@@ -3914,14 +3965,10 @@ impl SlicerConfig {
 ///
 /// **Key insight**: Items are NEVER shifted. Instead, page boundaries are adjusted
 /// to honor break properties.
-pub fn paginate_display_list_with_slicer_and_breaks<F>(
+pub fn paginate_display_list_with_slicer_and_breaks(
     full_display_list: DisplayList,
     config: &SlicerConfig,
-    get_break_properties: F,
-) -> Result<Vec<DisplayList>>
-where
-    F: Fn(Option<NodeId>) -> BreakProperties,
-{
+) -> Result<Vec<DisplayList>> {
     if config.page_content_height <= 0.0 || config.page_content_height >= f32::MAX {
         return Ok(vec![full_display_list]);
     }
@@ -3961,7 +4008,6 @@ where
         &full_display_list,
         first_page_content_height,
         normal_page_content_height,
-        &get_break_properties,
     );
 
     let num_pages = page_breaks.len();
@@ -4087,6 +4133,7 @@ where
         pages.push(DisplayList {
             items: page_items,
             node_mapping: page_node_mapping,
+            forced_page_breaks: Vec::new(), // Per-page lists don't need this
         });
     }
 
@@ -4098,43 +4145,59 @@ where
     Ok(pages)
 }
 
-/// Calculate page break positions using REGULAR INTERVALS.
+/// Calculate page break positions respecting CSS forced page breaks.
 ///
 /// Returns a vector of (start_y, end_y) tuples representing each page's content bounds.
 ///
-/// **IMPORTANT**: CSS break properties (break-before, break-after, break-inside) are
-/// currently NOT supported because they require shifting items, not just adjusting
-/// page boundaries. The slicer model assumes items stay at their original canvas
-/// positions. See PAGINATION_DEBUG_STATE.md for details.
-///
-/// TODO: To properly support CSS break properties, we need a commitment-based approach
-/// that actually moves items when break-before: always is encountered.
-fn calculate_page_break_positions<F>(
+/// This function uses the `forced_page_breaks` from the DisplayList to insert
+/// page breaks at positions specified by CSS `break-before: always` and `break-after: always`.
+/// Regular page breaks still occur at normal intervals when no forced break is present.
+fn calculate_page_break_positions(
     display_list: &DisplayList,
     first_page_height: f32,
     normal_page_height: f32,
-    _get_break_properties: &F, // Currently unused - see note above
-) -> Vec<(f32, f32)>
-where
-    F: Fn(Option<NodeId>) -> BreakProperties,
-{
+) -> Vec<(f32, f32)> {
     let total_height = calculate_display_list_height(display_list);
 
     if total_height <= 0.0 || first_page_height <= 0.0 {
         return vec![(0.0, total_height.max(first_page_height))];
     }
 
-    // Use simple regular intervals for page breaks
-    // This ensures items at Y=X are correctly placed on page floor(X / page_height)
-    let mut page_breaks: Vec<(f32, f32)> = Vec::new();
-    let mut y = 0.0f32;
-    let mut current_page_height = first_page_height;
+    // Collect all potential break points: forced breaks + regular interval breaks
+    let mut break_points: Vec<f32> = Vec::new();
 
+    // Add forced page breaks from the display list (from CSS break-before/break-after)
+    for &forced_break_y in &display_list.forced_page_breaks {
+        if forced_break_y > 0.0 && forced_break_y < total_height {
+            break_points.push(forced_break_y);
+        }
+    }
+
+    // Generate regular interval break points
+    let mut y = first_page_height;
     while y < total_height {
-        let page_end = (y + current_page_height).min(total_height);
-        page_breaks.push((y, page_end));
-        y = page_end;
-        current_page_height = normal_page_height;
+        break_points.push(y);
+        y += normal_page_height;
+    }
+
+    // Sort and deduplicate break points
+    break_points.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    break_points.dedup_by(|a, b| (*a - *b).abs() < 1.0); // Merge breaks within 1px
+
+    // Convert break points to page ranges
+    let mut page_breaks: Vec<(f32, f32)> = Vec::new();
+    let mut page_start = 0.0f32;
+
+    for break_y in break_points {
+        if break_y > page_start {
+            page_breaks.push((page_start, break_y));
+            page_start = break_y;
+        }
+    }
+
+    // Add final page if there's remaining content
+    if page_start < total_height {
+        page_breaks.push((page_start, total_height));
     }
 
     // Ensure at least one page
