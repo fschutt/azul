@@ -2784,10 +2784,10 @@ impl NodeData {
         // This means Text("A") and Text("B") have the same structural hash
         core::mem::discriminant(&self.node_type).hash(&mut hasher);
         
-        // For IFrame nodes, we do want to hash the source to distinguish different iframes
+        // For IFrame nodes, hash the callback to distinguish different iframes
         if let NodeType::IFrame(ref iframe) = self.node_type {
-            // Hash iframe-specific identifying information
-            iframe.source.hash(&mut hasher);
+            // Hash iframe callback (it implements Hash)
+            iframe.hash(&mut hasher);
         }
         
         // For Image nodes, hash the image reference to distinguish different images

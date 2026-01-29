@@ -1565,6 +1565,42 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         }
     };
 
+    // Get letter-spacing from CSS
+    let letter_spacing = cache
+        .get_letter_spacing(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .map(|v| {
+            // Convert PixelValue to Spacing
+            // PixelValue can be px, em, rem, etc.
+            let px_value = v.inner.resolve_with_context(&font_size_context, PropertyContext::FontSize);
+            crate::text3::cache::Spacing::Px(px_value.round() as i32)
+        })
+        .unwrap_or_default();
+
+    // Get word-spacing from CSS
+    let word_spacing = cache
+        .get_word_spacing(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .map(|v| {
+            let px_value = v.inner.resolve_with_context(&font_size_context, PropertyContext::FontSize);
+            crate::text3::cache::Spacing::Px(px_value.round() as i32)
+        })
+        .unwrap_or_default();
+
+    // Get text-decoration from CSS
+    let text_decoration = cache
+        .get_text_decoration(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .map(|v| crate::text3::cache::TextDecoration::from_css(v))
+        .unwrap_or_default();
+
+    // Get tab-size (tab-width) from CSS
+    let tab_size = cache
+        .get_tab_width(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().cloned())
+        .map(|v| v.inner.number.get())
+        .unwrap_or(8.0);
+
     let properties = StyleProperties {
         font_stack,
         font_size_px: font_size,
@@ -1573,6 +1609,13 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         background_content,
         border,
         line_height,
+        letter_spacing,
+        word_spacing,
+        text_decoration,
+        tab_size,
+        // These still use defaults - could be extended in future:
+        // font_features, font_variations, text_transform, writing_mode, 
+        // text_orientation, text_combine_upright, font_variant_*
         ..Default::default()
     };
 
@@ -2530,16 +2573,27 @@ pub fn is_text_selectable(
         .unwrap_or(true) // Default: text is selectable
 }
 
-/// Checks if a node has the `contenteditable` attribute set.
+/// Checks if a node has the `contenteditable` attribute set directly.
 ///
-/// Returns `true` if the node has `contenteditable` attribute (regardless of value),
-/// `false` otherwise.
+/// Returns `true` if:
+/// - The node has `contenteditable: true` set via `.set_contenteditable(true)`
+/// - OR the node has `contenteditable` attribute set to `true`
+///
+/// This does NOT check inheritance - use `is_node_contenteditable_inherited` for that.
 pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     use azul_core::dom::AttributeType;
     
     let node_data = &styled_dom.node_data.as_container()[node_id];
+    
+    // First check the direct contenteditable field (primary method)
+    if node_data.is_contenteditable() {
+        return true;
+    }
+    
+    // Also check the attribute for backwards compatibility
+    // Only return true if the attribute value is explicitly true
     node_data.attributes.as_ref().iter().any(|attr| {
-        matches!(attr, AttributeType::ContentEditable(_))
+        matches!(attr, AttributeType::ContentEditable(true))
     })
 }
 
