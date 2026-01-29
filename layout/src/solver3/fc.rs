@@ -2535,6 +2535,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             StyleWhiteSpace::Normal => text3::cache::TextWrap::Wrap,
             StyleWhiteSpace::Nowrap => text3::cache::TextWrap::NoWrap,
             StyleWhiteSpace::Pre => text3::cache::TextWrap::NoWrap,
+            StyleWhiteSpace::PreWrap => text3::cache::TextWrap::Wrap,
+            StyleWhiteSpace::PreLine => text3::cache::TextWrap::Wrap,
+            StyleWhiteSpace::BreakSpaces => text3::cache::TextWrap::Wrap,
         })
         .unwrap_or(text3::cache::TextWrap::Wrap);
 
@@ -4700,6 +4703,20 @@ fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     constraints: &LayoutConstraints,
 ) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
     use crate::solver3::layout_tree::{IfcId, IfcMembership};
+    use crate::text3::cache::InlineContent;
+
+    let result = collect_and_measure_inline_content_impl(ctx, text_cache, tree, ifc_root_index, constraints)?;
+    Ok(result)
+}
+
+fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    text_cache: &mut TextLayoutCache,
+    tree: &mut LayoutTree,
+    ifc_root_index: usize,
+    constraints: &LayoutConstraints,
+) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
+    use crate::solver3::layout_tree::{IfcId, IfcMembership};
 
     debug_ifc_layout!(
         ctx,
@@ -5548,18 +5565,21 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
         let node_data = &ctx.styled_dom.node_data.as_container()[child_dom_id];
 
         // CASE 1: Text node - collect with span's style
+        // Use split_text_for_whitespace to correctly handle white-space: pre-wrap with \n
         if let NodeType::Text(ref text_content) = node_data.get_node_type() {
             debug_info!(
                 ctx,
                 "[collect_inline_span_recursive] ✓ Found text in span: '{}'",
                 text_content.as_str()
             );
-            content.push(InlineContent::Text(StyledRun {
-                text: text_content.to_string(),
-                style: Arc::new(span_style.clone()),
-                logical_start_byte: 0,
-                source_node_id: Some(child_dom_id),
-            }));
+            // Use split_text_for_whitespace to correctly handle white-space: pre with \n
+            let text_items = split_text_for_whitespace(
+                ctx.styled_dom,
+                child_dom_id,
+                text_content.as_str(),
+                Arc::new(span_style.clone()),
+            );
+            content.extend(text_items);
             continue;
         }
 
@@ -6224,10 +6244,11 @@ pub(crate) fn split_text_for_whitespace(
     
     let mut result = Vec::new();
     
-    // For `pre`, `pre-wrap`, and `pre-line`, newlines must be preserved as forced breaks
+    // For `pre`, `pre-wrap`, `pre-line`, and `break-spaces`, newlines must be preserved as forced breaks
     // CSS Text Level 3: "Newlines in the source will be honored as forced line breaks."
     match white_space {
-        StyleWhiteSpace::Pre => {
+        StyleWhiteSpace::Pre | StyleWhiteSpace::PreWrap | StyleWhiteSpace::BreakSpaces => {
+            // Pre, pre-wrap, break-spaces: preserve whitespace and honor newlines
             // Split by newlines and insert LineBreak between parts
             let mut lines = text.split('\n').peekable();
             let mut content_index = 0;
@@ -6254,9 +6275,37 @@ pub(crate) fn split_text_for_whitespace(
                 }
             }
         }
-        // TODO: Implement pre-wrap and pre-line when CSS parser supports them
+        StyleWhiteSpace::PreLine => {
+            // Pre-line: collapse whitespace but honor newlines
+            let mut lines = text.split('\n').peekable();
+            let mut content_index = 0;
+            
+            while let Some(line) = lines.next() {
+                // Collapse whitespace within the line
+                let collapsed: String = line.split_whitespace().collect::<Vec<_>>().join(" ");
+                
+                if !collapsed.is_empty() {
+                    result.push(InlineContent::Text(StyledRun {
+                        text: collapsed,
+                        style: Arc::clone(&style),
+                        logical_start_byte: 0,
+                        source_node_id: Some(dom_id),
+                    }));
+                }
+                
+                // If there's more content, insert a forced line break
+                if lines.peek().is_some() {
+                    result.push(InlineContent::LineBreak(InlineBreak {
+                        break_type: BreakType::Hard,
+                        clear: ClearType::None,
+                        content_index,
+                    }));
+                    content_index += 1;
+                }
+            }
+        }
         StyleWhiteSpace::Normal | StyleWhiteSpace::Nowrap => {
-            // Normal behavior: newlines are collapsed to spaces
+            // Normal/nowrap: collapse whitespace and newlines
             if !text.is_empty() {
                 result.push(InlineContent::Text(StyledRun {
                     text: text.to_string(),
