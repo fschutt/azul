@@ -424,12 +424,25 @@ define_class!(
                         // Apply window state changes from callback result
                         // Also process queued_window_states (for debug server click simulation)
                         // Also process nodes_scrolled_in_callbacks (for scroll_node_by API)
+                        // Also process text_input_triggered (for debug server text input)
                         let has_window_changes = result.modified_window_state.is_some()
                             || !result.queued_window_states.is_empty();
                         let has_scroll_changes = result.nodes_scrolled_in_callbacks.as_ref()
                             .map(|s| !s.is_empty()).unwrap_or(false);
+                        let has_text_input = !result.text_input_triggered.is_empty();
 
-                        if has_window_changes || has_scroll_changes {
+                        // Log text input processing (only when there's text input)
+                        if has_text_input {
+                            log_debug!(LogCategory::Timer, 
+                                "[tickTimers:1] has_text_input=true, text_input_triggered.len()={}", 
+                                result.text_input_triggered.len());
+                        }
+
+                        if has_window_changes || has_scroll_changes || has_text_input {
+                            if has_text_input {
+                                log_debug!(LogCategory::Timer, 
+                                    "[tickTimers:1] Calling process_callback_result_v2 for text_input");
+                            }
                             // Save previous state BEFORE applying changes (for sync_window_state diff)
                             macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
                             let _ = macos_window.process_callback_result_v2(result);
@@ -933,12 +946,14 @@ define_class!(
                         // Apply window state changes from callback result
                         // Also process queued_window_states (for debug server click simulation)
                         // Also process nodes_scrolled_in_callbacks (for scroll_node_by API)
+                        // Also process text_input_triggered (for debug server text input)
                         let has_window_changes = result.modified_window_state.is_some()
                             || !result.queued_window_states.is_empty();
                         let has_scroll_changes = result.nodes_scrolled_in_callbacks.as_ref()
                             .map(|s| !s.is_empty()).unwrap_or(false);
+                        let has_text_input = !result.text_input_triggered.is_empty();
 
-                        if has_window_changes || has_scroll_changes {
+                        if has_window_changes || has_scroll_changes || has_text_input {
                             // Save previous state BEFORE applying changes (for sync_window_state diff)
                             macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
                             let _ = macos_window.process_callback_result_v2(result);
@@ -4275,11 +4290,15 @@ impl MacOSWindow {
                 timer_results.len()
             );
 
-            // Process each callback result to handle window state modifications
-            // and queued_window_states (for debug server click simulation)
+            // Process each callback result to handle window state modifications,
+            // queued_window_states (for debug server click simulation), and text_input_triggered
             for result in &timer_results {
-                if result.modified_window_state.is_some() || !result.queued_window_states.is_empty()
-                {
+                // CRITICAL: Also process text_input_triggered events from debug server text input
+                let needs_processing = result.modified_window_state.is_some() 
+                    || !result.queued_window_states.is_empty()
+                    || !result.text_input_triggered.is_empty();
+                
+                if needs_processing {
                     // Save previous state BEFORE applying changes (for sync_window_state diff)
                     self.previous_window_state = Some(self.current_window_state.clone());
                     let _ = self.process_callback_result_v2(result);

@@ -2877,12 +2877,15 @@ pub trait PlatformWindowV2 {
         // 4. text_input_triggered is populated and forwarded here
         // 5. We trigger recursive event processing to invoke user callbacks
         if !result.text_input_triggered.is_empty() {
-            println!("[process_callback_result_v2] Processing {} text_input_triggered events", result.text_input_triggered.len());
+            use crate::desktop::shell2::common::debug_server::{log, LogLevel, LogCategory};
+            log(LogLevel::Debug, LogCategory::EventLoop, 
+                format!("[process_callback_result_v2] Processing {} text_input_triggered events", result.text_input_triggered.len()), None);
             
             // For each affected node, invoke OnTextInput callbacks
             // User callbacks can intercept via preventDefault
             for (dom_node_id, event_filters) in &result.text_input_triggered {
-                println!("[process_callback_result_v2] Node {:?} triggered {} event filters", dom_node_id, event_filters.len());
+                log(LogLevel::Debug, LogCategory::EventLoop, 
+                    format!("[process_callback_result_v2] Node {:?} triggered {} event filters", dom_node_id, event_filters.len()), None);
                 
                 // Convert DomNodeId to CallbackTarget
                 if let Some(node_id) = dom_node_id.node.into_crate_internal() {
@@ -2893,13 +2896,15 @@ pub trait PlatformWindowV2 {
                     
                     // Invoke callbacks for each event filter (typically OnTextInput)
                     for event_filter in event_filters {
-                        println!("[process_callback_result_v2] Invoking callback for {:?}", event_filter);
+                        log(LogLevel::Debug, LogCategory::EventLoop, 
+                            format!("[process_callback_result_v2] Invoking callback for {:?}", event_filter), None);
                         let callback_results = self.invoke_callbacks_v2(callback_target.clone(), event_filter.clone());
                         
                         // Process callback results
                         for callback_result in &callback_results {
                             if callback_result.prevent_default {
-                                println!("[process_callback_result_v2] preventDefault called - text input will be rejected");
+                                log(LogLevel::Debug, LogCategory::EventLoop, 
+                                    "[process_callback_result_v2] preventDefault called - text input will be rejected".to_string(), None);
                                 // TODO: Clear the pending changeset if rejected
                             }
                             
@@ -2917,7 +2922,8 @@ pub trait PlatformWindowV2 {
             if let Some(layout_window) = self.get_layout_window_mut() {
                 let dirty_nodes = layout_window.apply_text_changeset();
                 if !dirty_nodes.is_empty() {
-                    println!("[process_callback_result_v2] Applied text changeset, {} dirty nodes", dirty_nodes.len());
+                    log(LogLevel::Debug, LogCategory::EventLoop, 
+                        format!("[process_callback_result_v2] Applied text changeset, {} dirty nodes", dirty_nodes.len()), None);
                     event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
                     
                     // CRITICAL FIX: Scroll cursor into view after text edit
@@ -2927,7 +2933,13 @@ pub trait PlatformWindowV2 {
                         azul_layout::window::SelectionScrollType::Cursor,
                         azul_layout::window::ScrollMode::Instant,
                     );
+                } else {
+                    log(LogLevel::Debug, LogCategory::EventLoop, 
+                        "[process_callback_result_v2] apply_text_changeset returned 0 dirty nodes".to_string(), None);
                 }
+            } else {
+                log(LogLevel::Debug, LogCategory::EventLoop, 
+                    "[process_callback_result_v2] No layout_window available for apply_text_changeset".to_string(), None);
             }
         }
 

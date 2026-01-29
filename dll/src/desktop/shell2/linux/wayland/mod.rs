@@ -1492,9 +1492,12 @@ impl WaylandWindow {
                     for result in &timer_results {
                         // Apply window state changes from callback result
                         // Also process queued_window_states (for debug server click simulation)
-                        if result.modified_window_state.is_some()
+                        // Also process text_input_triggered (for debug server text input)
+                        let needs_processing = result.modified_window_state.is_some()
                             || !result.queued_window_states.is_empty()
-                        {
+                            || !result.text_input_triggered.is_empty();
+                        
+                        if needs_processing {
                             // Save previous state BEFORE applying changes (for sync_window_state diff)
                             self.previous_window_state = Some(self.current_window_state.clone());
                             let _ = self.process_callback_result_v2(result);
