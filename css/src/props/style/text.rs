@@ -206,12 +206,23 @@ impl PrintAsCssValue for StyleTabWidth {
 // -- StyleWhiteSpace --
 
 /// How to handle white space inside an element.
+/// 
+/// CSS Text Level 3: https://www.w3.org/TR/css-text-3/#white-space-property
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleWhiteSpace {
+    /// Collapse whitespace, wrap lines
     Normal,
+    /// Preserve whitespace, no wrap (except for explicit breaks)
     Pre,
+    /// Collapse whitespace, no wrap
     Nowrap,
+    /// Preserve whitespace, wrap lines
+    PreWrap,
+    /// Collapse whitespace (except newlines), wrap lines
+    PreLine,
+    /// Preserve whitespace, allow breaking at spaces
+    BreakSpaces,
 }
 impl Default for StyleWhiteSpace {
     fn default() -> Self {
@@ -229,6 +240,9 @@ impl PrintAsCssValue for StyleWhiteSpace {
             StyleWhiteSpace::Normal => "normal",
             StyleWhiteSpace::Pre => "pre",
             StyleWhiteSpace::Nowrap => "nowrap",
+            StyleWhiteSpace::PreWrap => "pre-wrap",
+            StyleWhiteSpace::PreLine => "pre-line",
+            StyleWhiteSpace::BreakSpaces => "break-spaces",
         })
     }
 }
@@ -1292,7 +1306,10 @@ pub fn parse_style_white_space(input: &str) -> Result<StyleWhiteSpace, StyleWhit
     match input.trim() {
         "normal" => Ok(StyleWhiteSpace::Normal),
         "pre" => Ok(StyleWhiteSpace::Pre),
-        "nowrap" => Ok(StyleWhiteSpace::Nowrap),
+        "nowrap" | "no-wrap" => Ok(StyleWhiteSpace::Nowrap),
+        "pre-wrap" => Ok(StyleWhiteSpace::PreWrap),
+        "pre-line" => Ok(StyleWhiteSpace::PreLine),
+        "break-spaces" => Ok(StyleWhiteSpace::BreakSpaces),
         other => Err(StyleWhiteSpaceParseError::InvalidValue(InvalidValueErr(
             other,
         ))),

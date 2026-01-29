@@ -497,7 +497,7 @@ impl_enum_fmt!(StyleHyphens, Auto, None);
 
 impl_enum_fmt!(StyleDirection, Ltr, Rtl);
 
-impl_enum_fmt!(StyleWhiteSpace, Normal, Pre, Nowrap);
+impl_enum_fmt!(StyleWhiteSpace, Normal, Pre, Nowrap, PreWrap, PreLine, BreakSpaces);
 
 impl_enum_fmt!(StyleVisibility, Visible, Hidden, Collapse);
 
