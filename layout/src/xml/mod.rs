@@ -8,6 +8,90 @@ use std::path::Path;
 #[cfg(feature = "svg")]
 pub mod svg;
 
+/// Decodes XML/HTML entities in a string.
+/// Handles standard XML entities: &lt; &gt; &amp; &apos; &quot;
+/// and numeric character references: &#60; &#x3C;
+fn decode_xml_entities(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    
+    while let Some(c) = chars.next() {
+        if c == '&' {
+            // Collect the entity reference
+            let mut entity = String::new();
+            let mut found_semicolon = false;
+            
+            while let Some(&next) = chars.peek() {
+                if next == ';' {
+                    chars.next();
+                    found_semicolon = true;
+                    break;
+                }
+                if !next.is_alphanumeric() && next != '#' {
+                    break;
+                }
+                entity.push(chars.next().unwrap());
+                if entity.len() > 10 {
+                    // Entity too long, not a valid entity
+                    break;
+                }
+            }
+            
+            if found_semicolon {
+                // Try to decode the entity
+                match entity.as_str() {
+                    "lt" => result.push('<'),
+                    "gt" => result.push('>'),
+                    "amp" => result.push('&'),
+                    "apos" => result.push('\''),
+                    "quot" => result.push('"'),
+                    "nbsp" => result.push('\u{00A0}'),
+                    s if s.starts_with('#') => {
+                        // Numeric character reference
+                        let num_str = &s[1..];
+                        let code_point = if num_str.starts_with('x') || num_str.starts_with('X') {
+                            // Hexadecimal
+                            u32::from_str_radix(&num_str[1..], 16).ok()
+                        } else {
+                            // Decimal
+                            num_str.parse::<u32>().ok()
+                        };
+                        if let Some(cp) = code_point {
+                            if let Some(ch) = char::from_u32(cp) {
+                                result.push(ch);
+                            } else {
+                                // Invalid code point, keep original
+                                result.push('&');
+                                result.push_str(&entity);
+                                result.push(';');
+                            }
+                        } else {
+                            // Parse failed, keep original
+                            result.push('&');
+                            result.push_str(&entity);
+                            result.push(';');
+                        }
+                    }
+                    _ => {
+                        // Unknown entity, keep original
+                        result.push('&');
+                        result.push_str(&entity);
+                        result.push(';');
+                    }
+                }
+            } else {
+                // No semicolon found, not a valid entity reference
+                result.push('&');
+                result.push_str(&entity);
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    
+    result
+}
+
 pub use azul_core::xml::*;
 use azul_core::{dom::Dom, impl_from, styled_dom::StyledDom, window::StringPairVec};
 #[cfg(feature = "parser")]
@@ -286,9 +370,10 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
             Attribute { local, value, .. } => {
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
                     // NOTE: Only lowercase the key ("local"), not the value!
+                    // Decode XML entities in attribute values as well
                     last.attributes.push(azul_core::window::AzStringPair {
                         key: local.to_string().into(),
-                        value: value.as_str().to_string().into(),
+                        value: decode_xml_entities(value.as_str()).into(),
                     });
                 }
             }
@@ -299,16 +384,19 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                     last_was_void = false;
                 }
 
-                // Skip whitespace-only text nodes between block elements
-                // but preserve them within inline contexts (e.g., between inline elements)
-                let is_whitespace_only = text.trim().is_empty();
+                // Skip text nodes that contain ONLY whitespace (newlines, tabs, spaces between block elements)
+                // But preserve text that has actual content (even if it has leading/trailing whitespace)
+                let text_str = text.as_str();
+                let is_whitespace_only = text_str.trim().is_empty();
 
                 if !is_whitespace_only {
                     if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
+                        // Decode XML entities (e.g., &lt; -> <, &gt; -> >, etc.)
+                        let decoded_text = decode_xml_entities(text_str);
                         // Add text as a child node
                         current_parent
                             .children
-                            .push(XmlNodeChild::Text(text.to_string().into()));
+                            .push(XmlNodeChild::Text(decoded_text.into()));
                     }
                 }
             }
