@@ -1,6 +1,6 @@
 [package]
 name = "azul-dll"
-version = "0.0.5"
+version = "0.0.6"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MPL-2.0"
 description = "C-API of Azul GUI"
@@ -18,9 +18,9 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 # Core crates - only needed for build-dll and link-static, NOT for link-dynamic
-azul-core = { path = "../core", version = "0.0.5", default-features = false, optional = true }
-azul-css = { path = "../css", version = "0.0.5", default-features = false, optional = true }
-azul-layout = { path = "../layout", version = "0.0.5", default-features = false, features = ["font_loading", "text_layout", "svg", "xml"], optional = true }
+azul-core = { path = "../core", version = "0.0.6", default-features = false, optional = true }
+azul-css = { path = "../css", version = "0.0.6", default-features = false, optional = true }
+azul-layout = { path = "../layout", version = "0.0.6", default-features = false, features = ["font_loading", "text_layout", "svg", "xml"], optional = true }
 
 # Logging
 log = { version = "0.4.17", default-features = false, optional = true }

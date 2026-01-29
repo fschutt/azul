@@ -7,7 +7,7 @@
 
 [package]
 name = "azul-layout"
-version = "0.0.5"
+version = "0.0.6"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MPL-2.0"
 description = "Layout solver + font and image loader the Azul GUI framework"
@@ -20,8 +20,8 @@ resolver = "2"
 autoexamples = true
 
 [dependencies]
-azul-css                = { version = "0.0.5", path = "../css", default-features = false, features = ["parser"] }
-azul-core               = { version = "0.0.5", path = "../core", default-features = false }
+azul-css                = { version = "0.0.6", path = "../css", default-features = false, features = ["parser"] }
+azul-core               = { version = "0.0.6", path = "../core", default-features = false }
 image                   = { version = "0.25", default-features = false, optional = true }
 # Explicit override to disable SIMD features that are broken on some Rust versions
 # See: https://github.com/image-rs/image/issues/2705

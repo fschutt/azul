@@ -1,6 +1,6 @@
 [package]
 name = "azul-css"
-version = "0.0.5"
+version = "0.0.6"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MPL-2.0"
 description = '''
