@@ -150,6 +150,7 @@ impl FloatValue {
         };
 
         // Determine the number of digits and extract only the first 3
+        // Note: We limit to values that fit in 32-bit isize for WASM compatibility
         let (normalized_post, divisor) = if abs_post < 10 {
             // 1 digit: 5 → 0.5
             (abs_post, 10)
@@ -172,21 +173,10 @@ impl FloatValue {
             (abs_post / 100000, 1000)
         } else if abs_post < 1000000000 {
             (abs_post / 1000000, 1000)
-        } else if abs_post < 10000000000 {
-            (abs_post / 10000000, 1000)
-        } else if abs_post < 100000000000 {
-            (abs_post / 100000000, 1000)
-        } else if abs_post < 1000000000000 {
-            (abs_post / 1000000000, 1000)
-        } else if abs_post < 10000000000000 {
-            (abs_post / 10000000000, 1000)
-        } else if abs_post < 100000000000000 {
-            (abs_post / 100000000000, 1000)
-        } else if abs_post < 1000000000000000 {
-            (abs_post / 1000000000000, 1000)
         } else {
-            // Cap at maximum isize support
-            (abs_post / 10000000000000, 1000)
+            // For very large values (>= 1 billion), cap at reasonable precision
+            // This ensures compatibility with 32-bit isize on WASM
+            (abs_post / 10000000, 1000)
         };
 
         // Calculate fractional part
