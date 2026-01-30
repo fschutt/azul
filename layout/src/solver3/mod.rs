@@ -184,6 +184,10 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// This is separate from selections - the cursor represents the text insertion point
     /// in a contenteditable element and should be painted independently.
     pub cursor_location: Option<(DomId, NodeId, TextCursor)>,
+    /// Memoization cache for layout results.
+    /// Key: (node_index, available_size), Value: computed layout result.
+    /// This prevents O(n²) complexity by avoiding redundant layout calculations.
+    pub subtree_layout_cache: std::collections::BTreeMap<cache::LayoutCacheKey, cache::LayoutCacheValue>,
 }
 
 impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
@@ -387,6 +391,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     // Create temporary context without counters for tree generation
     let mut counter_values = BTreeMap::new();
+    let mut subtree_layout_cache = BTreeMap::new();
     let mut ctx_temp = LayoutContext {
         styled_dom: &new_dom,
         font_manager,
@@ -398,6 +403,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         fragmentation_context: None,
         cursor_is_visible,
         cursor_location: cursor_location.clone(),
+        subtree_layout_cache: BTreeMap::new(),
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
@@ -428,6 +434,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         fragmentation_context: None,
         cursor_is_visible,
         cursor_location,
+        subtree_layout_cache,
     };
 
     // --- Step 1.5: Early Exit Optimization ---

@@ -92,8 +92,13 @@ use azul_css::{
         basic::{
             pixel::DEFAULT_FONT_SIZE, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,
         },
-        layout::{LayoutDisplay, LayoutFloat, LayoutOverflow, LayoutPosition},
+        layout::{
+            LayoutDisplay, LayoutFloat, LayoutHeight, LayoutMaxHeight, LayoutMaxWidth,
+            LayoutMinHeight, LayoutMinWidth, LayoutOverflow, LayoutPosition, LayoutWidth,
+            LayoutWritingMode,
+        },
         property::{CssProperty, CssPropertyType},
+        style::StyleTextAlign,
     },
 };
 use taffy::{Cache as TaffyCache, Layout, LayoutInput, LayoutOutput};
@@ -106,7 +111,10 @@ use crate::{
     font_traits::{FontLoaderTrait, ParsedFontTrait, UnifiedLayout},
     solver3::{
         geometry::{BoxProps, IntrinsicSizes, PositionedRectangle},
-        getters::{get_float, get_overflow_x, get_overflow_y, get_position},
+        getters::{
+            get_css_height, get_css_width, get_display_property, get_float, get_overflow_x,
+            get_overflow_y, get_position, get_text_align, get_writing_mode, MultiValue,
+        },
         scrollbar::ScrollbarRequirements,
         LayoutContext, Result,
     },
@@ -352,6 +360,46 @@ pub struct LayoutNode {
     /// stores the reference back to the IFC root and the run index.
     /// This allows text nodes to find their layout data in the parent's IFC.
     pub ifc_membership: Option<IfcMembership>,
+    /// Pre-computed CSS properties needed during layout.
+    /// Computed once during layout tree build to avoid repeated style lookups.
+    pub computed_style: ComputedLayoutStyle,
+}
+
+/// Pre-computed CSS properties needed during layout.
+/// 
+/// This struct stores resolved CSS values that are frequently accessed during
+/// layout calculations. By computing these once during layout tree construction,
+/// we avoid O(n * m) style lookups where n = nodes and m = layout passes.
+///
+/// All values are resolved to their final form (no 'inherit', 'initial', etc.)
+#[derive(Debug, Clone, Default)]
+pub struct ComputedLayoutStyle {
+    /// CSS `display` property
+    pub display: LayoutDisplay,
+    /// CSS `position` property
+    pub position: LayoutPosition,
+    /// CSS `float` property
+    pub float: LayoutFloat,
+    /// CSS `overflow-x` property
+    pub overflow_x: LayoutOverflow,
+    /// CSS `overflow-y` property  
+    pub overflow_y: LayoutOverflow,
+    /// CSS `writing-mode` property
+    pub writing_mode: azul_css::props::layout::LayoutWritingMode,
+    /// CSS `width` property (None = auto)
+    pub width: Option<azul_css::props::layout::LayoutWidth>,
+    /// CSS `height` property (None = auto)
+    pub height: Option<azul_css::props::layout::LayoutHeight>,
+    /// CSS `min-width` property
+    pub min_width: Option<azul_css::props::layout::LayoutMinWidth>,
+    /// CSS `min-height` property
+    pub min_height: Option<azul_css::props::layout::LayoutMinHeight>,
+    /// CSS `max-width` property
+    pub max_width: Option<azul_css::props::layout::LayoutMaxWidth>,
+    /// CSS `max-height` property
+    pub max_height: Option<azul_css::props::layout::LayoutMaxHeight>,
+    /// CSS `text-align` property
+    pub text_align: azul_css::props::style::StyleTextAlign,
 }
 
 impl LayoutNode {
@@ -951,6 +999,7 @@ impl LayoutTreeBuilder {
             overflow_content_size: None,
             ifc_id: None,
             ifc_membership: None,
+            computed_style: ComputedLayoutStyle::default(),
         });
 
         self.nodes[parent].children.push(index);
@@ -1008,6 +1057,7 @@ impl LayoutTreeBuilder {
             overflow_content_size: None,
             ifc_id: None,
             ifc_membership: None,
+            computed_style: ComputedLayoutStyle::default(),
         });
 
         // Insert as FIRST child (per spec)
@@ -1057,6 +1107,7 @@ impl LayoutTreeBuilder {
             overflow_content_size: None,
             ifc_id: None,
             ifc_membership: None,
+            computed_style: compute_layout_style(styled_dom, dom_id),
         });
         if let Some(p) = parent {
             self.nodes[p].children.push(index);
@@ -1167,6 +1218,67 @@ fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) -> bool {
 
     // All children are inline-level
     true
+}
+
+/// Pre-computes all CSS properties needed during layout for a single node.
+/// 
+/// This is called once per node during layout tree construction, avoiding
+/// repeated style lookups during the actual layout pass (O(n) vs O(n²)).
+fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayoutStyle {
+    let styled_node_state = styled_dom
+        .styled_nodes
+        .as_container()
+        .get(dom_id)
+        .map(|n| n.styled_node_state.clone())
+        .unwrap_or_default();
+
+    // Get display property
+    let display = match get_display_property(styled_dom, Some(dom_id)) {
+        MultiValue::Exact(d) => d,
+        MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => LayoutDisplay::Block,
+    };
+
+    // Get position property
+    let position = get_position(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+
+    // Get float property  
+    let float = get_float(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+
+    // Get overflow properties
+    let overflow_x = get_overflow_x(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+    let overflow_y = get_overflow_y(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+
+    // Get writing mode
+    let writing_mode = get_writing_mode(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+
+    // Get text-align
+    let text_align = get_text_align(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+
+    // Get explicit width/height (None = auto)
+    let width = match get_css_width(styled_dom, dom_id, &styled_node_state) {
+        MultiValue::Exact(w) => Some(w),
+        _ => None,
+    };
+    let height = match get_css_height(styled_dom, dom_id, &styled_node_state) {
+        MultiValue::Exact(h) => Some(h),
+        _ => None,
+    };
+
+    ComputedLayoutStyle {
+        display,
+        position,
+        float,
+        overflow_x,
+        overflow_y,
+        writing_mode,
+        width,
+        height,
+        min_width: None,  // TODO: add getters for these
+        min_height: None,
+        max_width: None,
+        max_height: None,
+        text_align,
+    }
 }
 
 fn hash_node_data(dom: &StyledDom, node_id: NodeId) -> u64 {

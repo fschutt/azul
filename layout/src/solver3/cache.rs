@@ -56,6 +56,52 @@ use crate::{
     text3::cache::AvailableSpace as Text3AvailableSpace,
 };
 
+/// Cache key for memoizing layout results.
+/// Uses fixed-point representation for float values to enable BTreeMap usage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LayoutCacheKey {
+    pub node_index: usize,
+    /// Available width in hundredths of a pixel (fixed-point)
+    pub available_width: i32,
+    /// Available height in hundredths of a pixel (fixed-point)
+    pub available_height: i32,
+}
+
+impl LayoutCacheKey {
+    pub fn new(node_index: usize, available_size: LogicalSize) -> Self {
+        Self {
+            node_index,
+            available_width: f32_to_fixed(available_size.width),
+            available_height: f32_to_fixed(available_size.height),
+        }
+    }
+}
+
+/// Convert f32 to fixed-point i32 (hundredths of a pixel)
+#[inline]
+fn f32_to_fixed(val: f32) -> i32 {
+    if !val.is_finite() {
+        i32::MAX
+    } else {
+        (val * 100.0).round() as i32
+    }
+}
+
+/// Cached layout result for a node at a given available size.
+#[derive(Debug, Clone)]
+pub struct LayoutCacheValue {
+    /// The computed border-box size
+    pub used_size: LogicalSize,
+    /// Baseline for inline alignment
+    pub baseline: Option<f32>,
+    /// Content overflow size (for scrolling)
+    pub content_size: LogicalSize,
+    /// Child positions relative to this node's content-box
+    pub child_positions: Vec<(usize, LogicalPosition)>,
+    /// Scrollbar requirements
+    pub scrollbar_info: ScrollbarRequirements,
+}
+
 /// The persistent cache that holds the layout state between frames.
 #[derive(Debug, Clone, Default)]
 pub struct LayoutCache {
@@ -79,6 +125,10 @@ pub struct LayoutCache {
     /// children always have access to correct float exclusions even when layout is
     /// recalculated.
     pub float_cache: BTreeMap<usize, fc::FloatingContext>,
+    /// Memoization cache for layout results.
+    /// Key: (node_index, available_size), Value: computed layout result.
+    /// This prevents O(n²) complexity by avoiding redundant layout calculations.
+    pub subtree_layout_cache: BTreeMap<LayoutCacheKey, LayoutCacheValue>,
 }
 
 /// The result of a reconciliation pass.
@@ -688,58 +738,25 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     )?;
 
     // Phase 2: Layout children using a formatting context
+    // Use pre-computed styles from LayoutNode instead of repeated lookups
+    let writing_mode = node.computed_style.writing_mode;
+    let text_align = node.computed_style.text_align;
+    let display = node.computed_style.display;
+    let overflow_y = node.computed_style.overflow_y;
 
-    // Fetch the writing mode for the current context.
-    // For anonymous boxes, use default values
-    let styled_node_state = dom_id
-        .and_then(|id| ctx.styled_dom.styled_nodes.as_container().get(id).cloned())
-        .map(|n| n.styled_node_state)
-        .unwrap_or_default();
+    // Check if height is auto (no explicit height set)
+    let height_is_auto = node.computed_style.height.is_none();
 
-    // This should come from the node's style. For anonymous boxes, use defaults.
-    let writing_mode = match dom_id {
-        Some(id) => get_writing_mode(ctx.styled_dom, id, &styled_node_state).unwrap_or_default(),
-        None => LayoutWritingMode::default(),
-    };
-    let text_align = match dom_id {
-        Some(id) => get_text_align(ctx.styled_dom, id, &styled_node_state).unwrap_or_default(),
-        None => StyleTextAlign::default(),
-    };
-
-    // IMPORTANT: For the available_size that we pass to children, we need to use
-    // the containing_block_size if the current node's height is 'auto'.
-    // Otherwise, we would pass 0 as available height to children, which breaks
-    // table layout and other auto-height containers.
-    // For anonymous boxes, assume 'auto' height behavior.
-    let css_height: MultiValue<LayoutHeight> = match dom_id {
-        Some(id) => get_css_height(ctx.styled_dom, id, &styled_node_state),
-        None => MultiValue::Auto, // Anonymous boxes have auto height
-    };
-
-    // Get display type to determine sizing behavior
-    let display = match dom_id {
-        Some(id) => get_display_property(ctx.styled_dom, Some(id)),
-        None => MultiValue::Auto, // Anonymous boxes behave like blocks
-    };
-
-    let available_size_for_children = if should_use_content_height(&css_height) {
+    let available_size_for_children = if height_is_auto {
         // Height is auto - use containing block size as available size
         let inner_size = node.box_props.inner_size(final_used_size, writing_mode);
 
         // For inline elements (display: inline), the available width comes from
         // the containing block, not from the element's own intrinsic size.
         // CSS 2.2 § 10.3.1: Inline, non-replaced elements use containing block width.
-        // The containing_block_size already has parent's padding subtracted when
-        // passed from the parent's layout (via inner_size calculation).
         let available_width = match display {
-            MultiValue::Exact(LayoutDisplay::Inline) | MultiValue::Auto => {
-                // Inline elements flow within the containing block
-                containing_block_size.width
-            }
-            _ => {
-                // Block-level elements use their own content-box
-                inner_size.width
-            }
+            LayoutDisplay::Inline => containing_block_size.width,
+            _ => inner_size.width,
         };
 
         LogicalSize {
@@ -753,26 +770,10 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     };
 
     // Proactively reserve space for scrollbars based on overflow properties.
-    // If overflow-y is auto/scroll, we must reduce available width for children
-    // to ensure they don't overlap with the scrollbar.
-    // This is done BEFORE layout so children are sized correctly from the start.
-    let scrollbar_reservation = match dom_id {
-        Some(id) => {
-            let styled_node_state = ctx
-                .styled_dom
-                .styled_nodes
-                .as_container()
-                .get(id)
-                .map(|s| s.styled_node_state.clone())
-                .unwrap_or_default();
-            let overflow_y = get_overflow_y(ctx.styled_dom, id, &styled_node_state);
-            use azul_css::props::layout::LayoutOverflow;
-            match overflow_y.unwrap_or_default() {
-                LayoutOverflow::Scroll | LayoutOverflow::Auto => fc::SCROLLBAR_WIDTH_PX,
-                _ => 0.0,
-            }
-        }
-        None => 0.0,
+    // Use pre-computed overflow_y from computed_style
+    let scrollbar_reservation = match overflow_y {
+        LayoutOverflow::Scroll | LayoutOverflow::Auto => fc::SCROLLBAR_WIDTH_PX,
+        _ => 0.0,
     };
 
     // Reduce available width by scrollbar reservation (if any)
@@ -1010,7 +1011,8 @@ fn log_child_positioning<T: ParsedFontTrait>(
 ///
 /// For Flex/Grid containers, Taffy has already laid out the children completely.
 /// We only recurse to position their grandchildren.
-/// For other formatting contexts (Block, Inline, Table), we do full recursive layout.
+/// For Block/Inline/Table, layout_bfc/layout_ifc already laid out children in Pass 1.
+/// We only need to set absolute positions and recurse for positioning grandchildren.
 fn process_inflow_child<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -1026,10 +1028,13 @@ fn process_inflow_child<T: ParsedFontTrait>(
     float_cache: &mut BTreeMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
     // Set relative position on child
+    // child_relative_pos is [CoordinateSpace::Parent] - relative to parent's content-box
     let child_node = tree.get_mut(child_index).ok_or(LayoutError::InvalidTree)?;
     child_node.relative_position = Some(child_relative_pos);
 
     // Calculate absolute position
+    // self_content_box_pos is [CoordinateSpace::Window] - absolute position of parent's content-box
+    // child_absolute_pos becomes [CoordinateSpace::Window] - absolute window position of child
     let child_absolute_pos = LogicalPosition::new(
         self_content_box_pos.x + child_relative_pos.x,
         self_content_box_pos.y + child_relative_pos.y,
@@ -1048,45 +1053,84 @@ fn process_inflow_child<T: ParsedFontTrait>(
         );
     }
 
+    // calculated_positions stores [CoordinateSpace::Window] - absolute positions
     calculated_positions.insert(child_index, child_absolute_pos);
 
-    // Recurse based on parent's formatting context
-    if is_flex_or_grid {
-        // For Flex/Grid: Taffy already set used_size. Only recurse for grandchildren.
-        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-        let child_content_box_pos =
-            calculate_content_box_pos(child_absolute_pos, &child_node.box_props);
-        let child_inner_size = child_node
-            .box_props
-            .inner_size(child_node.used_size.unwrap_or_default(), writing_mode);
+    // Get child's properties for recursion
+    let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+    let child_content_box_pos =
+        calculate_content_box_pos(child_absolute_pos, &child_node.box_props);
+    let child_inner_size = child_node
+        .box_props
+        .inner_size(child_node.used_size.unwrap_or_default(), writing_mode);
+    let child_children: Vec<usize> = child_node.children.clone();
+    let child_fc = child_node.formatting_context.clone();
 
-        position_flex_child_descendants(
-            ctx,
-            tree,
-            text_cache,
-            child_index,
-            child_content_box_pos,
-            child_inner_size,
-            calculated_positions,
-            reflow_needed_for_scrollbars,
-            float_cache,
-        )?;
-    } else {
-        // For Block/Inline/Table: do full recursive layout
-        calculate_layout_for_subtree(
-            ctx,
-            tree,
-            text_cache,
-            child_index,
-            child_absolute_pos,
-            inner_size_after_scrollbars,
-            calculated_positions,
-            reflow_needed_for_scrollbars,
-            float_cache,
-        )?;
+    // Recurse to position grandchildren
+    // OPTIMIZATION: For BFC/IFC children, layout_bfc/layout_ifc already computed their layout.
+    // We just need to set absolute positions for descendants.
+    // Only recurse if child has children to position.
+    if !child_children.is_empty() {
+        if is_flex_or_grid {
+            // For Flex/Grid: Taffy already set used_size. Only recurse for grandchildren.
+            position_flex_child_descendants(
+                ctx,
+                tree,
+                text_cache,
+                child_index,
+                child_content_box_pos,
+                child_inner_size,
+                calculated_positions,
+                reflow_needed_for_scrollbars,
+                float_cache,
+            )?;
+        } else {
+            // For Block/Inline/Table: The formatting context already laid out children.
+            // Recursively position grandchildren using their cached layout data.
+            position_bfc_child_descendants(
+                tree,
+                child_index,
+                child_content_box_pos,
+                calculated_positions,
+            );
+        }
     }
 
     Ok(())
+}
+
+/// Recursively positions descendants of a BFC/IFC child without re-computing layout.
+/// The layout was already computed by layout_bfc/layout_ifc.
+/// We only need to convert relative positions to absolute positions.
+fn position_bfc_child_descendants(
+    tree: &LayoutTree,
+    node_index: usize,
+    content_box_pos: LogicalPosition,
+    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+) {
+    let Some(node) = tree.get(node_index) else { return };
+    
+    for &child_index in &node.children {
+        let Some(child_node) = tree.get(child_index) else { continue };
+        
+        // Use the relative_position that was set during formatting context layout
+        let child_rel_pos = child_node.relative_position.unwrap_or_default();
+        let child_abs_pos = LogicalPosition::new(
+            content_box_pos.x + child_rel_pos.x,
+            content_box_pos.y + child_rel_pos.y,
+        );
+        
+        calculated_positions.insert(child_index, child_abs_pos);
+        
+        // Calculate child's content-box position for recursion
+        let child_content_box_pos = LogicalPosition::new(
+            child_abs_pos.x + child_node.box_props.border.left + child_node.box_props.padding.left,
+            child_abs_pos.y + child_node.box_props.border.top + child_node.box_props.padding.top,
+        );
+        
+        // Recurse to grandchildren
+        position_bfc_child_descendants(tree, child_index, child_content_box_pos, calculated_positions);
+    }
 }
 
 /// Processes out-of-flow children (absolute/fixed positioned elements).
@@ -1147,6 +1191,9 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
 
 /// Recursive, top-down pass to calculate used sizes and positions for a given subtree.
 /// This is the single, authoritative function for in-flow layout.
+/// 
+/// Uses memoization to avoid O(n²) complexity - if a node was already laid out
+/// for the same available size, the cached result is reused.
 pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -1158,6 +1205,64 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     reflow_needed_for_scrollbars: &mut bool,
     float_cache: &mut BTreeMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
+    static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    
+    let start = std::time::Instant::now();
+    
+    // === MEMOIZATION CHECK ===
+    // Check if we already computed layout for this node at this available size
+    let cache_key = LayoutCacheKey::new(node_index, containing_block_size);
+    if let Some(cached) = ctx.subtree_layout_cache.get(&cache_key).cloned() {
+        // CACHE HIT - apply cached results without re-computing
+        let cache_hit_start = std::time::Instant::now();
+        
+        // Update node with cached layout results
+        if let Some(node) = tree.get_mut(node_index) {
+            node.used_size = Some(cached.used_size);
+            node.baseline = cached.baseline;
+            node.overflow_content_size = Some(cached.content_size);
+            node.scrollbar_info = Some(cached.scrollbar_info.clone());
+        }
+        
+        // Calculate content-box position for this node
+        let box_props = tree.get(node_index)
+            .map(|n| n.box_props.clone())
+            .unwrap_or_default();
+        let self_content_box_pos = calculate_content_box_pos(containing_block_pos, &box_props);
+        
+        // Get child available size (content-box of this node)
+        let child_available_size = box_props.inner_size(cached.used_size, LayoutWritingMode::HorizontalTb);
+        
+        // Apply cached child positions and recursively process children
+        // Children will have their own cache entries, so they'll also hit cache
+        for (child_index, child_relative_pos) in &cached.child_positions {
+            let child_abs_pos = LogicalPosition::new(
+                self_content_box_pos.x + child_relative_pos.x,
+                self_content_box_pos.y + child_relative_pos.y,
+            );
+            calculated_positions.insert(*child_index, child_abs_pos);
+            
+            // Recursively call calculate_layout_for_subtree for children
+            // They will hit their own cache entries, making this fast
+            calculate_layout_for_subtree(
+                ctx,
+                tree,
+                text_cache,
+                *child_index,
+                child_abs_pos,
+                child_available_size,
+                calculated_positions,
+                reflow_needed_for_scrollbars,
+                float_cache,
+            )?;
+        }
+        
+        return Ok(());
+    }
+    
+    // === CACHE MISS - compute layout ===
+    
     // Phase 1: Prepare layout context (calculate used size, constraints)
     let PreparedLayoutContext {
         constraints,
@@ -1169,11 +1274,14 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
         prepare_layout_context(ctx, node, containing_block_size)?
     };
+    let phase1_time = start.elapsed();
 
     // Phase 2: Layout children using the formatting context
+    let phase2_start = std::time::Instant::now();
     let layout_result =
         layout_formatting_context(ctx, tree, text_cache, node_index, &constraints, float_cache)?;
     let content_size = layout_result.output.overflow_size;
+    let _phase2_time = phase2_start.elapsed();
 
     // Phase 2.5: Resolve 'auto' main-axis size based on content
     // For anonymous boxes, use default styled node state
@@ -1232,10 +1340,11 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         if !is_table_cell || current_node.used_size.is_none() {
             current_node.used_size = Some(final_used_size);
         }
-        current_node.scrollbar_info = Some(merged_scrollbar_info);
+        current_node.scrollbar_info = Some(merged_scrollbar_info.clone());
         // Store overflow content size for scroll frame calculation
         current_node.overflow_content_size = Some(content_size);
 
+        // self_content_box_pos is [CoordinateSpace::Window] - the absolute position of this node's content-box
         let pos = calculate_content_box_pos(containing_block_pos, &current_node.box_props);
         log_content_box_calculation(ctx, node_index, current_node, containing_block_pos, pos);
         pos
@@ -1251,12 +1360,16 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     };
 
     // Phase 6: Process in-flow children
+    // Positions in layout_result.output.positions are [CoordinateSpace::Parent] - relative to this node's content-box
     let positions: Vec<_> = layout_result
         .output
         .positions
         .iter()
         .map(|(&idx, &pos)| (idx, pos))
         .collect();
+
+    // Store child positions for cache
+    let child_positions_for_cache: Vec<(usize, LogicalPosition)> = positions.clone();
 
     for (child_index, child_relative_pos) in positions {
         process_inflow_child(
@@ -1285,7 +1398,51 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         calculated_positions,
     )?;
 
+    // === STORE RESULT IN CACHE ===
+    // Cache the layout result for this node at this available size
+    let cache_value = LayoutCacheValue {
+        used_size: final_used_size,
+        baseline: tree.get(node_index).and_then(|n| n.baseline),
+        content_size,
+        child_positions: child_positions_for_cache,
+        scrollbar_info: merged_scrollbar_info,
+    };
+    ctx.subtree_layout_cache.insert(cache_key, cache_value);
+
     Ok(())
+}
+
+/// Recursively apply cached positions to descendant nodes.
+/// This is used when we have a cache hit - we need to set positions for all
+/// descendants without re-computing layout.
+fn apply_cached_positions_recursive(
+    tree: &LayoutTree,
+    node_index: usize,
+    node_abs_pos: LogicalPosition,
+    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+) {
+    let Some(node) = tree.get(node_index) else { return };
+    
+    // Calculate content-box position
+    let content_box_pos = LogicalPosition::new(
+        node_abs_pos.x + node.box_props.border.left + node.box_props.padding.left,
+        node_abs_pos.y + node.box_props.border.top + node.box_props.padding.top,
+    );
+    
+    // Process children using their cached relative positions
+    for &child_index in &node.children {
+        if let Some(child_node) = tree.get(child_index) {
+            let child_rel_pos = child_node.relative_position.unwrap_or_default();
+            let child_abs_pos = LogicalPosition::new(
+                content_box_pos.x + child_rel_pos.x,
+                content_box_pos.y + child_rel_pos.y,
+            );
+            calculated_positions.insert(child_index, child_abs_pos);
+            
+            // Recurse to grandchildren
+            apply_cached_positions_recursive(tree, child_index, child_abs_pos, calculated_positions);
+        }
+    }
 }
 
 /// Recursively set static positions for out-of-flow descendants without doing layout
