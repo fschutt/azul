@@ -473,6 +473,7 @@ impl LayoutWindow {
                 scroll_id_to_node_id: BTreeMap::new(),
                 counters: BTreeMap::new(),
                 float_cache: BTreeMap::new(),
+                subtree_layout_cache: BTreeMap::new(),
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::new(fc_cache)?,
@@ -543,6 +544,7 @@ impl LayoutWindow {
                 scroll_id_to_node_id: BTreeMap::new(),
                 counters: BTreeMap::new(),
                 float_cache: BTreeMap::new(),
+                subtree_layout_cache: BTreeMap::new(),
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::new(fc_cache)?,
@@ -949,6 +951,7 @@ impl LayoutWindow {
             scroll_id_to_node_id: BTreeMap::new(),
             counters: BTreeMap::new(),
             float_cache: BTreeMap::new(),
+            subtree_layout_cache: BTreeMap::new(),
         };
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();

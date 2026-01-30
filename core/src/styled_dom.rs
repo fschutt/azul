@@ -1058,6 +1058,108 @@ impl StyledDom {
         }
     }
 
+    /// Optimized version of `append_child` that takes the child index directly
+    /// instead of counting existing children (O(1) instead of O(n))
+    pub fn append_child_with_index(&mut self, mut other: Self, child_index: usize) {
+        // shift all the node ids in other by self.len()
+        let self_len = self.node_hierarchy.as_ref().len();
+        let other_len = other.node_hierarchy.as_ref().len();
+        let self_tag_len = self.tag_ids_to_node_ids.as_ref().len();
+        let self_root_id = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+        let other_root_id = other.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+
+        // Use provided index instead of counting children
+        other.cascade_info.as_mut()[other_root_id.index()].index_in_parent = child_index as u32;
+        other.cascade_info.as_mut()[other_root_id.index()].is_last_child = true;
+
+        self.cascade_info.append(&mut other.cascade_info);
+
+        // adjust node hierarchy
+        for other in other.node_hierarchy.as_mut().iter_mut() {
+            if other.parent != 0 {
+                other.parent += self_len;
+            }
+            if other.previous_sibling != 0 {
+                other.previous_sibling += self_len;
+            }
+            if other.next_sibling != 0 {
+                other.next_sibling += self_len;
+            }
+            if other.last_child != 0 {
+                other.last_child += self_len;
+            }
+        }
+
+        other.node_hierarchy.as_container_mut()[other_root_id].parent =
+            NodeId::into_raw(&Some(self_root_id));
+        let current_last_child = self.node_hierarchy.as_container()[self_root_id].last_child_id();
+        other.node_hierarchy.as_container_mut()[other_root_id].previous_sibling =
+            NodeId::into_raw(&current_last_child);
+        if let Some(current_last) = current_last_child {
+            if self.node_hierarchy.as_container_mut()[current_last]
+                .next_sibling_id()
+                .is_some()
+            {
+                self.node_hierarchy.as_container_mut()[current_last].next_sibling +=
+                    other_root_id.index() + other_len;
+            } else {
+                self.node_hierarchy.as_container_mut()[current_last].next_sibling =
+                    NodeId::into_raw(&Some(NodeId::new(self_len + other_root_id.index())));
+            }
+        }
+        self.node_hierarchy.as_container_mut()[self_root_id].last_child =
+            NodeId::into_raw(&Some(NodeId::new(self_len + other_root_id.index())));
+
+        self.node_hierarchy.append(&mut other.node_hierarchy);
+        self.node_data.append(&mut other.node_data);
+        self.styled_nodes.append(&mut other.styled_nodes);
+        self.get_css_property_cache_mut()
+            .append(other.get_css_property_cache_mut());
+
+        for tag_id_node_id in other.tag_ids_to_node_ids.iter_mut() {
+            tag_id_node_id.tag_id.inner += self_tag_len as u64;
+            tag_id_node_id.node_id.inner += self_len;
+        }
+
+        self.tag_ids_to_node_ids
+            .append(&mut other.tag_ids_to_node_ids);
+
+        for nid in other.nodes_with_window_callbacks.iter_mut() {
+            nid.inner += self_len;
+        }
+        self.nodes_with_window_callbacks
+            .append(&mut other.nodes_with_window_callbacks);
+
+        for nid in other.nodes_with_not_callbacks.iter_mut() {
+            nid.inner += self_len;
+        }
+        self.nodes_with_not_callbacks
+            .append(&mut other.nodes_with_not_callbacks);
+
+        for nid in other.nodes_with_datasets.iter_mut() {
+            nid.inner += self_len;
+        }
+        self.nodes_with_datasets
+            .append(&mut other.nodes_with_datasets);
+
+        // edge case: if the other StyledDom consists of only one node
+        // then it is not a parent itself
+        if other_len != 1 {
+            for other_non_leaf_node in other.non_leaf_nodes.iter_mut() {
+                other_non_leaf_node.node_id.inner += self_len;
+                other_non_leaf_node.depth += 1;
+            }
+            self.non_leaf_nodes.append(&mut other.non_leaf_nodes);
+            // NOTE: Sorting deferred - call finalize_non_leaf_nodes() after all appends
+        }
+    }
+
+    /// Call this after all append_child_with_index operations are complete
+    /// to sort non_leaf_nodes by depth (required for correct rendering)
+    pub fn finalize_non_leaf_nodes(&mut self) {
+        self.non_leaf_nodes.sort_by(|a, b| a.depth.cmp(&b.depth));
+    }
+
     /// Same as `append_child()`, but as a builder method
     pub fn with_child(mut self, other: Self) -> Self {
         self.append_child(other);
