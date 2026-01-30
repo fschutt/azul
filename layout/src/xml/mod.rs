@@ -389,12 +389,16 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                     last_was_void = false;
                 }
 
-                // Skip text nodes that contain ONLY whitespace (newlines, tabs, spaces between block elements)
-                // But preserve text that has actual content (even if it has leading/trailing whitespace)
+                // IMPORTANT: Preserve ALL text nodes including whitespace-only nodes.
+                // Whether whitespace is significant depends on the CSS `white-space` property,
+                // which is determined during layout, not during parsing.
+                // 
+                // For example: <pre><span>    </span></pre> must preserve the 4 spaces.
+                // 
+                // We only skip completely EMPTY text nodes (zero-length strings).
                 let text_str = text.as_str();
-                let is_whitespace_only = text_str.trim().is_empty();
 
-                if !is_whitespace_only {
+                if !text_str.is_empty() {
                     // SAFETY: Last element in stack is valid
                     if let Some(&current_parent_ptr) = node_stack.last() {
                         let current_parent = unsafe { &mut *current_parent_ptr };

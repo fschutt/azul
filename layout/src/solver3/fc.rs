@@ -6324,10 +6324,54 @@ pub(crate) fn split_text_for_whitespace(
             }
         }
         StyleWhiteSpace::Normal | StyleWhiteSpace::Nowrap => {
-            // Normal/nowrap: collapse whitespace and newlines
-            if !text.is_empty() {
+            // CSS Text Level 3, Section 4.1.1 - Phase I: Collapsing and Transformation
+            // https://www.w3.org/TR/css-text-3/#white-space-phase-1
+            //
+            // For `white-space: normal` and `nowrap`:
+            // 1. All newlines are converted to spaces
+            // 2. Any sequence of consecutive spaces/tabs is collapsed to a single space
+            // 3. Leading/trailing spaces at line boundaries are handled during line layout
+            //
+            // Note: We perform basic collapsing here. Full inter-element collapsing 
+            // (removing spaces at start/end of lines) happens during line breaking.
+            
+            // Step 1: Replace all whitespace (including newlines, tabs) with spaces
+            // Step 2: Collapse consecutive spaces to a single space
+            let collapsed: String = text
+                .chars()
+                .map(|c| if c.is_whitespace() { ' ' } else { c })
+                .collect::<String>()
+                .split(' ')
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+            
+            // Preserve a single space if the original text was whitespace-only
+            // This is important for inter-element spacing: "<span>Hello</span> <span>World</span>"
+            // The space between the spans should be preserved as a single space
+            let final_text = if collapsed.is_empty() && !text.is_empty() {
+                // Original had whitespace but collapsed to empty - preserve one space
+                // This handles cases like "<span> </span>" which should render as " "
+                " ".to_string()
+            } else if !collapsed.is_empty() {
+                // Check if original had leading/trailing whitespace and preserve them
+                let had_leading = text.chars().next().map(|c| c.is_whitespace()).unwrap_or(false);
+                let had_trailing = text.chars().last().map(|c| c.is_whitespace()).unwrap_or(false);
+                
+                let mut result = String::new();
+                if had_leading { result.push(' '); }
+                result.push_str(&collapsed);
+                if had_trailing && !had_leading { result.push(' '); }
+                else if had_trailing && had_leading && collapsed.is_empty() { /* already have one space */ }
+                else if had_trailing { result.push(' '); }
+                result
+            } else {
+                collapsed
+            };
+            
+            if !final_text.is_empty() {
                 result.push(InlineContent::Text(StyledRun {
-                    text: text.to_string(),
+                    text: final_text,
                     style,
                     logical_start_byte: 0,
                     source_node_id: Some(dom_id),
