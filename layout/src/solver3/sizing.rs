@@ -221,14 +221,147 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
 
         match node.formatting_context {
             FormattingContext::Block { .. } => {
+                // Check if this block establishes an Inline Formatting Context (IFC).
+                // An IFC root is a block that has at least one inline-level child.
+                let is_ifc_root = node.children.iter().any(|&child_idx| {
+                    tree.get(child_idx)
+                        .map(|c| matches!(c.formatting_context, FormattingContext::Inline | FormattingContext::InlineBlock))
+                        .unwrap_or(false)
+                });
+                
+                // Also check if this block has direct text content (text nodes in DOM)
+                let has_direct_text = if let Some(dom_id) = node.dom_node_id {
+                    let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
+                    dom_id.az_children(node_hierarchy).any(|child_id| {
+                        let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
+                        matches!(child_node_data.get_node_type(), NodeType::Text(_))
+                    })
+                } else {
+                    false
+                };
+                
+                if is_ifc_root || has_direct_text {
+                    // This block is an IFC root - measure all inline content ONCE
+                    self.calculate_ifc_root_intrinsic_sizes(tree, node_index)
+                } else {
+                    // This is a BFC root (only block children) - aggregate child sizes
+                    self.calculate_block_intrinsic_sizes(tree, node_index, child_intrinsics)
+                }
+            }
+            FormattingContext::Inline => {
+                // KEY OPTIMIZATION: Inline nodes don't calculate their own intrinsic size!
+                // They are measured as part of their parent IFC root.
+                // Return default (zero) - the parent IFC root handles measurement.
+                Ok(IntrinsicSizes::default())
+            }
+            FormattingContext::InlineBlock => {
+                // Inline-block IS an atomic inline - it needs its own intrinsic size
+                // calculated like a block, then treated as atomic in parent IFC
                 self.calculate_block_intrinsic_sizes(tree, node_index, child_intrinsics)
             }
-            FormattingContext::Inline => self.calculate_inline_intrinsic_sizes(tree, node_index),
             FormattingContext::Table => {
                 self.calculate_table_intrinsic_sizes(tree, node_index, child_intrinsics)
             }
             _ => self.calculate_block_intrinsic_sizes(tree, node_index, child_intrinsics),
         }
+    }
+    
+    /// Calculate intrinsic sizes for an IFC root (a block containing inline content).
+    /// This collects ALL inline descendants' text and measures it ONCE.
+    fn calculate_ifc_root_intrinsic_sizes(
+        &mut self,
+        tree: &LayoutTree,
+        node_index: usize,
+    ) -> Result<IntrinsicSizes> {
+        // Collect all inline content from this IFC root and its inline descendants
+        let inline_content = collect_inline_content(&mut self.ctx, tree, node_index)?;
+
+        if inline_content.is_empty() {
+            return Ok(IntrinsicSizes::default());
+        }
+
+        // Get pre-loaded fonts from font manager
+        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+
+        // Layout with "min-content" constraints (wrap at every opportunity)
+        let min_fragments = vec![LayoutFragment {
+            id: "min".to_string(),
+            constraints: UnifiedConstraints {
+                available_width: AvailableSpace::MinContent,
+                ..Default::default()
+            },
+        }];
+
+        let min_layout = match self.text_cache.layout_flow(
+            &inline_content,
+            &[],
+            &min_fragments,
+            &self.ctx.font_manager.font_chain_cache,
+            &self.ctx.font_manager.fc_cache,
+            &loaded_fonts,
+            self.ctx.debug_messages,
+        ) {
+            Ok(layout) => layout,
+            Err(_) => {
+                return Ok(IntrinsicSizes {
+                    min_content_width: 100.0,
+                    max_content_width: 300.0,
+                    preferred_width: None,
+                    min_content_height: 20.0,
+                    max_content_height: 20.0,
+                    preferred_height: None,
+                });
+            }
+        };
+
+        // Layout with "max-content" constraints (infinite width, no wrapping)
+        let max_fragments = vec![LayoutFragment {
+            id: "max".to_string(),
+            constraints: UnifiedConstraints {
+                available_width: AvailableSpace::MaxContent,
+                ..Default::default()
+            },
+        }];
+
+        let max_layout = match self.text_cache.layout_flow(
+            &inline_content,
+            &[],
+            &max_fragments,
+            &self.ctx.font_manager.font_chain_cache,
+            &self.ctx.font_manager.fc_cache,
+            &loaded_fonts,
+            self.ctx.debug_messages,
+        ) {
+            Ok(layout) => layout,
+            Err(_) => min_layout.clone(),
+        };
+
+        let min_width = min_layout
+            .fragment_layouts
+            .get("min")
+            .map(|l| l.bounds().width)
+            .unwrap_or(0.0);
+
+        let max_width = max_layout
+            .fragment_layouts
+            .get("max")
+            .map(|l| l.bounds().width)
+            .unwrap_or(0.0);
+
+        let height = max_layout
+            .fragment_layouts
+            .get("max")
+            .map(|l| l.bounds().height)
+            .unwrap_or(0.0);
+
+        Ok(IntrinsicSizes {
+            min_content_width: min_width,
+            max_content_width: max_width,
+            preferred_width: None,
+            min_content_height: height,
+            max_content_height: height,
+            preferred_height: None,
+        })
     }
 
     fn calculate_block_intrinsic_sizes(
@@ -246,29 +379,9 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             LayoutWritingMode::default()
         };
 
-        // If there are no layout children but this block contains text content directly,
-        // we need to calculate intrinsic sizes based on the text
-        if child_intrinsics.is_empty() && node.dom_node_id.is_some() {
-            let dom_id = node.dom_node_id.unwrap();
-            let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
-
-            // Check if this node has DOM children with text
-            let has_text = dom_id.az_children(node_hierarchy).any(|child_id| {
-                let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
-                matches!(child_node_data.get_node_type(), NodeType::Text(_))
-            });
-
-            if has_text {
-                self.ctx.debug_log(&format!(
-                    "Block node {} has no layout children but has text DOM children - calculating \
-                     as inline content",
-                    node_index
-                ));
-                // This block contains inline content (text), so calculate its intrinsic size
-                // using inline content measurement
-                return self.calculate_inline_intrinsic_sizes(tree, node_index);
-            }
-        }
+        // NOTE: Text content detection is now handled in calculate_node_intrinsic_sizes
+        // which calls calculate_ifc_root_intrinsic_sizes for blocks with inline content.
+        // This function now only handles pure block containers (BFC roots).
 
         let mut max_child_min_cross = 0.0f32;
         let mut max_child_max_cross = 0.0f32;
@@ -325,6 +438,12 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         tree: &LayoutTree,
         node_index: usize,
     ) -> Result<IntrinsicSizes> {
+        static INLINE_CALC_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let call_count = INLINE_CALC_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if call_count % 100 == 0 {
+            eprintln!("[DEBUG sizing] calculate_inline_intrinsic_sizes called {} times", call_count);
+        }
+        
         self.ctx.debug_log(&format!(
             "Calculating inline intrinsic sizes for node {}",
             node_index
