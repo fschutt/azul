@@ -231,6 +231,7 @@ where
         fragmentation_context: Some(&mut fragmentation_context),
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
+        subtree_layout_cache: BTreeMap::new(),
     };
 
     // NEW: Use the commitment-based pagination approach with CSS break properties
@@ -348,6 +349,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         fragmentation_context: Some(fragmentation_context),
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
+        subtree_layout_cache: BTreeMap::new(),
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
@@ -365,6 +367,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     cache::compute_counters(&new_dom, &new_tree, &mut counter_values);
 
     // Now create the real context with computed counters and fragmentation
+    let mut subtree_layout_cache = BTreeMap::new();
     let mut ctx = LayoutContext {
         styled_dom: &new_dom,
         font_manager,
@@ -376,6 +379,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         fragmentation_context: Some(fragmentation_context),
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
+        subtree_layout_cache,
     };
 
     // --- Step 1.5: Early Exit Optimization ---

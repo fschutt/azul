@@ -741,7 +741,10 @@ fn layout_bfc<T: ParsedFontTrait>(
     }
 
     // Pass 1: Size all children (floats and normal flow)
-    for &child_index in &node.children {
+    let pass1_start = std::time::Instant::now();
+    let pass1_child_count = node.children.len();
+    for (child_pass1_idx, &child_index) in node.children.iter().enumerate() {
+        let child_start = std::time::Instant::now();
         let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_dom_id = child_node.dom_node_id;
 
@@ -764,7 +767,9 @@ fn layout_bfc<T: ParsedFontTrait>(
             &mut bool::default(),
             float_cache,
         )?;
+        let _child_time = child_start.elapsed();
     }
+    let _pass1_time = pass1_start.elapsed();
 
     // Pass 2: Single-pass interleaved layout (position floats and normal flow in DOM order)
 
@@ -1357,6 +1362,7 @@ fn layout_bfc<T: ParsedFontTrait>(
             );
         }
 
+        // final_pos is [CoordinateSpace::Parent] - relative to this BFC's content-box
         let final_pos =
             LogicalPosition::from_main_cross(child_main_pos, child_cross_pos, writing_mode);
 
@@ -1510,10 +1516,15 @@ fn layout_bfc<T: ParsedFontTrait>(
                 child_index
             );
 
-            // Merge positions from IFC output (inline-block children, etc.)
-            for (idx, pos) in ifc_result.output.positions {
-                output.positions.insert(idx, pos);
-            }
+            // NOTE: We do NOT merge inline-block positions from the IFC's output.positions here!
+            // The IFC's inline-block children will be correctly positioned when 
+            // calculate_layout_for_subtree recursively processes the IFC node (child_index).
+            // At that point, layout_ifc will be called again, and the inline-block positions
+            // will be relative to the IFC's content-box, which is what we want.
+            //
+            // Merging them here would cause them to be processed by process_inflow_child
+            // with the BFC's content-box position (self_content_box_pos of the BFC), 
+            // resulting in incorrect absolute positions.
         }
 
         output.positions.insert(child_index, final_pos);
@@ -1829,6 +1840,8 @@ fn layout_ifc<T: ParsedFontTrait>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
+    let ifc_start = std::time::Instant::now();
+    
     let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
     let float_count = constraints
         .bfc_state
@@ -1873,8 +1886,10 @@ fn layout_ifc<T: ParsedFontTrait>(
     debug_ifc_layout!(ctx, "ifc_root_dom_id={:?}", ifc_root_dom_id);
 
     // Phase 1: Collect and measure all inline-level children.
+    let phase1_start = std::time::Instant::now();
     let (inline_content, child_map) =
         collect_and_measure_inline_content(ctx, text_cache, tree, node_index, constraints)?;
+    let phase1_time = phase1_start.elapsed();
 
     debug_info!(
         ctx,
@@ -1933,6 +1948,7 @@ fn layout_ifc<T: ParsedFontTrait>(
 
     // Phase 3: Invoke the text layout engine.
     // Get pre-loaded fonts from font manager (fonts should be loaded before layout)
+    let phase3_start = std::time::Instant::now();
     let loaded_fonts = ctx.font_manager.get_loaded_fonts();
     let text_layout_result = match text_cache.layout_flow(
         &inline_content,
@@ -1959,6 +1975,10 @@ fn layout_ifc<T: ParsedFontTrait>(
             return Ok(output);
         }
     };
+    let _phase3_time = phase3_start.elapsed();
+    
+    // Log timing if slow (disabled for production)
+    let _total_ifc_time = ifc_start.elapsed();
 
     // Phase 4: Integrate results back into the solver3 layout tree.
     let mut output = LayoutOutput::default();
@@ -2056,9 +2076,11 @@ fn layout_ifc<T: ParsedFontTrait>(
         node.baseline = output.baseline;
 
         // Position all the inline-block children based on text3's calculations.
+        // [CoordinateSpace::Parent] - positions are relative to IFC's content-box (0,0)
         for positioned_item in &main_frag.items {
             if let ShapedItem::Object { source, content, .. } = &positioned_item.item {
                 if let Some(&child_node_index) = child_map.get(source) {
+                    // new_relative_pos is [CoordinateSpace::Parent] - relative to this IFC's content-box
                     let new_relative_pos = LogicalPosition {
                         x: positioned_item.position.x,
                         y: positioned_item.position.y,
@@ -5453,9 +5475,6 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // Set the used_size on the layout node so paint_rect works correctly
             let final_size = LogicalSize::new(tentative_size.width, tentative_size.height);
             tree.get_mut(child_index).unwrap().used_size = Some(final_size);
-            
-            println!("[FC IMAGE] Image node {} final_size: {}x{}", 
-                child_index, final_size.width, final_size.height);
             
             // Calculate display size for text3 (this is what text3 uses for positioning)
             let display_width = if final_size.width > 0.0 { 
