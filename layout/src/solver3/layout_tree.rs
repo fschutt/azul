@@ -112,7 +112,8 @@ use crate::{
     solver3::{
         geometry::{BoxProps, IntrinsicSizes, PositionedRectangle},
         getters::{
-            get_css_height, get_css_width, get_display_property, get_float, get_overflow_x,
+            get_css_height, get_css_max_height, get_css_max_width, get_css_min_height,
+            get_css_min_width, get_css_width, get_display_property, get_float, get_overflow_x,
             get_overflow_y, get_position, get_text_align, get_writing_mode, MultiValue,
         },
         scrollbar::ScrollbarRequirements,
@@ -1264,6 +1265,24 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
         _ => None,
     };
 
+    // Get min/max constraints
+    let min_width = match get_css_min_width(styled_dom, dom_id, &styled_node_state) {
+        MultiValue::Exact(v) => Some(v),
+        _ => None,
+    };
+    let min_height = match get_css_min_height(styled_dom, dom_id, &styled_node_state) {
+        MultiValue::Exact(v) => Some(v),
+        _ => None,
+    };
+    let max_width = match get_css_max_width(styled_dom, dom_id, &styled_node_state) {
+        MultiValue::Exact(v) => Some(v),
+        _ => None,
+    };
+    let max_height = match get_css_max_height(styled_dom, dom_id, &styled_node_state) {
+        MultiValue::Exact(v) => Some(v),
+        _ => None,
+    };
+
     ComputedLayoutStyle {
         display,
         position,
@@ -1273,10 +1292,10 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
         writing_mode,
         width,
         height,
-        min_width: None,  // TODO: add getters for these
-        min_height: None,
-        max_width: None,
-        max_height: None,
+        min_width,
+        min_height,
+        max_width,
+        max_height,
         text_align,
     }
 }
