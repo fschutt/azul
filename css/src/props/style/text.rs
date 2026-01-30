@@ -170,34 +170,34 @@ impl PrintAsCssValue for StyleLineHeight {
     }
 }
 
-// -- StyleTabWidth --
+// -- StyleTabSize --
 
-/// Represents a `tab-width` attribute
+/// Represents a `tab-size` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct StyleTabWidth {
+pub struct StyleTabSize {
     pub inner: PixelValue, // Can be a number (space characters, em-based) or a length
 }
 
-impl fmt::Debug for StyleTabWidth {
+impl fmt::Debug for StyleTabSize {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.inner)
     }
 }
-impl Default for StyleTabWidth {
+impl Default for StyleTabSize {
     fn default() -> Self {
         Self {
             inner: PixelValue::em(8.0),
         }
     }
 }
-impl_pixel_value!(StyleTabWidth);
-impl PixelValueTaker for StyleTabWidth {
+impl_pixel_value!(StyleTabSize);
+impl PixelValueTaker for StyleTabSize {
     fn from_pixel_value(inner: PixelValue) -> Self {
         Self { inner }
     }
 }
-impl PrintAsCssValue for StyleTabWidth {
+impl PrintAsCssValue for StyleTabSize {
     fn print_as_css_value(&self) -> String {
         format!("{}", self.inner)
     }
@@ -1211,55 +1211,55 @@ pub fn parse_style_line_height(input: &str) -> Result<StyleLineHeight, StyleLine
 
 #[cfg(feature = "parser")]
 #[derive(Clone, PartialEq)]
-pub enum StyleTabWidthParseError<'a> {
+pub enum StyleTabSizeParseError<'a> {
     PixelValue(CssPixelValueParseError<'a>),
 }
 #[cfg(feature = "parser")]
-impl_debug_as_display!(StyleTabWidthParseError<'a>);
+impl_debug_as_display!(StyleTabSizeParseError<'a>);
 #[cfg(feature = "parser")]
-impl_display! { StyleTabWidthParseError<'a>, {
-    PixelValue(e) => format!("Invalid tab-width value: {}", e),
+impl_display! { StyleTabSizeParseError<'a>, {
+    PixelValue(e) => format!("Invalid tab-size value: {}", e),
 }}
 #[cfg(feature = "parser")]
 impl_from!(
     CssPixelValueParseError<'a>,
-    StyleTabWidthParseError::PixelValue
+    StyleTabSizeParseError::PixelValue
 );
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq)]
-pub enum StyleTabWidthParseErrorOwned {
+pub enum StyleTabSizeParseErrorOwned {
     PixelValue(CssPixelValueParseErrorOwned),
 }
 
 #[cfg(feature = "parser")]
-impl<'a> StyleTabWidthParseError<'a> {
-    pub fn to_contained(&self) -> StyleTabWidthParseErrorOwned {
+impl<'a> StyleTabSizeParseError<'a> {
+    pub fn to_contained(&self) -> StyleTabSizeParseErrorOwned {
         match self {
-            Self::PixelValue(e) => StyleTabWidthParseErrorOwned::PixelValue(e.to_contained()),
+            Self::PixelValue(e) => StyleTabSizeParseErrorOwned::PixelValue(e.to_contained()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
-impl StyleTabWidthParseErrorOwned {
-    pub fn to_shared<'a>(&'a self) -> StyleTabWidthParseError<'a> {
+impl StyleTabSizeParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> StyleTabSizeParseError<'a> {
         match self {
-            Self::PixelValue(e) => StyleTabWidthParseError::PixelValue(e.to_shared()),
+            Self::PixelValue(e) => StyleTabSizeParseError::PixelValue(e.to_shared()),
         }
     }
 }
 
 #[cfg(feature = "parser")]
-pub fn parse_style_tab_width(input: &str) -> Result<StyleTabWidth, StyleTabWidthParseError> {
+pub fn parse_style_tab_size(input: &str) -> Result<StyleTabSize, StyleTabSizeParseError> {
     if let Ok(number) = input.trim().parse::<f32>() {
-        Ok(StyleTabWidth {
+        Ok(StyleTabSize {
             inner: PixelValue::em(number),
         })
     } else {
         crate::props::basic::pixel::parse_pixel_value(input)
-            .map(|v| StyleTabWidth { inner: v })
-            .map_err(|e| StyleTabWidthParseError::PixelValue(e))
+            .map(|v| StyleTabSize { inner: v })
+            .map_err(|e| StyleTabSizeParseError::PixelValue(e))
     }
 }
 
@@ -1789,14 +1789,14 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_tab_width() {
+    fn test_parse_tab_size() {
         // Unitless number is treated as `em`
         assert_eq!(
-            parse_style_tab_width("4").unwrap().inner,
+            parse_style_tab_size("4").unwrap().inner,
             PixelValue::em(4.0)
         );
         assert_eq!(
-            parse_style_tab_width("20px").unwrap().inner,
+            parse_style_tab_size("20px").unwrap().inner,
             PixelValue::px(20.0)
         );
     }

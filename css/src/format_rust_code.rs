@@ -401,7 +401,7 @@ macro_rules! impl_pixel_value_fmt {
     };
 }
 
-impl_pixel_value_fmt!(StyleTabWidth);
+impl_pixel_value_fmt!(StyleTabSize);
 impl_pixel_value_fmt!(StyleBorderTopLeftRadius);
 impl_pixel_value_fmt!(StyleBorderBottomLeftRadius);
 impl_pixel_value_fmt!(StyleBorderTopRightRadius);

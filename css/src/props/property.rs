@@ -86,7 +86,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 149] = [
     (CssPropertyType::LetterSpacing, "letter-spacing"),
     (CssPropertyType::LineHeight, "line-height"),
     (CssPropertyType::WordSpacing, "word-spacing"),
-    (CssPropertyType::TabWidth, "tab-width"),
+    (CssPropertyType::TabSize, "tab-size"),
     (CssPropertyType::WhiteSpace, "white-space"),
     (CssPropertyType::Hyphens, "hyphens"),
     (CssPropertyType::Direction, "direction"),
@@ -279,7 +279,7 @@ pub type StyleTextCombineUprightValue = CssPropertyValue<StyleTextCombineUpright
 pub type StyleExclusionMarginValue = CssPropertyValue<StyleExclusionMargin>;
 pub type StyleHyphenationLanguageValue = CssPropertyValue<StyleHyphenationLanguage>;
 pub type StyleWordSpacingValue = CssPropertyValue<StyleWordSpacing>;
-pub type StyleTabWidthValue = CssPropertyValue<StyleTabWidth>;
+pub type StyleTabSizeValue = CssPropertyValue<StyleTabSize>;
 pub type StyleCursorValue = CssPropertyValue<StyleCursor>;
 pub type StyleBoxShadowValue = CssPropertyValue<StyleBoxShadow>;
 pub type StyleBorderTopColorValue = CssPropertyValue<StyleBorderTopColor>;
@@ -516,7 +516,7 @@ pub enum CssProperty {
     HyphenationLanguage(StyleHyphenationLanguageValue),
     LineHeight(StyleLineHeightValue),
     WordSpacing(StyleWordSpacingValue),
-    TabWidth(StyleTabWidthValue),
+    TabSize(StyleTabSizeValue),
     WhiteSpace(StyleWhiteSpaceValue),
     Hyphens(StyleHyphensValue),
     Direction(StyleDirectionValue),
@@ -710,7 +710,7 @@ pub enum CssPropertyType {
     HyphenationLanguage,
     LineHeight,
     WordSpacing,
-    TabWidth,
+    TabSize,
     WhiteSpace,
     Hyphens,
     Direction,
@@ -901,7 +901,7 @@ impl CssPropertyType {
             CssPropertyType::HyphenationLanguage => "-azul-hyphenation-language",
             CssPropertyType::LineHeight => "line-height",
             CssPropertyType::WordSpacing => "word-spacing",
-            CssPropertyType::TabWidth => "tab-width",
+            CssPropertyType::TabSize => "tab-size",
             CssPropertyType::Cursor => "cursor",
             CssPropertyType::Display => "display",
             CssPropertyType::Float => "float",
@@ -1042,7 +1042,7 @@ impl CssPropertyType {
             FontFamily | FontSize | FontWeight | FontStyle | LineHeight | LetterSpacing | WordSpacing | TextIndent |
 
             // Text properties
-            TextColor | TextAlign | TextJustify | TextDecoration | WhiteSpace | Direction | Hyphens | TabWidth |
+            TextColor | TextAlign | TextJustify | TextDecoration | WhiteSpace | Direction | Hyphens | TabSize |
             HangingPunctuation | TextCombineUpright | HyphenationLanguage |
 
             // List properties
@@ -1196,7 +1196,7 @@ pub enum CssParsingError<'a> {
     HyphenationLanguage(StyleHyphenationLanguageParseError),
     LineHeight(StyleLineHeightParseError),
     WordSpacing(StyleWordSpacingParseError<'a>),
-    TabWidth(StyleTabWidthParseError<'a>),
+    TabSize(StyleTabSizeParseError<'a>),
     WhiteSpace(StyleWhiteSpaceParseError<'a>),
     Hyphens(StyleHyphensParseError<'a>),
     Direction(StyleDirectionParseError<'a>),
@@ -1345,7 +1345,7 @@ pub enum CssParsingErrorOwned {
     HyphenationLanguage(StyleHyphenationLanguageParseErrorOwned),
     LineHeight(StyleLineHeightParseError),
     WordSpacing(StyleWordSpacingParseErrorOwned),
-    TabWidth(StyleTabWidthParseErrorOwned),
+    TabSize(StyleTabSizeParseErrorOwned),
     WhiteSpace(StyleWhiteSpaceParseErrorOwned),
     Hyphens(StyleHyphensParseErrorOwned),
     Direction(StyleDirectionParseErrorOwned),
@@ -1530,7 +1530,7 @@ impl_display! { CssParsingError<'a>, {
     HyphenationLanguage(e) => format!("Invalid -azul-hyphenation-language: {}", e),
     LineHeight(e) => format!("Invalid line-height: {}", e),
     WordSpacing(e) => format!("Invalid word-spacing: {}", e),
-    TabWidth(e) => format!("Invalid tab-width: {}", e),
+    TabSize(e) => format!("Invalid tab-size: {}", e),
     WhiteSpace(e) => format!("Invalid white-space: {}", e),
     Hyphens(e) => format!("Invalid hyphens: {}", e),
     Direction(e) => format!("Invalid direction: {}", e),
@@ -1747,7 +1747,7 @@ impl_from!(
     CssParsingError::LetterSpacing
 );
 impl_from!(StyleWordSpacingParseError<'a>, CssParsingError::WordSpacing);
-impl_from!(StyleTabWidthParseError<'a>, CssParsingError::TabWidth);
+impl_from!(StyleTabSizeParseError<'a>, CssParsingError::TabSize);
 impl_from!(StyleWhiteSpaceParseError<'a>, CssParsingError::WhiteSpace);
 impl_from!(StyleHyphensParseError<'a>, CssParsingError::Hyphens);
 impl_from!(StyleDirectionParseError<'a>, CssParsingError::Direction);
@@ -1984,7 +1984,7 @@ impl<'a> CssParsingError<'a> {
             }
             CssParsingError::LineHeight(e) => CssParsingErrorOwned::LineHeight(e.clone()),
             CssParsingError::WordSpacing(e) => CssParsingErrorOwned::WordSpacing(e.to_contained()),
-            CssParsingError::TabWidth(e) => CssParsingErrorOwned::TabWidth(e.to_contained()),
+            CssParsingError::TabSize(e) => CssParsingErrorOwned::TabSize(e.to_contained()),
             CssParsingError::WhiteSpace(e) => CssParsingErrorOwned::WhiteSpace(e.to_contained()),
             CssParsingError::Hyphens(e) => CssParsingErrorOwned::Hyphens(e.to_contained()),
             CssParsingError::Direction(e) => CssParsingErrorOwned::Direction(e.to_contained()),
@@ -2174,7 +2174,7 @@ impl CssParsingErrorOwned {
             }
             CssParsingErrorOwned::LineHeight(e) => CssParsingError::LineHeight(e.clone()),
             CssParsingErrorOwned::WordSpacing(e) => CssParsingError::WordSpacing(e.to_shared()),
-            CssParsingErrorOwned::TabWidth(e) => CssParsingError::TabWidth(e.to_shared()),
+            CssParsingErrorOwned::TabSize(e) => CssParsingError::TabSize(e.to_shared()),
             CssParsingErrorOwned::WhiteSpace(e) => CssParsingError::WhiteSpace(e.to_shared()),
             CssParsingErrorOwned::Hyphens(e) => CssParsingError::Hyphens(e.to_shared()),
             CssParsingErrorOwned::Direction(e) => CssParsingError::Direction(e.to_shared()),
@@ -2295,7 +2295,7 @@ pub fn parse_css_property<'a>(
             CssPropertyType::HyphenationLanguage => parse_style_hyphenation_language(value)?.into(),
             CssPropertyType::LineHeight => parse_style_line_height(value)?.into(),
             CssPropertyType::WordSpacing => parse_style_word_spacing(value)?.into(),
-            CssPropertyType::TabWidth => parse_style_tab_width(value)?.into(),
+            CssPropertyType::TabSize => parse_style_tab_size(value)?.into(),
             CssPropertyType::WhiteSpace => parse_style_white_space(value)?.into(),
             CssPropertyType::Hyphens => parse_style_hyphens(value)?.into(),
             CssPropertyType::Direction => parse_style_direction(value)?.into(),
@@ -3293,7 +3293,7 @@ impl_from_css_prop!(StyleExclusionMargin, CssProperty::ExclusionMargin);
 impl_from_css_prop!(StyleHyphenationLanguage, CssProperty::HyphenationLanguage);
 impl_from_css_prop!(StyleLineHeight, CssProperty::LineHeight);
 impl_from_css_prop!(StyleWordSpacing, CssProperty::WordSpacing);
-impl_from_css_prop!(StyleTabWidth, CssProperty::TabWidth);
+impl_from_css_prop!(StyleTabSize, CssProperty::TabSize);
 impl_from_css_prop!(StyleCursor, CssProperty::Cursor);
 impl_from_css_prop!(LayoutDisplay, CssProperty::Display);
 impl_from_css_prop!(LayoutFloat, CssProperty::Float);
@@ -3436,7 +3436,7 @@ impl CssProperty {
             CssProperty::HyphenationLanguage(v) => v.get_css_value_fmt(),
             CssProperty::LineHeight(v) => v.get_css_value_fmt(),
             CssProperty::WordSpacing(v) => v.get_css_value_fmt(),
-            CssProperty::TabWidth(v) => v.get_css_value_fmt(),
+            CssProperty::TabSize(v) => v.get_css_value_fmt(),
             CssProperty::Cursor(v) => v.get_css_value_fmt(),
             CssProperty::Display(v) => v.get_css_value_fmt(),
             CssProperty::Float(v) => v.get_css_value_fmt(),
@@ -3621,10 +3621,10 @@ impl CssProperty {
                 let ws_end = ws_end.get_property().copied().unwrap_or_default();
                 CssProperty::word_spacing(ws_start.interpolate(&ws_end, t))
             }
-            (CssProperty::TabWidth(tw_start), CssProperty::TabWidth(tw_end)) => {
+            (CssProperty::TabSize(tw_start), CssProperty::TabSize(tw_end)) => {
                 let tw_start = tw_start.get_property().copied().unwrap_or_default();
                 let tw_end = tw_end.get_property().copied().unwrap_or_default();
-                CssProperty::tab_width(tw_start.interpolate(&tw_end, t))
+                CssProperty::tab_size(tw_start.interpolate(&tw_end, t))
             }
             (CssProperty::Width(start), CssProperty::Width(end)) => {
                 let start =
@@ -3883,7 +3883,7 @@ impl CssProperty {
             CssProperty::HyphenationLanguage(_) => CssPropertyType::HyphenationLanguage,
             CssProperty::LineHeight(_) => CssPropertyType::LineHeight,
             CssProperty::WordSpacing(_) => CssPropertyType::WordSpacing,
-            CssProperty::TabWidth(_) => CssPropertyType::TabWidth,
+            CssProperty::TabSize(_) => CssPropertyType::TabSize,
             CssProperty::Cursor(_) => CssPropertyType::Cursor,
             CssProperty::Display(_) => CssPropertyType::Display,
             CssProperty::Float(_) => CssPropertyType::Float,
@@ -4066,8 +4066,8 @@ impl CssProperty {
     pub const fn word_spacing(input: StyleWordSpacing) -> Self {
         CssProperty::WordSpacing(CssPropertyValue::Exact(input))
     }
-    pub const fn tab_width(input: StyleTabWidth) -> Self {
-        CssProperty::TabWidth(CssPropertyValue::Exact(input))
+    pub const fn tab_size(input: StyleTabSize) -> Self {
+        CssProperty::TabSize(CssPropertyValue::Exact(input))
     }
     pub const fn cursor(input: StyleCursor) -> Self {
         CssProperty::Cursor(CssPropertyValue::Exact(input))
@@ -4709,9 +4709,9 @@ impl CssProperty {
             _ => None,
         }
     }
-    pub const fn as_tab_width(&self) -> Option<&StyleTabWidthValue> {
+    pub const fn as_tab_size(&self) -> Option<&StyleTabSizeValue> {
         match self {
-            CssProperty::TabWidth(f) => Some(f),
+            CssProperty::TabSize(f) => Some(f),
             _ => None,
         }
     }
@@ -5341,7 +5341,7 @@ impl CssProperty {
             HyphenationLanguage(c) => c.is_initial(),
             LineHeight(c) => c.is_initial(),
             WordSpacing(c) => c.is_initial(),
-            TabWidth(c) => c.is_initial(),
+            TabSize(c) => c.is_initial(),
             Cursor(c) => c.is_initial(),
             Display(c) => c.is_initial(),
             Float(c) => c.is_initial(),
@@ -5514,8 +5514,8 @@ impl CssProperty {
     pub const fn const_word_spacing(input: StyleWordSpacing) -> Self {
         CssProperty::WordSpacing(StyleWordSpacingValue::Exact(input))
     }
-    pub const fn const_tab_width(input: StyleTabWidth) -> Self {
-        CssProperty::TabWidth(StyleTabWidthValue::Exact(input))
+    pub const fn const_tab_size(input: StyleTabSize) -> Self {
+        CssProperty::TabSize(StyleTabSizeValue::Exact(input))
     }
     pub const fn const_cursor(input: StyleCursor) -> Self {
         CssProperty::Cursor(StyleCursorValue::Exact(input))
@@ -5889,9 +5889,9 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
             "CssProperty::WordSpacing({})",
             print_css_property_value(p, tabs, "StyleWordSpacing")
         ),
-        CssProperty::TabWidth(p) => format!(
-            "CssProperty::TabWidth({})",
-            print_css_property_value(p, tabs, "StyleTabWidth")
+        CssProperty::TabSize(p) => format!(
+            "CssProperty::TabSize({})",
+            print_css_property_value(p, tabs, "StyleTabSize")
         ),
         CssProperty::Cursor(p) => format!(
             "CssProperty::Cursor({})",

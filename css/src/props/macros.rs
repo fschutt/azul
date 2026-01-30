@@ -327,7 +327,7 @@ macro_rules! css_property_from_type {
             CssPropertyType::WordSpacing => {
                 CssProperty::WordSpacing(CssPropertyValue::$content_type)
             }
-            CssPropertyType::TabWidth => CssProperty::TabWidth(CssPropertyValue::$content_type),
+            CssPropertyType::TabSize => CssProperty::TabSize(CssPropertyValue::$content_type),
             CssPropertyType::Cursor => CssProperty::Cursor(CssPropertyValue::$content_type),
             CssPropertyType::Display => CssProperty::Display(CssPropertyValue::$content_type),
             CssPropertyType::Float => CssProperty::Float(CssPropertyValue::$content_type),
