@@ -917,32 +917,6 @@ impl From<AzString> for FilePath {
     }
 }
 
-/// Create a temporary file and return its path
-/// 
-/// # Arguments
-/// * `prefix` - Prefix for the temp file name
-/// 
-/// # Returns
-/// * `Result<AzString, FileError>` - Path to created temp file
-#[cfg(feature = "std")]
-pub fn temp_file_create(prefix: &str) -> Result<AzString, FileError> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    
-    let temp_path = std::env::temp_dir()
-        .join(format!("{}_{}", prefix, timestamp));
-    
-    // Create empty file
-    std::fs::File::create(&temp_path)
-        .map_err(FileError::from_io_error)?;
-    
-    Ok(AzString::from(temp_path.to_string_lossy().to_string()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
