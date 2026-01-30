@@ -227,7 +227,7 @@ use azul_css::{
             StyleLetterSpacingValue, StyleLineClampValue, StyleLineHeightValue,
             StyleListStylePositionValue, StyleListStyleTypeValue, StyleMixBlendModeValue,
             StyleOpacityValue, StylePerspectiveOriginValue, StyleScrollbarColorValue,
-            StyleTabWidthValue, StyleTextAlignValue, StyleTextColorValue,
+            StyleTabSizeValue, StyleTextAlignValue, StyleTextColorValue,
             StyleTextCombineUprightValue, StyleTextDecorationValue, StyleTextIndentValue,
             StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
             StyleVerticalAlignValue, StyleVisibilityValue, StyleWhiteSpaceValue,
@@ -280,7 +280,7 @@ macro_rules! match_property_value {
             CssProperty::HyphenationLanguage($value) => $expr,
             CssProperty::LineHeight($value) => $expr,
             CssProperty::WordSpacing($value) => $expr,
-            CssProperty::TabWidth($value) => $expr,
+            CssProperty::TabSize($value) => $expr,
             CssProperty::WhiteSpace($value) => $expr,
             CssProperty::Hyphens($value) => $expr,
             CssProperty::Direction($value) => $expr,
@@ -1012,8 +1012,8 @@ impl CssPropertyCache {
         if let Some(p) = self.get_word_spacing(&node_data, node_id, node_state) {
             s.push_str(&format!("word-spacing: {};", p.get_css_value_fmt()));
         }
-        if let Some(p) = self.get_tab_width(&node_data, node_id, node_state) {
-            s.push_str(&format!("tab-width: {};", p.get_css_value_fmt()));
+        if let Some(p) = self.get_tab_size(&node_data, node_id, node_state) {
+            s.push_str(&format!("tab-size: {};", p.get_css_value_fmt()));
         }
         if let Some(p) = self.get_cursor(&node_data, node_id, node_state) {
             s.push_str(&format!("cursor: {};", p.get_css_value_fmt()));
@@ -2765,14 +2765,14 @@ impl CssPropertyCache {
         )
         .and_then(|p| p.as_word_spacing())
     }
-    pub fn get_tab_width<'a>(
+    pub fn get_tab_size<'a>(
         &'a self,
         node_data: &'a NodeData,
         node_id: &NodeId,
         node_state: &StyledNodeState,
-    ) -> Option<&'a StyleTabWidthValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::TabWidth)
-            .and_then(|p| p.as_tab_width())
+    ) -> Option<&'a StyleTabSizeValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::TabSize)
+            .and_then(|p| p.as_tab_size())
     }
     pub fn get_cursor<'a>(
         &'a self,

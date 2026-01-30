@@ -1594,9 +1594,9 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .map(|v| crate::text3::cache::TextDecoration::from_css(v))
         .unwrap_or_default();
 
-    // Get tab-size (tab-width) from CSS
+    // Get tab-size (tab-size) from CSS
     let tab_size = cache
-        .get_tab_width(node_data, &dom_id, node_state)
+        .get_tab_size(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().cloned())
         .map(|v| v.inner.number.get())
         .unwrap_or(8.0);

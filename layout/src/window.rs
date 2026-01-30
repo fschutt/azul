@@ -5630,7 +5630,7 @@ impl LayoutWindow {
                 InlineContent::LineBreak(_) => {
                     result.push('\n');
                 }
-                InlineContent::Tab => {
+                InlineContent::Tab { .. } => {
                     result.push('\t');
                 }
                 InlineContent::Ruby { base, .. } => {

@@ -1173,7 +1173,10 @@ pub enum InlineContent {
     Shape(InlineShape),
     Space(InlineSpace),
     LineBreak(InlineBreak),
-    Tab,
+    /// Tab character - rendered with width based on tab-size CSS property
+    Tab {
+        style: Arc<StyleProperties>,
+    },
     /// List marker (::marker pseudo-element)
     /// Markers with list-style-position: outside are positioned
     /// in the padding gutter of the list container
@@ -4206,7 +4209,7 @@ impl LayoutCache {
             }
             (Space(old_sp), Space(new_sp)) => old_sp == new_sp,
             (LineBreak(old_br), LineBreak(new_br)) => old_br == new_br,
-            (Tab, Tab) => true,
+            (Tab { style: old_style }, Tab { style: new_style }) => old_style.layout_eq(new_style),
             (Marker { run: old_run, position_outside: old_pos },
              Marker { run: new_run, position_outside: new_pos }) => {
                 old_pos == new_pos
@@ -4688,7 +4691,20 @@ pub fn create_logical_items(
                     break_info: break_info.clone(),
                 });
             }
-            // Other cases (Image, Shape, Space, Tab, Ruby)
+            // Handle tab characters
+            InlineContent::Tab { style } => {
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info("  Tab character".to_string()));
+                }
+                items.push(LogicalItem::Tab {
+                    source: ContentIndex {
+                        run_index: run_idx as u32,
+                        item_index: 0,
+                    },
+                    style: style.clone(),
+                });
+            }
+            // Other cases (Image, Shape, Space, Ruby)
             _ => {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(

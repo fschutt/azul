@@ -42,7 +42,7 @@ use azul_css::{
             StyleCursorValue, StyleDirectionValue, StyleFilterVecValue, StyleFontFamilyVecValue,
             StyleFontSizeValue, StyleFontValue, StyleHyphensValue, StyleLetterSpacingValue,
             StyleLineHeightValue, StyleMixBlendModeValue, StyleOpacityValue,
-            StylePerspectiveOriginValue, StyleScrollbarColorValue, StyleTabWidthValue,
+            StylePerspectiveOriginValue, StyleScrollbarColorValue, StyleTabSizeValue,
             StyleTextAlignValue, StyleTextColorValue, StyleTransformOriginValue,
             StyleTransformVecValue, StyleVisibilityValue, StyleWhiteSpaceValue,
             StyleWordSpacingValue, WidowsValue,

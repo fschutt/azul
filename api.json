@@ -15110,8 +15110,8 @@
                 "WordSpacing": {
                   "type": "StyleWordSpacingValue"
                 },
-                "TabWidth": {
-                  "type": "StyleTabWidthValue"
+                "TabSize": {
+                  "type": "StyleTabSizeValue"
                 },
                 "WhiteSpace": {
                   "type": "StyleWhiteSpaceValue"
@@ -20547,33 +20547,6 @@
             ],
             "repr": "C"
           },
-          "StyleTabWidth": {
-            "doc": [
-              "Represents a `tab-width` attribute"
-            ],
-            "external": "azul_css::props::style::text::StyleTabWidth",
-            "custom_impls": [
-              "Debug",
-              "Default"
-            ],
-            "derive": [
-              "Copy",
-              "Clone",
-              "Ord",
-              "PartialEq",
-              "Hash",
-              "Eq",
-              "PartialOrd"
-            ],
-            "struct_fields": [
-              {
-                "inner": {
-                  "type": "PixelValue"
-                }
-              }
-            ],
-            "repr": "C"
-          },
           "StyleOpacity": {
             "doc": [
               "Represents an `opacity` attribute, a value from 0.0 to 1.0."
@@ -22005,21 +21978,6 @@
               ]
             }
           },
-          "StyleTabWidthValue": {
-            "doc": [
-              "Type alias for CssPropertyValue < StyleTabWidth >"
-            ],
-            "external": "azul_css::props::property::StyleTabWidthValue",
-            "derive": [
-              "Copy"
-            ],
-            "type_alias": {
-              "target": "CssPropertyValue",
-              "generic_args": [
-                "StyleTabWidth"
-              ]
-            }
-          },
           "StyleTextAlignValue": {
             "doc": [
               "Type alias for CssPropertyValue < StyleTextAlign >"
@@ -23073,13 +23031,12 @@
             ],
             "enum_fields": [
               {
-                "Normal": {}
-              },
-              {
-                "Pre": {}
-              },
-              {
-                "Nowrap": {}
+                "Normal": {},
+                "Pre": {},
+                "Nowrap": {},
+                "PreWrap": {},
+                "PreLine": {},
+                "BreakSpaces": {}
               }
             ],
             "repr": "C"
@@ -26621,7 +26578,7 @@
                 "HyphenationLanguage": {},
                 "LineHeight": {},
                 "WordSpacing": {},
-                "TabWidth": {},
+                "TabSize": {},
                 "WhiteSpace": {},
                 "Hyphens": {},
                 "Direction": {},
@@ -27740,6 +27697,30 @@
                 }
               }
             ],
+            "repr": "C"
+          },
+          "StyleTabSize": {
+            "external": "azul_css::props::style::text::StyleTabSize",
+            "derive": [
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "PixelValue"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "StyleTabSizeValue": {
+            "external": "azul_css::props::property::StyleTabSizeValue",
             "repr": "C"
           }
         }

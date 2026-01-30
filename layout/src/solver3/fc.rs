@@ -6269,18 +6269,28 @@ pub(crate) fn split_text_for_whitespace(
         StyleWhiteSpace::Pre | StyleWhiteSpace::PreWrap | StyleWhiteSpace::BreakSpaces => {
             // Pre, pre-wrap, break-spaces: preserve whitespace and honor newlines
             // Split by newlines and insert LineBreak between parts
+            // Also handle tab characters (\t) by inserting InlineContent::Tab
             let mut lines = text.split('\n').peekable();
             let mut content_index = 0;
             
             while let Some(line) = lines.next() {
-                // Add the text part if not empty
-                if !line.is_empty() {
-                    result.push(InlineContent::Text(StyledRun {
-                        text: line.to_string(),
-                        style: Arc::clone(&style),
-                        logical_start_byte: 0,
-                        source_node_id: Some(dom_id),
-                    }));
+                // Split the line by tab characters and insert Tab elements
+                let mut tab_parts = line.split('\t').peekable();
+                while let Some(part) = tab_parts.next() {
+                    // Add the text part if not empty
+                    if !part.is_empty() {
+                        result.push(InlineContent::Text(StyledRun {
+                            text: part.to_string(),
+                            style: Arc::clone(&style),
+                            logical_start_byte: 0,
+                            source_node_id: Some(dom_id),
+                        }));
+                    }
+                    
+                    // If there's more content after this part, insert a Tab
+                    if tab_parts.peek().is_some() {
+                        result.push(InlineContent::Tab { style: Arc::clone(&style) });
+                    }
                 }
                 
                 // If there's more content, insert a forced line break
