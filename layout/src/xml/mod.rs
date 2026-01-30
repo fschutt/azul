@@ -209,10 +209,12 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
 
     let tokenizer = Tokenizer::from_fragment(xml, 0..xml.len());
 
-    // In order to insert where the item is, let's say
-    // [0 -> 1st element, 5th-element -> node]
-    // we need to trach the index of the item in the parent.
-    let mut current_hierarchy: Vec<usize> = Vec::new();
+    // OPTIMIZED: Use a stack of raw pointers to avoid O(n*d) traversal on every token.
+    // This is safe because:
+    // 1. All pointers point into `root_node` which is owned and not moved
+    // 2. We never hold multiple mutable references simultaneously
+    // 3. The stack is only used within this function
+    let mut node_stack: Vec<*mut XmlNode> = vec![&mut root_node as *mut XmlNode];
 
     // HTML5-lite parser: List of void elements that should auto-close
     // See: https://developer.mozilla.org/en-US/docs/Glossary/Void_element
@@ -282,44 +284,50 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                 // HTML5-lite: If last element was a void element (like <img src="...">),
                 // pop it from hierarchy before processing the new element
                 if last_was_void {
-                    current_hierarchy.pop();
+                    node_stack.pop();
                     last_was_void = false;
                 }
 
                 // HTML5-lite: Check if we need to auto-close the current element
-                if !current_hierarchy.is_empty() {
-                    if let Some(current_element) = get_item(&current_hierarchy, &mut root_node) {
-                        let current_tag = current_element.node_type.as_str();
+                if node_stack.len() > 1 {
+                    // SAFETY: We only access the last element, which is valid
+                    let current_element = unsafe { &*node_stack[node_stack.len() - 1] };
+                    let current_tag = current_element.node_type.as_str();
 
-                        // Check if current element should auto-close when encountering this new tag
-                        for (element, closes_on) in AUTO_CLOSE_RULES {
-                            if current_tag == *element && closes_on.contains(&tag_name.as_str()) {
-                                // Auto-close the current element
-                                current_hierarchy.pop();
-                                break;
-                            }
+                    // Check if current element should auto-close when encountering this new tag
+                    for (element, closes_on) in AUTO_CLOSE_RULES {
+                        if current_tag == *element && closes_on.contains(&tag_name.as_str()) {
+                            // Auto-close the current element
+                            node_stack.pop();
+                            break;
                         }
                     }
                 }
 
-                if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
-                    let children_len = current_parent.children.len();
-
+                // SAFETY: We access the last element which is valid
+                if let Some(&current_parent_ptr) = node_stack.last() {
+                    let current_parent = unsafe { &mut *current_parent_ptr };
+                    
                     current_parent.children.push(XmlNodeChild::Element(XmlNode {
                         node_type: tag_name.into(),
                         attributes: StringPairVec::new().into(),
                         children: Vec::new().into(),
                     }));
 
-                    // Always push to hierarchy so attributes get assigned correctly
-                    // For void elements, we'll pop immediately after attributes are processed
-                    current_hierarchy.push(children_len);
+                    // Get pointer to the newly added child
+                    let children_len = current_parent.children.len();
+                    if let Some(XmlNodeChild::Element(ref mut new_child)) = current_parent.children.as_mut().get_mut(children_len - 1) {
+                        node_stack.push(new_child as *mut XmlNode);
+                    }
+                    
                     last_was_void = is_void_element;
                 }
             }
             ElementEnd { end: Empty, .. } => {
                 // Pop hierarchy for all elements (including void elements after their attributes)
-                current_hierarchy.pop();
+                if node_stack.len() > 1 {
+                    node_stack.pop();
+                }
                 last_was_void = false;
             }
             ElementEnd {
@@ -328,7 +336,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
             } => {
                 // HTML5-lite: If last element was a void element, pop it first
                 if last_was_void {
-                    current_hierarchy.pop();
+                    node_stack.pop();
                     last_was_void = false;
                 }
 
@@ -341,34 +349,31 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
 
                 // HTML5-lite: Auto-close any elements that should be closed
                 // Walk up the hierarchy and auto-close elements until we find a match
-                let mut found_match = false;
                 let close_value_str = close_value.as_str();
 
-                // Check if the closing tag matches any element in the current hierarchy
-                for i in (0..current_hierarchy.len()).rev() {
-                    if let Some(node) = get_item(&current_hierarchy[..=i], &mut root_node) {
-                        if node.node_type.as_str() == close_value_str {
-                            found_match = true;
-                            // Auto-close all elements from current position to the matching element
-                            let elements_to_close = current_hierarchy.len() - i;
-                            for _ in 0..elements_to_close {
-                                current_hierarchy.pop();
-                            }
-                            break;
-                        }
+                // Find matching element in stack (skip root at index 0)
+                let mut found_idx = None;
+                for i in (1..node_stack.len()).rev() {
+                    // SAFETY: All pointers in stack are valid
+                    let node = unsafe { &*node_stack[i] };
+                    if node.node_type.as_str() == close_value_str {
+                        found_idx = Some(i);
+                        break;
                     }
                 }
 
-                if !found_match {
-                    // HTML5-lite: If no match found, this might be an optional closing tag
-                    // Just ignore it instead of erroring (lenient parsing)
-                    // In strict XML mode, we would return an error here
+                if let Some(idx) = found_idx {
+                    // Pop all elements from current position to the matching element (inclusive)
+                    node_stack.truncate(idx);
                 }
+                // If no match found, just ignore (lenient HTML parsing)
 
                 last_was_void = false;
             }
             Attribute { local, value, .. } => {
-                if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
+                // SAFETY: Last element in stack is valid
+                if let Some(&last_ptr) = node_stack.last() {
+                    let last = unsafe { &mut *last_ptr };
                     // NOTE: Only lowercase the key ("local"), not the value!
                     // Decode XML entities in attribute values as well
                     last.attributes.push(azul_core::window::AzStringPair {
@@ -380,7 +385,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
             Text { text } => {
                 // HTML5-lite: If last element was a void element, pop it before adding text
                 if last_was_void {
-                    current_hierarchy.pop();
+                    node_stack.pop();
                     last_was_void = false;
                 }
 
@@ -390,7 +395,9 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                 let is_whitespace_only = text_str.trim().is_empty();
 
                 if !is_whitespace_only {
-                    if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
+                    // SAFETY: Last element in stack is valid
+                    if let Some(&current_parent_ptr) = node_stack.last() {
+                        let current_parent = unsafe { &mut *current_parent_ptr };
                         // Decode XML entities (e.g., &lt; -> <, &gt; -> >, etc.)
                         let decoded_text = decode_xml_entities(text_str);
                         // Add text as a child node
@@ -406,7 +413,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
 
     // Clean up: if we ended with a void element, pop it
     if last_was_void {
-        current_hierarchy.pop();
+        node_stack.pop();
     }
 
     Ok(root_node.children.into())

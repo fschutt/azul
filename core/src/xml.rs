@@ -861,14 +861,15 @@ impl core::fmt::Debug for XmlComponent {
 /// Holds all XML components - builtin components
 pub struct XmlComponentMap {
     /// Stores all known components that can be used during DOM rendering
+    /// Key is the normalized component name (lowercase with underscores)
     /// + whether this component should inherit variables from the parent scope
-    pub components: Vec<XmlComponent>,
+    pub components: BTreeMap<String, XmlComponent>,
 }
 
 impl Default for XmlComponentMap {
     fn default() -> Self {
         let mut map = Self {
-            components: Vec::new(),
+            components: BTreeMap::new(),
         };
 
         // Structural elements
@@ -1153,7 +1154,12 @@ impl Default for XmlComponentMap {
 
 impl XmlComponentMap {
     pub fn register_component(&mut self, comp: XmlComponent) {
-        self.components.push(comp);
+        self.components.insert(comp.id.clone(), comp);
+    }
+    
+    /// Get a component by its normalized name
+    pub fn get(&self, name: &str) -> Option<&XmlComponent> {
+        self.components.get(name)
     }
 }
 
@@ -2290,38 +2296,166 @@ pub fn compile_component(
     )
 }
 
+/// Fast XML to Dom conversion that builds Dom tree directly without intermediate StyledDom
+/// This is O(n) instead of O(n²) for large documents
+fn xml_node_to_dom_fast<'a>(
+    xml_node: &'a XmlNode,
+    component_map: &'a XmlComponentMap,
+) -> Result<Dom, RenderDomError> {
+    use crate::dom::{Dom, NodeType, IdOrClass};
+    
+    let component_name = normalize_casing(&xml_node.node_type);
+    
+    // Get the component to determine the NodeType
+    let xml_component = component_map
+        .get(&component_name)
+        .ok_or(ComponentError::UnknownComponent(component_name.clone().into()))?;
+    
+    // Create the DOM node based on component type
+    let node_type = get_node_type_for_component(&component_name);
+    let mut dom = Dom::create_node(node_type);
+    
+    // Set id and class attributes
+    let mut ids_and_classes = Vec::new();
+    if let Some(id_str) = xml_node.attributes.get_key("id") {
+        for id in id_str.split_whitespace() {
+            ids_and_classes.push(IdOrClass::Id(id.into()));
+        }
+    }
+    if let Some(class_str) = xml_node.attributes.get_key("class") {
+        for class in class_str.split_whitespace() {
+            ids_and_classes.push(IdOrClass::Class(class.into()));
+        }
+    }
+    if !ids_and_classes.is_empty() {
+        dom.root.set_ids_and_classes(ids_and_classes.into());
+    }
+    
+    // Recursively convert children
+    let mut children = Vec::new();
+    for child in xml_node.children.as_ref().iter() {
+        match child {
+            XmlNodeChild::Element(child_node) => {
+                let child_dom = xml_node_to_dom_fast(child_node, component_map)?;
+                children.push(child_dom);
+            }
+            XmlNodeChild::Text(text) => {
+                let text_dom = Dom::create_text(AzString::from(text.as_str()));
+                children.push(text_dom);
+            }
+        }
+    }
+    
+    if !children.is_empty() {
+        dom = dom.with_children(children.into());
+    }
+    
+    Ok(dom)
+}
+
+/// Map component name to NodeType
+fn get_node_type_for_component(name: &str) -> crate::dom::NodeType {
+    use crate::dom::NodeType;
+    match name {
+        "html" => NodeType::Html,
+        "head" => NodeType::Head,
+        "title" => NodeType::Title,
+        "body" => NodeType::Body,
+        "div" => NodeType::Div,
+        "p" => NodeType::P,
+        "span" => NodeType::Span,
+        "br" => NodeType::Br,
+        "h1" => NodeType::H1,
+        "h2" => NodeType::H2,
+        "h3" => NodeType::H3,
+        "h4" => NodeType::H4,
+        "h5" => NodeType::H5,
+        "h6" => NodeType::H6,
+        "header" => NodeType::Header,
+        "footer" => NodeType::Footer,
+        "section" => NodeType::Section,
+        "article" => NodeType::Article,
+        "aside" => NodeType::Aside,
+        "nav" => NodeType::Nav,
+        "main" => NodeType::Main,
+        "pre" => NodeType::Pre,
+        "code" => NodeType::Code,
+        "blockquote" => NodeType::BlockQuote,
+        "ul" => NodeType::Ul,
+        "ol" => NodeType::Ol,
+        "li" => NodeType::Li,
+        "dl" => NodeType::Dl,
+        "dt" => NodeType::Dt,
+        "dd" => NodeType::Dd,
+        "table" => NodeType::Table,
+        "thead" => NodeType::THead,
+        "tbody" => NodeType::TBody,
+        "tfoot" => NodeType::TFoot,
+        "tr" => NodeType::Tr,
+        "th" => NodeType::Th,
+        "td" => NodeType::Td,
+        "a" => NodeType::A,
+        "strong" => NodeType::Strong,
+        "em" => NodeType::Em,
+        "b" => NodeType::B,
+        "i" => NodeType::I,
+        "u" => NodeType::U,
+        "small" => NodeType::Small,
+        "mark" => NodeType::Mark,
+        "sub" => NodeType::Sub,
+        "sup" => NodeType::Sup,
+        "form" => NodeType::Form,
+        "label" => NodeType::Label,
+        "button" => NodeType::Button,
+        "hr" => NodeType::Hr,
+        _ => NodeType::Div, // Default fallback
+    }
+}
+
 pub fn render_dom_from_body_node<'a>(
     body_node: &'a XmlNode,
     mut global_css: Option<Css>,
     component_map: &'a XmlComponentMap,
     max_width: Option<f32>,
 ) -> Result<StyledDom, RenderDomError> {
-    // Render the body node itself (which will render its children)
-    let mut body_styled = render_dom_from_body_node_inner(
-        body_node,
-        component_map,
-        &FilteredComponentArguments::default(),
-    )?;
+    // OPTIMIZATION: Build Dom tree first, then style once at the end
+    // This avoids O(n) StyledDom::create() calls for each of the ~360k nodes
+    let mut body_dom = xml_node_to_dom_fast(body_node, component_map)?;
+    
+    // OPTIMIZATION: Combine all CSS rules and apply ONCE instead of multiple restyle() calls
+    // Each restyle() is O(n * m) where n=nodes and m=CSS rules
+    let mut combined_stylesheets = Vec::new();
+    
+    // Add max-width constraint if specified
+    if let Some(max_width) = max_width {
+        let max_width_css = Css::from_string(
+            format!("html {{ max-width: {max_width}px; }}").into(),
+        );
+        for s in max_width_css.stylesheets.as_ref().iter() {
+            combined_stylesheets.push(s.clone());
+        }
+    }
+    
+    // Add global CSS from <style> tags
+    if let Some(css) = global_css.take() {
+        for s in css.stylesheets.as_ref().iter() {
+            combined_stylesheets.push(s.clone());
+        }
+    }
+    
+    let combined_css = Css::new(combined_stylesheets);
+    
+    // Apply combined CSS once to the complete DOM tree
+    let mut body_styled = body_dom.style(combined_css);
 
     // Check if the rendered result is already wrapped in HTML
     let root_node_id = match body_styled.root.into_crate_internal() {
         Some(id) => id,
         None => {
             // Empty DOM, create default HTML > Body structure
-            let mut html_dom = Dom::create_html()
+            let html_dom = Dom::create_html()
                 .with_child(Dom::create_body())
                 .style(Css::empty());
-
-            if let Some(max_width) = max_width {
-                html_dom.restyle(Css::from_string(
-                    format!("html {{ max-width: {max_width}px; }}").into(),
-                ));
-            }
-
-            if let Some(global_css) = global_css.clone() {
-                html_dom.restyle(global_css);
-            }
-
             return Ok(html_dom);
         }
     };
@@ -2332,7 +2466,7 @@ pub fn render_dom_from_body_node<'a>(
     use crate::dom::NodeType;
 
     // Wrap in HTML if needed
-    let mut dom = match root_node_type {
+    let dom = match root_node_type {
         NodeType::Html => {
             // Already has proper HTML root, return as-is
             body_styled
@@ -2353,16 +2487,6 @@ pub fn render_dom_from_body_node<'a>(
         }
     };
 
-    if let Some(max_width) = max_width {
-        dom.restyle(Css::from_string(
-            format!("html {{ max-width: {max_width}px; }}").into(),
-        ));
-    }
-
-    if let Some(global_css) = global_css.clone() {
-        dom.restyle(global_css); // apply the CSS again
-    }
-
     Ok(dom)
 }
 
@@ -2375,9 +2499,7 @@ pub fn render_dom_from_body_node_inner<'a>(
     let component_name = normalize_casing(&xml_node.node_type);
 
     let xml_component = component_map
-        .components
-        .iter()
-        .find(|s| normalize_casing(&s.id) == component_name)
+        .get(&component_name)
         .ok_or(ComponentError::UnknownComponent(
             component_name.clone().into(),
         ))?;
@@ -2407,6 +2529,8 @@ pub fn render_dom_from_body_node_inner<'a>(
     )?;
     set_attributes(&mut dom, &xml_node.attributes, &filtered_xml_attributes);
 
+    // Track child index for O(1) append instead of O(n) count
+    let mut child_index = 0usize;
     for child in xml_node.children.as_ref().iter() {
         match child {
             XmlNodeChild::Element(child_node) => {
@@ -2415,12 +2539,14 @@ pub fn render_dom_from_body_node_inner<'a>(
                     component_map,
                     &filtered_xml_attributes,
                 )?;
-                dom.append_child(child_dom);
+                dom.append_child_with_index(child_dom, child_index);
+                child_index += 1;
             }
             XmlNodeChild::Text(text) => {
                 // Create a text node for text children
                 let text_dom = Dom::create_text(AzString::from(text.as_str())).style(Css::empty());
-                dom.append_child(text_dom);
+                dom.append_child_with_index(text_dom, child_index);
+                child_index += 1;
             }
         }
     }
@@ -2960,10 +3086,10 @@ pub fn compile_components_to_rust_code(
 > {
     let mut map = Vec::new();
 
-    for xml_component in &components.components {
+    for (id, xml_component) in &components.components {
         render_component_inner(
             &mut map,
-            normalize_casing(&xml_component.id),
+            id.clone(),
             xml_component,
             &components,
             &ComponentArguments::default(),
@@ -3389,9 +3515,7 @@ pub fn compile_node_to_rust_code_inner<'a>(
     let component_name = normalize_casing(&node.node_type);
 
     let xml_component = component_map
-        .components
-        .iter()
-        .find(|s| normalize_casing(&s.id) == component_name)
+        .get(&component_name)
         .ok_or(ComponentError::UnknownComponent(
             component_name.clone().into(),
         ))?;
