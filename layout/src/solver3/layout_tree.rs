@@ -599,7 +599,7 @@ impl LayoutTree {
 pub fn generate_layout_tree<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
 ) -> Result<LayoutTree> {
-    let mut builder = LayoutTreeBuilder::new();
+    let mut builder = LayoutTreeBuilder::new(ctx.viewport_size);
     let root_id = ctx
         .styled_dom
         .root
@@ -621,13 +621,15 @@ pub fn generate_layout_tree<T: ParsedFontTrait>(
 pub struct LayoutTreeBuilder {
     nodes: Vec<LayoutNode>,
     dom_to_layout: BTreeMap<NodeId, Vec<usize>>,
+    viewport_size: LogicalSize,
 }
 
 impl LayoutTreeBuilder {
-    pub fn new() -> Self {
+    pub fn new(viewport_size: LogicalSize) -> Self {
         Self {
             nodes: Vec::new(),
             dom_to_layout: BTreeMap::new(),
+            viewport_size,
         }
     }
 
@@ -1089,7 +1091,7 @@ impl LayoutTreeBuilder {
             parent,
             formatting_context: determine_formatting_context(styled_dom, dom_id),
             parent_formatting_context: parent_fc,
-            box_props: resolve_box_props(styled_dom, dom_id, debug_messages),
+            box_props: resolve_box_props(styled_dom, dom_id, debug_messages, self.viewport_size),
             taffy_cache: TaffyCache::new(),
             is_anonymous: false,
             anonymous_type: None,
@@ -1366,6 +1368,7 @@ fn create_resolution_context(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     containing_block_size: Option<azul_css::props::basic::PhysicalSize>,
+    viewport_size: LogicalSize,
 ) -> azul_css::props::basic::ResolutionContext {
     let element_font_size = get_element_font_size(styled_dom, dom_id);
     let parent_font_size = get_parent_font_size(styled_dom, dom_id);
@@ -1377,7 +1380,7 @@ fn create_resolution_context(
         root_font_size,
         containing_block_size: containing_block_size.unwrap_or(PhysicalSize::new(0.0, 0.0)),
         element_size: None, // Not yet laid out
-        viewport_size: PhysicalSize::new(0.0, 0.0),
+        viewport_size: PhysicalSize::new(viewport_size.width, viewport_size.height),
     }
 }
 
@@ -1385,6 +1388,7 @@ fn resolve_box_props(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    viewport_size: LogicalSize,
 ) -> BoxProps {
     use crate::solver3::getters::*;
 
@@ -1402,7 +1406,7 @@ fn resolve_box_props(
     // Create resolution context for this element
     // Note: containing_block_size is None here because we don't have it yet
     // This is fine - margins/padding use containing block width, but we'll handle that later
-    let context = create_resolution_context(styled_dom, dom_id, None);
+    let context = create_resolution_context(styled_dom, dom_id, None, viewport_size);
 
     // Helper to extract and resolve pixel value from MultiValue<PixelValue>
     let resolve_value = |mv: MultiValue<PixelValue>, prop_context: PropertyContext| -> f32 {

@@ -417,7 +417,7 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     cache: &LayoutCache,
     viewport: LogicalRect,
 ) -> Result<(LayoutTree, ReconciliationResult)> {
-    let mut new_tree_builder = LayoutTreeBuilder::new();
+    let mut new_tree_builder = LayoutTreeBuilder::new(ctx.viewport_size);
     let mut recon_result = ReconciliationResult::default();
     let old_tree = cache.tree.as_ref();
 
