@@ -15,6 +15,7 @@ xhtml
 async
 hello-world
 test_simple
+browser
 azul.h
 *.dSYM
 *.xhtml
