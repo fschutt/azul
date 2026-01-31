@@ -1059,7 +1059,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
 }
 
 /// Generate standard Vec functions: create(), len(), capacity(), is_empty(), get(), as_slice()
-fn generate_vec_functions(type_name: &str, element_type: &str, lowercase_type_name: &str) -> indexmap::IndexMap<String, crate::api::FunctionData> {
+pub fn generate_vec_functions(type_name: &str, element_type: &str, lowercase_type_name: &str) -> indexmap::IndexMap<String, crate::api::FunctionData> {
     use indexmap::IndexMap;
     use crate::api::{FunctionData, ReturnTypeData};
     

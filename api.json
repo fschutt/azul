@@ -47935,6 +47935,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `ListViewRowVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "ListViewRowVec"
+                },
+                "fn_body": "ListViewRowVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `ListViewRowVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ListViewRowVec"
+                },
+                "fn_body": "ListViewRowVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "list_view_row_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "list_view_row_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "list_view_row_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionListViewRow"
+                },
+                "fn_body": "list_view_row_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "StyleFilterVec": {
@@ -47975,6 +48060,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `StyleFilterVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "StyleFilterVec"
+                },
+                "fn_body": "StyleFilterVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `StyleFilterVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleFilterVec"
+                },
+                "fn_body": "StyleFilterVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_filter_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_filter_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "style_filter_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStyleFilter"
+                },
+                "fn_body": "style_filter_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "AccessibilityStateVec": {
@@ -48015,6 +48185,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `AccessibilityStateVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "AccessibilityStateVec"
+                },
+                "fn_body": "AccessibilityStateVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `AccessibilityStateVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "AccessibilityStateVec"
+                },
+                "fn_body": "AccessibilityStateVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "accessibility_state_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "accessibility_state_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "accessibility_state_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionAccessibilityState"
+                },
+                "fn_body": "accessibility_state_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "MenuItemVec": {
@@ -48055,6 +48310,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `MenuItemVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "MenuItemVec"
+                },
+                "fn_body": "MenuItemVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `MenuItemVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "MenuItemVec"
+                },
+                "fn_body": "MenuItemVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "menu_item_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "menu_item_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "menu_item_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionMenuItem"
+                },
+                "fn_body": "menu_item_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "StyleFontFamilyVec": {
@@ -48095,6 +48435,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `StyleFontFamilyVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "StyleFontFamilyVec"
+                },
+                "fn_body": "StyleFontFamilyVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `StyleFontFamilyVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleFontFamilyVec"
+                },
+                "fn_body": "StyleFontFamilyVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_font_family_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_font_family_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "style_font_family_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStyleFontFamily"
+                },
+                "fn_body": "style_font_family_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "DomVec": {
@@ -48135,6 +48560,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `DomVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "DomVec"
+                },
+                "fn_body": "DomVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `DomVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "DomVec"
+                },
+                "fn_body": "DomVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "dom_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "dom_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "dom_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionDom"
+                },
+                "fn_body": "dom_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "IdOrClassVec": {
@@ -48175,6 +48685,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `IdOrClassVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "IdOrClassVec"
+                },
+                "fn_body": "IdOrClassVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `IdOrClassVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "IdOrClassVec"
+                },
+                "fn_body": "IdOrClassVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "id_or_class_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "id_or_class_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "id_or_class_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionIdOrClass"
+                },
+                "fn_body": "id_or_class_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "DynamicSelectorVec": {
@@ -48211,6 +48806,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `DynamicSelectorVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "DynamicSelectorVec"
+                },
+                "fn_body": "DynamicSelectorVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `DynamicSelectorVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "DynamicSelectorVec"
+                },
+                "fn_body": "DynamicSelectorVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "dynamic_selector_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "dynamic_selector_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "dynamic_selector_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionDynamicSelector"
+                },
+                "fn_body": "dynamic_selector_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "CssPropertyWithConditionsVec": {
@@ -48251,6 +48931,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `CssPropertyWithConditionsVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "CssPropertyWithConditionsVec"
+                },
+                "fn_body": "CssPropertyWithConditionsVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `CssPropertyWithConditionsVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CssPropertyWithConditionsVec"
+                },
+                "fn_body": "CssPropertyWithConditionsVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "css_property_with_conditions_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "css_property_with_conditions_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "css_property_with_conditions_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionCssPropertyWithConditions"
+                },
+                "fn_body": "css_property_with_conditions_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "StyleBackgroundContentVec": {
@@ -48291,6 +49056,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `StyleBackgroundContentVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "StyleBackgroundContentVec"
+                },
+                "fn_body": "StyleBackgroundContentVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `StyleBackgroundContentVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleBackgroundContentVec"
+                },
+                "fn_body": "StyleBackgroundContentVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_background_content_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_background_content_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "style_background_content_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStyleBackgroundContent"
+                },
+                "fn_body": "style_background_content_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "StyleBackgroundPositionVec": {
@@ -48331,6 +49181,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `StyleBackgroundPositionVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "StyleBackgroundPositionVec"
+                },
+                "fn_body": "StyleBackgroundPositionVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `StyleBackgroundPositionVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleBackgroundPositionVec"
+                },
+                "fn_body": "StyleBackgroundPositionVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_background_position_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_background_position_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "style_background_position_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStyleBackgroundPosition"
+                },
+                "fn_body": "style_background_position_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "StyleBackgroundRepeatVec": {
@@ -48371,6 +49306,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `StyleBackgroundRepeatVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "StyleBackgroundRepeatVec"
+                },
+                "fn_body": "StyleBackgroundRepeatVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `StyleBackgroundRepeatVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleBackgroundRepeatVec"
+                },
+                "fn_body": "StyleBackgroundRepeatVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_background_repeat_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_background_repeat_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "style_background_repeat_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStyleBackgroundRepeat"
+                },
+                "fn_body": "style_background_repeat_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "StyleBackgroundSizeVec": {
@@ -48411,6 +49431,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `StyleBackgroundSizeVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "StyleBackgroundSizeVec"
+                },
+                "fn_body": "StyleBackgroundSizeVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `StyleBackgroundSizeVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleBackgroundSizeVec"
+                },
+                "fn_body": "StyleBackgroundSizeVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_background_size_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_background_size_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "style_background_size_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStyleBackgroundSize"
+                },
+                "fn_body": "style_background_size_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "StyleTransformVec": {
@@ -48451,6 +49556,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `StyleTransformVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "StyleTransformVec"
+                },
+                "fn_body": "StyleTransformVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `StyleTransformVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleTransformVec"
+                },
+                "fn_body": "StyleTransformVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_transform_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "style_transform_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "style_transform_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStyleTransform"
+                },
+                "fn_body": "style_transform_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "SvgMultiPolygonVec": {
@@ -48488,6 +49678,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `SvgMultiPolygonVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "SvgMultiPolygonVec"
+                },
+                "fn_body": "SvgMultiPolygonVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `SvgMultiPolygonVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgMultiPolygonVec"
+                },
+                "fn_body": "SvgMultiPolygonVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "svg_multi_polygon_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "svg_multi_polygon_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "svg_multi_polygon_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionSvgMultiPolygon"
+                },
+                "fn_body": "svg_multi_polygon_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "SvgSimpleNodeVec": {
@@ -48525,6 +49800,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `SvgSimpleNodeVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "SvgSimpleNodeVec"
+                },
+                "fn_body": "SvgSimpleNodeVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `SvgSimpleNodeVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgSimpleNodeVec"
+                },
+                "fn_body": "SvgSimpleNodeVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "svg_simple_node_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "svg_simple_node_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "svg_simple_node_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionSvgSimpleNode"
+                },
+                "fn_body": "svg_simple_node_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "TessellatedSvgNodeVec": {
@@ -48576,6 +49936,89 @@
                   "type": "TessellatedSvgNodeVecRef"
                 },
                 "fn_body": "object.get_ref()"
+              },
+              "create": {
+                "doc": [
+                  "Creates an empty `TessellatedSvgNodeVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "TessellatedSvgNodeVec"
+                },
+                "fn_body": "TessellatedSvgNodeVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `TessellatedSvgNodeVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "TessellatedSvgNodeVec"
+                },
+                "fn_body": "TessellatedSvgNodeVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "tessellated_svg_node_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "tessellated_svg_node_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "tessellated_svg_node_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionTessellatedSvgNode"
+                },
+                "fn_body": "tessellated_svg_node_vec.get(index).cloned().into()"
               }
             },
             "repr": "C"
@@ -48615,6 +50058,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `SvgPathVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "SvgPathVec"
+                },
+                "fn_body": "SvgPathVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `SvgPathVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgPathVec"
+                },
+                "fn_body": "SvgPathVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "svg_path_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "svg_path_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "svg_path_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionSvgPath"
+                },
+                "fn_body": "svg_path_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "SvgPathElementVec": {
@@ -48652,6 +50180,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `SvgPathElementVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "SvgPathElementVec"
+                },
+                "fn_body": "SvgPathElementVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `SvgPathElementVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgPathElementVec"
+                },
+                "fn_body": "SvgPathElementVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "svg_path_element_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "svg_path_element_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "svg_path_element_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionSvgPathElement"
+                },
+                "fn_body": "svg_path_element_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "SvgVertexVec": {
@@ -48689,6 +50302,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `SvgVertexVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "SvgVertexVec"
+                },
+                "fn_body": "SvgVertexVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `SvgVertexVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgVertexVec"
+                },
+                "fn_body": "SvgVertexVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "svg_vertex_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "svg_vertex_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "svg_vertex_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionSvgVertex"
+                },
+                "fn_body": "svg_vertex_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "U32Vec": {
@@ -48729,6 +50427,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `U32Vec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "U32Vec"
+                },
+                "fn_body": "U32Vec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `U32Vec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "U32Vec"
+                },
+                "fn_body": "U32Vec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "u32_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "u32_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "u32_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "Optionu32"
+                },
+                "fn_body": "u32_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "VirtualKeyCodeVec": {
@@ -48769,6 +50552,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `VirtualKeyCodeVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "VirtualKeyCodeVec"
+                },
+                "fn_body": "VirtualKeyCodeVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `VirtualKeyCodeVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "VirtualKeyCodeVec"
+                },
+                "fn_body": "VirtualKeyCodeVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "virtual_key_code_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "virtual_key_code_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "virtual_key_code_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionVirtualKeyCode"
+                },
+                "fn_body": "virtual_key_code_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "CascadeInfoVec": {
@@ -48806,6 +50674,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `CascadeInfoVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "CascadeInfoVec"
+                },
+                "fn_body": "CascadeInfoVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `CascadeInfoVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CascadeInfoVec"
+                },
+                "fn_body": "CascadeInfoVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "cascade_info_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "cascade_info_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "cascade_info_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionCascadeInfo"
+                },
+                "fn_body": "cascade_info_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "CssDeclarationVec": {
@@ -48846,6 +50799,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `CssDeclarationVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "CssDeclarationVec"
+                },
+                "fn_body": "CssDeclarationVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `CssDeclarationVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CssDeclarationVec"
+                },
+                "fn_body": "CssDeclarationVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "css_declaration_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "css_declaration_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "css_declaration_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionCssDeclaration"
+                },
+                "fn_body": "css_declaration_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "CssPathSelectorVec": {
@@ -48886,6 +50924,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `CssPathSelectorVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "CssPathSelectorVec"
+                },
+                "fn_body": "CssPathSelectorVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `CssPathSelectorVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CssPathSelectorVec"
+                },
+                "fn_body": "CssPathSelectorVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "css_path_selector_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "css_path_selector_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "css_path_selector_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionCssPathSelector"
+                },
+                "fn_body": "css_path_selector_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "StylesheetVec": {
@@ -48923,6 +51046,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `StylesheetVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "StylesheetVec"
+                },
+                "fn_body": "StylesheetVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `StylesheetVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StylesheetVec"
+                },
+                "fn_body": "StylesheetVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "stylesheet_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "stylesheet_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "stylesheet_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStylesheet"
+                },
+                "fn_body": "stylesheet_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "CssRuleBlockVec": {
@@ -48960,6 +51168,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `CssRuleBlockVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "CssRuleBlockVec"
+                },
+                "fn_body": "CssRuleBlockVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `CssRuleBlockVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CssRuleBlockVec"
+                },
+                "fn_body": "CssRuleBlockVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "css_rule_block_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "css_rule_block_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "css_rule_block_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionCssRuleBlock"
+                },
+                "fn_body": "css_rule_block_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "U16Vec": {
@@ -49000,6 +51293,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `U16Vec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "U16Vec"
+                },
+                "fn_body": "U16Vec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `U16Vec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "U16Vec"
+                },
+                "fn_body": "U16Vec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "u16_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "u16_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "u16_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "Optionu16"
+                },
+                "fn_body": "u16_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "F32Vec": {
@@ -49037,6 +51415,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `F32Vec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "F32Vec"
+                },
+                "fn_body": "F32Vec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `F32Vec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "F32Vec"
+                },
+                "fn_body": "F32Vec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "f32_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "f32_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "f32_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "Optionf32"
+                },
+                "fn_body": "f32_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "U8Vec": {
@@ -49110,6 +51573,89 @@
                   "type": "U8VecRef"
                 },
                 "fn_body": "u8vec.as_ref().into()"
+              },
+              "create": {
+                "doc": [
+                  "Creates an empty `U8Vec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "U8Vec"
+                },
+                "fn_body": "U8Vec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `U8Vec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "U8Vec"
+                },
+                "fn_body": "U8Vec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "u8_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "u8_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "u8_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "Optionu8"
+                },
+                "fn_body": "u8_vec.get(index).cloned().into()"
               }
             },
             "repr": "C"
@@ -49152,6 +51698,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `GLuintVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "GLuintVec"
+                },
+                "fn_body": "GLuintVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `GLuintVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "GLuintVec"
+                },
+                "fn_body": "GLuintVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "g_luint_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "g_luint_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "g_luint_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionGLuint"
+                },
+                "fn_body": "g_luint_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "GLintVec": {
@@ -49192,6 +51823,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `GLintVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "GLintVec"
+                },
+                "fn_body": "GLintVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `GLintVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "GLintVec"
+                },
+                "fn_body": "GLintVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "g_lint_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "g_lint_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "g_lint_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionGLint"
+                },
+                "fn_body": "g_lint_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "StringVec": {
@@ -49233,6 +51949,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `StringVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "StringVec"
+                },
+                "fn_body": "StringVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `StringVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StringVec"
+                },
+                "fn_body": "StringVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "string_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "string_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "string_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionString"
+                },
+                "fn_body": "string_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "StringPairVec": {
@@ -49273,6 +52074,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `StringPairVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "StringPairVec"
+                },
+                "fn_body": "StringPairVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `StringPairVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StringPairVec"
+                },
+                "fn_body": "StringPairVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "string_pair_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "string_pair_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "string_pair_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStringPair"
+                },
+                "fn_body": "string_pair_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "NormalizedLinearColorStopVec": {
@@ -49313,6 +52199,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `NormalizedLinearColorStopVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "NormalizedLinearColorStopVec"
+                },
+                "fn_body": "NormalizedLinearColorStopVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `NormalizedLinearColorStopVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "NormalizedLinearColorStopVec"
+                },
+                "fn_body": "NormalizedLinearColorStopVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "normalized_linear_color_stop_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "normalized_linear_color_stop_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "normalized_linear_color_stop_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionNormalizedLinearColorStop"
+                },
+                "fn_body": "normalized_linear_color_stop_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "NormalizedRadialColorStopVec": {
@@ -49353,6 +52324,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `NormalizedRadialColorStopVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "NormalizedRadialColorStopVec"
+                },
+                "fn_body": "NormalizedRadialColorStopVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `NormalizedRadialColorStopVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "NormalizedRadialColorStopVec"
+                },
+                "fn_body": "NormalizedRadialColorStopVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "normalized_radial_color_stop_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "normalized_radial_color_stop_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "normalized_radial_color_stop_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionNormalizedRadialColorStop"
+                },
+                "fn_body": "normalized_radial_color_stop_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "NodeIdVec": {
@@ -49393,6 +52449,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `NodeIdVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "NodeIdVec"
+                },
+                "fn_body": "NodeIdVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `NodeIdVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "NodeIdVec"
+                },
+                "fn_body": "NodeIdVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "node_id_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "node_id_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "node_id_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionNodeId"
+                },
+                "fn_body": "node_id_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "NodeHierarchyItemVec": {
@@ -49430,6 +52571,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `NodeHierarchyItemVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "NodeHierarchyItemVec"
+                },
+                "fn_body": "NodeHierarchyItemVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `NodeHierarchyItemVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "NodeHierarchyItemVec"
+                },
+                "fn_body": "NodeHierarchyItemVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "node_hierarchy_item_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "node_hierarchy_item_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "node_hierarchy_item_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionNodeHierarchyItem"
+                },
+                "fn_body": "node_hierarchy_item_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "TagIdToNodeIdMappingVec": {
@@ -49467,6 +52693,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `TagIdToNodeIdMappingVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "TagIdToNodeIdMappingVec"
+                },
+                "fn_body": "TagIdToNodeIdMappingVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `TagIdToNodeIdMappingVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "TagIdToNodeIdMappingVec"
+                },
+                "fn_body": "TagIdToNodeIdMappingVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "tag_id_to_node_id_mapping_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "tag_id_to_node_id_mapping_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "tag_id_to_node_id_mapping_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionTagIdToNodeIdMapping"
+                },
+                "fn_body": "tag_id_to_node_id_mapping_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "ParentWithNodeDepthVec": {
@@ -49504,6 +52815,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `ParentWithNodeDepthVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "ParentWithNodeDepthVec"
+                },
+                "fn_body": "ParentWithNodeDepthVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `ParentWithNodeDepthVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ParentWithNodeDepthVec"
+                },
+                "fn_body": "ParentWithNodeDepthVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "parent_with_node_depth_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "parent_with_node_depth_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "parent_with_node_depth_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionParentWithNodeDepth"
+                },
+                "fn_body": "parent_with_node_depth_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "NodeDataVec": {
@@ -49544,6 +52940,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `NodeDataVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "NodeDataVec"
+                },
+                "fn_body": "NodeDataVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `NodeDataVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "NodeDataVec"
+                },
+                "fn_body": "NodeDataVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "node_data_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "node_data_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "node_data_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionNodeData"
+                },
+                "fn_body": "node_data_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "AttributeVec": {
@@ -49584,6 +53065,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `AttributeVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "AttributeVec"
+                },
+                "fn_body": "AttributeVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `AttributeVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "AttributeVec"
+                },
+                "fn_body": "AttributeVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "attribute_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "attribute_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "attribute_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionAttribute"
+                },
+                "fn_body": "attribute_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "CoreCallbackDataVec": {
@@ -49624,6 +53190,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `CoreCallbackDataVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "CoreCallbackDataVec"
+                },
+                "fn_body": "CoreCallbackDataVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `CoreCallbackDataVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CoreCallbackDataVec"
+                },
+                "fn_body": "CoreCallbackDataVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "core_callback_data_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "core_callback_data_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "core_callback_data_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionCoreCallbackData"
+                },
+                "fn_body": "core_callback_data_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "AccessibilityActionVec": {
@@ -49664,6 +53315,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `AccessibilityActionVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "AccessibilityActionVec"
+                },
+                "fn_body": "AccessibilityActionVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `AccessibilityActionVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "AccessibilityActionVec"
+                },
+                "fn_body": "AccessibilityActionVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "accessibility_action_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "accessibility_action_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "accessibility_action_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionAccessibilityAction"
+                },
+                "fn_body": "accessibility_action_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "XmlNodeChildVec": {
@@ -49704,6 +53440,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `XmlNodeChildVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "XmlNodeChildVec"
+                },
+                "fn_body": "XmlNodeChildVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `XmlNodeChildVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "XmlNodeChildVec"
+                },
+                "fn_body": "XmlNodeChildVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "xml_node_child_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "xml_node_child_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "xml_node_child_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionXmlNodeChild"
+                },
+                "fn_body": "xml_node_child_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "GridTrackSizingVec": {
@@ -49744,6 +53565,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `GridTrackSizingVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "GridTrackSizingVec"
+                },
+                "fn_body": "GridTrackSizingVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `GridTrackSizingVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "GridTrackSizingVec"
+                },
+                "fn_body": "GridTrackSizingVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "grid_track_sizing_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "grid_track_sizing_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "grid_track_sizing_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionGridTrackSizing"
+                },
+                "fn_body": "grid_track_sizing_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "GLbooleanVecRefMut": {
@@ -51343,6 +55249,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `VertexAttributeVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "VertexAttributeVec"
+                },
+                "fn_body": "VertexAttributeVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `VertexAttributeVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "VertexAttributeVec"
+                },
+                "fn_body": "VertexAttributeVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "vertex_attribute_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "vertex_attribute_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "vertex_attribute_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionVertexAttribute"
+                },
+                "fn_body": "vertex_attribute_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "DebugMessageVecDestructor": {
@@ -51407,6 +55398,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `DebugMessageVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "DebugMessageVec"
+                },
+                "fn_body": "DebugMessageVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `DebugMessageVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "DebugMessageVec"
+                },
+                "fn_body": "DebugMessageVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "debug_message_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "debug_message_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "debug_message_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionDebugMessage"
+                },
+                "fn_body": "debug_message_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "ShapePointVecDestructor": {
@@ -51472,6 +55548,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `ShapePointVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "ShapePointVec"
+                },
+                "fn_body": "ShapePointVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `ShapePointVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ShapePointVec"
+                },
+                "fn_body": "ShapePointVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "shape_point_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "shape_point_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "shape_point_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionShapePoint"
+                },
+                "fn_body": "shape_point_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "MonitorVec": {
@@ -51505,6 +55666,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `MonitorVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "MonitorVec"
+                },
+                "fn_body": "MonitorVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `MonitorVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "MonitorVec"
+                },
+                "fn_body": "MonitorVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "monitor_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "monitor_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "monitor_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionMonitor"
+                },
+                "fn_body": "monitor_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "VideoModeVecDestructorType": {
@@ -51564,6 +55810,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `VideoModeVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "VideoModeVec"
+                },
+                "fn_body": "VideoModeVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `VideoModeVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "VideoModeVec"
+                },
+                "fn_body": "VideoModeVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "video_mode_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "video_mode_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "video_mode_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionVideoMode"
+                },
+                "fn_body": "video_mode_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "XWindowTypeVec": {
@@ -51600,6 +55931,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `XWindowTypeVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "XWindowTypeVec"
+                },
+                "fn_body": "XWindowTypeVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `XWindowTypeVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "XWindowTypeVec"
+                },
+                "fn_body": "XWindowTypeVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "x_window_type_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "x_window_type_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "x_window_type_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionXWindowType"
+                },
+                "fn_body": "x_window_type_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "XWindowTypeVecDestructor": {
@@ -51726,6 +56142,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `ScanCodeVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "ScanCodeVec"
+                },
+                "fn_body": "ScanCodeVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `ScanCodeVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ScanCodeVec"
+                },
+                "fn_body": "ScanCodeVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "scan_code_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "scan_code_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "scan_code_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionScanCode"
+                },
+                "fn_body": "scan_code_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "StyledNodeVecDestructor": {
@@ -51775,6 +56276,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `ContentGroupVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "ContentGroupVec"
+                },
+                "fn_body": "ContentGroupVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `ContentGroupVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ContentGroupVec"
+                },
+                "fn_body": "ContentGroupVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "content_group_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "content_group_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "content_group_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionContentGroup"
+                },
+                "fn_body": "content_group_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "StyledNodeVec": {
@@ -51808,6 +56394,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `StyledNodeVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "StyledNodeVec"
+                },
+                "fn_body": "StyledNodeVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `StyledNodeVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyledNodeVec"
+                },
+                "fn_body": "StyledNodeVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "styled_node_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "styled_node_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "styled_node_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStyledNode"
+                },
+                "fn_body": "styled_node_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "ContentGroupVecDestructorType": {
@@ -51912,6 +56583,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `DomIdVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "DomIdVec"
+                },
+                "fn_body": "DomIdVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `DomIdVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "DomIdVec"
+                },
+                "fn_body": "DomIdVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "dom_id_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "dom_id_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "dom_id_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionDomId"
+                },
+                "fn_body": "dom_id_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "DomIdVecDestructor": {
@@ -52001,6 +56757,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `TimerIdVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "TimerIdVec"
+                },
+                "fn_body": "TimerIdVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `TimerIdVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "TimerIdVec"
+                },
+                "fn_body": "TimerIdVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "timer_id_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "timer_id_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "timer_id_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionTimerId"
+                },
+                "fn_body": "timer_id_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "SelectionRangeVec": {
@@ -52034,6 +56875,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `SelectionRangeVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "SelectionRangeVec"
+                },
+                "fn_body": "SelectionRangeVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `SelectionRangeVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SelectionRangeVec"
+                },
+                "fn_body": "SelectionRangeVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "selection_range_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "selection_range_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "selection_range_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionSelectionRange"
+                },
+                "fn_body": "selection_range_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "TimerIdVecDestructorType": {
@@ -52099,6 +57025,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `ThreadIdVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "ThreadIdVec"
+                },
+                "fn_body": "ThreadIdVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `ThreadIdVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ThreadIdVec"
+                },
+                "fn_body": "ThreadIdVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "thread_id_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "thread_id_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "thread_id_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionThreadId"
+                },
+                "fn_body": "thread_id_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "SelectionRangeVecDestructor": {
@@ -52187,6 +57198,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `StyledTextRunVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "StyledTextRunVec"
+                },
+                "fn_body": "StyledTextRunVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `StyledTextRunVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyledTextRunVec"
+                },
+                "fn_body": "StyledTextRunVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "styled_text_run_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "styled_text_run_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "styled_text_run_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStyledTextRun"
+                },
+                "fn_body": "styled_text_run_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "SelectionVecDestructorType": {
@@ -52233,6 +57329,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `SelectionVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "SelectionVec"
+                },
+                "fn_body": "SelectionVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `SelectionVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SelectionVec"
+                },
+                "fn_body": "SelectionVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "selection_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "selection_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "selection_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionSelection"
+                },
+                "fn_body": "selection_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "SelectionVecDestructor": {
@@ -52281,6 +57462,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `HttpHeaderVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "HttpHeaderVec"
+                },
+                "fn_body": "HttpHeaderVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `HttpHeaderVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "HttpHeaderVec"
+                },
+                "fn_body": "HttpHeaderVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "http_header_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "http_header_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "http_header_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionHttpHeader"
+                },
+                "fn_body": "http_header_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "HttpHeaderVecDestructorType": {
@@ -52338,6 +57604,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `FmtArgVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "FmtArgVec"
+                },
+                "fn_body": "FmtArgVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `FmtArgVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "FmtArgVec"
+                },
+                "fn_body": "FmtArgVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "fmt_arg_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "fmt_arg_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "fmt_arg_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionFmtArg"
+                },
+                "fn_body": "fmt_arg_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "FmtArgVecDestructor": {
@@ -52418,6 +57769,91 @@
                 "fn_body": "azul_layout::json::JsonVec::copy_from_array(ptr, len)"
               }
             },
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `JsonVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "JsonVec"
+                },
+                "fn_body": "JsonVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `JsonVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "JsonVec"
+                },
+                "fn_body": "JsonVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "json_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "json_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "json_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionJson"
+                },
+                "fn_body": "json_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "JsonVecDestructor": {
@@ -52478,6 +57914,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `DirEntryVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "DirEntryVec"
+                },
+                "fn_body": "DirEntryVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `DirEntryVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "DirEntryVec"
+                },
+                "fn_body": "DirEntryVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "dir_entry_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "dir_entry_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "dir_entry_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionDirEntry"
+                },
+                "fn_body": "dir_entry_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "DirEntryVecDestructorType": {
@@ -52523,6 +58044,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `OptionJsonKeyValueVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionJsonKeyValueVec"
+                },
+                "fn_body": "OptionJsonKeyValueVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `OptionJsonKeyValueVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionJsonKeyValueVec"
+                },
+                "fn_body": "OptionJsonKeyValueVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "option_json_key_value_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "option_json_key_value_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "option_json_key_value_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionOptionJsonKeyValue"
+                },
+                "fn_body": "option_json_key_value_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C, u8"
           },
           "JsonKeyValueVec": {
@@ -52570,6 +58176,91 @@
                 "fn_body": "azul_layout::json::JsonKeyValueVec::copy_from_array(ptr, len)"
               }
             },
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `JsonKeyValueVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "JsonKeyValueVec"
+                },
+                "fn_body": "JsonKeyValueVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `JsonKeyValueVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "JsonKeyValueVec"
+                },
+                "fn_body": "JsonKeyValueVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "json_key_value_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "json_key_value_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "json_key_value_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionJsonKeyValue"
+                },
+                "fn_body": "json_key_value_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "OptionJsonVec": {
@@ -52586,6 +58277,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `OptionJsonVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionJsonVec"
+                },
+                "fn_body": "OptionJsonVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `OptionJsonVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionJsonVec"
+                },
+                "fn_body": "OptionJsonVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "option_json_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "option_json_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "option_json_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionOptionJson"
+                },
+                "fn_body": "option_json_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C, u8"
           },
           "JsonKeyValueVecDestructorType": {
@@ -52638,6 +58414,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `OptionStringVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "OptionStringVec"
+                },
+                "fn_body": "OptionStringVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `OptionStringVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStringVec"
+                },
+                "fn_body": "OptionStringVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "option_string_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "option_string_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "option_string_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionOptionString"
+                },
+                "fn_body": "option_string_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C, u8"
           },
           "NamedFontVecDestructorType": {
@@ -52703,6 +58564,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `NamedFontVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "NamedFontVec"
+                },
+                "fn_body": "NamedFontVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `NamedFontVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "NamedFontVec"
+                },
+                "fn_body": "NamedFontVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "named_font_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "named_font_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "named_font_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionNamedFont"
+                },
+                "fn_body": "named_font_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "ExternalResourceVec": {
@@ -52739,6 +58685,91 @@
                 }
               }
             ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `ExternalResourceVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "ExternalResourceVec"
+                },
+                "fn_body": "ExternalResourceVec::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `ExternalResourceVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ExternalResourceVec"
+                },
+                "fn_body": "ExternalResourceVec::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "external_resource_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "external_resource_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "external_resource_vec.is_empty()"
+              },
+              "get": {
+                "doc": [
+                  "Returns a reference to the element at the given index, or None if out of bounds"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionExternalResource"
+                },
+                "fn_body": "external_resource_vec.get(index).cloned().into()"
+              }
+            },
             "repr": "C"
           },
           "ExternalResourceVecDestructor": {

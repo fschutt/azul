@@ -9,6 +9,22 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+/// Convert PascalCase to snake_case
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 {
+                result.push('_');
+            }
+            result.push(c.to_ascii_lowercase());
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 /// A patch file containing one or more operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutofixPatch {
@@ -819,6 +835,7 @@ impl AutofixPatch {
         let mut custom_impls_to_remove = Vec::new();
         let mut struct_fields_to_add: IndexMap<String, FieldData> = IndexMap::new();
         let mut enum_variants_to_add: IndexMap<String, EnumVariantData> = IndexMap::new();
+        let mut functions_to_add: IndexMap<String, crate::api::FunctionData> = IndexMap::new();
 
         for change in &m.changes {
             match change {
@@ -1066,14 +1083,19 @@ impl AutofixPatch {
                     element_type,
                 } => {
                     // Vec type is missing standard impl_vec! functions
-                    // These need to be added to the functions array
-                    eprintln!(
-                        "  [WARN] {} (Vec<{}>): missing functions [{}] - run 'autofix add \"{}.create\"' etc. to fix",
-                        m.type_name,
+                    // Generate the functions and add them to the patch
+                    let lowercase_type_name = to_snake_case(&m.type_name);
+                    let all_vec_functions = super::workspace::generate_vec_functions(
+                        &m.type_name,
                         element_type,
-                        missing_functions.join(", "),
-                        m.type_name
+                        &lowercase_type_name,
                     );
+                    // Only add the missing functions
+                    for fn_name in missing_functions {
+                        if let Some(fn_data) = all_vec_functions.get(fn_name) {
+                            functions_to_add.insert(fn_name.clone(), fn_data.clone());
+                        }
+                    }
                 }
             }
         }
@@ -1099,6 +1121,10 @@ impl AutofixPatch {
         if !enum_variants_to_add.is_empty() {
             patch.enum_fields = Some(vec![enum_variants_to_add]);
             patch.add_enum_fields = Some(true); // Merge with existing enum_fields
+        }
+        if !functions_to_add.is_empty() {
+            patch.functions = Some(functions_to_add);
+            patch.add_functions = Some(true); // Merge with existing functions
         }
 
         patch
