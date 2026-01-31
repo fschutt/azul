@@ -305,8 +305,11 @@ pub struct LayoutNode {
     pub parent: Option<usize>,
     /// Dirty flags to track what needs recalculation.
     pub dirty_flag: DirtyFlag,
+    /// Unresolved box model properties (raw CSS values).
+    /// These are resolved lazily during layout when containing block is known.
+    pub unresolved_box_props: crate::solver3::geometry::UnresolvedBoxProps,
     /// The resolved box model properties (margin, border, padding)
-    /// in logical pixels.
+    /// in logical pixels. Cached after first resolution.
     pub box_props: BoxProps,
     /// Cache for Taffy layout computations for this node.
     pub taffy_cache: TaffyCache, // NEW FIELD
@@ -404,6 +407,33 @@ pub struct ComputedLayoutStyle {
 }
 
 impl LayoutNode {
+    /// Re-resolve box properties with the actual containing block size.
+    ///
+    /// This should be called during layout when the containing block is known.
+    /// It updates `self.box_props` with correctly resolved values for percentage-based
+    /// margins and padding.
+    ///
+    /// # Arguments
+    /// * `containing_block` - The size of the containing block
+    /// * `viewport_size` - The viewport size for vh/vw units
+    /// * `element_font_size` - The element's computed font-size for em units
+    /// * `root_font_size` - The root element's font-size for rem units
+    pub fn resolve_box_props_with_containing_block(
+        &mut self,
+        containing_block: LogicalSize,
+        viewport_size: LogicalSize,
+        element_font_size: f32,
+        root_font_size: f32,
+    ) {
+        let params = crate::solver3::geometry::ResolutionParams {
+            containing_block,
+            viewport_size,
+            element_font_size,
+            root_font_size,
+        };
+        self.box_props = self.unresolved_box_props.resolve(&params);
+    }
+
     /// Calculates the actual content size of this node, including all children and text.
     /// This is used to determine if scrollbars should appear for overflow: auto.
     pub fn get_content_size(&self) -> LogicalSize {
@@ -494,6 +524,29 @@ impl LayoutTree {
 
     pub fn root_node(&self) -> &LayoutNode {
         &self.nodes[self.root]
+    }
+
+    /// Re-resolve box properties for a node with the actual containing block size.
+    ///
+    /// This should be called during layout when the containing block is known.
+    /// It updates `box_props` with correctly resolved values for percentage-based
+    /// margins and padding.
+    pub fn resolve_box_props(
+        &mut self,
+        node_index: usize,
+        containing_block: LogicalSize,
+        viewport_size: LogicalSize,
+        element_font_size: f32,
+        root_font_size: f32,
+    ) {
+        if let Some(node) = self.nodes.get_mut(node_index) {
+            node.resolve_box_props_with_containing_block(
+                containing_block,
+                viewport_size,
+                element_font_size,
+                root_font_size,
+            );
+        }
     }
 
     /// Marks a node and its ancestors as dirty with the given flag.
@@ -981,7 +1034,8 @@ impl LayoutTreeBuilder {
             parent: Some(parent),
             formatting_context: fc,
             parent_formatting_context: parent_fc,
-            // Anonymous boxes inherit from parent
+            // Anonymous boxes inherit from parent (default = all zeros)
+            unresolved_box_props: crate::solver3::geometry::UnresolvedBoxProps::default(),
             box_props: BoxProps::default(),
             taffy_cache: TaffyCache::new(),
             is_anonymous: true,
@@ -1038,7 +1092,8 @@ impl LayoutTreeBuilder {
             // Markers contain inline text
             formatting_context: FormattingContext::Inline,
             parent_formatting_context: parent_fc,
-            // Will be resolved from ::marker styles
+            // Will be resolved from ::marker styles (default for now)
+            unresolved_box_props: crate::solver3::geometry::UnresolvedBoxProps::default(),
             box_props: BoxProps::default(),
             taffy_cache: TaffyCache::new(),
             // Pseudo-elements are not anonymous boxes
@@ -1085,13 +1140,15 @@ impl LayoutTreeBuilder {
         let index = self.nodes.len();
         let parent_fc =
             parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context.clone()));
+        let collected = collect_box_props(styled_dom, dom_id, debug_messages, self.viewport_size);
         self.nodes.push(LayoutNode {
             dom_node_id: Some(dom_id),
             pseudo_element: None,
             parent,
             formatting_context: determine_formatting_context(styled_dom, dom_id),
             parent_formatting_context: parent_fc,
-            box_props: resolve_box_props(styled_dom, dom_id, debug_messages, self.viewport_size),
+            unresolved_box_props: collected.unresolved,
+            box_props: collected.resolved,
             taffy_cache: TaffyCache::new(),
             is_anonymous: false,
             anonymous_type: None,
@@ -1384,12 +1441,24 @@ fn create_resolution_context(
     }
 }
 
-fn resolve_box_props(
+/// Result of collecting box properties from the styled DOM.
+struct CollectedBoxProps {
+    unresolved: crate::solver3::geometry::UnresolvedBoxProps,
+    resolved: BoxProps,
+}
+
+/// Collects box properties from the styled DOM and returns both unresolved and resolved forms.
+///
+/// The unresolved form stores the raw CSS values for later re-resolution when
+/// the containing block size is known. The resolved form is an initial resolution
+/// using viewport_size for viewport-relative units.
+fn collect_box_props(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     viewport_size: LogicalSize,
-) -> BoxProps {
+) -> CollectedBoxProps {
+    use crate::solver3::geometry::{UnresolvedBoxProps, UnresolvedEdge, UnresolvedMargin};
     use crate::solver3::getters::*;
 
     let node_data = &styled_dom.node_data.as_container()[dom_id];
@@ -1405,102 +1474,109 @@ fn resolve_box_props(
 
     // Create resolution context for this element
     // Note: containing_block_size is None here because we don't have it yet
-    // This is fine - margins/padding use containing block width, but we'll handle that later
+    // This is fine for initial resolution - will be re-resolved during layout
     let context = create_resolution_context(styled_dom, dom_id, None, viewport_size);
 
-    // Helper to extract and resolve pixel value from MultiValue<PixelValue>
-    let resolve_value = |mv: MultiValue<PixelValue>, prop_context: PropertyContext| -> f32 {
-        match mv {
-            MultiValue::Exact(pv) => pv.resolve_with_context(&context, prop_context),
-            _ => 0.0,
-        }
-    };
-
-    // Read margin, padding, border from styled_dom
+    // Read margin values from styled_dom
     let margin_top_mv = get_css_margin_top(styled_dom, dom_id, &node_state);
     let margin_right_mv = get_css_margin_right(styled_dom, dom_id, &node_state);
     let margin_bottom_mv = get_css_margin_bottom(styled_dom, dom_id, &node_state);
     let margin_left_mv = get_css_margin_left(styled_dom, dom_id, &node_state);
 
-    // Track which margins are `auto` for centering calculation
-    let margin_auto = crate::solver3::geometry::MarginAuto {
-        top: matches!(margin_top_mv, MultiValue::Auto),
-        right: matches!(margin_right_mv, MultiValue::Auto),
-        bottom: matches!(margin_bottom_mv, MultiValue::Auto),
-        left: matches!(margin_left_mv, MultiValue::Auto),
+    // Convert MultiValue to UnresolvedMargin
+    let to_unresolved_margin = |mv: &MultiValue<PixelValue>| -> UnresolvedMargin {
+        match mv {
+            MultiValue::Auto => UnresolvedMargin::Auto,
+            MultiValue::Exact(pv) => UnresolvedMargin::Length(*pv),
+            _ => UnresolvedMargin::Zero,
+        }
     };
+
+    // Build unresolved margins
+    let unresolved_margin = UnresolvedEdge {
+        top: to_unresolved_margin(&margin_top_mv),
+        right: to_unresolved_margin(&margin_right_mv),
+        bottom: to_unresolved_margin(&margin_bottom_mv),
+        left: to_unresolved_margin(&margin_left_mv),
+    };
+
+    // Read padding values
+    let padding_top_mv = get_css_padding_top(styled_dom, dom_id, &node_state);
+    let padding_right_mv = get_css_padding_right(styled_dom, dom_id, &node_state);
+    let padding_bottom_mv = get_css_padding_bottom(styled_dom, dom_id, &node_state);
+    let padding_left_mv = get_css_padding_left(styled_dom, dom_id, &node_state);
+
+    // Convert MultiValue to PixelValue (default to 0px)
+    let to_pixel_value = |mv: MultiValue<PixelValue>| -> PixelValue {
+        match mv {
+            MultiValue::Exact(pv) => pv,
+            _ => PixelValue::const_px(0),
+        }
+    };
+
+    // Build unresolved padding
+    let unresolved_padding = UnresolvedEdge {
+        top: to_pixel_value(padding_top_mv),
+        right: to_pixel_value(padding_right_mv),
+        bottom: to_pixel_value(padding_bottom_mv),
+        left: to_pixel_value(padding_left_mv),
+    };
+
+    // Read border values
+    let border_top_mv = get_css_border_top_width(styled_dom, dom_id, &node_state);
+    let border_right_mv = get_css_border_right_width(styled_dom, dom_id, &node_state);
+    let border_bottom_mv = get_css_border_bottom_width(styled_dom, dom_id, &node_state);
+    let border_left_mv = get_css_border_left_width(styled_dom, dom_id, &node_state);
+
+    // Build unresolved border
+    let unresolved_border = UnresolvedEdge {
+        top: to_pixel_value(border_top_mv),
+        right: to_pixel_value(border_right_mv),
+        bottom: to_pixel_value(border_bottom_mv),
+        left: to_pixel_value(border_left_mv),
+    };
+
+    // Build the UnresolvedBoxProps
+    let unresolved = UnresolvedBoxProps {
+        margin: unresolved_margin,
+        padding: unresolved_padding,
+        border: unresolved_border,
+    };
+
+    // Create initial resolution params (with viewport as containing block for now)
+    let params = crate::solver3::geometry::ResolutionParams {
+        containing_block: viewport_size,
+        viewport_size,
+        element_font_size: context.parent_font_size,
+        root_font_size: context.root_font_size,
+    };
+
+    // Resolve to get initial box_props
+    let resolved = unresolved.resolve(&params);
 
     // Debug margin_auto detection
     if let Some(msgs) = debug_messages.as_mut() {
         msgs.push(LayoutDebugMessage::box_props(format!(
-            "NodeId {:?} ({:?}): margin_auto: left={}, right={}, top={}, bottom={} | margin_left_mv={:?}, margin_right_mv={:?}",
+            "NodeId {:?} ({:?}): margin_auto: left={}, right={}, top={}, bottom={} | margin_left={:?}",
             dom_id, node_data.node_type,
-            margin_auto.left, margin_auto.right, margin_auto.top, margin_auto.bottom,
-            margin_left_mv, margin_right_mv
+            resolved.margin_auto.left, resolved.margin_auto.right,
+            resolved.margin_auto.top, resolved.margin_auto.bottom,
+            unresolved_margin.left
         )));
     }
-
-    let margin = crate::solver3::geometry::EdgeSizes {
-        top: resolve_value(margin_top_mv.clone(), PropertyContext::Margin),
-        right: resolve_value(margin_right_mv.clone(), PropertyContext::Margin),
-        bottom: resolve_value(margin_bottom_mv.clone(), PropertyContext::Margin),
-        left: resolve_value(margin_left_mv.clone(), PropertyContext::Margin),
-    };
 
     // Debug for Body nodes
     if matches!(node_data.node_type, azul_core::dom::NodeType::Body) {
         if let Some(msgs) = debug_messages.as_mut() {
             msgs.push(LayoutDebugMessage::box_props(format!(
                 "Body margin resolved: top={:.2}, right={:.2}, bottom={:.2}, left={:.2}",
-                margin.top, margin.right, margin.bottom, margin.left
+                resolved.margin.top, resolved.margin.right,
+                resolved.margin.bottom, resolved.margin.left
             )));
         }
     }
 
-    let padding = crate::solver3::geometry::EdgeSizes {
-        top: resolve_value(
-            get_css_padding_top(styled_dom, dom_id, &node_state),
-            PropertyContext::Padding,
-        ),
-        right: resolve_value(
-            get_css_padding_right(styled_dom, dom_id, &node_state),
-            PropertyContext::Padding,
-        ),
-        bottom: resolve_value(
-            get_css_padding_bottom(styled_dom, dom_id, &node_state),
-            PropertyContext::Padding,
-        ),
-        left: resolve_value(
-            get_css_padding_left(styled_dom, dom_id, &node_state),
-            PropertyContext::Padding,
-        ),
-    };
-
-    let border = crate::solver3::geometry::EdgeSizes {
-        top: resolve_value(
-            get_css_border_top_width(styled_dom, dom_id, &node_state),
-            PropertyContext::Other,
-        ),
-        right: resolve_value(
-            get_css_border_right_width(styled_dom, dom_id, &node_state),
-            PropertyContext::Other,
-        ),
-        bottom: resolve_value(
-            get_css_border_bottom_width(styled_dom, dom_id, &node_state),
-            PropertyContext::Other,
-        ),
-        left: resolve_value(
-            get_css_border_left_width(styled_dom, dom_id, &node_state),
-            PropertyContext::Other,
-        ),
-    };
-
-    BoxProps {
-        margin,
-        padding,
-        border,
-        margin_auto,
-    }
+    CollectedBoxProps { unresolved, resolved }
 }
 
 /// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 1:

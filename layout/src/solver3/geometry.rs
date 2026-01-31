@@ -4,7 +4,10 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     ui_solver::ResolvedOffsets,
 };
-use azul_css::props::layout::LayoutWritingMode;
+use azul_css::props::{
+    basic::{pixel::PixelValue, PhysicalSize, PropertyContext, ResolutionContext, SizeMetric},
+    layout::LayoutWritingMode,
+};
 
 /// Represents the CSS `box-sizing` property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -79,6 +82,162 @@ impl EdgeSizes {
     }
 }
 
+// ============================================================================
+// UNRESOLVED VALUE TYPES (for lazy resolution during layout)
+// ============================================================================
+
+/// An unresolved CSS margin value.
+///
+/// Margins can be `auto` (for centering) or a length value that needs
+/// resolution against the containing block.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum UnresolvedMargin {
+    /// margin: 0 (default)
+    #[default]
+    Zero,
+    /// margin: auto (for centering, CSS 2.2 § 10.3.3)
+    Auto,
+    /// A length value (px, %, em, vh, etc.)
+    Length(PixelValue),
+}
+
+impl UnresolvedMargin {
+    /// Returns true if this is an auto margin
+    pub fn is_auto(&self) -> bool {
+        matches!(self, UnresolvedMargin::Auto)
+    }
+
+    /// Resolve this margin value to pixels.
+    ///
+    /// - `Auto` returns 0.0 (actual auto margin calculation happens in layout)
+    /// - `Zero` returns 0.0
+    /// - `Length` is resolved using the resolution context
+    pub fn resolve(&self, ctx: &ResolutionContext) -> f32 {
+        match self {
+            UnresolvedMargin::Zero => 0.0,
+            UnresolvedMargin::Auto => 0.0, // Auto is handled separately in layout
+            UnresolvedMargin::Length(pv) => pv.resolve_with_context(ctx, PropertyContext::Margin),
+        }
+    }
+}
+
+/// Unresolved edge sizes for margin/padding/border.
+///
+/// This stores the raw CSS values before resolution, allowing us to
+/// defer resolution until the containing block size is known.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UnresolvedEdge<T> {
+    pub top: T,
+    pub right: T,
+    pub bottom: T,
+    pub left: T,
+}
+
+impl<T> UnresolvedEdge<T> {
+    pub fn new(top: T, right: T, bottom: T, left: T) -> Self {
+        Self { top, right, bottom, left }
+    }
+}
+
+impl UnresolvedEdge<UnresolvedMargin> {
+    /// Resolve all margin edges to pixel values.
+    pub fn resolve(&self, ctx: &ResolutionContext) -> EdgeSizes {
+        EdgeSizes {
+            top: self.top.resolve(ctx),
+            right: self.right.resolve(ctx),
+            bottom: self.bottom.resolve(ctx),
+            left: self.left.resolve(ctx),
+        }
+    }
+
+    /// Extract which margins are set to `auto`.
+    pub fn get_margin_auto(&self) -> MarginAuto {
+        MarginAuto {
+            top: self.top.is_auto(),
+            right: self.right.is_auto(),
+            bottom: self.bottom.is_auto(),
+            left: self.left.is_auto(),
+        }
+    }
+}
+
+impl UnresolvedEdge<PixelValue> {
+    /// Resolve all edges to pixel values.
+    pub fn resolve(&self, ctx: &ResolutionContext, prop_ctx: PropertyContext) -> EdgeSizes {
+        EdgeSizes {
+            top: self.top.resolve_with_context(ctx, prop_ctx),
+            right: self.right.resolve_with_context(ctx, prop_ctx),
+            bottom: self.bottom.resolve_with_context(ctx, prop_ctx),
+            left: self.left.resolve_with_context(ctx, prop_ctx),
+        }
+    }
+}
+
+/// Parameters needed to resolve CSS values to pixels.
+#[derive(Debug, Clone, Copy)]
+pub struct ResolutionParams {
+    /// The containing block size (for % resolution)
+    pub containing_block: LogicalSize,
+    /// The viewport size (for vh/vw resolution)
+    pub viewport_size: LogicalSize,
+    /// The element's computed font-size (for em resolution)
+    pub element_font_size: f32,
+    /// The root element's font-size (for rem resolution)
+    pub root_font_size: f32,
+}
+
+impl ResolutionParams {
+    /// Create a ResolutionContext from these parameters.
+    pub fn to_resolution_context(&self) -> ResolutionContext {
+        ResolutionContext {
+            element_font_size: self.element_font_size,
+            parent_font_size: self.element_font_size, // For em in non-font properties
+            root_font_size: self.root_font_size,
+            element_size: None,
+            containing_block_size: PhysicalSize::new(
+                self.containing_block.width,
+                self.containing_block.height,
+            ),
+            viewport_size: PhysicalSize::new(
+                self.viewport_size.width,
+                self.viewport_size.height,
+            ),
+        }
+    }
+}
+
+// ============================================================================
+// UNRESOLVED BOX PROPS (new design)
+// ============================================================================
+
+/// Box properties with unresolved CSS values.
+///
+/// This stores the raw CSS values as parsed, deferring resolution until
+/// layout time when the containing block size is known.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UnresolvedBoxProps {
+    pub margin: UnresolvedEdge<UnresolvedMargin>,
+    pub padding: UnresolvedEdge<PixelValue>,
+    pub border: UnresolvedEdge<PixelValue>,
+}
+
+impl UnresolvedBoxProps {
+    /// Resolve all box properties to pixel values.
+    pub fn resolve(&self, params: &ResolutionParams) -> ResolvedBoxProps {
+        let ctx = params.to_resolution_context();
+        ResolvedBoxProps {
+            margin: self.margin.resolve(&ctx),
+            padding: self.padding.resolve(&ctx, PropertyContext::Padding),
+            border: self.border.resolve(&ctx, PropertyContext::BorderWidth),
+            margin_auto: self.margin.get_margin_auto(),
+        }
+    }
+}
+
+// ============================================================================
+// RESOLVED BOX PROPS (legacy name: BoxProps)
+// ============================================================================
+
 /// Tracks which margins are set to `auto` (for centering calculations).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MarginAuto {
@@ -88,9 +247,12 @@ pub struct MarginAuto {
     pub bottom: bool,
 }
 
-/// A fully resolved representation of a a node's box model properties.
+/// A fully resolved representation of a node's box model properties.
+///
+/// All values are in pixels. This is the result of resolving `UnresolvedBoxProps`
+/// against a containing block.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct BoxProps {
+pub struct ResolvedBoxProps {
     pub margin: EdgeSizes,
     pub padding: EdgeSizes,
     pub border: EdgeSizes,
@@ -100,7 +262,7 @@ pub struct BoxProps {
     pub margin_auto: MarginAuto,
 }
 
-impl BoxProps {
+impl ResolvedBoxProps {
     /// Calculates the inner content-box size from an outer border-box size,
     /// correctly accounting for the specified writing mode.
     pub fn inner_size(&self, outer_size: LogicalSize, wm: LayoutWritingMode) -> LogicalSize {
@@ -119,6 +281,10 @@ impl BoxProps {
         LogicalSize::from_main_cross(inner_main, inner_cross, wm)
     }
 }
+
+/// Type alias for backwards compatibility.
+/// TODO: Remove this once all code uses ResolvedBoxProps directly.
+pub type BoxProps = ResolvedBoxProps;
 
 // Verwende die Typen aus azul_css für float und clear
 pub use azul_css::props::layout::{LayoutClear, LayoutFloat};
