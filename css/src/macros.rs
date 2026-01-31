@@ -1,7 +1,70 @@
 #[macro_export]
 macro_rules! impl_vec {
-    ($struct_type:ident, $struct_name:ident, $destructor_name:ident, $destructor_type_name:ident) => {
+    ($struct_type:ident, $struct_name:ident, $destructor_name:ident, $destructor_type_name:ident, $slice_name:ident, $option_type:ident) => {
         pub type $destructor_type_name = extern "C" fn(*mut $struct_name);
+
+        /// C-compatible slice type for $struct_name.
+        /// This is a non-owning view into a Vec's data.
+        #[repr(C)]
+        #[derive(Debug, Copy, Clone)]
+        pub struct $slice_name {
+            pub ptr: *const $struct_type,
+            pub len: usize,
+        }
+
+        impl $slice_name {
+            /// Creates an empty slice.
+            #[inline(always)]
+            pub const fn empty() -> Self {
+                Self {
+                    ptr: core::ptr::null(),
+                    len: 0,
+                }
+            }
+
+            /// Returns the number of elements in the slice.
+            #[inline(always)]
+            pub const fn len(&self) -> usize {
+                self.len
+            }
+
+            /// Returns true if the slice is empty.
+            #[inline(always)]
+            pub const fn is_empty(&self) -> bool {
+                self.len == 0
+            }
+
+            /// Returns a pointer to the slice's data.
+            #[inline(always)]
+            pub const fn as_ptr(&self) -> *const $struct_type {
+                self.ptr
+            }
+
+            /// Converts the C-slice to a Rust slice.
+            #[inline(always)]
+            pub fn as_slice(&self) -> &[$struct_type] {
+                if self.ptr.is_null() || self.len == 0 {
+                    &[]
+                } else {
+                    unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
+                }
+            }
+
+            /// Returns a reference to the element at the given index, or None if out of bounds.
+            #[inline(always)]
+            pub fn get(&self, index: usize) -> Option<&$struct_type> {
+                self.as_slice().get(index)
+            }
+
+            /// Returns an iterator over the elements.
+            #[inline]
+            pub fn iter(&self) -> core::slice::Iter<$struct_type> {
+                self.as_slice().iter()
+            }
+        }
+
+        unsafe impl Send for $slice_name {}
+        unsafe impl Sync for $slice_name {}
 
         #[repr(C)]
         pub struct $struct_name {
@@ -89,11 +152,22 @@ macro_rules! impl_vec {
                 self.len == 0
             }
 
+            /// Returns a reference to the element at the given index (Rust-only, inline).
             #[inline(always)]
             pub fn get(&self, index: usize) -> Option<&$struct_type> {
                 let v1: &[$struct_type] = self.as_ref();
                 let res = v1.get(index);
                 res
+            }
+
+            /// C-API compatible get function. Returns a copy of the element at the given index.
+            /// Returns None if the index is out of bounds.
+            #[inline]
+            pub fn c_get(&self, index: usize) -> $option_type
+            where
+                $struct_type: Clone,
+            {
+                self.get(index).cloned().into()
             }
 
             #[allow(dead_code)]
@@ -104,9 +178,36 @@ macro_rules! impl_vec {
                 res
             }
 
+            /// Returns the vec as a Rust slice (Rust-only, not C-API compatible).
             #[inline(always)]
             pub fn as_slice(&self) -> &[$struct_type] {
                 self.as_ref()
+            }
+
+            /// Returns a C-compatible slice of the entire Vec.
+            #[inline(always)]
+            pub fn as_c_slice(&self) -> $slice_name {
+                $slice_name {
+                    ptr: self.ptr,
+                    len: self.len,
+                }
+            }
+
+            /// Returns a C-compatible slice of a range within the Vec.
+            /// If the range is out of bounds, it is clamped to the valid range.
+            #[inline]
+            pub fn as_c_slice_range(&self, start: usize, end: usize) -> $slice_name {
+                let start = start.min(self.len);
+                let end = end.min(self.len).max(start);
+                let len = end - start;
+                if len == 0 || self.ptr.is_null() {
+                    $slice_name::empty()
+                } else {
+                    $slice_name {
+                        ptr: unsafe { self.ptr.add(start) },
+                        len,
+                    }
+                }
             }
 
             /// Returns a pointer to the Vec's data.
