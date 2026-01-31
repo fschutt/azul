@@ -293,6 +293,10 @@ pub struct CodegenConfig {
     /// When true, generates #[test] functions that verify type sizes,
     /// layout compatibility, and basic API functionality
     pub generate_tests: bool,
+    
+    /// Extra module declarations to add after the imports
+    /// Used for including external modules like `pub mod desktop;`
+    pub extra_module_declarations: Vec<String>,
 }
 
 impl CodegenConfig {
@@ -475,6 +479,7 @@ impl CodegenConfig {
             // Replace azul_dll:: with crate:: since we're inside azul-dll
             external_crate_replacement: Some(("azul_dll::".into(), "crate::".into())),
             generate_tests: false,
+            extra_module_declarations: vec![],
         }
     }
 
@@ -493,11 +498,13 @@ impl CodegenConfig {
             type_prefix: "Az".into(),
             module_wrapper: Some("dll".into()),
             imports: vec![
+                "extern crate alloc;".into(),
                 "use core::ffi::c_void;".into(),
                 "use core::ffi::c_int;".into(),
                 "use core::mem::transmute;".into(),
                 "use azul_layout::xml::svg::SvgMultiPolygonTessellation;".into(),
             ],
+            extra_module_declarations: vec![],
             type_filter: None,
             type_exclude: BTreeSet::new(),
             indent: "    ".into(),
@@ -535,6 +542,7 @@ impl CodegenConfig {
             callback_typedef_use_external: false,
             external_crate_replacement: Some(("azul_dll::".into(), "crate::".into())),
             generate_tests: false,
+            extra_module_declarations: vec![],
         }
     }
 
@@ -563,6 +571,7 @@ impl CodegenConfig {
             callback_typedef_use_external: false,
             external_crate_replacement: None,
             generate_tests: false,
+            extra_module_declarations: vec![],
         }
     }
 
@@ -589,6 +598,7 @@ impl CodegenConfig {
             callback_typedef_use_external: false,
             external_crate_replacement: None,
             generate_tests: false,
+            extra_module_declarations: vec![],
         }
     }
 
@@ -615,6 +625,7 @@ impl CodegenConfig {
             callback_typedef_use_external: false,
             external_crate_replacement: None,
             generate_tests: false,
+            extra_module_declarations: vec![],
         }
     }
 
@@ -658,6 +669,7 @@ impl CodegenConfig {
             callback_typedef_use_external: false,
             external_crate_replacement: None,
             generate_tests: false,
+            extra_module_declarations: vec![],
         }
     }
 
@@ -689,6 +701,7 @@ impl CodegenConfig {
             // Replace azul_dll:: with crate:: since included in azul-dll
             external_crate_replacement: Some(("azul_dll::".into(), "crate::".into())),
             generate_tests: true, // Generate #[test] functions!
+            extra_module_declarations: vec![],
         }
     }
 }
@@ -810,6 +823,7 @@ impl PythonConfig {
                 callback_typedef_use_external: true, // Use external callback types
                 external_crate_replacement: None,
                 generate_tests: false,
+                extra_module_declarations: vec![],
             },
             generate_pyclass: true,
             generate_pymethods: true,

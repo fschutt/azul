@@ -1320,9 +1320,9 @@ impl<'a> IRBuilder<'a> {
                             other => (ArgRefKind::Owned, other.to_string()),            // fallback
                         };
                         return FunctionArg {
-                            // Use lowercase class name as parameter name
-                            // This matches what fn_body expects (e.g., "dom.root.set_node_type(...)")
-                            name: class_name.to_lowercase(),
+                            // Use snake_case class name as parameter name
+                            // This matches what fn_body expects (e.g., "dom_vec.len()")
+                            name: to_snake_case(class_name),
                             type_name: actual_type,
                             ref_kind,
                             doc: None,

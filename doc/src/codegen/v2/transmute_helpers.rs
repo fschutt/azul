@@ -119,7 +119,9 @@ pub fn generate_transmuted_fn_body(
     force_clone_self: bool, // If true, always clone self (for PyO3 methods where API says self by-value)
     skip_args: &BTreeSet<String>, // Arguments to skip (already converted with _ffi suffix)
 ) -> String {
-    let self_var = class_name.to_lowercase();
+    let self_var = to_snake_case(class_name);
+    // Legacy variant: class name lowercased without underscores (e.g., "TextInput" -> "textinput")
+    let legacy_lowercase_var = class_name.to_lowercase();
     let parsed_args = parse_fn_args(fn_args);
 
     // For PyO3 bindings (keep_self_name=true), we need to use "_self" as the transmuted variable
@@ -131,8 +133,9 @@ pub fn generate_transmuted_fn_body(
     //    crate) For memtest mode: Keep "azul_dll::" as is (memtest uses azul_dll as dependency)
     // 2. Replace "self." and "classname." with the appropriate variable name
     // 3. Replace "object." with the appropriate variable name (legacy naming convention)
-    // 4. Replace unqualified "TypeName::method(" with fully qualified path
-    // 5. Replace standalone variable name (as function argument) with transmuted variable
+    // 4. Replace legacy lowercase classname (e.g., "textinput.") with proper snake_case variable
+    // 5. Replace unqualified "TypeName::method(" with fully qualified path
+    // 6. Replace standalone variable name (as function argument) with transmuted variable
     let mut fn_body = if is_for_dll {
         fn_body.replace("azul_dll::", "crate::")
     } else {
@@ -143,12 +146,46 @@ pub fn generate_transmuted_fn_body(
     // since we generate an alias `let classname = _self;` below
     fn_body = fn_body.replace("self.", &format!("{}.", transmuted_self_var));
     fn_body = fn_body.replace("object.", &format!("{}.", transmuted_self_var));
+    
+    // Replace legacy lowercase classname with proper snake_case variable
+    // e.g., "textinput.set_text()" -> "text_input.set_text()" (when parameter is text_input)
+    // e.g., "encode_bmp(rawimage)" -> "encode_bmp(raw_image)" 
+    // Only if the legacy form differs from snake_case form
+    if legacy_lowercase_var != self_var {
+        // Replace method call form: "classname.method()"
+        fn_body = fn_body.replace(
+            &format!("{}.", legacy_lowercase_var),
+            &format!("{}.", transmuted_self_var),
+        );
+        // Replace argument form: "(classname)" -> "(var)" and "(classname," -> "(var,"
+        fn_body = fn_body.replace(
+            &format!("({})", legacy_lowercase_var),
+            &format!("({})", transmuted_self_var),
+        );
+        fn_body = fn_body.replace(
+            &format!("({},", legacy_lowercase_var),
+            &format!("({},", transmuted_self_var),
+        );
+        fn_body = fn_body.replace(
+            &format!("({}.", legacy_lowercase_var),
+            &format!("({}.", transmuted_self_var),
+        );
+        fn_body = fn_body.replace(
+            &format!(", {})", legacy_lowercase_var),
+            &format!(", {})", transmuted_self_var),
+        );
+        fn_body = fn_body.replace(
+            &format!(", {},", legacy_lowercase_var),
+            &format!(", {},", transmuted_self_var),
+        );
+    }
 
-    // For constructors: if fn_body contains standalone "Self::" or "Self {", replace with external path
+    // Replace "Self::" or "Self {" with external path when it appears in fn_body
     // E.g., "Self::MouseOver" -> "azul_core::events::HoverEventFilter::MouseOver"
     // E.g., "Self { inner: ... }" -> "azul_css::props::layout::flex::LayoutFlexGrow { inner: ... }"
     // NOTE: Must check for STANDALONE "Self::" not as part of another word like "LayoutAlignSelf::"
-    if is_constructor {
+    // This applies to constructors AND static functions that return Self (like copy_from_ptr)
+    {
         // Handle "Self::" at start of fn_body or after non-alphanumeric chars
         // We check for "Self::" that's not preceded by a letter/digit/underscore
         let should_replace_self_colon = if fn_body.starts_with("Self::") {
@@ -195,23 +232,62 @@ pub fn generate_transmuted_fn_body(
                 }
             }
         }
+    }
 
-        // Also handle unqualified type name (e.g., "TypeName::" -> "external::path::TypeName::")
-        // Check if fn_body starts with a type name (uppercase letter followed by ::)
+    // Also handle unqualified type name (e.g., "TypeName::" -> "external::path::TypeName::")
+    // This applies to constructors AND static functions that reference types by name
+    // Look for patterns like "{ TypeName::" or just "TypeName::" at start
+    {
+        // Find all occurrences of "SomeType::" patterns and replace with full path
+        // We need to handle both start of expression and after delimiters like { or (
+        let delimiters = ["{ ", "( ", " "];
+        
+        for delimiter in delimiters {
+            let mut search_pos = 0;
+            while let Some(delimiter_pos) = fn_body[search_pos..].find(delimiter) {
+                let abs_pos = search_pos + delimiter_pos + delimiter.len();
+                if abs_pos >= fn_body.len() {
+                    break;
+                }
+                
+                // Find :: after this position
+                if let Some(colon_offset) = fn_body[abs_pos..].find("::") {
+                    let potential_type = &fn_body[abs_pos..abs_pos + colon_offset];
+                    
+                    // Check if it's a simple type name (no special chars, starts with uppercase)
+                    if !potential_type.contains("::")
+                        && !potential_type.contains(" ")
+                        && !potential_type.is_empty()
+                        && potential_type.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                    {
+                        // Look up the type in type_to_external
+                        let prefixed_type = format!("{}{}", prefix, potential_type);
+                        if let Some(external_path) = type_to_external.get(&prefixed_type) {
+                            // Replace "TypeName::" with "external::path::TypeName::"
+                            let replacement = if is_for_dll {
+                                format!("{}::", external_path.replace("azul_dll", "crate"))
+                            } else {
+                                format!("{}::", external_path)
+                            };
+                            let old_pattern = format!("{}::", potential_type);
+                            fn_body = fn_body.replacen(&old_pattern, &replacement, 1);
+                        }
+                    }
+                }
+                search_pos = abs_pos;
+            }
+        }
+        
+        // Also check for type at the very start of fn_body
         if let Some(colon_pos) = fn_body.find("::") {
             let potential_type = &fn_body[..colon_pos];
-            // Check if it's a simple type name (no :: in it, starts with uppercase)
             if !potential_type.contains("::")
-                && potential_type
-                    .chars()
-                    .next()
-                    .map(|c| c.is_uppercase())
-                    .unwrap_or(false)
+                && !potential_type.contains(" ")
+                && !potential_type.is_empty()
+                && potential_type.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
             {
-                // Look up the type in type_to_external
                 let prefixed_type = format!("{}{}", prefix, potential_type);
                 if let Some(external_path) = type_to_external.get(&prefixed_type) {
-                    // Replace "TypeName::" with "external::path::TypeName::"
                     let replacement = if is_for_dll {
                         format!("{}::", external_path.replace("azul_dll", "crate"))
                     } else {
@@ -402,4 +478,24 @@ pub fn generate_transmuted_fn_body(
 
     // Join with newlines and wrap in block
     format!("{{\n{}\n}}", lines.join("\n"))
+}
+
+/// Convert CamelCase to snake_case
+/// 
+/// Examples:
+/// - "DomVec" -> "dom_vec"
+/// - "AccessibilityActionVec" -> "accessibility_action_vec"
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 {
+                result.push('_');
+            }
+            result.push(c.to_ascii_lowercase());
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }

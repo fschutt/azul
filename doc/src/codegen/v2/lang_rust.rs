@@ -739,7 +739,7 @@ impl RustGenerator {
             // Check if this function takes owned self
             let takes_owned_self = func.args.iter().any(|arg| {
                 let is_self = arg.name == "self"
-                    || (arg.name == func.class_name.to_lowercase()
+                    || (arg.name == to_snake_case(&func.class_name)
                         && arg.type_name == func.class_name)
                     || (arg.name == "object" && arg.type_name == func.class_name);
                 is_self && matches!(arg.ref_kind, ArgRefKind::Owned)
@@ -755,7 +755,7 @@ impl RustGenerator {
                 .iter()
                 .filter(|arg| {
                     let is_self = arg.name == "self"
-                        || (arg.name == func.class_name.to_lowercase()
+                        || (arg.name == to_snake_case(&func.class_name)
                             && arg.type_name == func.class_name)
                         || (arg.name == "object" && arg.type_name == func.class_name);
                     !is_self
@@ -1011,7 +1011,8 @@ impl RustGenerator {
                 prefixed_inner
             ));
             builder.indent();
-            builder.line("unsafe { core::slice::from_raw_parts(self.ptr, self.len) }");
+            builder
+                .line("unsafe { core::slice::from_raw_parts(self.ptr, self.len) }");
             builder.dedent();
             builder.line("}");
             builder.blank();
@@ -1033,48 +1034,9 @@ impl RustGenerator {
             builder.line("}");
             builder.blank();
 
-            // len()
-            builder.line("/// Returns the number of elements in the vec.");
-            builder.line("#[inline]");
-            builder.line("pub fn len(&self) -> usize {");
-            builder.indent();
-            builder.line("self.len");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-
-            // capacity()
-            builder.line("/// Returns the capacity of the vec.");
-            builder.line("#[inline]");
-            builder.line("pub fn capacity(&self) -> usize {");
-            builder.indent();
-            builder.line("self.cap");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-
-            // is_empty()
-            builder.line("/// Returns `true` if the vec is empty.");
-            builder.line("#[inline]");
-            builder.line("pub fn is_empty(&self) -> bool {");
-            builder.indent();
-            builder.line("self.len == 0");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-
-            // get()
-            builder.line(&format!("/// Returns a reference to an element at the given index, or `None` if out of bounds."));
-            builder.line("#[inline]");
-            builder.line(&format!(
-                "pub fn get(&self, index: usize) -> Option<&{}> {{",
-                prefixed_inner
-            ));
-            builder.indent();
-            builder.line("self.as_slice().get(index)");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
+            // NOTE: len(), capacity(), is_empty(), get() are now generated via C-API wrappers
+            // from api.json and implemented in impl_vec! macro. We only generate methods here
+            // that are NOT part of the C-API (as_slice_mut, get_mut, iter, iter_mut, etc.)
 
             // get_mut()
             builder.line(&format!("/// Returns a mutable reference to an element at the given index, or `None` if out of bounds."));
@@ -1085,19 +1047,6 @@ impl RustGenerator {
             ));
             builder.indent();
             builder.line("self.as_slice_mut().get_mut(index)");
-            builder.dedent();
-            builder.line("}");
-            builder.blank();
-
-            // iter()
-            builder.line(&format!("/// Returns an iterator over the elements."));
-            builder.line("#[inline]");
-            builder.line(&format!(
-                "pub fn iter(&self) -> core::slice::Iter<'_, {}> {{",
-                prefixed_inner
-            ));
-            builder.indent();
-            builder.line("self.as_slice().iter()");
             builder.dedent();
             builder.line("}");
             builder.blank();
@@ -1589,8 +1538,8 @@ impl RustGenerator {
         let mut generic_params: Vec<String> = Vec::new();
         let mut generic_counter = 0u8;
 
-        // The lowercase class name is used as the self parameter name in C-ABI
-        let self_param_name = func.class_name.to_lowercase();
+        // The snake_case class name is used as the self parameter name in C-ABI
+        let self_param_name = to_snake_case(&func.class_name);
 
         for arg in &func.args {
             // An argument is "self" if:
