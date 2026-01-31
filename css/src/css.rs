@@ -19,12 +19,7 @@ pub struct Css {
     pub stylesheets: StylesheetVec,
 }
 
-impl_vec!(
-    Stylesheet,
-    StylesheetVec,
-    StylesheetVecDestructor,
-    StylesheetVecDestructorType
-);
+impl_vec!(Stylesheet, StylesheetVec, StylesheetVecDestructor, StylesheetVecDestructorType, StylesheetVecSlice, OptionStylesheet);
 impl_vec_mut!(Stylesheet, StylesheetVec);
 impl_vec_debug!(Stylesheet, StylesheetVec);
 impl_vec_partialord!(Stylesheet, StylesheetVec);
@@ -72,12 +67,14 @@ pub struct Stylesheet {
     pub rules: CssRuleBlockVec,
 }
 
-impl_vec!(
-    CssRuleBlock,
-    CssRuleBlockVec,
-    CssRuleBlockVecDestructor,
-    CssRuleBlockVecDestructorType
+impl_option!(
+    Stylesheet,
+    OptionStylesheet,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
 );
+
+impl_vec!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor, CssRuleBlockVecDestructorType, CssRuleBlockVecSlice, OptionCssRuleBlock);
 impl_vec_mut!(CssRuleBlock, CssRuleBlockVec);
 impl_vec_debug!(CssRuleBlock, CssRuleBlockVec);
 impl_vec_partialord!(CssRuleBlock, CssRuleBlockVec);
@@ -109,6 +106,13 @@ pub enum CssDeclaration {
     /// Dynamic key-value pair with default value, such as `width: [[ my_id | 500px ]]`
     Dynamic(DynamicCssProperty),
 }
+
+impl_option!(
+    CssDeclaration,
+    OptionCssDeclaration,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 impl CssDeclaration {
     pub const fn new_static(prop: CssProperty) -> Self {
@@ -370,6 +374,13 @@ pub struct CssRuleBlock {
     pub conditions: DynamicSelectorVec,
 }
 
+impl_option!(
+    CssRuleBlock,
+    OptionCssRuleBlock,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
+
 impl PartialOrd for CssRuleBlock {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         // Compare by path and declarations only, conditions are not ordered
@@ -380,12 +391,7 @@ impl PartialOrd for CssRuleBlock {
     }
 }
 
-impl_vec!(
-    CssDeclaration,
-    CssDeclarationVec,
-    CssDeclarationVecDestructor,
-    CssDeclarationVecDestructorType
-);
+impl_vec!(CssDeclaration, CssDeclarationVec, CssDeclarationVecDestructor, CssDeclarationVecDestructorType, CssDeclarationVecSlice, OptionCssDeclaration);
 impl_vec_mut!(CssDeclaration, CssDeclarationVec);
 impl_vec_debug!(CssDeclaration, CssDeclarationVec);
 impl_vec_partialord!(CssDeclaration, CssDeclarationVec);
@@ -923,12 +929,7 @@ pub struct CssPath {
     pub selectors: CssPathSelectorVec,
 }
 
-impl_vec!(
-    CssPathSelector,
-    CssPathSelectorVec,
-    CssPathSelectorVecDestructor,
-    CssPathSelectorVecDestructorType
-);
+impl_vec!(CssPathSelector, CssPathSelectorVec, CssPathSelectorVecDestructor, CssPathSelectorVecDestructorType, CssPathSelectorVecSlice, OptionCssPathSelector);
 impl_vec_debug!(CssPathSelector, CssPathSelectorVec);
 impl_vec_partialord!(CssPathSelector, CssPathSelectorVec);
 impl_vec_ord!(CssPathSelector, CssPathSelectorVec);
@@ -986,6 +987,13 @@ pub enum CssPathSelector {
     /// Represents the `~` selector (general sibling)
     GeneralSibling,
 }
+
+impl_option!(
+    CssPathSelector,
+    OptionCssPathSelector,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 impl Default for CssPathSelector {
     fn default() -> Self {

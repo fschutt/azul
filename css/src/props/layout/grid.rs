@@ -55,6 +55,13 @@ pub enum GridTrackSizing {
     FitContent(PixelValue),
 }
 
+impl_option!(
+    GridTrackSizing,
+    OptionGridTrackSizing,
+    copy = false,
+    [Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
 impl core::fmt::Debug for GridTrackSizing {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "{}", self.print_as_css_value())
@@ -90,12 +97,7 @@ impl PrintAsCssValue for GridTrackSizing {
 }
 
 // C-compatible Vec for GridTrackSizing
-impl_vec!(
-    GridTrackSizing,
-    GridTrackSizingVec,
-    GridTrackSizingVecDestructor,
-    GridTrackSizingVecDestructorType
-);
+impl_vec!(GridTrackSizing, GridTrackSizingVec, GridTrackSizingVecDestructor, GridTrackSizingVecDestructorType, GridTrackSizingVecSlice, OptionGridTrackSizing);
 impl_vec_clone!(
     GridTrackSizing,
     GridTrackSizingVec,

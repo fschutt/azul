@@ -155,12 +155,13 @@ pub enum StyleTransform {
     Perspective(PixelValue),
 }
 
-impl_vec!(
+impl_option!(
     StyleTransform,
-    StyleTransformVec,
-    StyleTransformVecDestructor,
-    StyleTransformVecDestructorType
+    OptionStyleTransform,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
 );
+
+impl_vec!(StyleTransform, StyleTransformVec, StyleTransformVecDestructor, StyleTransformVecDestructorType, StyleTransformVecSlice, OptionStyleTransform);
 impl_vec_debug!(StyleTransform, StyleTransformVec);
 impl_vec_partialord!(StyleTransform, StyleTransformVec);
 impl_vec_ord!(StyleTransform, StyleTransformVec);

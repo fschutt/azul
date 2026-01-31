@@ -653,12 +653,7 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]
 );
 
-crate::impl_vec!(
-    CssProperty,
-    CssPropertyVec,
-    CssPropertyVecDestructor,
-    CssPropertyVecDestructorType
-);
+crate::impl_vec!(CssProperty, CssPropertyVec, CssPropertyVecDestructor, CssPropertyVecDestructorType, CssPropertyVecSlice, OptionCssProperty);
 crate::impl_vec_clone!(CssProperty, CssPropertyVec, CssPropertyVecDestructor);
 crate::impl_vec_debug!(CssProperty, CssPropertyVec);
 crate::impl_vec_partialeq!(CssProperty, CssPropertyVec);

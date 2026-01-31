@@ -305,6 +305,13 @@ pub enum StyleFontFamily {
     Ref(FontRef),
 }
 
+impl_option!(
+    StyleFontFamily,
+    OptionStyleFontFamily,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
 impl StyleFontFamily {
     pub fn as_string(&self) -> String {
         match &self {
@@ -322,12 +329,7 @@ impl StyleFontFamily {
     }
 }
 
-impl_vec!(
-    StyleFontFamily,
-    StyleFontFamilyVec,
-    StyleFontFamilyVecDestructor,
-    StyleFontFamilyVecDestructorType
-);
+impl_vec!(StyleFontFamily, StyleFontFamilyVec, StyleFontFamilyVecDestructor, StyleFontFamilyVecDestructorType, StyleFontFamilyVecSlice, OptionStyleFontFamily);
 impl_vec_clone!(
     StyleFontFamily,
     StyleFontFamilyVec,

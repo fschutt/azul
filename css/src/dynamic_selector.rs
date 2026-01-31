@@ -71,12 +71,14 @@ pub enum DynamicSelector {
     Language(LanguageCondition) = 14,
 }
 
-impl_vec!(
+impl_option!(
     DynamicSelector,
-    DynamicSelectorVec,
-    DynamicSelectorVecDestructor,
-    DynamicSelectorVecDestructorType
+    OptionDynamicSelector,
+    copy = false,
+    [Debug, Clone, PartialEq]
 );
+
+impl_vec!(DynamicSelector, DynamicSelectorVec, DynamicSelectorVecDestructor, DynamicSelectorVecDestructorType, DynamicSelectorVecSlice, OptionDynamicSelector);
 impl_vec_clone!(
     DynamicSelector,
     DynamicSelectorVec,
@@ -545,6 +547,13 @@ pub struct CssPropertyWithConditions {
     pub apply_if: DynamicSelectorVec,
 }
 
+impl_option!(
+    CssPropertyWithConditions,
+    OptionCssPropertyWithConditions,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
+
 impl Eq for CssPropertyWithConditions {}
 
 impl PartialOrd for CssPropertyWithConditions {
@@ -699,12 +708,7 @@ impl CssPropertyWithConditions {
     }
 }
 
-impl_vec!(
-    CssPropertyWithConditions,
-    CssPropertyWithConditionsVec,
-    CssPropertyWithConditionsVecDestructor,
-    CssPropertyWithConditionsVecDestructorType
-);
+impl_vec!(CssPropertyWithConditions, CssPropertyWithConditionsVec, CssPropertyWithConditionsVecDestructor, CssPropertyWithConditionsVecDestructorType, CssPropertyWithConditionsVecSlice, OptionCssPropertyWithConditions);
 impl_vec_debug!(CssPropertyWithConditions, CssPropertyWithConditionsVec);
 impl_vec_partialeq!(CssPropertyWithConditions, CssPropertyWithConditionsVec);
 impl_vec_partialord!(CssPropertyWithConditions, CssPropertyWithConditionsVec);

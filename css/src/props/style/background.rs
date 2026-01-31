@@ -68,12 +68,14 @@ pub enum StyleBackgroundContent {
     Color(ColorU),
 }
 
-impl_vec!(
+impl_option!(
     StyleBackgroundContent,
-    StyleBackgroundContentVec,
-    StyleBackgroundContentVecDestructor,
-    StyleBackgroundContentVecDestructorType
+    OptionStyleBackgroundContent,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+
+impl_vec!(StyleBackgroundContent, StyleBackgroundContentVec, StyleBackgroundContentVecDestructor, StyleBackgroundContentVecDestructorType, StyleBackgroundContentVecSlice, OptionStyleBackgroundContent);
 impl_vec_debug!(StyleBackgroundContent, StyleBackgroundContentVec);
 impl_vec_partialord!(StyleBackgroundContent, StyleBackgroundContentVec);
 impl_vec_ord!(StyleBackgroundContent, StyleBackgroundContentVec);
@@ -331,12 +333,14 @@ pub struct NormalizedLinearColorStop {
     pub offset: PercentageValue,
     pub color: ColorU,
 }
-impl_vec!(
+
+impl_option!(
     NormalizedLinearColorStop,
-    NormalizedLinearColorStopVec,
-    NormalizedLinearColorStopVecDestructor,
-    NormalizedLinearColorStopVecDestructorType
+    OptionNormalizedLinearColorStop,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+impl_vec!(NormalizedLinearColorStop, NormalizedLinearColorStopVec, NormalizedLinearColorStopVecDestructor, NormalizedLinearColorStopVecDestructorType, NormalizedLinearColorStopVecSlice, OptionNormalizedLinearColorStop);
 impl_vec_debug!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
 impl_vec_partialord!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
 impl_vec_ord!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
@@ -360,12 +364,14 @@ pub struct NormalizedRadialColorStop {
     pub angle: AngleValue,
     pub color: ColorU,
 }
-impl_vec!(
+
+impl_option!(
     NormalizedRadialColorStop,
-    NormalizedRadialColorStopVec,
-    NormalizedRadialColorStopVecDestructor,
-    NormalizedRadialColorStopVecDestructorType
+    OptionNormalizedRadialColorStop,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+impl_vec!(NormalizedRadialColorStop, NormalizedRadialColorStopVec, NormalizedRadialColorStopVecDestructor, NormalizedRadialColorStopVecDestructorType, NormalizedRadialColorStopVecSlice, OptionNormalizedRadialColorStop);
 impl_vec_debug!(NormalizedRadialColorStop, NormalizedRadialColorStopVec);
 impl_vec_partialord!(NormalizedRadialColorStop, NormalizedRadialColorStopVec);
 impl_vec_ord!(NormalizedRadialColorStop, NormalizedRadialColorStopVec);
@@ -423,12 +429,13 @@ pub struct StyleBackgroundPosition {
     pub horizontal: BackgroundPositionHorizontal,
     pub vertical: BackgroundPositionVertical,
 }
-impl_vec!(
+
+impl_option!(
     StyleBackgroundPosition,
-    StyleBackgroundPositionVec,
-    StyleBackgroundPositionVecDestructor,
-    StyleBackgroundPositionVecDestructorType
+    OptionStyleBackgroundPosition,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+impl_vec!(StyleBackgroundPosition, StyleBackgroundPositionVec, StyleBackgroundPositionVecDestructor, StyleBackgroundPositionVecDestructorType, StyleBackgroundPositionVecSlice, OptionStyleBackgroundPosition);
 impl_vec_debug!(StyleBackgroundPosition, StyleBackgroundPositionVec);
 impl_vec_partialord!(StyleBackgroundPosition, StyleBackgroundPositionVec);
 impl_vec_ord!(StyleBackgroundPosition, StyleBackgroundPositionVec);
@@ -554,6 +561,13 @@ pub enum StyleBackgroundSize {
     Cover,
 }
 
+impl_option!(
+    StyleBackgroundSize,
+    OptionStyleBackgroundSize,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
 /// Two-dimensional size in PixelValue units (width, height)
 /// Used for background-size and similar properties
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -563,12 +577,7 @@ pub struct PixelValueSize {
     pub height: PixelValue,
 }
 
-impl_vec!(
-    StyleBackgroundSize,
-    StyleBackgroundSizeVec,
-    StyleBackgroundSizeVecDestructor,
-    StyleBackgroundSizeVecDestructorType
-);
+impl_vec!(StyleBackgroundSize, StyleBackgroundSizeVec, StyleBackgroundSizeVecDestructor, StyleBackgroundSizeVecDestructorType, StyleBackgroundSizeVecSlice, OptionStyleBackgroundSize);
 impl_vec_debug!(StyleBackgroundSize, StyleBackgroundSizeVec);
 impl_vec_partialord!(StyleBackgroundSize, StyleBackgroundSizeVec);
 impl_vec_ord!(StyleBackgroundSize, StyleBackgroundSizeVec);
@@ -630,12 +639,13 @@ pub enum StyleBackgroundRepeat {
     RepeatX,
     RepeatY,
 }
-impl_vec!(
+
+impl_option!(
     StyleBackgroundRepeat,
-    StyleBackgroundRepeatVec,
-    StyleBackgroundRepeatVecDestructor,
-    StyleBackgroundRepeatVecDestructorType
+    OptionStyleBackgroundRepeat,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+impl_vec!(StyleBackgroundRepeat, StyleBackgroundRepeatVec, StyleBackgroundRepeatVecDestructor, StyleBackgroundRepeatVecDestructorType, StyleBackgroundRepeatVecSlice, OptionStyleBackgroundRepeat);
 impl_vec_debug!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
 impl_vec_partialord!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);
 impl_vec_ord!(StyleBackgroundRepeat, StyleBackgroundRepeatVec);

@@ -12,6 +12,12 @@ pub struct ShapePoint {
     pub y: f32,
 }
 
+impl_option!(
+    ShapePoint,
+    OptionShapePoint,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
+
 impl ShapePoint {
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
@@ -43,12 +49,7 @@ impl core::hash::Hash for ShapePoint {
     }
 }
 
-impl_vec!(
-    ShapePoint,
-    ShapePointVec,
-    ShapePointVecDestructor,
-    ShapePointVecDestructorType
-);
+impl_vec!(ShapePoint, ShapePointVec, ShapePointVecDestructor, ShapePointVecDestructorType, ShapePointVecSlice, OptionShapePoint);
 impl_vec_debug!(ShapePoint, ShapePointVec);
 impl_vec_partialord!(ShapePoint, ShapePointVec);
 impl_vec_ord!(ShapePoint, ShapePointVec);
@@ -312,6 +313,12 @@ pub struct LineSegment {
     pub priority: i32,
 }
 
+impl_option!(
+    LineSegment,
+    OptionLineSegment,
+    [Debug, Copy, Clone, PartialEq]
+);
+
 impl LineSegment {
     /// Creates a new line segment
     pub const fn new(start_x: f32, width: f32) -> Self {
@@ -350,12 +357,7 @@ impl LineSegment {
     }
 }
 
-impl_vec!(
-    LineSegment,
-    LineSegmentVec,
-    LineSegmentVecDestructor,
-    LineSegmentVecDestructorType
-);
+impl_vec!(LineSegment, LineSegmentVec, LineSegmentVecDestructor, LineSegmentVecDestructorType, LineSegmentVecSlice, OptionLineSegment);
 impl_vec_debug!(LineSegment, LineSegmentVec);
 impl_vec_clone!(LineSegment, LineSegmentVec, LineSegmentVecDestructor);
 impl_vec_partialeq!(LineSegment, LineSegmentVec);
