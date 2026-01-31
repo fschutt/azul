@@ -2663,20 +2663,44 @@ where
         // TODO: Handle text shadows
         // TODO: Handle text overflowing (based on container_rect and overflow behavior)
 
-        // Push the TextLayout item FIRST, containing the full UnifiedLayout for PDF/accessibility
-        // This provides complete metadata including original text and glyph-to-unicode mapping
-        builder.push_text_layout(
-            Arc::new(layout.clone()) as Arc<dyn std::any::Any + Send + Sync>,
-            container_rect,
-            FontHash::from_hash(0), // Will be updated per glyph run
-            12.0,                   // Default font size, will be updated per glyph run
-            ColorU {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            }, // Default color
-        );
+        // Calculate actual content bounds from the layout
+        // Use these bounds instead of container_rect to avoid inflated bounds
+        // that extend beyond actual text content
+        let layout_bounds = layout.bounds();
+        let actual_bounds = if layout_bounds.width > 0.0 && layout_bounds.height > 0.0 {
+            LogicalRect {
+                origin: container_rect.origin,
+                size: LogicalSize {
+                    width: layout_bounds.width,
+                    height: layout_bounds.height,
+                },
+            }
+        } else {
+            // If layout has no content, don't push TextLayout item at all
+            // This prevents 0x0 TextLayout items that pollute height calculation
+            LogicalRect {
+                origin: container_rect.origin,
+                size: LogicalSize::default(),
+            }
+        };
+
+        // Only push TextLayout if layout has actual content
+        // This prevents empty TextLayout items with 0x0 bounds at various Y positions
+        // from affecting pagination height calculations
+        if layout_bounds.width > 0.0 || layout_bounds.height > 0.0 {
+            builder.push_text_layout(
+                Arc::new(layout.clone()) as Arc<dyn std::any::Any + Send + Sync>,
+                actual_bounds,
+                FontHash::from_hash(0), // Will be updated per glyph run
+                12.0,                   // Default font size, will be updated per glyph run
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                }, // Default color
+            );
+        }
 
         let glyph_runs = crate::text3::glyphs::get_glyph_runs_simple(layout);
 
@@ -4524,8 +4548,15 @@ fn calculate_display_list_height(display_list: &DisplayList) -> f32 {
 
     for item in &display_list.items {
         if let Some(bounds) = get_display_item_bounds(item) {
+            // Skip items with zero height - they don't contribute to visible content
+            if bounds.size.height < 0.1 {
+                continue;
+            }
+            
             let item_bottom = bounds.origin.y + bounds.size.height;
-            max_bottom = max_bottom.max(item_bottom);
+            if item_bottom > max_bottom {
+                max_bottom = item_bottom;
+            }
         }
     }
 
