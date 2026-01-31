@@ -1509,12 +1509,8 @@ pub struct ListViewRow {
     pub height: OptionPixelValueNoPercent,
 }
 
-impl_vec!(
-    ListViewRow,
-    ListViewRowVec,
-    ListViewRowVecDestructor,
-    ListViewRowVecDestructorType
-);
+impl_option!(ListViewRow, OptionListViewRow, copy = false, [Debug, Clone]);
+impl_vec!(ListViewRow, ListViewRowVec, ListViewRowVecDestructor, ListViewRowVecDestructorType, ListViewRowVecSlice, OptionListViewRow);
 impl_vec_clone!(ListViewRow, ListViewRowVec, ListViewRowVecDestructor);
 impl_vec_mut!(ListViewRow, ListViewRowVec);
 impl_vec_debug!(ListViewRow, ListViewRowVec);

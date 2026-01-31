@@ -446,12 +446,8 @@ pub struct StyledTextRun {
     pub is_italic: bool,
 }
 
-azul_css::impl_vec!(
-    StyledTextRun,
-    StyledTextRunVec,
-    StyledTextRunVecDestructor,
-    StyledTextRunVecDestructorType
-);
+azul_css::impl_option!(StyledTextRun, OptionStyledTextRun, copy = false, [Debug, Clone, PartialEq]);
+azul_css::impl_vec!(StyledTextRun, StyledTextRunVec, StyledTextRunVecDestructor, StyledTextRunVecDestructorType, StyledTextRunVecSlice, OptionStyledTextRun);
 azul_css::impl_vec_debug!(StyledTextRun, StyledTextRunVec);
 azul_css::impl_vec_clone!(StyledTextRun, StyledTextRunVec, StyledTextRunVecDestructor);
 azul_css::impl_vec_partialeq!(StyledTextRun, StyledTextRunVec);

@@ -1313,12 +1313,10 @@ impl strfmt::DisplayStr for IcuFormattedValue {
 
 // C-compatible Vec types for FFI
 
-azul_css::impl_vec!(
-    AzString,
-    IcuStringVec,
-    IcuStringVecDestructor,
-    IcuStringVecDestructorType
-);
+// OptionAzString is the same as OptionString from azul_css
+pub type OptionAzString = azul_css::OptionString;
+
+azul_css::impl_vec!(AzString, IcuStringVec, IcuStringVecDestructor, IcuStringVecDestructorType, IcuStringVecSlice, OptionAzString);
 azul_css::impl_vec_clone!(AzString, IcuStringVec, IcuStringVecDestructor);
 azul_css::impl_vec_debug!(AzString, IcuStringVec);
 

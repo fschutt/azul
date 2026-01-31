@@ -169,7 +169,8 @@ pub struct DirEntry {
 }
 
 /// Vec of DirEntry
-impl_vec!(DirEntry, DirEntryVec, DirEntryVecDestructor, DirEntryVecDestructorType);
+impl_option!(DirEntry, OptionDirEntry, copy = false, [Debug, Clone]);
+impl_vec!(DirEntry, DirEntryVec, DirEntryVecDestructor, DirEntryVecDestructorType, DirEntryVecSlice, OptionDirEntry);
 impl_vec_clone!(DirEntry, DirEntryVec, DirEntryVecDestructor);
 impl_vec_debug!(DirEntry, DirEntryVec);
 impl_vec_mut!(DirEntry, DirEntryVec);

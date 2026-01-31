@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use azul_css::{AzString, StringVec};
+use azul_css::{AzString, StringVec, impl_option, impl_option_inner};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
@@ -90,12 +90,8 @@ pub struct FmtArg {
     pub value: FmtValue,
 }
 
-azul_css::impl_vec!(
-    FmtArg,
-    FmtArgVec,
-    FmtArgVecDestructor,
-    FmtArgVecDestructorType
-);
+azul_css::impl_option!(FmtArg, OptionFmtArg, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+azul_css::impl_vec!(FmtArg, FmtArgVec, FmtArgVecDestructor, FmtArgVecDestructorType, FmtArgVecSlice, OptionFmtArg);
 azul_css::impl_vec_clone!(FmtArg, FmtArgVec, FmtArgVecDestructor);
 azul_css::impl_vec_debug!(FmtArg, FmtArgVec);
 azul_css::impl_vec_partialeq!(FmtArg, FmtArgVec);

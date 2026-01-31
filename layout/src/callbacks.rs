@@ -30,7 +30,7 @@ use azul_core::{
     refany::{OptionRefAny, RefAny},
     resources::{ImageCache, ImageMask, ImageRef, RendererResources},
     selection::{Selection, SelectionRange, SelectionRangeVec, SelectionState, TextCursor},
-    styled_dom::{NodeHierarchyItemId, NodeIdVec, StyledDom},
+    styled_dom::{NodeHierarchyItemId, NodeHierarchyItemIdVec, StyledDom},
     task::{self, GetSystemTimeCallback, Instant, ThreadId, ThreadIdVec, TimerId, TimerIdVec},
     window::{KeyboardState, MouseState, RawWindowHandle, WindowFlags, WindowSize},
     FastBTreeSet, FastHashMap,
@@ -924,22 +924,22 @@ impl CallbackInfo {
     ///
     /// Returns an empty vector if the node has no children.
     /// Uses the contiguous node layout for efficient iteration.
-    pub fn get_all_children_nodes(&self, dom_id: DomId, node_id: NodeId) -> NodeIdVec {
+    pub fn get_all_children_nodes(&self, dom_id: DomId, node_id: NodeId) -> NodeHierarchyItemIdVec {
         let layout_window = self.get_layout_window();
         let layout_result = match layout_window.layout_results.get(&dom_id) {
             Some(lr) => lr,
-            None => return NodeIdVec::from_const_slice(&[]),
+            None => return NodeHierarchyItemIdVec::from_const_slice(&[]),
         };
         let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
         let hier_item = match node_hierarchy.get(node_id) {
             Some(h) => h,
-            None => return NodeIdVec::from_const_slice(&[]),
+            None => return NodeHierarchyItemIdVec::from_const_slice(&[]),
         };
 
         // Get first child - if none, return empty
         let first_child = match hier_item.first_child_id(node_id) {
             Some(fc) => fc,
-            None => return NodeIdVec::from_const_slice(&[]),
+            None => return NodeHierarchyItemIdVec::from_const_slice(&[]),
         };
 
         // Collect children by walking the sibling chain
@@ -955,7 +955,7 @@ impl CallbackInfo {
             current = next_sibling;
         }
 
-        NodeIdVec::from(children)
+        NodeHierarchyItemIdVec::from(children)
     }
 
     /// Get the number of direct children of the given node

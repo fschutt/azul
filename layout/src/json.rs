@@ -108,8 +108,11 @@ impl JsonKeyValue {
     }
 }
 
+/// Option type for JsonKeyValue
+impl_option!(JsonKeyValue, OptionJsonKeyValue, copy = false, [Debug, Clone, PartialEq]);
+
 /// Vec of JsonKeyValue (FFI-safe)
-impl_vec!(JsonKeyValue, JsonKeyValueVec, JsonKeyValueVecDestructor, JsonKeyValueVecDestructorType);
+impl_vec!(JsonKeyValue, JsonKeyValueVec, JsonKeyValueVecDestructor, JsonKeyValueVecDestructorType, JsonKeyValueVecSlice, OptionJsonKeyValue);
 impl_vec_clone!(JsonKeyValue, JsonKeyValueVec, JsonKeyValueVecDestructor);
 impl_vec_debug!(JsonKeyValue, JsonKeyValueVec);
 
@@ -126,7 +129,7 @@ impl JsonKeyValueVec {
 }
 
 // FFI-safe JsonVec using impl_vec! macro
-impl_vec!(Json, JsonVec, JsonVecDestructor, JsonVecDestructorType);
+impl_vec!(Json, JsonVec, JsonVecDestructor, JsonVecDestructorType, JsonVecSlice, OptionJson);
 impl_vec_clone!(Json, JsonVec, JsonVecDestructor);
 impl_vec_debug!(Json, JsonVec);
 impl_vec_partialeq!(Json, JsonVec);

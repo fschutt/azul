@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use alloc::format;
 use core::fmt;
 
-use azul_css::{AzString, U8Vec, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq, impl_vec_mut};
+use azul_css::{AzString, U8Vec, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq, impl_vec_mut, impl_option, impl_option_inner};
 
 #[cfg(feature = "std")]
 use std::path::Path;
@@ -145,7 +145,8 @@ impl HttpHeader {
     }
 }
 
-impl_vec!(HttpHeader, HttpHeaderVec, HttpHeaderVecDestructor, HttpHeaderVecDestructorType);
+impl_option!(HttpHeader, OptionHttpHeader, copy = false, [Debug, Clone, PartialEq]);
+impl_vec!(HttpHeader, HttpHeaderVec, HttpHeaderVecDestructor, HttpHeaderVecDestructorType, HttpHeaderVecSlice, OptionHttpHeader);
 impl_vec_clone!(HttpHeader, HttpHeaderVec, HttpHeaderVecDestructor);
 impl_vec_debug!(HttpHeader, HttpHeaderVec);
 impl_vec_partialeq!(HttpHeader, HttpHeaderVec);

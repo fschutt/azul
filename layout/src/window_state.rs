@@ -55,12 +55,8 @@ impl WindowCreateOptions {
     }
 }
 
-impl_vec!(
-    WindowCreateOptions,
-    WindowCreateOptionsVec,
-    WindowCreateOptionsVecDestructor,
-    WindowCreateOptionsVecDestructorType
-);
+impl_option!(WindowCreateOptions, OptionWindowCreateOptions, copy = false, [Debug, Clone, PartialEq]);
+impl_vec!(WindowCreateOptions, WindowCreateOptionsVec, WindowCreateOptionsVecDestructor, WindowCreateOptionsVecDestructorType, WindowCreateOptionsVecSlice, OptionWindowCreateOptions);
 impl_vec_clone!(
     WindowCreateOptions,
     WindowCreateOptionsVec,
