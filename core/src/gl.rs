@@ -16,7 +16,7 @@ use azul_css::{
         basic::{ColorF, ColorU},
         style::StyleTransformVec,
     },
-    AzString, OptionUsize, StringVec, U8Vec,
+    AzString, OptionI32, OptionU32, OptionUsize, StringVec, U8Vec,
 };
 pub use gl_context_loader::{
     ctypes::*, gl, GLeglImageOES, GLsync, GLvoid, GenericGlContext, GlType as GlContextGlType,
@@ -44,10 +44,6 @@ pub type GLbitfield = u32;
 pub type GLsizei = i32;
 pub type GLclampf = f32;
 pub type GLfloat = f32;
-
-// Option types for GL primitives (used in impl_vec!)
-pub type OptionGLuint = azul_css::OptionU32;
-pub type OptionGLint = azul_css::OptionI32;
 
 pub const GL_RESTART_INDEX: u32 = core::u32::MAX;
 
@@ -612,7 +608,7 @@ impl_vec_partialeq!(DebugMessage, DebugMessageVec);
 impl_vec_eq!(DebugMessage, DebugMessageVec);
 impl_vec_hash!(DebugMessage, DebugMessageVec);
 
-impl_vec!(GLint, GLintVec, GLintVecDestructor, GLintVecDestructorType, GLintVecSlice, OptionGLint);
+impl_vec!(GLint, GLintVec, GLintVecDestructor, GLintVecDestructorType, GLintVecSlice, OptionI32);
 impl_vec_debug!(GLint, GLintVec);
 impl_vec_partialord!(GLint, GLintVec);
 impl_vec_ord!(GLint, GLintVec);
@@ -621,7 +617,7 @@ impl_vec_partialeq!(GLint, GLintVec);
 impl_vec_eq!(GLint, GLintVec);
 impl_vec_hash!(GLint, GLintVec);
 
-impl_vec!(GLuint, GLuintVec, GLuintVecDestructor, GLuintVecDestructorType, GLuintVecSlice, OptionGLuint);
+impl_vec!(GLuint, GLuintVec, GLuintVecDestructor, GLuintVecDestructorType, GLuintVecSlice, OptionU32);
 impl_vec_debug!(GLuint, GLuintVec);
 impl_vec_partialord!(GLuint, GLuintVec);
 impl_vec_ord!(GLuint, GLuintVec);

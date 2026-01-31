@@ -20,7 +20,7 @@ use azul_css::{
         property::CssProperty,
         style::StyleCursor,
     },
-    AzString, LayoutDebugMessage, OptionF32, OptionI32, OptionString, U8Vec,
+    AzString, LayoutDebugMessage, OptionF32, OptionI32, OptionString, OptionU32, U8Vec,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -299,8 +299,6 @@ impl Default for MouseCursorType {
 
 /// Hardware-dependent keyboard scan code.
 pub type ScanCode = u32;
-/// Option type for ScanCode (used in impl_vec!)
-pub type OptionScanCode = azul_css::OptionU32;
 
 /// Determines which keys are pressed currently (modifiers, etc.)
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -383,7 +381,7 @@ impl_vec_hash!(VirtualKeyCode, VirtualKeyCodeVec);
 
 impl_vec_as_hashmap!(VirtualKeyCode, VirtualKeyCodeVec);
 
-impl_vec!(ScanCode, ScanCodeVec, ScanCodeVecDestructor, ScanCodeVecDestructorType, ScanCodeVecSlice, OptionScanCode);
+impl_vec!(ScanCode, ScanCodeVec, ScanCodeVecDestructor, ScanCodeVecDestructorType, ScanCodeVecSlice, OptionU32);
 impl_vec_debug!(ScanCode, ScanCodeVec);
 impl_vec_partialord!(ScanCode, ScanCodeVec);
 impl_vec_ord!(ScanCode, ScanCodeVec);
@@ -1221,12 +1219,12 @@ pub struct AzStringPair {
 
 impl_option!(
     AzStringPair,
-    OptionAzStringPair,
+    OptionStringPair,
     copy = false,
     [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]
 );
 
-impl_vec!(AzStringPair, StringPairVec, StringPairVecDestructor, StringPairVecDestructorType, StringPairVecSlice, OptionAzStringPair);
+impl_vec!(AzStringPair, StringPairVec, StringPairVecDestructor, StringPairVecDestructorType, StringPairVecSlice, OptionStringPair);
 impl_vec_mut!(AzStringPair, StringPairVec);
 impl_vec_debug!(AzStringPair, StringPairVec);
 impl_vec_partialord!(AzStringPair, StringPairVec);
