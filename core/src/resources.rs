@@ -13,7 +13,7 @@ use azul_css::{
         pixel::DEFAULT_FONT_SIZE, ColorU, FloatValue, FontRef, LayoutRect, LayoutSize,
         StyleFontFamily, StyleFontFamilyVec, StyleFontSize,
     },
-    AzString, F32Vec, LayoutDebugMessage, OptionI32, U16Vec, U32Vec, U8Vec,
+    AzString, F32Vec, LayoutDebugMessage, OptionI32, StringVec, U16Vec, U32Vec, U8Vec,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -75,6 +75,57 @@ impl Default for AppTerminationBehavior {
     }
 }
 
+/// A named font bundled with the application (name + raw bytes).
+/// The name is used to reference the font in CSS (e.g. `font-family: "MyFont"`).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct NamedFont {
+    /// The font family name to use in CSS (e.g. "Roboto", "MyCustomFont")
+    pub name: AzString,
+    /// Raw font file bytes (TTF, OTF, etc.)
+    pub bytes: U8Vec,
+}
+
+impl NamedFont {
+    pub fn new(name: AzString, bytes: U8Vec) -> Self {
+        Self { name, bytes }
+    }
+}
+
+impl_vec!(
+    NamedFont,
+    NamedFontVec,
+    NamedFontVecDestructor,
+    NamedFontVecDestructorType
+);
+impl_vec_mut!(NamedFont, NamedFontVec);
+impl_vec_debug!(NamedFont, NamedFontVec);
+impl_vec_partialeq!(NamedFont, NamedFontVec);
+impl_vec_eq!(NamedFont, NamedFontVec);
+impl_vec_partialord!(NamedFont, NamedFontVec);
+impl_vec_ord!(NamedFont, NamedFontVec);
+impl_vec_hash!(NamedFont, NamedFontVec);
+impl_vec_clone!(NamedFont, NamedFontVec, NamedFontVecDestructor);
+
+/// Configuration for how fonts should be loaded at app startup.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum FontLoadingConfig {
+    /// Load all system fonts (default behavior, can be slow on systems with many fonts)
+    LoadAllSystemFonts,
+    /// Only load fonts for specific families (faster startup).
+    /// Generic families like "sans-serif" are automatically expanded to OS-specific fonts.
+    LoadOnlyFamilies(StringVec),
+    /// Don't load any system fonts, only use bundled fonts
+    BundledFontsOnly,
+}
+
+impl Default for FontLoadingConfig {
+    fn default() -> Self {
+        FontLoadingConfig::LoadAllSystemFonts
+    }
+}
+
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -99,6 +150,12 @@ pub struct AppConfig {
     /// Register icons here before calling App::run().
     /// Each window will clone this provider (cheap, Arc-based).
     pub icon_provider: crate::icon::IconProviderHandle,
+    /// Fonts bundled with the application.
+    /// These fonts are loaded into memory and take priority over system fonts.
+    pub bundled_fonts: NamedFontVec,
+    /// Configuration for how system fonts should be loaded.
+    /// Default: LoadAllSystemFonts (scan all system fonts at startup)
+    pub font_loading: FontLoadingConfig,
 }
 
 impl AppConfig {
@@ -110,6 +167,8 @@ impl AppConfig {
             enable_tab_navigation: true,
             termination_behavior: AppTerminationBehavior::default(),
             icon_provider: crate::icon::IconProviderHandle::new(),
+            bundled_fonts: NamedFontVec::from_const_slice(&[]),
+            font_loading: FontLoadingConfig::default(),
         }
     }
 }

@@ -27701,6 +27701,10 @@
           },
           "StyleTabSize": {
             "external": "azul_css::props::style::text::StyleTabSize",
+            "custom_impls": [
+              "Debug",
+              "Default"
+            ],
             "derive": [
               "Copy",
               "Clone",
@@ -27721,6 +27725,86 @@
           },
           "StyleTabSizeValue": {
             "external": "azul_css::props::property::StyleTabSizeValue",
+            "repr": "C",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "StyleTabSize"
+              ]
+            }
+          },
+          "FontLoadingConfig": {
+            "doc": [
+              "Configuration for how fonts should be loaded at app startup."
+            ],
+            "external": "azul_core::resources::FontLoadingConfig",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "LoadAllSystemFonts": {},
+                "LoadOnlyFamilies": {
+                  "type": "StringVec"
+                },
+                "BundledFontsOnly": {}
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "NamedFont": {
+            "doc": [
+              "A named font bundled with the application (name + raw bytes).",
+              "The name is used to reference the font in CSS (e.g. font-family: \"MyFont\")."
+            ],
+            "external": "azul_core::resources::NamedFont",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "name": {
+                  "type": "String",
+                  "doc": [
+                    "The font family name to use in CSS (e.g. \"Roboto\", \"MyCustomFont\")"
+                  ]
+                },
+                "bytes": {
+                  "type": "U8Vec",
+                  "doc": [
+                    "Raw font file bytes (TTF, OTF, etc.)"
+                  ]
+                }
+              }
+            ],
+            "constructors": {
+              "new": {
+                "fn_args": [
+                  {
+                    "name": "String"
+                  },
+                  {
+                    "bytes": "U8Vec"
+                  }
+                ],
+                "fn_body": "azul_core::resources::NamedFont::new(name, bytes)"
+              }
+            },
             "repr": "C"
           }
         }
@@ -52349,6 +52433,71 @@
               }
             ],
             "repr": "C, u8"
+          },
+          "NamedFontVecDestructorType": {
+            "external": "azul_core::resources::NamedFontVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "NamedFontVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
+          },
+          "NamedFontVecDestructor": {
+            "external": "azul_core::resources::NamedFontVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "NamedFontVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "NamedFontVec": {
+            "external": "azul_core::resources::NamedFontVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "NamedFont",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "NamedFontVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -56020,12 +56169,13 @@
                   "type": "AppTerminationBehavior"
                 },
                 "icon_provider": {
-                  "type": "IconProviderHandle",
-                  "doc": [
-                    "Icon provider for the application.",
-                    "Register icons here before calling App::run().",
-                    "Each window will clone this provider (cheap, Arc-based)."
-                  ]
+                  "type": "IconProviderHandle"
+                },
+                "bundled_fonts": {
+                  "type": "NamedFontVec"
+                },
+                "font_loading": {
+                  "type": "FontLoadingConfig"
                 }
               }
             ],
