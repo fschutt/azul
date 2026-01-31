@@ -288,17 +288,26 @@ macro_rules! get_css_property_pixel {
         ) -> MultiValue<PixelValue> {
             let node_data = &styled_dom.node_data.as_container()[node_id];
 
-            // 1. Check author CSS first
+            // 1. Check author CSS first (includes inline styles - highest priority)
             let author_css = styled_dom
                 .css_property_cache
                 .ptr
                 .$cache_method(node_data, &node_id, node_state);
 
-            if let Some(val) = author_css.and_then(|v| v.get_property().copied()) {
-                return MultiValue::Exact(val.inner);
+            // FIX: Check for Auto FIRST - CssPropertyValue::Auto is a valid value
+            // that should NOT fall through to UA CSS. Previously, get_property()
+            // returned None for Auto, causing inline "margin: auto" to be ignored.
+            if let Some(ref val) = author_css {
+                if val.is_auto() {
+                    return MultiValue::Auto;
+                }
+                if let Some(exact) = val.get_property().copied() {
+                    return MultiValue::Exact(exact.inner);
+                }
+                // For Initial, Inherit, None, Revert, Unset - fall through to UA CSS
             }
 
-            // 2. Check User Agent CSS
+            // 2. Check User Agent CSS (only if author CSS didn't set a value)
             let ua_css = azul_core::ua_css::get_ua_property(&node_data.node_type, $ua_property);
 
             if let Some(ua_prop) = ua_css {

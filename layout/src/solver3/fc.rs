@@ -1308,19 +1308,42 @@ fn layout_bfc<T: ParsedFontTrait>(
             (start, end, available)
         };
 
-        // Get child's margin and formatting context
-        let (child_margin_cloned, is_inline_fc) = {
+        // Get child's margin, margin_auto, size, and formatting context
+        let (child_margin_cloned, child_margin_auto, child_used_size, is_inline_fc, child_dom_id_for_debug) = {
             let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
             (
                 child_node.box_props.margin.clone(),
+                child_node.box_props.margin_auto,
+                child_node.used_size.unwrap_or_default(),
                 child_node.formatting_context == FormattingContext::Inline,
+                child_node.dom_node_id,
             )
         };
         let child_margin = &child_margin_cloned;
 
+        debug_info!(
+            ctx,
+            "[layout_bfc] Child {} margin_auto: left={}, right={}, top={}, bottom={}",
+            child_index,
+            child_margin_auto.left,
+            child_margin_auto.right,
+            child_margin_auto.top,
+            child_margin_auto.bottom
+        );
+        debug_info!(
+            ctx,
+            "[layout_bfc] Child {} used_size: width={}, height={}",
+            child_index,
+            child_used_size.width,
+            child_used_size.height
+        );
+
         // Position child
         // For normal flow blocks (including IFCs): position at full width (cross_start = 0)
         // For BFC-establishing blocks: position in available space between floats
+        //
+        // CSS 2.2 § 10.3.3: If margin-left and margin-right are both auto, 
+        // their used values are equal, centering the element horizontally.
         let (child_cross_pos, mut child_main_pos) = if establishes_bfc {
             // BFC: Position in space between floats
             (
@@ -1328,8 +1351,64 @@ fn layout_bfc<T: ParsedFontTrait>(
                 main_pen,
             )
         } else {
-            // Normal flow: Position at full width (floats don't affect box position)
-            (child_margin.cross_start(writing_mode), main_pen)
+            // Normal flow: Check for margin: auto centering
+            let available_cross = constraints.available_size.cross(writing_mode);
+            let child_cross_size = child_used_size.cross(writing_mode);
+            
+            debug_info!(
+                ctx,
+                "[layout_bfc] Child {} centering check: available_cross={}, child_cross_size={}, margin_auto.left={}, margin_auto.right={}",
+                child_index,
+                available_cross,
+                child_cross_size,
+                child_margin_auto.left,
+                child_margin_auto.right
+            );
+            
+            // CSS 2.2 § 10.3.3: If both margin-left and margin-right are auto,
+            // center the element within the available space
+            let cross_pos = if child_margin_auto.left && child_margin_auto.right {
+                // Center: (available - child_width) / 2
+                let remaining_space = (available_cross - child_cross_size).max(0.0);
+                debug_info!(
+                    ctx,
+                    "[layout_bfc] Child {} CENTERING: remaining_space={}, cross_pos={}",
+                    child_index,
+                    remaining_space,
+                    remaining_space / 2.0
+                );
+                remaining_space / 2.0
+            } else if child_margin_auto.left {
+                // Only left is auto: push element to the right
+                let remaining_space = (available_cross - child_cross_size - child_margin.right).max(0.0);
+                debug_info!(
+                    ctx,
+                    "[layout_bfc] Child {} margin-left:auto only, pushing right: remaining_space={}",
+                    child_index,
+                    remaining_space
+                );
+                remaining_space
+            } else if child_margin_auto.right {
+                // Only right is auto: element stays at left with its margin
+                debug_info!(
+                    ctx,
+                    "[layout_bfc] Child {} margin-right:auto only, using left margin={}",
+                    child_index,
+                    child_margin.cross_start(writing_mode)
+                );
+                child_margin.cross_start(writing_mode)
+            } else {
+                // No auto margins: use normal margin
+                debug_info!(
+                    ctx,
+                    "[layout_bfc] Child {} NO auto margins, using left margin={}",
+                    child_index,
+                    child_margin.cross_start(writing_mode)
+                );
+                child_margin.cross_start(writing_mode)
+            };
+            
+            (cross_pos, main_pen)
         };
 
         // CSS 2.2 § 8.3.1: If child's top margin escaped through parent, adjust position

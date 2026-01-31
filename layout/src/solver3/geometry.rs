@@ -79,12 +79,25 @@ impl EdgeSizes {
     }
 }
 
+/// Tracks which margins are set to `auto` (for centering calculations).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MarginAuto {
+    pub left: bool,
+    pub right: bool,
+    pub top: bool,
+    pub bottom: bool,
+}
+
 /// A fully resolved representation of a a node's box model properties.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BoxProps {
     pub margin: EdgeSizes,
     pub padding: EdgeSizes,
     pub border: EdgeSizes,
+    /// Tracks which margins are set to `auto`.
+    /// CSS 2.2 § 10.3.3: If both margin-left and margin-right are auto,
+    /// their used values are equal, centering the element within its container.
+    pub margin_auto: MarginAuto,
 }
 
 impl BoxProps {

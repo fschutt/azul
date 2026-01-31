@@ -1418,11 +1418,29 @@ fn resolve_box_props(
     let margin_bottom_mv = get_css_margin_bottom(styled_dom, dom_id, &node_state);
     let margin_left_mv = get_css_margin_left(styled_dom, dom_id, &node_state);
 
+    // Track which margins are `auto` for centering calculation
+    let margin_auto = crate::solver3::geometry::MarginAuto {
+        top: matches!(margin_top_mv, MultiValue::Auto),
+        right: matches!(margin_right_mv, MultiValue::Auto),
+        bottom: matches!(margin_bottom_mv, MultiValue::Auto),
+        left: matches!(margin_left_mv, MultiValue::Auto),
+    };
+
+    // Debug margin_auto detection
+    if let Some(msgs) = debug_messages.as_mut() {
+        msgs.push(LayoutDebugMessage::box_props(format!(
+            "NodeId {:?} ({:?}): margin_auto: left={}, right={}, top={}, bottom={} | margin_left_mv={:?}, margin_right_mv={:?}",
+            dom_id, node_data.node_type,
+            margin_auto.left, margin_auto.right, margin_auto.top, margin_auto.bottom,
+            margin_left_mv, margin_right_mv
+        )));
+    }
+
     let margin = crate::solver3::geometry::EdgeSizes {
-        top: resolve_value(margin_top_mv, PropertyContext::Margin),
-        right: resolve_value(margin_right_mv, PropertyContext::Margin),
-        bottom: resolve_value(margin_bottom_mv, PropertyContext::Margin),
-        left: resolve_value(margin_left_mv, PropertyContext::Margin),
+        top: resolve_value(margin_top_mv.clone(), PropertyContext::Margin),
+        right: resolve_value(margin_right_mv.clone(), PropertyContext::Margin),
+        bottom: resolve_value(margin_bottom_mv.clone(), PropertyContext::Margin),
+        left: resolve_value(margin_left_mv.clone(), PropertyContext::Margin),
     };
 
     // Debug for Body nodes
@@ -1477,6 +1495,7 @@ fn resolve_box_props(
         margin,
         padding,
         border,
+        margin_auto,
     }
 }
 
