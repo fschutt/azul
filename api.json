@@ -2379,7 +2379,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Create a new empty icon provider with the default resolver"
                 ],
@@ -2734,7 +2734,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Create a new config with default values"
                 ],
@@ -13686,7 +13686,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates a new `NodeId` from a zero-based index.",
                   "",
@@ -17663,7 +17663,7 @@
                 "fn_args": [],
                 "fn_body": "azul_css::props::basic::color::ColorU::BLACK"
               },
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "r": "u8"
@@ -18570,7 +18570,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates a flex-grow value"
                 ],
@@ -19265,7 +19265,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates a new FloatValue from an f32."
                 ],
@@ -23902,7 +23902,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates a new LayoutSize with the given width and height."
                 ],
@@ -25360,7 +25360,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "width": "f32"
@@ -25591,7 +25591,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "x": "f32"
@@ -26259,7 +26259,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates a new LayoutRect with the given origin and size."
                 ],
@@ -26332,7 +26332,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates a new LayoutPoint with the given x and y coordinates."
                 ],
@@ -27559,7 +27559,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Discovers the system's UI style, and loads an optional app-specific stylesheet.",
                   "",
@@ -27826,7 +27826,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "name": "String"
@@ -44400,7 +44400,7 @@
                 },
                 "fn_body": "azul_layout::parse_font_fn(source).into()"
               },
-              "new": {
+              "create": {
                 "doc": [
                   "Create a new FontRef from parsed font data",
                   "",
@@ -44623,6 +44623,20 @@
               }
             ],
             "functions": {
+              "create": {
+                "doc": [
+                  "Creates a new SvgMultiPolygon from a vector of paths (rings)"
+                ],
+                "fn_args": [
+                  {
+                    "rings": "SvgPathVec"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgMultiPolygon"
+                },
+                "fn_body": "SvgMultiPolygon::new(rings)"
+              },
               "get_bounds": {
                 "doc": [
                   "Returns the bounds of the polygon"
@@ -44804,6 +44818,20 @@
               }
             ],
             "functions": {
+              "create": {
+                "doc": [
+                  "Creates a new SvgPath from a vector of path elements"
+                ],
+                "fn_args": [
+                  {
+                    "items": "SvgPathElementVec"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgPath"
+                },
+                "fn_body": "SvgPath::new(items)"
+              },
               "is_closed": {
                 "fn_args": [
                   {
@@ -44948,6 +44976,48 @@
               }
             ],
             "functions": {
+              "line": {
+                "doc": [
+                  "Creates a Line path element from a SvgLine"
+                ],
+                "fn_args": [
+                  {
+                    "l": "SvgLine"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgPathElement"
+                },
+                "fn_body": "SvgPathElement::line(l)"
+              },
+              "quadratic_curve": {
+                "doc": [
+                  "Creates a QuadraticCurve path element from a SvgQuadraticCurve"
+                ],
+                "fn_args": [
+                  {
+                    "qc": "SvgQuadraticCurve"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgPathElement"
+                },
+                "fn_body": "SvgPathElement::quadratic_curve(qc)"
+              },
+              "cubic_curve": {
+                "doc": [
+                  "Creates a CubicCurve path element from a SvgCubicCurve"
+                ],
+                "fn_args": [
+                  {
+                    "cc": "SvgCubicCurve"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgPathElement"
+                },
+                "fn_body": "SvgPathElement::cubic_curve(cc)"
+              },
               "reverse": {
                 "fn_args": [
                   {
@@ -45104,6 +45174,23 @@
               }
             ],
             "functions": {
+              "create": {
+                "doc": [
+                  "Creates a new SvgPoint from x and y coordinates"
+                ],
+                "fn_args": [
+                  {
+                    "x": "f32"
+                  },
+                  {
+                    "y": "f32"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgPoint"
+                },
+                "fn_body": "SvgPoint::new(x, y)"
+              },
               "distance": {
                 "doc": [
                   "Returns the euclidean distance to some other point"
@@ -45222,6 +45309,23 @@
               }
             ],
             "functions": {
+              "create": {
+                "doc": [
+                  "Creates a new SvgLine from start and end points"
+                ],
+                "fn_args": [
+                  {
+                    "start": "SvgPoint"
+                  },
+                  {
+                    "end": "SvgPoint"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgLine"
+                },
+                "fn_body": "SvgLine::new(start, end)"
+              },
               "reverse": {
                 "fn_args": [
                   {
@@ -45407,6 +45511,26 @@
               }
             ],
             "functions": {
+              "create": {
+                "doc": [
+                  "Creates a new SvgQuadraticCurve from start, control, and end points"
+                ],
+                "fn_args": [
+                  {
+                    "start": "SvgPoint"
+                  },
+                  {
+                    "ctrl": "SvgPoint"
+                  },
+                  {
+                    "end": "SvgPoint"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgQuadraticCurve"
+                },
+                "fn_body": "SvgQuadraticCurve::new(start, ctrl, end)"
+              },
               "reverse": {
                 "doc": [
                   "Reverses the order of points in the curve so that the curve runs in the opposite direction afterwards"
@@ -45577,6 +45701,29 @@
               }
             ],
             "functions": {
+              "create": {
+                "doc": [
+                  "Creates a new SvgCubicCurve from start, two control points, and end point"
+                ],
+                "fn_args": [
+                  {
+                    "start": "SvgPoint"
+                  },
+                  {
+                    "ctrl_1": "SvgPoint"
+                  },
+                  {
+                    "ctrl_2": "SvgPoint"
+                  },
+                  {
+                    "end": "SvgPoint"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgCubicCurve"
+                },
+                "fn_body": "SvgCubicCurve::new(start, ctrl_1, ctrl_2, end)"
+              },
               "reverse": {
                 "doc": [
                   "Reverses the order of points in the curve so that the curve runs in the opposite direction afterwards"
@@ -46082,7 +46229,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "fn_args": [
                   {
                     "origin": "LogicalPosition"
@@ -46303,7 +46450,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Uploads the tesselated SVG node to GPU memory"
                 ],
@@ -46437,7 +46584,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates a new path from a string"
                 ],
@@ -57011,7 +57158,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Creates a new ThreadWriteBackMsg with the given callback and data"
                 ],
@@ -58208,7 +58355,7 @@
               }
             ],
             "constructors": {
-              "new": {
+              "create": {
                 "doc": [
                   "Create a new Void value (equivalent to `()`)"
                 ],
@@ -58527,7 +58674,7 @@
                 ],
                 "fn_body": "azul_layout::icu::IcuLocalizerHandle::from_system_language(&language)"
               },
-              "new": {
+              "create": {
                 "doc": [
                   "Create a new empty cache with a default locale."
                 ],

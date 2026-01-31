@@ -79,6 +79,12 @@ impl_option!(
 );
 
 impl SvgPoint {
+    /// Creates a new SvgPoint from x and y coordinates
+    #[inline]
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+
     #[inline]
     pub fn distance(&self, other: Self) -> f64 {
         let dx = other.x - self.x;
@@ -148,6 +154,12 @@ const STEP_SIZE: usize = 20;
 const STEP_SIZE_F64: f64 = 0.05;
 
 impl SvgCubicCurve {
+    /// Creates a new SvgCubicCurve from start, two control points, and end point
+    #[inline]
+    pub const fn new(start: SvgPoint, ctrl_1: SvgPoint, ctrl_2: SvgPoint, end: SvgPoint) -> Self {
+        Self { start, ctrl_1, ctrl_2, end }
+    }
+
     pub fn reverse(&mut self) {
         let temp = self.start;
         self.start = self.end;
@@ -346,6 +358,12 @@ impl SvgVector {
 }
 
 impl SvgQuadraticCurve {
+    /// Creates a new SvgQuadraticCurve from start, control, and end points
+    #[inline]
+    pub const fn new(start: SvgPoint, ctrl: SvgPoint, end: SvgPoint) -> Self {
+        Self { start, ctrl, end }
+    }
+
     pub fn reverse(&mut self) {
         let temp = self.start;
         self.start = self.end;

@@ -66,6 +66,12 @@ pub struct SvgLine {
 }
 
 impl SvgLine {
+    /// Creates a new line segment from start to end point
+    #[inline]
+    pub const fn new(start: SvgPoint, end: SvgPoint) -> Self {
+        Self { start, end }
+    }
+
     /// Computes the inward-facing normal vector for this line.
     ///
     /// The normal points 90 degrees to the right of the line direction.
@@ -164,6 +170,24 @@ pub enum SvgPathElement {
 }
 
 impl SvgPathElement {
+    /// Creates a line path element from a SvgLine
+    #[inline]
+    pub const fn line(l: SvgLine) -> Self {
+        SvgPathElement::Line(l)
+    }
+
+    /// Creates a quadratic curve path element from a SvgQuadraticCurve
+    #[inline]
+    pub const fn quadratic_curve(qc: SvgQuadraticCurve) -> Self {
+        SvgPathElement::QuadraticCurve(qc)
+    }
+
+    /// Creates a cubic curve path element from a SvgCubicCurve
+    #[inline]
+    pub const fn cubic_curve(cc: SvgCubicCurve) -> Self {
+        SvgPathElement::CubicCurve(cc)
+    }
+
     pub fn set_last(&mut self, point: SvgPoint) {
         match self {
             SvgPathElement::Line(l) => l.end = point,
@@ -267,6 +291,12 @@ pub struct SvgPath {
 }
 
 impl SvgPath {
+    /// Creates a new SvgPath from a vector of path elements
+    #[inline]
+    pub const fn new(items: SvgPathElementVec) -> Self {
+        Self { items }
+    }
+
     pub fn get_start(&self) -> Option<SvgPoint> {
         self.items.as_ref().first().map(|s| s.get_start())
     }
@@ -375,6 +405,13 @@ pub struct SvgMultiPolygon {
 }
 
 impl SvgMultiPolygon {
+    /// Creates a new SvgMultiPolygon from a vector of paths (rings)
+    /// NOTE: If a ring represents a hole, simply reverse the order of points
+    #[inline]
+    pub const fn new(rings: SvgPathVec) -> Self {
+        Self { rings }
+    }
+
     pub fn get_bounds(&self) -> SvgRect {
         let mut first_bounds = match self
             .rings
