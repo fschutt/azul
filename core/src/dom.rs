@@ -1109,14 +1109,14 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(AttributeType, AttributeVec, AttributeVecDestructor, AttributeVecDestructorType, AttributeVecSlice, OptionAttributeType);
-impl_vec_debug!(AttributeType, AttributeVec);
-impl_vec_partialord!(AttributeType, AttributeVec);
-impl_vec_ord!(AttributeType, AttributeVec);
-impl_vec_clone!(AttributeType, AttributeVec, AttributeVecDestructor);
-impl_vec_partialeq!(AttributeType, AttributeVec);
-impl_vec_eq!(AttributeType, AttributeVec);
-impl_vec_hash!(AttributeType, AttributeVec);
+impl_vec!(AttributeType, AttributeTypeVec, AttributeTypeVecDestructor, AttributeTypeVecDestructorType, AttributeTypeVecSlice, OptionAttributeType);
+impl_vec_debug!(AttributeType, AttributeTypeVec);
+impl_vec_partialord!(AttributeType, AttributeTypeVec);
+impl_vec_ord!(AttributeType, AttributeTypeVec);
+impl_vec_clone!(AttributeType, AttributeTypeVec, AttributeTypeVecDestructor);
+impl_vec_partialeq!(AttributeType, AttributeTypeVec);
+impl_vec_eq!(AttributeType, AttributeTypeVec);
+impl_vec_hash!(AttributeType, AttributeTypeVec);
 
 impl AttributeType {
     /// Get the attribute name (e.g., "href", "aria-label", "data-foo")
@@ -1313,7 +1313,7 @@ pub struct NodeData {
     /// most nodes don't have any classes or IDs.
     pub ids_and_classes: IdOrClassVec,
     /// Strongly-typed HTML attributes (aria-*, href, alt, etc.)
-    pub attributes: AttributeVec,
+    pub attributes: AttributeTypeVec,
     /// Callbacks attached to this node:
     ///
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
@@ -2370,7 +2370,7 @@ impl NodeData {
             node_type,
             dataset: OptionRefAny::None,
             ids_and_classes: IdOrClassVec::from_const_slice(&[]),
-            attributes: AttributeVec::from_const_slice(&[]),
+            attributes: AttributeTypeVec::from_const_slice(&[]),
             callbacks: CoreCallbackDataVec::from_const_slice(&[]),
             css_props: CssPropertyWithConditionsVec::from_const_slice(&[]),
             tab_index: OptionTabIndex::None,
@@ -4848,7 +4848,7 @@ impl Dom {
 
     /// Adds multiple attributes to this DOM element.
     #[inline(always)]
-    pub fn with_attributes(mut self, attributes: AttributeVec) -> Self {
+    pub fn with_attributes(mut self, attributes: AttributeTypeVec) -> Self {
         self.root.attributes = attributes;
         self
     }
