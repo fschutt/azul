@@ -2561,6 +2561,26 @@
               }
             },
             "repr": "C"
+          },
+          "MimeTypeHint": {
+            "external": "azul_core::xml::MimeTypeHint",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "inner": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -15625,13 +15645,13 @@
                 ],
                 "fn_body": "azul_css::props::property::CssProperty::word_spacing(input)"
               },
-              "tab_width": {
+              "tab_size": {
                 "fn_args": [
                   {
-                    "input": "StyleTabWidth"
+                    "input": "StyleTabSize"
                   }
                 ],
-                "fn_body": "azul_css::props::property::CssProperty::tab_width(input)"
+                "fn_body": "azul_css::props::property::CssProperty::tab_size(input)"
               },
               "cursor": {
                 "fn_args": [
@@ -16585,13 +16605,13 @@
                 ],
                 "fn_body": "azul_css::props::property::CssProperty::const_word_spacing(input)"
               },
-              "const_tab_width": {
+              "const_tab_size": {
                 "fn_args": [
                   {
-                    "input": "StyleTabWidth"
+                    "input": "StyleTabSize"
                   }
                 ],
-                "fn_body": "azul_css::props::property::CssProperty::const_tab_width(input)"
+                "fn_body": "azul_css::props::property::CssProperty::const_tab_size(input)"
               },
               "const_cursor": {
                 "fn_args": [
@@ -25731,7 +25751,7 @@
             "constructors": {
               "from_xml": {
                 "doc": [
-                  "Returns a DOM loaded from an XML file"
+                  "Returns a DOM loaded from an XML string"
                 ],
                 "fn_args": [
                   {
@@ -25750,6 +25770,19 @@
                   }
                 ],
                 "fn_body": "azul_layout::extra::styled_dom_from_file(xml_file_path.as_str())"
+              },
+              "from_parsed_xml": {
+                "doc": [
+                  "Creates a StyledDom from an already-parsed Xml structure.",
+                  "This avoids re-parsing the XML string and is more efficient",
+                  "when you already have a parsed Xml object."
+                ],
+                "fn_args": [
+                  {
+                    "xml": "Xml"
+                  }
+                ],
+                "fn_body": "azul_layout::extra::styled_dom_from_parsed_xml(xml)"
               }
             },
             "functions": {
@@ -47045,6 +47078,32 @@
                 "fn_body": "azul_layout::xml::parse_xml(xml_string.as_str()).into()"
               }
             },
+            "functions": {
+              "scan_external_resources": {
+                "doc": [
+                  "Scan the XML/HTML document for external resource URLs.",
+                  "",
+                  "This function traverses the entire document tree and extracts URLs from:",
+                  "- `<img src=\"...\">` - Images",
+                  "- `<link href=\"...\">` - Stylesheets, icons, fonts",
+                  "- `<script src=\"...\">` - Scripts",
+                  "- `<video src=\"...\">`, `<source src=\"...\">` - Video",
+                  "- `<audio src=\"...\">` - Audio",
+                  "- `<a href=\"...\">` - Links (classified as Unknown)",
+                  "- CSS `url()` in style attributes",
+                  "- `<style>` blocks with @import or url()"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ExternalResourceVec"
+                },
+                "fn_body": "object.scan_external_resources()"
+              }
+            },
             "repr": "C"
           },
           "ParsedSvg": {
@@ -52498,6 +52557,71 @@
               }
             ],
             "repr": "C"
+          },
+          "ExternalResourceVec": {
+            "external": "azul_core::xml::ExternalResourceVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "ExternalResource",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "ExternalResourceVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ExternalResourceVecDestructor": {
+            "external": "azul_core::xml::ExternalResourceVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "ExternalResourceVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "ExternalResourceVecDestructorType": {
+            "external": "azul_core::xml::ExternalResourceVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "ExternalResourceVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
           }
         }
       },
@@ -54654,6 +54778,27 @@
                 "None": {},
                 "Some": {
                   "type": "PendingTextEdit"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "OptionMimeTypeHint": {
+            "external": "azul_core::xml::OptionMimeTypeHint",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "MimeTypeHint"
                 }
               }
             ],
@@ -58214,6 +58359,64 @@
                 "Auto": {},
                 "Instant": {},
                 "Smooth": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "ExternalResource": {
+            "external": "azul_core::xml::ExternalResource",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "url": {
+                  "type": "String"
+                },
+                "kind": {
+                  "type": "ExternalResourceKind"
+                },
+                "mime_type": {
+                  "type": "OptionMimeTypeHint"
+                },
+                "source_element": {
+                  "type": "String"
+                },
+                "source_attribute": {
+                  "type": "String"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "ExternalResourceKind": {
+            "external": "azul_core::xml::ExternalResourceKind",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Image": {},
+                "Font": {},
+                "Stylesheet": {},
+                "Script": {},
+                "Icon": {},
+                "Video": {},
+                "Audio": {},
+                "Unknown": {}
               }
             ],
             "repr": "C"

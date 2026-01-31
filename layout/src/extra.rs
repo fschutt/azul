@@ -49,3 +49,39 @@ pub fn styled_dom_from_str(s: &str) -> StyledDom {
     use crate::xml::XmlComponentMap;
     crate::xml::domxml_from_str(s, &mut XmlComponentMap::default()).parsed_dom
 }
+
+/// Create a StyledDom from an already-parsed Xml structure.
+/// This avoids re-parsing the XML string.
+#[cfg(not(feature = "xml"))]
+pub fn styled_dom_from_parsed_xml(_xml: azul_core::xml::Xml) -> StyledDom {
+    use azul_core::dom::Dom;
+    use azul_css::css::Css;
+
+    Dom::create_body()
+        .with_children(
+            vec![Dom::create_text(format!(
+                "library was not compiled with --feature=\"xml\""
+            ))]
+            .into(),
+        )
+        .style(Css::empty())
+}
+
+/// Create a StyledDom from an already-parsed Xml structure.
+/// This avoids re-parsing the XML string.
+#[cfg(feature = "xml")]
+pub fn styled_dom_from_parsed_xml(xml: azul_core::xml::Xml) -> StyledDom {
+    use azul_core::xml::{str_to_dom, XmlComponentMap};
+    use azul_core::dom::Dom;
+    use azul_css::css::Css;
+    
+    let mut component_map = XmlComponentMap::default();
+    match str_to_dom(xml.root.as_ref(), &mut component_map, None) {
+        Ok(styled_dom) => styled_dom,
+        Err(e) => {
+            Dom::create_body()
+                .with_children(vec![Dom::create_text(format!("{}", e))].into())
+                .style(Css::empty())
+        }
+    }
+}

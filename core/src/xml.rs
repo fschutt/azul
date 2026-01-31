@@ -153,10 +153,529 @@ pub struct XmlQualifiedName {
     pub namespace: OptionString,
 }
 
+/// Classification of an external resource referenced in HTML/XML
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum ExternalResourceKind {
+    /// Image resource (img src, background-image, etc.)
+    Image,
+    /// Font resource (@font-face src, link rel="preload" as="font")
+    Font,
+    /// Stylesheet (link rel="stylesheet", @import)
+    Stylesheet,
+    /// Script (script src)
+    Script,
+    /// Favicon or icon
+    Icon,
+    /// Video source
+    Video,
+    /// Audio source
+    Audio,
+    /// Generic link or unknown resource type
+    Unknown,
+}
+
+/// MIME type hint for an external resource
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct MimeTypeHint {
+    pub inner: AzString,
+}
+
+impl MimeTypeHint {
+    pub fn new(s: &str) -> Self {
+        Self { inner: AzString::from(s) }
+    }
+    
+    pub fn from_extension(ext: &str) -> Self {
+        let mime = match ext.to_lowercase().as_str() {
+            // Images
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            "svg" => "image/svg+xml",
+            "ico" => "image/x-icon",
+            "bmp" => "image/bmp",
+            "avif" => "image/avif",
+            // Fonts
+            "ttf" => "font/ttf",
+            "otf" => "font/otf",
+            "woff" => "font/woff",
+            "woff2" => "font/woff2",
+            "eot" => "application/vnd.ms-fontobject",
+            // Stylesheets
+            "css" => "text/css",
+            // Scripts
+            "js" => "application/javascript",
+            "mjs" => "application/javascript",
+            // Video
+            "mp4" => "video/mp4",
+            "webm" => "video/webm",
+            "ogg" => "video/ogg",
+            // Audio
+            "mp3" => "audio/mpeg",
+            "wav" => "audio/wav",
+            "flac" => "audio/flac",
+            // Default
+            _ => "application/octet-stream",
+        };
+        Self { inner: AzString::from(mime) }
+    }
+}
+
+impl_option!(
+    MimeTypeHint,
+    OptionMimeTypeHint,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+/// An external resource URL found in an XML/HTML document
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ExternalResource {
+    /// The URL as found in the document (may be relative or absolute)
+    pub url: AzString,
+    /// Classification of the resource type
+    pub kind: ExternalResourceKind,
+    /// MIME type hint (from type attribute, file extension, or heuristics)
+    pub mime_type: OptionMimeTypeHint,
+    /// The HTML element that referenced this resource (e.g., "img", "link", "script")
+    pub source_element: AzString,
+    /// The attribute that contained the URL (e.g., "src", "href")
+    pub source_attribute: AzString,
+}
+
+impl_vec!(
+    ExternalResource,
+    ExternalResourceVec,
+    ExternalResourceVecDestructor,
+    ExternalResourceVecDestructorType
+);
+impl_vec_mut!(ExternalResource, ExternalResourceVec);
+impl_vec_debug!(ExternalResource, ExternalResourceVec);
+impl_vec_partialeq!(ExternalResource, ExternalResourceVec);
+impl_vec_eq!(ExternalResource, ExternalResourceVec);
+impl_vec_partialord!(ExternalResource, ExternalResourceVec);
+impl_vec_ord!(ExternalResource, ExternalResourceVec);
+impl_vec_hash!(ExternalResource, ExternalResourceVec);
+impl_vec_clone!(ExternalResource, ExternalResourceVec, ExternalResourceVecDestructor);
+
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[repr(C)]
 pub struct Xml {
     pub root: XmlNodeChildVec,
+}
+
+impl Xml {
+    /// Scan the XML/HTML document for external resource URLs.
+    /// 
+    /// This function traverses the entire document tree and extracts URLs from:
+    /// - `<img src="...">` - Images
+    /// - `<link href="...">` - Stylesheets, icons, fonts
+    /// - `<script src="...">` - Scripts
+    /// - `<video src="...">`, `<source src="...">` - Video
+    /// - `<audio src="...">` - Audio
+    /// - `<a href="...">` - Links (classified as Unknown)
+    /// - CSS `url()` in style attributes
+    /// - `<style>` blocks with @import or url()
+    pub fn scan_external_resources(&self) -> ExternalResourceVec {
+        let mut resources = Vec::new();
+        
+        for child in self.root.as_ref().iter() {
+            Self::scan_node_child(child, &mut resources);
+        }
+        
+        resources.into()
+    }
+    
+    fn scan_node_child(child: &XmlNodeChild, resources: &mut Vec<ExternalResource>) {
+        match child {
+            XmlNodeChild::Text(text) => {
+                // Check for CSS @import or url() in text content (inside <style> tags)
+                Self::extract_css_urls(text.as_str(), resources);
+            }
+            XmlNodeChild::Element(node) => {
+                Self::scan_node(node, resources);
+            }
+        }
+    }
+    
+    fn scan_node(node: &XmlNode, resources: &mut Vec<ExternalResource>) {
+        let tag_name = node.node_type.inner.as_str().to_lowercase();
+        
+        // Get attribute lookup helper
+        let get_attr = |name: &str| -> Option<String> {
+            node.attributes.inner.as_ref().iter()
+                .find(|pair| pair.key.as_str().eq_ignore_ascii_case(name))
+                .map(|pair| pair.value.as_str().to_string())
+        };
+        
+        match tag_name.as_str() {
+            "img" => {
+                if let Some(src) = get_attr("src") {
+                    let mime = Self::guess_mime_from_url(&src, "image");
+                    resources.push(ExternalResource {
+                        url: AzString::from(src),
+                        kind: ExternalResourceKind::Image,
+                        mime_type: mime.into(),
+                        source_element: AzString::from("img"),
+                        source_attribute: AzString::from("src"),
+                    });
+                }
+                // Also check srcset
+                if let Some(srcset) = get_attr("srcset") {
+                    for src in Self::parse_srcset(&srcset) {
+                        let mime = Self::guess_mime_from_url(&src, "image");
+                        resources.push(ExternalResource {
+                            url: AzString::from(src),
+                            kind: ExternalResourceKind::Image,
+                            mime_type: mime.into(),
+                            source_element: AzString::from("img"),
+                            source_attribute: AzString::from("srcset"),
+                        });
+                    }
+                }
+            }
+            "link" => {
+                if let Some(href) = get_attr("href") {
+                    let rel = get_attr("rel").unwrap_or_default().to_lowercase();
+                    let type_attr = get_attr("type");
+                    let as_attr = get_attr("as").unwrap_or_default().to_lowercase();
+                    
+                    let (kind, category) = if rel.contains("stylesheet") {
+                        (ExternalResourceKind::Stylesheet, "stylesheet")
+                    } else if rel.contains("icon") || rel.contains("apple-touch-icon") {
+                        (ExternalResourceKind::Icon, "image")
+                    } else if as_attr == "font" || rel.contains("preload") && as_attr == "font" {
+                        (ExternalResourceKind::Font, "font")
+                    } else if as_attr == "script" {
+                        (ExternalResourceKind::Script, "script")
+                    } else if as_attr == "image" {
+                        (ExternalResourceKind::Image, "image")
+                    } else {
+                        (ExternalResourceKind::Unknown, "")
+                    };
+                    
+                    let mime = type_attr.map(|t| MimeTypeHint::new(&t))
+                        .or_else(|| Self::guess_mime_from_url(&href, category));
+                    
+                    resources.push(ExternalResource {
+                        url: AzString::from(href),
+                        kind,
+                        mime_type: mime.into(),
+                        source_element: AzString::from("link"),
+                        source_attribute: AzString::from("href"),
+                    });
+                }
+            }
+            "script" => {
+                if let Some(src) = get_attr("src") {
+                    let type_attr = get_attr("type");
+                    let mime = type_attr.map(|t| MimeTypeHint::new(&t))
+                        .or_else(|| Some(MimeTypeHint::new("application/javascript")));
+                    
+                    resources.push(ExternalResource {
+                        url: AzString::from(src),
+                        kind: ExternalResourceKind::Script,
+                        mime_type: mime.into(),
+                        source_element: AzString::from("script"),
+                        source_attribute: AzString::from("src"),
+                    });
+                }
+            }
+            "video" => {
+                if let Some(src) = get_attr("src") {
+                    let mime = Self::guess_mime_from_url(&src, "video");
+                    resources.push(ExternalResource {
+                        url: AzString::from(src),
+                        kind: ExternalResourceKind::Video,
+                        mime_type: mime.into(),
+                        source_element: AzString::from("video"),
+                        source_attribute: AzString::from("src"),
+                    });
+                }
+                if let Some(poster) = get_attr("poster") {
+                    let mime = Self::guess_mime_from_url(&poster, "image");
+                    resources.push(ExternalResource {
+                        url: AzString::from(poster),
+                        kind: ExternalResourceKind::Image,
+                        mime_type: mime.into(),
+                        source_element: AzString::from("video"),
+                        source_attribute: AzString::from("poster"),
+                    });
+                }
+            }
+            "audio" => {
+                if let Some(src) = get_attr("src") {
+                    let mime = Self::guess_mime_from_url(&src, "audio");
+                    resources.push(ExternalResource {
+                        url: AzString::from(src),
+                        kind: ExternalResourceKind::Audio,
+                        mime_type: mime.into(),
+                        source_element: AzString::from("audio"),
+                        source_attribute: AzString::from("src"),
+                    });
+                }
+            }
+            "source" => {
+                if let Some(src) = get_attr("src") {
+                    let type_attr = get_attr("type");
+                    // Determine kind based on type or parent (heuristic: assume video)
+                    let kind = if type_attr.as_ref().map(|t| t.starts_with("audio")).unwrap_or(false) {
+                        ExternalResourceKind::Audio
+                    } else {
+                        ExternalResourceKind::Video
+                    };
+                    let mime = type_attr.map(|t| MimeTypeHint::new(&t))
+                        .or_else(|| Self::guess_mime_from_url(&src, if kind == ExternalResourceKind::Audio { "audio" } else { "video" }));
+                    
+                    resources.push(ExternalResource {
+                        url: AzString::from(src),
+                        kind,
+                        mime_type: mime.into(),
+                        source_element: AzString::from("source"),
+                        source_attribute: AzString::from("src"),
+                    });
+                }
+                // Also handle srcset for picture elements
+                if let Some(srcset) = get_attr("srcset") {
+                    for src in Self::parse_srcset(&srcset) {
+                        let mime = Self::guess_mime_from_url(&src, "image");
+                        resources.push(ExternalResource {
+                            url: AzString::from(src),
+                            kind: ExternalResourceKind::Image,
+                            mime_type: mime.into(),
+                            source_element: AzString::from("source"),
+                            source_attribute: AzString::from("srcset"),
+                        });
+                    }
+                }
+            }
+            "a" => {
+                if let Some(href) = get_attr("href") {
+                    // Only include if it looks like a resource, not a page link
+                    if Self::looks_like_resource(&href) {
+                        let mime = Self::guess_mime_from_url(&href, "");
+                        resources.push(ExternalResource {
+                            url: AzString::from(href),
+                            kind: ExternalResourceKind::Unknown,
+                            mime_type: mime.into(),
+                            source_element: AzString::from("a"),
+                            source_attribute: AzString::from("href"),
+                        });
+                    }
+                }
+            }
+            "iframe" | "embed" | "object" => {
+                let src_attr = if tag_name == "object" { "data" } else { "src" };
+                if let Some(src) = get_attr(src_attr) {
+                    resources.push(ExternalResource {
+                        url: AzString::from(src),
+                        kind: ExternalResourceKind::Unknown,
+                        mime_type: OptionMimeTypeHint::None,
+                        source_element: AzString::from(tag_name.clone()),
+                        source_attribute: AzString::from(src_attr),
+                    });
+                }
+            }
+            "style" => {
+                // Scan text content for CSS URLs
+                for child in node.children.as_ref().iter() {
+                    if let XmlNodeChild::Text(text) = child {
+                        Self::extract_css_urls(text.as_str(), resources);
+                    }
+                }
+            }
+            _ => {}
+        }
+        
+        // Check inline style attribute for url()
+        if let Some(style) = get_attr("style") {
+            Self::extract_css_urls(&style, resources);
+        }
+        
+        // Check for background attribute (deprecated but still used)
+        if let Some(bg) = get_attr("background") {
+            let mime = Self::guess_mime_from_url(&bg, "image");
+            resources.push(ExternalResource {
+                url: AzString::from(bg),
+                kind: ExternalResourceKind::Image,
+                mime_type: mime.into(),
+                source_element: AzString::from(tag_name),
+                source_attribute: AzString::from("background"),
+            });
+        }
+        
+        // Recurse into children
+        for child in node.children.as_ref().iter() {
+            Self::scan_node_child(child, resources);
+        }
+    }
+    
+    /// Extract URLs from CSS content (handles url() and @import)
+    fn extract_css_urls(css: &str, resources: &mut Vec<ExternalResource>) {
+        // Simple regex-like parsing for url(...) and @import
+        let mut remaining = css;
+        
+        while let Some(pos) = remaining.find("url(") {
+            let after_url = &remaining[pos + 4..];
+            if let Some(url) = Self::extract_url_value(after_url) {
+                let mime = Self::guess_mime_from_url(&url, "");
+                let kind = Self::guess_kind_from_url(&url);
+                resources.push(ExternalResource {
+                    url: AzString::from(url),
+                    kind,
+                    mime_type: mime.into(),
+                    source_element: AzString::from("style"),
+                    source_attribute: AzString::from("url()"),
+                });
+            }
+            remaining = after_url;
+        }
+        
+        // Handle @import "url" or @import url(...)
+        remaining = css;
+        while let Some(pos) = remaining.to_lowercase().find("@import") {
+            let after_import = &remaining[pos + 7..];
+            let trimmed = after_import.trim_start();
+            
+            if trimmed.starts_with("url(") {
+                if let Some(url) = Self::extract_url_value(&trimmed[4..]) {
+                    resources.push(ExternalResource {
+                        url: AzString::from(url),
+                        kind: ExternalResourceKind::Stylesheet,
+                        mime_type: Some(MimeTypeHint::new("text/css")).into(),
+                        source_element: AzString::from("style"),
+                        source_attribute: AzString::from("@import"),
+                    });
+                }
+            } else if let Some(url) = Self::extract_quoted_string(trimmed) {
+                resources.push(ExternalResource {
+                    url: AzString::from(url),
+                    kind: ExternalResourceKind::Stylesheet,
+                    mime_type: Some(MimeTypeHint::new("text/css")).into(),
+                    source_element: AzString::from("style"),
+                    source_attribute: AzString::from("@import"),
+                });
+            }
+            
+            remaining = after_import;
+        }
+    }
+    
+    /// Extract value from url(...) - handles quoted and unquoted URLs
+    fn extract_url_value(s: &str) -> Option<String> {
+        let trimmed = s.trim_start();
+        if trimmed.starts_with('"') {
+            Self::extract_quoted_string(trimmed)
+        } else if trimmed.starts_with('\'') {
+            let end = trimmed[1..].find('\'')?;
+            Some(trimmed[1..1+end].to_string())
+        } else {
+            let end = trimmed.find(')')?;
+            Some(trimmed[..end].trim().to_string())
+        }
+    }
+    
+    /// Extract a quoted string value
+    fn extract_quoted_string(s: &str) -> Option<String> {
+        if s.starts_with('"') {
+            let end = s[1..].find('"')?;
+            Some(s[1..1+end].to_string())
+        } else if s.starts_with('\'') {
+            let end = s[1..].find('\'')?;
+            Some(s[1..1+end].to_string())
+        } else {
+            None
+        }
+    }
+    
+    /// Parse srcset attribute into individual URLs
+    fn parse_srcset(srcset: &str) -> Vec<String> {
+        srcset.split(',')
+            .filter_map(|entry| {
+                let trimmed = entry.trim();
+                // srcset format: "url 1x" or "url 100w"
+                trimmed.split_whitespace().next().map(|s| s.to_string())
+            })
+            .filter(|url| !url.is_empty())
+            .collect()
+    }
+    
+    /// Check if a URL looks like a downloadable resource (not a page)
+    fn looks_like_resource(url: &str) -> bool {
+        let lower = url.to_lowercase();
+        // Check for common resource extensions
+        let resource_exts = [
+            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp",
+            ".ttf", ".otf", ".woff", ".woff2", ".eot",
+            ".css", ".js",
+            ".mp4", ".webm", ".ogg", ".mp3", ".wav",
+            ".pdf", ".zip", ".tar", ".gz",
+        ];
+        resource_exts.iter().any(|ext| lower.ends_with(ext))
+    }
+    
+    /// Guess the resource kind from URL
+    fn guess_kind_from_url(url: &str) -> ExternalResourceKind {
+        let lower = url.to_lowercase();
+        if lower.contains(".png") || lower.contains(".jpg") || lower.contains(".jpeg") 
+            || lower.contains(".gif") || lower.contains(".webp") || lower.contains(".svg")
+            || lower.contains(".bmp") || lower.contains(".avif") {
+            ExternalResourceKind::Image
+        } else if lower.contains(".ttf") || lower.contains(".otf") || lower.contains(".woff") 
+            || lower.contains(".eot") {
+            ExternalResourceKind::Font
+        } else if lower.contains(".css") {
+            ExternalResourceKind::Stylesheet
+        } else if lower.contains(".js") {
+            ExternalResourceKind::Script
+        } else if lower.contains(".mp4") || lower.contains(".webm") || lower.contains(".ogg") {
+            ExternalResourceKind::Video
+        } else if lower.contains(".mp3") || lower.contains(".wav") || lower.contains(".flac") {
+            ExternalResourceKind::Audio
+        } else if lower.contains(".ico") {
+            ExternalResourceKind::Icon
+        } else {
+            ExternalResourceKind::Unknown
+        }
+    }
+    
+    /// Guess MIME type from URL based on extension
+    fn guess_mime_from_url(url: &str, category: &str) -> Option<MimeTypeHint> {
+        let lower = url.to_lowercase();
+        // Find extension
+        let ext = lower.rsplit('.').next()?;
+        // Remove query string if present
+        let ext = ext.split('?').next()?;
+        
+        // Check if it's a valid extension
+        let valid_exts = [
+            "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif",
+            "ttf", "otf", "woff", "woff2", "eot",
+            "css", "js", "mjs",
+            "mp4", "webm", "ogg", "mp3", "wav", "flac",
+        ];
+        
+        if valid_exts.contains(&ext) {
+            Some(MimeTypeHint::from_extension(ext))
+        } else if !category.is_empty() {
+            // Use category hint for default
+            match category {
+                "image" => Some(MimeTypeHint::new("image/*")),
+                "font" => Some(MimeTypeHint::new("font/*")),
+                "stylesheet" => Some(MimeTypeHint::new("text/css")),
+                "script" => Some(MimeTypeHint::new("application/javascript")),
+                "video" => Some(MimeTypeHint::new("video/*")),
+                "audio" => Some(MimeTypeHint::new("audio/*")),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
@@ -1903,7 +2422,8 @@ pub fn get_html_node<'a>(root_nodes: &'a [XmlNodeChild]) -> Result<&'a XmlNode, 
 /// Find the one and only `<body>` node, return error if
 /// there is no app node or there are multiple app nodes
 pub fn get_body_node<'a>(root_nodes: &'a [XmlNodeChild]) -> Result<&'a XmlNode, DomXmlParseError> {
-    let mut body_node_iterator = root_nodes.iter().filter_map(|child| {
+    // First try to find body as a direct child (proper HTML structure)
+    let direct_body = root_nodes.iter().filter_map(|child| {
         if let XmlNodeChild::Element(node) = child {
             let node_type_normalized = normalize_casing(&node.node_type);
             if &node_type_normalized == "body" {
@@ -1914,40 +2434,61 @@ pub fn get_body_node<'a>(root_nodes: &'a [XmlNodeChild]) -> Result<&'a XmlNode, 
         } else {
             None
         }
-    });
-
-    let body_node = body_node_iterator
-        .next()
-        .ok_or(DomXmlParseError::NoBodyInHtml)?;
-    if body_node_iterator.next().is_some() {
-        Err(DomXmlParseError::MultipleBodyNodes)
-    } else {
-        Ok(body_node)
+    }).next();
+    
+    if let Some(body) = direct_body {
+        return Ok(body);
     }
+    
+    // If not found as direct child, search recursively (for malformed HTML like example.com)
+    // where <body> might be nested inside <head> due to missing </head> tag
+    fn find_body_recursive<'a>(nodes: &'a [XmlNodeChild]) -> Option<&'a XmlNode> {
+        for child in nodes {
+            if let XmlNodeChild::Element(node) = child {
+                let node_type_normalized = normalize_casing(&node.node_type);
+                if &node_type_normalized == "body" {
+                    return Some(node);
+                }
+                // Recurse into children
+                if let Some(found) = find_body_recursive(node.children.as_ref()) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+    
+    find_body_recursive(root_nodes).ok_or(DomXmlParseError::NoBodyInHtml)
 }
 
 static DEFAULT_STR: &str = "";
 
 /// Searches in the the `root_nodes` for a `node_type`, convenience function in order to
 /// for example find the first <blah /> node in all these nodes.
+/// This function searches recursively through the entire tree.
 pub fn find_node_by_type<'a>(
     root_nodes: &'a [XmlNodeChild],
     node_type: &str,
 ) -> Option<&'a XmlNode> {
-    root_nodes
-        .iter()
-        .filter_map(|child| {
-            if let XmlNodeChild::Element(node) = child {
-                if normalize_casing(&node.node_type).as_str() == node_type {
-                    Some(node)
-                } else {
-                    None
-                }
-            } else {
-                None
+    // First check direct children
+    for child in root_nodes {
+        if let XmlNodeChild::Element(node) = child {
+            if normalize_casing(&node.node_type).as_str() == node_type {
+                return Some(node);
             }
-        })
-        .next()
+        }
+    }
+    
+    // If not found, search recursively (for malformed HTML)
+    for child in root_nodes {
+        if let XmlNodeChild::Element(node) = child {
+            if let Some(found) = find_node_by_type(node.children.as_ref(), node_type) {
+                return Some(found);
+            }
+        }
+    }
+    
+    None
 }
 
 pub fn find_attribute<'a>(node: &'a XmlNode, attribute: &str) -> Option<&'a AzString> {
