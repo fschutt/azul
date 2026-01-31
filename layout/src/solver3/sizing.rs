@@ -879,6 +879,7 @@ pub fn calculate_used_size_for_node(
     containing_block_size: LogicalSize,
     intrinsic: IntrinsicSizes,
     _box_props: &BoxProps,
+    viewport_size: LogicalSize,
 ) -> Result<LogicalSize> {
     let Some(id) = dom_id else {
         // Anonymous boxes:
@@ -953,8 +954,11 @@ pub fn calculate_used_size_for_node(
                 SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
                 SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
                 SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
+                SizeMetric::Vw => Some(px.number.get() / 100.0 * viewport_size.width),
+                SizeMetric::Vh => Some(px.number.get() / 100.0 * viewport_size.height),
+                SizeMetric::Vmin => Some(px.number.get() / 100.0 * viewport_size.width.min(viewport_size.height)),
+                SizeMetric::Vmax => Some(px.number.get() / 100.0 * viewport_size.width.max(viewport_size.height)),
                 SizeMetric::Percent => None,
-                SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => None,
             };
 
             match pixels_opt {
@@ -1001,8 +1005,11 @@ pub fn calculate_used_size_for_node(
                 SizeMetric::Cm => Some(px.number.get() * 96.0 / 2.54),
                 SizeMetric::Mm => Some(px.number.get() * 96.0 / 25.4),
                 SizeMetric::Em | SizeMetric::Rem => Some(px.number.get() * DEFAULT_FONT_SIZE),
+                SizeMetric::Vw => Some(px.number.get() / 100.0 * viewport_size.width),
+                SizeMetric::Vh => Some(px.number.get() / 100.0 * viewport_size.height),
+                SizeMetric::Vmin => Some(px.number.get() / 100.0 * viewport_size.width.min(viewport_size.height)),
+                SizeMetric::Vmax => Some(px.number.get() / 100.0 * viewport_size.width.max(viewport_size.height)),
                 SizeMetric::Percent => None,
-                SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => None,
             };
 
             match pixels_opt {

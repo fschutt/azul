@@ -225,6 +225,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     containing_block_rect.size,
                     intrinsic,
                     &node.box_props,
+                    ctx.viewport_size,
                 )?;
 
                 // Store the calculated size in the tree node

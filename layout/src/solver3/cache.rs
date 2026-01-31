@@ -735,6 +735,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         containing_block_size,
         intrinsic,
         &node.box_props,
+        ctx.viewport_size,
     )?;
 
     // Phase 2: Layout children using a formatting context

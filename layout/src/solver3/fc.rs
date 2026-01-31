@@ -509,6 +509,7 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                         px.metric,
                         px.number.get(),
                         constraints.available_size.width,
+                        ctx.viewport_size,
                     );
                     (Some(pixels), true)
                 }
@@ -538,6 +539,7 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                         px.metric,
                         px.number.get(),
                         constraints.available_size.height,
+                        ctx.viewport_size,
                     );
                     (Some(pixels), true)
                 }
@@ -2126,14 +2128,31 @@ pub(crate) fn convert_font_weight(weight: StyleFontWeight) -> FcWeight {
 }
 
 /// Resolves a CSS size metric to pixels.
+///
+/// - `metric`: The CSS unit (px, pt, em, vw, etc.)
+/// - `value`: The numeric value
+/// - `containing_block_size`: Size of containing block (for percentage)
+/// - `viewport_size`: Viewport dimensions (for vw, vh, vmin, vmax)
 #[inline]
-fn resolve_size_metric(metric: SizeMetric, value: f32, containing_block_size: f32) -> f32 {
+fn resolve_size_metric(
+    metric: SizeMetric,
+    value: f32,
+    containing_block_size: f32,
+    viewport_size: LogicalSize,
+) -> f32 {
     match metric {
         SizeMetric::Px => value,
         SizeMetric::Pt => value * PT_TO_PX,
         SizeMetric::Percent => value / 100.0 * containing_block_size,
         SizeMetric::Em | SizeMetric::Rem => value * DEFAULT_FONT_SIZE,
-        _ => value, // Fallback
+        SizeMetric::Vw => value / 100.0 * viewport_size.width,
+        SizeMetric::Vh => value / 100.0 * viewport_size.height,
+        SizeMetric::Vmin => value / 100.0 * viewport_size.width.min(viewport_size.height),
+        SizeMetric::Vmax => value / 100.0 * viewport_size.width.max(viewport_size.height),
+        // In, Cm, Mm: convert to pixels using standard DPI (96)
+        SizeMetric::In => value * 96.0,
+        SizeMetric::Cm => value * 96.0 / 2.54,
+        SizeMetric::Mm => value * 96.0 / 25.4,
     }
 }
 
@@ -3275,6 +3294,7 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             containing_block_size,
             intrinsic,
             &table_node.box_props,
+            ctx.viewport_size,
         )?;
 
         table_size.width
@@ -4891,6 +4911,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     constraints.containing_block_size,
                     intrinsic_size,
                     &box_props,
+                    ctx.viewport_size,
                 )?;
 
                 let writing_mode = get_writing_mode(ctx.styled_dom, dom_id, &styled_node_state)
@@ -5290,6 +5311,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 constraints.containing_block_size,
                 intrinsic_size,
                 &box_props,
+                ctx.viewport_size,
             )?;
 
             let writing_mode =
@@ -5467,6 +5489,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 constraints.containing_block_size,
                 intrinsic_size.clone(),
                 &box_props,
+                ctx.viewport_size,
             )?;
             
             // Drop immutable borrow before mutable access
