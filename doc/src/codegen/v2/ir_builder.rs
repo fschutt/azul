@@ -2007,15 +2007,18 @@ pub fn classify_struct_type(
         return TypeCategory::VecRef;
     }
 
-    // 3. Check for types that use C-API directly (no Python wrapper)
-    // This includes String, Vec types, RefAny, destructors, InstantPtr, etc.
+    // 3. Check for Vec types (by vec_element_type field or hardcoded names)
+    // This is the primary detection method - if vec_element_type is set, it's a Vec
+    if class_data.vec_element_type.is_some() || VEC_TYPE_NAMES.contains(&name) {
+        return TypeCategory::Vec;
+    }
+
+    // 4. Check for types that use C-API directly (no Python wrapper)
+    // This includes String, RefAny, destructors, InstantPtr, etc.
     if CAPI_DIRECT_TYPES.contains(&name) {
         // Determine the specific sub-category
         if name == STRING_TYPE_NAME {
             return TypeCategory::String;
-        }
-        if VEC_TYPE_NAMES.contains(&name) {
-            return TypeCategory::Vec;
         }
         if name == REFANY_TYPE_NAME {
             return TypeCategory::RefAny;
@@ -2028,12 +2031,12 @@ pub fn classify_struct_type(
         return TypeCategory::Vec; // Vec is used as "uses C-API directly" marker
     }
 
-    // 4. Check for boxed objects
+    // 5. Check for boxed objects
     if class_data.is_boxed_object {
         return TypeCategory::Boxed;
     }
 
-    // 5. Check for generic templates
+    // 6. Check for generic templates
     if class_data.generic_params.is_some()
         && !class_data
             .generic_params
@@ -2044,7 +2047,7 @@ pub fn classify_struct_type(
         return TypeCategory::GenericTemplate;
     }
 
-    // 6. Check for destructor/clone callback types (wrapper structs containing function pointers)
+    // 7. Check for destructor/clone callback types (wrapper structs containing function pointers)
     if name.ends_with("Destructor")
         || name.ends_with("DestructorType")
         || name.ends_with("CloneCallbackType")
@@ -2054,12 +2057,12 @@ pub fn classify_struct_type(
         return TypeCategory::DestructorOrClone;
     }
 
-    // 7. Check for callback+data pair struct (has callback field + RefAny data field)
+    // 8. Check for callback+data pair struct (has callback field + RefAny data field)
     if is_callback_data_pair(class_data, version_data) {
         return TypeCategory::CallbackDataPair;
     }
 
-    // 8. Default to Regular
+    // 9. Default to Regular
     TypeCategory::Regular
 }
 

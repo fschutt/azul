@@ -550,6 +550,18 @@ pub fn autofix_api(
                         actual_count.to_string().red()
                     );
                 }
+                diff::ModificationKind::VecFunctionsMissing {
+                    missing_functions,
+                    element_type,
+                } => {
+                    println!(
+                        "  {} (Vec<{}>): {} missing Vec functions: {}",
+                        modification.type_name.white(),
+                        element_type.cyan(),
+                        "+".green(),
+                        missing_functions.join(", ").yellow()
+                    );
+                }
             }
         }
         if diff.modifications.len() > 30 {
@@ -917,6 +929,15 @@ fn generate_combined_patch(
                 changes.push(ModifyChange::FixFunctionArgs {
                     fn_name: fn_name.clone(),
                     expected_count: *expected_count,
+                });
+            }
+            diff::ModificationKind::VecFunctionsMissing {
+                missing_functions,
+                element_type,
+            } => {
+                changes.push(ModifyChange::AddVecFunctions {
+                    missing_functions: missing_functions.clone(),
+                    element_type: element_type.clone(),
                 });
             }
         }

@@ -960,12 +960,15 @@ fn is_result_type(type_name: &str) -> bool {
 
 /// Generate standard Vec structure: ptr, len, cap, destructor, run_destructor
 /// Each field must be a separate IndexMap element to conform to the API schema
+/// Also generates standard Vec functions: create(), len(), is_empty(), get(), as_slice()
 fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &str) -> ClassPatch {
     use indexmap::IndexMap;
 
-    use crate::api::{FieldData, RefKind};
+    use crate::api::{FieldData, FunctionData, RefKind, ReturnTypeData};
 
     let destructor_type = type_name.trim_end_matches("Vec").to_string() + "VecDestructor";
+    let lowercase_type_name = type_name.chars().next().unwrap().to_lowercase().to_string() 
+        + &type_name[1..];
 
     // IMPORTANT: Each field must be its own IndexMap element to preserve order
     // Schema: [{"ptr": {...}}, {"len": {...}}, {"cap": {...}}, {"destructor": {...}}, {"run_destructor": {...}}]
@@ -1029,6 +1032,9 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         },
     );
 
+    // Generate standard Vec functions
+    let functions = generate_vec_functions(type_name, element_type, &lowercase_type_name);
+
     ClassPatch {
         external: Some(external_path.to_string()),
         doc: Some(vec![format!(
@@ -1047,8 +1053,135 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
             run_destructor_field,
         ]),
         vec_element_type: Some(element_type.to_string()),
+        functions: Some(functions),
         ..Default::default()
     }
+}
+
+/// Generate standard Vec functions: create(), len(), capacity(), is_empty(), get(), as_slice()
+fn generate_vec_functions(type_name: &str, element_type: &str, lowercase_type_name: &str) -> indexmap::IndexMap<String, crate::api::FunctionData> {
+    use indexmap::IndexMap;
+    use crate::api::{FunctionData, ReturnTypeData};
+    
+    let mut functions = IndexMap::new();
+    
+    // create() - creates an empty Vec
+    let create_args = Vec::new();
+    functions.insert(
+        "create".to_string(),
+        FunctionData {
+            doc: Some(vec![format!("Creates an empty `{}`", type_name)]),
+            fn_args: create_args,
+            returns: Some(ReturnTypeData {
+                r#type: type_name.to_string(),
+                doc: None,
+            }),
+            fn_body: Some(format!("{}::new()", type_name)),
+            ..Default::default()
+        },
+    );
+    
+    // with_capacity(cap: usize) - creates a Vec with given capacity
+    let mut with_cap_args = Vec::new();
+    let mut cap_arg = IndexMap::new();
+    cap_arg.insert("cap".to_string(), "usize".to_string());
+    with_cap_args.push(cap_arg);
+    functions.insert(
+        "with_capacity".to_string(),
+        FunctionData {
+            doc: Some(vec![format!("Creates a `{}` with a given capacity", type_name)]),
+            fn_args: with_cap_args,
+            returns: Some(ReturnTypeData {
+                r#type: type_name.to_string(),
+                doc: None,
+            }),
+            fn_body: Some(format!("{}::with_capacity(cap)", type_name)),
+            ..Default::default()
+        },
+    );
+    
+    // len(&self) -> usize
+    let mut len_args = Vec::new();
+    let mut self_arg = IndexMap::new();
+    self_arg.insert("self".to_string(), "ref".to_string());
+    len_args.push(self_arg);
+    functions.insert(
+        "len".to_string(),
+        FunctionData {
+            doc: Some(vec!["Returns the number of elements in the Vec".to_string()]),
+            fn_args: len_args,
+            returns: Some(ReturnTypeData {
+                r#type: "usize".to_string(),
+                doc: None,
+            }),
+            fn_body: Some(format!("{}.len()", lowercase_type_name)),
+            ..Default::default()
+        },
+    );
+    
+    // capacity(&self) -> usize
+    let mut cap_args = Vec::new();
+    let mut self_arg = IndexMap::new();
+    self_arg.insert("self".to_string(), "ref".to_string());
+    cap_args.push(self_arg);
+    functions.insert(
+        "capacity".to_string(),
+        FunctionData {
+            doc: Some(vec!["Returns the capacity of the Vec".to_string()]),
+            fn_args: cap_args,
+            returns: Some(ReturnTypeData {
+                r#type: "usize".to_string(),
+                doc: None,
+            }),
+            fn_body: Some(format!("{}.capacity()", lowercase_type_name)),
+            ..Default::default()
+        },
+    );
+    
+    // is_empty(&self) -> bool
+    let mut is_empty_args = Vec::new();
+    let mut self_arg = IndexMap::new();
+    self_arg.insert("self".to_string(), "ref".to_string());
+    is_empty_args.push(self_arg);
+    functions.insert(
+        "is_empty".to_string(),
+        FunctionData {
+            doc: Some(vec!["Returns whether the Vec is empty".to_string()]),
+            fn_args: is_empty_args,
+            returns: Some(ReturnTypeData {
+                r#type: "bool".to_string(),
+                doc: None,
+            }),
+            fn_body: Some(format!("{}.is_empty()", lowercase_type_name)),
+            ..Default::default()
+        },
+    );
+    
+    // get(&self, index: usize) -> Option<&Element>
+    // NOTE: Returns OptionElement for FFI safety (wrapped in Option type)
+    let option_element_type = format!("Option{}", element_type);
+    let mut get_args = Vec::new();
+    let mut self_arg = IndexMap::new();
+    self_arg.insert("self".to_string(), "ref".to_string());
+    get_args.push(self_arg);
+    let mut index_arg = IndexMap::new();
+    index_arg.insert("index".to_string(), "usize".to_string());
+    get_args.push(index_arg);
+    functions.insert(
+        "get".to_string(),
+        FunctionData {
+            doc: Some(vec![format!("Returns a reference to the element at the given index, or None if out of bounds")]),
+            fn_args: get_args,
+            returns: Some(ReturnTypeData {
+                r#type: option_element_type,
+                doc: None,
+            }),
+            fn_body: Some(format!("{}.get(index).cloned().into()", lowercase_type_name)),
+            ..Default::default()
+        },
+    );
+    
+    functions
 }
 
 /// Generate standard VecDestructor enum: DefaultRust, NoDestructor, External(Type)
