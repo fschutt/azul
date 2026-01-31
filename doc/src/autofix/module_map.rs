@@ -451,8 +451,8 @@ pub fn should_exclude_path(path: &std::path::Path) -> bool {
 /// Determine the correct api.json module for a type based on its name
 ///
 /// Priority:
-/// 1. FooVec, FooVecDestructor, FooVecDestructorType -> "vec"
-/// 2. OptionFoo -> "option"
+/// 1. OptionFoo -> "option" (MUST come first to handle OptionFooVec correctly)
+/// 2. FooVec, FooVecDestructor, FooVecDestructorType -> "vec"
 /// 3. FooError, ResultFoo -> "error"
 /// 4. Find all matching keywords across all modules, pick the longest match On tie, pick the first
 ///    module in MODULES order
@@ -460,7 +460,13 @@ pub fn should_exclude_path(path: &std::path::Path) -> bool {
 pub fn determine_module(type_name: &str) -> (String, bool) {
     let lower_name = type_name.to_lowercase();
 
-    // Priority 1: Vec types always go to vec module
+    // Priority 1: Option types (MUST come before Vec check to handle OptionFooVec correctly)
+    // e.g., OptionStringVec is an Option<StringVec>, not a Vec type
+    if lower_name.starts_with("option") {
+        return ("option".to_string(), false);
+    }
+
+    // Priority 2: Vec types go to vec module
     if lower_name.ends_with("vec")
         || lower_name.ends_with("vecdestructor")
         || lower_name.ends_with("vecdestructortype")
@@ -468,11 +474,6 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
         || lower_name.ends_with("vecrefmut")
     {
         return ("vec".to_string(), false);
-    }
-
-    // Priority 2: Option types
-    if lower_name.starts_with("option") {
-        return ("option".to_string(), false);
     }
 
     // Priority 3: Error/Result types

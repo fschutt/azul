@@ -562,6 +562,32 @@ pub fn autofix_api(
                         missing_functions.join(", ").yellow()
                     );
                 }
+                diff::ModificationKind::VecMissingOptionType {
+                    vec_type,
+                    element_type,
+                    option_type_name,
+                } => {
+                    println!(
+                        "  {} (Vec<{}>): {} missing Option type '{}' for c_get()",
+                        vec_type.white(),
+                        element_type.cyan(),
+                        "+".green(),
+                        option_type_name.yellow()
+                    );
+                }
+                diff::ModificationKind::VecMissingSliceType {
+                    vec_type,
+                    element_type,
+                    slice_type_name,
+                } => {
+                    println!(
+                        "  {} (Vec<{}>): {} missing Slice type '{}' for as_c_slice()",
+                        vec_type.white(),
+                        element_type.cyan(),
+                        "+".green(),
+                        slice_type_name.yellow()
+                    );
+                }
             }
         }
         if diff.modifications.len() > 30 {
@@ -937,6 +963,32 @@ fn generate_combined_patch(
             } => {
                 changes.push(ModifyChange::AddVecFunctions {
                     missing_functions: missing_functions.clone(),
+                    element_type: element_type.clone(),
+                });
+            }
+            diff::ModificationKind::VecMissingOptionType {
+                vec_type: _,
+                element_type,
+                option_type_name,
+            } => {
+                // Generate the Option type automatically - it has a simple structure
+                // Option<T> = { None, Some(T) }
+                changes.push(ModifyChange::AddDependencyType {
+                    dependency_type: option_type_name.clone(),
+                    dependency_kind: "option".to_string(),
+                    element_type: element_type.clone(),
+                });
+            }
+            diff::ModificationKind::VecMissingSliceType {
+                vec_type: _,
+                element_type,
+                slice_type_name,
+            } => {
+                // Generate the Slice type automatically - it has a simple structure
+                // Slice<T> = { ptr: *const T, len: usize }
+                changes.push(ModifyChange::AddDependencyType {
+                    dependency_type: slice_type_name.clone(),
+                    dependency_kind: "slice".to_string(),
                     element_type: element_type.clone(),
                 });
             }

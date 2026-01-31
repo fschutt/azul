@@ -141,11 +141,14 @@ pub enum TypeDefKind {
 pub enum MacroGeneratedKind {
     /// FooVec from impl_vec!(Foo, FooVec, ...)
     Vec,
-    /// FooVecDestructor from impl_vec!(Foo, FooVec, FooVecDestructor)
+    /// FooVecDestructor from impl_vec!(Foo, FooVec, FooVecDestructor, ...)
     VecDestructor,
     /// FooVecDestructorType - the callback_typedef for extern "C" fn(*mut FooVec)
     /// Generated from impl_vec! as the External variant's function pointer type
     VecDestructorType,
+    /// FooVecSlice from impl_vec!(Foo, FooVec, FooVecDestructor, FooVecDestructorType, FooVecSlice)
+    /// C-compatible slice struct with ptr and len
+    VecSlice,
     /// OptionFoo from impl_option!(Foo, OptionFoo, ...)
     Option,
     /// OptionFooEnumWrapper from impl_option!(Foo, OptionFoo, OptionFooEnumWrapper)
@@ -317,6 +320,41 @@ impl TypeDefinition {
                                 ref_kind: RefKind::MutPtr,
                             }],
                             returns: None,
+                        }
+                    }
+                    MacroGeneratedKind::VecSlice => {
+                        // C-compatible slice struct: { ptr: *const BaseType, len: usize }
+                        // base_type here is the element type
+                        let mut fields = IndexMap::new();
+                        fields.insert(
+                            "ptr".to_string(),
+                            FieldDef {
+                                name: "ptr".to_string(),
+                                ty: base_type.clone(),
+                                ref_kind: RefKind::ConstPtr,
+                                doc: Vec::new(),
+                            },
+                        );
+                        fields.insert(
+                            "len".to_string(),
+                            FieldDef {
+                                name: "len".to_string(),
+                                ty: "usize".to_string(),
+                                ref_kind: RefKind::Value,
+                                doc: Vec::new(),
+                            },
+                        );
+                        TypeDefKind::Struct {
+                            fields,
+                            repr: Some("C".to_string()),
+                            generic_params: Vec::new(),
+                            derives: vec![
+                                "Debug".to_string(),
+                                "Copy".to_string(),
+                                "Clone".to_string(),
+                            ],
+                            custom_impls: Vec::new(),
+                            is_tuple_struct: false,
                         }
                     }
                     MacroGeneratedKind::Option => {
@@ -1885,17 +1923,19 @@ fn extract_macro_generated_types(
 
     match macro_name.as_str() {
         "impl_vec" => {
-            // impl_vec!(BaseType, VecType, DestructorType)
+            // impl_vec!(BaseType, VecType, DestructorType, DestructorTypeType, SliceType)
             // Generates:
             //   - VecType (struct with ptr, len, cap, destructor fields)
             //   - DestructorType (enum with DefaultRust, NoDestructor, External variants)
             //   - DestructorTypeType (callback_typedef for extern "C" fn(*mut VecType))
+            //   - SliceType (struct with ptr, len for C-compatible slice access)
             // NOTE: impl_vec_clone and impl_vec_debug only add trait impls, not new types
-            if args.len() >= 3 {
+            if args.len() >= 5 {
                 let base_type = args[0].to_string();
                 let vec_type = args[1].to_string();
                 let destructor_type = args[2].to_string();
-                let destructor_type_type = format!("{}Type", destructor_type);
+                let destructor_type_type = args[3].to_string();
+                let slice_type = args[4].to_string();
 
                 // VecType (struct)
                 types.push(TypeDefinition {
@@ -1942,9 +1982,27 @@ fn extract_macro_generated_types(
                     module_path: module_path.to_string(),
                     crate_name: crate_name.to_string(),
                     kind: TypeDefKind::MacroGenerated {
-                        source_macro: macro_name,
-                        base_type: vec_type, // The vec type is referenced in the callback
+                        source_macro: macro_name.clone(),
+                        base_type: vec_type.clone(), // The vec type is referenced in the callback
                         kind: MacroGeneratedKind::VecDestructorType,
+                        derives: Vec::new(),
+                        implemented_traits: Vec::new(),
+                    },
+                    source_code: m.to_token_stream().to_string(),
+                    methods: Vec::new(),
+                });
+
+                // SliceType (C-compatible slice struct with ptr and len)
+                types.push(TypeDefinition {
+                    full_path: build_full_path(crate_name, module_path, &slice_type),
+                    type_name: slice_type,
+                    file_path: file_path.to_path_buf(),
+                    module_path: module_path.to_string(),
+                    crate_name: crate_name.to_string(),
+                    kind: TypeDefKind::MacroGenerated {
+                        source_macro: macro_name,
+                        base_type: base_type.clone(),
+                        kind: MacroGeneratedKind::VecSlice,
                         derives: Vec::new(),
                         implemented_traits: Vec::new(),
                     },

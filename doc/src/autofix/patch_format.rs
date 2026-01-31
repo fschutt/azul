@@ -183,6 +183,16 @@ pub enum ModifyChange {
         /// Element type of the Vec (e.g., "SvgPath" for SvgPathVec)
         element_type: String,
     },
+    /// Add a dependency type that a Vec needs (OptionX or XVecSlice)
+    /// This will generate an AddStruct patch to add the type to api.json
+    AddDependencyType {
+        /// The type name to add (e.g., "OptionMenuItem" or "MenuItemVecSlice")
+        dependency_type: String,
+        /// The kind of dependency: "option" or "slice"
+        dependency_kind: String,
+        /// The element type this depends on (e.g., "MenuItem")
+        element_type: String,
+    },
 }
 
 /// Struct field definition for complete field replacement
@@ -617,6 +627,18 @@ fn explain_change(change: &ModifyChange) -> String {
                 missing_functions.join(", ")
             )
         }
+        ModifyChange::AddDependencyType {
+            dependency_type,
+            dependency_kind,
+            element_type,
+        } => {
+            format!(
+                "+ {} type: {} (for element {})",
+                dependency_kind,
+                dependency_type,
+                element_type
+            )
+        }
     }
 }
 
@@ -639,7 +661,44 @@ impl AutofixPatch {
     /// Uses the current API version and determines the module from the type name.
     pub fn to_api_patch(&self) -> ApiPatch {
         let mut api_patch = ApiPatch::default();
+        
+        // First pass: collect AddDependencyType changes and generate AddStruct patches for them
+        for op in &self.operations {
+            if let PatchOperation::Modify(m) = op {
+                for change in &m.changes {
+                    if let ModifyChange::AddDependencyType {
+                        dependency_type,
+                        dependency_kind,
+                        element_type,
+                    } = change {
+                        // Generate the appropriate type (Option or Slice)
+                        let class_patch = generate_dependency_type_patch(
+                            dependency_type,
+                            dependency_kind,
+                            element_type,
+                        );
+                        
+                        // Determine the module for the new type
+                        let module_name = if dependency_kind == "option" {
+                            "option".to_string()
+                        } else {
+                            // Slice types go in the "vec" module
+                            "vec".to_string()
+                        };
+                        
+                        insert_class_patch(
+                            &mut api_patch,
+                            API_VERSION,
+                            &module_name,
+                            dependency_type,
+                            class_patch,
+                        );
+                    }
+                }
+            }
+        }
 
+        // Second pass: process all other operations
         for op in &self.operations {
             match op {
                 PatchOperation::Modify(m) => {
@@ -1084,11 +1143,14 @@ impl AutofixPatch {
                 } => {
                     // Vec type is missing standard impl_vec! functions
                     // Generate the functions and add them to the patch
+                    // Note: known_types is None here, so all functions will be generated
+                    // The codegen stage will handle missing types appropriately
                     let lowercase_type_name = to_snake_case(&m.type_name);
                     let all_vec_functions = super::workspace::generate_vec_functions(
                         &m.type_name,
                         element_type,
                         &lowercase_type_name,
+                        None, // No type checking at patch generation stage
                     );
                     // Only add the missing functions
                     for fn_name in missing_functions {
@@ -1096,6 +1158,25 @@ impl AutofixPatch {
                             functions_to_add.insert(fn_name.clone(), fn_data.clone());
                         }
                     }
+                }
+                ModifyChange::AddDependencyType {
+                    dependency_type,
+                    dependency_kind,
+                    element_type,
+                } => {
+                    // Need to add a dependency type (OptionX or XVecSlice) to api.json
+                    // This generates an AddStruct patch to the appropriate module
+                    //
+                    // For now, we just log a warning. The actual type addition will be done
+                    // in a separate pass that generates AddStruct patches.
+                    // This is because ModifyChange operates on an existing type,
+                    // but AddDependencyType needs to create a new type.
+                    eprintln!(
+                        "  [INFO] Vec {} needs {} type '{}' for element '{}' - will be generated",
+                        m.type_name, dependency_kind, dependency_type, element_type
+                    );
+                    // Store the dependency for later processing
+                    // The actual type generation happens in generate_dependency_type_patches()
                 }
             }
         }
@@ -1296,5 +1377,102 @@ mod tests {
             class_patch.derive,
             Some(vec!["Clone".to_string(), "Copy".to_string()])
         );
+    }
+}
+
+/// Generate a ClassPatch for a dependency type (OptionX or XVecSlice)
+///
+/// # Arguments
+/// * `dependency_type` - The type name to generate (e.g., "OptionMenuItem" or "MenuItemVecSlice")
+/// * `dependency_kind` - Either "option" or "slice"
+/// * `element_type` - The element type this depends on (e.g., "MenuItem")
+///
+/// # Returns
+/// A ClassPatch that can be applied to add the type to api.json
+fn generate_dependency_type_patch(
+    dependency_type: &str,
+    dependency_kind: &str,
+    element_type: &str,
+) -> ClassPatch {
+    use crate::api::{FieldData, RefKind};
+    
+    match dependency_kind {
+        "option" => {
+            // Generate Option type: enum with None and Some(element_type) variants
+            // External path points to where the type is defined via impl_option! macro
+            // We need to determine the external path from the element type
+            let external_path = format!("azul_core::option::Option{}", element_type);
+            
+            let mut enum_variants = IndexMap::new();
+            enum_variants.insert(
+                "None".to_string(),
+                EnumVariantData {
+                    r#type: None,
+                    doc: Some(vec!["No value".to_string()]),
+                },
+            );
+            enum_variants.insert(
+                "Some".to_string(),
+                EnumVariantData {
+                    r#type: Some(element_type.to_string()),
+                    doc: Some(vec![format!("Some value of type {}", element_type)]),
+                },
+            );
+            
+            ClassPatch {
+                external: Some(external_path),
+                repr: Some("C, u8".to_string()),
+                derive: Some(vec![
+                    "Debug".to_string(),
+                    "Clone".to_string(),
+                ]),
+                enum_fields: Some(vec![enum_variants]),
+                ..Default::default()
+            }
+        }
+        "slice" => {
+            // Generate Slice type: struct with ptr and len fields
+            // External path points to where the type is defined via impl_vec! macro
+            let vec_type_name = dependency_type.trim_end_matches("Slice");
+            let external_path = format!("azul_css::{}", dependency_type);
+            
+            let mut struct_fields = IndexMap::new();
+            struct_fields.insert(
+                "ptr".to_string(),
+                FieldData {
+                    r#type: element_type.to_string(),
+                    ref_kind: RefKind::ConstPtr,
+                    arraysize: None,
+                    doc: Some(vec!["Pointer to the slice data".to_string()]),
+                    derive: None,
+                },
+            );
+            struct_fields.insert(
+                "len".to_string(),
+                FieldData {
+                    r#type: "usize".to_string(),
+                    ref_kind: RefKind::Value,
+                    arraysize: None,
+                    doc: Some(vec!["Number of elements in the slice".to_string()]),
+                    derive: None,
+                },
+            );
+            
+            ClassPatch {
+                external: Some(external_path),
+                repr: Some("C".to_string()),
+                derive: Some(vec![
+                    "Debug".to_string(),
+                    "Clone".to_string(),
+                    "Copy".to_string(),
+                ]),
+                struct_fields: Some(vec![struct_fields]),
+                ..Default::default()
+            }
+        }
+        _ => {
+            eprintln!("Warning: Unknown dependency kind '{}' for type '{}'", dependency_kind, dependency_type);
+            ClassPatch::default()
+        }
     }
 }
