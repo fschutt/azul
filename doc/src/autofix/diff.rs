@@ -2000,6 +2000,9 @@ const VEC_STANDARD_FUNCTIONS: &[&str] = &[
     "capacity",       // Returns the capacity
     "is_empty",       // Returns whether the Vec is empty
     "get",            // Gets an element by index (returns Option)
+    "from_item",      // Creates a Vec from a single element (requires Clone)
+    "copy_from_ptr",  // Creates a Vec from a C pointer + length (requires Clone)
+    "as_ptr",         // Returns a pointer to the Vec's data for passing to C
 ];
 
 /// Check if a Vec type is missing any standard functions

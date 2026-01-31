@@ -108,6 +108,13 @@ macro_rules! impl_vec {
             pub fn as_slice(&self) -> &[$struct_type] {
                 self.as_ref()
             }
+
+            /// Returns a pointer to the Vec's data.
+            /// Use `len()` to get the number of elements.
+            #[inline(always)]
+            pub fn as_ptr(&self) -> *const $struct_type {
+                self.ptr
+            }
         }
 
         impl AsRef<[$struct_type]> for $struct_name {
@@ -659,6 +666,27 @@ macro_rules! impl_vec_clone {
                     }
                     alloc::borrow::Cow::Owned(owned_vec) => Self::from_vec(owned_vec),
                 }
+            }
+
+            /// Creates a Vec containing a single element
+            #[inline(always)]
+            pub fn from_item(item: $struct_type) -> Self {
+                Self::from_vec(alloc::vec![item])
+            }
+
+            /// Copies elements from a C array pointer into a new Vec.
+            /// 
+            /// # Safety
+            /// - `ptr` must be valid for reading `len` elements
+            /// - The memory must be properly aligned for `$struct_type`
+            /// - The elements are cloned, so `$struct_type` must implement `Clone`
+            #[inline]
+            pub unsafe fn copy_from_ptr(ptr: *const $struct_type, len: usize) -> Self {
+                if ptr.is_null() || len == 0 {
+                    return Self::new();
+                }
+                let slice = core::slice::from_raw_parts(ptr, len);
+                Self::from_vec(slice.to_vec())
             }
 
             /// NOTE: CLONES the memory if the memory is external or &'static

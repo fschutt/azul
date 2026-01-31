@@ -1181,6 +1181,70 @@ pub fn generate_vec_functions(type_name: &str, element_type: &str, lowercase_typ
         },
     );
     
+    // from_item(item: Element) -> Self
+    // Creates a Vec containing a single element
+    let mut from_item_args = Vec::new();
+    let mut item_arg = IndexMap::new();
+    item_arg.insert("item".to_string(), element_type.to_string());
+    from_item_args.push(item_arg);
+    functions.insert(
+        "from_item".to_string(),
+        FunctionData {
+            doc: Some(vec![format!("Creates a `{}` containing a single element", type_name)]),
+            fn_args: from_item_args,
+            returns: Some(ReturnTypeData {
+                r#type: type_name.to_string(),
+                doc: None,
+            }),
+            fn_body: Some(format!("{}::from_item(item)", type_name)),
+            ..Default::default()
+        },
+    );
+    
+    // copy_from_ptr(ptr: *const Element, len: usize) -> Self
+    // Copies elements from a C array into a Vec
+    let mut copy_from_ptr_args = Vec::new();
+    let mut ptr_arg = IndexMap::new();
+    ptr_arg.insert("ptr".to_string(), format!("*const {}", element_type));
+    copy_from_ptr_args.push(ptr_arg);
+    let mut len_arg = IndexMap::new();
+    len_arg.insert("len".to_string(), "usize".to_string());
+    copy_from_ptr_args.push(len_arg);
+    functions.insert(
+        "copy_from_ptr".to_string(),
+        FunctionData {
+            doc: Some(vec![format!("Copies elements from a C array into a `{}`. The array must be valid for `len` elements.", type_name)]),
+            fn_args: copy_from_ptr_args,
+            returns: Some(ReturnTypeData {
+                r#type: type_name.to_string(),
+                doc: None,
+            }),
+            fn_body: Some(format!("unsafe {{ {}::copy_from_ptr(ptr, len) }}", type_name)),
+            ..Default::default()
+        },
+    );
+    
+    // as_ptr(&self) -> *const Element
+    // Returns a pointer to the Vec's data for C interop
+    let ptr_type = format!("*const {}", element_type);
+    let mut as_ptr_args = Vec::new();
+    let mut self_arg = IndexMap::new();
+    self_arg.insert("self".to_string(), "ref".to_string());
+    as_ptr_args.push(self_arg);
+    functions.insert(
+        "as_ptr".to_string(),
+        FunctionData {
+            doc: Some(vec![format!("Returns a pointer to the Vec's data. Use `len()` to get the number of elements.")]),
+            fn_args: as_ptr_args,
+            returns: Some(ReturnTypeData {
+                r#type: ptr_type,
+                doc: None,
+            }),
+            fn_body: Some(format!("{}.ptr", lowercase_type_name)),
+            ..Default::default()
+        },
+    );
+    
     functions
 }
 

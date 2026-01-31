@@ -48018,6 +48018,51 @@
                   "type": "OptionListViewRow"
                 },
                 "fn_body": "list_view_row_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `ListViewRowVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "ListViewRow"
+                  }
+                ],
+                "returns": {
+                  "type": "ListViewRowVec"
+                },
+                "fn_body": "ListViewRowVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `ListViewRowVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const ListViewRow"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ListViewRowVec"
+                },
+                "fn_body": "unsafe { ListViewRowVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const ListViewRow"
+                },
+                "fn_body": "list_view_row_vec.ptr"
               }
             },
             "repr": "C"
@@ -48143,6 +48188,51 @@
                   "type": "OptionStyleFilter"
                 },
                 "fn_body": "style_filter_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `StyleFilterVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "StyleFilter"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleFilterVec"
+                },
+                "fn_body": "StyleFilterVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `StyleFilterVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const StyleFilter"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleFilterVec"
+                },
+                "fn_body": "unsafe { StyleFilterVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const StyleFilter"
+                },
+                "fn_body": "style_filter_vec.ptr"
               }
             },
             "repr": "C"
@@ -48268,6 +48358,51 @@
                   "type": "OptionAccessibilityState"
                 },
                 "fn_body": "accessibility_state_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `AccessibilityStateVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "AccessibilityState"
+                  }
+                ],
+                "returns": {
+                  "type": "AccessibilityStateVec"
+                },
+                "fn_body": "AccessibilityStateVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `AccessibilityStateVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const AccessibilityState"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "AccessibilityStateVec"
+                },
+                "fn_body": "unsafe { AccessibilityStateVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const AccessibilityState"
+                },
+                "fn_body": "accessibility_state_vec.ptr"
               }
             },
             "repr": "C"
@@ -48393,6 +48528,51 @@
                   "type": "OptionMenuItem"
                 },
                 "fn_body": "menu_item_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `MenuItemVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "MenuItem"
+                  }
+                ],
+                "returns": {
+                  "type": "MenuItemVec"
+                },
+                "fn_body": "MenuItemVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `MenuItemVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const MenuItem"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "MenuItemVec"
+                },
+                "fn_body": "unsafe { MenuItemVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const MenuItem"
+                },
+                "fn_body": "menu_item_vec.ptr"
               }
             },
             "repr": "C"
@@ -48518,6 +48698,51 @@
                   "type": "OptionStyleFontFamily"
                 },
                 "fn_body": "style_font_family_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `StyleFontFamilyVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "StyleFontFamily"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleFontFamilyVec"
+                },
+                "fn_body": "StyleFontFamilyVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `StyleFontFamilyVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const StyleFontFamily"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleFontFamilyVec"
+                },
+                "fn_body": "unsafe { StyleFontFamilyVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const StyleFontFamily"
+                },
+                "fn_body": "style_font_family_vec.ptr"
               }
             },
             "repr": "C"
@@ -48643,6 +48868,51 @@
                   "type": "OptionDom"
                 },
                 "fn_body": "dom_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `DomVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "Dom"
+                  }
+                ],
+                "returns": {
+                  "type": "DomVec"
+                },
+                "fn_body": "DomVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `DomVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const Dom"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "DomVec"
+                },
+                "fn_body": "unsafe { DomVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const Dom"
+                },
+                "fn_body": "dom_vec.ptr"
               }
             },
             "repr": "C"
@@ -48768,6 +49038,51 @@
                   "type": "OptionIdOrClass"
                 },
                 "fn_body": "id_or_class_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `IdOrClassVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "IdOrClass"
+                  }
+                ],
+                "returns": {
+                  "type": "IdOrClassVec"
+                },
+                "fn_body": "IdOrClassVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `IdOrClassVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const IdOrClass"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "IdOrClassVec"
+                },
+                "fn_body": "unsafe { IdOrClassVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const IdOrClass"
+                },
+                "fn_body": "id_or_class_vec.ptr"
               }
             },
             "repr": "C"
@@ -48889,6 +49204,51 @@
                   "type": "OptionDynamicSelector"
                 },
                 "fn_body": "dynamic_selector_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `DynamicSelectorVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "DynamicSelector"
+                  }
+                ],
+                "returns": {
+                  "type": "DynamicSelectorVec"
+                },
+                "fn_body": "DynamicSelectorVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `DynamicSelectorVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const DynamicSelector"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "DynamicSelectorVec"
+                },
+                "fn_body": "unsafe { DynamicSelectorVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const DynamicSelector"
+                },
+                "fn_body": "dynamic_selector_vec.ptr"
               }
             },
             "repr": "C"
@@ -49014,6 +49374,51 @@
                   "type": "OptionCssPropertyWithConditions"
                 },
                 "fn_body": "css_property_with_conditions_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `CssPropertyWithConditionsVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "CssPropertyWithConditions"
+                  }
+                ],
+                "returns": {
+                  "type": "CssPropertyWithConditionsVec"
+                },
+                "fn_body": "CssPropertyWithConditionsVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `CssPropertyWithConditionsVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const CssPropertyWithConditions"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CssPropertyWithConditionsVec"
+                },
+                "fn_body": "unsafe { CssPropertyWithConditionsVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const CssPropertyWithConditions"
+                },
+                "fn_body": "css_property_with_conditions_vec.ptr"
               }
             },
             "repr": "C"
@@ -49139,6 +49544,51 @@
                   "type": "OptionStyleBackgroundContent"
                 },
                 "fn_body": "style_background_content_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `StyleBackgroundContentVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "StyleBackgroundContent"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleBackgroundContentVec"
+                },
+                "fn_body": "StyleBackgroundContentVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `StyleBackgroundContentVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const StyleBackgroundContent"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleBackgroundContentVec"
+                },
+                "fn_body": "unsafe { StyleBackgroundContentVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const StyleBackgroundContent"
+                },
+                "fn_body": "style_background_content_vec.ptr"
               }
             },
             "repr": "C"
@@ -49264,6 +49714,51 @@
                   "type": "OptionStyleBackgroundPosition"
                 },
                 "fn_body": "style_background_position_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `StyleBackgroundPositionVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "StyleBackgroundPosition"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleBackgroundPositionVec"
+                },
+                "fn_body": "StyleBackgroundPositionVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `StyleBackgroundPositionVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const StyleBackgroundPosition"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleBackgroundPositionVec"
+                },
+                "fn_body": "unsafe { StyleBackgroundPositionVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const StyleBackgroundPosition"
+                },
+                "fn_body": "style_background_position_vec.ptr"
               }
             },
             "repr": "C"
@@ -49389,6 +49884,51 @@
                   "type": "OptionStyleBackgroundRepeat"
                 },
                 "fn_body": "style_background_repeat_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `StyleBackgroundRepeatVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "StyleBackgroundRepeat"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleBackgroundRepeatVec"
+                },
+                "fn_body": "StyleBackgroundRepeatVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `StyleBackgroundRepeatVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const StyleBackgroundRepeat"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleBackgroundRepeatVec"
+                },
+                "fn_body": "unsafe { StyleBackgroundRepeatVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const StyleBackgroundRepeat"
+                },
+                "fn_body": "style_background_repeat_vec.ptr"
               }
             },
             "repr": "C"
@@ -49514,6 +50054,51 @@
                   "type": "OptionStyleBackgroundSize"
                 },
                 "fn_body": "style_background_size_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `StyleBackgroundSizeVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "StyleBackgroundSize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleBackgroundSizeVec"
+                },
+                "fn_body": "StyleBackgroundSizeVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `StyleBackgroundSizeVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const StyleBackgroundSize"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleBackgroundSizeVec"
+                },
+                "fn_body": "unsafe { StyleBackgroundSizeVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const StyleBackgroundSize"
+                },
+                "fn_body": "style_background_size_vec.ptr"
               }
             },
             "repr": "C"
@@ -49639,6 +50224,51 @@
                   "type": "OptionStyleTransform"
                 },
                 "fn_body": "style_transform_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `StyleTransformVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "StyleTransform"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleTransformVec"
+                },
+                "fn_body": "StyleTransformVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `StyleTransformVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const StyleTransform"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyleTransformVec"
+                },
+                "fn_body": "unsafe { StyleTransformVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const StyleTransform"
+                },
+                "fn_body": "style_transform_vec.ptr"
               }
             },
             "repr": "C"
@@ -49761,6 +50391,51 @@
                   "type": "OptionSvgMultiPolygon"
                 },
                 "fn_body": "svg_multi_polygon_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `SvgMultiPolygonVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "SvgMultiPolygon"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgMultiPolygonVec"
+                },
+                "fn_body": "SvgMultiPolygonVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `SvgMultiPolygonVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const SvgMultiPolygon"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgMultiPolygonVec"
+                },
+                "fn_body": "unsafe { SvgMultiPolygonVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const SvgMultiPolygon"
+                },
+                "fn_body": "svg_multi_polygon_vec.ptr"
               }
             },
             "repr": "C"
@@ -49883,6 +50558,51 @@
                   "type": "OptionSvgSimpleNode"
                 },
                 "fn_body": "svg_simple_node_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `SvgSimpleNodeVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "SvgSimpleNode"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgSimpleNodeVec"
+                },
+                "fn_body": "SvgSimpleNodeVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `SvgSimpleNodeVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const SvgSimpleNode"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgSimpleNodeVec"
+                },
+                "fn_body": "unsafe { SvgSimpleNodeVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const SvgSimpleNode"
+                },
+                "fn_body": "svg_simple_node_vec.ptr"
               }
             },
             "repr": "C"
@@ -50019,6 +50739,51 @@
                   "type": "OptionTessellatedSvgNode"
                 },
                 "fn_body": "tessellated_svg_node_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `TessellatedSvgNodeVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "TessellatedSvgNode"
+                  }
+                ],
+                "returns": {
+                  "type": "TessellatedSvgNodeVec"
+                },
+                "fn_body": "TessellatedSvgNodeVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `TessellatedSvgNodeVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const TessellatedSvgNode"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "TessellatedSvgNodeVec"
+                },
+                "fn_body": "unsafe { TessellatedSvgNodeVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const TessellatedSvgNode"
+                },
+                "fn_body": "tessellated_svg_node_vec.ptr"
               }
             },
             "repr": "C"
@@ -50141,6 +50906,51 @@
                   "type": "OptionSvgPath"
                 },
                 "fn_body": "svg_path_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `SvgPathVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "SvgPath"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgPathVec"
+                },
+                "fn_body": "SvgPathVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `SvgPathVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const SvgPath"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgPathVec"
+                },
+                "fn_body": "unsafe { SvgPathVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const SvgPath"
+                },
+                "fn_body": "svg_path_vec.ptr"
               }
             },
             "repr": "C"
@@ -50263,6 +51073,51 @@
                   "type": "OptionSvgPathElement"
                 },
                 "fn_body": "svg_path_element_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `SvgPathElementVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "SvgPathElement"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgPathElementVec"
+                },
+                "fn_body": "SvgPathElementVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `SvgPathElementVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const SvgPathElement"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgPathElementVec"
+                },
+                "fn_body": "unsafe { SvgPathElementVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const SvgPathElement"
+                },
+                "fn_body": "svg_path_element_vec.ptr"
               }
             },
             "repr": "C"
@@ -50385,6 +51240,51 @@
                   "type": "OptionSvgVertex"
                 },
                 "fn_body": "svg_vertex_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `SvgVertexVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "SvgVertex"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgVertexVec"
+                },
+                "fn_body": "SvgVertexVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `SvgVertexVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const SvgVertex"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SvgVertexVec"
+                },
+                "fn_body": "unsafe { SvgVertexVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const SvgVertex"
+                },
+                "fn_body": "svg_vertex_vec.ptr"
               }
             },
             "repr": "C"
@@ -50510,6 +51410,51 @@
                   "type": "Optionu32"
                 },
                 "fn_body": "u32_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `U32Vec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "u32"
+                  }
+                ],
+                "returns": {
+                  "type": "U32Vec"
+                },
+                "fn_body": "U32Vec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `U32Vec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const u32"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "U32Vec"
+                },
+                "fn_body": "unsafe { U32Vec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const u32"
+                },
+                "fn_body": "u32_vec.ptr"
               }
             },
             "repr": "C"
@@ -50635,6 +51580,51 @@
                   "type": "OptionVirtualKeyCode"
                 },
                 "fn_body": "virtual_key_code_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `VirtualKeyCodeVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "VirtualKeyCode"
+                  }
+                ],
+                "returns": {
+                  "type": "VirtualKeyCodeVec"
+                },
+                "fn_body": "VirtualKeyCodeVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `VirtualKeyCodeVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const VirtualKeyCode"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "VirtualKeyCodeVec"
+                },
+                "fn_body": "unsafe { VirtualKeyCodeVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const VirtualKeyCode"
+                },
+                "fn_body": "virtual_key_code_vec.ptr"
               }
             },
             "repr": "C"
@@ -50757,6 +51747,51 @@
                   "type": "OptionCascadeInfo"
                 },
                 "fn_body": "cascade_info_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `CascadeInfoVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "CascadeInfo"
+                  }
+                ],
+                "returns": {
+                  "type": "CascadeInfoVec"
+                },
+                "fn_body": "CascadeInfoVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `CascadeInfoVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const CascadeInfo"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CascadeInfoVec"
+                },
+                "fn_body": "unsafe { CascadeInfoVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const CascadeInfo"
+                },
+                "fn_body": "cascade_info_vec.ptr"
               }
             },
             "repr": "C"
@@ -50882,6 +51917,51 @@
                   "type": "OptionCssDeclaration"
                 },
                 "fn_body": "css_declaration_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `CssDeclarationVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "CssDeclaration"
+                  }
+                ],
+                "returns": {
+                  "type": "CssDeclarationVec"
+                },
+                "fn_body": "CssDeclarationVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `CssDeclarationVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const CssDeclaration"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CssDeclarationVec"
+                },
+                "fn_body": "unsafe { CssDeclarationVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const CssDeclaration"
+                },
+                "fn_body": "css_declaration_vec.ptr"
               }
             },
             "repr": "C"
@@ -51007,6 +52087,51 @@
                   "type": "OptionCssPathSelector"
                 },
                 "fn_body": "css_path_selector_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `CssPathSelectorVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "CssPathSelector"
+                  }
+                ],
+                "returns": {
+                  "type": "CssPathSelectorVec"
+                },
+                "fn_body": "CssPathSelectorVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `CssPathSelectorVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const CssPathSelector"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CssPathSelectorVec"
+                },
+                "fn_body": "unsafe { CssPathSelectorVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const CssPathSelector"
+                },
+                "fn_body": "css_path_selector_vec.ptr"
               }
             },
             "repr": "C"
@@ -51129,6 +52254,51 @@
                   "type": "OptionStylesheet"
                 },
                 "fn_body": "stylesheet_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `StylesheetVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "Stylesheet"
+                  }
+                ],
+                "returns": {
+                  "type": "StylesheetVec"
+                },
+                "fn_body": "StylesheetVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `StylesheetVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const Stylesheet"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StylesheetVec"
+                },
+                "fn_body": "unsafe { StylesheetVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const Stylesheet"
+                },
+                "fn_body": "stylesheet_vec.ptr"
               }
             },
             "repr": "C"
@@ -51251,6 +52421,51 @@
                   "type": "OptionCssRuleBlock"
                 },
                 "fn_body": "css_rule_block_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `CssRuleBlockVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "CssRuleBlock"
+                  }
+                ],
+                "returns": {
+                  "type": "CssRuleBlockVec"
+                },
+                "fn_body": "CssRuleBlockVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `CssRuleBlockVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const CssRuleBlock"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CssRuleBlockVec"
+                },
+                "fn_body": "unsafe { CssRuleBlockVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const CssRuleBlock"
+                },
+                "fn_body": "css_rule_block_vec.ptr"
               }
             },
             "repr": "C"
@@ -51376,6 +52591,51 @@
                   "type": "Optionu16"
                 },
                 "fn_body": "u16_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `U16Vec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "u16"
+                  }
+                ],
+                "returns": {
+                  "type": "U16Vec"
+                },
+                "fn_body": "U16Vec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `U16Vec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const u16"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "U16Vec"
+                },
+                "fn_body": "unsafe { U16Vec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const u16"
+                },
+                "fn_body": "u16_vec.ptr"
               }
             },
             "repr": "C"
@@ -51498,6 +52758,51 @@
                   "type": "Optionf32"
                 },
                 "fn_body": "f32_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `F32Vec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "f32"
+                  }
+                ],
+                "returns": {
+                  "type": "F32Vec"
+                },
+                "fn_body": "F32Vec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `F32Vec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const f32"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "F32Vec"
+                },
+                "fn_body": "unsafe { F32Vec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const f32"
+                },
+                "fn_body": "f32_vec.ptr"
               }
             },
             "repr": "C"
@@ -51656,6 +52961,51 @@
                   "type": "Optionu8"
                 },
                 "fn_body": "u8_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `U8Vec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "u8"
+                  }
+                ],
+                "returns": {
+                  "type": "U8Vec"
+                },
+                "fn_body": "U8Vec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `U8Vec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const u8"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "U8Vec"
+                },
+                "fn_body": "unsafe { U8Vec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const u8"
+                },
+                "fn_body": "u8_vec.ptr"
               }
             },
             "repr": "C"
@@ -51781,6 +53131,51 @@
                   "type": "OptionGLuint"
                 },
                 "fn_body": "g_luint_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `GLuintVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "GLuint"
+                  }
+                ],
+                "returns": {
+                  "type": "GLuintVec"
+                },
+                "fn_body": "GLuintVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `GLuintVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const GLuint"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "GLuintVec"
+                },
+                "fn_body": "unsafe { GLuintVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const GLuint"
+                },
+                "fn_body": "g_luint_vec.ptr"
               }
             },
             "repr": "C"
@@ -51906,6 +53301,51 @@
                   "type": "OptionGLint"
                 },
                 "fn_body": "g_lint_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `GLintVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "GLint"
+                  }
+                ],
+                "returns": {
+                  "type": "GLintVec"
+                },
+                "fn_body": "GLintVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `GLintVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const GLint"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "GLintVec"
+                },
+                "fn_body": "unsafe { GLintVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const GLint"
+                },
+                "fn_body": "g_lint_vec.ptr"
               }
             },
             "repr": "C"
@@ -52032,6 +53472,51 @@
                   "type": "OptionString"
                 },
                 "fn_body": "string_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `StringVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "StringVec"
+                },
+                "fn_body": "StringVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `StringVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const String"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StringVec"
+                },
+                "fn_body": "unsafe { StringVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const String"
+                },
+                "fn_body": "string_vec.ptr"
               }
             },
             "repr": "C"
@@ -52157,6 +53642,51 @@
                   "type": "OptionStringPair"
                 },
                 "fn_body": "string_pair_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `StringPairVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "StringPair"
+                  }
+                ],
+                "returns": {
+                  "type": "StringPairVec"
+                },
+                "fn_body": "StringPairVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `StringPairVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const StringPair"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StringPairVec"
+                },
+                "fn_body": "unsafe { StringPairVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const StringPair"
+                },
+                "fn_body": "string_pair_vec.ptr"
               }
             },
             "repr": "C"
@@ -52282,6 +53812,51 @@
                   "type": "OptionNormalizedLinearColorStop"
                 },
                 "fn_body": "normalized_linear_color_stop_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `NormalizedLinearColorStopVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "NormalizedLinearColorStop"
+                  }
+                ],
+                "returns": {
+                  "type": "NormalizedLinearColorStopVec"
+                },
+                "fn_body": "NormalizedLinearColorStopVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `NormalizedLinearColorStopVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const NormalizedLinearColorStop"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "NormalizedLinearColorStopVec"
+                },
+                "fn_body": "unsafe { NormalizedLinearColorStopVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const NormalizedLinearColorStop"
+                },
+                "fn_body": "normalized_linear_color_stop_vec.ptr"
               }
             },
             "repr": "C"
@@ -52407,6 +53982,51 @@
                   "type": "OptionNormalizedRadialColorStop"
                 },
                 "fn_body": "normalized_radial_color_stop_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `NormalizedRadialColorStopVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "NormalizedRadialColorStop"
+                  }
+                ],
+                "returns": {
+                  "type": "NormalizedRadialColorStopVec"
+                },
+                "fn_body": "NormalizedRadialColorStopVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `NormalizedRadialColorStopVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const NormalizedRadialColorStop"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "NormalizedRadialColorStopVec"
+                },
+                "fn_body": "unsafe { NormalizedRadialColorStopVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const NormalizedRadialColorStop"
+                },
+                "fn_body": "normalized_radial_color_stop_vec.ptr"
               }
             },
             "repr": "C"
@@ -52532,6 +54152,51 @@
                   "type": "OptionNodeId"
                 },
                 "fn_body": "node_id_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `NodeIdVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "NodeId"
+                  }
+                ],
+                "returns": {
+                  "type": "NodeIdVec"
+                },
+                "fn_body": "NodeIdVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `NodeIdVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const NodeId"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "NodeIdVec"
+                },
+                "fn_body": "unsafe { NodeIdVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const NodeId"
+                },
+                "fn_body": "node_id_vec.ptr"
               }
             },
             "repr": "C"
@@ -52654,6 +54319,51 @@
                   "type": "OptionNodeHierarchyItem"
                 },
                 "fn_body": "node_hierarchy_item_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `NodeHierarchyItemVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "NodeHierarchyItem"
+                  }
+                ],
+                "returns": {
+                  "type": "NodeHierarchyItemVec"
+                },
+                "fn_body": "NodeHierarchyItemVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `NodeHierarchyItemVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const NodeHierarchyItem"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "NodeHierarchyItemVec"
+                },
+                "fn_body": "unsafe { NodeHierarchyItemVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const NodeHierarchyItem"
+                },
+                "fn_body": "node_hierarchy_item_vec.ptr"
               }
             },
             "repr": "C"
@@ -52776,6 +54486,51 @@
                   "type": "OptionTagIdToNodeIdMapping"
                 },
                 "fn_body": "tag_id_to_node_id_mapping_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `TagIdToNodeIdMappingVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "TagIdToNodeIdMapping"
+                  }
+                ],
+                "returns": {
+                  "type": "TagIdToNodeIdMappingVec"
+                },
+                "fn_body": "TagIdToNodeIdMappingVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `TagIdToNodeIdMappingVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const TagIdToNodeIdMapping"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "TagIdToNodeIdMappingVec"
+                },
+                "fn_body": "unsafe { TagIdToNodeIdMappingVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const TagIdToNodeIdMapping"
+                },
+                "fn_body": "tag_id_to_node_id_mapping_vec.ptr"
               }
             },
             "repr": "C"
@@ -52898,6 +54653,51 @@
                   "type": "OptionParentWithNodeDepth"
                 },
                 "fn_body": "parent_with_node_depth_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `ParentWithNodeDepthVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "ParentWithNodeDepth"
+                  }
+                ],
+                "returns": {
+                  "type": "ParentWithNodeDepthVec"
+                },
+                "fn_body": "ParentWithNodeDepthVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `ParentWithNodeDepthVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const ParentWithNodeDepth"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ParentWithNodeDepthVec"
+                },
+                "fn_body": "unsafe { ParentWithNodeDepthVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const ParentWithNodeDepth"
+                },
+                "fn_body": "parent_with_node_depth_vec.ptr"
               }
             },
             "repr": "C"
@@ -53023,6 +54823,51 @@
                   "type": "OptionNodeData"
                 },
                 "fn_body": "node_data_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `NodeDataVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "NodeData"
+                  }
+                ],
+                "returns": {
+                  "type": "NodeDataVec"
+                },
+                "fn_body": "NodeDataVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `NodeDataVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const NodeData"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "NodeDataVec"
+                },
+                "fn_body": "unsafe { NodeDataVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const NodeData"
+                },
+                "fn_body": "node_data_vec.ptr"
               }
             },
             "repr": "C"
@@ -53148,6 +54993,51 @@
                   "type": "OptionAttribute"
                 },
                 "fn_body": "attribute_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `AttributeVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "Attribute"
+                  }
+                ],
+                "returns": {
+                  "type": "AttributeVec"
+                },
+                "fn_body": "AttributeVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `AttributeVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const Attribute"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "AttributeVec"
+                },
+                "fn_body": "unsafe { AttributeVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const Attribute"
+                },
+                "fn_body": "attribute_vec.ptr"
               }
             },
             "repr": "C"
@@ -53273,6 +55163,51 @@
                   "type": "OptionCoreCallbackData"
                 },
                 "fn_body": "core_callback_data_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `CoreCallbackDataVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "CoreCallbackData"
+                  }
+                ],
+                "returns": {
+                  "type": "CoreCallbackDataVec"
+                },
+                "fn_body": "CoreCallbackDataVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `CoreCallbackDataVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const CoreCallbackData"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CoreCallbackDataVec"
+                },
+                "fn_body": "unsafe { CoreCallbackDataVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const CoreCallbackData"
+                },
+                "fn_body": "core_callback_data_vec.ptr"
               }
             },
             "repr": "C"
@@ -53398,6 +55333,51 @@
                   "type": "OptionAccessibilityAction"
                 },
                 "fn_body": "accessibility_action_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `AccessibilityActionVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "AccessibilityAction"
+                  }
+                ],
+                "returns": {
+                  "type": "AccessibilityActionVec"
+                },
+                "fn_body": "AccessibilityActionVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `AccessibilityActionVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const AccessibilityAction"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "AccessibilityActionVec"
+                },
+                "fn_body": "unsafe { AccessibilityActionVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const AccessibilityAction"
+                },
+                "fn_body": "accessibility_action_vec.ptr"
               }
             },
             "repr": "C"
@@ -53523,6 +55503,51 @@
                   "type": "OptionXmlNodeChild"
                 },
                 "fn_body": "xml_node_child_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `XmlNodeChildVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "XmlNodeChild"
+                  }
+                ],
+                "returns": {
+                  "type": "XmlNodeChildVec"
+                },
+                "fn_body": "XmlNodeChildVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `XmlNodeChildVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const XmlNodeChild"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "XmlNodeChildVec"
+                },
+                "fn_body": "unsafe { XmlNodeChildVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const XmlNodeChild"
+                },
+                "fn_body": "xml_node_child_vec.ptr"
               }
             },
             "repr": "C"
@@ -53648,6 +55673,51 @@
                   "type": "OptionGridTrackSizing"
                 },
                 "fn_body": "grid_track_sizing_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `GridTrackSizingVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "GridTrackSizing"
+                  }
+                ],
+                "returns": {
+                  "type": "GridTrackSizingVec"
+                },
+                "fn_body": "GridTrackSizingVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `GridTrackSizingVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const GridTrackSizing"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "GridTrackSizingVec"
+                },
+                "fn_body": "unsafe { GridTrackSizingVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const GridTrackSizing"
+                },
+                "fn_body": "grid_track_sizing_vec.ptr"
               }
             },
             "repr": "C"
@@ -55332,6 +57402,51 @@
                   "type": "OptionVertexAttribute"
                 },
                 "fn_body": "vertex_attribute_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `VertexAttributeVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "VertexAttribute"
+                  }
+                ],
+                "returns": {
+                  "type": "VertexAttributeVec"
+                },
+                "fn_body": "VertexAttributeVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `VertexAttributeVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const VertexAttribute"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "VertexAttributeVec"
+                },
+                "fn_body": "unsafe { VertexAttributeVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const VertexAttribute"
+                },
+                "fn_body": "vertex_attribute_vec.ptr"
               }
             },
             "repr": "C"
@@ -55481,6 +57596,51 @@
                   "type": "OptionDebugMessage"
                 },
                 "fn_body": "debug_message_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `DebugMessageVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "DebugMessage"
+                  }
+                ],
+                "returns": {
+                  "type": "DebugMessageVec"
+                },
+                "fn_body": "DebugMessageVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `DebugMessageVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const DebugMessage"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "DebugMessageVec"
+                },
+                "fn_body": "unsafe { DebugMessageVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const DebugMessage"
+                },
+                "fn_body": "debug_message_vec.ptr"
               }
             },
             "repr": "C"
@@ -55631,6 +57791,51 @@
                   "type": "OptionShapePoint"
                 },
                 "fn_body": "shape_point_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `ShapePointVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "ShapePoint"
+                  }
+                ],
+                "returns": {
+                  "type": "ShapePointVec"
+                },
+                "fn_body": "ShapePointVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `ShapePointVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const ShapePoint"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ShapePointVec"
+                },
+                "fn_body": "unsafe { ShapePointVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const ShapePoint"
+                },
+                "fn_body": "shape_point_vec.ptr"
               }
             },
             "repr": "C"
@@ -55749,6 +57954,51 @@
                   "type": "OptionMonitor"
                 },
                 "fn_body": "monitor_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `MonitorVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "Monitor"
+                  }
+                ],
+                "returns": {
+                  "type": "MonitorVec"
+                },
+                "fn_body": "MonitorVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `MonitorVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const Monitor"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "MonitorVec"
+                },
+                "fn_body": "unsafe { MonitorVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const Monitor"
+                },
+                "fn_body": "monitor_vec.ptr"
               }
             },
             "repr": "C"
@@ -55893,6 +58143,51 @@
                   "type": "OptionVideoMode"
                 },
                 "fn_body": "video_mode_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `VideoModeVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "VideoMode"
+                  }
+                ],
+                "returns": {
+                  "type": "VideoModeVec"
+                },
+                "fn_body": "VideoModeVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `VideoModeVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const VideoMode"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "VideoModeVec"
+                },
+                "fn_body": "unsafe { VideoModeVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const VideoMode"
+                },
+                "fn_body": "video_mode_vec.ptr"
               }
             },
             "repr": "C"
@@ -56014,6 +58309,51 @@
                   "type": "OptionXWindowType"
                 },
                 "fn_body": "x_window_type_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `XWindowTypeVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "XWindowType"
+                  }
+                ],
+                "returns": {
+                  "type": "XWindowTypeVec"
+                },
+                "fn_body": "XWindowTypeVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `XWindowTypeVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const XWindowType"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "XWindowTypeVec"
+                },
+                "fn_body": "unsafe { XWindowTypeVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const XWindowType"
+                },
+                "fn_body": "x_window_type_vec.ptr"
               }
             },
             "repr": "C"
@@ -56225,6 +58565,51 @@
                   "type": "OptionScanCode"
                 },
                 "fn_body": "scan_code_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `ScanCodeVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "ScanCode"
+                  }
+                ],
+                "returns": {
+                  "type": "ScanCodeVec"
+                },
+                "fn_body": "ScanCodeVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `ScanCodeVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const ScanCode"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ScanCodeVec"
+                },
+                "fn_body": "unsafe { ScanCodeVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const ScanCode"
+                },
+                "fn_body": "scan_code_vec.ptr"
               }
             },
             "repr": "C"
@@ -56359,6 +58744,51 @@
                   "type": "OptionContentGroup"
                 },
                 "fn_body": "content_group_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `ContentGroupVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "ContentGroup"
+                  }
+                ],
+                "returns": {
+                  "type": "ContentGroupVec"
+                },
+                "fn_body": "ContentGroupVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `ContentGroupVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const ContentGroup"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ContentGroupVec"
+                },
+                "fn_body": "unsafe { ContentGroupVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const ContentGroup"
+                },
+                "fn_body": "content_group_vec.ptr"
               }
             },
             "repr": "C"
@@ -56477,6 +58907,51 @@
                   "type": "OptionStyledNode"
                 },
                 "fn_body": "styled_node_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `StyledNodeVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "StyledNode"
+                  }
+                ],
+                "returns": {
+                  "type": "StyledNodeVec"
+                },
+                "fn_body": "StyledNodeVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `StyledNodeVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const StyledNode"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyledNodeVec"
+                },
+                "fn_body": "unsafe { StyledNodeVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const StyledNode"
+                },
+                "fn_body": "styled_node_vec.ptr"
               }
             },
             "repr": "C"
@@ -56666,6 +59141,51 @@
                   "type": "OptionDomId"
                 },
                 "fn_body": "dom_id_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `DomIdVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "DomId"
+                  }
+                ],
+                "returns": {
+                  "type": "DomIdVec"
+                },
+                "fn_body": "DomIdVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `DomIdVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const DomId"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "DomIdVec"
+                },
+                "fn_body": "unsafe { DomIdVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const DomId"
+                },
+                "fn_body": "dom_id_vec.ptr"
               }
             },
             "repr": "C"
@@ -56840,6 +59360,51 @@
                   "type": "OptionTimerId"
                 },
                 "fn_body": "timer_id_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `TimerIdVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "TimerId"
+                  }
+                ],
+                "returns": {
+                  "type": "TimerIdVec"
+                },
+                "fn_body": "TimerIdVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `TimerIdVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const TimerId"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "TimerIdVec"
+                },
+                "fn_body": "unsafe { TimerIdVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const TimerId"
+                },
+                "fn_body": "timer_id_vec.ptr"
               }
             },
             "repr": "C"
@@ -56958,6 +59523,51 @@
                   "type": "OptionSelectionRange"
                 },
                 "fn_body": "selection_range_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `SelectionRangeVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "SelectionRange"
+                  }
+                ],
+                "returns": {
+                  "type": "SelectionRangeVec"
+                },
+                "fn_body": "SelectionRangeVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `SelectionRangeVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const SelectionRange"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SelectionRangeVec"
+                },
+                "fn_body": "unsafe { SelectionRangeVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const SelectionRange"
+                },
+                "fn_body": "selection_range_vec.ptr"
               }
             },
             "repr": "C"
@@ -57108,6 +59718,51 @@
                   "type": "OptionThreadId"
                 },
                 "fn_body": "thread_id_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `ThreadIdVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "ThreadId"
+                  }
+                ],
+                "returns": {
+                  "type": "ThreadIdVec"
+                },
+                "fn_body": "ThreadIdVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `ThreadIdVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const ThreadId"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ThreadIdVec"
+                },
+                "fn_body": "unsafe { ThreadIdVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const ThreadId"
+                },
+                "fn_body": "thread_id_vec.ptr"
               }
             },
             "repr": "C"
@@ -57281,6 +59936,51 @@
                   "type": "OptionStyledTextRun"
                 },
                 "fn_body": "styled_text_run_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `StyledTextRunVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "StyledTextRun"
+                  }
+                ],
+                "returns": {
+                  "type": "StyledTextRunVec"
+                },
+                "fn_body": "StyledTextRunVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `StyledTextRunVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const StyledTextRun"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "StyledTextRunVec"
+                },
+                "fn_body": "unsafe { StyledTextRunVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const StyledTextRun"
+                },
+                "fn_body": "styled_text_run_vec.ptr"
               }
             },
             "repr": "C"
@@ -57412,6 +60112,51 @@
                   "type": "OptionSelection"
                 },
                 "fn_body": "selection_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `SelectionVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "Selection"
+                  }
+                ],
+                "returns": {
+                  "type": "SelectionVec"
+                },
+                "fn_body": "SelectionVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `SelectionVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const Selection"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "SelectionVec"
+                },
+                "fn_body": "unsafe { SelectionVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const Selection"
+                },
+                "fn_body": "selection_vec.ptr"
               }
             },
             "repr": "C"
@@ -57545,6 +60290,51 @@
                   "type": "OptionHttpHeader"
                 },
                 "fn_body": "http_header_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `HttpHeaderVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "HttpHeader"
+                  }
+                ],
+                "returns": {
+                  "type": "HttpHeaderVec"
+                },
+                "fn_body": "HttpHeaderVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `HttpHeaderVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const HttpHeader"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "HttpHeaderVec"
+                },
+                "fn_body": "unsafe { HttpHeaderVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const HttpHeader"
+                },
+                "fn_body": "http_header_vec.ptr"
               }
             },
             "repr": "C"
@@ -57687,6 +60477,51 @@
                   "type": "OptionFmtArg"
                 },
                 "fn_body": "fmt_arg_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `FmtArgVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "FmtArg"
+                  }
+                ],
+                "returns": {
+                  "type": "FmtArgVec"
+                },
+                "fn_body": "FmtArgVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `FmtArgVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const FmtArg"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "FmtArgVec"
+                },
+                "fn_body": "unsafe { FmtArgVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const FmtArg"
+                },
+                "fn_body": "fmt_arg_vec.ptr"
               }
             },
             "repr": "C"
@@ -57852,6 +60687,51 @@
                   "type": "OptionJson"
                 },
                 "fn_body": "json_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `JsonVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "Json"
+                  }
+                ],
+                "returns": {
+                  "type": "JsonVec"
+                },
+                "fn_body": "JsonVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `JsonVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const Json"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "JsonVec"
+                },
+                "fn_body": "unsafe { JsonVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const Json"
+                },
+                "fn_body": "json_vec.ptr"
               }
             },
             "repr": "C"
@@ -57997,6 +60877,51 @@
                   "type": "OptionDirEntry"
                 },
                 "fn_body": "dir_entry_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `DirEntryVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "DirEntry"
+                  }
+                ],
+                "returns": {
+                  "type": "DirEntryVec"
+                },
+                "fn_body": "DirEntryVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `DirEntryVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const DirEntry"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "DirEntryVec"
+                },
+                "fn_body": "unsafe { DirEntryVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const DirEntry"
+                },
+                "fn_body": "dir_entry_vec.ptr"
               }
             },
             "repr": "C"
@@ -58127,6 +61052,51 @@
                   "type": "OptionOptionJsonKeyValue"
                 },
                 "fn_body": "option_json_key_value_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `OptionJsonKeyValueVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "OptionJsonKeyValue"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionJsonKeyValueVec"
+                },
+                "fn_body": "OptionJsonKeyValueVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `OptionJsonKeyValueVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const OptionJsonKeyValue"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionJsonKeyValueVec"
+                },
+                "fn_body": "unsafe { OptionJsonKeyValueVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const OptionJsonKeyValue"
+                },
+                "fn_body": "option_json_key_value_vec.ptr"
               }
             },
             "repr": "C, u8"
@@ -58259,6 +61229,51 @@
                   "type": "OptionJsonKeyValue"
                 },
                 "fn_body": "json_key_value_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `JsonKeyValueVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "JsonKeyValue"
+                  }
+                ],
+                "returns": {
+                  "type": "JsonKeyValueVec"
+                },
+                "fn_body": "JsonKeyValueVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `JsonKeyValueVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const JsonKeyValue"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "JsonKeyValueVec"
+                },
+                "fn_body": "unsafe { JsonKeyValueVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const JsonKeyValue"
+                },
+                "fn_body": "json_key_value_vec.ptr"
               }
             },
             "repr": "C"
@@ -58360,6 +61375,51 @@
                   "type": "OptionOptionJson"
                 },
                 "fn_body": "option_json_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `OptionJsonVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "OptionJson"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionJsonVec"
+                },
+                "fn_body": "OptionJsonVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `OptionJsonVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const OptionJson"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionJsonVec"
+                },
+                "fn_body": "unsafe { OptionJsonVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const OptionJson"
+                },
+                "fn_body": "option_json_vec.ptr"
               }
             },
             "repr": "C, u8"
@@ -58497,6 +61557,51 @@
                   "type": "OptionOptionString"
                 },
                 "fn_body": "option_string_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `OptionStringVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "OptionString"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStringVec"
+                },
+                "fn_body": "OptionStringVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `OptionStringVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const OptionString"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionStringVec"
+                },
+                "fn_body": "unsafe { OptionStringVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const OptionString"
+                },
+                "fn_body": "option_string_vec.ptr"
               }
             },
             "repr": "C, u8"
@@ -58647,6 +61752,51 @@
                   "type": "OptionNamedFont"
                 },
                 "fn_body": "named_font_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `NamedFontVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "NamedFont"
+                  }
+                ],
+                "returns": {
+                  "type": "NamedFontVec"
+                },
+                "fn_body": "NamedFontVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `NamedFontVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const NamedFont"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "NamedFontVec"
+                },
+                "fn_body": "unsafe { NamedFontVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const NamedFont"
+                },
+                "fn_body": "named_font_vec.ptr"
               }
             },
             "repr": "C"
@@ -58768,6 +61918,51 @@
                   "type": "OptionExternalResource"
                 },
                 "fn_body": "external_resource_vec.get(index).cloned().into()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `ExternalResourceVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "ExternalResource"
+                  }
+                ],
+                "returns": {
+                  "type": "ExternalResourceVec"
+                },
+                "fn_body": "ExternalResourceVec::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `ExternalResourceVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const ExternalResource"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "ExternalResourceVec"
+                },
+                "fn_body": "unsafe { ExternalResourceVec::copy_from_ptr(ptr, len) }"
+              },
+              "as_ptr": {
+                "doc": [
+                  "Returns a pointer to the Vec's data. Use `len()` to get the number of elements."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "*const ExternalResource"
+                },
+                "fn_body": "external_resource_vec.ptr"
               }
             },
             "repr": "C"
@@ -60981,6 +64176,92 @@
               }
             ],
             "repr": "C, u8"
+          },
+          "OptionThreadId": {
+            "external": "azul_core::task::OptionThreadId",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "ThreadId"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionDom": {
+            "external": "azul_core::dom::OptionDom",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "Dom"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionAccessibilityAction": {
+            "external": "azul_core::dom::OptionAccessibilityAction",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "AccessibilityAction"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionDomId": {
+            "external": "azul_core::dom::OptionDomId",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "DomId"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
