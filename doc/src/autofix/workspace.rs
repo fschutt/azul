@@ -936,6 +936,7 @@ fn is_vec_type(type_name: &str) -> bool {
     type_name.ends_with("Vec")
         && !type_name.ends_with("VecDestructor")
         && !type_name.ends_with("VecDestructorType")
+        && !type_name.starts_with("Option") // Option*Vec are Option types, not Vec types
 }
 
 /// Check if a type name represents a VecDestructor type
@@ -967,8 +968,11 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
     use crate::api::{FieldData, FunctionData, RefKind, ReturnTypeData};
 
     let destructor_type = type_name.trim_end_matches("Vec").to_string() + "VecDestructor";
-    let lowercase_type_name = type_name.chars().next().unwrap().to_lowercase().to_string() 
-        + &type_name[1..];
+    
+    // Use lowercase type name for fn_body variable names (legacy convention)
+    // e.g., "DomVec" -> "domvec" (NOT "dom_vec")
+    // The transmute_helpers.rs will convert this to snake_case if needed
+    let lowercase_type_name = type_name.to_lowercase();
 
     // IMPORTANT: Each field must be its own IndexMap element to preserve order
     // Schema: [{"ptr": {...}}, {"len": {...}}, {"cap": {...}}, {"destructor": {...}}, {"run_destructor": {...}}]
@@ -1032,8 +1036,8 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         },
     );
 
-    // Generate standard Vec functions
-    let functions = generate_vec_functions(type_name, element_type, &lowercase_type_name);
+    // Generate standard Vec functions (without known_types check since this is for initial structure generation)
+    let functions = generate_vec_functions(type_name, element_type, &lowercase_type_name, None);
 
     ClassPatch {
         external: Some(external_path.to_string()),
@@ -1059,7 +1063,14 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
 }
 
 /// Generate standard Vec functions: create(), len(), capacity(), is_empty(), get(), as_slice()
-pub fn generate_vec_functions(type_name: &str, element_type: &str, lowercase_type_name: &str) -> indexmap::IndexMap<String, crate::api::FunctionData> {
+/// If `known_types` is provided, only generates c_get/as_c_slice/as_c_slice_range 
+/// when the required Option/Slice types exist.
+pub fn generate_vec_functions(
+    type_name: &str, 
+    element_type: &str, 
+    lowercase_type_name: &str,
+    known_types: Option<&std::collections::HashSet<String>>,
+) -> indexmap::IndexMap<String, crate::api::FunctionData> {
     use indexmap::IndexMap;
     use crate::api::{FunctionData, ReturnTypeData};
     
@@ -1076,7 +1087,7 @@ pub fn generate_vec_functions(type_name: &str, element_type: &str, lowercase_typ
                 r#type: type_name.to_string(),
                 doc: None,
             }),
-            fn_body: Some(format!("{}::new()", type_name)),
+            fn_body: Some("Self::new()".to_string()),
             ..Default::default()
         },
     );
@@ -1095,7 +1106,7 @@ pub fn generate_vec_functions(type_name: &str, element_type: &str, lowercase_typ
                 r#type: type_name.to_string(),
                 doc: None,
             }),
-            fn_body: Some(format!("{}::with_capacity(cap)", type_name)),
+            fn_body: Some("Self::with_capacity(cap)".to_string()),
             ..Default::default()
         },
     );
@@ -1157,29 +1168,93 @@ pub fn generate_vec_functions(type_name: &str, element_type: &str, lowercase_typ
         },
     );
     
-    // get(&self, index: usize) -> Option<&Element>
+    // c_get(&self, index: usize) -> OptionElement
+    // C-API compatible get function that returns a copy wrapped in OptionElement
     // NOTE: Returns OptionElement for FFI safety (wrapped in Option type)
-    let option_element_type = format!("Option{}", element_type);
-    let mut get_args = Vec::new();
-    let mut self_arg = IndexMap::new();
-    self_arg.insert("self".to_string(), "ref".to_string());
-    get_args.push(self_arg);
-    let mut index_arg = IndexMap::new();
-    index_arg.insert("index".to_string(), "usize".to_string());
-    get_args.push(index_arg);
-    functions.insert(
-        "get".to_string(),
-        FunctionData {
-            doc: Some(vec![format!("Returns a reference to the element at the given index, or None if out of bounds")]),
-            fn_args: get_args,
-            returns: Some(ReturnTypeData {
-                r#type: option_element_type,
-                doc: None,
-            }),
-            fn_body: Some(format!("{}.get(index).cloned().into()", lowercase_type_name)),
-            ..Default::default()
-        },
-    );
+    // Only generate if Option type exists (when known_types is provided)
+    // Use canonicalize_option_type_name to get correct casing (OptionU8, not Optionu8)
+    let option_element_type = super::utils::canonicalize_option_type_name(element_type);
+    let slice_type = format!("{}Slice", type_name);
+    
+    let option_type_exists = known_types
+        .map(|kt| kt.contains(&option_element_type))
+        .unwrap_or(true); // If no known_types provided, assume type exists
+    
+    let slice_type_exists = known_types
+        .map(|kt| kt.contains(&slice_type))
+        .unwrap_or(true); // If no known_types provided, assume type exists
+    
+    if option_type_exists {
+        let mut get_args = Vec::new();
+        let mut self_arg = IndexMap::new();
+        self_arg.insert("self".to_string(), "ref".to_string());
+        get_args.push(self_arg);
+        let mut index_arg = IndexMap::new();
+        index_arg.insert("index".to_string(), "usize".to_string());
+        get_args.push(index_arg);
+        functions.insert(
+            "c_get".to_string(),
+            FunctionData {
+                doc: Some(vec![format!("Returns a copy of the element at the given index, or None if out of bounds. C-API compatible.")]),
+                fn_args: get_args,
+                returns: Some(ReturnTypeData {
+                    r#type: option_element_type,
+                    doc: None,
+                }),
+                fn_body: Some(format!("{}.c_get(index).into()", lowercase_type_name)),
+                ..Default::default()
+            },
+        );
+    }
+    
+    // as_c_slice(&self) -> FooVecSlice
+    // Returns a C-compatible slice struct with ptr and len
+    // Only generate if Slice type exists (when known_types is provided)
+    if slice_type_exists {
+        let mut as_c_slice_args = Vec::new();
+        let mut self_arg = IndexMap::new();
+        self_arg.insert("self".to_string(), "ref".to_string());
+        as_c_slice_args.push(self_arg);
+        functions.insert(
+            "as_c_slice".to_string(),
+            FunctionData {
+                doc: Some(vec![format!("Returns a C-compatible slice of the entire Vec as a `{}`.", slice_type)]),
+                fn_args: as_c_slice_args,
+                returns: Some(ReturnTypeData {
+                    r#type: slice_type.clone(),
+                    doc: None,
+                }),
+                fn_body: Some(format!("{}.as_c_slice()", lowercase_type_name)),
+                ..Default::default()
+            },
+        );
+        
+        // as_c_slice_range(&self, start: usize, end: usize) -> FooVecSlice
+        // Returns a C-compatible slice of a range within the Vec
+        let mut as_c_slice_range_args = Vec::new();
+        let mut self_arg = IndexMap::new();
+        self_arg.insert("self".to_string(), "ref".to_string());
+        as_c_slice_range_args.push(self_arg);
+        let mut start_arg = IndexMap::new();
+        start_arg.insert("start".to_string(), "usize".to_string());
+        as_c_slice_range_args.push(start_arg);
+        let mut end_arg = IndexMap::new();
+        end_arg.insert("end".to_string(), "usize".to_string());
+        as_c_slice_range_args.push(end_arg);
+        functions.insert(
+            "as_c_slice_range".to_string(),
+            FunctionData {
+                doc: Some(vec![format!("Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds.")]),
+                fn_args: as_c_slice_range_args,
+                returns: Some(ReturnTypeData {
+                    r#type: slice_type,
+                    doc: None,
+                }),
+                fn_body: Some(format!("{}.as_c_slice_range(start, end)", lowercase_type_name)),
+                ..Default::default()
+            },
+        );
+    }
     
     // from_item(item: Element) -> Self
     // Creates a Vec containing a single element
@@ -1196,7 +1271,7 @@ pub fn generate_vec_functions(type_name: &str, element_type: &str, lowercase_typ
                 r#type: type_name.to_string(),
                 doc: None,
             }),
-            fn_body: Some(format!("{}::from_item(item)", type_name)),
+            fn_body: Some("Self::from_item(item)".to_string()),
             ..Default::default()
         },
     );
@@ -1219,28 +1294,7 @@ pub fn generate_vec_functions(type_name: &str, element_type: &str, lowercase_typ
                 r#type: type_name.to_string(),
                 doc: None,
             }),
-            fn_body: Some(format!("unsafe {{ {}::copy_from_ptr(ptr, len) }}", type_name)),
-            ..Default::default()
-        },
-    );
-    
-    // as_ptr(&self) -> *const Element
-    // Returns a pointer to the Vec's data for C interop
-    let ptr_type = format!("*const {}", element_type);
-    let mut as_ptr_args = Vec::new();
-    let mut self_arg = IndexMap::new();
-    self_arg.insert("self".to_string(), "ref".to_string());
-    as_ptr_args.push(self_arg);
-    functions.insert(
-        "as_ptr".to_string(),
-        FunctionData {
-            doc: Some(vec![format!("Returns a pointer to the Vec's data. Use `len()` to get the number of elements.")]),
-            fn_args: as_ptr_args,
-            returns: Some(ReturnTypeData {
-                r#type: ptr_type,
-                doc: None,
-            }),
-            fn_body: Some(format!("{}.ptr", lowercase_type_name)),
+            fn_body: Some("unsafe { Self::copy_from_ptr(ptr, len) }".to_string()),
             ..Default::default()
         },
     );
@@ -2158,4 +2212,24 @@ pub fn has_field_changes(
     }
 
     false
+}
+
+/// Convert CamelCase to snake_case
+/// 
+/// Examples:
+/// - "DomVec" -> "dom_vec"
+/// - "AccessibilityActionVec" -> "accessibility_action_vec"
+fn to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 {
+                result.push('_');
+            }
+            result.push(c.to_ascii_lowercase());
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }

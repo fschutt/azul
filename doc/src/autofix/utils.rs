@@ -172,7 +172,8 @@ pub fn normalize_generic_type(type_str: &str) -> (String, Option<GenericTypeInfo
         // Recursively normalize the inner type
         let (inner_normalized, _) = normalize_generic_type(&inner);
         let inner_clean = inner_normalized.replace(" ", "");
-        let normalized = format!("Option{}", inner_clean);
+        // Use canonicalize_option_type_name for correct casing (OptionU8, not Optionu8)
+        let normalized = canonicalize_option_type_name(&inner_clean);
         return (
             normalized.clone(),
             Some(GenericTypeInfo::Option {
@@ -434,5 +435,48 @@ pub fn extract_doc_comments(attrs: &[syn::Attribute]) -> Option<Vec<String>> {
         None
     } else {
         Some(doc_lines)
+    }
+}
+
+/// Canonicalize a type name to its Option wrapper type name.
+/// 
+/// This is the SINGLE SOURCE OF TRUTH for Option type naming.
+/// All code that constructs Option type names MUST use this function
+/// to ensure consistent naming (OptionU8, not Optionu8).
+///
+/// Handles:
+/// - Primitive types: u8 -> OptionU8, f32 -> OptionF32
+/// - Type aliases: GLint -> OptionI32, GLuint -> OptionU32, ScanCode -> OptionU32
+/// - Other types: Foo -> OptionFoo
+pub fn canonicalize_option_type_name(element_type: &str) -> String {
+    // Handle type aliases first - resolve to underlying primitive
+    let resolved_type = match element_type {
+        "GLint" => "i32",
+        "GLuint" => "u32",
+        "ScanCode" => "u32",
+        "GLboolean" => "u8",
+        "GLenum" => "u32",
+        "GLsizei" => "i32",
+        "GLint64" => "i64",
+        "GLfloat" => "f32",
+        other => other,
+    };
+    
+    // Canonicalize primitive types to their Option equivalents with proper casing
+    match resolved_type {
+        "u8" => "OptionU8".to_string(),
+        "u16" => "OptionU16".to_string(),
+        "u32" => "OptionU32".to_string(),
+        "u64" => "OptionU64".to_string(),
+        "i8" => "OptionI8".to_string(),
+        "i16" => "OptionI16".to_string(),
+        "i32" => "OptionI32".to_string(),
+        "i64" => "OptionI64".to_string(),
+        "f32" => "OptionF32".to_string(),
+        "f64" => "OptionF64".to_string(),
+        "bool" => "OptionBool".to_string(),
+        "usize" => "OptionUsize".to_string(),
+        "isize" => "OptionIsize".to_string(),
+        other => format!("Option{}", other),
     }
 }

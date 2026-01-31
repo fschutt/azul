@@ -431,7 +431,8 @@ fn convert_return_type_for_ffi(return_type: &str, class_name: &str) -> (String, 
     if trimmed.starts_with("Option<") && trimmed.ends_with('>') {
         let inner = &trimmed[7..trimmed.len() - 1]; // Remove "Option<" and ">"
         let inner_clean = normalize_type_name(inner.trim(), class_name);
-        return (format!("Option{}", inner_clean), true);
+        // Use canonicalize_option_type_name for correct casing (OptionU8, not Optionu8)
+        return (crate::autofix::utils::canonicalize_option_type_name(&inner_clean), true);
     }
 
     // Handle Self -> class_name
