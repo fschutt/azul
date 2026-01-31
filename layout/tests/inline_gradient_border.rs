@@ -29,6 +29,7 @@ fn run_layout(html: &str) -> Vec<DisplayListItem> {
         scroll_id_to_node_id: BTreeMap::new(),
         counters: BTreeMap::new(),
         float_cache: BTreeMap::new(),
+        subtree_layout_cache: BTreeMap::new(),
     };
     let mut text_cache = TextLayoutCache::new();
 

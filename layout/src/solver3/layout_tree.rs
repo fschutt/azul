@@ -733,8 +733,10 @@ impl LayoutTreeBuilder {
             // Inline, TableCell, etc., have their children processed as part of their
             // formatting context layout and don't require anonymous box generation at this stage.
             _ => {
+                // Filter out display: none children - they don't participate in layout
                 let children: Vec<NodeId> = dom_id
                     .az_children(&styled_dom.node_hierarchy.as_container())
+                    .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
                     .collect();
 
                 for child_dom_id in children {
@@ -754,8 +756,10 @@ impl LayoutTreeBuilder {
         parent_idx: usize,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
+        // Filter out display: none children - they don't participate in layout
         let children: Vec<NodeId> = parent_dom_id
             .az_children(&styled_dom.node_hierarchy.as_container())
+            .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
             .collect();
 
         // Debug: log which children we found
@@ -1553,6 +1557,24 @@ fn collect_box_props(
 
     // Resolve to get initial box_props
     let resolved = unresolved.resolve(&params);
+
+    // Debug ALL nodes with non-zero margins or vh units
+    if let Some(msgs) = debug_messages.as_mut() {
+        // Check if any margin uses vh
+        let has_vh = match &unresolved_margin.top {
+            UnresolvedMargin::Length(pv) => pv.metric == azul_css::props::basic::SizeMetric::Vh,
+            _ => false,
+        };
+        if has_vh || resolved.margin.top > 0.0 || resolved.margin.left > 0.0 {
+            msgs.push(LayoutDebugMessage::box_props(format!(
+                "NodeId {:?} ({:?}): unresolved_margin_top={:?}, resolved_margin_top={:.2}, viewport_size={:?}",
+                dom_id, node_data.node_type,
+                unresolved_margin.top,
+                resolved.margin.top,
+                viewport_size
+            )));
+        }
+    }
 
     // Debug margin_auto detection
     if let Some(msgs) = debug_messages.as_mut() {

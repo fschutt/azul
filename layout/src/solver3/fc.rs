@@ -1087,8 +1087,15 @@ fn layout_bfc<T: ParsedFontTrait>(
                 //  the blocked case, which double-counted the margin by mixing
                 //  coordinate systems. The parent's margin is NEVER in our (the
                 //  parent's content-box) coordinate system!
+                //
+                // IMPORTANT: The escaped margin should only be the CHILD's margin, not
+                // a collapsed value of parent+child. The parent's own margin is handled
+                // separately when the parent is positioned in ITS parent's BFC.
+                // 
+                // What we return as escaped_top_margin is what escapes THROUGH us from
+                // our children, to be used by our parent for positioning US.
 
-                accumulated_top_margin = collapse_margins(parent_margin_top, child_margin_top);
+                accumulated_top_margin = child_margin_top;
                 top_margin_resolved = true;
                 top_margin_escaped = true;
 
@@ -1344,6 +1351,7 @@ fn layout_bfc<T: ParsedFontTrait>(
         //
         // CSS 2.2 § 10.3.3: If margin-left and margin-right are both auto, 
         // their used values are equal, centering the element horizontally.
+        
         let (child_cross_pos, mut child_main_pos) = if establishes_bfc {
             // BFC: Position in space between floats
             (
@@ -1411,37 +1419,19 @@ fn layout_bfc<T: ParsedFontTrait>(
             (cross_pos, main_pen)
         };
 
-        // CSS 2.2 § 8.3.1: If child's top margin escaped through parent, adjust position
-        // "If the top margin of a box collapses with its first child's top margin,
-        // the top border edge of the box is defined to coincide with the top border edge of the
-        // child." This means the child's margin appears ABOVE the parent, so we offset the
-        // child down. IMPORTANT: This only applies to the FIRST child! For siblings, normal
-        // margin collapse applies.
-        let child_escaped_margin = child_node.escaped_top_margin.unwrap_or(0.0);
-        let is_first_in_flow_child = Some(child_index) == first_child_index;
-
-        if child_escaped_margin > 0.0 && is_first_in_flow_child {
-            child_main_pos += child_escaped_margin;
-            total_escaped_top_margin += child_escaped_margin;
-            debug_info!(
-                ctx,
-                "[layout_bfc] FIRST child {} has escaped_top_margin={}, adjusting position from \
-                 {} to {}, total_escaped={}",
-                child_index,
-                child_escaped_margin,
-                main_pen,
-                child_main_pos,
-                total_escaped_top_margin
-            );
-        } else if child_escaped_margin > 0.0 {
-            debug_info!(
-                ctx,
-                "[layout_bfc] NON-FIRST child {} has escaped_top_margin={} but NOT adjusting \
-                 position (sibling margin collapse handles this)",
-                child_index,
-                child_escaped_margin
-            );
-        }
+        // NOTE: We do NOT adjust child_main_pos based on child's escaped_top_margin here!
+        // The escaped_top_margin represents margins that escaped FROM the child's own children.
+        // The child's position in THIS BFC is determined by main_pen and the child's own margin
+        // (which was already handled in the margin collapse logic above).
+        //
+        // Previously, this code incorrectly added child_escaped_margin to child_main_pos,
+        // which caused double-application of margins because:
+        // 1. The child's margin was used to calculate its position in THIS BFC
+        // 2. Then its escaped_top_margin (which included its own margin) was added again
+        //
+        // The correct behavior per CSS 2.2 § 8.3.1 is:
+        // - The child's escaped_top_margin is used by THIS node's parent to position THIS node
+        // - It does NOT affect how we position the child within our content-box
 
         // final_pos is [CoordinateSpace::Parent] - relative to this BFC's content-box
         let final_pos =
@@ -1611,21 +1601,10 @@ fn layout_bfc<T: ParsedFontTrait>(
         output.positions.insert(child_index, final_pos);
 
         // Advance the pen past the child's content size
-        // For FIRST child with escaped margin: the escaped margin was added to position,
-        // so we need to add it to main_pen too for correct sibling positioning
-        // For NON-FIRST children: escaped margins are internal to that child, don't affect our pen
-        if is_first_in_flow_child && child_escaped_margin > 0.0 {
-            main_pen += child_size.main(writing_mode) + child_escaped_margin;
-            debug_info!(
-                ctx,
-                "[layout_bfc] Advanced main_pen by child_size={} + escaped={} = {} total",
-                child_size.main(writing_mode),
-                child_escaped_margin,
-                main_pen
-            );
-        } else {
-            main_pen += child_size.main(writing_mode);
-        }
+        // CSS margin collapse: escaped margins are handled via accumulated_top_margin
+        // at the START of layout, not by adjusting positions after layout.
+        // We simply advance by the child's actual size.
+        main_pen += child_size.main(writing_mode);
         has_content = true;
 
         // Update last margin for next sibling

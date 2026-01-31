@@ -496,6 +496,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // content starts at (margin + border + padding, margin + border + padding).
             // We pass margin-adjusted position so calculate_content_box_pos works correctly.
             let root_node = &new_tree.nodes[root_idx];
+            
             let is_root_with_margin = root_node.parent.is_none()
                 && (root_node.box_props.margin.left != 0.0 || root_node.box_props.margin.top != 0.0);
 

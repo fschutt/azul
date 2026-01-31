@@ -973,10 +973,7 @@ fn log_child_positioning<T: ParsedFontTrait>(
     child_relative_pos: LogicalPosition,
     child_absolute_pos: LogicalPosition,
 ) {
-    let Some(debug_msgs) = ctx.debug_messages.as_mut() else {
-        return;
-    };
-
+    // Always print positioning info for debugging
     let child_dom_name = child_node
         .dom_node_id
         .and_then(|id| {
@@ -988,6 +985,10 @@ fn log_child_positioning<T: ParsedFontTrait>(
         })
         .map(|n| format!("{:?}", n.node_type))
         .unwrap_or_else(|| "Unknown".to_string());
+
+    let Some(debug_msgs) = ctx.debug_messages.as_mut() else {
+        return;
+    };
 
     debug_msgs.push(LayoutDebugMessage::new(
         LayoutDebugMessageType::PositionCalculation,

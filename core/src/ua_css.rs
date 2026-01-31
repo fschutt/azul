@@ -742,9 +742,10 @@ pub fn get_ua_property(
         (NT::Dir, PT::Display) => Some(&DISPLAY_BLOCK),
 
         // Generic Container
-        // NOTE: Html gets its dimensions from the Initial Containing Block, not from CSS
+        // NOTE: Html element has height: auto by default (shrinks to content)
+        // The Initial Containing Block provides the viewport dimensions,
+        // but the HTML element itself does not have height: 100% in browser UA stylesheets
         (NT::Html, PT::Display) => Some(&DISPLAY_BLOCK),
-        (NT::Html, PT::Height) => Some(&HEIGHT_100_PERCENT),
 
         // Universal fallback for display property
         // Per CSS spec, unknown/custom elements should default to inline

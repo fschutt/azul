@@ -50,6 +50,7 @@ fn test_inline_block_text_generates_text_items() {
         scroll_id_to_node_id: BTreeMap::new(),
         counters: BTreeMap::new(),
         float_cache: BTreeMap::new(),
+        subtree_layout_cache: BTreeMap::new(),
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -264,6 +265,7 @@ fn test_text_wraps_at_constrained_width() {
         scroll_id_to_node_id: BTreeMap::new(),
         counters: BTreeMap::new(),
         float_cache: BTreeMap::new(),
+        subtree_layout_cache: BTreeMap::new(),
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -431,6 +433,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
         scroll_id_to_node_id: BTreeMap::new(),
         counters: BTreeMap::new(),
         float_cache: BTreeMap::new(),
+        subtree_layout_cache: BTreeMap::new(),
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -643,6 +646,7 @@ fn test_body_as_root_inline_block_positioning() {
         scroll_id_to_node_id: BTreeMap::new(),
         counters: BTreeMap::new(),
         float_cache: BTreeMap::new(),
+        subtree_layout_cache: BTreeMap::new(),
     };
     let mut text_cache = TextLayoutCache::new();
 
