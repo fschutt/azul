@@ -790,12 +790,14 @@ pub struct CoreCallbackData {
     pub refany: RefAny,
 }
 
-impl_vec!(
+impl_option!(
     CoreCallbackData,
-    CoreCallbackDataVec,
-    CoreCallbackDataVecDestructor,
-    CoreCallbackDataVecDestructorType
+    OptionCoreCallbackData,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+
+impl_vec!(CoreCallbackData, CoreCallbackDataVec, CoreCallbackDataVecDestructor, CoreCallbackDataVecDestructorType, CoreCallbackDataVecSlice, OptionCoreCallbackData);
 impl_vec_clone!(
     CoreCallbackData,
     CoreCallbackDataVec,

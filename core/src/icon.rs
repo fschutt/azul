@@ -403,7 +403,7 @@ fn generate_a11y_label(icon_name: &str) -> AzString {
 fn extract_single_node_styled_dom(styled_dom: &StyledDom, node_idx: usize) -> StyledDom {
     use crate::dom::{NodeDataVec, DomId};
     use crate::styled_dom::{
-        StyledNodeVec, NodeIdVec, TagIdToNodeIdMappingVec,
+        StyledNodeVec, NodeHierarchyItemIdVec, TagIdToNodeIdMappingVec,
         NodeHierarchyItemVec, NodeHierarchyItemId, ParentWithNodeDepthVec, ParentWithNodeDepth,
     };
     use crate::style::{CascadeInfoVec, CascadeInfo};
@@ -430,9 +430,9 @@ fn extract_single_node_styled_dom(styled_dom: &StyledDom, node_idx: usize) -> St
         node_data: NodeDataVec::from_vec(vec![single_node]),
         styled_nodes: StyledNodeVec::from_vec(vec![single_styled]),
         cascade_info: CascadeInfoVec::from_vec(vec![CascadeInfo { index_in_parent: 0, is_last_child: true }]),
-        nodes_with_window_callbacks: NodeIdVec::from_vec(Vec::new()),
-        nodes_with_not_callbacks: NodeIdVec::from_vec(Vec::new()),
-        nodes_with_datasets: NodeIdVec::from_vec(Vec::new()),
+        nodes_with_window_callbacks: NodeHierarchyItemIdVec::from_vec(Vec::new()),
+        nodes_with_not_callbacks: NodeHierarchyItemIdVec::from_vec(Vec::new()),
+        nodes_with_datasets: NodeHierarchyItemIdVec::from_vec(Vec::new()),
         tag_ids_to_node_ids: TagIdToNodeIdMappingVec::from_vec(Vec::new()),
         non_leaf_nodes: ParentWithNodeDepthVec::from_vec(vec![ParentWithNodeDepth {
             depth: 0,

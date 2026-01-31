@@ -160,12 +160,14 @@ pub enum MenuItem {
     BreakLine,
 }
 
-impl_vec!(
+impl_option!(
     MenuItem,
-    MenuItemVec,
-    MenuItemVecDestructor,
-    MenuItemVecDestructorType
+    OptionMenuItem,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]
 );
+
+impl_vec!(MenuItem, MenuItemVec, MenuItemVecDestructor, MenuItemVecDestructorType, MenuItemVecSlice, OptionMenuItem);
 impl_vec_clone!(MenuItem, MenuItemVec, MenuItemVecDestructor);
 impl_vec_debug!(MenuItem, MenuItemVec);
 impl_vec_partialeq!(MenuItem, MenuItemVec);

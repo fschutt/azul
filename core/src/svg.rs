@@ -169,6 +169,12 @@ pub enum SvgPathElement {
     CubicCurve(SvgCubicCurve),
 }
 
+impl_option!(
+    SvgPathElement,
+    OptionSvgPathElement,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
+
 impl SvgPathElement {
     /// Creates a line path element from a SvgLine
     #[inline]
@@ -269,12 +275,7 @@ impl SvgPathElement {
     }
 }
 
-impl_vec!(
-    SvgPathElement,
-    SvgPathElementVec,
-    SvgPathElementVecDestructor,
-    SvgPathElementVecDestructorType
-);
+impl_vec!(SvgPathElement, SvgPathElementVec, SvgPathElementVecDestructor, SvgPathElementVecDestructorType, SvgPathElementVecSlice, OptionSvgPathElement);
 impl_vec_debug!(SvgPathElement, SvgPathElementVec);
 impl_vec_clone!(
     SvgPathElement,
@@ -289,6 +290,13 @@ impl_vec_partialord!(SvgPathElement, SvgPathElementVec);
 pub struct SvgPath {
     pub items: SvgPathElementVec,
 }
+
+impl_option!(
+    SvgPath,
+    OptionSvgPath,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
 
 impl SvgPath {
     /// Creates a new SvgPath from a vector of path elements
@@ -404,6 +412,13 @@ pub struct SvgMultiPolygon {
     pub rings: SvgPathVec,
 }
 
+impl_option!(
+    SvgMultiPolygon,
+    OptionSvgMultiPolygon,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
+
 impl SvgMultiPolygon {
     /// Creates a new SvgMultiPolygon from a vector of paths (rings)
     /// NOTE: If a ring represents a hole, simply reverse the order of points
@@ -432,23 +447,13 @@ impl SvgMultiPolygon {
     }
 }
 
-impl_vec!(
-    SvgPath,
-    SvgPathVec,
-    SvgPathVecDestructor,
-    SvgPathVecDestructorType
-);
+impl_vec!(SvgPath, SvgPathVec, SvgPathVecDestructor, SvgPathVecDestructorType, SvgPathVecSlice, OptionSvgPath);
 impl_vec_debug!(SvgPath, SvgPathVec);
 impl_vec_clone!(SvgPath, SvgPathVec, SvgPathVecDestructor);
 impl_vec_partialeq!(SvgPath, SvgPathVec);
 impl_vec_partialord!(SvgPath, SvgPathVec);
 
-impl_vec!(
-    SvgMultiPolygon,
-    SvgMultiPolygonVec,
-    SvgMultiPolygonVecDestructor,
-    SvgMultiPolygonVecDestructorType
-);
+impl_vec!(SvgMultiPolygon, SvgMultiPolygonVec, SvgMultiPolygonVecDestructor, SvgMultiPolygonVecDestructorType, SvgMultiPolygonVecSlice, OptionSvgMultiPolygon);
 impl_vec_debug!(SvgMultiPolygon, SvgMultiPolygonVec);
 impl_vec_clone!(
     SvgMultiPolygon,
@@ -482,12 +487,14 @@ pub enum SvgSimpleNode {
     RectHole(SvgRect),
 }
 
-impl_vec!(
+impl_option!(
     SvgSimpleNode,
-    SvgSimpleNodeVec,
-    SvgSimpleNodeVecDestructor,
-    SvgSimpleNodeVecDestructorType
+    OptionSvgSimpleNode,
+    copy = false,
+    [Debug, Clone, PartialOrd, PartialEq]
 );
+
+impl_vec!(SvgSimpleNode, SvgSimpleNodeVec, SvgSimpleNodeVecDestructor, SvgSimpleNodeVecDestructorType, SvgSimpleNodeVecSlice, OptionSvgSimpleNode);
 impl_vec_debug!(SvgSimpleNode, SvgSimpleNodeVec);
 impl_vec_clone!(SvgSimpleNode, SvgSimpleNodeVec, SvgSimpleNodeVecDestructor);
 impl_vec_partialeq!(SvgSimpleNode, SvgSimpleNodeVec);
@@ -599,6 +606,12 @@ pub struct SvgVertex {
     pub y: f32,
 }
 
+impl_option!(
+    SvgVertex,
+    OptionSvgVertex,
+    [Debug, Copy, Clone, PartialOrd, PartialEq]
+);
+
 impl VertexLayoutDescription for SvgVertex {
     fn get_description() -> VertexLayout {
         VertexLayout {
@@ -624,6 +637,12 @@ pub struct SvgColoredVertex {
     pub b: f32,
     pub a: f32,
 }
+
+impl_option!(
+    SvgColoredVertex,
+    OptionSvgColoredVertex,
+    [Debug, Copy, Clone, PartialOrd, PartialEq]
+);
 
 impl VertexLayoutDescription for SvgColoredVertex {
     fn get_description() -> VertexLayout {
@@ -682,6 +701,13 @@ pub struct TessellatedSvgNode {
     pub indices: U32Vec,
 }
 
+impl_option!(
+    TessellatedSvgNode,
+    OptionTessellatedSvgNode,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
+
 impl Default for TessellatedSvgNode {
     fn default() -> Self {
         Self {
@@ -691,12 +717,7 @@ impl Default for TessellatedSvgNode {
     }
 }
 
-impl_vec!(
-    TessellatedSvgNode,
-    TessellatedSvgNodeVec,
-    TessellatedSvgNodeVecDestructor,
-    TessellatedSvgNodeVecDestructorType
-);
+impl_vec!(TessellatedSvgNode, TessellatedSvgNodeVec, TessellatedSvgNodeVecDestructor, TessellatedSvgNodeVecDestructorType, TessellatedSvgNodeVecSlice, OptionTessellatedSvgNode);
 impl_vec_debug!(TessellatedSvgNode, TessellatedSvgNodeVec);
 impl_vec_partialord!(TessellatedSvgNode, TessellatedSvgNodeVec);
 impl_vec_clone!(
@@ -757,6 +778,13 @@ pub struct TessellatedColoredSvgNode {
     pub indices: U32Vec,
 }
 
+impl_option!(
+    TessellatedColoredSvgNode,
+    OptionTessellatedColoredSvgNode,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
+
 impl Default for TessellatedColoredSvgNode {
     fn default() -> Self {
         Self {
@@ -766,12 +794,7 @@ impl Default for TessellatedColoredSvgNode {
     }
 }
 
-impl_vec!(
-    TessellatedColoredSvgNode,
-    TessellatedColoredSvgNodeVec,
-    TessellatedColoredSvgNodeVecDestructor,
-    TessellatedColoredSvgNodeVecDestructorType
-);
+impl_vec!(TessellatedColoredSvgNode, TessellatedColoredSvgNodeVec, TessellatedColoredSvgNodeVecDestructor, TessellatedColoredSvgNodeVecDestructorType, TessellatedColoredSvgNodeVecSlice, OptionTessellatedColoredSvgNode);
 impl_vec_debug!(TessellatedColoredSvgNode, TessellatedColoredSvgNodeVec);
 impl_vec_partialord!(TessellatedColoredSvgNode, TessellatedColoredSvgNodeVec);
 impl_vec_clone!(
@@ -825,23 +848,13 @@ impl TessellatedColoredSvgNodeVecRef {
     }
 }
 
-impl_vec!(
-    SvgVertex,
-    SvgVertexVec,
-    SvgVertexVecDestructor,
-    SvgVertexVecDestructorType
-);
+impl_vec!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor, SvgVertexVecDestructorType, SvgVertexVecSlice, OptionSvgVertex);
 impl_vec_debug!(SvgVertex, SvgVertexVec);
 impl_vec_partialord!(SvgVertex, SvgVertexVec);
 impl_vec_clone!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor);
 impl_vec_partialeq!(SvgVertex, SvgVertexVec);
 
-impl_vec!(
-    SvgColoredVertex,
-    SvgColoredVertexVec,
-    SvgColoredVertexVecDestructor,
-    SvgColoredVertexVecDestructorType
-);
+impl_vec!(SvgColoredVertex, SvgColoredVertexVec, SvgColoredVertexVecDestructor, SvgColoredVertexVecDestructorType, SvgColoredVertexVecSlice, OptionSvgColoredVertex);
 impl_vec_debug!(SvgColoredVertex, SvgColoredVertexVec);
 impl_vec_partialord!(SvgColoredVertex, SvgColoredVertexVec);
 impl_vec_clone!(

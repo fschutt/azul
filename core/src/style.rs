@@ -21,12 +21,13 @@ pub struct CascadeInfo {
     pub is_last_child: bool,
 }
 
-impl_vec!(
+impl_option!(
     CascadeInfo,
-    CascadeInfoVec,
-    CascadeInfoVecDestructor,
-    CascadeInfoVecDestructorType
+    OptionCascadeInfo,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+
+impl_vec!(CascadeInfo, CascadeInfoVec, CascadeInfoVecDestructor, CascadeInfoVecDestructorType, CascadeInfoVecSlice, OptionCascadeInfo);
 impl_vec_mut!(CascadeInfo, CascadeInfoVec);
 impl_vec_debug!(CascadeInfo, CascadeInfoVec);
 impl_vec_partialord!(CascadeInfo, CascadeInfoVec);

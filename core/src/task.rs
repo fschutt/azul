@@ -102,12 +102,7 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(
-    TimerId,
-    TimerIdVec,
-    TimerIdVecDestructor,
-    TimerIdVecDestructorType
-);
+impl_vec!(TimerId, TimerIdVec, TimerIdVecDestructor, TimerIdVecDestructorType, TimerIdVecSlice, OptionTimerId);
 impl_vec_debug!(TimerId, TimerIdVec);
 impl_vec_clone!(TimerId, TimerIdVec, TimerIdVecDestructor);
 impl_vec_partialeq!(TimerId, TimerIdVec);
@@ -128,12 +123,7 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(
-    ThreadId,
-    ThreadIdVec,
-    ThreadIdVecDestructor,
-    ThreadIdVecDestructorType
-);
+impl_vec!(ThreadId, ThreadIdVec, ThreadIdVecDestructor, ThreadIdVecDestructorType, ThreadIdVecSlice, OptionThreadId);
 impl_vec_debug!(ThreadId, ThreadIdVec);
 impl_vec_clone!(ThreadId, ThreadIdVec, ThreadIdVecDestructor);
 impl_vec_partialeq!(ThreadId, ThreadIdVec);

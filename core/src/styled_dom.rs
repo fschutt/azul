@@ -79,12 +79,14 @@ pub struct ChangedCssProperty {
     pub current_prop: CssProperty,
 }
 
-impl_vec!(
+impl_option!(
     ChangedCssProperty,
-    ChangedCssPropertyVec,
-    ChangedCssPropertyVecDestructor,
-    ChangedCssPropertyVecDestructorType
+    OptionChangedCssProperty,
+    copy = false,
+    [Debug, Clone, PartialEq, Hash, PartialOrd, Eq, Ord]
 );
+
+impl_vec!(ChangedCssProperty, ChangedCssPropertyVec, ChangedCssPropertyVecDestructor, ChangedCssPropertyVecDestructorType, ChangedCssPropertyVecSlice, OptionChangedCssProperty);
 impl_vec_debug!(ChangedCssProperty, ChangedCssPropertyVec);
 impl_vec_partialord!(ChangedCssProperty, ChangedCssPropertyVec);
 impl_vec_clone!(
@@ -292,12 +294,14 @@ pub struct StyledNode {
     pub tag_id: OptionTagId,
 }
 
-impl_vec!(
+impl_option!(
     StyledNode,
-    StyledNodeVec,
-    StyledNodeVecDestructor,
-    StyledNodeVecDestructorType
+    OptionStyledNode,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
 );
+
+impl_vec!(StyledNode, StyledNodeVec, StyledNodeVecDestructor, StyledNodeVecDestructorType, StyledNodeVecSlice, OptionStyledNode);
 impl_vec_mut!(StyledNode, StyledNodeVec);
 impl_vec_debug!(StyledNode, StyledNodeVec);
 impl_vec_partialord!(StyledNode, StyledNodeVec);
@@ -492,20 +496,15 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(
-    NodeHierarchyItemId,
-    NodeIdVec,
-    NodeIdVecDestructor,
-    NodeIdVecDestructorType
-);
-impl_vec_mut!(NodeHierarchyItemId, NodeIdVec);
-impl_vec_debug!(NodeHierarchyItemId, NodeIdVec);
-impl_vec_ord!(NodeHierarchyItemId, NodeIdVec);
-impl_vec_eq!(NodeHierarchyItemId, NodeIdVec);
-impl_vec_hash!(NodeHierarchyItemId, NodeIdVec);
-impl_vec_partialord!(NodeHierarchyItemId, NodeIdVec);
-impl_vec_clone!(NodeHierarchyItemId, NodeIdVec, NodeIdVecDestructor);
-impl_vec_partialeq!(NodeHierarchyItemId, NodeIdVec);
+impl_vec!(NodeHierarchyItemId, NodeHierarchyItemIdVec, NodeHierarchyItemIdVecDestructor, NodeHierarchyItemIdVecDestructorType, NodeHierarchyItemIdVecSlice, OptionNodeHierarchyItemId);
+impl_vec_mut!(NodeHierarchyItemId, NodeHierarchyItemIdVec);
+impl_vec_debug!(NodeHierarchyItemId, NodeHierarchyItemIdVec);
+impl_vec_ord!(NodeHierarchyItemId, NodeHierarchyItemIdVec);
+impl_vec_eq!(NodeHierarchyItemId, NodeHierarchyItemIdVec);
+impl_vec_hash!(NodeHierarchyItemId, NodeHierarchyItemIdVec);
+impl_vec_partialord!(NodeHierarchyItemId, NodeHierarchyItemIdVec);
+impl_vec_clone!(NodeHierarchyItemId, NodeHierarchyItemIdVec, NodeHierarchyItemIdVecDestructor);
+impl_vec_partialeq!(NodeHierarchyItemId, NodeHierarchyItemIdVec);
 
 impl NodeHierarchyItemId {
     /// Decodes to `Option<NodeId>` (0 = None, n > 0 = Some(NodeId(n-1))).
@@ -545,6 +544,12 @@ pub struct NodeHierarchyItem {
     pub next_sibling: usize,
     pub last_child: usize,
 }
+
+impl_option!(
+    NodeHierarchyItem,
+    OptionNodeHierarchyItem,
+    [Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash]
+);
 
 impl NodeHierarchyItem {
     /// Creates a zeroed hierarchy item (no parent, siblings, or children).
@@ -592,12 +597,7 @@ impl NodeHierarchyItem {
     }
 }
 
-impl_vec!(
-    NodeHierarchyItem,
-    NodeHierarchyItemVec,
-    NodeHierarchyItemVecDestructor,
-    NodeHierarchyItemVecDestructorType
-);
+impl_vec!(NodeHierarchyItem, NodeHierarchyItemVec, NodeHierarchyItemVecDestructor, NodeHierarchyItemVecDestructorType, NodeHierarchyItemVecSlice, OptionNodeHierarchyItem);
 impl_vec_mut!(NodeHierarchyItem, NodeHierarchyItemVec);
 impl_vec_debug!(AzNode, NodeHierarchyItemVec);
 impl_vec_partialord!(AzNode, NodeHierarchyItemVec);
@@ -643,6 +643,12 @@ pub struct ParentWithNodeDepth {
     pub node_id: NodeHierarchyItemId,
 }
 
+impl_option!(
+    ParentWithNodeDepth,
+    OptionParentWithNodeDepth,
+    [Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash]
+);
+
 impl core::fmt::Debug for ParentWithNodeDepth {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(
@@ -654,12 +660,7 @@ impl core::fmt::Debug for ParentWithNodeDepth {
     }
 }
 
-impl_vec!(
-    ParentWithNodeDepth,
-    ParentWithNodeDepthVec,
-    ParentWithNodeDepthVecDestructor,
-    ParentWithNodeDepthVecDestructorType
-);
+impl_vec!(ParentWithNodeDepth, ParentWithNodeDepthVec, ParentWithNodeDepthVecDestructor, ParentWithNodeDepthVecDestructorType, ParentWithNodeDepthVecSlice, OptionParentWithNodeDepth);
 impl_vec_mut!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 impl_vec_debug!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 impl_vec_partialord!(ParentWithNodeDepth, ParentWithNodeDepthVec);
@@ -680,15 +681,17 @@ pub struct TagIdToNodeIdMapping {
     /// Whether this node has a tab-index field
     pub tab_index: OptionTabIndex,
     /// Parents of this NodeID, sorted in depth order, necessary for efficient hit-testing
-    pub parent_node_ids: NodeIdVec,
+    pub parent_node_ids: NodeHierarchyItemIdVec,
 }
 
-impl_vec!(
+impl_option!(
     TagIdToNodeIdMapping,
-    TagIdToNodeIdMappingVec,
-    TagIdToNodeIdMappingVecDestructor,
-    TagIdToNodeIdMappingVecDestructorType
+    OptionTagIdToNodeIdMapping,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, Ord, PartialOrd]
 );
+
+impl_vec!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec, TagIdToNodeIdMappingVecDestructor, TagIdToNodeIdMappingVecDestructorType, TagIdToNodeIdMappingVecSlice, OptionTagIdToNodeIdMapping);
 impl_vec_mut!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec);
 impl_vec_debug!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec);
 impl_vec_partialord!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec);
@@ -709,12 +712,14 @@ pub struct ContentGroup {
     pub children: ContentGroupVec,
 }
 
-impl_vec!(
+impl_option!(
     ContentGroup,
-    ContentGroupVec,
-    ContentGroupVecDestructor,
-    ContentGroupVecDestructorType
+    OptionContentGroup,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
 );
+
+impl_vec!(ContentGroup, ContentGroupVec, ContentGroupVecDestructor, ContentGroupVecDestructorType, ContentGroupVecSlice, OptionContentGroup);
 impl_vec_mut!(ContentGroup, ContentGroupVec);
 impl_vec_debug!(ContentGroup, ContentGroupVec);
 impl_vec_partialord!(ContentGroup, ContentGroupVec);
@@ -729,9 +734,9 @@ pub struct StyledDom {
     pub node_data: NodeDataVec,
     pub styled_nodes: StyledNodeVec,
     pub cascade_info: CascadeInfoVec,
-    pub nodes_with_window_callbacks: NodeIdVec,
-    pub nodes_with_not_callbacks: NodeIdVec,
-    pub nodes_with_datasets: NodeIdVec,
+    pub nodes_with_window_callbacks: NodeHierarchyItemIdVec,
+    pub nodes_with_not_callbacks: NodeHierarchyItemIdVec,
+    pub nodes_with_datasets: NodeHierarchyItemIdVec,
     pub tag_ids_to_node_ids: TagIdToNodeIdMappingVec,
     pub non_leaf_nodes: ParentWithNodeDepthVec,
     pub css_property_cache: CssPropertyCachePtr,

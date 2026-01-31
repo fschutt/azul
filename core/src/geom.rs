@@ -138,12 +138,7 @@ impl LogicalRect {
     }
 }
 
-impl_vec!(
-    LogicalRect,
-    LogicalRectVec,
-    LogicalRectVecDestructor,
-    LogicalRectVecDestructorType
-);
+impl_vec!(LogicalRect, LogicalRectVec, LogicalRectVecDestructor, LogicalRectVecDestructorType, LogicalRectVecSlice, OptionLogicalRect);
 impl_vec_clone!(LogicalRect, LogicalRectVec, LogicalRectVecDestructor);
 impl_vec_debug!(LogicalRect, LogicalRectVec);
 impl_vec_partialeq!(LogicalRect, LogicalRectVec);

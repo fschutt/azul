@@ -45,6 +45,10 @@ pub type GLsizei = i32;
 pub type GLclampf = f32;
 pub type GLfloat = f32;
 
+// Option types for GL primitives (used in impl_vec!)
+pub type OptionGLuint = azul_css::OptionU32;
+pub type OptionGLint = azul_css::OptionI32;
+
 pub const GL_RESTART_INDEX: u32 = core::u32::MAX;
 
 /// Passing *const c_void is not easily possible when generating APIs,
@@ -592,12 +596,14 @@ pub struct DebugMessage {
     pub severity: GLenum,
 }
 
-impl_vec!(
+impl_option!(
     DebugMessage,
-    DebugMessageVec,
-    DebugMessageVecDestructor,
-    DebugMessageVecDestructorType
+    OptionDebugMessage,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash]
 );
+
+impl_vec!(DebugMessage, DebugMessageVec, DebugMessageVecDestructor, DebugMessageVecDestructorType, DebugMessageVecSlice, OptionDebugMessage);
 impl_vec_debug!(DebugMessage, DebugMessageVec);
 impl_vec_partialord!(DebugMessage, DebugMessageVec);
 impl_vec_ord!(DebugMessage, DebugMessageVec);
@@ -606,7 +612,7 @@ impl_vec_partialeq!(DebugMessage, DebugMessageVec);
 impl_vec_eq!(DebugMessage, DebugMessageVec);
 impl_vec_hash!(DebugMessage, DebugMessageVec);
 
-impl_vec!(GLint, GLintVec, GLintVecDestructor, GLintVecDestructorType);
+impl_vec!(GLint, GLintVec, GLintVecDestructor, GLintVecDestructorType, GLintVecSlice, OptionGLint);
 impl_vec_debug!(GLint, GLintVec);
 impl_vec_partialord!(GLint, GLintVec);
 impl_vec_ord!(GLint, GLintVec);
@@ -615,12 +621,7 @@ impl_vec_partialeq!(GLint, GLintVec);
 impl_vec_eq!(GLint, GLintVec);
 impl_vec_hash!(GLint, GLintVec);
 
-impl_vec!(
-    GLuint,
-    GLuintVec,
-    GLuintVecDestructor,
-    GLuintVecDestructorType
-);
+impl_vec!(GLuint, GLuintVec, GLuintVecDestructor, GLuintVecDestructorType, GLuintVecSlice, OptionGLuint);
 impl_vec_debug!(GLuint, GLuintVec);
 impl_vec_partialord!(GLuint, GLuintVec);
 impl_vec_ord!(GLuint, GLuintVec);
@@ -2865,12 +2866,7 @@ pub struct VertexLayout {
     pub fields: VertexAttributeVec,
 }
 
-impl_vec!(
-    VertexAttribute,
-    VertexAttributeVec,
-    VertexAttributeVecDestructor,
-    VertexAttributeVecDestructorType
-);
+impl_vec!(VertexAttribute, VertexAttributeVec, VertexAttributeVecDestructor, VertexAttributeVecDestructorType, VertexAttributeVecSlice, OptionVertexAttribute);
 impl_vec_debug!(VertexAttribute, VertexAttributeVec);
 impl_vec_partialord!(VertexAttribute, VertexAttributeVec);
 impl_vec_ord!(VertexAttribute, VertexAttributeVec);
@@ -2947,6 +2943,13 @@ pub struct VertexAttribute {
     /// f32 values))
     pub item_count: usize,
 }
+
+impl_option!(
+    VertexAttribute,
+    OptionVertexAttribute,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 impl VertexAttribute {
     pub fn get_stride(&self) -> usize {

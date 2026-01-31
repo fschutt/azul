@@ -117,12 +117,7 @@ impl_option!(
     [Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd]
 );
 
-impl_vec!(
-    SelectionRange,
-    SelectionRangeVec,
-    SelectionRangeVecDestructor,
-    SelectionRangeVecDestructorType
-);
+impl_vec!(SelectionRange, SelectionRangeVec, SelectionRangeVecDestructor, SelectionRangeVecDestructorType, SelectionRangeVecSlice, OptionSelectionRange);
 impl_vec_debug!(SelectionRange, SelectionRangeVec);
 impl_vec_clone!(
     SelectionRange,
@@ -140,12 +135,13 @@ pub enum Selection {
     Range(SelectionRange),
 }
 
-impl_vec!(
+impl_option!(
     Selection,
-    SelectionVec,
-    SelectionVecDestructor,
-    SelectionVecDestructorType
+    OptionSelection,
+    [Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord]
 );
+
+impl_vec!(Selection, SelectionVec, SelectionVecDestructor, SelectionVecDestructorType, SelectionVecSlice, OptionSelection);
 impl_vec_debug!(Selection, SelectionVec);
 impl_vec_clone!(Selection, SelectionVec, SelectionVecDestructor);
 impl_vec_partialeq!(Selection, SelectionVec);

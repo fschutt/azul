@@ -299,6 +299,8 @@ impl Default for MouseCursorType {
 
 /// Hardware-dependent keyboard scan code.
 pub type ScanCode = u32;
+/// Option type for ScanCode (used in impl_vec!)
+pub type OptionScanCode = azul_css::OptionU32;
 
 /// Determines which keys are pressed currently (modifiers, etc.)
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -366,12 +368,7 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(
-    VirtualKeyCode,
-    VirtualKeyCodeVec,
-    VirtualKeyCodeVecDestructor,
-    VirtualKeyCodeVecDestructorType
-);
+impl_vec!(VirtualKeyCode, VirtualKeyCodeVec, VirtualKeyCodeVecDestructor, VirtualKeyCodeVecDestructorType, VirtualKeyCodeVecSlice, OptionVirtualKeyCode);
 impl_vec_debug!(VirtualKeyCode, VirtualKeyCodeVec);
 impl_vec_partialord!(VirtualKeyCode, VirtualKeyCodeVec);
 impl_vec_ord!(VirtualKeyCode, VirtualKeyCodeVec);
@@ -386,12 +383,7 @@ impl_vec_hash!(VirtualKeyCode, VirtualKeyCodeVec);
 
 impl_vec_as_hashmap!(VirtualKeyCode, VirtualKeyCodeVec);
 
-impl_vec!(
-    ScanCode,
-    ScanCodeVec,
-    ScanCodeVecDestructor,
-    ScanCodeVecDestructorType
-);
+impl_vec!(ScanCode, ScanCodeVec, ScanCodeVecDestructor, ScanCodeVecDestructorType, ScanCodeVecSlice, OptionScanCode);
 impl_vec_debug!(ScanCode, ScanCodeVec);
 impl_vec_partialord!(ScanCode, ScanCodeVec);
 impl_vec_ord!(ScanCode, ScanCodeVec);
@@ -613,12 +605,13 @@ pub struct TouchPoint {
     pub force: f32,
 }
 
-impl_vec!(
+impl_option!(
     TouchPoint,
-    TouchPointVec,
-    TouchPointVecDestructor,
-    TouchPointVecDestructorType
+    OptionTouchPoint,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
 );
+
+impl_vec!(TouchPoint, TouchPointVec, TouchPointVecDestructor, TouchPointVecDestructorType, TouchPointVecSlice, OptionTouchPoint);
 impl_vec_debug!(TouchPoint, TouchPointVec);
 impl_vec_clone!(TouchPoint, TouchPointVec, TouchPointVecDestructor);
 impl_vec_partialeq!(TouchPoint, TouchPointVec);
@@ -751,12 +744,14 @@ pub struct Monitor {
     pub is_primary_monitor: bool,
 }
 
-impl_vec!(
+impl_option!(
     Monitor,
-    MonitorVec,
-    MonitorVecDestructor,
-    MonitorVecDestructorType
+    OptionMonitor,
+    copy = false,
+    [Debug, PartialEq, PartialOrd, Clone]
 );
+
+impl_vec!(Monitor, MonitorVec, MonitorVecDestructor, MonitorVecDestructorType, MonitorVecSlice, OptionMonitor);
 impl_vec_debug!(Monitor, MonitorVec);
 impl_vec_clone!(Monitor, MonitorVec, MonitorVecDestructor);
 impl_vec_partialeq!(Monitor, MonitorVec);
@@ -793,12 +788,13 @@ pub struct VideoMode {
     pub refresh_rate: u16,
 }
 
-impl_vec!(
+impl_option!(
     VideoMode,
-    VideoModeVec,
-    VideoModeVecDestructor,
-    VideoModeVecDestructorType
+    OptionVideoMode,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+
+impl_vec!(VideoMode, VideoModeVec, VideoModeVecDestructor, VideoModeVecDestructorType, VideoModeVecSlice, OptionVideoMode);
 impl_vec_clone!(VideoMode, VideoModeVec, VideoModeVecDestructor);
 impl_vec_debug!(VideoMode, VideoModeVec);
 impl_vec_partialeq!(VideoMode, VideoModeVec);
@@ -1128,6 +1124,12 @@ pub enum XWindowType {
     Normal,
 }
 
+impl_option!(
+    XWindowType,
+    OptionXWindowType,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
 impl Default for XWindowType {
     fn default() -> Self {
         XWindowType::Normal
@@ -1217,12 +1219,14 @@ pub struct AzStringPair {
     pub value: AzString,
 }
 
-impl_vec!(
+impl_option!(
     AzStringPair,
-    StringPairVec,
-    StringPairVecDestructor,
-    StringPairVecDestructorType
+    OptionAzStringPair,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]
 );
+
+impl_vec!(AzStringPair, StringPairVec, StringPairVecDestructor, StringPairVecDestructorType, StringPairVecSlice, OptionAzStringPair);
 impl_vec_mut!(AzStringPair, StringPairVec);
 impl_vec_debug!(AzStringPair, StringPairVec);
 impl_vec_partialord!(AzStringPair, StringPairVec);
@@ -1268,12 +1272,7 @@ impl StringPairVec {
     }
 }
 
-impl_vec!(
-    XWindowType,
-    XWindowTypeVec,
-    XWindowTypeVecDestructor,
-    XWindowTypeVecDestructorType
-);
+impl_vec!(XWindowType, XWindowTypeVec, XWindowTypeVecDestructor, XWindowTypeVecDestructorType, XWindowTypeVecSlice, OptionXWindowType);
 impl_vec_debug!(XWindowType, XWindowTypeVec);
 impl_vec_partialord!(XWindowType, XWindowTypeVec);
 impl_vec_ord!(XWindowType, XWindowTypeVec);

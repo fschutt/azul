@@ -86,18 +86,20 @@ pub struct NamedFont {
     pub bytes: U8Vec,
 }
 
+impl_option!(
+    NamedFont,
+    OptionNamedFont,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
 impl NamedFont {
     pub fn new(name: AzString, bytes: U8Vec) -> Self {
         Self { name, bytes }
     }
 }
 
-impl_vec!(
-    NamedFont,
-    NamedFontVec,
-    NamedFontVecDestructor,
-    NamedFontVecDestructorType
-);
+impl_vec!(NamedFont, NamedFontVec, NamedFontVecDestructor, NamedFontVecDestructorType, NamedFontVecSlice, OptionNamedFont);
 impl_vec_mut!(NamedFont, NamedFontVec);
 impl_vec_debug!(NamedFont, NamedFontVec);
 impl_vec_partialeq!(NamedFont, NamedFontVec);
@@ -1967,6 +1969,13 @@ pub enum GlyphOutlineOperation {
     ClosePath,
 }
 
+impl_option!(
+    GlyphOutlineOperation,
+    OptionGlyphOutlineOperation,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
+
 // MoveTo in em units
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -2011,12 +2020,7 @@ pub struct GlyphOutline {
     pub operations: GlyphOutlineOperationVec,
 }
 
-azul_css::impl_vec!(
-    GlyphOutlineOperation,
-    GlyphOutlineOperationVec,
-    GlyphOutlineOperationVecDestructor,
-    GlyphOutlineOperationVecDestructorType
-);
+azul_css::impl_vec!(GlyphOutlineOperation, GlyphOutlineOperationVec, GlyphOutlineOperationVecDestructor, GlyphOutlineOperationVecDestructorType, GlyphOutlineOperationVecSlice, OptionGlyphOutlineOperation);
 azul_css::impl_vec_clone!(
     GlyphOutlineOperation,
     GlyphOutlineOperationVec,

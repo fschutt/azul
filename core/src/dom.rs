@@ -961,12 +961,14 @@ pub enum IdOrClass {
     Class(AzString),
 }
 
-impl_vec!(
+impl_option!(
     IdOrClass,
-    IdOrClassVec,
-    IdOrClassVecDestructor,
-    IdOrClassVecDestructorType
+    OptionIdOrClass,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]
 );
+
+impl_vec!(IdOrClass, IdOrClassVec, IdOrClassVecDestructor, IdOrClassVecDestructorType, IdOrClassVecSlice, OptionIdOrClass);
 impl_vec_debug!(IdOrClass, IdOrClassVec);
 impl_vec_partialord!(IdOrClass, IdOrClassVec);
 impl_vec_ord!(IdOrClass, IdOrClassVec);
@@ -1100,12 +1102,14 @@ pub enum AttributeType {
     Custom(AttributeNameValue),
 }
 
-impl_vec!(
+impl_option!(
     AttributeType,
-    AttributeVec,
-    AttributeVecDestructor,
-    AttributeVecDestructorType
+    OptionAttributeType,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+
+impl_vec!(AttributeType, AttributeVec, AttributeVecDestructor, AttributeVecDestructorType, AttributeVecSlice, OptionAttributeType);
 impl_vec_debug!(AttributeType, AttributeVec);
 impl_vec_partialord!(AttributeType, AttributeVec);
 impl_vec_ord!(AttributeType, AttributeVec);
@@ -1330,6 +1334,13 @@ pub struct NodeData {
     /// to the node without breaking the ABI.
     extra: Option<Box<NodeDataExt>>,
 }
+
+impl_option!(
+    NodeData,
+    OptionNodeData,
+    copy = false,
+    [Debug, PartialEq, Eq, PartialOrd, Ord]
+);
 
 impl Hash for NodeData {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -1564,12 +1575,7 @@ pub struct TextSelectionStartEnd {
     pub selection_end: usize,
 }
 
-impl_vec![
-    AccessibilityAction,
-    AccessibilityActionVec,
-    AccessibilityActionVecDestructor,
-    AccessibilityActionVecDestructorType
-];
+impl_vec!(AccessibilityAction, AccessibilityActionVec, AccessibilityActionVecDestructor, AccessibilityActionVecDestructorType, AccessibilityActionVecSlice, OptionAccessibilityAction);
 impl_vec_debug!(AccessibilityAction, AccessibilityActionVec);
 impl_vec_clone!(
     AccessibilityAction,
@@ -2185,12 +2191,13 @@ pub enum AccessibilityState {
     Protected,
 }
 
-impl_vec!(
+impl_option!(
     AccessibilityState,
-    AccessibilityStateVec,
-    AccessibilityStateVecDestructor,
-    AccessibilityStateVecDestructorType
+    OptionAccessibilityState,
+    [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]
 );
+
+impl_vec!(AccessibilityState, AccessibilityStateVec, AccessibilityStateVecDestructor, AccessibilityStateVecDestructorType, AccessibilityStateVecSlice, OptionAccessibilityState);
 impl_vec_clone!(
     AccessibilityState,
     AccessibilityStateVec,
@@ -2225,12 +2232,7 @@ impl Clone for NodeData {
 }
 
 // Clone, PartialEq, Eq, Hash, PartialOrd, Ord
-impl_vec!(
-    NodeData,
-    NodeDataVec,
-    NodeDataVecDestructor,
-    NodeDataVecDestructorType
-);
+impl_vec!(NodeData, NodeDataVec, NodeDataVecDestructor, NodeDataVecDestructorType, NodeDataVecSlice, OptionNodeData);
 impl_vec_clone!(NodeData, NodeDataVec, NodeDataVecDestructor);
 impl_vec_mut!(NodeData, NodeDataVec);
 impl_vec_debug!(NodeData, NodeDataVec);
@@ -3195,7 +3197,7 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(DomId, DomIdVec, DomIdVecDestructor, DomIdVecDestructorType);
+impl_vec!(DomId, DomIdVec, DomIdVecDestructor, DomIdVecDestructorType, DomIdVecSlice, OptionDomId);
 impl_vec_debug!(DomId, DomIdVec);
 impl_vec_clone!(DomId, DomIdVec, DomIdVecDestructor);
 impl_vec_partialeq!(DomId, DomIdVec);
@@ -3245,7 +3247,7 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(Dom, DomVec, DomVecDestructor, DomVecDestructorType);
+impl_vec!(Dom, DomVec, DomVecDestructor, DomVecDestructorType, DomVecSlice, OptionDom);
 impl_vec_clone!(Dom, DomVec, DomVecDestructor);
 impl_vec_mut!(Dom, DomVec);
 impl_vec_debug!(Dom, DomVec);

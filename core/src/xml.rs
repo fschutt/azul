@@ -247,12 +247,14 @@ pub struct ExternalResource {
     pub source_attribute: AzString,
 }
 
-impl_vec!(
+impl_option!(
     ExternalResource,
-    ExternalResourceVec,
-    ExternalResourceVecDestructor,
-    ExternalResourceVecDestructorType
+    OptionExternalResource,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+
+impl_vec!(ExternalResource, ExternalResourceVec, ExternalResourceVecDestructor, ExternalResourceVecDestructorType, ExternalResourceVecSlice, OptionExternalResource);
 impl_vec_mut!(ExternalResource, ExternalResourceVec);
 impl_vec_debug!(ExternalResource, ExternalResourceVec);
 impl_vec_partialeq!(ExternalResource, ExternalResourceVec);
@@ -1258,6 +1260,13 @@ pub enum XmlNodeChild {
     Element(XmlNode),
 }
 
+impl_option!(
+    XmlNodeChild,
+    OptionXmlNodeChild,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
 impl XmlNodeChild {
     /// Get the text content if this is a text node
     pub fn as_text(&self) -> Option<&str> {
@@ -1284,12 +1293,7 @@ impl XmlNodeChild {
     }
 }
 
-impl_vec!(
-    XmlNodeChild,
-    XmlNodeChildVec,
-    XmlNodeChildVecDestructor,
-    XmlNodeChildVecDestructorType
-);
+impl_vec!(XmlNodeChild, XmlNodeChildVec, XmlNodeChildVecDestructor, XmlNodeChildVecDestructorType, XmlNodeChildVecSlice, OptionXmlNodeChild);
 impl_vec_mut!(XmlNodeChild, XmlNodeChildVec);
 impl_vec_debug!(XmlNodeChild, XmlNodeChildVec);
 impl_vec_partialeq!(XmlNodeChild, XmlNodeChildVec);
@@ -1310,6 +1314,13 @@ pub struct XmlNode {
     /// Direct children of this node (can be text or element nodes)
     pub children: XmlNodeChildVec,
 }
+
+impl_option!(
+    XmlNode,
+    OptionXmlNode,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 impl XmlNode {
     pub fn create<I: Into<XmlTagName>>(node_type: I) -> Self {
@@ -1344,12 +1355,7 @@ impl XmlNode {
     }
 }
 
-impl_vec!(
-    XmlNode,
-    XmlNodeVec,
-    XmlNodeVecDestructor,
-    XmlNodeVecDestructorType
-);
+impl_vec!(XmlNode, XmlNodeVec, XmlNodeVecDestructor, XmlNodeVecDestructorType, XmlNodeVecSlice, OptionXmlNode);
 impl_vec_mut!(XmlNode, XmlNodeVec);
 impl_vec_debug!(XmlNode, XmlNodeVec);
 impl_vec_partialeq!(XmlNode, XmlNodeVec);
