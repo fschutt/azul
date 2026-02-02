@@ -1162,7 +1162,7 @@ pub fn translate_displaylist_to_wr(
 
                     log_debug!(
                         LogCategory::DisplayList,
-                        "[compositor2] >>>>> push_image: bounds={:?}, key={:?} <<<<<",
+                        "[compositor2] push_image: bounds={:?}, key={:?}",
                         bounds,
                         wr_image_key
                     );
