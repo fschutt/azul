@@ -4,14 +4,15 @@
 #[cfg(feature = "io")]
 fn test_system_style_discovery_selection_colors() {
     use azul_css::system::SystemStyle;
-    use azul_css::color::ColorU;
+    use azul_css::props::basic::ColorU;
+    use azul_css::props::basic::OptionColorU;
     
     let style = SystemStyle::detect();
     
     println!("\n=== SystemStyle Discovery Test ===");
     println!("Theme: {:?}", style.theme);
-    println!("OS: {:?}", style.os);
-    println!("Version: {:?}", style.version);
+    println!("Platform: {:?}", style.platform);
+    println!("OS Version: {:?}", style.os_version);
     
     println!("\n=== Colors ===");
     println!("Accent: {:?}", style.colors.accent);
