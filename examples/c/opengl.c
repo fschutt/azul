@@ -283,11 +283,16 @@ bool parse_and_tessellate(OpenGlState* state) {
 
 // Layout function - mirrors layout() in Rust
 AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
-    // Create body with gradient background
+    // Create body with gradient background (like Rust example)
     AzDom body = AzDom_createBody();
     AzDom_setInlineStyle(&body, az_str(
+        "display: flex;"
+        "flex-direction: column;"
         "background: linear-gradient(blue, black);"
         "padding: 10px;"
+        "width: 100%;"
+        "height: 100%;"
+        "box-sizing: border-box;"
     ));
     
     // Create OpenGL image with callback (like Rust: ImageRef::callback(...))
@@ -300,23 +305,21 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom image = AzDom_createImage(image_ref);
     AzDom_setInlineStyle(&image, az_str(
         "flex-grow: 1;"
+        "width: 100%;"
+        "border: 5px solid red;"
         "border-radius: 50px;"
         "box-sizing: border-box;"
         "box-shadow: 0px 0px 10px black;"
     ));
     
-    // Button on top (like Rust: Button::create("...").dom())
-    AzDom button = AzDom_createText(az_str("Button drawn on top of OpenGL!"));
-    AzDom_setInlineStyle(&button, az_str(
+    // Button on top using proper Button widget (like Rust: Button::create("...").dom())
+    AzButton button = AzButton_create(az_str("Button composited over OpenGL content!"));
+    AzDom button_dom = AzButton_dom(button);
+    AzDom_setInlineStyle(&button_dom, az_str(
         "margin-top: 50px;"
         "margin-left: 50px;"
-        "padding: 10px 20px;"
-        "background: #0078d4;"
-        "color: white;"
-        "border-radius: 5px;"
-        "font-size: 16px;"
     ));
-    AzDom_addChild(&image, button);
+    AzDom_addChild(&image, button_dom);
     
     AzDom_addChild(&body, image);
     
@@ -328,8 +331,9 @@ AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
     AzHidpiAdjustedBounds bounds = AzRenderImageCallbackInfo_getBounds(&info);
     AzPhysicalSizeU32 size = AzHidpiAdjustedBounds_getPhysicalSize(&bounds);
     
-    // Invalid/null image for error cases
-    AzU8VecRef empty = { .ptr = NULL, .len = 0 };
+    // Invalid/null image for error cases - use non-NULL pointer for empty slice
+    static uint8_t dummy_byte = 0;
+    AzU8VecRef empty = { .ptr = &dummy_byte, .len = 0 };
     AzImageRef invalid = AzImageRef_nullImage(size.width, size.height, AzRawImageFormat_R8, empty);
     
     // Get GL context
@@ -351,14 +355,14 @@ AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
     if (!gpu_ready) {
         OpenGlStateRef_delete(&d);
         // Return a simple colored texture while waiting for GPU upload
-        AzColorU bg_color = AzColorU_fromStr(az_str("#ffffffef"));
+        AzColorU bg_color = AzColorU_red();
         AzTexture texture = AzTexture_allocateRgba8(gl_context, size, bg_color);
         AzTexture_clear(&texture);
         return AzImageRef_glTexture(texture);
     }
     
     // Allocate texture (like Rust: Texture::allocate_rgba8(...))
-    AzColorU bg_color = AzColorU_fromStr(az_str("#ffffffef"));
+    AzColorU bg_color = AzColorU_transparent();
     AzTexture texture = AzTexture_allocateRgba8(gl_context, size, bg_color);
     AzTexture_clear(&texture);
     
@@ -372,7 +376,7 @@ AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
     fill_transforms[1] = AzStyleTransform_rotate(AzAngleValue_deg(rotation_deg));
     AzStyleTransformVec fill_vec = AzStyleTransformVec_copyFromPtr(fill_transforms, 2);
     
-    AzColorU fill_color = AzColorU_fromStr(az_str("#cc00cc"));
+    AzColorU fill_color = AzColorU_magenta();
     AzTessellatedGPUSvgNode_draw(
         &d.ptr->fill_gpu_node,
         &texture,
@@ -386,7 +390,7 @@ AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
     stroke_transforms[0] = AzStyleTransform_rotate(AzAngleValue_deg(rotation_deg));
     AzStyleTransformVec stroke_vec = AzStyleTransformVec_copyFromPtr(stroke_transforms, 1);
     
-    AzColorU stroke_color = AzColorU_fromStr(az_str("#158DE3"));
+    AzColorU stroke_color = AzColorU_cyan();
     AzTessellatedGPUSvgNode_draw(
         &d.ptr->stroke_gpu_node,
         &texture,
@@ -405,7 +409,6 @@ AzUpdate startup_window(AzRefAny data, AzCallbackInfo info) {
     // Get GL context
     AzOptionGlContextPtr opt_gl = AzCallbackInfo_getGlContext(&info);
     if (opt_gl.Some.tag != AzOptionGlContextPtr_Tag_Some) {
-        printf("No GL context on startup\n");
         return AzUpdate_DoNothing;
     }
     AzGlContextPtr gl_context = opt_gl.Some.payload;

@@ -16,6 +16,7 @@ async
 hello-world
 test_simple
 browser
+opengl_simple
 azul.h
 *.dSYM
 *.xhtml
