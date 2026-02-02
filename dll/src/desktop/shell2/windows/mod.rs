@@ -776,6 +776,15 @@ impl Win32Window {
                 (self.win32.user32.ReleaseDC)(self.hwnd, hdc);
             }
 
+            // Clean up old textures from previous epochs to prevent memory leak
+            // This must happen AFTER render() and buffer swap when WebRender no longer needs the textures
+            if let Some(ref layout_window) = self.layout_window {
+                crate::desktop::gl_texture_integration::remove_old_gl_textures(
+                    &layout_window.document_id,
+                    layout_window.epoch,
+                );
+            }
+
             // CI testing: Exit successfully after first frame render if env var is set
             if std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
                 log_info!(
@@ -838,11 +847,31 @@ impl Win32Window {
         }
 
         // Send frame immediately (Windows doesn't batch like macOS/X11)
+        // CRITICAL: Make OpenGL context current BEFORE generate_frame
+        // The image callbacks (RenderImageCallback) need the GL context to be current
+        // to allocate textures and draw to them
+        if let Some(hglrc) = self.gl_context {
+            #[cfg(target_os = "windows")]
+            unsafe {
+                use winapi::um::wingdi::wglMakeCurrent;
+                let hdc = if !self.hdc.is_null() {
+                    self.hdc
+                } else {
+                    (self.win32.user32.GetDC)(self.hwnd)
+                };
+                wglMakeCurrent(
+                    hdc as winapi::shared::windef::HDC,
+                    hglrc as winapi::shared::windef::HGLRC,
+                );
+            }
+        }
+        
         let layout_window = self.layout_window.as_mut().unwrap();
         crate::desktop::shell2::common::layout_v2::generate_frame(
             layout_window,
             &mut self.render_api,
             self.document_id,
+            &self.gl_context_ptr,
         );
         self.render_api.flush_scene_builder();
 
@@ -1241,11 +1270,30 @@ impl Win32Window {
             .scroll_node_with_id(dom_id, node_id, scroll_x, scroll_y);
         */
 
+        // CRITICAL: Make OpenGL context current BEFORE generate_frame
+        // The image callbacks (RenderImageCallback) need the GL context to be current
+        if let Some(hglrc) = self.gl_context {
+            #[cfg(target_os = "windows")]
+            unsafe {
+                use winapi::um::wingdi::wglMakeCurrent;
+                let hdc = if !self.hdc.is_null() {
+                    self.hdc
+                } else {
+                    (self.win32.user32.GetDC)(self.hwnd)
+                };
+                wglMakeCurrent(
+                    hdc as winapi::shared::windef::HDC,
+                    hglrc as winapi::shared::windef::HGLRC,
+                );
+            }
+        }
+
         // Generate frame with updated scroll state
         crate::desktop::shell2::common::layout_v2::generate_frame(
             layout_window,
             &mut self.render_api,
             self.document_id,
+            &self.gl_context_ptr,
         );
         self.render_api.flush_scene_builder();
 

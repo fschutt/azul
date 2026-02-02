@@ -2976,11 +2976,21 @@ impl MacOSWindow {
             return;
         }
 
+        // CRITICAL: Make OpenGL context current BEFORE generate_frame
+        // The image callbacks (RenderImageCallback) need the GL context to be current
+        // to allocate textures and draw to them
+        if let Some(ref gl_context) = self.gl_context {
+            unsafe {
+                gl_context.makeCurrentContext();
+            }
+        }
+
         if let Some(ref mut layout_window) = self.layout_window {
             crate::desktop::shell2::common::layout_v2::generate_frame(
                 layout_window,
                 &mut self.render_api,
                 self.document_id,
+                &self.gl_context_ptr,
             );
 
             // After sending display list, request new hit tester
@@ -3154,6 +3164,7 @@ impl MacOSWindow {
             layout_window,
             &mut self.render_api,
             false, // Display list not rebuilt, just transforms updated
+            &self.gl_context_ptr,
         );
 
         // Send transaction
@@ -4431,6 +4442,7 @@ impl MacOSWindow {
             layout_window,
             &mut self.render_api,
             &self.image_cache,
+            &self.gl_context_ptr,
         )
         .map_err(|e| {
             WindowError::PlatformError(format!("Failed to build transaction: {}", e).into())
@@ -4521,6 +4533,15 @@ impl MacOSWindow {
                 // CPU backend doesn't need explicit buffer swap
                 // The drawRect: itself updates the view
             }
+        }
+
+        // Clean up old textures from previous epochs to prevent memory leak
+        // This must happen AFTER render() and buffer swap when WebRender no longer needs the textures
+        if let Some(ref layout_window) = self.layout_window {
+            crate::desktop::gl_texture_integration::remove_old_gl_textures(
+                &layout_window.document_id,
+                layout_window.epoch,
+            );
         }
 
         log_trace!(

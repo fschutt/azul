@@ -564,6 +564,15 @@ impl PlatformWindow for WaylandWindow {
             }
         };
 
+        // Clean up old textures from previous epochs to prevent memory leak
+        // This must happen AFTER render() and buffer swap when WebRender no longer needs the textures
+        if let Some(ref layout_window) = self.layout_window {
+            crate::desktop::gl_texture_integration::remove_old_gl_textures(
+                &layout_window.document_id,
+                layout_window.epoch,
+            );
+        }
+
         // CI testing: Exit successfully after first frame render if env var is set
         if result.is_ok() && std::env::var("AZUL_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
             log_info!(
@@ -2524,6 +2533,13 @@ impl WaylandWindow {
             return;
         }
 
+        // CRITICAL: Make OpenGL context current BEFORE generate_frame
+        // The image callbacks (RenderImageCallback) need the GL context to be current
+        // to allocate textures and draw to them
+        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
+            gl_context.make_current();
+        }
+
         // Send the WebRender transaction BEFORE rendering
         if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) = (
             self.layout_window.as_mut(),
@@ -2534,6 +2550,7 @@ impl WaylandWindow {
                 layout_window,
                 render_api,
                 document_id,
+                &self.gl_context_ptr,
             );
         }
 
@@ -2575,6 +2592,14 @@ impl WaylandWindow {
                             e
                         );
                         return;
+                    }
+
+                    // Clean up old textures from previous epochs to prevent memory leak
+                    if let Some(ref layout_window) = self.layout_window {
+                        crate::desktop::gl_texture_integration::remove_old_gl_textures(
+                            &layout_window.document_id,
+                            layout_window.epoch,
+                        );
                     }
                 }
             }

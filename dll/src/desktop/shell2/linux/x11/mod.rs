@@ -1401,12 +1401,20 @@ impl X11Window {
             }
         }
 
+        // CRITICAL: Make OpenGL context current BEFORE generate_frame
+        // The image callbacks (RenderImageCallback) need the GL context to be current
+        // to allocate textures and draw to them
+        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
+            gl_context.make_current();
+        }
+
         // Send frame immediately (like Windows - ensures WebRender transaction is sent)
         let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
         crate::desktop::shell2::common::layout_v2::generate_frame(
             layout_window,
             self.render_api.as_mut().ok_or("No render API")?,
             self.document_id.ok_or("No document ID")?,
+            &self.gl_context_ptr,
         );
         if let Some(render_api) = self.render_api.as_mut() {
             render_api.flush_scene_builder();
@@ -1438,6 +1446,12 @@ impl X11Window {
             return;
         }
 
+        // CRITICAL: Make OpenGL context current BEFORE generate_frame
+        // The image callbacks (RenderImageCallback) need the GL context to be current
+        if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
+            gl_context.make_current();
+        }
+
         if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) = (
             self.layout_window.as_mut(),
             self.render_api.as_mut(),
@@ -1447,6 +1461,7 @@ impl X11Window {
                 layout_window,
                 render_api,
                 document_id,
+                &self.gl_context_ptr,
             );
         }
 
@@ -1528,6 +1543,15 @@ impl X11Window {
                 }
                 unsafe { (self.xlib.XFlush)(self.display) };
             }
+        }
+
+        // Clean up old textures from previous epochs to prevent memory leak
+        // This must happen AFTER render() and buffer swap when WebRender no longer needs the textures
+        if let Some(ref layout_window) = self.layout_window {
+            crate::desktop::gl_texture_integration::remove_old_gl_textures(
+                &layout_window.document_id,
+                layout_window.epoch,
+            );
         }
 
         // CI testing: Exit successfully after first frame render if env var is set
