@@ -86,6 +86,7 @@ use azul_css::{
             content::CounterReset,
             effects::StyleCursor,
             lists::StyleListStyleType,
+            text::StyleTextDecoration,
             StyleTextAlign, StyleVerticalAlign,
         },
     },
@@ -463,10 +464,10 @@ static PADDING_INLINE_START_40PX: CssProperty =
         inner: PixelValue::const_px(40),
     }));
 
-// TODO: Uncomment when TextDecoration is implemented in azul-css
-// const TEXT_DECORATION_UNDERLINE: CssProperty = CssProperty::TextDecoration(
-//     StyleTextDecorationValue::Exact(StyleTextDecoration::Underline),
-// ));
+/// Text decoration: underline - used for <a> and <u> elements
+static TEXT_DECORATION_UNDERLINE: CssProperty = CssProperty::TextDecoration(
+    CssPropertyValue::Exact(StyleTextDecoration::Underline),
+);
 
 /*
 const LINE_HEIGHT_1_15: CssProperty = CssProperty::LineHeight(LayoutLineHeightValue::Exact(
@@ -598,7 +599,7 @@ pub fn get_ua_property(
         // Inline Elements
         (NT::Span, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::A, PT::Display) => Some(&DISPLAY_INLINE),
-        // (A, PT::TextDecoration) => Some(&TEXT_DECORATION_UNDERLINE),
+        (NT::A, PT::TextDecoration) => Some(&TEXT_DECORATION_UNDERLINE),
         (NT::Strong, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Strong, PT::FontWeight) => Some(&FONT_WEIGHT_BOLDER),
         (NT::Em, PT::Display) => Some(&DISPLAY_INLINE),
@@ -606,7 +607,7 @@ pub fn get_ua_property(
         (NT::B, PT::FontWeight) => Some(&FONT_WEIGHT_BOLDER),
         (NT::I, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::U, PT::Display) => Some(&DISPLAY_INLINE),
-        // (U, PT::TextDecoration) => Some(&TEXT_DECORATION_UNDERLINE),
+        (NT::U, PT::TextDecoration) => Some(&TEXT_DECORATION_UNDERLINE),
         (NT::Small, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Code, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Kbd, PT::Display) => Some(&DISPLAY_INLINE),

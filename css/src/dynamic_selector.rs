@@ -183,14 +183,372 @@ impl OsCondition {
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum OsVersionCondition {
-    /// Semantic version: "14.0", "11.0.22000"
-    Exact(AzString),
-    /// Minimum version: >= "14.0"
-    Min(AzString),
-    /// Maximum version: <= "14.0"
-    Max(AzString),
-    /// Desktop environment (Linux)
+    /// Minimum version: >= specified version
+    /// Format: OsVersion { os, version_id }
+    Min(OsVersion),
+    /// Maximum version: <= specified version
+    Max(OsVersion),
+    /// Exact version match
+    Exact(OsVersion),
+    /// Desktop environment (Linux only)
     DesktopEnvironment(LinuxDesktopEnv),
+}
+
+/// OS version with ordering - only comparable within the same OS family
+/// 
+/// Each OS has its own version numbering system with named versions.
+/// Comparisons between different OS families always return false.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OsVersion {
+    /// Which OS family this version belongs to
+    pub os: OsFamily,
+    /// Numeric version ID for ordering (higher = newer)
+    /// Each OS has its own numbering scheme starting from 0
+    pub version_id: u32,
+}
+
+impl OsVersion {
+    pub const fn new(os: OsFamily, version_id: u32) -> Self {
+        Self { os, version_id }
+    }
+    
+    /// Compare two versions - only meaningful within the same OS family
+    /// Returns None if OS families don't match (comparison not meaningful)
+    pub fn compare(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        if self.os != other.os {
+            None // Cross-OS comparison not meaningful
+        } else {
+            Some(self.version_id.cmp(&other.version_id))
+        }
+    }
+    
+    /// Check if self >= other (for Min conditions)
+    pub fn is_at_least(&self, other: &Self) -> bool {
+        self.compare(other).map_or(false, |o| o != core::cmp::Ordering::Less)
+    }
+    
+    /// Check if self <= other (for Max conditions)
+    pub fn is_at_most(&self, other: &Self) -> bool {
+        self.compare(other).map_or(false, |o| o != core::cmp::Ordering::Greater)
+    }
+    
+    /// Check if self == other
+    pub fn is_exactly(&self, other: &Self) -> bool {
+        self.compare(other) == Some(core::cmp::Ordering::Equal)
+    }
+}
+
+/// OS family for version comparisons
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OsFamily {
+    Windows,
+    MacOS,
+    IOS,
+    Linux,
+    Android,
+}
+
+// ============================================================================
+// Windows Version IDs (chronological order)
+// ============================================================================
+
+/// Windows version constants - use these in CSS like `@os-version(>= win-xp)`
+impl OsVersion {
+    // Windows versions (version_id = NT version * 100 + minor)
+    pub const WIN_2000: Self = Self::new(OsFamily::Windows, 500);       // NT 5.0
+    pub const WIN_XP: Self = Self::new(OsFamily::Windows, 501);         // NT 5.1
+    pub const WIN_XP_64: Self = Self::new(OsFamily::Windows, 502);      // NT 5.2
+    pub const WIN_VISTA: Self = Self::new(OsFamily::Windows, 600);      // NT 6.0
+    pub const WIN_7: Self = Self::new(OsFamily::Windows, 601);          // NT 6.1
+    pub const WIN_8: Self = Self::new(OsFamily::Windows, 602);          // NT 6.2
+    pub const WIN_8_1: Self = Self::new(OsFamily::Windows, 603);        // NT 6.3
+    pub const WIN_10: Self = Self::new(OsFamily::Windows, 1000);        // NT 10.0
+    pub const WIN_10_1507: Self = Self::new(OsFamily::Windows, 1000);   // Initial release
+    pub const WIN_10_1511: Self = Self::new(OsFamily::Windows, 1001);   // November Update
+    pub const WIN_10_1607: Self = Self::new(OsFamily::Windows, 1002);   // Anniversary Update
+    pub const WIN_10_1703: Self = Self::new(OsFamily::Windows, 1003);   // Creators Update
+    pub const WIN_10_1709: Self = Self::new(OsFamily::Windows, 1004);   // Fall Creators Update
+    pub const WIN_10_1803: Self = Self::new(OsFamily::Windows, 1005);   // April 2018 Update
+    pub const WIN_10_1809: Self = Self::new(OsFamily::Windows, 1006);   // October 2018 Update
+    pub const WIN_10_1903: Self = Self::new(OsFamily::Windows, 1007);   // May 2019 Update
+    pub const WIN_10_1909: Self = Self::new(OsFamily::Windows, 1008);   // November 2019 Update
+    pub const WIN_10_2004: Self = Self::new(OsFamily::Windows, 1009);   // May 2020 Update
+    pub const WIN_10_20H2: Self = Self::new(OsFamily::Windows, 1010);   // October 2020 Update
+    pub const WIN_10_21H1: Self = Self::new(OsFamily::Windows, 1011);   // May 2021 Update
+    pub const WIN_10_21H2: Self = Self::new(OsFamily::Windows, 1012);   // November 2021 Update
+    pub const WIN_10_22H2: Self = Self::new(OsFamily::Windows, 1013);   // 2022 Update
+    pub const WIN_11: Self = Self::new(OsFamily::Windows, 1100);        // Windows 11 base
+    pub const WIN_11_21H2: Self = Self::new(OsFamily::Windows, 1100);   // Initial release
+    pub const WIN_11_22H2: Self = Self::new(OsFamily::Windows, 1101);   // 2022 Update
+    pub const WIN_11_23H2: Self = Self::new(OsFamily::Windows, 1102);   // 2023 Update
+    pub const WIN_11_24H2: Self = Self::new(OsFamily::Windows, 1103);   // 2024 Update
+    
+    // macOS versions (version_id = major * 100 + minor)
+    pub const MACOS_CHEETAH: Self = Self::new(OsFamily::MacOS, 1000);       // 10.0
+    pub const MACOS_PUMA: Self = Self::new(OsFamily::MacOS, 1001);          // 10.1
+    pub const MACOS_JAGUAR: Self = Self::new(OsFamily::MacOS, 1002);        // 10.2
+    pub const MACOS_PANTHER: Self = Self::new(OsFamily::MacOS, 1003);       // 10.3
+    pub const MACOS_TIGER: Self = Self::new(OsFamily::MacOS, 1004);         // 10.4
+    pub const MACOS_LEOPARD: Self = Self::new(OsFamily::MacOS, 1005);       // 10.5
+    pub const MACOS_SNOW_LEOPARD: Self = Self::new(OsFamily::MacOS, 1006);  // 10.6
+    pub const MACOS_LION: Self = Self::new(OsFamily::MacOS, 1007);          // 10.7
+    pub const MACOS_MOUNTAIN_LION: Self = Self::new(OsFamily::MacOS, 1008); // 10.8
+    pub const MACOS_MAVERICKS: Self = Self::new(OsFamily::MacOS, 1009);     // 10.9
+    pub const MACOS_YOSEMITE: Self = Self::new(OsFamily::MacOS, 1010);      // 10.10
+    pub const MACOS_EL_CAPITAN: Self = Self::new(OsFamily::MacOS, 1011);    // 10.11
+    pub const MACOS_SIERRA: Self = Self::new(OsFamily::MacOS, 1012);        // 10.12
+    pub const MACOS_HIGH_SIERRA: Self = Self::new(OsFamily::MacOS, 1013);   // 10.13
+    pub const MACOS_MOJAVE: Self = Self::new(OsFamily::MacOS, 1014);        // 10.14
+    pub const MACOS_CATALINA: Self = Self::new(OsFamily::MacOS, 1015);      // 10.15
+    pub const MACOS_BIG_SUR: Self = Self::new(OsFamily::MacOS, 1100);       // 11.0
+    pub const MACOS_MONTEREY: Self = Self::new(OsFamily::MacOS, 1200);      // 12.0
+    pub const MACOS_VENTURA: Self = Self::new(OsFamily::MacOS, 1300);       // 13.0
+    pub const MACOS_SONOMA: Self = Self::new(OsFamily::MacOS, 1400);        // 14.0
+    pub const MACOS_SEQUOIA: Self = Self::new(OsFamily::MacOS, 1500);       // 15.0
+    pub const MACOS_TAHOE: Self = Self::new(OsFamily::MacOS, 2600);         // 26.0
+    
+    // iOS versions (version_id = major * 100 + minor)
+    pub const IOS_1: Self = Self::new(OsFamily::IOS, 100);
+    pub const IOS_2: Self = Self::new(OsFamily::IOS, 200);
+    pub const IOS_3: Self = Self::new(OsFamily::IOS, 300);
+    pub const IOS_4: Self = Self::new(OsFamily::IOS, 400);
+    pub const IOS_5: Self = Self::new(OsFamily::IOS, 500);
+    pub const IOS_6: Self = Self::new(OsFamily::IOS, 600);
+    pub const IOS_7: Self = Self::new(OsFamily::IOS, 700);
+    pub const IOS_8: Self = Self::new(OsFamily::IOS, 800);
+    pub const IOS_9: Self = Self::new(OsFamily::IOS, 900);
+    pub const IOS_10: Self = Self::new(OsFamily::IOS, 1000);
+    pub const IOS_11: Self = Self::new(OsFamily::IOS, 1100);
+    pub const IOS_12: Self = Self::new(OsFamily::IOS, 1200);
+    pub const IOS_13: Self = Self::new(OsFamily::IOS, 1300);
+    pub const IOS_14: Self = Self::new(OsFamily::IOS, 1400);
+    pub const IOS_15: Self = Self::new(OsFamily::IOS, 1500);
+    pub const IOS_16: Self = Self::new(OsFamily::IOS, 1600);
+    pub const IOS_17: Self = Self::new(OsFamily::IOS, 1700);
+    pub const IOS_18: Self = Self::new(OsFamily::IOS, 1800);
+    
+    // Android versions (API level as version_id)
+    pub const ANDROID_CUPCAKE: Self = Self::new(OsFamily::Android, 3);      // 1.5
+    pub const ANDROID_DONUT: Self = Self::new(OsFamily::Android, 4);        // 1.6
+    pub const ANDROID_ECLAIR: Self = Self::new(OsFamily::Android, 7);       // 2.1
+    pub const ANDROID_FROYO: Self = Self::new(OsFamily::Android, 8);        // 2.2
+    pub const ANDROID_GINGERBREAD: Self = Self::new(OsFamily::Android, 10); // 2.3
+    pub const ANDROID_HONEYCOMB: Self = Self::new(OsFamily::Android, 13);   // 3.2
+    pub const ANDROID_ICE_CREAM_SANDWICH: Self = Self::new(OsFamily::Android, 15); // 4.0
+    pub const ANDROID_JELLY_BEAN: Self = Self::new(OsFamily::Android, 18);  // 4.3
+    pub const ANDROID_KITKAT: Self = Self::new(OsFamily::Android, 19);      // 4.4
+    pub const ANDROID_LOLLIPOP: Self = Self::new(OsFamily::Android, 22);    // 5.1
+    pub const ANDROID_MARSHMALLOW: Self = Self::new(OsFamily::Android, 23); // 6.0
+    pub const ANDROID_NOUGAT: Self = Self::new(OsFamily::Android, 25);      // 7.1
+    pub const ANDROID_OREO: Self = Self::new(OsFamily::Android, 27);        // 8.1
+    pub const ANDROID_PIE: Self = Self::new(OsFamily::Android, 28);         // 9.0
+    pub const ANDROID_10: Self = Self::new(OsFamily::Android, 29);          // 10
+    pub const ANDROID_11: Self = Self::new(OsFamily::Android, 30);          // 11
+    pub const ANDROID_12: Self = Self::new(OsFamily::Android, 31);          // 12
+    pub const ANDROID_12L: Self = Self::new(OsFamily::Android, 32);         // 12L
+    pub const ANDROID_13: Self = Self::new(OsFamily::Android, 33);          // 13
+    pub const ANDROID_14: Self = Self::new(OsFamily::Android, 34);          // 14
+    pub const ANDROID_15: Self = Self::new(OsFamily::Android, 35);          // 15
+    
+    // Linux kernel versions (major * 1000 + minor * 10 + patch)
+    pub const LINUX_2_6: Self = Self::new(OsFamily::Linux, 2060);
+    pub const LINUX_3_0: Self = Self::new(OsFamily::Linux, 3000);
+    pub const LINUX_4_0: Self = Self::new(OsFamily::Linux, 4000);
+    pub const LINUX_5_0: Self = Self::new(OsFamily::Linux, 5000);
+    pub const LINUX_6_0: Self = Self::new(OsFamily::Linux, 6000);
+    
+    /// Unknown OS version (for when detection fails or OS is unknown)
+    pub const fn unknown() -> Self {
+        Self {
+            os: OsFamily::Linux, // Fallback, but version_id 0 means "unknown"
+            version_id: 0,
+        }
+    }
+    
+    /// Detect the current OS version at runtime
+    /// Returns OsVersion::unknown() if detection fails
+    #[cfg(target_os = "windows")]
+    pub fn detect_current(_os: OsCondition) -> Self {
+        // Try to detect Windows version from GetVersionEx or RtlGetVersion
+        // For now, return a safe default (Windows 10)
+        // TODO: Implement proper Windows version detection
+        Self::WIN_10
+    }
+    
+    #[cfg(target_os = "macos")]
+    pub fn detect_current(_os: OsCondition) -> Self {
+        // Try to detect macOS version from sw_vers or sysctl
+        // For now, return a safe default (Sonoma)
+        // TODO: Implement proper macOS version detection using NSProcessInfo
+        Self::MACOS_SONOMA
+    }
+    
+    #[cfg(target_os = "ios")]
+    pub fn detect_current(_os: OsCondition) -> Self {
+        Self::IOS_17
+    }
+    
+    #[cfg(target_os = "android")]
+    pub fn detect_current(_os: OsCondition) -> Self {
+        Self::ANDROID_14
+    }
+    
+    #[cfg(target_os = "linux")]
+    pub fn detect_current(_os: OsCondition) -> Self {
+        // Try to detect Linux kernel version from uname
+        // For now, return a safe default
+        Self::LINUX_6_0
+    }
+    
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_os = "linux"
+    )))]
+    pub fn detect_current(_os: OsCondition) -> Self {
+        Self::unknown()
+    }
+}
+
+/// Parse a named or numeric OS version string
+/// Returns None if the version string is not recognized
+pub fn parse_os_version(os: OsFamily, version_str: &str) -> Option<OsVersion> {
+    let version_str = version_str.trim().to_lowercase();
+    let version_str = version_str.as_str();
+    
+    match os {
+        OsFamily::Windows => parse_windows_version(version_str),
+        OsFamily::MacOS => parse_macos_version(version_str),
+        OsFamily::IOS => parse_ios_version(version_str),
+        OsFamily::Android => parse_android_version(version_str),
+        OsFamily::Linux => parse_linux_version(version_str),
+    }
+}
+
+fn parse_windows_version(s: &str) -> Option<OsVersion> {
+    // Named versions
+    match s {
+        "2000" | "win2000" | "win-2000" => Some(OsVersion::WIN_2000),
+        "xp" | "winxp" | "win-xp" => Some(OsVersion::WIN_XP),
+        "vista" | "winvista" | "win-vista" => Some(OsVersion::WIN_VISTA),
+        "7" | "win7" | "win-7" => Some(OsVersion::WIN_7),
+        "8" | "win8" | "win-8" => Some(OsVersion::WIN_8),
+        "8.1" | "win8.1" | "win-8.1" | "win-8-1" => Some(OsVersion::WIN_8_1),
+        "10" | "win10" | "win-10" => Some(OsVersion::WIN_10),
+        "11" | "win11" | "win-11" => Some(OsVersion::WIN_11),
+        // Numeric NT versions
+        "5.0" | "nt5.0" => Some(OsVersion::WIN_2000),
+        "5.1" | "nt5.1" => Some(OsVersion::WIN_XP),
+        "6.0" | "nt6.0" => Some(OsVersion::WIN_VISTA),
+        "6.1" | "nt6.1" => Some(OsVersion::WIN_7),
+        "6.2" | "nt6.2" => Some(OsVersion::WIN_8),
+        "6.3" | "nt6.3" => Some(OsVersion::WIN_8_1),
+        "10.0" | "nt10.0" => Some(OsVersion::WIN_10),
+        _ => None,
+    }
+}
+
+fn parse_macos_version(s: &str) -> Option<OsVersion> {
+    match s {
+        "cheetah" | "10.0" => Some(OsVersion::MACOS_CHEETAH),
+        "puma" | "10.1" => Some(OsVersion::MACOS_PUMA),
+        "jaguar" | "10.2" => Some(OsVersion::MACOS_JAGUAR),
+        "panther" | "10.3" => Some(OsVersion::MACOS_PANTHER),
+        "tiger" | "10.4" => Some(OsVersion::MACOS_TIGER),
+        "leopard" | "10.5" => Some(OsVersion::MACOS_LEOPARD),
+        "snow-leopard" | "snowleopard" | "10.6" => Some(OsVersion::MACOS_SNOW_LEOPARD),
+        "lion" | "10.7" => Some(OsVersion::MACOS_LION),
+        "mountain-lion" | "mountainlion" | "10.8" => Some(OsVersion::MACOS_MOUNTAIN_LION),
+        "mavericks" | "10.9" => Some(OsVersion::MACOS_MAVERICKS),
+        "yosemite" | "10.10" => Some(OsVersion::MACOS_YOSEMITE),
+        "el-capitan" | "elcapitan" | "10.11" => Some(OsVersion::MACOS_EL_CAPITAN),
+        "sierra" | "10.12" => Some(OsVersion::MACOS_SIERRA),
+        "high-sierra" | "highsierra" | "10.13" => Some(OsVersion::MACOS_HIGH_SIERRA),
+        "mojave" | "10.14" => Some(OsVersion::MACOS_MOJAVE),
+        "catalina" | "10.15" => Some(OsVersion::MACOS_CATALINA),
+        "big-sur" | "bigsur" | "11" | "11.0" => Some(OsVersion::MACOS_BIG_SUR),
+        "monterey" | "12" | "12.0" => Some(OsVersion::MACOS_MONTEREY),
+        "ventura" | "13" | "13.0" => Some(OsVersion::MACOS_VENTURA),
+        "sonoma" | "14" | "14.0" => Some(OsVersion::MACOS_SONOMA),
+        "sequoia" | "15" | "15.0" => Some(OsVersion::MACOS_SEQUOIA),
+        "tahoe" | "26" | "26.0" => Some(OsVersion::MACOS_TAHOE),
+        _ => None,
+    }
+}
+
+fn parse_ios_version(s: &str) -> Option<OsVersion> {
+    match s {
+        "1" | "1.0" => Some(OsVersion::IOS_1),
+        "2" | "2.0" => Some(OsVersion::IOS_2),
+        "3" | "3.0" => Some(OsVersion::IOS_3),
+        "4" | "4.0" => Some(OsVersion::IOS_4),
+        "5" | "5.0" => Some(OsVersion::IOS_5),
+        "6" | "6.0" => Some(OsVersion::IOS_6),
+        "7" | "7.0" => Some(OsVersion::IOS_7),
+        "8" | "8.0" => Some(OsVersion::IOS_8),
+        "9" | "9.0" => Some(OsVersion::IOS_9),
+        "10" | "10.0" => Some(OsVersion::IOS_10),
+        "11" | "11.0" => Some(OsVersion::IOS_11),
+        "12" | "12.0" => Some(OsVersion::IOS_12),
+        "13" | "13.0" => Some(OsVersion::IOS_13),
+        "14" | "14.0" => Some(OsVersion::IOS_14),
+        "15" | "15.0" => Some(OsVersion::IOS_15),
+        "16" | "16.0" => Some(OsVersion::IOS_16),
+        "17" | "17.0" => Some(OsVersion::IOS_17),
+        "18" | "18.0" => Some(OsVersion::IOS_18),
+        _ => None,
+    }
+}
+
+fn parse_android_version(s: &str) -> Option<OsVersion> {
+    match s {
+        "cupcake" | "1.5" => Some(OsVersion::ANDROID_CUPCAKE),
+        "donut" | "1.6" => Some(OsVersion::ANDROID_DONUT),
+        "eclair" | "2.1" => Some(OsVersion::ANDROID_ECLAIR),
+        "froyo" | "2.2" => Some(OsVersion::ANDROID_FROYO),
+        "gingerbread" | "2.3" => Some(OsVersion::ANDROID_GINGERBREAD),
+        "honeycomb" | "3.0" | "3.2" => Some(OsVersion::ANDROID_HONEYCOMB),
+        "ice-cream-sandwich" | "ics" | "4.0" => Some(OsVersion::ANDROID_ICE_CREAM_SANDWICH),
+        "jelly-bean" | "jellybean" | "4.3" => Some(OsVersion::ANDROID_JELLY_BEAN),
+        "kitkat" | "4.4" => Some(OsVersion::ANDROID_KITKAT),
+        "lollipop" | "5.0" | "5.1" => Some(OsVersion::ANDROID_LOLLIPOP),
+        "marshmallow" | "6.0" => Some(OsVersion::ANDROID_MARSHMALLOW),
+        "nougat" | "7.0" | "7.1" => Some(OsVersion::ANDROID_NOUGAT),
+        "oreo" | "8.0" | "8.1" => Some(OsVersion::ANDROID_OREO),
+        "pie" | "9" | "9.0" => Some(OsVersion::ANDROID_PIE),
+        "10" | "q" => Some(OsVersion::ANDROID_10),
+        "11" | "r" => Some(OsVersion::ANDROID_11),
+        "12" | "s" => Some(OsVersion::ANDROID_12),
+        "12l" | "12L" => Some(OsVersion::ANDROID_12L),
+        "13" | "t" | "tiramisu" => Some(OsVersion::ANDROID_13),
+        "14" | "u" | "upside-down-cake" => Some(OsVersion::ANDROID_14),
+        "15" | "v" | "vanilla-ice-cream" => Some(OsVersion::ANDROID_15),
+        _ => {
+            // Try parsing as API level
+            if let Some(api) = s.strip_prefix("api") {
+                if let Ok(level) = api.trim().parse::<u32>() {
+                    return Some(OsVersion::new(OsFamily::Android, level));
+                }
+            }
+            None
+        }
+    }
+}
+
+fn parse_linux_version(s: &str) -> Option<OsVersion> {
+    // Parse kernel version like "5.4", "6.0"
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() >= 2 {
+        if let (Ok(major), Ok(minor)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+            let patch = parts.get(2).and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
+            return Some(OsVersion::new(OsFamily::Linux, major * 1000 + minor * 10 + patch));
+        }
+    }
+    None
 }
 
 #[repr(C)]
@@ -320,7 +678,7 @@ impl_option!(
 pub struct DynamicSelectorContext {
     /// Operating system info
     pub os: OsCondition,
-    pub os_version: AzString,
+    pub os_version: OsVersion,
     pub desktop_env: OptionLinuxDesktopEnv,
 
     /// Theme info
@@ -355,7 +713,7 @@ impl Default for DynamicSelectorContext {
     fn default() -> Self {
         Self {
             os: OsCondition::Any,
-            os_version: AzString::from_const_str("0.0"),
+            os_version: OsVersion::unknown(),
             desktop_env: OptionLinuxDesktopEnv::None,
             theme: ThemeCondition::Light,
             media_type: MediaType::Screen,
@@ -386,7 +744,7 @@ impl DynamicSelectorContext {
 
         Self {
             os,
-            os_version: AzString::from_const_str("0.0"), // TODO: Version detection
+            os_version: OsVersion::detect_current(os), // Auto-detect OS version
             desktop_env,
             theme,
             media_type: MediaType::Screen,
@@ -488,23 +846,17 @@ impl DynamicSelector {
 
     fn match_os_version(
         condition: &OsVersionCondition,
-        actual: &AzString,
+        actual: &OsVersion,
         desktop_env: &OptionLinuxDesktopEnv,
     ) -> bool {
         match condition {
-            OsVersionCondition::Exact(ver) => ver == actual,
-            OsVersionCondition::Min(ver) => Self::compare_version(actual, ver) >= 0,
-            OsVersionCondition::Max(ver) => Self::compare_version(actual, ver) <= 0,
+            OsVersionCondition::Exact(ver) => actual.is_exactly(ver),
+            OsVersionCondition::Min(ver) => actual.is_at_least(ver),
+            OsVersionCondition::Max(ver) => actual.is_at_most(ver),
             OsVersionCondition::DesktopEnvironment(env) => {
                 desktop_env.as_ref().map_or(false, |de| de == env)
             }
         }
-    }
-
-    fn compare_version(a: &AzString, b: &AzString) -> i32 {
-        // Simple string comparison for now
-        // TODO: Proper semantic version comparison
-        a.as_str().cmp(b.as_str()) as i32
     }
 
     fn match_theme(condition: &ThemeCondition, actual: &ThemeCondition) -> bool {
@@ -700,11 +1052,12 @@ impl CssPropertyWithConditions {
     }
 
     /// Check if this property affects layout (width, height, margin, etc.)
-    /// TODO: Implement when CssProperty has this method
+    /// 
+    /// Returns `true` for layout-affecting properties like width, height, margin, padding,
+    /// font-size, etc. Returns `false` for paint-only properties like color, background,
+    /// box-shadow, opacity, transform, etc.
     pub fn is_layout_affecting(&self) -> bool {
-        // For now, assume all properties might affect layout
-        // This should be implemented properly when property categories are available
-        true
+        self.property.get_type().can_trigger_relayout()
     }
 }
 

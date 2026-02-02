@@ -15,7 +15,7 @@ use crate::{
     },
     dynamic_selector::{
         DynamicSelector, DynamicSelectorVec, LanguageCondition, MediaType, MinMaxRange,
-        OrientationType,
+        OrientationType, OsCondition,
     },
     props::{
         basic::parse::parse_parentheses,
@@ -995,6 +995,45 @@ fn parse_lang_condition(content: &str) -> Option<DynamicSelector> {
     )))
 }
 
+/// Parses @os condition from the content following "@os"
+/// Format: @os(linux) or @os("windows") or @os(macos)
+fn parse_os_condition(content: &str) -> Option<DynamicSelector> {
+    let content = content.trim();
+
+    // Remove parentheses and quotes
+    let os = content
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(content)
+        .trim();
+
+    let os = os
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| os.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+        .unwrap_or(os)
+        .trim();
+
+    if os.is_empty() {
+        return None;
+    }
+
+    // Parse OS name (case-insensitive)
+    let condition = match os.to_lowercase().as_str() {
+        "linux" => OsCondition::Linux,
+        "windows" | "win" => OsCondition::Windows,
+        "macos" | "mac" | "osx" => OsCondition::MacOS,
+        "ios" => OsCondition::IOS,
+        "android" => OsCondition::Android,
+        "apple" => OsCondition::Apple, // macOS + iOS
+        "web" | "wasm" => OsCondition::Web,
+        "*" | "any" | "all" => OsCondition::Any,
+        _ => return None, // Unknown OS
+    };
+
+    Some(DynamicSelector::Os(condition))
+}
+
 /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
 ///
 /// May return "warning" messages, i.e. messages that just serve as a warning,
@@ -1019,8 +1058,10 @@ fn new_from_str_inner<'a>(
     // Stack for tracking @-rule conditions (e.g., @media, @lang)
     // Each entry contains the conditions and the nesting level where they were introduced
     let mut at_rule_stack: Vec<(Vec<DynamicSelector>, usize)> = Vec::new();
-    // Pending @-rule that needs to be combined with AtStr
+    // Pending @-rule that needs to be combined with AtStr tokens
     let mut pending_at_rule: Option<&str> = None;
+    // Collect multiple AtStr tokens (e.g., "screen", "(min-width: 800px)" for compound media queries)
+    let mut pending_at_str_parts: Vec<String> = Vec::new();
 
     // Safety: limit maximum iterations to prevent infinite loops
     // A reasonable limit is 10x the input length (each char could produce at most a few tokens)
@@ -1085,15 +1126,29 @@ fn new_from_str_inner<'a>(
 
         match token {
             Token::AtRule(rule_name) => {
-                // Store the @-rule name to combine with the following AtStr
+                // Store the @-rule name to combine with the following AtStr tokens
                 pending_at_rule = Some(rule_name);
+                pending_at_str_parts.clear();
             }
             Token::AtStr(content) => {
-                // Combine with pending @-rule
+                // Collect AtStr tokens until we see BlockStart
+                if pending_at_rule.is_some() {
+                    // Skip "and" keyword, it's just a separator
+                    if !content.eq_ignore_ascii_case("and") {
+                        pending_at_str_parts.push(content.to_string());
+                    }
+                }
+            }
+            Token::BlockStart => {
+                // Process pending @-rule with all collected AtStr parts
                 if let Some(rule_name) = pending_at_rule.take() {
+                    let combined_content = pending_at_str_parts.join(" and ");
+                    pending_at_str_parts.clear();
+                    
                     let conditions = match rule_name.to_lowercase().as_str() {
-                        "media" => parse_media_conditions(content),
-                        "lang" => parse_lang_condition(content).into_iter().collect(),
+                        "media" => parse_media_conditions(&combined_content),
+                        "lang" => parse_lang_condition(&combined_content).into_iter().collect(),
+                        "os" => parse_os_condition(&combined_content).into_iter().collect(),
                         _ => {
                             // Unknown @-rule, ignore
                             Vec::new()
@@ -1104,13 +1159,6 @@ fn new_from_str_inner<'a>(
                         // Push conditions to stack, will be applied to nested rules
                         at_rule_stack.push((conditions, block_nesting + 1));
                     }
-                }
-            }
-            Token::BlockStart => {
-                // Check if this is an @-rule block start (pending_at_rule means we saw @media/@lang)
-                if pending_at_rule.is_some() {
-                    // This is an @-rule block without AtStr content (e.g., "@media { ... }")
-                    pending_at_rule = None;
                 }
 
                 block_nesting += 1;

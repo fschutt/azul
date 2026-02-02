@@ -1,10 +1,11 @@
 //! CSS @-rule and :lang() Pseudo-Class Parsing Tests
 //!
-//! Tests for @media CSS at-rule parsing and :lang() pseudo-class.
+//! Tests for @media, @os, and @lang CSS at-rule parsing and :lang() pseudo-class.
 //!
 //! NOTE: The azul_simplecss tokenizer has limited support for @-rules:
 //! - `@media screen { ... }` works (simple identifier after @media)
 //! - `@media (min-width: 800px) { ... }` does NOT work (parentheses not supported)
+//! - `@os linux { ... }` works (simple identifier after @os)
 //!
 //! For language support, use the standard CSS `:lang()` pseudo-class:
 //! - `div:lang(de) { ... }` works correctly
@@ -12,7 +13,7 @@
 use azul_css::css::{CssPathPseudoSelector, CssPathSelector};
 #[allow(unused_imports)]
 use azul_css::dynamic_selector::{
-    DynamicSelector, LanguageCondition, MediaType, MinMaxRange, OrientationType,
+    DynamicSelector, LanguageCondition, MediaType, MinMaxRange, OrientationType, OsCondition,
 };
 use azul_css::parser2::new_from_str;
 
@@ -94,7 +95,7 @@ fn test_media_all() {
 }
 
 #[test]
-#[ignore = "azul_simplecss tokenizer does not support parentheses in @media queries"]
+// Now supported after simplecss improvements
 fn test_media_min_width() {
     let css = r#"
         @media (min-width: 800px) {
@@ -120,7 +121,7 @@ fn test_media_min_width() {
 }
 
 #[test]
-#[ignore = "azul_simplecss tokenizer does not support parentheses in @media queries"]
+// Now supported after simplecss improvements
 fn test_media_max_width() {
     let css = r#"
         @media (max-width: 600px) {
@@ -146,7 +147,7 @@ fn test_media_max_width() {
 }
 
 #[test]
-#[ignore = "azul_simplecss tokenizer does not support parentheses in @media queries"]
+// Now supported after simplecss improvements
 fn test_media_min_height() {
     let css = r#"
         @media (min-height: 500px) {
@@ -172,7 +173,7 @@ fn test_media_min_height() {
 }
 
 #[test]
-#[ignore = "azul_simplecss tokenizer does not support parentheses in @media queries"]
+// Now supported after simplecss improvements
 fn test_media_max_height() {
     let css = r#"
         @media (max-height: 1200px) {
@@ -198,7 +199,7 @@ fn test_media_max_height() {
 }
 
 #[test]
-#[ignore = "azul_simplecss tokenizer does not support parentheses in @media queries"]
+// Now supported after simplecss improvements
 fn test_media_orientation_portrait() {
     let css = r#"
         @media (orientation: portrait) {
@@ -221,7 +222,7 @@ fn test_media_orientation_portrait() {
 }
 
 #[test]
-#[ignore = "azul_simplecss tokenizer does not support parentheses in @media queries"]
+// Now supported after simplecss improvements
 fn test_media_orientation_landscape() {
     let css = r#"
         @media (orientation: landscape) {
@@ -244,7 +245,7 @@ fn test_media_orientation_landscape() {
 }
 
 #[test]
-#[ignore = "azul_simplecss tokenizer does not support parentheses in @media queries"]
+// Now supported after simplecss improvements
 fn test_media_compound_screen_and_min_width() {
     let css = r#"
         @media screen and (min-width: 1024px) {
@@ -673,4 +674,375 @@ fn test_min_max_range_unbounded() {
     assert!(range.matches(f32::MIN));
     assert!(range.matches(0.0));
     assert!(range.matches(f32::MAX));
+}
+
+// ============================================================================
+// @os parsing tests
+// ============================================================================
+
+#[test]
+fn test_os_linux() {
+    let css = r#"
+        @os linux {
+            div { color: green; }
+        }
+    "#;
+    let (result, _warnings) = new_from_str(css);
+
+    let rules: Vec<_> = result.rules().collect();
+    assert_eq!(rules.len(), 1, "Expected 1 rule, got {}", rules.len());
+
+    let rule = &rules[0];
+    let conditions: Vec<_> = rule.conditions.iter().collect();
+    assert_eq!(
+        conditions.len(),
+        1,
+        "Expected 1 condition, got {:?}",
+        conditions
+    );
+
+    match &conditions[0] {
+        DynamicSelector::Os(OsCondition::Linux) => {}
+        other => panic!("Expected Os(Linux), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_os_windows() {
+    let css = r#"
+        @os windows {
+            div { font-family: Segoe UI; }
+        }
+    "#;
+    let (result, _warnings) = new_from_str(css);
+
+    let rules: Vec<_> = result.rules().collect();
+    assert_eq!(rules.len(), 1);
+
+    let rule = &rules[0];
+    let conditions: Vec<_> = rule.conditions.iter().collect();
+    assert_eq!(conditions.len(), 1);
+
+    match &conditions[0] {
+        DynamicSelector::Os(OsCondition::Windows) => {}
+        other => panic!("Expected Os(Windows), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_os_macos() {
+    let css = r#"
+        @os macos {
+            div { font-family: San Francisco; }
+        }
+    "#;
+    let (result, _warnings) = new_from_str(css);
+
+    let rules: Vec<_> = result.rules().collect();
+    assert_eq!(rules.len(), 1);
+
+    let rule = &rules[0];
+    let conditions: Vec<_> = rule.conditions.iter().collect();
+    assert_eq!(conditions.len(), 1);
+
+    match &conditions[0] {
+        DynamicSelector::Os(OsCondition::MacOS) => {}
+        other => panic!("Expected Os(MacOS), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_os_apple() {
+    // "apple" matches both macOS and iOS
+    let css = r#"
+        @os apple {
+            div { font-family: system-ui; }
+        }
+    "#;
+    let (result, _warnings) = new_from_str(css);
+
+    let rules: Vec<_> = result.rules().collect();
+    assert_eq!(rules.len(), 1);
+
+    let rule = &rules[0];
+    let conditions: Vec<_> = rule.conditions.iter().collect();
+    assert_eq!(conditions.len(), 1);
+
+    match &conditions[0] {
+        DynamicSelector::Os(OsCondition::Apple) => {}
+        other => panic!("Expected Os(Apple), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_os_multiple_rules_in_block() {
+    let css = r#"
+        @os linux {
+            div { color: green; }
+            p { color: lime; }
+        }
+    "#;
+    let (result, _warnings) = new_from_str(css);
+
+    let rules: Vec<_> = result.rules().collect();
+    assert_eq!(rules.len(), 2, "Expected 2 rules inside @os block");
+
+    // Both rules should have the same condition
+    for rule in &rules {
+        let conditions: Vec<_> = rule.conditions.iter().collect();
+        assert_eq!(conditions.len(), 1);
+        match &conditions[0] {
+            DynamicSelector::Os(OsCondition::Linux) => {}
+            other => panic!("Expected Os(Linux), got {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn test_os_aliases() {
+    // Test that various aliases work
+    let test_cases = [
+        ("win", OsCondition::Windows),
+        ("mac", OsCondition::MacOS),
+        ("osx", OsCondition::MacOS),
+        ("wasm", OsCondition::Web),
+        ("web", OsCondition::Web),
+        ("any", OsCondition::Any),
+    ];
+
+    for (alias, expected) in test_cases {
+        let css = format!("@os {} {{ div {{ color: red; }} }}", alias);
+        let (result, _warnings) = new_from_str(&css);
+
+        let rules: Vec<_> = result.rules().collect();
+        assert_eq!(rules.len(), 1, "Expected 1 rule for alias '{}'", alias);
+
+        let rule = &rules[0];
+        let conditions: Vec<_> = rule.conditions.iter().collect();
+        assert_eq!(conditions.len(), 1, "Expected 1 condition for alias '{}'", alias);
+
+        match &conditions[0] {
+            DynamicSelector::Os(os) if os == &expected => {}
+            other => panic!("For alias '{}': Expected Os({:?}), got {:?}", alias, expected, other),
+        }
+    }
+}
+
+// ============================================================================
+// Nested/Combined dynamic selectors tests
+// ============================================================================
+
+#[test]
+fn test_nested_os_and_media() {
+    // Test nesting: @os linux { @media screen { ... } }
+    let css = r#"
+        @os linux {
+            @media screen {
+                div { color: blue; }
+            }
+        }
+    "#;
+    let (result, _warnings) = new_from_str(css);
+
+    let rules: Vec<_> = result.rules().collect();
+    assert_eq!(rules.len(), 1, "Expected 1 rule for nested @os + @media");
+
+    let rule = &rules[0];
+    let conditions: Vec<_> = rule.conditions.iter().collect();
+    
+    // Should have both Os(Linux) and Media(Screen) conditions
+    assert_eq!(
+        conditions.len(),
+        2,
+        "Expected 2 conditions for nested selectors, got {:?}",
+        conditions
+    );
+
+    let has_os_linux = conditions
+        .iter()
+        .any(|c| matches!(c, DynamicSelector::Os(OsCondition::Linux)));
+    let has_media_screen = conditions
+        .iter()
+        .any(|c| matches!(c, DynamicSelector::Media(MediaType::Screen)));
+
+    assert!(has_os_linux, "Expected Os(Linux) condition");
+    assert!(has_media_screen, "Expected Media(Screen) condition");
+}
+
+#[test]
+fn test_nested_media_and_os() {
+    // Test nesting: @media screen { @os windows { ... } }
+    let css = r#"
+        @media screen {
+            @os windows {
+                div { font-family: Segoe UI; }
+            }
+        }
+    "#;
+    let (result, _warnings) = new_from_str(css);
+
+    let rules: Vec<_> = result.rules().collect();
+    assert_eq!(rules.len(), 1, "Expected 1 rule for nested @media + @os");
+
+    let rule = &rules[0];
+    let conditions: Vec<_> = rule.conditions.iter().collect();
+    
+    assert_eq!(
+        conditions.len(),
+        2,
+        "Expected 2 conditions for nested selectors, got {:?}",
+        conditions
+    );
+
+    let has_media_screen = conditions
+        .iter()
+        .any(|c| matches!(c, DynamicSelector::Media(MediaType::Screen)));
+    let has_os_windows = conditions
+        .iter()
+        .any(|c| matches!(c, DynamicSelector::Os(OsCondition::Windows)));
+
+    assert!(has_media_screen, "Expected Media(Screen) condition");
+    assert!(has_os_windows, "Expected Os(Windows) condition");
+}
+
+#[test]
+fn test_mixed_os_media_and_regular_rules() {
+    let css = r#"
+        div { color: black; }
+
+        @os linux {
+            div { color: green; }
+        }
+
+        @media screen {
+            div { color: blue; }
+        }
+
+        p { color: red; }
+    "#;
+    let (result, _warnings) = new_from_str(css);
+
+    let rules: Vec<_> = result.rules().collect();
+    assert_eq!(rules.len(), 4, "Expected 4 rules");
+
+    // First rule: no conditions
+    assert!(rules[0].conditions.iter().count() == 0, "Rule 0 should have no conditions");
+
+    // Second rule: @os linux condition
+    let cond1: Vec<_> = rules[1].conditions.iter().collect();
+    assert_eq!(cond1.len(), 1);
+    assert!(matches!(cond1[0], DynamicSelector::Os(OsCondition::Linux)));
+
+    // Third rule: @media screen condition
+    let cond2: Vec<_> = rules[2].conditions.iter().collect();
+    assert_eq!(cond2.len(), 1);
+    assert!(matches!(cond2[0], DynamicSelector::Media(MediaType::Screen)));
+
+    // Fourth rule: no conditions
+    assert!(rules[3].conditions.iter().count() == 0, "Rule 3 should have no conditions");
+}
+
+// ============================================================================
+// OsCondition matching tests
+// ============================================================================
+
+#[test]
+fn test_os_condition_any_matches_all() {
+    use azul_css::dynamic_selector::DynamicSelectorContext;
+
+    let ctx_linux = DynamicSelectorContext {
+        os: OsCondition::Linux,
+        ..Default::default()
+    };
+    let ctx_windows = DynamicSelectorContext {
+        os: OsCondition::Windows,
+        ..Default::default()
+    };
+    let ctx_macos = DynamicSelectorContext {
+        os: OsCondition::MacOS,
+        ..Default::default()
+    };
+
+    let selector_any = DynamicSelector::Os(OsCondition::Any);
+    
+    assert!(selector_any.matches(&ctx_linux), "Any should match Linux");
+    assert!(selector_any.matches(&ctx_windows), "Any should match Windows");
+    assert!(selector_any.matches(&ctx_macos), "Any should match macOS");
+}
+
+#[test]
+fn test_os_condition_apple_matches_macos_and_ios() {
+    use azul_css::dynamic_selector::DynamicSelectorContext;
+
+    let ctx_macos = DynamicSelectorContext {
+        os: OsCondition::MacOS,
+        ..Default::default()
+    };
+    let ctx_ios = DynamicSelectorContext {
+        os: OsCondition::IOS,
+        ..Default::default()
+    };
+    let ctx_linux = DynamicSelectorContext {
+        os: OsCondition::Linux,
+        ..Default::default()
+    };
+
+    let selector_apple = DynamicSelector::Os(OsCondition::Apple);
+    
+    assert!(selector_apple.matches(&ctx_macos), "Apple should match macOS");
+    assert!(selector_apple.matches(&ctx_ios), "Apple should match iOS");
+    assert!(!selector_apple.matches(&ctx_linux), "Apple should NOT match Linux");
+}
+
+#[test]
+fn test_os_condition_specific_matches() {
+    use azul_css::dynamic_selector::DynamicSelectorContext;
+
+    let ctx_linux = DynamicSelectorContext {
+        os: OsCondition::Linux,
+        ..Default::default()
+    };
+    let ctx_windows = DynamicSelectorContext {
+        os: OsCondition::Windows,
+        ..Default::default()
+    };
+
+    let selector_linux = DynamicSelector::Os(OsCondition::Linux);
+    let selector_windows = DynamicSelector::Os(OsCondition::Windows);
+    
+    assert!(selector_linux.matches(&ctx_linux), "Linux should match Linux");
+    assert!(!selector_linux.matches(&ctx_windows), "Linux should NOT match Windows");
+    
+    assert!(selector_windows.matches(&ctx_windows), "Windows should match Windows");
+    assert!(!selector_windows.matches(&ctx_linux), "Windows should NOT match Linux");
+}
+
+#[test]
+fn test_combined_conditions_all_must_match() {
+    use azul_css::dynamic_selector::{DynamicSelectorContext, ThemeCondition};
+
+    // Context: Linux + Dark theme + Screen media
+    let ctx = DynamicSelectorContext {
+        os: OsCondition::Linux,
+        theme: ThemeCondition::Dark,
+        media_type: MediaType::Screen,
+        ..Default::default()
+    };
+
+    // All conditions match
+    let selector_linux = DynamicSelector::Os(OsCondition::Linux);
+    let selector_dark = DynamicSelector::Theme(ThemeCondition::Dark);
+    let selector_screen = DynamicSelector::Media(MediaType::Screen);
+    
+    assert!(selector_linux.matches(&ctx));
+    assert!(selector_dark.matches(&ctx));
+    assert!(selector_screen.matches(&ctx));
+
+    // Windows doesn't match
+    let selector_windows = DynamicSelector::Os(OsCondition::Windows);
+    assert!(!selector_windows.matches(&ctx));
+
+    // Light theme doesn't match
+    let selector_light = DynamicSelector::Theme(ThemeCondition::Light);
+    assert!(!selector_light.matches(&ctx));
 }
