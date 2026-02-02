@@ -1218,7 +1218,11 @@ pub struct SelectionStyle {
 }
 
 /// Get selection style for a node
-pub fn get_selection_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> SelectionStyle {
+pub fn get_selection_style(
+    styled_dom: &StyledDom, 
+    node_id: Option<NodeId>,
+    system_colors: Option<&azul_css::system::SystemColors>,
+) -> SelectionStyle {
     let Some(node_id) = node_id else {
         return SelectionStyle::default();
     };
@@ -1226,12 +1230,9 @@ pub fn get_selection_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> S
     let node_data = &styled_dom.node_data.as_container()[node_id];
     let node_state = &StyledNodeState::default();
 
-    let bg_color = styled_dom
-        .css_property_cache
-        .ptr
-        .get_selection_background_color(node_data, &node_id, node_state)
-        .and_then(|c| c.get_property().cloned())
-        .map(|c| c.inner)
+    // Try to get selection background from CSS, otherwise use system color, otherwise hard-coded default
+    let default_bg = system_colors
+        .and_then(|sc| sc.selection_background.as_option().copied())
         .unwrap_or(ColorU {
             r: 51,
             g: 153,
@@ -1239,12 +1240,25 @@ pub fn get_selection_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> S
             a: 128, // Semi-transparent
         });
 
+    let bg_color = styled_dom
+        .css_property_cache
+        .ptr
+        .get_selection_background_color(node_data, &node_id, node_state)
+        .and_then(|c| c.get_property().cloned())
+        .map(|c| c.inner)
+        .unwrap_or(default_bg);
+
+    // Try to get selection text color from CSS, otherwise use system color
+    let default_text = system_colors
+        .and_then(|sc| sc.selection_text.as_option().copied());
+
     let text_color = styled_dom
         .css_property_cache
         .ptr
         .get_selection_color(node_data, &node_id, node_state)
         .and_then(|c| c.get_property().cloned())
-        .map(|c| c.inner);
+        .map(|c| c.inner)
+        .or(default_text);
 
     let radius = styled_dom
         .css_property_cache

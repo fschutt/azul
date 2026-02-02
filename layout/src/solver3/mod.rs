@@ -188,6 +188,9 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// Key: (node_index, available_size), Value: computed layout result.
     /// This prevents O(n²) complexity by avoiding redundant layout calculations.
     pub subtree_layout_cache: std::collections::BTreeMap<cache::LayoutCacheKey, cache::LayoutCacheValue>,
+    /// System colors for selection, caret, and other system-themed elements.
+    /// Used when CSS doesn't explicitly specify these colors.
+    pub system_colors: Option<&'a azul_css::system::SystemColors>,
 }
 
 impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
@@ -404,6 +407,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible,
         cursor_location: cursor_location.clone(),
         subtree_layout_cache: BTreeMap::new(),
+        system_colors: None,
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
@@ -435,6 +439,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible,
         cursor_location,
         subtree_layout_cache,
+        system_colors: None,
     };
 
     // --- Step 1.5: Early Exit Optimization ---

@@ -232,6 +232,7 @@ where
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
         subtree_layout_cache: BTreeMap::new(),
+        system_colors: None,
     };
 
     // NEW: Use the commitment-based pagination approach with CSS break properties
@@ -350,6 +351,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
         subtree_layout_cache: BTreeMap::new(),
+        system_colors: None,
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
@@ -380,6 +382,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
         subtree_layout_cache,
+        system_colors: None,
     };
 
     // --- Step 1.5: Early Exit Optimization ---

@@ -867,12 +867,21 @@ fn discover_macos_style() -> SystemStyle {
                 parts[1].parse::<f32>(),
                 parts[2].parse::<f32>(),
             ) {
-                let selection_color = ColorU::new_rgb(
+                // Use 50% transparency for selection background (a=128)
+                let selection_color = ColorU::new(
                     (r * 255.0) as u8,
                     (g * 255.0) as u8,
                     (b * 255.0) as u8,
+                    128, // Semi-transparent for text selection
                 );
                 style.colors.selection_background = OptionColorU::Some(selection_color);
+                // Selection text color: use theme-appropriate text color
+                // (dark text on light theme, light text on dark theme)
+                let selection_text = match style.theme {
+                    Theme::Dark => ColorU::new_rgb(255, 255, 255),
+                    Theme::Light => ColorU::new_rgb(0, 0, 0),
+                };
+                style.colors.selection_text = OptionColorU::Some(selection_text);
             }
         }
     }
@@ -1653,6 +1662,9 @@ pub mod defaults {
                 background: OptionColorU::Some(ColorU::new_rgb(242, 242, 247)),
                 accent: OptionColorU::Some(ColorU::new_rgb(0, 122, 255)),
                 window_background: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
+                // Default macOS selection uses accent color with transparency
+                selection_background: OptionColorU::Some(ColorU::new(0, 122, 255, 128)),
+                selection_text: OptionColorU::Some(ColorU::new_rgb(0, 0, 0)),
                 ..Default::default()
             },
             fonts: SystemFonts {
@@ -1683,6 +1695,9 @@ pub mod defaults {
                 background: OptionColorU::Some(ColorU::new_rgb(28, 28, 30)),
                 accent: OptionColorU::Some(ColorU::new_rgb(10, 132, 255)),
                 window_background: OptionColorU::Some(ColorU::new_rgb(44, 44, 46)),
+                // Default macOS selection uses accent color with transparency
+                selection_background: OptionColorU::Some(ColorU::new(10, 132, 255, 128)),
+                selection_text: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
                 ..Default::default()
             },
             fonts: SystemFonts {

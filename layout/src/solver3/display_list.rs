@@ -1386,7 +1386,7 @@ where
                 // Only draw selection highlight if NOT collapsed
                 if !is_collapsed {
                     let rects = layout.get_selection_rects(range);
-                    let style = get_selection_style(self.ctx.styled_dom, Some(dom_id));
+                    let style = get_selection_style(self.ctx.styled_dom, Some(dom_id), self.ctx.system_colors);
 
                     let border_radius = BorderRadius {
                         top_left: style.radius,
@@ -1418,7 +1418,7 @@ where
         for selection in selection_state.selections.as_slice() {
             if let Selection::Range(range) = &selection {
                 let rects = layout.get_selection_rects(range);
-                let style = get_selection_style(self.ctx.styled_dom, Some(dom_id));
+                let style = get_selection_style(self.ctx.styled_dom, Some(dom_id), self.ctx.system_colors);
 
                 let border_radius = BorderRadius {
                     top_left: style.radius,
