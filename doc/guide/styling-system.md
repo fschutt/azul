@@ -339,35 +339,12 @@ color: rgba(255, 0, 0, 0.5);
 color: hsl(0, 100%, 50%);
 color: hsla(0, 100%, 50%, 0.5);
 
-/* System colors */
-color: var(--system-text-color);
-color: var(--system-accent-color);
-color: var(--system-background-color);
 ```
 
 ## CSS Functions
 
-### calc()
-
-```css
-width: calc(100% - 40px);
-height: calc(100vh - 60px);
-padding: calc(1rem + 10px);
-```
-
-### var() (CSS Variables)
-
-```css
-:root {
-    --primary-color: #4a90e2;
-    --spacing: 16px;
-}
-
-.button {
-    background: var(--primary-color);
-    padding: var(--spacing);
-}
-```
+> **Note:** `calc()` and `var()` (CSS custom properties) are **not supported** in Azul.
+> Use concrete values instead.
 
 ### Gradients
 
@@ -397,9 +374,10 @@ background: radial-gradient(ellipse at center, red, blue);
 | `:disabled` | Disabled form elements |
 | `:checked` | Checked checkboxes/radio buttons |
 
-## CSS Nesting (Modern)
+## CSS Nesting
 
-Azul supports modern CSS nesting syntax:
+Azul supports CSS nesting syntax. Note that unlike standard CSS nesting, 
+Azul uses `:hover` directly without the `&` prefix:
 
 ```css
 .card {
@@ -416,8 +394,8 @@ Azul supports modern CSS nesting syntax:
         color: #666;
     }
     
-    /* Pseudo-classes */
-    &:hover {
+    /* Pseudo-classes - no & prefix needed */
+    :hover {
         box-shadow: 0 4px 8px rgba(0,0,0,0.1);
     }
     
@@ -433,10 +411,46 @@ Azul supports modern CSS nesting syntax:
 
 ### 1. Use System Colors
 
+Azul provides lazily-evaluated system colors that adapt to the user's OS theme:
+
+```css
+/* Use system colors in CSS */
+.button {
+    background: system:accent;
+    color: system:accent-text;
+}
+
+.card {
+    background: system:window-background;
+    color: system:text;
+}
+
+::selection {
+    background: system:selection-background;
+    color: system:selection-text;
+}
+```
+
+Available system colors:
+
+| CSS Syntax | Description |
+|------------|-------------|
+| `system:text` | System text color (black/white depending on theme) |
+| `system:background` | System background color |
+| `system:accent` | User's accent/highlight color |
+| `system:accent-text` | Text color for use on accent backgrounds |
+| `system:button-face` | Button background color |
+| `system:button-text` | Button text color |
+| `system:window-background` | Window/panel background |
+| `system:selection-background` | Text selection background |
+| `system:selection-text` | Text color when selected |
+
+In Rust code:
+
 ```rust
-// Let Azul detect system colors
-let style = SystemStyle::new();
+let style = SystemStyle::create();
 let accent = style.colors.accent; // System accent color
+let selection = style.colors.selection_background;
 ```
 
 ### 2. Respect Accessibility Settings
@@ -455,10 +469,11 @@ let accent = style.colors.accent; // System accent color
 ```rust
 // Good: semantic elements
 Dom::create_button("Submit")
-Dom::create_p().with_child(Dom::create_text("Hello"))
+Dom::create_p("Hello")
 
-// Avoid: div soup
-Dom::create_div().with_class("button")
+// Avoid: create_text (use create_p, create_span, etc.)
+Dom::create_text("Hello")  // Bad: no semantic meaning
+Dom::create_div().with_class("button")  // Bad: div soup
 ```
 
 ### 4. Prefer Flexbox
@@ -471,5 +486,75 @@ Dom::create_div().with_class("button")
     gap: 16px;
 }
 ```
+
+## Application Ricing
+
+Azul supports user-customizable stylesheets, allowing end-users to "rice" (customize) 
+any Azul application without modifying the application code.
+
+### How It Works
+
+When an Azul application starts, it automatically looks for a user stylesheet at:
+
+| Platform | Location |
+|----------|----------|
+| **Linux** | `~/.config/azul/styles/<app_name>.css` |
+| **macOS** | `~/Library/Application Support/azul/styles/<app_name>.css` |
+| **Windows** | `%APPDATA%\azul\styles\<app_name>.css` |
+
+Where `<app_name>` is the name of the executable (e.g., `my-app` for `my-app.exe`).
+
+### Example
+
+If you have an application called `todo-app`, create:
+
+```
+~/.config/azul/styles/todo-app.css
+```
+
+With content like:
+
+```css
+/* Override button styling */
+button {
+    background: linear-gradient(to bottom, #667eea, #764ba2);
+    border-radius: 20px;
+    color: white;
+}
+
+/* Custom accent color */
+.accent {
+    background: system:accent;
+}
+
+/* Dark theme override */
+body {
+    background: #1a1a2e;
+    color: #eaeaea;
+}
+```
+
+### Disabling Ricing
+
+Application developers can disable user ricing by setting an environment variable:
+
+```bash
+AZUL_DISABLE_RICING=1 ./my-app
+```
+
+### Linux "Smoke and Mirrors" Mode
+
+For Linux users with heavily customized ("riced") desktops using tiling window managers,
+Azul can detect colors from tools like `pywal`:
+
+```bash
+# Enable riced desktop detection (skips GNOME/KDE detection)
+AZUL_SMOKE_AND_MIRRORS=1 ./my-app
+```
+
+This mode:
+- Reads colors from `~/.cache/wal/colors.json` (pywal)
+- Parses `~/.config/hypr/hyprland.conf` for border radius and colors
+- Works with Hyprland, Sway, i3, and other tiling WMs
 
 [Back to overview](https://azul.rs/guide)

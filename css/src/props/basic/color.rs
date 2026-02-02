@@ -287,6 +287,99 @@ impl From<ColorF> for ColorU {
     }
 }
 
+/// A color reference that can be either a concrete color or a system color.
+/// System colors are lazily evaluated at runtime based on the user's system theme.
+/// 
+/// CSS syntax: `system:accent`, `system:text`, `system:background`, etc.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum ColorOrSystem {
+    /// A concrete RGBA color value.
+    Color(ColorU),
+    /// A reference to a system color, resolved at runtime.
+    System(SystemColorRef),
+}
+
+impl Default for ColorOrSystem {
+    fn default() -> Self {
+        ColorOrSystem::Color(ColorU::BLACK)
+    }
+}
+
+impl From<ColorU> for ColorOrSystem {
+    fn from(color: ColorU) -> Self {
+        ColorOrSystem::Color(color)
+    }
+}
+
+impl ColorOrSystem {
+    /// Resolve the color against a SystemColors struct.
+    /// Returns the system color if available, or falls back to the provided default.
+    pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
+        match self {
+            ColorOrSystem::Color(c) => *c,
+            ColorOrSystem::System(ref_type) => ref_type.resolve(system_colors, fallback),
+        }
+    }
+}
+
+/// Reference to a specific system color.
+/// These are resolved at runtime based on the user's system preferences.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum SystemColorRef {
+    /// System text color (e.g., black on light theme, white on dark)
+    Text,
+    /// System background color
+    Background,
+    /// System accent color (user-selected highlight color)
+    Accent,
+    /// Text color when on accent background
+    AccentText,
+    /// Button face background color
+    ButtonFace,
+    /// Button text color
+    ButtonText,
+    /// Window/panel background color
+    WindowBackground,
+    /// Selection/highlight background color
+    SelectionBackground,
+    /// Text color when selected
+    SelectionText,
+}
+
+impl SystemColorRef {
+    /// Resolve this system color reference against actual system colors.
+    pub fn resolve(&self, colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
+        match self {
+            SystemColorRef::Text => colors.text.as_option().copied().unwrap_or(fallback),
+            SystemColorRef::Background => colors.background.as_option().copied().unwrap_or(fallback),
+            SystemColorRef::Accent => colors.accent.as_option().copied().unwrap_or(fallback),
+            SystemColorRef::AccentText => colors.accent_text.as_option().copied().unwrap_or(fallback),
+            SystemColorRef::ButtonFace => colors.button_face.as_option().copied().unwrap_or(fallback),
+            SystemColorRef::ButtonText => colors.button_text.as_option().copied().unwrap_or(fallback),
+            SystemColorRef::WindowBackground => colors.window_background.as_option().copied().unwrap_or(fallback),
+            SystemColorRef::SelectionBackground => colors.selection_background.as_option().copied().unwrap_or(fallback),
+            SystemColorRef::SelectionText => colors.selection_text.as_option().copied().unwrap_or(fallback),
+        }
+    }
+    
+    /// Get the CSS syntax for this system color reference.
+    pub fn as_css_str(&self) -> &'static str {
+        match self {
+            SystemColorRef::Text => "system:text",
+            SystemColorRef::Background => "system:background",
+            SystemColorRef::Accent => "system:accent",
+            SystemColorRef::AccentText => "system:accent-text",
+            SystemColorRef::ButtonFace => "system:button-face",
+            SystemColorRef::ButtonText => "system:button-text",
+            SystemColorRef::WindowBackground => "system:window-background",
+            SystemColorRef::SelectionBackground => "system:selection-background",
+            SystemColorRef::SelectionText => "system:selection-text",
+        }
+    }
+}
+
 // --- PARSER ---
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -478,6 +571,43 @@ pub fn parse_css_color<'a>(input: &'a str) -> Result<ColorU, CssColorParseError<
             },
         }
     }
+}
+
+/// Parse a color that can be either a concrete color or a system color reference.
+/// 
+/// Supports all standard CSS color formats plus:
+/// - `system:accent` - System accent/highlight color
+/// - `system:text` - System text color
+/// - `system:background` - System background color
+/// - `system:selection-background` - Selection/highlight background
+/// - `system:selection-text` - Text color when selected
+/// - `system:button-face` - Button background color
+/// - `system:button-text` - Button text color
+/// - `system:window-background` - Window background color
+/// - `system:accent-text` - Text color on accent background
+#[cfg(feature = "parser")]
+pub fn parse_color_or_system<'a>(input: &'a str) -> Result<ColorOrSystem, CssColorParseError<'a>> {
+    let input = input.trim();
+    
+    // Check for system color syntax: "system:name"
+    if let Some(system_name) = input.strip_prefix("system:") {
+        let system_ref = match system_name.trim() {
+            "text" => SystemColorRef::Text,
+            "background" => SystemColorRef::Background,
+            "accent" => SystemColorRef::Accent,
+            "accent-text" => SystemColorRef::AccentText,
+            "button-face" => SystemColorRef::ButtonFace,
+            "button-text" => SystemColorRef::ButtonText,
+            "window-background" => SystemColorRef::WindowBackground,
+            "selection-background" => SystemColorRef::SelectionBackground,
+            "selection-text" => SystemColorRef::SelectionText,
+            _ => return Err(CssColorParseError::InvalidColor(input)),
+        };
+        return Ok(ColorOrSystem::System(system_ref));
+    }
+    
+    // Otherwise parse as regular color
+    parse_css_color(input).map(ColorOrSystem::Color)
 }
 
 #[cfg(feature = "parser")]

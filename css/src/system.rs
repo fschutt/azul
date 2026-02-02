@@ -694,6 +694,8 @@ fn discover_windows_style() -> SystemStyle {
                 let g = (hex_val >> 8) as u8;
                 let r = hex_val as u8;
                 style.colors.accent = OptionColorU::Some(ColorU::new(r, g, b, a));
+                // Windows uses accent color for selection by default
+                style.colors.selection_background = OptionColorU::Some(ColorU::new(r, g, b, 255));
             }
         }
     }
@@ -818,6 +820,7 @@ fn discover_macos_style() -> SystemStyle {
     style.prefers_reduced_motion = detect_macos_reduced_motion();
     style.prefers_high_contrast = detect_macos_high_contrast();
 
+    // Check dark mode
     let theme_val = run_command_with_timeout(
         "defaults",
         &["read", "-g", "AppleInterfaceStyle"],
@@ -828,6 +831,50 @@ fn discover_macos_style() -> SystemStyle {
         style.os_version = detect_macos_version();
         style.prefers_reduced_motion = detect_macos_reduced_motion();
         style.prefers_high_contrast = detect_macos_high_contrast();
+    }
+
+    // Detect accent color (AppleAccentColor: -1=graphite, 0=red, 1=orange, 2=yellow, 3=green, 4=blue, 5=purple, 6=pink)
+    if let Ok(accent_str) = run_command_with_timeout(
+        "defaults",
+        &["read", "-g", "AppleAccentColor"],
+        Duration::from_secs(1),
+    ) {
+        let accent_color = match accent_str.trim() {
+            "-1" => ColorU::new_rgb(142, 142, 147), // Graphite
+            "0" => ColorU::new_rgb(255, 59, 48),    // Red
+            "1" => ColorU::new_rgb(255, 149, 0),    // Orange
+            "2" => ColorU::new_rgb(255, 204, 0),    // Yellow
+            "3" => ColorU::new_rgb(40, 205, 65),    // Green
+            "4" => ColorU::new_rgb(0, 122, 255),    // Blue (default)
+            "5" => ColorU::new_rgb(175, 82, 222),   // Purple
+            "6" => ColorU::new_rgb(255, 45, 85),    // Pink
+            _ => ColorU::new_rgb(0, 122, 255),      // Default blue
+        };
+        style.colors.accent = OptionColorU::Some(accent_color);
+    }
+
+    // Detect highlight (selection) color
+    // AppleHighlightColor format: "R G B" (0.0-1.0 floats, space-separated)
+    if let Ok(highlight_str) = run_command_with_timeout(
+        "defaults",
+        &["read", "-g", "AppleHighlightColor"],
+        Duration::from_secs(1),
+    ) {
+        let parts: Vec<&str> = highlight_str.trim().split_whitespace().collect();
+        if parts.len() >= 3 {
+            if let (Ok(r), Ok(g), Ok(b)) = (
+                parts[0].parse::<f32>(),
+                parts[1].parse::<f32>(),
+                parts[2].parse::<f32>(),
+            ) {
+                let selection_color = ColorU::new_rgb(
+                    (r * 255.0) as u8,
+                    (g * 255.0) as u8,
+                    (b * 255.0) as u8,
+                );
+                style.colors.selection_background = OptionColorU::Some(selection_color);
+            }
+        }
     }
 
     style
