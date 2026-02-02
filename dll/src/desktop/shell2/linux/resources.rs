@@ -46,8 +46,8 @@ impl AppResources {
         // Create empty app data (user can set this later)
         let app_data = Arc::new(RefCell::new(RefAny::new(())));
 
-        // Detect system style once at startup
-        let system_style = Arc::new(SystemStyle::new());
+        // Use system style from AppConfig (detected once at AppConfig::create())
+        let system_style = Arc::new(config.system_style.clone());
 
         // Clone icon provider from AppConfig (Arc-based, cheap)
         let icon_provider = config.icon_provider.clone();

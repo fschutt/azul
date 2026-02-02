@@ -278,12 +278,14 @@ impl PlatformWindow for X11Window {
     where
         Self: Sized,
     {
+        let config = azul_core::resources::AppConfig::default();
+        let system_style = Arc::new(config.system_style.clone());
         let app_data_arc = Arc::new(std::cell::RefCell::new(app_data));
         let resources = Arc::new(super::AppResources {
-            config: azul_core::resources::AppConfig::default(),
+            config,
             fc_cache: Arc::new(rust_fontconfig::FcFontCache::default()),
             app_data: app_data_arc,
-            system_style: Arc::new(azul_css::system::SystemStyle::new()),
+            system_style,
             icon_provider: azul_core::icon::IconProviderHandle::new(),
         });
         Self::new_with_resources(options, resources)
@@ -562,9 +564,14 @@ impl X11Window {
     /// This is the preferred way to create X11 windows, as it allows
     /// sharing font cache, app data, and system styling across windows.
     pub fn new_with_resources(
-        options: WindowCreateOptions,
+        mut options: WindowCreateOptions,
         resources: Arc<super::AppResources>,
     ) -> Result<Self, WindowError> {
+        // If background_color is None, use system window background
+        if options.window_state.background_color.is_none() {
+            options.window_state.background_color = resources.system_style.colors.window_background;
+        }
+        
         // Extract create_callback before consuming options
         let create_callback = options.create_callback.clone();
 
@@ -829,9 +836,8 @@ impl X11Window {
             gnome_menu_v2: None, // New dlopen-based implementation
             resources: resources.clone(),
             dynamic_selector_context: {
-                let sys = azul_css::system::SystemStyle::new();
                 let mut ctx =
-                    azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
+                    azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&resources.system_style);
                 ctx.viewport_width = options.window_state.size.dimensions.width;
                 ctx.viewport_height = options.window_state.size.dimensions.height;
                 ctx.orientation = if ctx.viewport_width > ctx.viewport_height {

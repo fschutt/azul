@@ -212,6 +212,199 @@ impl ColorU {
     pub fn to_hash(&self) -> String {
         format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
     }
+
+    // ============================================================
+    // Elementary OS color palette (with shade parameter 100-900)
+    // ============================================================
+
+    /// Strawberry color palette (shade: 100, 300, 500, 700, 900)
+    pub fn strawberry(shade: usize) -> Self {
+        match shade {
+            0..=200 => Self::rgb(0xff, 0x8c, 0x82),   // 100: #ff8c82
+            201..=400 => Self::rgb(0xed, 0x53, 0x53), // 300: #ed5353
+            401..=600 => Self::rgb(0xc6, 0x26, 0x2e), // 500: #c6262e
+            601..=800 => Self::rgb(0xa1, 0x07, 0x05), // 700: #a10705
+            _ => Self::rgb(0x7a, 0x00, 0x00),         // 900: #7a0000
+        }
+    }
+
+    /// Orange color palette (shade: 100, 300, 500, 700, 900)
+    pub fn palette_orange(shade: usize) -> Self {
+        match shade {
+            0..=200 => Self::rgb(0xff, 0xc2, 0x7d),   // 100: #ffc27d
+            201..=400 => Self::rgb(0xff, 0xa1, 0x54), // 300: #ffa154
+            401..=600 => Self::rgb(0xf3, 0x73, 0x29), // 500: #f37329
+            601..=800 => Self::rgb(0xcc, 0x3b, 0x02), // 700: #cc3b02
+            _ => Self::rgb(0xa6, 0x21, 0x00),         // 900: #a62100
+        }
+    }
+
+    /// Banana color palette (shade: 100, 300, 500, 700, 900)
+    pub fn banana(shade: usize) -> Self {
+        match shade {
+            0..=200 => Self::rgb(0xff, 0xf3, 0x94),   // 100: #fff394
+            201..=400 => Self::rgb(0xff, 0xe1, 0x6b), // 300: #ffe16b
+            401..=600 => Self::rgb(0xf9, 0xc4, 0x40), // 500: #f9c440
+            601..=800 => Self::rgb(0xd4, 0x8e, 0x15), // 700: #d48e15
+            _ => Self::rgb(0xad, 0x5f, 0x00),         // 900: #ad5f00
+        }
+    }
+
+    /// Lime color palette (shade: 100, 300, 500, 700, 900)
+    pub fn palette_lime(shade: usize) -> Self {
+        match shade {
+            0..=200 => Self::rgb(0xd1, 0xff, 0x82),   // 100: #d1ff82
+            201..=400 => Self::rgb(0x9b, 0xdb, 0x4d), // 300: #9bdb4d
+            401..=600 => Self::rgb(0x68, 0xb7, 0x23), // 500: #68b723
+            601..=800 => Self::rgb(0x3a, 0x91, 0x04), // 700: #3a9104
+            _ => Self::rgb(0x20, 0x6b, 0x00),         // 900: #206b00
+        }
+    }
+
+    /// Mint color palette (shade: 100, 300, 500, 700, 900)
+    pub fn mint(shade: usize) -> Self {
+        match shade {
+            0..=200 => Self::rgb(0x89, 0xff, 0xdd),   // 100: #89ffdd
+            201..=400 => Self::rgb(0x43, 0xd6, 0xb5), // 300: #43d6b5
+            401..=600 => Self::rgb(0x28, 0xbc, 0xa3), // 500: #28bca3
+            601..=800 => Self::rgb(0x0e, 0x9a, 0x83), // 700: #0e9a83
+            _ => Self::rgb(0x00, 0x73, 0x67),         // 900: #007367
+        }
+    }
+
+    /// Blueberry color palette (shade: 100, 300, 500, 700, 900)
+    pub fn blueberry(shade: usize) -> Self {
+        match shade {
+            0..=200 => Self::rgb(0x8c, 0xd5, 0xff),   // 100: #8cd5ff
+            201..=400 => Self::rgb(0x64, 0xba, 0xff), // 300: #64baff
+            401..=600 => Self::rgb(0x36, 0x89, 0xe6), // 500: #3689e6
+            601..=800 => Self::rgb(0x0d, 0x52, 0xbf), // 700: #0d52bf
+            _ => Self::rgb(0x00, 0x2e, 0x99),         // 900: #002e99
+        }
+    }
+
+    /// Grape color palette (shade: 100, 300, 500, 700, 900)
+    pub fn grape(shade: usize) -> Self {
+        match shade {
+            0..=200 => Self::rgb(0xe4, 0xc6, 0xfa),   // 100: #e4c6fa
+            201..=400 => Self::rgb(0xcd, 0x9e, 0xf7), // 300: #cd9ef7
+            401..=600 => Self::rgb(0xa5, 0x6d, 0xe2), // 500: #a56de2
+            601..=800 => Self::rgb(0x72, 0x39, 0xb3), // 700: #7239b3
+            _ => Self::rgb(0x45, 0x29, 0x81),         // 900: #452981
+        }
+    }
+
+    /// Bubblegum color palette (shade: 100, 300, 500, 700, 900)
+    pub fn bubblegum(shade: usize) -> Self {
+        match shade {
+            0..=200 => Self::rgb(0xfe, 0x9a, 0xb8),   // 100: #fe9ab8
+            201..=400 => Self::rgb(0xf4, 0x67, 0x9d), // 300: #f4679d
+            401..=600 => Self::rgb(0xde, 0x3e, 0x80), // 500: #de3e80
+            601..=800 => Self::rgb(0xbc, 0x24, 0x5d), // 700: #bc245d
+            _ => Self::rgb(0x91, 0x0e, 0x38),         // 900: #910e38
+        }
+    }
+
+    /// Cocoa color palette (shade: 100, 300, 500, 700, 900)
+    pub fn cocoa(shade: usize) -> Self {
+        match shade {
+            0..=200 => Self::rgb(0xa3, 0x90, 0x7c),   // 100: #a3907c
+            201..=400 => Self::rgb(0x8a, 0x71, 0x5e), // 300: #8a715e
+            401..=600 => Self::rgb(0x71, 0x53, 0x44), // 500: #715344
+            601..=800 => Self::rgb(0x57, 0x39, 0x2d), // 700: #57392d
+            _ => Self::rgb(0x3d, 0x21, 0x1b),         // 900: #3d211b
+        }
+    }
+
+    /// Silver color palette (shade: 100, 300, 500, 700, 900)
+    pub fn palette_silver(shade: usize) -> Self {
+        match shade {
+            0..=200 => Self::rgb(0xfa, 0xfa, 0xfa),   // 100: #fafafa
+            201..=400 => Self::rgb(0xd4, 0xd4, 0xd4), // 300: #d4d4d4
+            401..=600 => Self::rgb(0xab, 0xac, 0xae), // 500: #abacae
+            601..=800 => Self::rgb(0x7e, 0x80, 0x87), // 700: #7e8087
+            _ => Self::rgb(0x55, 0x57, 0x61),         // 900: #555761
+        }
+    }
+
+    /// Slate color palette (shade: 100, 300, 500, 700, 900)
+    pub fn slate(shade: usize) -> Self {
+        match shade {
+            0..=200 => Self::rgb(0x95, 0xa3, 0xab),   // 100: #95a3ab
+            201..=400 => Self::rgb(0x66, 0x78, 0x85), // 300: #667885
+            401..=600 => Self::rgb(0x48, 0x5a, 0x6c), // 500: #485a6c
+            601..=800 => Self::rgb(0x27, 0x34, 0x45), // 700: #273445
+            _ => Self::rgb(0x0e, 0x14, 0x1f),         // 900: #0e141f
+        }
+    }
+
+    /// Dark color palette (shade: 100, 300, 500, 700, 900)
+    pub fn dark(shade: usize) -> Self {
+        match shade {
+            0..=200 => Self::rgb(0x66, 0x66, 0x66),   // 100: #666
+            201..=400 => Self::rgb(0x4d, 0x4d, 0x4d), // 300: #4d4d4d
+            401..=600 => Self::rgb(0x33, 0x33, 0x33), // 500: #333
+            601..=800 => Self::rgb(0x1a, 0x1a, 0x1a), // 700: #1a1a1a
+            _ => Self::rgb(0x00, 0x00, 0x00),         // 900: #000
+        }
+    }
+
+    // ============================================================
+    // Apple System Colors (light and dark variants)
+    // ============================================================
+
+    /// Apple Red (light mode)
+    pub fn apple_red() -> Self { Self::rgb(255, 59, 48) }
+    /// Apple Red (dark mode)
+    pub fn apple_red_dark() -> Self { Self::rgb(255, 69, 58) }
+    /// Apple Orange (light mode)
+    pub fn apple_orange() -> Self { Self::rgb(255, 149, 0) }
+    /// Apple Orange (dark mode)
+    pub fn apple_orange_dark() -> Self { Self::rgb(255, 159, 10) }
+    /// Apple Yellow (light mode)
+    pub fn apple_yellow() -> Self { Self::rgb(255, 204, 0) }
+    /// Apple Yellow (dark mode)
+    pub fn apple_yellow_dark() -> Self { Self::rgb(255, 214, 10) }
+    /// Apple Green (light mode)
+    pub fn apple_green() -> Self { Self::rgb(40, 205, 65) }
+    /// Apple Green (dark mode)
+    pub fn apple_green_dark() -> Self { Self::rgb(40, 215, 75) }
+    /// Apple Mint (light mode)
+    pub fn apple_mint() -> Self { Self::rgb(0, 199, 190) }
+    /// Apple Mint (dark mode)
+    pub fn apple_mint_dark() -> Self { Self::rgb(102, 212, 207) }
+    /// Apple Teal (light mode)
+    pub fn apple_teal() -> Self { Self::rgb(89, 173, 196) }
+    /// Apple Teal (dark mode)
+    pub fn apple_teal_dark() -> Self { Self::rgb(106, 196, 220) }
+    /// Apple Cyan (light mode)
+    pub fn apple_cyan() -> Self { Self::rgb(85, 190, 240) }
+    /// Apple Cyan (dark mode)
+    pub fn apple_cyan_dark() -> Self { Self::rgb(90, 200, 245) }
+    /// Apple Blue (light mode)
+    pub fn apple_blue() -> Self { Self::rgb(0, 122, 255) }
+    /// Apple Blue (dark mode)
+    pub fn apple_blue_dark() -> Self { Self::rgb(10, 132, 255) }
+    /// Apple Indigo (light mode)
+    pub fn apple_indigo() -> Self { Self::rgb(88, 86, 214) }
+    /// Apple Indigo (dark mode)
+    pub fn apple_indigo_dark() -> Self { Self::rgb(94, 92, 230) }
+    /// Apple Purple (light mode)
+    pub fn apple_purple() -> Self { Self::rgb(175, 82, 222) }
+    /// Apple Purple (dark mode)
+    pub fn apple_purple_dark() -> Self { Self::rgb(191, 90, 242) }
+    /// Apple Pink (light mode)
+    pub fn apple_pink() -> Self { Self::rgb(255, 45, 85) }
+    /// Apple Pink (dark mode)
+    pub fn apple_pink_dark() -> Self { Self::rgb(255, 55, 95) }
+    /// Apple Brown (light mode)
+    pub fn apple_brown() -> Self { Self::rgb(162, 132, 94) }
+    /// Apple Brown (dark mode)
+    pub fn apple_brown_dark() -> Self { Self::rgb(172, 142, 104) }
+    /// Apple Gray (light mode)
+    pub fn apple_gray() -> Self { Self::rgb(142, 142, 147) }
+    /// Apple Gray (dark mode)
+    pub fn apple_gray_dark() -> Self { Self::rgb(152, 152, 157) }
 }
 
 /// f32-based color, range 0.0 to 1.0 (similar to webrenders ColorF)

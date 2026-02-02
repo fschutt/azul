@@ -13,6 +13,7 @@ use azul_css::{
         pixel::DEFAULT_FONT_SIZE, ColorU, FloatValue, FontRef, LayoutRect, LayoutSize,
         StyleFontFamily, StyleFontFamilyVec, StyleFontSize,
     },
+    system::SystemStyle,
     AzString, F32Vec, LayoutDebugMessage, OptionI32, StringVec, U16Vec, U32Vec, U8Vec,
 };
 use rust_fontconfig::FcFontCache;
@@ -303,20 +304,32 @@ pub struct AppConfig {
     /// 
     /// Default: None (use auto-detected system properties)
     pub mock_css_environment: OptionCssMockEnvironment,
+    /// System style detected at startup (theme, colors, fonts, etc.)
+    /// 
+    /// This is detected once at `AppConfig::create()` and passed to all windows.
+    /// You can override this after creation to use a custom system style,
+    /// for example to test how your app looks on a different platform.
+    pub system_style: SystemStyle,
 }
 
 impl AppConfig {
     pub fn create() -> Self {
+        let log_level = AppLogLevel::Error;
+        let icon_provider = crate::icon::IconProviderHandle::new();
+        let bundled_fonts = NamedFontVec::from_const_slice(&[]);
+        let font_loading = FontLoadingConfig::default();
+        let system_style = SystemStyle::detect();
         Self {
-            log_level: AppLogLevel::Error,
+            log_level,
             enable_visual_panic_hook: false,
             enable_logging_on_panic: true,
             enable_tab_navigation: true,
             termination_behavior: AppTerminationBehavior::default(),
-            icon_provider: crate::icon::IconProviderHandle::new(),
-            bundled_fonts: NamedFontVec::from_const_slice(&[]),
-            font_loading: FontLoadingConfig::default(),
+            icon_provider,
+            bundled_fonts,
+            font_loading,
             mock_css_environment: OptionCssMockEnvironment::None,
+            system_style,
         }
     }
     

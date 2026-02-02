@@ -188,11 +188,16 @@ pub struct Win32Window {
 impl Win32Window {
     /// Create a new Win32 window with given options
     pub fn new(
-        options: WindowCreateOptions,
+        mut options: WindowCreateOptions,
         config: azul_core::resources::AppConfig,
         fc_cache: Arc<FcFontCache>,
         app_data: Arc<std::cell::RefCell<RefAny>>,
     ) -> Result<Self, WindowError> {
+        // If background_color is None, use system window background
+        if options.window_state.background_color.is_none() {
+            options.window_state.background_color = config.system_style.colors.window_background;
+        }
+        
         let total_start = std::time::Instant::now();
         let mut step_start = std::time::Instant::now();
 
@@ -464,10 +469,10 @@ impl Win32Window {
         // Create dynamic selector context before building window
         let initial_viewport_width = current_window_state.size.dimensions.width;
         let initial_viewport_height = current_window_state.size.dimensions.height;
+        let system_style = Arc::new(config.system_style.clone());
         let dynamic_selector_context = {
-            let sys = azul_css::system::SystemStyle::new();
             let mut ctx =
-                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
+                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&system_style);
             ctx.viewport_width = initial_viewport_width;
             ctx.viewport_height = initial_viewport_height;
             ctx.orientation = if initial_viewport_width > initial_viewport_height {
@@ -512,7 +517,7 @@ impl Win32Window {
             dpi: dpi_functions,
             app_data,
             fc_cache,
-            system_style: Arc::new(azul_css::system::SystemStyle::new()),
+            system_style,
             dynamic_selector_context,
             icon_provider: config.icon_provider.clone(),
             pending_window_creates: Vec::new(),

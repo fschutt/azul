@@ -1413,7 +1413,11 @@ pub fn get_display_property(
     get_display_property_internal(styled_dom, id, node_state)
 }
 
-pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProperties {
+pub fn get_style_properties(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
+) -> StyleProperties {
     use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
 
     let node_data = &styled_dom.node_data.as_container()[dom_id];
@@ -1483,7 +1487,12 @@ pub fn get_style_properties(styled_dom: &StyledDom, dom_id: NodeId) -> StyleProp
         .and_then(|v| v.get_property().cloned())
         .map(|v| v.inner);
 
-    let color = color_from_cache.unwrap_or_default();
+    // Use system text color as fallback (respects dark/light mode)
+    let system_text_color = system_style
+        .and_then(|ss| ss.colors.text.as_option().copied())
+        .unwrap_or(ColorU::BLACK); // Ultimate fallback if no system style
+    
+    let color = color_from_cache.unwrap_or(system_text_color);
 
     let line_height = cache
         .get_line_height(node_data, &dom_id, node_state)

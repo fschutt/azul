@@ -509,101 +509,48 @@ static BUTTON_CONTAINER_LINUX: &[CssPropertyWithConditions] = &[
     )),
 ];
 
-// macOS button background gradients
-const MAC_NORMAL_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(0),
-        color: ColorOrSystem::color(ColorU {
-            r: 252,
-            g: 252,
-            b: 252,
-            a: 255,
-        }),
-    },
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(100),
-        color: ColorOrSystem::color(ColorU {
-            r: 239,
-            g: 239,
-            b: 239,
-            a: 255,
-        }),
-    },
-];
-// Temporarily use simple color for testing inline rendering on macOS
+// macOS Big Sur+ native button styling
+// Normal state: light gray background with subtle shadow
 const MAC_NORMAL_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(ColorU {
-    r: 239,
-    g: 239,
-    b: 239,
+    r: 255,
+    g: 255,
+    b: 255,
     a: 255,
 })];
 
-const MAC_HOVER_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(0),
-        color: ColorOrSystem::color(ColorU {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255,
-        }),
-    },
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(100),
-        color: ColorOrSystem::color(ColorU {
-            r: 245,
-            g: 245,
-            b: 245,
-            a: 255,
-        }),
-    },
-];
-const MAC_HOVER_BACKGROUND: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::LinearGradient(LinearGradient {
-        direction: Direction::FromTo(DirectionCorners {
-            dir_from: DirectionCorner::Top,
-            dir_to: DirectionCorner::Bottom,
-        }),
-        extend_mode: ExtendMode::Clamp,
-        stops: NormalizedLinearColorStopVec::from_const_slice(MAC_HOVER_GRADIENT_STOPS),
-    })];
+// Hover state: slightly brighter
+const MAC_HOVER_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(ColorU {
+    r: 250,
+    g: 250,
+    b: 250,
+    a: 255,
+})];
 
-const MAC_ACTIVE_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(0),
-        color: ColorOrSystem::color(ColorU {
-            r: 220,
-            g: 220,
-            b: 220,
-            a: 255,
-        }),
-    },
-    NormalizedLinearColorStop {
-        offset: PercentageValue::const_new(100),
-        color: ColorOrSystem::color(ColorU {
-            r: 200,
-            g: 200,
-            b: 200,
-            a: 255,
-        }),
-    },
-];
-const MAC_ACTIVE_BACKGROUND: &[StyleBackgroundContent] =
-    &[StyleBackgroundContent::LinearGradient(LinearGradient {
-        direction: Direction::FromTo(DirectionCorners {
-            dir_from: DirectionCorner::Top,
-            dir_to: DirectionCorner::Bottom,
-        }),
-        extend_mode: ExtendMode::Clamp,
-        stops: NormalizedLinearColorStopVec::from_const_slice(MAC_ACTIVE_GRADIENT_STOPS),
-    })];
+// Active/pressed state: darker gray
+const MAC_ACTIVE_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(ColorU {
+    r: 220,
+    g: 220,
+    b: 220,
+    a: 255,
+})];
 
+// macOS uses a subtle gray border
 const MAC_BORDER_COLOR: ColorU = ColorU {
-    r: 183,
-    g: 183,
-    b: 183,
+    r: 200,
+    g: 200,
+    b: 200,
     a: 255,
 };
+
+// macOS box shadow for depth: 0 1px 1px rgba(0,0,0,0.06)
+const MAC_BOX_SHADOW: &[StyleBoxShadow] = &[StyleBoxShadow {
+    offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+    offset_y: PixelValueNoPercent { inner: PixelValue::const_px(1) },
+    color: ColorU { r: 0, g: 0, b: 0, a: 15 },
+    blur_radius: PixelValueNoPercent { inner: PixelValue::const_px(1) },
+    spread_radius: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+    clip_mode: BoxShadowClipMode::Outset,
+}];
 
 static BUTTON_CONTAINER_MAC: &[CssPropertyWithConditions] = &[
     // macOS native button styling

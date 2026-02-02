@@ -126,7 +126,13 @@ pub const WR_SHADER_CACHE: Option<&Rc<RefCell<webrender::Shaders>>> = None;
 pub fn default_renderer_options(
     options: &azul_layout::window_state::WindowCreateOptions,
 ) -> WrRendererOptions {
+    use azul_css::props::basic::color::ColorU;
     use webrender::{api::ColorF as WrColorF, ShaderPrecacheFlags};
+
+    // Use background_color if specified, otherwise default to white
+    let bg = options.window_state.background_color.as_option()
+        .copied()
+        .unwrap_or(ColorU::WHITE);
 
     WrRendererOptions {
         resource_override_path: None,
@@ -134,10 +140,10 @@ pub fn default_renderer_options(
         enable_aa: true,
         enable_subpixel_aa: true,
         clear_color: WrColorF {
-            r: options.window_state.background_color.r as f32 / 255.0,
-            g: options.window_state.background_color.g as f32 / 255.0,
-            b: options.window_state.background_color.b as f32 / 255.0,
-            a: options.window_state.background_color.a as f32 / 255.0,
+            r: bg.r as f32 / 255.0,
+            g: bg.g as f32 / 255.0,
+            b: bg.b as f32 / 255.0,
+            a: bg.a as f32 / 255.0,
         },
         enable_multithreading: false,
         debug_flags: wr_translate_debug_flags(&options.window_state.debug_state),

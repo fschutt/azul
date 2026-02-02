@@ -960,9 +960,14 @@ impl WaylandWindow {
     }
 
     pub fn new(
-        options: WindowCreateOptions,
+        mut options: WindowCreateOptions,
         resources: Arc<super::AppResources>,
     ) -> Result<Self, WindowError> {
+        // If background_color is None, use system window background
+        if options.window_state.background_color.is_none() {
+            options.window_state.background_color = resources.system_style.colors.window_background;
+        }
+        
         // Extract create_callback before consuming options
         let create_callback = options.create_callback.clone();
 
@@ -1092,9 +1097,8 @@ impl WaylandWindow {
             fc_cache: resources.fc_cache.clone(),
             app_data: resources.app_data.clone(),
             dynamic_selector_context: {
-                let sys = azul_css::system::SystemStyle::new();
                 let mut ctx =
-                    azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
+                    azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&resources.system_style);
                 ctx.viewport_width = options.window_state.size.dimensions.width;
                 ctx.viewport_height = options.window_state.size.dimensions.height;
                 ctx.orientation = if ctx.viewport_width > ctx.viewport_height {

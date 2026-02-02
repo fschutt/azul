@@ -16,7 +16,7 @@ use azul_core::{
 };
 use azul_css::{
     corety::OptionU32, impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug,
-    impl_vec_mut, impl_vec_partialeq, props::basic::color::ColorU, AzString,
+    impl_vec_mut, impl_vec_partialeq, props::basic::OptionColorU, AzString,
 };
 
 use crate::callbacks::OptionCallback;
@@ -85,7 +85,8 @@ pub struct FullWindowState {
     pub ime_position: ImePosition,
     pub platform_specific_options: PlatformSpecificOptions,
     pub renderer_options: RendererOptions,
-    pub background_color: ColorU,
+    /// Window background color. If None, uses system window background color.
+    pub background_color: OptionColorU,
     pub layout_callback: LayoutCallback,
     pub close_callback: OptionCallback,
     /// Monitor ID (not the full Monitor struct - just the identifier)
@@ -115,7 +116,7 @@ impl Default for FullWindowState {
             touch_state: TouchState::default(),
             ime_position: ImePosition::default(),
             platform_specific_options: PlatformSpecificOptions::default(),
-            background_color: ColorU::WHITE,
+            background_color: OptionColorU::None,
             layout_callback: LayoutCallback::default(),
             close_callback: OptionCallback::None,
             renderer_options: RendererOptions::default(),

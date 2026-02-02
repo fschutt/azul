@@ -45,8 +45,11 @@ impl App {
         // Register embedded Material Icons if the feature is enabled
         azul_layout::icon::register_embedded_material_icons(&mut app_config.icon_provider);
         
+        let app_internal = AppInternal::create(initial_data, app_config);
+        let boxed = Box::new(app_internal);
+        
         Self {
-            ptr: Box::new(AppInternal::create(initial_data, app_config)),
+            ptr: boxed,
             run_destructor: true,
         }
     }

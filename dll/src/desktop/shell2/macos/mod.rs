@@ -2234,13 +2234,18 @@ impl MacOSWindow {
 
     /// Internal constructor with optional fc_cache parameter
     fn new_with_options_internal(
-        options: WindowCreateOptions,
+        mut options: WindowCreateOptions,
         app_data: RefAny,
         config: azul_core::resources::AppConfig,
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache_opt: Option<Arc<rust_fontconfig::FcFontCache>>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
+        // If background_color is None, use system window background
+        if options.window_state.background_color.is_none() {
+            options.window_state.background_color = config.system_style.colors.window_background;
+        }
+        
         log_debug!(
             LogCategory::Window,
             "[MacOSWindow::new] Starting window creation"
@@ -2691,10 +2696,10 @@ impl MacOSWindow {
         // Create dynamic selector context before moving current_window_state
         let initial_viewport_width = current_window_state.size.dimensions.width;
         let initial_viewport_height = current_window_state.size.dimensions.height;
+        let system_style = Arc::new(config.system_style.clone());
         let dynamic_selector_context = {
-            let sys = azul_css::system::SystemStyle::new();
             let mut ctx =
-                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&sys);
+                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&system_style);
             ctx.viewport_width = initial_viewport_width;
             ctx.viewport_height = initial_viewport_height;
             ctx.orientation = if initial_viewport_width > initial_viewport_height {
@@ -2730,7 +2735,7 @@ impl MacOSWindow {
             gl_context_ptr,
             app_data: app_data_arc,
             fc_cache,
-            system_style: Arc::new(azul_css::system::SystemStyle::new()),
+            system_style,
             dynamic_selector_context,
             icon_provider: shared_icon_provider,
             frame_needs_regeneration: false,

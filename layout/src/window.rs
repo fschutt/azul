@@ -5524,8 +5524,6 @@ impl LayoutWindow {
         // Without this check, every keystroke reads the ORIGINAL text instead of
         // the accumulated edits, causing bugs like double-input and wrong node affected.
         if let Some(dirty_node) = self.dirty_text_nodes.get(&(dom_id, node_id)) {
-            #[cfg(feature = "std")]
-            eprintln!("[get_text_before_textinput] Using dirty_text_nodes content for ({:?}, {:?})", dom_id, node_id);
             return dirty_node.content.clone();
         }
 
@@ -6264,10 +6262,6 @@ impl LayoutWindow {
         use crate::managers::hover::InputPointId;
         use crate::text3::selection::{select_paragraph_at_cursor, select_word_at_cursor};
 
-        #[cfg(feature = "std")]
-        eprintln!("[DEBUG] process_mouse_click_for_selection: position=({:.1},{:.1}), time_ms={}", 
-            position.x, position.y, time_ms);
-
         // found_selection stores: (dom_id, ifc_root_node_id, selection_range, local_pos)
         // IMPORTANT: We always store the IFC root NodeId, not the text node NodeId,
         // because selections are rendered via inline_layout_result which lives on the IFC root.
@@ -6275,9 +6269,6 @@ impl LayoutWindow {
 
         // Try to get hit test from HoverManager first (fast path, uses WebRender's point_relative_to_item)
         if let Some(hit_test) = self.hover_manager.get_current(&InputPointId::Mouse) {
-            #[cfg(feature = "std")]
-            eprintln!("[DEBUG] HoverManager has hit test with {} doms", hit_test.hovered_nodes.len());
-            
             // Iterate through hit nodes from the HoverManager
             for (dom_id, hit) in &hit_test.hovered_nodes {
                 let layout_result = match self.layout_results.get(dom_id) {
@@ -6369,23 +6360,11 @@ impl LayoutWindow {
         // Fallback: If HoverManager has no hit test (e.g., debug server),
         // search through IFC roots using global position
         if found_selection.is_none() {
-            #[cfg(feature = "std")]
-            eprintln!("[DEBUG] Fallback path: layout_results count = {}", self.layout_results.len());
-            
             for (dom_id, layout_result) in &self.layout_results {
                 // Use the layout tree from layout_result, not layout_cache
                 // layout_cache.tree is for the root DOM only; layout_result.layout_tree
                 // is the correct tree for each DOM (including iframes)
                 let tree = &layout_result.layout_tree;
-                
-                #[cfg(feature = "std")]
-                {
-                    let ifc_root_count = tree.nodes.iter()
-                        .filter(|n| n.inline_layout_result.is_some())
-                        .count();
-                    eprintln!("[DEBUG] DOM {:?}: tree has {} nodes, {} IFC roots", 
-                        dom_id, tree.nodes.len(), ifc_root_count);
-                }
                 
                 // Only iterate IFC roots (nodes with inline_layout_result)
                 for (node_idx, layout_node) in tree.nodes.iter().enumerate() {
@@ -6401,8 +6380,6 @@ impl LayoutWindow {
                     
                     // Check if text is selectable
                     if !self.is_text_selectable(&layout_result.styled_dom, node_id) {
-                        #[cfg(feature = "std")]
-                        eprintln!("[DEBUG]   IFC root node_idx={} node_id={:?}: NOT selectable", node_idx, node_id);
                         continue;
                     }
                     
@@ -6419,14 +6396,8 @@ impl LayoutWindow {
                         azul_core::geom::LogicalSize::new(bounds.width, bounds.height)
                     });
                     
-                    #[cfg(feature = "std")]
-                    eprintln!("[DEBUG]   IFC root node_idx={} node_id={:?}: pos=({:.1},{:.1}) size=({:.1},{:.1}), click=({:.1},{:.1})",
-                        node_idx, node_id, node_pos.x, node_pos.y, node_size.width, node_size.height, position.x, position.y);
-                    
                     if position.x < node_pos.x || position.x > node_pos.x + node_size.width ||
                        position.y < node_pos.y || position.y > node_pos.y + node_size.height {
-                        #[cfg(feature = "std")]
-                        eprintln!("[DEBUG]     -> OUT OF BOUNDS");
                         continue;
                     }
                     
@@ -6525,9 +6496,6 @@ impl LayoutWindow {
             node_id: dom_node_id,
         };
         
-        #[cfg(feature = "std")]
-        eprintln!("[DEBUG] Setting selection on dom_id={:?}, node_id={:?}", dom_id, ifc_root_node_id);
-        
         self.selection_manager.set_selection(dom_id, state);
 
         // CRITICAL FIX 1: Set focus on the clicked node
@@ -6550,8 +6518,6 @@ impl LayoutWindow {
                         // NodeData has a direct `contenteditable: bool` field that should be
                         // checked in addition to the attribute for robustness
                         if styled_node.contenteditable {
-                            #[cfg(feature = "std")]
-                            eprintln!("[DEBUG] Found contenteditable=true on node {:?}", node_id);
                             return true;
                         }
                         
@@ -6560,8 +6526,6 @@ impl LayoutWindow {
                             matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
                         });
                         if has_contenteditable_attr {
-                            #[cfg(feature = "std")]
-                            eprintln!("[DEBUG] Found contenteditable attribute on node {:?}", node_id);
                             return true;
                         }
                     }
@@ -6575,8 +6539,6 @@ impl LayoutWindow {
         // W3C conformance: contenteditable elements are implicitly focusable
         if is_contenteditable {
             self.focus_manager.set_focused_node(Some(dom_node_id));
-            #[cfg(feature = "std")]
-            eprintln!("[DEBUG] Set focus on contenteditable node {:?}", ifc_root_node_id);
         }
 
         // CRITICAL FIX 2: Initialize the CursorManager with the clicked position
@@ -6591,9 +6553,6 @@ impl LayoutWindow {
         // Reset the blink timer so the cursor is immediately visible
         self.cursor_manager.reset_blink_on_input(now);
         self.cursor_manager.set_blink_timer_active(true);
-        
-        #[cfg(feature = "std")]
-        eprintln!("[DEBUG] Initialized cursor at {:?} for node {:?}", final_range.start, ifc_root_node_id);
 
         // Return the affected node for dirty tracking
         Some(vec![dom_node_id])
@@ -6622,10 +6581,6 @@ impl LayoutWindow {
     ) -> Option<Vec<azul_core::dom::DomNodeId>> {
         use crate::managers::hover::InputPointId;
 
-        #[cfg(feature = "std")]
-        eprintln!("[DEBUG] process_mouse_drag_for_selection: current=({:.1},{:.1})",
-            current_position.x, current_position.y);
-
         // Find which DOM has an active text selection with an anchor
         let dom_id = self.selection_manager.get_all_text_selections()
             .keys()
@@ -6638,10 +6593,6 @@ impl LayoutWindow {
             text_selection.anchor.clone()
         };
         
-        #[cfg(feature = "std")]
-        eprintln!("[DEBUG] Found anchor at IFC root {:?}, cursor {:?}", 
-            anchor.ifc_root_node_id, anchor.cursor.cluster_id);
-
         // Get the current hit test from HoverManager
         let hit_test = self.hover_manager.get_current(&InputPointId::Mouse)?;
 
@@ -6701,10 +6652,6 @@ impl LayoutWindow {
         
         let (focus_ifc_root, focus_cursor, focus_mouse_pos) = focus_info?;
         
-        #[cfg(feature = "std")]
-        eprintln!("[DEBUG] Found focus at IFC root {:?}, cursor {:?}", 
-            focus_ifc_root, focus_cursor.cluster_id);
-
         // Compute affected nodes between anchor and focus
         let layout_result = self.layout_results.get(&dom_id)?;
         let hierarchy = &layout_result.styled_dom.node_hierarchy;
@@ -6726,10 +6673,6 @@ impl LayoutWindow {
         
         // Collect all IFC roots between start and end
         let nodes_in_range = collect_nodes_in_document_order(hierarchy, start_node, end_node);
-        
-        #[cfg(feature = "std")]
-        eprintln!("[DEBUG] Nodes in range: {:?}, is_forward: {}", 
-            nodes_in_range.iter().map(|n| n.index()).collect::<Vec<_>>(), is_forward);
         
         // Build the affected_nodes map with SelectionRanges for each IFC root
         let mut affected_nodes_map = std::collections::BTreeMap::new();
@@ -6783,10 +6726,6 @@ impl LayoutWindow {
             
             affected_nodes_map.insert(*node_id, range);
         }
-        
-        #[cfg(feature = "std")]
-        eprintln!("[DEBUG] Affected IFC roots: {:?}", 
-            affected_nodes_map.keys().map(|n| n.index()).collect::<Vec<_>>());
         
         // Update the text selection with new focus and affected nodes
         // This does NOT clear the anchor!

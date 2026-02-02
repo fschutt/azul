@@ -4920,7 +4920,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 // Get style from the TEXT NODE itself (dom_id), not the IFC root
                 // This ensures inline styles like color: #666666 are applied to the text
                 // Uses split_text_for_whitespace to correctly handle white-space: pre with \n
-                let style = Arc::new(get_style_properties(ctx.styled_dom, dom_id));
+                let style = Arc::new(get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref()));
                 let text_items = split_text_for_whitespace(
                     ctx.styled_dom,
                     dom_id,
@@ -5052,7 +5052,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 child_map.insert(shape_content_index, child_index);
             } else {
                 // Regular inline element - collect its text children
-                let span_style = get_style_properties(ctx.styled_dom, dom_id);
+                let span_style = get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref());
                 collect_inline_span_recursive(
                     ctx,
                     tree,
@@ -5187,7 +5187,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
                 // Generate marker text segments - font fallback happens during shaping
                 let base_style =
-                    Arc::new(get_style_properties(ctx.styled_dom, list_dom_id_for_style));
+                    Arc::new(get_style_properties(ctx.styled_dom, list_dom_id_for_style, ctx.system_style.as_ref()));
                 let marker_segments = generate_list_marker_segments(
                     tree,
                     ctx.styled_dom,
@@ -5249,7 +5249,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     // add its text content directly instead of iterating over children
     // Uses split_text_for_whitespace to correctly handle white-space: pre with \n
     if let NodeType::Text(ref text_content) = ifc_root_node_data.get_node_type() {
-        let style = Arc::new(get_style_properties(ctx.styled_dom, ifc_root_dom_id));
+        let style = Arc::new(get_style_properties(ctx.styled_dom, ifc_root_dom_id, ctx.system_style.as_ref()));
         let text_items = split_text_for_whitespace(
             ctx.styled_dom,
             ifc_root_dom_id,
@@ -5293,7 +5293,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             // Get style from the TEXT NODE itself (dom_child_id), not the IFC root
             // This ensures inline styles like color: #666666 are applied to the text
             // Uses split_text_for_whitespace to correctly handle white-space: pre with \n
-            let style = Arc::new(get_style_properties(ctx.styled_dom, dom_child_id));
+            let style = Arc::new(get_style_properties(ctx.styled_dom, dom_child_id, ctx.system_style.as_ref()));
             let text_items = split_text_for_whitespace(
                 ctx.styled_dom,
                 dom_child_id,
@@ -5606,7 +5606,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 dom_id
             );
 
-            let span_style = get_style_properties(ctx.styled_dom, dom_id);
+            let span_style = get_style_properties(ctx.styled_dom, dom_id, ctx.system_style.as_ref());
             collect_inline_span_recursive(
                 ctx,
                 tree,
@@ -5706,7 +5706,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     "[collect_inline_span_recursive] Found nested inline span {:?}",
                     child_dom_id
                 );
-                let child_style = get_style_properties(ctx.styled_dom, child_dom_id);
+                let child_style = get_style_properties(ctx.styled_dom, child_dom_id, ctx.system_style.as_ref());
                 collect_inline_span_recursive(
                     ctx,
                     tree,

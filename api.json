@@ -1939,7 +1939,10 @@
                   "type": "RendererOptions"
                 },
                 "background_color": {
-                  "type": "ColorU"
+                  "type": "OptionColorU",
+                  "doc": [
+                    "Window background color. If None, uses system window background color."
+                  ]
                 },
                 "layout_callback": {
                   "type": "LayoutCallback"
@@ -70551,6 +70554,9 @@
                 },
                 "mock_css_environment": {
                   "type": "OptionCssMockEnvironment"
+                },
+                "system_style": {
+                  "type": "SystemStyle"
                 }
               }
             ],
