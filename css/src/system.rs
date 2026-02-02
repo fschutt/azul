@@ -163,7 +163,7 @@ impl SystemStyle {
     ///
     /// If the "io" feature is disabled, this returns a hard-coded, deterministic
     /// style based on the target operating system.
-    pub fn new() -> Self {
+    pub fn detect() -> Self {
         // Step 1: Get the base style (either from I/O or hardcoded defaults).
         let mut style = {
             #[cfg(feature = "io")]
@@ -249,6 +249,12 @@ impl SystemStyle {
         }
 
         style
+    }
+
+    /// Alias for `detect` - kept for internal compatibility, not exposed in FFI.
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self::detect()
     }
 
     /// Create a CSS stylesheet for CSD (Client-Side Decorations) titlebar

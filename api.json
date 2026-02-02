@@ -7991,14 +7991,6 @@
               }
             ],
             "constructors": {
-              "create": {
-                "fn_args": [
-                  {
-                    "node_type": "NodeType"
-                  }
-                ],
-                "fn_body": "azul_core::dom::Dom::create_node(node_type)"
-              },
               "create_body": {
                 "fn_args": [],
                 "fn_body": "azul_core::dom::Dom::create_body()"
@@ -9597,17 +9589,6 @@
               }
             },
             "functions": {
-              "set_dataset": {
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "dataset": "RefAny"
-                  }
-                ],
-                "fn_body": "dom.root.set_dataset(Some(dataset).into())"
-              },
               "with_dataset": {
                 "fn_args": [
                   {
@@ -9621,17 +9602,6 @@
                   "type": "Dom"
                 },
                 "fn_body": "object.with_dataset(data)"
-              },
-              "set_ids_and_classes": {
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "ids_and_classes": "IdOrClassVec"
-                  }
-                ],
-                "fn_body": "dom.root.set_ids_and_classes(ids_and_classes)"
               },
               "with_ids_and_classes": {
                 "fn_args": [
@@ -9647,17 +9617,6 @@
                 },
                 "fn_body": "object.with_ids_and_classes(ids_and_classes)"
               },
-              "set_callbacks": {
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "callbacks": "CoreCallbackDataVec"
-                  }
-                ],
-                "fn_body": "dom.root.set_callbacks(callbacks)"
-              },
               "with_callbacks": {
                 "fn_args": [
                   {
@@ -9671,26 +9630,6 @@
                   "type": "Dom"
                 },
                 "fn_body": "object.with_callbacks(callbacks)"
-              },
-              "add_callback": {
-                "doc": [
-                  "Adds a callback to this DOM node."
-                ],
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "event": "EventFilter"
-                  },
-                  {
-                    "data": "RefAny"
-                  },
-                  {
-                    "callback": "CallbackType"
-                  }
-                ],
-                "fn_body": "dom.root.add_callback(event, data, azul_layout::callbacks::Callback::create(callback).to_core())"
               },
               "with_callback": {
                 "fn_args": [
@@ -9762,20 +9701,6 @@
                 },
                 "fn_body": "object.with_children(children)"
               },
-              "add_id": {
-                "doc": [
-                  "Adds an CSS ID to the DOM root node."
-                ],
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "id": "String"
-                  }
-                ],
-                "fn_body": "dom.root.add_id(id)"
-              },
               "with_id": {
                 "fn_args": [
                   {
@@ -9789,20 +9714,6 @@
                   "type": "Dom"
                 },
                 "fn_body": "object.with_id(id)"
-              },
-              "add_class": {
-                "doc": [
-                  "Adds a CSS class to the DOM root node."
-                ],
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "class": "String"
-                  }
-                ],
-                "fn_body": "dom.root.add_class(class)"
               },
               "with_class": {
                 "fn_args": [
@@ -9818,20 +9729,6 @@
                 },
                 "fn_body": "object.with_class(class)"
               },
-              "add_css_property": {
-                "doc": [
-                  "Adds an inline (normal) CSS property to the DOM root node."
-                ],
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "prop": "CssProperty"
-                  }
-                ],
-                "fn_body": "dom.root.add_css_property(prop)"
-              },
               "with_css_property": {
                 "fn_args": [
                   {
@@ -9845,20 +9742,6 @@
                   "type": "Dom"
                 },
                 "fn_body": "object.with_css_property(prop)"
-              },
-              "add_hover_css_property": {
-                "doc": [
-                  "Adds an inline (hover) CSS property to the DOM root node."
-                ],
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "prop": "CssProperty"
-                  }
-                ],
-                "fn_body": "dom.root.add_hover_css_property(prop)"
               },
               "with_hover_css_property": {
                 "fn_args": [
@@ -9874,20 +9757,6 @@
                 },
                 "fn_body": "object.with_hover_css_property(prop)"
               },
-              "add_active_css_property": {
-                "doc": [
-                  "Adds an inline (hover) CSS property to the DOM root node."
-                ],
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "prop": "CssProperty"
-                  }
-                ],
-                "fn_body": "dom.root.add_active_css_property(prop)"
-              },
               "with_active_css_property": {
                 "fn_args": [
                   {
@@ -9901,20 +9770,6 @@
                   "type": "Dom"
                 },
                 "fn_body": "object.with_active_css_property(prop)"
-              },
-              "add_focus_css_property": {
-                "doc": [
-                  "Adds an inline (hover) CSS property to the DOM root node."
-                ],
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "prop": "CssProperty"
-                  }
-                ],
-                "fn_body": "dom.root.add_focus_css_property(prop)"
               },
               "with_focus_css_property": {
                 "fn_args": [
@@ -10056,20 +9911,6 @@
                 },
                 "fn_body": "object.with_inline_focus_style(style.as_str())"
               },
-              "set_clip_mask": {
-                "doc": [
-                  "Sets the clip mask for the DOM root node."
-                ],
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "clip_mask": "ImageMask"
-                  }
-                ],
-                "fn_body": "dom.root.set_clip_mask(clip_mask)"
-              },
               "with_clip_mask": {
                 "fn_args": [
                   {
@@ -10083,20 +9924,6 @@
                   "type": "Dom"
                 },
                 "fn_body": "object.with_clip_mask(clip_mask)"
-              },
-              "set_tab_index": {
-                "doc": [
-                  "Sets the tab index for the DOM root node."
-                ],
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "tab_index": "TabIndex"
-                  }
-                ],
-                "fn_body": "dom.root.set_tab_index(tab_index)"
               },
               "with_tab_index": {
                 "fn_args": [
@@ -10112,20 +9939,6 @@
                 },
                 "fn_body": "object.with_tab_index(tab_index)"
               },
-              "set_contenteditable": {
-                "doc": [
-                  "Sets the contenteditable flag for the DOM root node."
-                ],
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "contenteditable": "bool"
-                  }
-                ],
-                "fn_body": "dom.root.set_contenteditable(contenteditable)"
-              },
               "with_contenteditable": {
                 "fn_args": [
                   {
@@ -10139,20 +9952,6 @@
                   "type": "Dom"
                 },
                 "fn_body": "object.with_contenteditable(contenteditable)"
-              },
-              "set_accessibility_info": {
-                "doc": [
-                  "Sets accessibility attributes for the DOM root node."
-                ],
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "accessibility_info": "AccessibilityInfo"
-                  }
-                ],
-                "fn_body": "dom.root.set_accessibility_info(accessibility_info)"
               },
               "with_accessibility_info": {
                 "fn_args": [
@@ -10346,6 +10145,91 @@
                   "type": "Dom"
                 },
                 "fn_body": "object.with_merge_callback(callback)"
+              },
+              "with_css": {
+                "doc": [
+                  "Builder method for `set_css`"
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "style": "String"
+                  }
+                ],
+                "returns": {
+                  "type": "Dom"
+                },
+                "fn_body": "object.with_css(style.as_str())"
+              },
+              "with_css_props": {
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "css_props": "CssPropertyWithConditionsVec"
+                  }
+                ],
+                "returns": {
+                  "type": "Dom"
+                },
+                "fn_body": "object.with_css_props(css_props)"
+              },
+              "with_node_type": {
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "node_type": "NodeType"
+                  }
+                ],
+                "returns": {
+                  "type": "Dom"
+                },
+                "fn_body": "object.with_node_type(node_type)"
+              },
+              "set_css": {
+                "doc": [
+                  "Parse and set CSS styles with full selector support.",
+                  "",
+                  "This is the unified API for setting inline CSS on a DOM node. It supports:",
+                  "- Simple properties: `color: red; font-size: 14px;`",
+                  "- Pseudo-selectors: `:hover { background: blue; }`",
+                  "- @-rules: `@os linux { font-size: 14px; }`",
+                  "- Nesting: `@os linux { font-size: 14px; :hover { color: red; }}`",
+                  "",
+                  "# Examples",
+                  "```rust",
+                  "// Simple inline styles",
+                  "Dom::create_div().with_css(\"color: red; font-size: 14px;\")",
+                  "",
+                  "// With hover and active states",
+                  "Dom::create_div().with_css(\"",
+                  "    color: blue;",
+                  "    :hover { color: red; }",
+                  "    :active { color: green; }",
+                  "\")",
+                  "",
+                  "// OS-specific with nested hover",
+                  "Dom::create_div().with_css(\"",
+                  "    font-size: 12px;",
+                  "    @os linux { font-size: 14px; :hover { color: red; }}",
+                  "    @os windows { font-size: 13px; }",
+                  "\")",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "style": "String"
+                  }
+                ],
+                "fn_body": "object.set_css(style.as_str())"
               }
             },
             "repr": "C"
@@ -18263,9 +18147,9 @@
                     "a": "u8"
                   }
                 ],
-                "fn_body": "azul_css::props::basic::color::ColorU::new(r, g, b, a)"
+                "fn_body": "azul_css::props::basic::color::ColorU::rgba(r, g, b, a)"
               },
-              "new_rgb": {
+              "rgb": {
                 "fn_args": [
                   {
                     "r": "u8"
@@ -18277,7 +18161,7 @@
                     "b": "u8"
                   }
                 ],
-                "fn_body": "azul_css::props::basic::color::ColorU::new_rgb(r, g, b)"
+                "fn_body": "azul_css::props::basic::color::ColorU::rgb(r, g, b)"
               },
               "red": {
                 "fn_args": [],
@@ -18443,7 +18327,7 @@
                 "fn_args": [],
                 "fn_body": "azul_css::props::basic::color::ColorU::light_pink()"
               },
-              "new": {
+              "rgba": {
                 "fn_args": [
                   {
                     "r": "u8"
@@ -18458,7 +18342,7 @@
                     "a": "u8"
                   }
                 ],
-                "fn_body": "azul_css::props::basic::color::ColorU::new(r, g, b, a)"
+                "fn_body": "azul_css::props::basic::color::ColorU::rgba(r, g, b, a)"
               }
             },
             "functions": {
@@ -28362,7 +28246,7 @@
                   "style based on the target operating system."
                 ],
                 "fn_args": [],
-                "fn_body": "azul_css::system::SystemStyle::new()"
+                "fn_body": "azul_css::system::SystemStyle::detect()"
               }
             },
             "functions": {

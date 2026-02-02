@@ -177,11 +177,23 @@ impl ColorU {
     pub fn light_yellow() -> Self { Self::LIGHT_YELLOW }
     pub fn light_pink() -> Self { Self::LIGHT_PINK }
 
-    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+    /// Creates a new color with RGBA values.
+    pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
-    pub const fn new_rgb(r: u8, g: u8, b: u8) -> Self {
+    /// Creates a new color with RGB values (alpha = 255).
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
+    }
+    /// Alias for `rgba` - kept for internal compatibility, not exposed in FFI.
+    #[inline(always)]
+    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self::rgba(r, g, b, a)
+    }
+    /// Alias for `rgb` - kept for internal compatibility, not exposed in FFI.
+    #[inline(always)]
+    pub const fn new_rgb(r: u8, g: u8, b: u8) -> Self {
+        Self::rgb(r, g, b)
     }
 
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {

@@ -1,48 +1,58 @@
 # Azul Styling System
 
-This document explains Azul's styling architecture, available CSS values, and how the system avoids the "m×n" complexity problem found in traditional widget toolkits.
+This document explains Azul's styling architecture, available CSS values, and how the system avoids the "m×n" complexity problem found in traditional CSS engines.
 
 ## The M×N Problem
 
-Traditional widget toolkits suffer from an "m×n" complexity problem:
+Traditional CSS engines suffer from an "m×n" complexity problem during style resolution:
 
-- **m**: Number of widgets (Button, TextBox, Slider, etc.)
-- **n**: Number of platforms/themes (Windows, macOS, Linux/GTK, Linux/KDE, etc.)
+- **m**: Number of CSS selectors in stylesheets
+- **n**: Number of DOM nodes in the document
 
-Each widget must be manually styled for each platform, resulting in **m × n** separate implementations. Adding a new widget requires styling it for all platforms. Adding a new platform requires styling all widgets.
+For every DOM node, the engine must check every CSS selector to determine which rules apply. This results in **O(m × n)** complexity, which becomes a performance bottleneck for large documents with complex stylesheets.
 
-## Azul's Solution: CSS-Based Styling
+### Why This Matters
 
-Azul solves this by using CSS for all styling:
+```
+Document with 10,000 DOM nodes
+Stylesheet with 5,000 selectors
+= 50,000,000 selector matches to evaluate
+```
+
+Even with optimizations like Bloom filters and selector indexing, this fundamental complexity limits performance.
+
+## Azul's Solution: Compiled CSS
+
+Azul solves this by compiling CSS at parse time into efficient lookup structures:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Widget (semantic DOM)                   │
-│  - Button: <button>Click</button>                           │
-│  - TextBox: <input type="text" />                           │
-│  - Slider: <div class="slider"><div class="thumb"/></div>   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
 │                    CSS Stylesheet                            │
-│  - System-detected (Windows 11, macOS, GNOME, KDE)          │
-│  - User-provided overrides                                   │
-│  - Application-specific styles                               │
+│  .button { ... }                                            │
+│  .card .title { ... }                                       │
+│  #header nav a:hover { ... }                                │
 └─────────────────────────────────────────────────────────────┘
                               │
-                              ▼
+                              ▼ (compile once at parse time)
 ┌─────────────────────────────────────────────────────────────┐
-│                    Rendered Output                           │
-│  - Platform-native appearance                                │
-│  - Consistent across all widgets                             │
+│              Compiled Selector Index                         │
+│  - Hash maps by class, id, tag                              │
+│  - Pre-computed specificity                                  │
+│  - Optimized matching order                                  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ (O(1) lookup per node)
+┌─────────────────────────────────────────────────────────────┐
+│                    DOM Node                                  │
+│  - Direct property lookup                                    │
+│  - No selector iteration                                     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 With this approach:
-- Adding a new widget: Write semantic HTML/DOM, CSS handles the rest
-- Adding a new platform: Write a new CSS theme, all widgets automatically work
-- Complexity: **m + n** instead of **m × n**
+- Style resolution is **O(n)** instead of **O(m × n)**
+- CSS parsing cost is amortized over many frames
+- Hot path (rendering) is optimized for speed
 
 ## SystemStyle: Automatic Platform Detection
 
@@ -57,7 +67,7 @@ use azul::system::SystemStyle;
 // - Desktop environment (GNOME, KDE, etc.)
 // - Theme (light/dark)
 // - Accessibility settings (reduced motion, high contrast)
-let style = SystemStyle::new();
+let style = SystemStyle::create();
 
 println!("Platform: {:?}", style.platform);
 println!("Theme: {:?}", style.theme);
