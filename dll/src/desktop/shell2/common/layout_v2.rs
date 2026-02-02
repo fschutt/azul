@@ -501,6 +501,7 @@ pub fn generate_frame(
     layout_window: &mut LayoutWindow,
     render_api: &mut WrRenderApi,
     document_id: DocumentId,
+    gl_context: &azul_core::gl::OptionGlContextPtr,
 ) {
     // Process any pending IFrame updates requested by callbacks
     // This must happen BEFORE wr_translate2::generate_frame() so that the IFrame
@@ -520,7 +521,7 @@ pub fn generate_frame(
     let mut txn = WrTransaction::new();
 
     // Display list was rebuilt
-    wr_translate2::generate_frame(&mut txn, layout_window, render_api, true);
+    wr_translate2::generate_frame(&mut txn, layout_window, render_api, true, gl_context);
 
     render_api.send_transaction(wr_translate2::wr_translate_document_id(document_id), txn);
 }

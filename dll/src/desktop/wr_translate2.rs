@@ -1256,6 +1256,28 @@ pub fn translate_image_key(key: ImageKey) -> WrImageKey {
     WrImageKey(wr_translate_id_namespace(key.namespace), key.key)
 }
 
+/// Translate ImageDescriptor from azul-core to WebRender
+fn wr_translate_image_descriptor(descriptor: &azul_core::resources::ImageDescriptor) -> WrImageDescriptor {
+    let mut flags = WrImageDescriptorFlags::empty();
+    if descriptor.flags.is_opaque {
+        flags |= WrImageDescriptorFlags::IS_OPAQUE;
+    }
+    if descriptor.flags.allow_mipmaps {
+        flags |= WrImageDescriptorFlags::ALLOW_MIPMAPS;
+    }
+
+    WrImageDescriptor {
+        format: translate_image_format(descriptor.format),
+        size: DeviceIntSize::new(
+            descriptor.width as i32,
+            descriptor.height as i32,
+        ),
+        stride: descriptor.stride.into_option(),
+        offset: descriptor.offset,
+        flags,
+    }
+}
+
 /// Collect all ImageRefs used in a display list
 fn collect_image_refs_from_display_list(
     display_list: &azul_layout::solver3::display_list::DisplayList,
@@ -1335,6 +1357,7 @@ pub fn generate_frame(
     layout_window: &mut LayoutWindow,
     render_api: &mut WrRenderApi,
     display_list_was_rebuilt: bool,
+    gl_context: &azul_core::gl::OptionGlContextPtr,
 ) {
     let physical_size = layout_window.current_window_state.size.get_physical_size();
     let framebuffer_size =
@@ -1576,8 +1599,8 @@ pub fn generate_frame(
     // WebRender's device_pixel_scale handles the conversion to device pixels.
     txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
-    // Process image callback updates (if any callbacks requested re-rendering)
-    process_image_callback_updates(layout_window, txn);
+    // Process image callback updates (invoke callbacks and register textures)
+    process_image_callback_updates(layout_window, gl_context, txn);
 
     // Process IFrame updates (if any callbacks requested re-rendering)
     process_iframe_updates(layout_window, txn);
@@ -2138,6 +2161,7 @@ pub fn build_webrender_transaction(
     layout_window: &mut LayoutWindow,
     render_api: &mut WrRenderApi,
     image_cache: &ImageCache,
+    gl_context: &azul_core::gl::OptionGlContextPtr,
 ) -> Result<(), &'static str> {
     log_debug!(
         LogCategory::Rendering,
@@ -2285,6 +2309,14 @@ pub fn build_webrender_transaction(
         }
     }
 
+    // Step 1.6: Process image callback updates (GL textures from RenderImageCallback)
+    // This MUST happen BEFORE building display lists so the textures are registered
+    log_debug!(
+        LogCategory::Rendering,
+        "[build_atomic_txn] Step 1.6: Processing image callback updates"
+    );
+    process_image_callback_updates(layout_window, gl_context, txn);
+
     // Step 2: Build and add display lists for all DOMs to transaction
     log_debug!(
         LogCategory::Rendering,
@@ -2406,34 +2438,236 @@ pub fn build_webrender_transaction(
 
 /// Process image callback updates and add UpdateImage resource updates to the transaction.
 ///
-/// This function is called after callbacks have been processed and image_callbacks_changed
-/// has been populated. It re-invokes the image callbacks to get new textures and sends
-/// UpdateImage resource updates to WebRender without rebuilding the entire display list.
+/// This function scans all DOMs for image nodes with callbacks that haven't been rendered yet,
+/// invokes the callbacks to generate textures, and registers them with WebRender.
 ///
 /// # Arguments
 ///
 /// * `layout_window` - The layout window with image callback state
+/// * `gl_context` - OpenGL context for rendering callbacks
 /// * `txn` - The WebRender transaction to add updates to
-fn process_image_callback_updates(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
-    use std::collections::BTreeMap;
-
+fn process_image_callback_updates(
+    layout_window: &mut LayoutWindow, 
+    gl_context: &azul_core::gl::OptionGlContextPtr,
+    txn: &mut WrTransaction,
+) {
     use azul_core::{
-        resources::{ResourceUpdate, UpdateImageResult},
-        FastBTreeSet,
+        dom::NodeType,
+        resources::{DecodedImage, ExternalImageData, ExternalImageType, ImageBufferKind},
     };
+    use azul_layout::callbacks::{RenderImageCallback, RenderImageCallbackInfo};
 
-    // NOTE: This function currently doesn't have access to image_callbacks_changed
-    // from CallCallbacksResult. In a complete implementation, this would be stored
-    // in LayoutWindow and passed through here. For now, we check if there are any
-    // pending updates in the gl_texture_cache that were marked dirty.
+    // Collect all callback images that need rendering
+    // We need to collect first to avoid borrow conflicts
+    // Store (dom_id, node_id, original_image_hash) so we can register under the original hash
+    let mut callbacks_to_invoke: Vec<(DomId, NodeId, azul_core::resources::ImageRefHash)> = Vec::new();
 
-    // TODO: Pass CallCallbacksResult.image_callbacks_changed to this function
-    // For now, this is a no-op until the callback result flow is connected
+    for (dom_id, layout_result) in &layout_window.layout_results {
+        let node_data_container = layout_result.styled_dom.node_data.as_container();
+        
+        for (node_idx, node_data) in node_data_container.iter().enumerate() {
+            if let NodeType::Image(image_ref) = node_data.get_node_type() {
+                // Check if this is a callback - for animated textures we ALWAYS invoke the callback
+                if let DecodedImage::Callback(_) = image_ref.get_data() {
+                    let image_hash = image_ref.get_hash();
+                    // Always invoke callbacks - they may be animated and need to update every frame
+                    callbacks_to_invoke.push((*dom_id, NodeId::new(node_idx), image_hash));
+                }
+            }
+        }
+    }
 
-    log_debug!(
-        LogCategory::Rendering,
-        "[process_image_callback_updates] Checking for pending image callback updates"
-    );
+    if callbacks_to_invoke.is_empty() {
+        return;
+    }
+
+    // Now invoke each callback and register the resulting textures
+    for (dom_id, node_id, original_image_hash) in callbacks_to_invoke {
+        // Get layout info for this node
+        let (bounds, callback_domnode_id, callback_info_option) = {
+            let layout_result = match layout_window.layout_results.get(&dom_id) {
+                Some(lr) => lr,
+                None => continue,
+            };
+
+            // Get layout indices for this DOM node
+            let layout_indices = match layout_result.layout_tree.dom_to_layout.get(&node_id) {
+                Some(indices) if !indices.is_empty() => indices.clone(),
+                _ => continue,
+            };
+
+            let layout_index = layout_indices[0];
+
+            // Get position and size
+            let position = match layout_result.calculated_positions.get(&layout_index) {
+                Some(pos) => *pos,
+                None => continue,
+            };
+
+            let layout_node = match layout_result.layout_tree.get(layout_index) {
+                Some(ln) => ln,
+                None => continue,
+            };
+
+            let (width, height) = match layout_node.used_size {
+                Some(size) => (size.width, size.height),
+                None => continue,
+            };
+
+            let callback_domnode_id = DomNodeId {
+                dom: dom_id,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+            };
+
+            let hidpi_factor = layout_window.current_window_state.size.get_hidpi_factor();
+            let bounds = azul_core::callbacks::HidpiAdjustedBounds::from_bounds(
+                azul_css::props::basic::LayoutSize {
+                    width: width as isize,
+                    height: height as isize,
+                },
+                hidpi_factor,
+            );
+
+            (bounds, callback_domnode_id, Some((width, height)))
+        };
+
+        if callback_info_option.is_none() {
+            continue;
+        }
+
+        // Create callback info and invoke callback
+        let gl_callback_info = RenderImageCallbackInfo::new(
+            callback_domnode_id,
+            bounds,
+            gl_context,
+            &layout_window.image_cache,
+            &layout_window.font_manager.fc_cache,
+        );
+
+        // Get and invoke the callback
+        let new_image_ref = {
+            let layout_result = match layout_window.layout_results.get_mut(&dom_id) {
+                Some(lr) => lr,
+                None => continue,
+            };
+
+            let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
+            match node_data_mut.get_mut(node_id) {
+                Some(nd) => {
+                    match &mut nd.node_type {
+                        NodeType::Image(img_ref) => {
+                            // Try get_image_callback_mut first
+                            let callback_result = img_ref.get_image_callback_mut();
+                            
+                            if callback_result.is_none() {
+                                // The ImageRef has multiple copies - access the data directly
+                                match img_ref.get_data() {
+                                    DecodedImage::Callback(core_callback) => {
+                                        if core_callback.callback.cb == 0 {
+                                            None
+                                        } else {
+                                            let callback = RenderImageCallback::from_core(&core_callback.callback);
+                                            use std::panic;
+                                            let refany_clone = core_callback.refany.clone();
+                                            let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+                                                (callback.cb)(refany_clone, gl_callback_info)
+                                            }));
+                                            result.ok()
+                                        }
+                                    }
+                                    _ => None,
+                                }
+                            } else {
+                                callback_result.map(|core_callback| {
+                                    let callback = RenderImageCallback::from_core(&core_callback.callback);
+                                    (callback.cb)(core_callback.refany.clone(), gl_callback_info)
+                                })
+                            }
+                        }
+                        _ => None,
+                    }
+                }
+                None => None,
+            }
+        };
+
+        // Reset GL state after callback and ensure all GL operations are complete
+        #[cfg(feature = "gl_context_loader")]
+        if let Some(gl) = gl_context.as_ref() {
+            use gl_context_loader::gl;
+            // CRITICAL: Flush all pending GL commands before WebRender uses the texture
+            gl.flush();
+            // Reset state that might interfere with WebRender
+            gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+            gl.bind_texture(gl::TEXTURE_2D, 0);
+            gl.bind_renderbuffer(gl::RENDERBUFFER, 0);
+            gl.disable(gl::FRAMEBUFFER_SRGB);
+            gl.disable(gl::MULTISAMPLE);
+            gl.use_program(0);
+        }
+
+        // Process the returned ImageRef
+        if let Some(image_ref) = new_image_ref {
+            // Check if this is a GL texture
+            match image_ref.get_data() {
+                DecodedImage::Gl(ref texture) => {
+                    // Insert texture into gl_texture_cache using stable (dom_id, node_id) key
+                    // This ensures the same DOM node always gets the same ExternalImageId
+                    let external_image_id = crate::desktop::gl_texture_cache::insert_texture_for_node(
+                        layout_window.document_id,
+                        dom_id,
+                        node_id,
+                        layout_window.epoch,
+                        texture.clone(),
+                    );
+
+                    // Create AddImage resource update for WebRender
+                    let descriptor = texture.get_descriptor();
+                    
+                    // Generate ImageKey from the stable ExternalImageId
+                    let image_key = azul_core::resources::ImageKey {
+                        namespace: layout_window.id_namespace,
+                        key: external_image_id.inner as u32,
+                    };
+
+                    let wr_key = translate_image_key(image_key);
+                    let wr_descriptor = wr_translate_image_descriptor(&descriptor);
+                    let wr_data = WrImageData::External(webrender::api::ExternalImageData {
+                        id: webrender::api::ExternalImageId(external_image_id.inner),
+                        channel_index: 0,
+                        image_type: webrender::api::ExternalImageType::TextureHandle(
+                            webrender::api::ImageBufferKind::Texture2D,
+                        ),
+                        normalized_uvs: false,
+                    });
+
+                    // Check if this stable key was already registered (in a previous frame)
+                    // If so, use update_image instead of add_image
+                    let already_registered = layout_window.renderer_resources
+                        .image_key_map.contains_key(&image_key);
+                    
+                    if already_registered {
+                        txn.update_image(wr_key, wr_descriptor, wr_data, &webrender::api::DirtyRect::All);
+                    } else {
+                        txn.add_image(wr_key, wr_descriptor, wr_data, None);
+                    }
+
+                    // Register in renderer_resources using BOTH original_image_hash AND stable key
+                    layout_window.renderer_resources.currently_registered_images.insert(
+                        original_image_hash,
+                        azul_core::resources::ResolvedImage {
+                            key: image_key,
+                            descriptor: descriptor.clone(),
+                        },
+                    );
+                    
+                    // Also register the stable image_key in image_key_map
+                    layout_window.renderer_resources.image_key_map.insert(image_key, original_image_hash);
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 /// Process IFrame updates requested by callbacks
