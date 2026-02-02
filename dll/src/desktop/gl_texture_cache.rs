@@ -1,100 +1,148 @@
 //! OpenGL texture cache for external image support.
 //!
 //! This module manages OpenGL textures that are registered for use with WebRender's
-//! external image API. Textures are indexed by DocumentId and Epoch to allow proper
-//! cleanup when frames are no longer needed.
+//! external image API. Textures are indexed by a stable key (DomId, NodeId) to ensure
+//! the same DOM node always maps to the same ExternalImageId across frames.
 //!
 //! ## Architecture
 //!
-//! - Textures are stored in a nested hash map: DocumentId -> Epoch -> ExternalImageId -> Texture
-//! - Each texture is reference-counted (via the Texture type's internal refcount)
-//! - Old textures are automatically cleaned up when their epoch is no longer active
-//! - Thread-safe through use of static mut with careful synchronization
+//! - Textures are stored by stable node identity: DocumentId -> (DomId, NodeId) -> TextureEntry
+//! - ExternalImageId is generated deterministically from (DomId, NodeId) 
+//! - This ensures WebRender's cached display lists always find the correct texture
+//! - Old textures are cleaned up when their epoch is outdated
+//!
+//! ## Why Stable IDs Matter
+//!
+//! WebRender caches display lists across frames. When a display list references an
+//! ExternalImageId, that ID must remain valid and point to the current texture.
+//! If we generate new IDs each frame, cached display lists will reference stale IDs.
+//!
+//! By using (DomId, NodeId) as the stable key, the same DOM node always gets the same
+//! ExternalImageId, so WebRender's cached display lists always work.
 //!
 //! ## Safety
 //!
-//! The static mut TEXTURE_CACHE is not thread-safe in the general case, but this is
-//! acceptable because:
+//! The static mut TEXTURE_CACHE is safe because:
 //! 1. Texture itself is not thread-safe (requires OpenGL context)
 //! 2. All texture operations happen on the main/render thread
 //! 3. The cache is only accessed during rendering, which is single-threaded
 
 use azul_core::{
+    dom::{DomId, NodeId},
     gl::Texture,
     hit_test::DocumentId,
     resources::{Epoch, ExternalImageId},
     FastHashMap,
 };
 
-/// Storage for OpenGL textures, organized by epoch for efficient cleanup.
-///
-/// Structure: DocumentId -> Epoch -> ExternalImageId -> Texture
-type GlTextureStorage = FastHashMap<Epoch, FastHashMap<ExternalImageId, Texture>>;
+/// A stable key for identifying textures across frames.
+/// Using (DomId, NodeId) ensures the same DOM node always maps to the same texture slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TextureSlotKey {
+    pub dom_id: DomId,
+    pub node_id: NodeId,
+}
+
+impl TextureSlotKey {
+    pub fn new(dom_id: DomId, node_id: NodeId) -> Self {
+        Self { dom_id, node_id }
+    }
+    
+    /// Generate a deterministic ExternalImageId from this key.
+    /// This ensures the same DOM node always gets the same ExternalImageId.
+    pub fn to_external_image_id(&self) -> ExternalImageId {
+        // Combine dom_id and node_id into a single u64
+        let dom = self.dom_id.inner as u64;
+        let node = self.node_id.index() as u64;
+        // High 32 bits: dom_id, Low 32 bits: node_id
+        let combined = (dom << 32) | (node & 0xFFFFFFFF);
+        ExternalImageId { inner: combined }
+    }
+}
+
+/// Entry for a texture in the cache, tracking the texture and when it was last updated.
+struct TextureEntry {
+    texture: Texture,
+    epoch: Epoch,
+}
+
+/// Storage for OpenGL textures, organized by stable node identity.
+/// Structure: DocumentId -> TextureSlotKey -> TextureEntry
+type GlTextureStorage = FastHashMap<TextureSlotKey, TextureEntry>;
 
 /// Global texture cache. Not thread-safe, but textures are inherently single-threaded.
-///
-/// # Safety
-///
-/// This static mut is safe because:
-/// - Textures require an OpenGL context, which is thread-local
-/// - All rendering operations happen on the main thread
-/// - No concurrent access is possible in the current architecture
 static mut TEXTURE_CACHE: Option<FastHashMap<DocumentId, GlTextureStorage>> = None;
 
-/// Insert a texture into the cache and return a new ExternalImageId for it.
+/// Insert or update a texture in the cache for a specific DOM node.
 ///
-/// This registers a texture with WebRender so it can be used in image callbacks
-/// and other rendering operations.
+/// Returns the stable ExternalImageId for this texture slot.
+/// The ExternalImageId is deterministic based on (dom_id, node_id),
+/// so it remains constant across frames for the same DOM node.
 ///
 /// # Arguments
 ///
 /// * `document_id` - The WebRender document this texture belongs to
+/// * `dom_id` - The DOM containing this node
+/// * `node_id` - The node within the DOM
 /// * `epoch` - The frame epoch when this texture was created
-/// * `texture` - The OpenGL texture to register
+/// * `texture` - The OpenGL texture to store
 ///
 /// # Returns
 ///
-/// A unique ExternalImageId that can be used to reference this texture
-pub fn insert_texture(document_id: DocumentId, epoch: Epoch, texture: Texture) -> ExternalImageId {
-    let external_image_id = ExternalImageId::new();
+/// A stable ExternalImageId that will always be the same for this (dom_id, node_id) pair.
+pub fn insert_texture_for_node(
+    document_id: DocumentId,
+    dom_id: DomId,
+    node_id: NodeId,
+    epoch: Epoch,
+    texture: Texture,
+) -> ExternalImageId {
+    let key = TextureSlotKey::new(dom_id, node_id);
+    let external_image_id = key.to_external_image_id();
 
     unsafe {
-        // Initialize cache on first use
         if TEXTURE_CACHE.is_none() {
             TEXTURE_CACHE = Some(FastHashMap::new());
         }
 
         let cache = TEXTURE_CACHE.as_mut().unwrap();
-
-        // Get or create document storage
         let document_storage = cache.entry(document_id).or_insert_with(FastHashMap::new);
 
-        // Get or create epoch storage
-        let epoch_storage = document_storage
-            .entry(epoch)
-            .or_insert_with(FastHashMap::new);
-
-        // Insert texture
-        epoch_storage.insert(external_image_id, texture);
+        // Insert or update the texture entry
+        document_storage.insert(key, TextureEntry { texture, epoch });
     }
 
     external_image_id
 }
 
-/// Remove all textures older than the given epoch for a document.
+/// Legacy function for compatibility - generates a new ExternalImageId each time.
+/// Prefer `insert_texture_for_node` for stable IDs.
+pub fn insert_texture(document_id: DocumentId, epoch: Epoch, texture: Texture) -> ExternalImageId {
+    let external_image_id = ExternalImageId::new();
+
+    unsafe {
+        if TEXTURE_CACHE.is_none() {
+            TEXTURE_CACHE = Some(FastHashMap::new());
+        }
+
+        let cache = TEXTURE_CACHE.as_mut().unwrap();
+        let document_storage = cache.entry(document_id).or_insert_with(FastHashMap::new);
+        
+        // Use a pseudo-key based on the external_image_id (not stable, but backwards compatible)
+        let pseudo_key = TextureSlotKey {
+            dom_id: DomId { inner: (external_image_id.inner >> 32) as usize },
+            node_id: NodeId::new((external_image_id.inner & 0xFFFFFFFF) as usize),
+        };
+        document_storage.insert(pseudo_key, TextureEntry { texture, epoch });
+    }
+
+    external_image_id
+}
+
+/// Remove all textures with epochs older than the threshold.
 ///
-/// This is called after rendering to clean up textures from previous frames
-/// that are no longer needed. WebRender guarantees that textures from epochs
-/// older than the current one are safe to delete.
-///
-/// # Arguments
-///
-/// * `document_id` - The document to clean up
-/// * `current_epoch` - The current frame epoch (textures older than this are removed)
-///
-/// # Note
-///
-/// This handles epoch overflow correctly by using comparison operators.
+/// This is called after rendering to clean up textures from previous frames.
+/// We keep textures from the current and previous epoch for double-buffering safety.
 pub fn remove_old_epochs(document_id: &DocumentId, current_epoch: Epoch) {
     unsafe {
         let cache: &mut FastHashMap<DocumentId, GlTextureStorage> = match TEXTURE_CACHE.as_mut() {
@@ -107,55 +155,44 @@ pub fn remove_old_epochs(document_id: &DocumentId, current_epoch: Epoch) {
             None => return,
         };
 
-        // Collect epochs to remove (can't modify while iterating)
-        let epochs_to_remove: Vec<Epoch> = document_storage
-            .keys()
-            .filter(|&&epoch| epoch < current_epoch)
-            .copied()
+        // Keep at least the previous epoch for double-buffering safety
+        let current = current_epoch.into_u32();
+        let min_epoch_to_keep = if current >= 2 {
+            Epoch::from(current - 1)
+        } else {
+            Epoch::new()
+        };
+
+        // Collect keys to remove (can't modify while iterating)
+        let keys_to_remove: Vec<TextureSlotKey> = document_storage
+            .iter()
+            .filter(|(_, entry)| entry.epoch < min_epoch_to_keep)
+            .map(|(key, _)| *key)
             .collect();
 
-        // Remove old epochs (textures are automatically cleaned up via Drop)
-        for epoch in epochs_to_remove {
-            document_storage.remove(&epoch);
+        // Remove old textures
+        for key in keys_to_remove {
+            document_storage.remove(&key);
         }
     }
 }
 
-/// Remove a specific texture from the cache.
-///
-/// This is useful when a texture needs to be removed before its epoch expires,
-/// for example when an image is explicitly deleted by the application.
-///
-/// # Arguments
-///
-/// * `document_id` - The document containing the texture
-/// * `epoch` - The epoch when the texture was created
-/// * `external_image_id` - The ID of the texture to remove
-///
-/// # Returns
-///
-/// `Some(())` if the texture was found and removed, `None` if it wasn't found
-pub fn remove_single_texture(
+/// Remove a specific texture from the cache by its slot key.
+pub fn remove_texture_for_node(
     document_id: &DocumentId,
-    epoch: &Epoch,
-    external_image_id: &ExternalImageId,
+    dom_id: DomId,
+    node_id: NodeId,
 ) -> Option<()> {
+    let key = TextureSlotKey::new(dom_id, node_id);
     unsafe {
         let cache = TEXTURE_CACHE.as_mut()?;
         let document_storage = cache.get_mut(document_id)?;
-        let epoch_storage = document_storage.get_mut(epoch)?;
-        epoch_storage.remove(external_image_id);
+        document_storage.remove(&key);
         Some(())
     }
 }
 
 /// Remove all textures for a document.
-///
-/// This is called when a window/document is closed to clean up all associated textures.
-///
-/// # Arguments
-///
-/// * `document_id` - The document to remove
 pub fn remove_document(document_id: &DocumentId) {
     unsafe {
         if let Some(cache) = TEXTURE_CACHE.as_mut() {
@@ -166,70 +203,42 @@ pub fn remove_document(document_id: &DocumentId) {
 
 /// Look up a texture by its ExternalImageId.
 ///
-/// This searches all documents and epochs for the given texture ID.
-/// This is necessary because WebRender only provides the ExternalImageId
-/// when requesting texture data, not the document or epoch.
-///
-/// # Arguments
-///
-/// * `external_image_id` - The ID to look up
-///
-/// # Returns
-///
-/// `Some((texture_id, (width, height)))` if found, `None` if not found
-///
-/// # Performance
-///
-/// This performs a linear search across all documents and epochs, which could
-/// be slow with many textures. However, in practice:
-/// - Most applications have few windows (documents)
-/// - Only recent epochs are kept (old ones are cleaned up)
-/// - Texture lookup happens rarely (only when rendering external images)
+/// Since ExternalImageId is deterministically generated from (DomId, NodeId),
+/// we decode the key from the ID and look it up directly.
 pub fn get_texture(external_image_id: &ExternalImageId) -> Option<(u32, (f32, f32))> {
+    // Extract the key from the ExternalImageId
+    let dom_id = DomId { inner: (external_image_id.inner >> 32) as usize };
+    let node_id = NodeId::new((external_image_id.inner & 0xFFFFFFFF) as usize);
+    let key = TextureSlotKey::new(dom_id, node_id);
+    
     unsafe {
         let cache = TEXTURE_CACHE.as_ref()?;
-
-        // Search all documents and epochs for this texture
-        cache
-            .values()
-            .flat_map(|document_storage: &GlTextureStorage| document_storage.values())
-            .find_map(|epoch_storage: &FastHashMap<ExternalImageId, Texture>| {
-                epoch_storage.get(external_image_id)
-            })
-            .map(|texture| {
-                (
-                    texture.texture_id,
-                    (texture.size.width as f32, texture.size.height as f32),
-                )
-            })
+        
+        // Search all documents for this key
+        for (_doc_id, doc_storage) in cache.iter() {
+            if let Some(entry) = doc_storage.get(&key) {
+                return Some((
+                    entry.texture.texture_id,
+                    (entry.texture.size.width as f32, entry.texture.size.height as f32),
+                ));
+            }
+        }
+        
+        None
     }
 }
 
 /// Clear the entire texture cache.
-///
-/// This removes all textures from all documents. This should be called
-/// before destroying the OpenGL context to ensure proper cleanup.
-///
-/// # Safety
-///
-/// After calling this, all ExternalImageIds become invalid. Any attempts
-/// to use them will return None.
 pub fn clear_all() {
     unsafe {
         TEXTURE_CACHE = None;
     }
 }
 
-// NOTE: These tests require a valid GL context which is not available in unit tests.
-// The gl_texture_cache functionality is tested via integration tests instead.
 #[cfg(test)]
 mod tests {
     use super::*;
-    use azul_core::{
-        geom::PhysicalSizeU32,
-        resources::{IdNamespace, RawImageFormat},
-    };
-    use azul_css::props::basic::ColorU;
+    use azul_core::resources::IdNamespace;
 
     fn create_test_document_id(id: u32) -> DocumentId {
         DocumentId {
@@ -239,32 +248,42 @@ mod tests {
     }
 
     #[test]
-    fn test_document_id_creation() {
-        let doc_id = create_test_document_id(42);
-        assert_eq!(doc_id.id, 42);
-        assert_eq!(doc_id.namespace_id.0, 0);
+    fn test_stable_external_image_id() {
+        // Same (DomId, NodeId) should always produce the same ExternalImageId
+        let key1 = TextureSlotKey::new(DomId { inner: 0 }, NodeId::new(1));
+        let key2 = TextureSlotKey::new(DomId { inner: 0 }, NodeId::new(1));
+        let key3 = TextureSlotKey::new(DomId { inner: 0 }, NodeId::new(2));
+        
+        assert_eq!(key1.to_external_image_id(), key2.to_external_image_id());
+        assert_ne!(key1.to_external_image_id(), key3.to_external_image_id());
     }
 
     #[test]
-    fn test_epoch_creation() {
-        let epoch = Epoch::new();
-        let epoch_from = Epoch::from(5);
-        assert_ne!(epoch, epoch_from); // New epoch is 0, from(5) is 5
+    fn test_external_image_id_reversible() {
+        // ExternalImageId should decode back to the original key
+        let dom_id = DomId { inner: 42 };
+        let node_id = NodeId::new(123);
+        let key = TextureSlotKey::new(dom_id, node_id);
+        let ext_id = key.to_external_image_id();
+        
+        // Decode
+        let decoded_dom = DomId { inner: (ext_id.inner >> 32) as usize };
+        let decoded_node = NodeId::new((ext_id.inner & 0xFFFFFFFF) as usize);
+        
+        assert_eq!(decoded_dom, dom_id);
+        assert_eq!(decoded_node, node_id);
     }
 
     #[test]
     fn test_cache_operations_without_gl() {
-        // Test that cache functions don't panic with empty cache
         clear_all();
 
         let doc_id = create_test_document_id(1);
         let epoch = Epoch::new();
 
-        // Remove from empty cache should not panic
         remove_old_epochs(&doc_id, epoch);
         remove_document(&doc_id);
 
-        // Get from empty cache should return None
         let fake_ext_id = ExternalImageId { inner: 999 };
         assert!(get_texture(&fake_ext_id).is_none());
     }

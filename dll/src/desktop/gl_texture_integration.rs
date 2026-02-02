@@ -3,6 +3,7 @@
 ///! This module provides the glue code to integrate the low-level gl_texture_cache
 ///! with the high-level rendering and resource management system.
 use azul_core::{
+    dom::{DomId, NodeId},
     gl::Texture,
     hit_test::DocumentId,
     resources::{Epoch, ExternalImageId, GlStoreImageFn},
@@ -69,19 +70,23 @@ pub fn clear_all_gl_textures() {
     crate::desktop::gl_texture_cache::clear_all();
 }
 
-/// Remove a specific texture
+/// Remove a specific texture by its ExternalImageId
 ///
-/// Useful when an image callback is explicitly deleted before its epoch expires.
+/// The ExternalImageId encodes (dom_id, node_id), so we can decode it
+/// to remove the correct texture from the cache.
 ///
 /// # Arguments
 ///
 /// * `document_id` - The document containing the texture
-/// * `epoch` - The epoch when the texture was created
+/// * `_epoch` - (Unused, kept for API compatibility) 
 /// * `external_image_id` - The ID of the texture to remove
 pub fn remove_single_gl_texture(
     document_id: &DocumentId,
-    epoch: &Epoch,
+    _epoch: &Epoch,
     external_image_id: &ExternalImageId,
 ) -> Option<()> {
-    crate::desktop::gl_texture_cache::remove_single_texture(document_id, epoch, external_image_id)
+    // Decode (dom_id, node_id) from the external_image_id
+    let dom_id = DomId { inner: (external_image_id.inner >> 32) as usize };
+    let node_id = NodeId::new((external_image_id.inner & 0xFFFFFFFF) as usize);
+    crate::desktop::gl_texture_cache::remove_texture_for_node(document_id, dom_id, node_id)
 }
