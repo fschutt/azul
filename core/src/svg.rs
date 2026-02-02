@@ -434,7 +434,8 @@ impl SvgMultiPolygon {
             .and_then(|b| b.items.get(0).map(|i| i.get_bounds()))
         {
             Some(s) => s,
-            None => return SvgRect::default(), // TODO: error?
+            // Empty polygon has zero-sized bounds at origin
+            None => return SvgRect::default(),
         };
 
         for ring in self.rings.iter() {

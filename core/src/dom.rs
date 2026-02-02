@@ -3008,7 +3008,7 @@ impl NodeData {
     }
 
     pub fn is_focusable(&self) -> bool {
-        // TODO: do some better analysis of next / first / item
+        // Element is focusable if it has a tab index or any focus-related callback
         self.get_tab_index().is_some()
             || self
                 .get_callbacks()

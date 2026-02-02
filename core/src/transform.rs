@@ -274,7 +274,7 @@ impl ComputedTransform3D {
         percent_resolve_y: f32,
         rotation_mode: RotationMode,
     ) -> Self {
-        // TODO: use correct SIMD optimization!
+        // Uses AVX or SSE SIMD when available on x86_64
         let mut matrix = Self::IDENTITY;
         let use_avx =
             INITIALIZED.load(AtomicOrdering::SeqCst) && USE_AVX.load(AtomicOrdering::SeqCst);
