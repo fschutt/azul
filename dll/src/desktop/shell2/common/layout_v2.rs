@@ -202,6 +202,10 @@ pub fn regenerate_layout(
         LogCategory::Layout,
         "[regenerate_layout] Calling layout_and_generate_display_list"
     );
+    
+    // Update system style for resolving system color keywords (selection colors, accent, etc.)
+    layout_window.set_system_style(system_style.clone());
+    
     layout_window
         .layout_and_generate_display_list(
             styled_dom,

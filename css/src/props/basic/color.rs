@@ -292,7 +292,7 @@ impl From<ColorF> for ColorU {
 /// 
 /// CSS syntax: `system:accent`, `system:text`, `system:background`, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum ColorOrSystem {
     /// A concrete RGBA color value.
     Color(ColorU),

@@ -1221,7 +1221,7 @@ pub struct SelectionStyle {
 pub fn get_selection_style(
     styled_dom: &StyledDom, 
     node_id: Option<NodeId>,
-    system_colors: Option<&azul_css::system::SystemColors>,
+    system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
 ) -> SelectionStyle {
     let Some(node_id) = node_id else {
         return SelectionStyle::default();
@@ -1231,8 +1231,8 @@ pub fn get_selection_style(
     let node_state = &StyledNodeState::default();
 
     // Try to get selection background from CSS, otherwise use system color, otherwise hard-coded default
-    let default_bg = system_colors
-        .and_then(|sc| sc.selection_background.as_option().copied())
+    let default_bg = system_style
+        .and_then(|ss| ss.colors.selection_background.as_option().copied())
         .unwrap_or(ColorU {
             r: 51,
             g: 153,
@@ -1249,8 +1249,8 @@ pub fn get_selection_style(
         .unwrap_or(default_bg);
 
     // Try to get selection text color from CSS, otherwise use system color
-    let default_text = system_colors
-        .and_then(|sc| sc.selection_text.as_option().copied());
+    let default_text = system_style
+        .and_then(|ss| ss.colors.selection_text.as_option().copied());
 
     let text_color = styled_dom
         .css_property_cache

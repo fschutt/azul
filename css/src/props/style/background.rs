@@ -2217,7 +2217,8 @@ mod tests {
         if let StyleBackgroundContent::LinearGradient(grad) = lg {
             assert_eq!(grad.stops.len(), 2);
             // First color should have alpha of ~128 (0.5 * 255, may be 127 or 128 due to rounding)
-            assert!(grad.stops.as_ref()[0].color.a >= 127 && grad.stops.as_ref()[0].color.a <= 128);
+            let first_color = grad.stops.as_ref()[0].color.to_color_u_default();
+            assert!(first_color.a >= 127 && first_color.a <= 128);
         } else {
             panic!("Expected LinearGradient");
         }

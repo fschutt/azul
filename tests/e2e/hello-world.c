@@ -21,11 +21,13 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom label = AzDom_createText(label_text);
     
     AzCssProperty font_size = AzCssProperty_fontSize(AzStyleFontSize_px(50.0));
-    AzDom_addCssProperty(&label, font_size);
+    AzCssPropertyWithConditions font_size_prop = AzCssPropertyWithConditions_simple(font_size);
+    AzDom_addCssProperty(&label, font_size_prop);
 
     AzDom button = AzDom_createDiv();
     AzCssProperty flex_grow = AzCssProperty_flexGrow(AzLayoutFlexGrow_new(1.0));
-    AzDom_addCssProperty(&button, flex_grow);
+    AzCssPropertyWithConditions flex_grow_prop = AzCssPropertyWithConditions_simple(flex_grow);
+    AzDom_addCssProperty(&button, flex_grow_prop);
     AzString button_text = AzString_copyFromBytes("Increase counter", 0, 16);
     AzDom_addChild(&button, AzDom_createText(button_text));
     

@@ -9729,61 +9729,36 @@
                 },
                 "fn_body": "object.with_class(class)"
               },
+              "add_css_property": {
+                "doc": [
+                  "Adds a CSS property with optional conditions (hover, focus, active, etc.) to the root node."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "prop": "CssPropertyWithConditions"
+                  }
+                ],
+                "fn_body": "object.add_css_property(prop)"
+              },
               "with_css_property": {
+                "doc": [
+                  "Builder method to add a CSS property with optional conditions (hover, focus, active, etc.) to the root node."
+                ],
                 "fn_args": [
                   {
                     "self": "value"
                   },
                   {
-                    "prop": "CssProperty"
+                    "prop": "CssPropertyWithConditions"
                   }
                 ],
                 "returns": {
                   "type": "Dom"
                 },
                 "fn_body": "object.with_css_property(prop)"
-              },
-              "with_hover_css_property": {
-                "fn_args": [
-                  {
-                    "self": "value"
-                  },
-                  {
-                    "prop": "CssProperty"
-                  }
-                ],
-                "returns": {
-                  "type": "Dom"
-                },
-                "fn_body": "object.with_hover_css_property(prop)"
-              },
-              "with_active_css_property": {
-                "fn_args": [
-                  {
-                    "self": "value"
-                  },
-                  {
-                    "prop": "CssProperty"
-                  }
-                ],
-                "returns": {
-                  "type": "Dom"
-                },
-                "fn_body": "object.with_active_css_property(prop)"
-              },
-              "with_focus_css_property": {
-                "fn_args": [
-                  {
-                    "self": "value"
-                  },
-                  {
-                    "prop": "CssProperty"
-                  }
-                ],
-                "returns": {
-                  "type": "Dom"
-                },
-                "fn_body": "object.with_focus_css_property(prop)"
               },
               "set_inline_style": {
                 "doc": [
@@ -10597,48 +10572,18 @@
                 "fn_body": "object.add_class(s)"
               },
               "add_css_property": {
+                "doc": [
+                  "Adds a CSS property with optional conditions (hover, focus, active, etc.)."
+                ],
                 "fn_args": [
                   {
                     "self": "refmut"
                   },
                   {
-                    "p": "CssProperty"
+                    "p": "CssPropertyWithConditions"
                   }
                 ],
                 "fn_body": "object.add_css_property(p)"
-              },
-              "add_hover_css_property": {
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "p": "CssProperty"
-                  }
-                ],
-                "fn_body": "object.add_hover_css_property(p)"
-              },
-              "add_active_css_property": {
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "p": "CssProperty"
-                  }
-                ],
-                "fn_body": "object.add_active_css_property(p)"
-              },
-              "add_focus_css_property": {
-                "fn_args": [
-                  {
-                    "self": "refmut"
-                  },
-                  {
-                    "p": "CssProperty"
-                  }
-                ],
-                "fn_body": "object.add_focus_css_property(p)"
               },
               "is_focusable": {
                 "fn_args": [
@@ -20145,11 +20090,9 @@
               {
                 "offset": {
                   "type": "PercentageValue"
-                }
-              },
-              {
+                },
                 "color": {
-                  "type": "ColorU"
+                  "type": "ColorOrSystem"
                 }
               }
             ],
@@ -20170,11 +20113,9 @@
               {
                 "angle": {
                   "type": "AngleValue"
-                }
-              },
-              {
+                },
                 "color": {
-                  "type": "ColorU"
+                  "type": "ColorOrSystem"
                 }
               }
             ],
@@ -29042,6 +28983,61 @@
                 "viewport_height": {
                   "type": "OptionF32"
                 }
+              }
+            ],
+            "repr": "C"
+          },
+          "ColorOrSystem": {
+            "external": "azul_css::props::basic::color::ColorOrSystem",
+            "custom_impls": [
+              "Default",
+              "From"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Color": {
+                  "type": "ColorU"
+                },
+                "System": {
+                  "type": "SystemColorRef"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "SystemColorRef": {
+            "external": "azul_css::props::basic::color::SystemColorRef",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Text": {},
+                "Background": {},
+                "Accent": {},
+                "AccentText": {},
+                "ButtonFace": {},
+                "ButtonText": {},
+                "WindowBackground": {},
+                "SelectionBackground": {},
+                "SelectionText": {}
               }
             ],
             "repr": "C"
@@ -68958,11 +68954,7 @@
                 }
               }
             ],
-            "repr": "C"
-          },
-          "OptionAzString": {
-            "external": "azul_css::corety::OptionAzString",
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionCssMockEnvironment": {
             "external": "azul_core::resources::OptionCssMockEnvironment",
@@ -68978,7 +68970,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionOsVersion": {
             "external": "azul_css::dynamic_selector::OptionOsVersion",
@@ -68998,7 +68990,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionOsCondition": {
             "external": "azul_css::dynamic_selector::OptionOsCondition",
@@ -69018,7 +69010,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           },
           "OptionThemeCondition": {
             "external": "azul_css::dynamic_selector::OptionThemeCondition",
@@ -69037,7 +69029,7 @@
                 }
               }
             ],
-            "repr": "C"
+            "repr": "C, u8"
           }
         }
       },
@@ -71467,7 +71459,8 @@
               "Copy",
               "PartialEq",
               "Eq",
-              "Hash"
+              "Hash",
+              "Default"
             ],
             "enum_fields": [
               {
@@ -72961,6 +72954,9 @@
           },
           "OsVersion": {
             "external": "azul_css::dynamic_selector::OsVersion",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Clone",

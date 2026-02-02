@@ -62,7 +62,8 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom label = AzDom_createText(label_text);
     
     AzCssProperty font_size = AzCssProperty_fontSize(AzStyleFontSize_px(50.0));
-    AzDom_addCssProperty(&label, font_size);
+    AzCssPropertyWithConditions prop = AzCssPropertyWithConditions_simple(font_size);
+    AzDom_addCssProperty(&label, prop);
 
     // Create a proper Button widget instead of a plain div
     AzString button_text = AzString_copyFromBytes("Increase counter", 0, 16);

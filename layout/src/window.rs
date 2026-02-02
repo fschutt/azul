@@ -419,6 +419,9 @@ pub struct LayoutWindow {
     /// Pending IFrame updates from callbacks (processed in next frame)
     /// Map of DomId -> Set of NodeIds that need re-rendering
     pub pending_iframe_updates: BTreeMap<DomId, FastBTreeSet<NodeId>>,
+    /// System style (colors, fonts, metrics) for resolving system color keywords
+    /// Set via `set_system_style()` from the shell after window creation
+    pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
     /// ICU4X localizer handle for internationalized formatting (numbers, dates, lists, plurals)
     /// Initialized from system language at startup, can be overridden
     #[cfg(feature = "icu")]
@@ -512,6 +515,7 @@ impl LayoutWindow {
             },
             dirty_text_nodes: BTreeMap::new(),
             pending_iframe_updates: BTreeMap::new(),
+            system_style: None,
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
         })
@@ -583,6 +587,7 @@ impl LayoutWindow {
             },
             dirty_text_nodes: BTreeMap::new(),
             pending_iframe_updates: BTreeMap::new(),
+            system_style: None,
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
         })
@@ -821,6 +826,7 @@ impl LayoutWindow {
             dom_id,
             cursor_is_visible,
             cursor_location,
+            self.system_style.clone(),
         )?;
 
         let tree = self
@@ -4141,6 +4147,21 @@ impl LayoutWindow {
         }
 
         return ret;
+    }
+    
+    /// Set the system style for resolving system color keywords in CSS.
+    ///
+    /// This should be called during window initialization and whenever the system
+    /// theme changes (dark/light mode switch, accent color change).
+    ///
+    /// The system style is used to resolve CSS system colors like `selection-background`,
+    /// `selection-text`, `accent`, etc. If not set, hard-coded fallback values are used.
+    pub fn set_system_style(&mut self, system_style: std::sync::Arc<azul_css::system::SystemStyle>) {
+        #[cfg(feature = "icu")]
+        {
+            self.icu_localizer = crate::icu::IcuLocalizerHandle::from_system_language(&system_style.language);
+        }
+        self.system_style = Some(system_style);
     }
 }
 

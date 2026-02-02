@@ -394,46 +394,68 @@ impl<'a> IRBuilder<'a> {
             .chain(self.ir.type_aliases.iter().map(|t| t.name.clone()))
             .collect();
 
-        // Collect dependencies for all types into a unified map
-        // IMPORTANT: Only direct field references are dependencies!
-        // Pointer references (*, &, Box, etc.) only need forward declarations
-        let mut all_deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        // Build a set of types that CAN have forward declarations in C:
+        // - Structs: `struct X;` is valid
+        // - Unions (tagged enums with is_union=true): `union X;` is valid
+        // Types that CANNOT have forward declarations:
+        // - Simple enums: need full definition
+        // - Type aliases: need full definition
+        let forward_declarable_types: BTreeSet<String> = self
+            .ir
+            .structs
+            .iter()
+            .map(|s| s.name.clone())
+            .chain(
+                self.ir
+                    .enums
+                    .iter()
+                    .filter(|e| e.is_union) // Only tagged unions, not simple enums
+                    .map(|e| e.name.clone()),
+            )
+            .collect();
 
-        // Struct dependencies (from field types - only direct, not pointer)
+        // Collect dependencies for all types into a unified map
+        // IMPORTANT: Direct field references are always dependencies.
+        // Pointer references to forward-declarable types (structs, unions) only need forward decls,
+        // BUT pointer references to simple enums/type aliases ARE dependencies
+        let mut all_deps: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        // Struct dependencies (from field types)
         for struct_def in &self.ir.structs {
             let deps: Vec<String> = struct_def
                 .fields
                 .iter()
                 .filter_map(|field| {
-                    // Skip if it's a pointer reference (forward decl is enough)
-                    // Check both the type string AND the ref_kind
-                    if self.is_pointer_type(&field.type_name) {
+                    let base = self.extract_base_type(&field.type_name);
+                    
+                    // Skip primitives and unknown types
+                    if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
                         return None;
                     }
-                    // Also skip if ref_kind indicates pointer/reference indirection
-                    match field.ref_kind {
+                    
+                    // Check if this is a pointer reference
+                    let is_pointer = self.is_pointer_type(&field.type_name) || matches!(
+                        field.ref_kind,
                         FieldRefKind::Ptr
                         | FieldRefKind::PtrMut
                         | FieldRefKind::Ref
                         | FieldRefKind::RefMut
                         | FieldRefKind::Boxed
-                        | FieldRefKind::OptionBoxed => {
-                            return None;
-                        }
-                        FieldRefKind::Owned => {}
+                        | FieldRefKind::OptionBoxed
+                    );
+                    
+                    // For pointer references to structs, forward decl is enough - skip
+                    // BUT for pointer references to enums, we need the full type (C limitation)
+                    if is_pointer && forward_declarable_types.contains(&base) {
+                        return None;
                     }
-                    let base = self.extract_base_type(&field.type_name);
-                    if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
-                        None
-                    } else {
-                        Some(base)
-                    }
+                    
+                    Some(base)
                 })
                 .collect();
             all_deps.insert(struct_def.name.clone(), deps);
         }
 
-        // Enum dependencies (from variant payloads - only direct, not pointer)
+        // Enum dependencies (from variant payloads)
         for enum_def in &self.ir.enums {
             let deps: Vec<String> = enum_def
                 .variants
@@ -444,18 +466,21 @@ impl<'a> IRBuilder<'a> {
                             types
                                 .iter()
                                 .filter_map(|t| {
-                                    // Skip if it's a pointer reference
-                                    if self.is_pointer_type(t) {
+                                    let base = self.extract_base_type(t);
+                                    
+                                    // Skip primitives and unknown types
+                                    if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
                                         return None;
                                     }
-                                    let base = self.extract_base_type(t);
-                                    if self.is_primitive_type(&base)
-                                        || !all_type_names.contains(&base)
-                                    {
-                                        None
-                                    } else {
-                                        Some(base)
+                                    
+                                    // For pointer refs to structs, skip (forward decl is enough)
+                                    // For pointer refs to enums, include (C limitation)
+                                    let is_pointer = self.is_pointer_type(t);
+                                    if is_pointer && forward_declarable_types.contains(&base) {
+                                        return None;
                                     }
+                                    
+                                    Some(base)
                                 })
                                 .collect::<Vec<_>>()
                         }
@@ -463,30 +488,31 @@ impl<'a> IRBuilder<'a> {
                             fields
                                 .iter()
                                 .filter_map(|f| {
-                                    // Skip if it's a pointer reference (type string)
-                                    if self.is_pointer_type(&f.type_name) {
+                                    let base = self.extract_base_type(&f.type_name);
+                                    
+                                    // Skip primitives and unknown types
+                                    if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
                                         return None;
                                     }
-                                    // Also skip if ref_kind indicates pointer/reference indirection
-                                    match f.ref_kind {
+                                    
+                                    // Check if this is a pointer reference
+                                    let is_pointer = self.is_pointer_type(&f.type_name) || matches!(
+                                        f.ref_kind,
                                         FieldRefKind::Ptr
                                         | FieldRefKind::PtrMut
                                         | FieldRefKind::Ref
                                         | FieldRefKind::RefMut
                                         | FieldRefKind::Boxed
-                                        | FieldRefKind::OptionBoxed => {
-                                            return None;
-                                        }
-                                        FieldRefKind::Owned => {}
+                                        | FieldRefKind::OptionBoxed
+                                    );
+                                    
+                                    // For pointer refs to structs, skip (forward decl is enough)
+                                    // For pointer refs to enums, include (C limitation)
+                                    if is_pointer && forward_declarable_types.contains(&base) {
+                                        return None;
                                     }
-                                    let base = self.extract_base_type(&f.type_name);
-                                    if self.is_primitive_type(&base)
-                                        || !all_type_names.contains(&base)
-                                    {
-                                        None
-                                    } else {
-                                        Some(base)
-                                    }
+                                    
+                                    Some(base)
                                 })
                                 .collect::<Vec<_>>()
                         }
@@ -514,40 +540,51 @@ impl<'a> IRBuilder<'a> {
                     MonomorphizedKind::TaggedUnion { variants, .. } => {
                         for variant in variants {
                             if let Some(ref payload_type) = variant.payload_type {
-                                // Skip if it's a pointer reference
-                                if self.is_pointer_type(payload_type) {
+                                let base = self.extract_base_type(payload_type);
+                                
+                                // Skip primitives and unknown types
+                                if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
                                     continue;
                                 }
-                                let base = self.extract_base_type(payload_type);
-                                if !self.is_primitive_type(&base) && all_type_names.contains(&base)
-                                {
-                                    deps.push(base);
+                                
+                                // For pointer refs to structs, skip (forward decl is enough)
+                                // For pointer refs to enums, include (C limitation)
+                                let is_pointer = self.is_pointer_type(payload_type);
+                                if is_pointer && forward_declarable_types.contains(&base) {
+                                    continue;
                                 }
+                                
+                                deps.push(base);
                             }
                         }
                     }
                     MonomorphizedKind::Struct { fields } => {
                         for field in fields {
-                            // Skip if it's a pointer reference (type string)
-                            if self.is_pointer_type(&field.type_name) {
+                            let base = self.extract_base_type(&field.type_name);
+                            
+                            // Skip primitives and unknown types
+                            if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
                                 continue;
                             }
-                            // Also skip if ref_kind indicates pointer/reference indirection
-                            match field.ref_kind {
+                            
+                            // Check if this is a pointer reference
+                            let is_pointer = self.is_pointer_type(&field.type_name) || matches!(
+                                field.ref_kind,
                                 FieldRefKind::Ptr
                                 | FieldRefKind::PtrMut
                                 | FieldRefKind::Ref
                                 | FieldRefKind::RefMut
                                 | FieldRefKind::Boxed
-                                | FieldRefKind::OptionBoxed => {
-                                    continue;
-                                }
-                                FieldRefKind::Owned => {}
+                                | FieldRefKind::OptionBoxed
+                            );
+                            
+                            // For pointer refs to structs, skip (forward decl is enough)
+                            // For pointer refs to enums, include (C limitation)
+                            if is_pointer && forward_declarable_types.contains(&base) {
+                                continue;
                             }
-                            let base = self.extract_base_type(&field.type_name);
-                            if !self.is_primitive_type(&base) && all_type_names.contains(&base) {
-                                deps.push(base);
-                            }
+                            
+                            deps.push(base);
                         }
                     }
                     MonomorphizedKind::SimpleEnum { .. } => {

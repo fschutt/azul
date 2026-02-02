@@ -2697,62 +2697,13 @@ impl NodeData {
         self.ids_and_classes = v.into();
     }
 
-    /// Add an unconditional CSS property (always applies)
+    /// Add a CSS property with optional conditions (hover, focus, active, etc.)
     #[inline]
-    pub fn add_css_property(&mut self, p: CssProperty) {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
+    pub fn add_css_property(&mut self, p: CssPropertyWithConditions) {
         let mut v: CssPropertyWithConditionsVec = Vec::new().into();
         mem::swap(&mut v, &mut self.css_props);
         let mut v = v.into_library_owned_vec();
-        v.push(CssPropertyWithConditions::simple(p));
-        self.css_props = v.into();
-    }
-
-    /// Add a CSS property that applies only on hover
-    #[inline]
-    pub fn add_hover_css_property(&mut self, p: CssProperty) {
-        use azul_css::dynamic_selector::{
-            CssPropertyWithConditions, DynamicSelector, PseudoStateType,
-        };
-        let mut v: CssPropertyWithConditionsVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.css_props);
-        let mut v = v.into_library_owned_vec();
-        v.push(CssPropertyWithConditions::with_condition(
-            p,
-            DynamicSelector::PseudoState(PseudoStateType::Hover),
-        ));
-        self.css_props = v.into();
-    }
-
-    /// Add a CSS property that applies only when active (clicked)
-    #[inline]
-    pub fn add_active_css_property(&mut self, p: CssProperty) {
-        use azul_css::dynamic_selector::{
-            CssPropertyWithConditions, DynamicSelector, PseudoStateType,
-        };
-        let mut v: CssPropertyWithConditionsVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.css_props);
-        let mut v = v.into_library_owned_vec();
-        v.push(CssPropertyWithConditions::with_condition(
-            p,
-            DynamicSelector::PseudoState(PseudoStateType::Active),
-        ));
-        self.css_props = v.into();
-    }
-
-    /// Add a CSS property that applies only when focused
-    #[inline]
-    pub fn add_focus_css_property(&mut self, p: CssProperty) {
-        use azul_css::dynamic_selector::{
-            CssPropertyWithConditions, DynamicSelector, PseudoStateType,
-        };
-        let mut v: CssPropertyWithConditionsVec = Vec::new().into();
-        mem::swap(&mut v, &mut self.css_props);
-        let mut v = v.into_library_owned_vec();
-        v.push(CssPropertyWithConditions::with_condition(
-            p,
-            DynamicSelector::PseudoState(PseudoStateType::Focus),
-        ));
+        v.push(p);
         self.css_props = v.into();
     }
 
@@ -4841,25 +4792,16 @@ impl Dom {
         self.root.add_callback(event, data, callback);
         self
     }
+    /// Add a CSS property with optional conditions (hover, focus, active, etc.)
     #[inline(always)]
-    pub fn with_css_property(mut self, prop: CssProperty) -> Self {
+    pub fn with_css_property(mut self, prop: CssPropertyWithConditions) -> Self {
         self.root.add_css_property(prop);
         self
     }
+    /// Add a CSS property with optional conditions (hover, focus, active, etc.)
     #[inline(always)]
-    pub fn with_hover_css_property(mut self, prop: CssProperty) -> Self {
-        self.root.add_hover_css_property(prop);
-        self
-    }
-    #[inline(always)]
-    pub fn with_active_css_property(mut self, prop: CssProperty) -> Self {
-        self.root.add_active_css_property(prop);
-        self
-    }
-    #[inline(always)]
-    pub fn with_focus_css_property(mut self, prop: CssProperty) -> Self {
-        self.root.add_focus_css_property(prop);
-        self
+    pub fn add_css_property(&mut self, prop: CssPropertyWithConditions) {
+        self.root.add_css_property(prop);
     }
     #[inline(always)]
     pub fn with_tab_index(mut self, tab_index: TabIndex) -> Self {

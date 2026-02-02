@@ -188,9 +188,9 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// Key: (node_index, available_size), Value: computed layout result.
     /// This prevents O(n²) complexity by avoiding redundant layout calculations.
     pub subtree_layout_cache: std::collections::BTreeMap<cache::LayoutCacheKey, cache::LayoutCacheValue>,
-    /// System colors for selection, caret, and other system-themed elements.
-    /// Used when CSS doesn't explicitly specify these colors.
-    pub system_colors: Option<&'a azul_css::system::SystemColors>,
+    /// System style containing colors, fonts, metrics, and theme information.
+    /// Used for selection colors, caret styling, and other system-themed elements.
+    pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
 }
 
 impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
@@ -376,6 +376,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     dom_id: azul_core::dom::DomId,
     cursor_is_visible: bool,
     cursor_location: Option<(DomId, NodeId, TextCursor)>,
+    system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
 ) -> Result<DisplayList> {
     // Reset IFC ID counter at the start of each layout pass
     // This ensures IFCs get consistent IDs across frames when the DOM structure is stable
@@ -407,7 +408,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible,
         cursor_location: cursor_location.clone(),
         subtree_layout_cache: BTreeMap::new(),
-        system_colors: None,
+        system_style: system_style.clone(),
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
@@ -439,7 +440,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible,
         cursor_location,
         subtree_layout_cache,
-        system_colors: None,
+        system_style,
     };
 
     // --- Step 1.5: Early Exit Optimization ---

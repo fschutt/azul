@@ -88,6 +88,7 @@ mod inline_intrinsic_width_tests {
             DomId::ROOT_ID,
             true,  // cursor_is_visible
             None,  // cursor_location
+            None,  // system_style
         );
 
         assert!(
@@ -198,6 +199,7 @@ mod inline_intrinsic_width_tests {
             DomId::ROOT_ID,
             true,  // cursor_is_visible
             None,  // cursor_location
+            None,  // system_style
         );
 
         assert!(result.is_ok(), "Layout should succeed");
