@@ -146,8 +146,9 @@ impl MinMaxRange {
 
 /// Boolean condition (C-compatible)
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum BoolCondition {
+    #[default]
     False,
     True,
 }
@@ -180,6 +181,12 @@ pub enum OsCondition {
     Android,
     Web, // WASM
 }
+
+impl_option!(
+    OsCondition,
+    OptionOsCondition,
+    [Debug, Clone, Copy, PartialEq, Eq, Hash]
+);
 
 impl OsCondition {
     /// Convert from css::system::Platform
@@ -224,6 +231,12 @@ pub struct OsVersion {
     pub version_id: u32,
 }
 
+impl Default for OsVersion {
+    fn default() -> Self {
+        Self::unknown()
+    }
+}
+
 impl OsVersion {
     pub const fn new(os: OsFamily, version_id: u32) -> Self {
         Self { os, version_id }
@@ -248,6 +261,15 @@ impl OsVersion {
     pub fn is_at_most(&self, other: &Self) -> bool {
         self.compare(other).map_or(false, |o| o != core::cmp::Ordering::Greater)
     }
+}
+
+impl_option!(
+    OsVersion,
+    OptionOsVersion,
+    [Debug, Clone, Copy, PartialEq, Eq, Hash]
+);
+
+impl OsVersion {
     
     /// Check if self == other
     pub fn is_exactly(&self, other: &Self) -> bool {
@@ -381,52 +403,6 @@ impl OsVersion {
             os: OsFamily::Linux, // Fallback, but version_id 0 means "unknown"
             version_id: 0,
         }
-    }
-    
-    /// Detect the current OS version at runtime
-    /// Returns OsVersion::unknown() if detection fails
-    #[cfg(target_os = "windows")]
-    pub fn detect_current(_os: OsCondition) -> Self {
-        // Try to detect Windows version from GetVersionEx or RtlGetVersion
-        // For now, return a safe default (Windows 10)
-        // TODO: Implement proper Windows version detection
-        Self::WIN_10
-    }
-    
-    #[cfg(target_os = "macos")]
-    pub fn detect_current(_os: OsCondition) -> Self {
-        // Try to detect macOS version from sw_vers or sysctl
-        // For now, return a safe default (Sonoma)
-        // TODO: Implement proper macOS version detection using NSProcessInfo
-        Self::MACOS_SONOMA
-    }
-    
-    #[cfg(target_os = "ios")]
-    pub fn detect_current(_os: OsCondition) -> Self {
-        Self::IOS_17
-    }
-    
-    #[cfg(target_os = "android")]
-    pub fn detect_current(_os: OsCondition) -> Self {
-        Self::ANDROID_14
-    }
-    
-    #[cfg(target_os = "linux")]
-    pub fn detect_current(_os: OsCondition) -> Self {
-        // Try to detect Linux kernel version from uname
-        // For now, return a safe default
-        Self::LINUX_6_0
-    }
-    
-    #[cfg(not(any(
-        target_os = "windows",
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "android",
-        target_os = "linux"
-    )))]
-    pub fn detect_current(_os: OsCondition) -> Self {
-        Self::unknown()
     }
 }
 
@@ -609,6 +585,13 @@ pub enum ThemeCondition {
     SystemPreferred,
 }
 
+impl_option!(
+    ThemeCondition,
+    OptionThemeCondition,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, Hash]
+);
+
 impl ThemeCondition {
     /// Convert from css::system::Theme
     pub fn from_system_theme(theme: crate::system::Theme) -> Self {
@@ -760,7 +743,7 @@ impl DynamicSelectorContext {
 
         Self {
             os,
-            os_version: OsVersion::detect_current(os), // Auto-detect OS version
+            os_version: system_style.os_version, // Use version from SystemStyle
             desktop_env,
             theme,
             media_type: MediaType::Screen,
@@ -769,8 +752,8 @@ impl DynamicSelectorContext {
             container_width: f32::NAN,
             container_height: f32::NAN,
             container_name: OptionString::None,
-            prefers_reduced_motion: BoolCondition::False, // TODO: Accessibility
-            prefers_high_contrast: BoolCondition::False,
+            prefers_reduced_motion: system_style.prefers_reduced_motion,
+            prefers_high_contrast: system_style.prefers_high_contrast,
             orientation: OrientationType::Landscape,
             pseudo_state: PseudoStateFlags::default(),
             language: system_style.language.clone(),

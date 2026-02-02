@@ -178,6 +178,9 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
+/// Type alias for compatibility - OptionAzString is the same as OptionString
+pub type OptionAzString = OptionString;
+
 static DEFAULT_STR: &str = "";
 
 impl Default for AzString {
@@ -585,6 +588,7 @@ impl_option!(
     OptionI32,
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
+impl_option!(bool, OptionBool, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 impl_option!(f32, OptionF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 impl_option!(f64, OptionF64, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 

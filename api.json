@@ -28316,6 +28316,9 @@
                 "platform": {
                   "type": "Platform"
                 },
+                "os_version": {
+                  "type": "OsVersion"
+                },
                 "colors": {
                   "type": "SystemColors"
                 },
@@ -28327,6 +28330,12 @@
                 },
                 "language": {
                   "type": "String"
+                },
+                "prefers_reduced_motion": {
+                  "type": "BoolCondition"
+                },
+                "prefers_high_contrast": {
+                  "type": "BoolCondition"
                 },
                 "app_specific_stylesheet": {
                   "type": "c_void",
@@ -29108,6 +29117,46 @@
                   "doc": [
                     "Number of elements in the slice"
                   ]
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "CssMockEnvironment": {
+            "external": "azul_core::resources::CssMockEnvironment",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Default"
+            ],
+            "struct_fields": [
+              {
+                "os": {
+                  "type": "OptionOsCondition"
+                },
+                "os_version": {
+                  "type": "OptionOsVersion"
+                },
+                "desktop_env": {
+                  "type": "OptionLinuxDesktopEnv"
+                },
+                "theme": {
+                  "type": "OptionThemeCondition"
+                },
+                "language": {
+                  "type": "OptionString"
+                },
+                "prefers_reduced_motion": {
+                  "type": "OptionBool"
+                },
+                "prefers_high_contrast": {
+                  "type": "OptionBool"
+                },
+                "viewport_width": {
+                  "type": "OptionF32"
+                },
+                "viewport_height": {
+                  "type": "OptionF32"
                 }
               }
             ],
@@ -66783,7 +66832,7 @@
             "repr": "C, u8"
           },
           "OptionBool": {
-            "external": "azul_layout::json::OptionBool",
+            "external": "azul_css::corety::OptionBool",
             "derive": [
               "Debug",
               "Clone",
@@ -69006,6 +69055,105 @@
               }
             ],
             "repr": "C, u8"
+          },
+          "OptionLinuxDesktopEnv": {
+            "external": "azul_css::dynamic_selector::OptionLinuxDesktopEnv",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "LinuxDesktopEnv"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionAzString": {
+            "external": "azul_css::corety::OptionAzString",
+            "repr": "C"
+          },
+          "OptionCssMockEnvironment": {
+            "external": "azul_core::resources::OptionCssMockEnvironment",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "CssMockEnvironment"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionOsVersion": {
+            "external": "azul_css::dynamic_selector::OptionOsVersion",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "OsVersion"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionOsCondition": {
+            "external": "azul_css::dynamic_selector::OptionOsCondition",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "OsCondition"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OptionThemeCondition": {
+            "external": "azul_css::dynamic_selector::OptionThemeCondition",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "ThemeCondition"
+                }
+              }
+            ],
+            "repr": "C"
           }
         }
       },
@@ -70524,6 +70672,9 @@
                 },
                 "font_loading": {
                   "type": "FontLoadingConfig"
+                },
+                "mock_css_environment": {
+                  "type": "OptionCssMockEnvironment"
                 }
               }
             ],
@@ -71318,21 +71469,15 @@
             ],
             "enum_fields": [
               {
-                "Exact": {
-                  "type": "String"
-                }
-              },
-              {
                 "Min": {
-                  "type": "String"
-                }
-              },
-              {
+                  "type": "OsVersion"
+                },
                 "Max": {
-                  "type": "String"
-                }
-              },
-              {
+                  "type": "OsVersion"
+                },
+                "Exact": {
+                  "type": "OsVersion"
+                },
                 "DesktopEnvironment": {
                   "type": "LinuxDesktopEnv"
                 }
@@ -72926,6 +73071,49 @@
                     "Number of elements in the slice"
                   ]
                 }
+              }
+            ],
+            "repr": "C"
+          },
+          "OsVersion": {
+            "external": "azul_css::dynamic_selector::OsVersion",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "os": {
+                  "type": "OsFamily"
+                },
+                "version_id": {
+                  "type": "u32"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "OsFamily": {
+            "external": "azul_css::dynamic_selector::OsFamily",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Windows": {},
+                "MacOS": {},
+                "IOS": {},
+                "Linux": {},
+                "Android": {}
               }
             ],
             "repr": "C"

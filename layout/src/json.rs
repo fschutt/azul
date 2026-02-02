@@ -162,7 +162,8 @@ impl_option!(JsonVec, OptionJsonVec, copy = false, [Clone, Debug]);
 impl_option!(JsonKeyValueVec, OptionJsonKeyValueVec, copy = false, [Clone, Debug]);
 
 // FFI-safe Option types for JSON value extraction
-impl_option!(bool, OptionBool, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+// Re-export OptionBool from azul_css to avoid duplication
+pub use azul_css::OptionBool;
 impl_option!(i64, OptionI64, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 // ============================================================================

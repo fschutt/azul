@@ -1048,20 +1048,32 @@ fn new_from_str_inner<'a>(
     let mut css_blocks = Vec::new();
     let mut warnings = Vec::new();
 
-    let mut parser_in_block = false;
     let mut block_nesting = 0_usize;
-    let mut current_paths = Vec::new();
-    let mut current_rules = BTreeMap::<&str, (&str, (ErrorLocation, ErrorLocation))>::new();
-    let mut last_path = Vec::new();
+    let mut last_path: Vec<CssPathSelector> = Vec::new();
     let mut last_error_location = ErrorLocation { original_pos: 0 };
 
-    // Stack for tracking @-rule conditions (e.g., @media, @lang)
+    // Stack for tracking @-rule conditions (e.g., @media, @lang, @os)
     // Each entry contains the conditions and the nesting level where they were introduced
     let mut at_rule_stack: Vec<(Vec<DynamicSelector>, usize)> = Vec::new();
     // Pending @-rule that needs to be combined with AtStr tokens
     let mut pending_at_rule: Option<&str> = None;
     // Collect multiple AtStr tokens (e.g., "screen", "(min-width: 800px)" for compound media queries)
     let mut pending_at_str_parts: Vec<String> = Vec::new();
+
+    // Stack for nested selectors
+    // Each entry: (parent_paths, declarations, nesting_level)
+    // parent_paths: all accumulated paths at this level (for comma-separated selectors)
+    // declarations: current declarations at this level
+    struct NestingLevel<'a> {
+        paths: Vec<Vec<CssPathSelector>>,
+        declarations: BTreeMap<&'a str, (&'a str, (ErrorLocation, ErrorLocation))>,
+        nesting_level: usize,
+    }
+    let mut nesting_stack: Vec<NestingLevel<'a>> = Vec::new();
+    // Current accumulated paths before BlockStart
+    let mut current_paths: Vec<Vec<CssPathSelector>> = Vec::new();
+    // Current declarations at current level
+    let mut current_declarations: BTreeMap<&str, (&str, (ErrorLocation, ErrorLocation))> = BTreeMap::new();
 
     // Safety: limit maximum iterations to prevent infinite loops
     // A reasonable limit is 10x the input length (each char could produce at most a few tokens)
@@ -1124,6 +1136,41 @@ fn new_from_str_inner<'a>(
             }};
         }
 
+        // Helper: get parent paths from nesting stack (if any)
+        fn get_parent_paths(nesting_stack: &[NestingLevel<'_>]) -> Vec<Vec<CssPathSelector>> {
+            if let Some(parent) = nesting_stack.last() {
+                parent.paths.clone()
+            } else {
+                Vec::new()
+            }
+        }
+
+        // Helper: combine parent path with child selector for nesting
+        // For .button { :hover { } } -> .button:hover
+        // For .outer { .inner { } } -> .outer .inner (with Children combinator)
+        fn combine_paths(
+            parent_paths: &[Vec<CssPathSelector>],
+            child_path: &[CssPathSelector],
+            is_pseudo_only: bool,
+        ) -> Vec<Vec<CssPathSelector>> {
+            if parent_paths.is_empty() {
+                vec![child_path.to_vec()]
+            } else {
+                parent_paths
+                    .iter()
+                    .map(|parent| {
+                        let mut combined = parent.clone();
+                        if !is_pseudo_only && !child_path.is_empty() {
+                            // Add implicit descendant combinator for non-pseudo selectors
+                            combined.push(CssPathSelector::Children);
+                        }
+                        combined.extend(child_path.iter().cloned());
+                        combined
+                    })
+                    .collect()
+            }
+        }
+
         match token {
             Token::AtRule(rule_name) => {
                 // Store the @-rule name to combine with the following AtStr tokens
@@ -1163,33 +1210,50 @@ fn new_from_str_inner<'a>(
 
                 block_nesting += 1;
 
-                // Only set parser_in_block for rule blocks (with selectors), not @-rule blocks
+                // If we have a selector, push current state onto nesting stack
                 if !current_paths.is_empty() || !last_path.is_empty() {
-                    if parser_in_block {
-                        warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                            message: "Block start inside another block"
-                        });
-                    }
-                    parser_in_block = true;
+                    // Finalize current_paths with last_path
                     if !last_path.is_empty() {
                         current_paths.push(last_path.clone());
                         last_path.clear();
                     }
+
+                    // Get parent paths and combine with current paths
+                    let parent_paths = get_parent_paths(&nesting_stack);
+                    let combined_paths: Vec<Vec<CssPathSelector>> = if parent_paths.is_empty() {
+                        current_paths.clone()
+                    } else {
+                        // Combine each parent path with each current path
+                        let mut result = Vec::new();
+                        for parent in &parent_paths {
+                            for child in &current_paths {
+                                // Check if child starts with pseudo-selector
+                                let is_pseudo_only = child.first().map(|s| matches!(s, CssPathSelector::PseudoSelector(_))).unwrap_or(false);
+                                let mut combined = parent.clone();
+                                if !is_pseudo_only && !child.is_empty() {
+                                    combined.push(CssPathSelector::Children);
+                                }
+                                combined.extend(child.iter().cloned());
+                                result.push(combined);
+                            }
+                        }
+                        result
+                    };
+
+                    // Push to nesting stack
+                    nesting_stack.push(NestingLevel {
+                        paths: combined_paths,
+                        declarations: std::mem::take(&mut current_declarations),
+                        nesting_level: block_nesting,
+                    });
+                    current_paths.clear();
                 }
             }
             Token::Comma => {
-                if parser_in_block {
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Comma inside block"
-                    });
-                }
+                // Comma separates selectors
                 if !last_path.is_empty() {
                     current_paths.push(last_path.clone());
                     last_path.clear();
-                } else {
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Empty selector before comma"
-                    });
                 }
             }
             Token::BlockEnd => {
@@ -1216,43 +1280,29 @@ fn new_from_str_inner<'a>(
 
                 block_nesting = block_nesting.saturating_sub(1);
 
-                // Only process as a rule block if we have selectors (not an @-rule block)
-                if !current_paths.is_empty() {
-                    parser_in_block = false;
-                    css_blocks.extend(current_paths.drain(..).map(|path| UnparsedCssRuleBlock {
-                        path: CssPath {
-                            selectors: path.into(),
-                        },
-                        declarations: current_rules.clone(),
-                        conditions: current_conditions.clone(),
-                    }));
-                    current_rules.clear();
-                } else if parser_in_block {
-                    // We were in a block but no selectors - this is an error
-                    parser_in_block = false;
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Block with no selectors"
-                    });
+                // Pop from nesting stack if we have one
+                if let Some(level) = nesting_stack.pop() {
+                    // Emit CSS blocks for all paths at this level
+                    if !level.paths.is_empty() && !current_declarations.is_empty() {
+                        css_blocks.extend(level.paths.iter().map(|path| UnparsedCssRuleBlock {
+                            path: CssPath {
+                                selectors: path.clone().into(),
+                            },
+                            declarations: current_declarations.clone(),
+                            conditions: current_conditions.clone(),
+                        }));
+                    }
+                    // Restore parent declarations
+                    current_declarations = level.declarations;
                 }
-                // If !parser_in_block and current_paths is empty, this is closing an @-rule block
 
                 last_path.clear();
+                current_paths.clear();
             }
             Token::UniversalSelector => {
-                if parser_in_block {
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Selector inside block"
-                    });
-                }
                 last_path.push(CssPathSelector::Global);
             }
             Token::TypeSelector(div_type) => {
-                if parser_in_block {
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Selector inside block"
-                    });
-                }
-
                 match NodeTypeTag::from_str(div_type) {
                     Ok(nt) => last_path.push(CssPathSelector::Type(nt)),
                     Err(e) => {
@@ -1264,60 +1314,24 @@ fn new_from_str_inner<'a>(
                 }
             }
             Token::IdSelector(id) => {
-                if parser_in_block {
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Selector inside block"
-                    });
-                }
                 last_path.push(CssPathSelector::Id(id.to_string().into()));
             }
             Token::ClassSelector(class) => {
-                if parser_in_block {
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Selector inside block"
-                    });
-                }
                 last_path.push(CssPathSelector::Class(class.to_string().into()));
             }
             Token::Combinator(Combinator::GreaterThan) => {
-                if parser_in_block {
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Selector inside block"
-                    });
-                }
                 last_path.push(CssPathSelector::DirectChildren);
             }
             Token::Combinator(Combinator::Space) => {
-                if parser_in_block {
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Selector inside block"
-                    });
-                }
                 last_path.push(CssPathSelector::Children);
             }
             Token::Combinator(Combinator::Plus) => {
-                if parser_in_block {
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Selector inside block"
-                    });
-                }
                 last_path.push(CssPathSelector::AdjacentSibling);
             }
             Token::Combinator(Combinator::Tilde) => {
-                if parser_in_block {
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Selector inside block"
-                    });
-                }
                 last_path.push(CssPathSelector::GeneralSibling);
             }
-            Token::PseudoClass { selector, value } => {
-                if parser_in_block {
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Selector inside block"
-                    });
-                }
-
+            Token::PseudoClass { selector, value } | Token::DoublePseudoClass { selector, value } => {
                 match pseudo_selector_from_str(selector, value) {
                     Ok(ps) => last_path.push(CssPathSelector::PseudoSelector(ps)),
                     Err(e) => {
@@ -1328,38 +1342,16 @@ fn new_from_str_inner<'a>(
                     }
                 }
             }
+            Token::AttributeSelector(attr) => {
+                // Parse attribute selector - for now just store as-is
+                // TODO: properly parse attribute selectors
+                last_path.push(CssPathSelector::Class(format!("[{}]", attr).into()));
+            }
             Token::Declaration(key, val) => {
-                if !parser_in_block {
-                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                        message: "Declaration outside block"
-                    });
-                }
-                current_rules.insert(
+                current_declarations.insert(
                     key,
                     (val, (last_error_location, get_error_location(tokenizer))),
                 );
-            }
-            Token::DeclarationStr(content) => {
-                // Inside @-rule blocks, selectors appear as DeclarationStr
-                // Parse the content as a selector if we're in an @-rule block
-                if !at_rule_stack.is_empty() && !parser_in_block {
-                    // Try to parse as a selector
-                    let content = content.trim();
-                    if let Ok(nt) = NodeTypeTag::from_str(content) {
-                        last_path.push(CssPathSelector::Type(nt));
-                    } else if content.starts_with('.') {
-                        last_path.push(CssPathSelector::Class(content[1..].to_string().into()));
-                    } else if content.starts_with('#') {
-                        last_path.push(CssPathSelector::Id(content[1..].to_string().into()));
-                    } else if content == "*" {
-                        last_path.push(CssPathSelector::Global);
-                    }
-                    // Push current path if we have one
-                    if !last_path.is_empty() {
-                        current_paths.push(last_path.clone());
-                        last_path.clear();
-                    }
-                }
             }
             Token::EndOfStream => {
                 if block_nesting != 0 {

@@ -77,12 +77,18 @@ pub enum Theme {
 pub struct SystemStyle {
     pub theme: Theme,
     pub platform: Platform,
+    /// Detected OS version (e.g., Windows 11 22H2, macOS Sonoma, etc.)
+    pub os_version: crate::dynamic_selector::OsVersion,
     pub colors: SystemColors,
     pub fonts: SystemFonts,
     pub metrics: SystemMetrics,
     /// System language/locale in BCP 47 format (e.g., "en-US", "de-DE")
     /// Detected from OS settings at startup
     pub language: AzString,
+    /// User prefers reduced motion (accessibility setting)
+    pub prefers_reduced_motion: crate::dynamic_selector::BoolCondition,
+    /// User prefers high contrast (accessibility setting)
+    pub prefers_high_contrast: crate::dynamic_selector::BoolCondition,
     /// An optional, user-provided stylesheet loaded from a conventional
     /// location (`~/.config/azul/styles/<app_name>.css`), allowing for
     /// application-specific "ricing". This is only loaded when the "io"
@@ -398,6 +404,8 @@ fn discover_linux_style() -> SystemStyle {
 
 #[cfg(feature = "io")]
 fn discover_gnome_style() -> Result<SystemStyle, ()> {
+    use crate::dynamic_selector::BoolCondition;
+    
     let theme_name = run_command_with_timeout(
         "gsettings",
         &["get", "org.gnome.desktop.interface", "gtk-theme"],
@@ -438,6 +446,10 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
 
     style.platform = Platform::Linux(DesktopEnvironment::Gnome);
     style.language = detect_system_language();
+    style.os_version = detect_linux_version();
+    style.prefers_reduced_motion = detect_gnome_reduced_motion();
+    style.prefers_high_contrast = detect_gnome_high_contrast();
+    
     if let Some(font) = ui_font {
         style.fonts.ui_font = OptionString::Some(font.trim().trim_matches('\'').to_string().into());
     }
@@ -451,6 +463,8 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
 
 #[cfg(feature = "io")]
 fn discover_kde_style() -> Result<SystemStyle, ()> {
+    use crate::dynamic_selector::BoolCondition;
+    
     // Check for kreadconfig5. If it doesn't exist, we're likely not on KDE Plasma 5+.
     run_command_with_timeout("kreadconfig5", &["--version"], Duration::from_secs(1))?;
 
@@ -476,6 +490,9 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     };
     style.platform = Platform::Linux(DesktopEnvironment::Kde);
     style.language = detect_system_language();
+    style.os_version = detect_linux_version();
+    style.prefers_reduced_motion = detect_kde_reduced_motion();
+    style.prefers_high_contrast = BoolCondition::False; // KDE doesn't have a standard high contrast setting
 
     // Get the UI font. The format is "Font Name,Size,-1,5,50,0,0,0,0,0"
     if let Ok(font_str) = run_command_with_timeout(
@@ -625,9 +642,14 @@ fn discover_riced_style() -> Result<SystemStyle, ()> {
 
 #[cfg(feature = "io")]
 fn discover_windows_style() -> SystemStyle {
+    use crate::dynamic_selector::{BoolCondition, OsVersion};
+    
     let mut style = defaults::windows_11_light(); // Start with a modern default
     style.platform = Platform::Windows;
     style.language = detect_system_language();
+    style.os_version = detect_windows_version();
+    style.prefers_reduced_motion = detect_windows_reduced_motion();
+    style.prefers_high_contrast = detect_windows_high_contrast();
 
     let theme_val = run_command_with_timeout(
         "reg",
@@ -642,6 +664,9 @@ fn discover_windows_style() -> SystemStyle {
     if let Ok(output) = theme_val {
         if output.contains("0x0") {
             style = defaults::windows_11_dark();
+            style.os_version = detect_windows_version();
+            style.prefers_reduced_motion = detect_windows_reduced_motion();
+            style.prefers_high_contrast = detect_windows_high_contrast();
         }
     }
 
@@ -670,11 +695,122 @@ fn discover_windows_style() -> SystemStyle {
     style
 }
 
+/// Detect Windows version from registry
+#[cfg(feature = "io")]
+fn detect_windows_version() -> crate::dynamic_selector::OsVersion {
+    use crate::dynamic_selector::OsVersion;
+    
+    // Try to get Windows build number from registry
+    if let Ok(output) = run_command_with_timeout(
+        "reg",
+        &[
+            "query",
+            r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+            "/v",
+            "CurrentBuildNumber",
+        ],
+        Duration::from_secs(1),
+    ) {
+        // Parse: "CurrentBuildNumber    REG_SZ    22631"
+        for line in output.lines() {
+            if line.contains("CurrentBuildNumber") {
+                if let Some(build_str) = line.split_whitespace().last() {
+                    if let Ok(build) = build_str.parse::<u32>() {
+                        return match build {
+                            // Windows 11 builds
+                            22000..=22499 => OsVersion::WIN_11_21H2,
+                            22500..=22620 => OsVersion::WIN_11_22H2,
+                            22621..=22630 => OsVersion::WIN_11_23H2,
+                            22631.. => OsVersion::WIN_11_24H2,
+                            // Windows 10 builds
+                            19041..=19042 => OsVersion::WIN_10_2004,
+                            19043 => OsVersion::WIN_10_21H1,
+                            19044 => OsVersion::WIN_10_21H2,
+                            19045 => OsVersion::WIN_10_22H2,
+                            18362..=18363 => OsVersion::WIN_10_1903,
+                            17763 => OsVersion::WIN_10_1809,
+                            17134 => OsVersion::WIN_10_1803,
+                            16299 => OsVersion::WIN_10_1709,
+                            15063 => OsVersion::WIN_10_1703,
+                            14393 => OsVersion::WIN_10_1607,
+                            10586 => OsVersion::WIN_10_1511,
+                            10240 => OsVersion::WIN_10_1507,
+                            // Older Windows
+                            9600 => OsVersion::WIN_8_1,
+                            9200 => OsVersion::WIN_8,
+                            7601 => OsVersion::WIN_7,
+                            6002 => OsVersion::WIN_VISTA,
+                            2600 => OsVersion::WIN_XP,
+                            _ => OsVersion::WIN_10, // Unknown build, assume Win10
+                        };
+                    }
+                }
+            }
+        }
+    }
+    OsVersion::WIN_10 // Default fallback
+}
+
+/// Detect Windows reduced motion preference
+#[cfg(feature = "io")]
+fn detect_windows_reduced_motion() -> crate::dynamic_selector::BoolCondition {
+    use crate::dynamic_selector::BoolCondition;
+    
+    // Check SystemParameters for animation settings
+    if let Ok(output) = run_command_with_timeout(
+        "reg",
+        &[
+            "query",
+            r"HKCU\Control Panel\Desktop\WindowMetrics",
+            "/v",
+            "MinAnimate",
+        ],
+        Duration::from_secs(1),
+    ) {
+        if output.contains("0x0") {
+            return BoolCondition::True;
+        }
+    }
+    BoolCondition::False
+}
+
+/// Detect Windows high contrast preference
+#[cfg(feature = "io")]
+fn detect_windows_high_contrast() -> crate::dynamic_selector::BoolCondition {
+    use crate::dynamic_selector::BoolCondition;
+    
+    if let Ok(output) = run_command_with_timeout(
+        "reg",
+        &[
+            "query",
+            r"HKCU\Control Panel\Accessibility\HighContrast",
+            "/v",
+            "Flags",
+        ],
+        Duration::from_secs(1),
+    ) {
+        // Check if HCF_HIGHCONTRASTON (bit 0) is set
+        if let Some(hex_str) = output.split_whitespace().last() {
+            if let Ok(flags) = u32::from_str_radix(hex_str.trim_start_matches("0x"), 16) {
+                if flags & 1 != 0 {
+                    return BoolCondition::True;
+                }
+            }
+        }
+    }
+    BoolCondition::False
+}
+
 #[cfg(feature = "io")]
 fn discover_macos_style() -> SystemStyle {
+    use crate::dynamic_selector::BoolCondition;
+    
     let mut style = defaults::macos_modern_light();
     style.platform = Platform::MacOs;
     style.language = detect_system_language();
+    style.os_version = detect_macos_version();
+    style.prefers_reduced_motion = detect_macos_reduced_motion();
+    style.prefers_high_contrast = detect_macos_high_contrast();
 
     let theme_val = run_command_with_timeout(
         "defaults",
@@ -683,9 +819,250 @@ fn discover_macos_style() -> SystemStyle {
     );
     if theme_val.is_ok() {
         style = defaults::macos_modern_dark();
+        style.os_version = detect_macos_version();
+        style.prefers_reduced_motion = detect_macos_reduced_motion();
+        style.prefers_high_contrast = detect_macos_high_contrast();
     }
 
     style
+}
+
+/// Detect macOS version from sw_vers
+#[cfg(feature = "io")]
+fn detect_macos_version() -> crate::dynamic_selector::OsVersion {
+    use crate::dynamic_selector::OsVersion;
+    
+    if let Ok(output) = run_command_with_timeout(
+        "sw_vers",
+        &["-productVersion"],
+        Duration::from_secs(1),
+    ) {
+        let version = output.trim();
+        // Parse "14.3.1" -> (14, 3, 1)
+        let parts: Vec<&str> = version.split('.').collect();
+        if let Some(major_str) = parts.first() {
+            if let Ok(major) = major_str.parse::<u32>() {
+                return match major {
+                    26 => OsVersion::MACOS_TAHOE,
+                    15 => OsVersion::MACOS_SEQUOIA,
+                    14 => OsVersion::MACOS_SONOMA,
+                    13 => OsVersion::MACOS_VENTURA,
+                    12 => OsVersion::MACOS_MONTEREY,
+                    11 => OsVersion::MACOS_BIG_SUR,
+                    10 => {
+                        // Parse minor version for 10.x
+                        if let Some(minor_str) = parts.get(1) {
+                            if let Ok(minor) = minor_str.parse::<u32>() {
+                                return match minor {
+                                    15 => OsVersion::MACOS_CATALINA,
+                                    14 => OsVersion::MACOS_MOJAVE,
+                                    13 => OsVersion::MACOS_HIGH_SIERRA,
+                                    12 => OsVersion::MACOS_SIERRA,
+                                    11 => OsVersion::MACOS_EL_CAPITAN,
+                                    10 => OsVersion::MACOS_YOSEMITE,
+                                    9 => OsVersion::MACOS_MAVERICKS,
+                                    _ => OsVersion::MACOS_CATALINA, // Default 10.x
+                                };
+                            }
+                        }
+                        OsVersion::MACOS_CATALINA
+                    }
+                    _ => OsVersion::MACOS_SONOMA, // Unknown, assume recent
+                };
+            }
+        }
+    }
+    OsVersion::MACOS_SONOMA // Default fallback
+}
+
+/// Detect macOS reduced motion preference
+#[cfg(feature = "io")]
+fn detect_macos_reduced_motion() -> crate::dynamic_selector::BoolCondition {
+    use crate::dynamic_selector::BoolCondition;
+    
+    if let Ok(output) = run_command_with_timeout(
+        "defaults",
+        &["read", "-g", "com.apple.universalaccess", "reduceMotion"],
+        Duration::from_secs(1),
+    ) {
+        if output.trim() == "1" {
+            return BoolCondition::True;
+        }
+    }
+    BoolCondition::False
+}
+
+/// Detect macOS high contrast preference
+#[cfg(feature = "io")]
+fn detect_macos_high_contrast() -> crate::dynamic_selector::BoolCondition {
+    use crate::dynamic_selector::BoolCondition;
+    
+    if let Ok(output) = run_command_with_timeout(
+        "defaults",
+        &["read", "-g", "com.apple.universalaccess", "increaseContrast"],
+        Duration::from_secs(1),
+    ) {
+        if output.trim() == "1" {
+            return BoolCondition::True;
+        }
+    }
+    BoolCondition::False
+}
+
+// -- Linux Detection Functions --
+
+/// Detect Linux kernel version from uname
+#[cfg(feature = "io")]
+fn detect_linux_version() -> crate::dynamic_selector::OsVersion {
+    use crate::dynamic_selector::OsVersion;
+    
+    if let Ok(output) = run_command_with_timeout(
+        "uname",
+        &["-r"],
+        Duration::from_secs(1),
+    ) {
+        // Parse "6.5.0-44-generic" -> (6, 5, 0)
+        let version = output.trim();
+        let parts: Vec<&str> = version.split('.').collect();
+        if let Some(major_str) = parts.first() {
+            if let Ok(major) = major_str.parse::<u32>() {
+                return match major {
+                    6 => OsVersion::LINUX_6_0,
+                    5 => OsVersion::LINUX_5_0,
+                    4 => OsVersion::LINUX_4_0,
+                    3 => OsVersion::LINUX_3_0,
+                    2 => OsVersion::LINUX_2_6,
+                    _ => OsVersion::LINUX_6_0, // Unknown, assume recent
+                };
+            }
+        }
+    }
+    OsVersion::LINUX_6_0 // Default fallback
+}
+
+/// Detect GNOME reduced motion preference
+#[cfg(feature = "io")]
+fn detect_gnome_reduced_motion() -> crate::dynamic_selector::BoolCondition {
+    use crate::dynamic_selector::BoolCondition;
+    
+    if let Ok(output) = run_command_with_timeout(
+        "gsettings",
+        &["get", "org.gnome.desktop.interface", "enable-animations"],
+        Duration::from_secs(1),
+    ) {
+        // If animations are disabled, user prefers reduced motion
+        if output.trim() == "false" {
+            return BoolCondition::True;
+        }
+    }
+    BoolCondition::False
+}
+
+/// Detect GNOME high contrast preference
+#[cfg(feature = "io")]
+fn detect_gnome_high_contrast() -> crate::dynamic_selector::BoolCondition {
+    use crate::dynamic_selector::BoolCondition;
+    
+    if let Ok(output) = run_command_with_timeout(
+        "gsettings",
+        &["get", "org.gnome.desktop.a11y.interface", "high-contrast"],
+        Duration::from_secs(1),
+    ) {
+        if output.trim() == "true" {
+            return BoolCondition::True;
+        }
+    }
+    BoolCondition::False
+}
+
+/// Detect KDE reduced motion preference
+#[cfg(feature = "io")]
+fn detect_kde_reduced_motion() -> crate::dynamic_selector::BoolCondition {
+    use crate::dynamic_selector::BoolCondition;
+    
+    // KDE stores animation speed in kdeglobals
+    if let Ok(output) = run_command_with_timeout(
+        "kreadconfig5",
+        &["--group", "KDE", "--key", "AnimationDurationFactor"],
+        Duration::from_secs(1),
+    ) {
+        // Factor of 0 means no animations
+        if let Ok(factor) = output.trim().parse::<f32>() {
+            if factor == 0.0 {
+                return BoolCondition::True;
+            }
+        }
+    }
+    BoolCondition::False
+}
+
+/// Detect Linux desktop environment from environment variables
+#[cfg(feature = "io")]
+pub fn detect_linux_desktop_env() -> DesktopEnvironment {
+    // Check XDG_CURRENT_DESKTOP first (most reliable)
+    if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
+        let desktop = desktop.to_lowercase();
+        if desktop.contains("gnome") {
+            return DesktopEnvironment::Gnome;
+        }
+        if desktop.contains("kde") || desktop.contains("plasma") {
+            return DesktopEnvironment::Kde;
+        }
+        if desktop.contains("xfce") {
+            return DesktopEnvironment::Other("XFCE".into());
+        }
+        if desktop.contains("unity") {
+            return DesktopEnvironment::Other("Unity".into());
+        }
+        if desktop.contains("cinnamon") {
+            return DesktopEnvironment::Other("Cinnamon".into());
+        }
+        if desktop.contains("mate") {
+            return DesktopEnvironment::Other("MATE".into());
+        }
+        if desktop.contains("lxde") || desktop.contains("lxqt") {
+            return DesktopEnvironment::Other(desktop.to_uppercase().into());
+        }
+        if desktop.contains("hyprland") {
+            return DesktopEnvironment::Other("Hyprland".into());
+        }
+        if desktop.contains("sway") {
+            return DesktopEnvironment::Other("Sway".into());
+        }
+        if desktop.contains("i3") {
+            return DesktopEnvironment::Other("i3".into());
+        }
+    }
+    
+    // Check DESKTOP_SESSION as fallback
+    if let Ok(session) = std::env::var("DESKTOP_SESSION") {
+        let session = session.to_lowercase();
+        if session.contains("gnome") {
+            return DesktopEnvironment::Gnome;
+        }
+        if session.contains("plasma") || session.contains("kde") {
+            return DesktopEnvironment::Kde;
+        }
+    }
+    
+    // Check for specific environment markers
+    if std::env::var("GNOME_DESKTOP_SESSION_ID").is_ok() {
+        return DesktopEnvironment::Gnome;
+    }
+    if std::env::var("KDE_FULL_SESSION").is_ok() {
+        return DesktopEnvironment::Kde;
+    }
+    if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+        return DesktopEnvironment::Other("Hyprland".into());
+    }
+    if std::env::var("SWAYSOCK").is_ok() {
+        return DesktopEnvironment::Other("Sway".into());
+    }
+    if std::env::var("I3SOCK").is_ok() {
+        return DesktopEnvironment::Other("i3".into());
+    }
+    
+    DesktopEnvironment::Other("Unknown".into())
 }
 
 #[cfg(feature = "io")]
@@ -928,6 +1305,7 @@ pub mod defaults {
 
     use crate::{
         corety::{AzString, OptionF32, OptionString},
+        dynamic_selector::{BoolCondition, OsVersion},
         props::{
             basic::{
                 color::{ColorU, OptionColorU},
@@ -1109,6 +1487,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::WIN_11,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 
@@ -1138,6 +1519,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::WIN_11,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 
@@ -1167,6 +1551,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::WIN_7,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 
@@ -1196,6 +1583,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::WIN_XP,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 
@@ -1225,6 +1615,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::MACOS_SONOMA,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 
@@ -1252,6 +1645,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::MACOS_SONOMA,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 
@@ -1279,6 +1675,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::MACOS_TIGER,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 
@@ -1308,6 +1707,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::LINUX_6_0,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 
@@ -1335,6 +1737,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::LINUX_6_0,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 
@@ -1361,6 +1766,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::LINUX_2_6,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 
@@ -1387,6 +1795,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::LINUX_6_0,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 
@@ -1415,6 +1826,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::ANDROID_14,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 
@@ -1441,6 +1855,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::ANDROID_ICE_CREAM_SANDWICH,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 
@@ -1467,6 +1884,9 @@ pub mod defaults {
             app_specific_stylesheet: None,
             icon_style: IconStyleOptions::default(),
             language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::IOS_17,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
         }
     }
 }
