@@ -91,6 +91,92 @@ impl ColorU {
         a: Self::ALPHA_TRANSPARENT,
     };
 
+    // Additional common colors
+    pub const YELLOW: ColorU = ColorU { r: 255, g: 255, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const CYAN: ColorU = ColorU { r: 0, g: 255, b: 255, a: Self::ALPHA_OPAQUE };
+    pub const MAGENTA: ColorU = ColorU { r: 255, g: 0, b: 255, a: Self::ALPHA_OPAQUE };
+    pub const ORANGE: ColorU = ColorU { r: 255, g: 165, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const PINK: ColorU = ColorU { r: 255, g: 192, b: 203, a: Self::ALPHA_OPAQUE };
+    pub const PURPLE: ColorU = ColorU { r: 128, g: 0, b: 128, a: Self::ALPHA_OPAQUE };
+    pub const BROWN: ColorU = ColorU { r: 139, g: 69, b: 19, a: Self::ALPHA_OPAQUE };
+    pub const GRAY: ColorU = ColorU { r: 128, g: 128, b: 128, a: Self::ALPHA_OPAQUE };
+    pub const LIGHT_GRAY: ColorU = ColorU { r: 211, g: 211, b: 211, a: Self::ALPHA_OPAQUE };
+    pub const DARK_GRAY: ColorU = ColorU { r: 64, g: 64, b: 64, a: Self::ALPHA_OPAQUE };
+    pub const NAVY: ColorU = ColorU { r: 0, g: 0, b: 128, a: Self::ALPHA_OPAQUE };
+    pub const TEAL: ColorU = ColorU { r: 0, g: 128, b: 128, a: Self::ALPHA_OPAQUE };
+    pub const OLIVE: ColorU = ColorU { r: 128, g: 128, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const MAROON: ColorU = ColorU { r: 128, g: 0, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const LIME: ColorU = ColorU { r: 0, g: 255, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const AQUA: ColorU = ColorU { r: 0, g: 255, b: 255, a: Self::ALPHA_OPAQUE };
+    pub const SILVER: ColorU = ColorU { r: 192, g: 192, b: 192, a: Self::ALPHA_OPAQUE };
+    pub const FUCHSIA: ColorU = ColorU { r: 255, g: 0, b: 255, a: Self::ALPHA_OPAQUE };
+    pub const INDIGO: ColorU = ColorU { r: 75, g: 0, b: 130, a: Self::ALPHA_OPAQUE };
+    pub const GOLD: ColorU = ColorU { r: 255, g: 215, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const CORAL: ColorU = ColorU { r: 255, g: 127, b: 80, a: Self::ALPHA_OPAQUE };
+    pub const SALMON: ColorU = ColorU { r: 250, g: 128, b: 114, a: Self::ALPHA_OPAQUE };
+    pub const TURQUOISE: ColorU = ColorU { r: 64, g: 224, b: 208, a: Self::ALPHA_OPAQUE };
+    pub const VIOLET: ColorU = ColorU { r: 238, g: 130, b: 238, a: Self::ALPHA_OPAQUE };
+    pub const CRIMSON: ColorU = ColorU { r: 220, g: 20, b: 60, a: Self::ALPHA_OPAQUE };
+    pub const CHOCOLATE: ColorU = ColorU { r: 210, g: 105, b: 30, a: Self::ALPHA_OPAQUE };
+    pub const SKY_BLUE: ColorU = ColorU { r: 135, g: 206, b: 235, a: Self::ALPHA_OPAQUE };
+    pub const FOREST_GREEN: ColorU = ColorU { r: 34, g: 139, b: 34, a: Self::ALPHA_OPAQUE };
+    pub const SEA_GREEN: ColorU = ColorU { r: 46, g: 139, b: 87, a: Self::ALPHA_OPAQUE };
+    pub const SLATE_GRAY: ColorU = ColorU { r: 112, g: 128, b: 144, a: Self::ALPHA_OPAQUE };
+    pub const MIDNIGHT_BLUE: ColorU = ColorU { r: 25, g: 25, b: 112, a: Self::ALPHA_OPAQUE };
+    pub const DARK_RED: ColorU = ColorU { r: 139, g: 0, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const DARK_GREEN: ColorU = ColorU { r: 0, g: 100, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const DARK_BLUE: ColorU = ColorU { r: 0, g: 0, b: 139, a: Self::ALPHA_OPAQUE };
+    pub const LIGHT_BLUE: ColorU = ColorU { r: 173, g: 216, b: 230, a: Self::ALPHA_OPAQUE };
+    pub const LIGHT_GREEN: ColorU = ColorU { r: 144, g: 238, b: 144, a: Self::ALPHA_OPAQUE };
+    pub const LIGHT_YELLOW: ColorU = ColorU { r: 255, g: 255, b: 224, a: Self::ALPHA_OPAQUE };
+    pub const LIGHT_PINK: ColorU = ColorU { r: 255, g: 182, b: 193, a: Self::ALPHA_OPAQUE };
+
+    // Constructor functions for C API (become AzColorU_red(), AzColorU_cyan(), etc.)
+    pub fn red() -> Self { Self::RED }
+    pub fn green() -> Self { Self::GREEN }
+    pub fn blue() -> Self { Self::BLUE }
+    pub fn white() -> Self { Self::WHITE }
+    pub fn black() -> Self { Self::BLACK }
+    pub fn transparent() -> Self { Self::TRANSPARENT }
+    pub fn yellow() -> Self { Self::YELLOW }
+    pub fn cyan() -> Self { Self::CYAN }
+    pub fn magenta() -> Self { Self::MAGENTA }
+    pub fn orange() -> Self { Self::ORANGE }
+    pub fn pink() -> Self { Self::PINK }
+    pub fn purple() -> Self { Self::PURPLE }
+    pub fn brown() -> Self { Self::BROWN }
+    pub fn gray() -> Self { Self::GRAY }
+    pub fn light_gray() -> Self { Self::LIGHT_GRAY }
+    pub fn dark_gray() -> Self { Self::DARK_GRAY }
+    pub fn navy() -> Self { Self::NAVY }
+    pub fn teal() -> Self { Self::TEAL }
+    pub fn olive() -> Self { Self::OLIVE }
+    pub fn maroon() -> Self { Self::MAROON }
+    pub fn lime() -> Self { Self::LIME }
+    pub fn aqua() -> Self { Self::AQUA }
+    pub fn silver() -> Self { Self::SILVER }
+    pub fn fuchsia() -> Self { Self::FUCHSIA }
+    pub fn indigo() -> Self { Self::INDIGO }
+    pub fn gold() -> Self { Self::GOLD }
+    pub fn coral() -> Self { Self::CORAL }
+    pub fn salmon() -> Self { Self::SALMON }
+    pub fn turquoise() -> Self { Self::TURQUOISE }
+    pub fn violet() -> Self { Self::VIOLET }
+    pub fn crimson() -> Self { Self::CRIMSON }
+    pub fn chocolate() -> Self { Self::CHOCOLATE }
+    pub fn sky_blue() -> Self { Self::SKY_BLUE }
+    pub fn forest_green() -> Self { Self::FOREST_GREEN }
+    pub fn sea_green() -> Self { Self::SEA_GREEN }
+    pub fn slate_gray() -> Self { Self::SLATE_GRAY }
+    pub fn midnight_blue() -> Self { Self::MIDNIGHT_BLUE }
+    pub fn dark_red() -> Self { Self::DARK_RED }
+    pub fn dark_green() -> Self { Self::DARK_GREEN }
+    pub fn dark_blue() -> Self { Self::DARK_BLUE }
+    pub fn light_blue() -> Self { Self::LIGHT_BLUE }
+    pub fn light_green() -> Self { Self::LIGHT_GREEN }
+    pub fn light_yellow() -> Self { Self::LIGHT_YELLOW }
+    pub fn light_pink() -> Self { Self::LIGHT_PINK }
+
     pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }

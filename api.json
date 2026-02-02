@@ -18238,15 +18238,15 @@
               },
               "transparent": {
                 "fn_args": [],
-                "fn_body": "azul_css::props::basic::color::ColorU::TRANSPARENT"
+                "fn_body": "azul_css::props::basic::color::ColorU::transparent()"
               },
               "white": {
                 "fn_args": [],
-                "fn_body": "azul_css::props::basic::color::ColorU::WHITE"
+                "fn_body": "azul_css::props::basic::color::ColorU::white()"
               },
               "black": {
                 "fn_args": [],
-                "fn_body": "azul_css::props::basic::color::ColorU::BLACK"
+                "fn_body": "azul_css::props::basic::color::ColorU::black()"
               },
               "create": {
                 "fn_args": [
@@ -18278,6 +18278,187 @@
                   }
                 ],
                 "fn_body": "azul_css::props::basic::color::ColorU::new_rgb(r, g, b)"
+              },
+              "red": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::red()"
+              },
+              "green": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::green()"
+              },
+              "blue": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::blue()"
+              },
+              "yellow": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::yellow()"
+              },
+              "cyan": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::cyan()"
+              },
+              "magenta": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::magenta()"
+              },
+              "orange": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::orange()"
+              },
+              "pink": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::pink()"
+              },
+              "purple": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::purple()"
+              },
+              "brown": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::brown()"
+              },
+              "gray": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::gray()"
+              },
+              "light_gray": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::light_gray()"
+              },
+              "dark_gray": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::dark_gray()"
+              },
+              "navy": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::navy()"
+              },
+              "teal": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::teal()"
+              },
+              "olive": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::olive()"
+              },
+              "maroon": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::maroon()"
+              },
+              "lime": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::lime()"
+              },
+              "aqua": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::aqua()"
+              },
+              "silver": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::silver()"
+              },
+              "fuchsia": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::fuchsia()"
+              },
+              "indigo": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::indigo()"
+              },
+              "gold": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::gold()"
+              },
+              "coral": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::coral()"
+              },
+              "salmon": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::salmon()"
+              },
+              "turquoise": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::turquoise()"
+              },
+              "violet": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::violet()"
+              },
+              "crimson": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::crimson()"
+              },
+              "chocolate": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::chocolate()"
+              },
+              "sky_blue": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::sky_blue()"
+              },
+              "forest_green": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::forest_green()"
+              },
+              "sea_green": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::sea_green()"
+              },
+              "slate_gray": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::slate_gray()"
+              },
+              "midnight_blue": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::midnight_blue()"
+              },
+              "dark_red": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::dark_red()"
+              },
+              "dark_green": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::dark_green()"
+              },
+              "dark_blue": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::dark_blue()"
+              },
+              "light_blue": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::light_blue()"
+              },
+              "light_green": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::light_green()"
+              },
+              "light_yellow": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::light_yellow()"
+              },
+              "light_pink": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::light_pink()"
+              },
+              "new": {
+                "fn_args": [
+                  {
+                    "r": "u8"
+                  },
+                  {
+                    "g": "u8"
+                  },
+                  {
+                    "b": "u8"
+                  },
+                  {
+                    "a": "u8"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::new(r, g, b, a)"
               }
             },
             "functions": {
@@ -18302,6 +18483,23 @@
                   "type": "bool"
                 },
                 "fn_body": "object.has_alpha()"
+              },
+              "interpolate": {
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "other": "ColorU"
+                  },
+                  {
+                    "t": "f32"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.interpolate(&other, t)"
               }
             },
             "repr": "C"
