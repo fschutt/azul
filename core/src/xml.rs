@@ -3963,7 +3963,7 @@ pub fn compile_body_node_to_rust_code<'a>(
                     if !text.is_empty() {
                         let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
                         dom_string
-                            .push_str(&format!("{}Dom::text(\"{}\".into()),\r\n", t, escaped));
+                            .push_str(&format!("{}Dom::create_text(\"{}\".into()),\r\n", t, escaped));
                     }
                 }
             }
@@ -4268,7 +4268,7 @@ pub fn compile_node_to_rust_code_inner<'a>(
                 } else {
                     let t2 = String::from("    ").repeat(tabs);
                     let escaped = text.replace("\\", "\\\\").replace("\"", "\\\"");
-                    Some(Ok(format!("{}Dom::text(\"{}\".into())", t2, escaped)))
+                    Some(Ok(format!("{}Dom::create_text(\"{}\".into())", t2, escaped)))
                 }
             }
         })
