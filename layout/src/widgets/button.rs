@@ -10,7 +10,7 @@ use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::{
-            color::ColorU,
+            color::{ColorU, ColorOrSystem},
             font::{StyleFontFamily, StyleFontFamilyVec},
             *,
         },
@@ -130,11 +130,11 @@ const WINDOWS_FOCUS_BORDER: ColorU = ColorU {
 const BUTTON_NOMRAL_BACKGROUND_COLOR_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: RGB_239,
+        color: ColorOrSystem::color(RGB_239),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: RGB_229,
+        color: ColorOrSystem::color(RGB_229),
     },
 ];
 // Temporarily use simple color for testing inline rendering
@@ -144,11 +144,11 @@ const BUTTON_NORMAL_BACKGROUND: &[StyleBackgroundContent] =
 const BUTTON_HOVER_BACKGROUND_WINDOWS_COLOR_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: WINDOWS_HOVER_START,
+        color: ColorOrSystem::color(WINDOWS_HOVER_START),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: WINDOWS_HOVER_END,
+        color: ColorOrSystem::color(WINDOWS_HOVER_END),
     },
 ];
 const BUTTON_HOVER_BACKGROUND_WINDOWS: &[StyleBackgroundContent] =
@@ -165,11 +165,11 @@ const BUTTON_HOVER_BACKGROUND_WINDOWS: &[StyleBackgroundContent] =
 const BUTTON_ACTIVE_BACKGROUND_WINDOWS_COLOR_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: WINDOWS_ACTIVE_START,
+        color: ColorOrSystem::color(WINDOWS_ACTIVE_START),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: WINDOWS_ACTIVE_END,
+        color: ColorOrSystem::color(WINDOWS_ACTIVE_END),
     },
 ];
 const BUTTON_ACTIVE_BACKGROUND_WINDOWS: &[StyleBackgroundContent] =
@@ -319,21 +319,21 @@ static BUTTON_CONTAINER_WINDOWS: &[CssPropertyWithConditions] = &[
 const LINUX_NORMAL_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 252,
             g: 252,
             b: 252,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 239,
             g: 239,
             b: 239,
             a: 255,
-        },
+        }),
     },
 ];
 const LINUX_NORMAL_BACKGROUND: &[StyleBackgroundContent] =
@@ -349,21 +349,21 @@ const LINUX_NORMAL_BACKGROUND: &[StyleBackgroundContent] =
 const LINUX_HOVER_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 255,
             g: 255,
             b: 255,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 245,
             g: 245,
             b: 245,
             a: 255,
-        },
+        }),
     },
 ];
 const LINUX_HOVER_BACKGROUND: &[StyleBackgroundContent] =
@@ -379,21 +379,21 @@ const LINUX_HOVER_BACKGROUND: &[StyleBackgroundContent] =
 const LINUX_ACTIVE_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 220,
             g: 220,
             b: 220,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 200,
             g: 200,
             b: 200,
             a: 255,
-        },
+        }),
     },
 ];
 const LINUX_ACTIVE_BACKGROUND: &[StyleBackgroundContent] =
@@ -513,21 +513,21 @@ static BUTTON_CONTAINER_LINUX: &[CssPropertyWithConditions] = &[
 const MAC_NORMAL_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 252,
             g: 252,
             b: 252,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 239,
             g: 239,
             b: 239,
             a: 255,
-        },
+        }),
     },
 ];
 // Temporarily use simple color for testing inline rendering on macOS
@@ -541,21 +541,21 @@ const MAC_NORMAL_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundConten
 const MAC_HOVER_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 255,
             g: 255,
             b: 255,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 245,
             g: 245,
             b: 245,
             a: 255,
-        },
+        }),
     },
 ];
 const MAC_HOVER_BACKGROUND: &[StyleBackgroundContent] =
@@ -571,21 +571,21 @@ const MAC_HOVER_BACKGROUND: &[StyleBackgroundContent] =
 const MAC_ACTIVE_GRADIENT_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 220,
             g: 220,
             b: 220,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 200,
             g: 200,
             b: 200,
             a: 255,
-        },
+        }),
     },
 ];
 const MAC_ACTIVE_BACKGROUND: &[StyleBackgroundContent] =

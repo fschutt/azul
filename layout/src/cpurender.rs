@@ -13,7 +13,7 @@ use azul_core::{
     },
     ui_solver::GlyphInstance,
 };
-use azul_css::props::basic::{ColorU, FontRef};
+use azul_css::props::basic::{ColorU, ColorOrSystem, FontRef};
 use tiny_skia::{Color, FillRule, Paint, Path, PathBuilder, Pixmap, Rect, Transform};
 
 use crate::{
@@ -449,17 +449,21 @@ fn render_display_list(
             } => {
                 // TODO: Implement proper gradient rendering
                 // For now, render a placeholder with the first stop color
+                let default_color = ColorU {
+                    r: 128,
+                    g: 128,
+                    b: 128,
+                    a: 255,
+                };
                 let color = gradient
                     .stops
                     .as_ref()
                     .first()
-                    .map(|s| s.color)
-                    .unwrap_or(ColorU {
-                        r: 128,
-                        g: 128,
-                        b: 128,
-                        a: 255,
-                    });
+                    .map(|s| match s.color {
+                        ColorOrSystem::Color(c) => c,
+                        ColorOrSystem::System(_) => default_color,
+                    })
+                    .unwrap_or(default_color);
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
                 render_rect(
@@ -478,17 +482,21 @@ fn render_display_list(
                 border_radius,
             } => {
                 // TODO: Implement proper radial gradient rendering
+                let default_color = ColorU {
+                    r: 128,
+                    g: 128,
+                    b: 128,
+                    a: 255,
+                };
                 let color = gradient
                     .stops
                     .as_ref()
                     .first()
-                    .map(|s| s.color)
-                    .unwrap_or(ColorU {
-                        r: 128,
-                        g: 128,
-                        b: 128,
-                        a: 255,
-                    });
+                    .map(|s| match s.color {
+                        ColorOrSystem::Color(c) => c,
+                        ColorOrSystem::System(_) => default_color,
+                    })
+                    .unwrap_or(default_color);
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
                 render_rect(
@@ -507,17 +515,21 @@ fn render_display_list(
                 border_radius,
             } => {
                 // TODO: Implement proper conic gradient rendering
+                let default_color = ColorU {
+                    r: 128,
+                    g: 128,
+                    b: 128,
+                    a: 255,
+                };
                 let color = gradient
                     .stops
                     .as_ref()
                     .first()
-                    .map(|s| s.color)
-                    .unwrap_or(ColorU {
-                        r: 128,
-                        g: 128,
-                        b: 128,
-                        a: 255,
-                    });
+                    .map(|s| match s.color {
+                        ColorOrSystem::Color(c) => c,
+                        ColorOrSystem::System(_) => default_color,
+                    })
+                    .unwrap_or(default_color);
                 let transform = transform_stack.last().unwrap();
                 let clip = clip_stack.last().unwrap();
                 render_rect(

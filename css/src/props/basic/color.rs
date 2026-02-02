@@ -313,6 +313,16 @@ impl From<ColorU> for ColorOrSystem {
 }
 
 impl ColorOrSystem {
+    /// Create a new ColorOrSystem from a concrete color.
+    pub const fn color(c: ColorU) -> Self {
+        ColorOrSystem::Color(c)
+    }
+    
+    /// Create a new ColorOrSystem from a system color reference.
+    pub const fn system(s: SystemColorRef) -> Self {
+        ColorOrSystem::System(s)
+    }
+    
     /// Resolve the color against a SystemColors struct.
     /// Returns the system color if available, or falls back to the provided default.
     pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
@@ -320,6 +330,20 @@ impl ColorOrSystem {
             ColorOrSystem::Color(c) => *c,
             ColorOrSystem::System(ref_type) => ref_type.resolve(system_colors, fallback),
         }
+    }
+    
+    /// Returns the concrete color if available, or a default fallback for system colors.
+    /// Use this when SystemColors is not available (e.g., during rendering setup).
+    pub fn to_color_u_with_fallback(&self, fallback: ColorU) -> ColorU {
+        match self {
+            ColorOrSystem::Color(c) => *c,
+            ColorOrSystem::System(_) => fallback,
+        }
+    }
+    
+    /// Returns the concrete color if available, or a gray fallback for system colors.
+    pub fn to_color_u_default(&self) -> ColorU {
+        self.to_color_u_with_fallback(ColorU { r: 128, g: 128, b: 128, a: 255 })
     }
 }
 
@@ -1059,5 +1083,99 @@ mod tests {
         assert!(parse_css_color("hsl(0, 100, 50%)").is_ok()); // Valid in modern CSS
         assert!(parse_css_color("rgb(255 0 0)").is_err()); // Missing commas (this implementation
                                                            // requires commas)
+    }
+
+    #[test]
+    fn test_parse_system_colors() {
+        // Test parsing system color syntax
+        assert_eq!(
+            parse_color_or_system("system:accent").unwrap(),
+            ColorOrSystem::System(SystemColorRef::Accent)
+        );
+        assert_eq!(
+            parse_color_or_system("system:text").unwrap(),
+            ColorOrSystem::System(SystemColorRef::Text)
+        );
+        assert_eq!(
+            parse_color_or_system("system:background").unwrap(),
+            ColorOrSystem::System(SystemColorRef::Background)
+        );
+        assert_eq!(
+            parse_color_or_system("system:selection-background").unwrap(),
+            ColorOrSystem::System(SystemColorRef::SelectionBackground)
+        );
+        assert_eq!(
+            parse_color_or_system("system:selection-text").unwrap(),
+            ColorOrSystem::System(SystemColorRef::SelectionText)
+        );
+        assert_eq!(
+            parse_color_or_system("system:accent-text").unwrap(),
+            ColorOrSystem::System(SystemColorRef::AccentText)
+        );
+        assert_eq!(
+            parse_color_or_system("system:button-face").unwrap(),
+            ColorOrSystem::System(SystemColorRef::ButtonFace)
+        );
+        assert_eq!(
+            parse_color_or_system("system:button-text").unwrap(),
+            ColorOrSystem::System(SystemColorRef::ButtonText)
+        );
+        assert_eq!(
+            parse_color_or_system("system:window-background").unwrap(),
+            ColorOrSystem::System(SystemColorRef::WindowBackground)
+        );
+        
+        // Invalid system color should error
+        assert!(parse_color_or_system("system:invalid").is_err());
+        
+        // Regular colors should still work
+        assert_eq!(
+            parse_color_or_system("red").unwrap(),
+            ColorOrSystem::Color(ColorU::RED)
+        );
+        assert_eq!(
+            parse_color_or_system("#ff0000").unwrap(),
+            ColorOrSystem::Color(ColorU::RED)
+        );
+    }
+
+    #[test]
+    fn test_system_color_resolution() {
+        use crate::system::SystemColors;
+        
+        let system_colors = SystemColors {
+            text: OptionColorU::Some(ColorU::BLACK),
+            background: OptionColorU::Some(ColorU::WHITE),
+            accent: OptionColorU::Some(ColorU::new_rgb(0, 122, 255)), // macOS blue
+            accent_text: OptionColorU::Some(ColorU::WHITE),
+            button_face: OptionColorU::Some(ColorU::new_rgb(240, 240, 240)),
+            button_text: OptionColorU::Some(ColorU::BLACK),
+            window_background: OptionColorU::Some(ColorU::WHITE),
+            selection_background: OptionColorU::Some(ColorU::new_rgb(0, 120, 215)),
+            selection_text: OptionColorU::Some(ColorU::WHITE),
+        };
+        
+        // Test resolution of system colors
+        let accent_ref = ColorOrSystem::System(SystemColorRef::Accent);
+        let resolved = accent_ref.resolve(&system_colors, ColorU::GRAY);
+        assert_eq!(resolved, ColorU::new_rgb(0, 122, 255));
+        
+        // Test resolution with fallback when color is not set
+        let empty_colors = SystemColors::default();
+        let resolved_fallback = accent_ref.resolve(&empty_colors, ColorU::GRAY);
+        assert_eq!(resolved_fallback, ColorU::GRAY);
+        
+        // Test that concrete colors just return themselves
+        let concrete = ColorOrSystem::Color(ColorU::RED);
+        let resolved_concrete = concrete.resolve(&system_colors, ColorU::GRAY);
+        assert_eq!(resolved_concrete, ColorU::RED);
+    }
+
+    #[test]
+    fn test_system_color_css_str() {
+        assert_eq!(SystemColorRef::Accent.as_css_str(), "system:accent");
+        assert_eq!(SystemColorRef::Text.as_css_str(), "system:text");
+        assert_eq!(SystemColorRef::Background.as_css_str(), "system:background");
+        assert_eq!(SystemColorRef::SelectionBackground.as_css_str(), "system:selection-background");
     }
 }

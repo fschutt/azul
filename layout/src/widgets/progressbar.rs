@@ -47,131 +47,131 @@ const STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS: &[StyleBackgroundCont
 const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 193,
             g: 255,
             b: 187,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(10),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 205,
             g: 255,
             b: 205,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(15),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 156,
             g: 238,
             b: 172,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(20),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 0,
             g: 211,
             b: 40,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(30),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 0,
             g: 211,
             b: 40,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(70),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 32,
             g: 219,
             b: 65,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 32,
             g: 219,
             b: 65,
             a: 255,
-        },
+        }),
     },
 ];
 const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 243,
             g: 243,
             b: 243,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(10),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 252,
             g: 252,
             b: 252,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(15),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 218,
             g: 218,
             b: 218,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(20),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 201,
             g: 201,
             b: 201,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(30),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 218,
             g: 218,
             b: 218,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(70),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 203,
             g: 203,
             b: 203,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 203,
             g: 203,
             b: 203,
             a: 255,
-        },
+        }),
     },
 ];
 

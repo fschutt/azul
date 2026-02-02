@@ -1107,70 +1107,70 @@ fn render_node(
     const LINEAR_COLOR_STOP_4373556077110009258_ITEMS: &[NormalizedLinearColorStop] = &[
         NormalizedLinearColorStop {
             offset: PercentageValue::const_new(20),
-            color: ColorU {
+            color: ColorOrSystem::color(ColorU {
                 r: 0,
                 g: 0,
                 b: 0,
                 a: 204,
-            },
+            }),
         },
         NormalizedLinearColorStop {
             offset: PercentageValue::const_new(100),
-            color: ColorU {
+            color: ColorOrSystem::color(ColorU {
                 r: 0,
                 g: 0,
                 b: 0,
                 a: 0,
-            },
+            }),
         },
     ];
     const LINEAR_COLOR_STOP_7397113864565941600_ITEMS: &[NormalizedLinearColorStop] = &[
         NormalizedLinearColorStop {
             offset: PercentageValue::const_new(0),
-            color: ColorU {
+            color: ColorOrSystem::color(ColorU {
                 r: 229,
                 g: 57,
                 b: 53,
                 a: 255,
-            },
+            }),
         },
         NormalizedLinearColorStop {
             offset: PercentageValue::const_new(100),
-            color: ColorU {
+            color: ColorOrSystem::color(ColorU {
                 r: 227,
                 g: 93,
                 b: 91,
                 a: 255,
-            },
+            }),
         },
     ];
     const LINEAR_COLOR_STOP_15596411095679453272_ITEMS: &[NormalizedLinearColorStop] = &[
         NormalizedLinearColorStop {
             offset: PercentageValue::const_new(0),
-            color: ColorU {
+            color: ColorOrSystem::color(ColorU {
                 r: 47,
                 g: 49,
                 b: 54,
                 a: 255,
-            },
+            }),
         },
         NormalizedLinearColorStop {
             offset: PercentageValue::const_new(50),
-            color: ColorU {
+            color: ColorOrSystem::color(ColorU {
                 r: 47,
                 g: 49,
                 b: 54,
                 a: 255,
-            },
+            }),
         },
         NormalizedLinearColorStop {
             offset: PercentageValue::const_new(100),
-            color: ColorU {
+            color: ColorOrSystem::color(ColorU {
                 r: 32,
                 g: 34,
                 b: 37,
                 a: 255,
-            },
+            }),
         },
     ];
 

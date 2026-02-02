@@ -60,21 +60,21 @@ const STYLE_FONT_FAMILY_18001933966972968559_ITEMS: &[StyleFontFamily] =
 const LINEAR_COLOR_STOP_8524009933333352376_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 250,
             g: 251,
             b: 251,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 227,
             g: 227,
             b: 227,
             a: 255,
-        },
+        }),
     },
 ];
 

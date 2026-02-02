@@ -351,6 +351,27 @@ pub fn format_color_value(c: &ColorU) -> String {
     )
 }
 
+pub fn format_color_or_system(c: &crate::props::basic::color::ColorOrSystem) -> String {
+    use crate::props::basic::color::{ColorOrSystem, SystemColorRef};
+    match c {
+        ColorOrSystem::Color(color) => format!("ColorOrSystem::Color({})", format_color_value(color)),
+        ColorOrSystem::System(system_ref) => {
+            let variant = match system_ref {
+                SystemColorRef::Text => "Text",
+                SystemColorRef::Background => "Background",
+                SystemColorRef::Accent => "Accent",
+                SystemColorRef::AccentText => "AccentText",
+                SystemColorRef::ButtonFace => "ButtonFace",
+                SystemColorRef::ButtonText => "ButtonText",
+                SystemColorRef::WindowBackground => "WindowBackground",
+                SystemColorRef::SelectionBackground => "SelectionBackground",
+                SystemColorRef::SelectionText => "SelectionText",
+            };
+            format!("ColorOrSystem::System(SystemColorRef::{})", variant)
+        }
+    }
+}
+
 // Macro implementations for common patterns
 
 macro_rules! impl_float_value_fmt {
@@ -791,7 +812,7 @@ fn format_linear_color_stop(g: &NormalizedLinearColorStop) -> String {
     format!(
         "NormalizedLinearColorStop {{ offset: {}, color: {} }}",
         format_percentage_value(&g.offset),
-        format_color_value(&g.color),
+        format_color_or_system(&g.color),
     )
 }
 
@@ -808,7 +829,7 @@ fn format_radial_color_stop(g: &NormalizedRadialColorStop) -> String {
     format!(
         "RadialColorStop {{ angle: {}, color: {} }}",
         format_angle_value(&g.angle),
-        format_color_value(&g.color),
+        format_color_or_system(&g.color),
     )
 }
 

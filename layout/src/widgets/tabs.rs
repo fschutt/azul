@@ -52,41 +52,41 @@ const STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
 const LINEAR_COLOR_STOP_1400070954008106244_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 240,
             g: 240,
             b: 240,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 229,
             g: 229,
             b: 229,
             a: 255,
-        },
+        }),
     },
 ];
 const LINEAR_COLOR_STOP_16259001466875079747_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 236,
             g: 244,
             b: 252,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 221,
             g: 237,
             b: 252,
             a: 255,
-        },
+        }),
     },
 ];
 

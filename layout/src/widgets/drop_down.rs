@@ -73,61 +73,61 @@ const STYLE_FONT_FAMILY_18001933966972968559_ITEMS: &[StyleFontFamily] =
 const LINEAR_COLOR_STOP_1400070954008106244_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 240,
             g: 240,
             b: 240,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 229,
             g: 229,
             b: 229,
             a: 255,
-        },
+        }),
     },
 ];
 const LINEAR_COLOR_STOP_8010235203234495977_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 218,
             g: 236,
             b: 252,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 196,
             g: 224,
             b: 252,
             a: 255,
-        },
+        }),
     },
 ];
 const LINEAR_COLOR_STOP_8909964754681718371_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 235,
             g: 244,
             b: 252,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 220,
             g: 236,
             b: 252,
             a: 255,
-        },
+        }),
     },
 ];
 

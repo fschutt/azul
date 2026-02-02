@@ -14,6 +14,7 @@ use crate::props::basic::{
         parse_parentheses, split_string_respect_comma, ParenthesisParseError,
         ParenthesisParseErrorOwned,
     },
+    color::parse_color_or_system,
 };
 use crate::{
     corety::AzString,
@@ -24,7 +25,7 @@ use crate::{
                 parse_angle_value, AngleValue, CssAngleValueParseError,
                 CssAngleValueParseErrorOwned, OptionAngleValue,
             },
-            color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
+            color::{parse_css_color, ColorU, ColorOrSystem, CssColorParseError, CssColorParseErrorOwned},
             direction::{
                 parse_direction, CssDirectionParseError, CssDirectionParseErrorOwned, Direction,
             },
@@ -331,7 +332,30 @@ impl fmt::Display for RadialGradientSize {
 #[repr(C)]
 pub struct NormalizedLinearColorStop {
     pub offset: PercentageValue,
-    pub color: ColorU,
+    /// Color for this gradient stop. Can be a concrete color or a system color reference.
+    pub color: ColorOrSystem,
+}
+
+impl NormalizedLinearColorStop {
+    /// Create a new normalized linear color stop with a concrete color.
+    pub const fn new(offset: PercentageValue, color: ColorU) -> Self {
+        Self { offset, color: ColorOrSystem::color(color) }
+    }
+    
+    /// Create a new normalized linear color stop with a system color.
+    pub const fn system(offset: PercentageValue, system_ref: crate::props::basic::color::SystemColorRef) -> Self {
+        Self { offset, color: ColorOrSystem::system(system_ref) }
+    }
+    
+    /// Create a normalized linear color stop with a ColorOrSystem directly.
+    pub const fn with_color_or_system(offset: PercentageValue, color: ColorOrSystem) -> Self {
+        Self { offset, color }
+    }
+    
+    /// Resolve the color against system colors.
+    pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
+        self.color.resolve(system_colors, fallback)
+    }
 }
 
 impl_option!(
@@ -354,7 +378,10 @@ impl_vec_eq!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
 impl_vec_hash!(NormalizedLinearColorStop, NormalizedLinearColorStopVec);
 impl PrintAsCssValue for NormalizedLinearColorStop {
     fn print_as_css_value(&self) -> String {
-        format!("{} {}", self.color.to_hash(), self.offset)
+        match &self.color {
+            ColorOrSystem::Color(c) => format!("{} {}", c.to_hash(), self.offset),
+            ColorOrSystem::System(s) => format!("{} {}", s.as_css_str(), self.offset),
+        }
     }
 }
 
@@ -362,7 +389,30 @@ impl PrintAsCssValue for NormalizedLinearColorStop {
 #[repr(C)]
 pub struct NormalizedRadialColorStop {
     pub angle: AngleValue,
-    pub color: ColorU,
+    /// Color for this gradient stop. Can be a concrete color or a system color reference.
+    pub color: ColorOrSystem,
+}
+
+impl NormalizedRadialColorStop {
+    /// Create a new normalized radial color stop with a concrete color.
+    pub const fn new(angle: AngleValue, color: ColorU) -> Self {
+        Self { angle, color: ColorOrSystem::color(color) }
+    }
+    
+    /// Create a new normalized radial color stop with a system color.
+    pub const fn system(angle: AngleValue, system_ref: crate::props::basic::color::SystemColorRef) -> Self {
+        Self { angle, color: ColorOrSystem::system(system_ref) }
+    }
+    
+    /// Create a normalized radial color stop with a ColorOrSystem directly.
+    pub const fn with_color_or_system(angle: AngleValue, color: ColorOrSystem) -> Self {
+        Self { angle, color }
+    }
+    
+    /// Resolve the color against system colors.
+    pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
+        self.color.resolve(system_colors, fallback)
+    }
 }
 
 impl_option!(
@@ -385,7 +435,10 @@ impl_vec_eq!(NormalizedRadialColorStop, NormalizedRadialColorStopVec);
 impl_vec_hash!(NormalizedRadialColorStop, NormalizedRadialColorStopVec);
 impl PrintAsCssValue for NormalizedRadialColorStop {
     fn print_as_css_value(&self) -> String {
-        format!("{} {}", self.color.to_hash(), self.angle)
+        match &self.color {
+            ColorOrSystem::Color(c) => format!("{} {}", c.to_hash(), self.angle),
+            ColorOrSystem::System(s) => format!("{} {}", s.as_css_str(), self.angle),
+        }
     }
 }
 
@@ -395,9 +448,11 @@ impl PrintAsCssValue for NormalizedRadialColorStop {
 /// - `red` (no position)
 /// - `red 50%` (one position)
 /// - `red 10% 30%` (two positions - creates two stops at same color)
+/// 
+/// Supports system colors like `system:accent` for theme-aware gradients.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LinearColorStop {
-    pub color: ColorU,
+    pub color: ColorOrSystem,
     /// First position (optional)
     pub offset1: OptionPercentageValue,
     /// Second position (optional, only valid if offset1 is Some)
@@ -411,9 +466,11 @@ pub struct LinearColorStop {
 /// - `red` (no position)
 /// - `red 90deg` (one position)
 /// - `red 45deg 90deg` (two positions - creates two stops at same color)
+/// 
+/// Supports system colors like `system:accent` for theme-aware gradients.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RadialColorStop {
-    pub color: ColorU,
+    pub color: ColorOrSystem,
     /// First position (optional)
     pub offset1: OptionAngleValue,
     /// Second position (optional, only valid if offset1 is Some)
@@ -1314,13 +1371,15 @@ mod parser {
     /// - "red" (no position)
     /// - "red 5%" (one position)
     /// - "red 10% 30%" (two positions - creates a hard color band)
+    /// 
+    /// Also supports system colors like `system:accent 50%` for theme-aware gradients.
     fn parse_linear_color_stop<'a>(
         input: &'a str,
     ) -> Result<LinearColorStop, CssGradientStopParseError<'a>> {
         let input = input.trim();
         let (color_str, offset1_str, offset2_str) = split_color_and_offsets(input);
 
-        let color = parse_css_color(color_str)?;
+        let color = parse_color_or_system(color_str)?;
         let offset1 = match offset1_str {
             None => OptionPercentageValue::None,
             Some(s) => OptionPercentageValue::Some(
@@ -1345,13 +1404,15 @@ mod parser {
     /// - "red" (no position)
     /// - "red 90deg" (one position)
     /// - "red 45deg 90deg" (two positions - creates a hard color band)
+    /// 
+    /// Also supports system colors like `system:accent 90deg` for theme-aware gradients.
     fn parse_radial_color_stop<'a>(
         input: &'a str,
     ) -> Result<RadialColorStop, CssGradientStopParseError<'a>> {
         let input = input.trim();
         let (color_str, offset1_str, offset2_str) = split_color_and_offsets(input);
 
-        let color = parse_css_color(color_str)?;
+        let color = parse_color_or_system(color_str)?;
         let offset1 = match offset1_str {
             None => OptionAngleValue::None,
             Some(s) => OptionAngleValue::Some(
@@ -1462,6 +1523,8 @@ mod parser {
     /// 2. Default positions (first=0%, last=100%)
     /// 3. Enforcing ascending order (positions < previous are clamped)
     /// 4. Distributing unpositioned stops evenly between neighbors
+    /// 
+    /// System colors (like `system:accent`) are preserved and resolved later at render time.
     fn get_normalized_linear_stops(stops: &[LinearColorStop]) -> Vec<NormalizedLinearColorStop> {
         if stops.is_empty() {
             return Vec::new();
@@ -1469,7 +1532,7 @@ mod parser {
 
         // Phase 1: Expand multi-position stops and create intermediate list
         // Each entry is (color, Option<percentage>)
-        let mut expanded: Vec<(ColorU, Option<PercentageValue>)> = Vec::new();
+        let mut expanded: Vec<(ColorOrSystem, Option<PercentageValue>)> = Vec::new();
 
         for stop in stops {
             match (stop.offset1.into_option(), stop.offset2.into_option()) {
@@ -1575,13 +1638,15 @@ mod parser {
     /// 2. Default positions (first=0deg, last=360deg for conic)
     /// 3. Enforcing ascending order (positions < previous are clamped)
     /// 4. Distributing unpositioned stops evenly between neighbors
+    /// 
+    /// System colors (like `system:accent`) are preserved and resolved later at render time.
     fn get_normalized_radial_stops(stops: &[RadialColorStop]) -> Vec<NormalizedRadialColorStop> {
         if stops.is_empty() {
             return Vec::new();
         }
 
         // Phase 1: Expand multi-position stops
-        let mut expanded: Vec<(ColorU, Option<AngleValue>)> = Vec::new();
+        let mut expanded: Vec<(ColorOrSystem, Option<AngleValue>)> = Vec::new();
 
         for stop in stops {
             match (stop.offset1.into_option(), stop.offset2.into_option()) {

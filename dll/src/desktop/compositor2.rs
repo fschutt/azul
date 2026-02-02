@@ -1394,7 +1394,7 @@ pub fn translate_displaylist_to_wr(
                         WrGradientStop {
                             offset: stop.offset.normalized(), // normalized() returns 0-1 range
                             color: wr_translate_color_f(
-                                azul_css::props::basic::color::ColorF::from(stop.color),
+                                azul_css::props::basic::color::ColorF::from(stop.color.to_color_u_default()),
                             ),
                         }
                     })
@@ -1552,7 +1552,7 @@ pub fn translate_displaylist_to_wr(
                     .map(|stop| WrGradientStop {
                         offset: stop.offset.normalized(),
                         color: wr_translate_color_f(azul_css::props::basic::color::ColorF::from(
-                            stop.color,
+                            stop.color.to_color_u_default(),
                         )),
                     })
                     .collect();
@@ -1637,7 +1637,7 @@ pub fn translate_displaylist_to_wr(
                             offset: stop.angle.to_degrees_raw() / 360.0, /* Convert angle to 0-1
                                                                           * range */
                             color: wr_translate_color_f(
-                                azul_css::props::basic::color::ColorF::from(stop.color),
+                                azul_css::props::basic::color::ColorF::from(stop.color.to_color_u_default()),
                             ),
                         }
                     })

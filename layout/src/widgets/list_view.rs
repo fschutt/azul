@@ -105,77 +105,77 @@ const STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
 const LINEAR_COLOR_STOP_513857305091467054_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 255,
             g: 255,
             b: 255,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(50),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 255,
             g: 255,
             b: 255,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(51),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 247,
             g: 248,
             b: 250,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 243,
             g: 244,
             b: 246,
             a: 255,
-        },
+        }),
     },
 ];
 const LINEAR_COLOR_STOP_10827796861537038040_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(0),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 247,
             g: 252,
             b: 254,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(50),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 247,
             g: 252,
             b: 254,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(51),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 232,
             g: 246,
             b: 254,
             a: 255,
-        },
+        }),
     },
     NormalizedLinearColorStop {
         offset: PercentageValue::const_new(100),
-        color: ColorU {
+        color: ColorOrSystem::color(ColorU {
             r: 206,
             g: 231,
             b: 244,
             a: 255,
-        },
+        }),
     },
 ];
 
