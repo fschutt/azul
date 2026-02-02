@@ -2917,9 +2917,10 @@ impl NodeData {
     }
 
     /// Parse CSS from a string and add as unconditional properties
+    /// 
+    /// Deprecated: Use `set_css()` for full selector support
     pub fn set_inline_style(&mut self, style: &str) {
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        let parsed = CssPropertyWithConditionsVec::parse_normal(style);
+        let parsed = CssPropertyWithConditionsVec::parse(style);
         let mut current = Vec::new().into();
         mem::swap(&mut current, &mut self.css_props);
         let mut v = current.into_library_owned_vec();
@@ -2928,12 +2929,47 @@ impl NodeData {
     }
 
     /// Builder method for setting inline CSS styles for the normal state
+    /// 
+    /// Deprecated: Use `with_css()` for full selector support
     pub fn with_inline_style(mut self, style: &str) -> Self {
         self.set_inline_style(style);
         self
     }
+    
+    /// Parse and set CSS styles with full selector support.
+    /// 
+    /// This is the unified API for setting inline CSS on a node. It supports:
+    /// - Simple properties: `color: red; font-size: 14px;`
+    /// - Pseudo-selectors: `:hover { background: blue; }`
+    /// - @-rules: `@os linux { font-size: 14px; }`
+    /// - Nesting: `@os linux { font-size: 14px; :hover { color: red; }}`
+    /// 
+    /// # Examples
+    /// ```rust
+    /// NodeData::create_div().with_css("
+    ///     color: blue;
+    ///     :hover { color: red; }
+    ///     @os linux { font-size: 14px; }
+    /// ")
+    /// ```
+    pub fn set_css(&mut self, style: &str) {
+        let parsed = CssPropertyWithConditionsVec::parse(style);
+        let mut current = Vec::new().into();
+        mem::swap(&mut current, &mut self.css_props);
+        let mut v = current.into_library_owned_vec();
+        v.extend(parsed.into_library_owned_vec());
+        self.css_props = v.into();
+    }
+    
+    /// Builder method for `set_css`
+    pub fn with_css(mut self, style: &str) -> Self {
+        self.set_css(style);
+        self
+    }
 
     /// Sets inline CSS styles for the hover state, parsing from a CSS string
+    /// 
+    /// Deprecated: Use `with_css(":hover { ... }")` instead
     pub fn set_inline_hover_style(&mut self, style: &str) {
         let parsed = CssPropertyWithConditionsVec::parse_hover(style);
         let mut current = Vec::new().into();
@@ -2944,12 +2980,16 @@ impl NodeData {
     }
 
     /// Builder method for setting inline CSS styles for the hover state
+    /// 
+    /// Deprecated: Use `with_css(":hover { ... }")` instead
     pub fn with_inline_hover_style(mut self, style: &str) -> Self {
         self.set_inline_hover_style(style);
         self
     }
 
     /// Sets inline CSS styles for the active state, parsing from a CSS string
+    /// 
+    /// Deprecated: Use `with_css(":active { ... }")` instead
     pub fn set_inline_active_style(&mut self, style: &str) {
         let parsed = CssPropertyWithConditionsVec::parse_active(style);
         let mut current = Vec::new().into();
@@ -2960,12 +3000,16 @@ impl NodeData {
     }
 
     /// Builder method for setting inline CSS styles for the active state
+    /// 
+    /// Deprecated: Use `with_css(":active { ... }")` instead
     pub fn with_inline_active_style(mut self, style: &str) -> Self {
         self.set_inline_active_style(style);
         self
     }
 
     /// Sets inline CSS styles for the focus state, parsing from a CSS string
+    /// 
+    /// Deprecated: Use `with_css(":focus { ... }")` instead
     pub fn set_inline_focus_style(&mut self, style: &str) {
         let parsed = CssPropertyWithConditionsVec::parse_focus(style);
         let mut current = Vec::new().into();
@@ -2976,6 +3020,8 @@ impl NodeData {
     }
 
     /// Builder method for setting inline CSS styles for the focus state
+    /// 
+    /// Deprecated: Use `with_css(":focus { ... }")` instead
     pub fn with_inline_focus_style(mut self, style: &str) -> Self {
         self.set_inline_focus_style(style);
         self
@@ -4902,8 +4948,52 @@ impl Dom {
         self.set_inline_style(style);
         self
     }
+    
+    /// Parse and set CSS styles with full selector support.
+    /// 
+    /// This is the unified API for setting inline CSS on a DOM node. It supports:
+    /// - Simple properties: `color: red; font-size: 14px;`
+    /// - Pseudo-selectors: `:hover { background: blue; }`
+    /// - @-rules: `@os linux { font-size: 14px; }`
+    /// - Nesting: `@os linux { font-size: 14px; :hover { color: red; }}`
+    /// 
+    /// # Examples
+    /// ```rust
+    /// // Simple inline styles
+    /// Dom::create_div().with_css("color: red; font-size: 14px;")
+    /// 
+    /// // With hover and active states
+    /// Dom::create_div().with_css("
+    ///     color: blue;
+    ///     :hover { color: red; }
+    ///     :active { color: green; }
+    /// ")
+    /// 
+    /// // OS-specific with nested hover
+    /// Dom::create_div().with_css("
+    ///     font-size: 12px;
+    ///     @os linux { font-size: 14px; :hover { color: red; }}
+    ///     @os windows { font-size: 13px; }
+    /// ")
+    /// ```
+    pub fn set_css(&mut self, style: &str) {
+        let parsed = CssPropertyWithConditionsVec::parse(style);
+        let mut current = Vec::new().into();
+        mem::swap(&mut current, &mut self.root.css_props);
+        let mut v = current.into_library_owned_vec();
+        v.extend(parsed.into_library_owned_vec());
+        self.root.css_props = v.into();
+    }
+    
+    /// Builder method for `set_css`
+    pub fn with_css(mut self, style: &str) -> Self {
+        self.set_css(style);
+        self
+    }
 
     /// Sets inline CSS styles for the hover state on the root node
+    /// 
+    /// Deprecated: Use `with_css(":hover { ... }")` instead
     pub fn set_inline_hover_style(&mut self, style: &str) {
         self.root.set_inline_hover_style(style);
     }

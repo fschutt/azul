@@ -104,6 +104,22 @@ impl MinMaxRange {
             max: if let Some(m) = max { m } else { f32::NAN },
         }
     }
+    
+    /// Create a range with only a minimum value (>= min)
+    pub const fn with_min(min_val: f32) -> Self {
+        Self {
+            min: min_val,
+            max: f32::NAN,
+        }
+    }
+    
+    /// Create a range with only a maximum value (<= max)
+    pub const fn with_max(max_val: f32) -> Self {
+        Self {
+            min: f32::NAN,
+            max: max_val,
+        }
+    }
 
     pub fn min(&self) -> Option<f32> {
         if self.min.is_nan() {
@@ -1097,9 +1113,33 @@ impl core::hash::Hash for CssPropertyWithConditionsVec {
 }
 
 impl CssPropertyWithConditionsVec {
-    /// Parse CSS properties from a string, all with "normal" (unconditional) state
+    /// Parse CSS with support for selectors and nesting.
+    /// 
+    /// Supports:
+    /// - Simple properties: `color: red;`
+    /// - Pseudo-selectors: `:hover { background: blue; }`
+    /// - @-rules: `@os linux { font-size: 14px; }`
+    /// - Nesting: `@os linux { font-size: 14px; :hover { color: red; }}`
+    /// 
+    /// Examples:
+    /// ```ignore
+    /// // Simple inline styles
+    /// CssPropertyWithConditionsVec::parse("color: red; font-size: 14px;")
+    /// 
+    /// // With hover state
+    /// CssPropertyWithConditionsVec::parse(":hover { background: blue; }")
+    /// 
+    /// // OS-specific with nested hover
+    /// CssPropertyWithConditionsVec::parse("@os linux { font-size: 14px; :hover { color: red; }}")
+    /// ```
     #[cfg(feature = "parser")]
-    pub fn parse_normal(style: &str) -> Self {
+    pub fn parse(style: &str) -> Self {
+        Self::parse_with_conditions(style, Vec::new())
+    }
+    
+    /// Internal recursive parser with inherited conditions
+    #[cfg(feature = "parser")]
+    fn parse_with_conditions(style: &str, inherited_conditions: Vec<DynamicSelector>) -> Self {
         use crate::props::property::{
             parse_combined_css_property, parse_css_property, CombinedCssPropertyType, CssKeyMap,
             CssPropertyType,
@@ -1107,154 +1147,328 @@ impl CssPropertyWithConditionsVec {
 
         let mut props = Vec::new();
         let key_map = CssKeyMap::get();
+        let style = style.trim();
+        
+        if style.is_empty() {
+            return CssPropertyWithConditionsVec::from_vec(props);
+        }
 
-        // Simple CSS parsing: split by semicolons and parse key:value pairs
-        for pair in style.split(';') {
-            let pair = pair.trim();
-            if pair.is_empty() {
-                continue;
-            }
-            if let Some((key, value)) = pair.split_once(':') {
-                let key = key.trim();
-                let value = value.trim();
-                // First, try to parse as a regular (non-shorthand) property
-                if let Some(prop_type) = CssPropertyType::from_str(key, &key_map) {
-                    if let Ok(prop) = parse_css_property(prop_type, value) {
-                        props.push(CssPropertyWithConditions::simple(prop));
-                        continue;
-                    }
+        // Tokenize into segments: properties, pseudo-selectors, and @-rules
+        let mut chars = style.chars().peekable();
+        let mut current_segment = String::new();
+        let mut brace_depth = 0;
+        
+        while let Some(c) = chars.next() {
+            match c {
+                '{' => {
+                    brace_depth += 1;
+                    current_segment.push(c);
                 }
-                // If not found, try as a shorthand (combined) property (e.g., overflow, margin, padding)
-                if let Some(combined_type) = CombinedCssPropertyType::from_str(key, &key_map) {
-                    if let Ok(expanded_props) = parse_combined_css_property(combined_type, value) {
-                        for prop in expanded_props {
-                            props.push(CssPropertyWithConditions::simple(prop));
+                '}' => {
+                    brace_depth -= 1;
+                    current_segment.push(c);
+                    
+                    if brace_depth == 0 {
+                        // End of a block - process it
+                        let segment = current_segment.trim().to_string();
+                        current_segment.clear();
+                        
+                        if let Some(parsed) = Self::parse_block_segment(&segment, &inherited_conditions, &key_map) {
+                            props.extend(parsed);
                         }
                     }
                 }
+                ';' if brace_depth == 0 => {
+                    // End of a simple property
+                    let segment = current_segment.trim().to_string();
+                    current_segment.clear();
+                    
+                    if !segment.is_empty() {
+                        if let Some(parsed) = Self::parse_property_segment(&segment, &inherited_conditions, &key_map) {
+                            props.extend(parsed);
+                        }
+                    }
+                }
+                _ => {
+                    current_segment.push(c);
+                }
+            }
+        }
+        
+        // Handle any remaining segment (property without trailing semicolon)
+        let remaining = current_segment.trim();
+        if !remaining.is_empty() && !remaining.contains('{') {
+            if let Some(parsed) = Self::parse_property_segment(remaining, &inherited_conditions, &key_map) {
+                props.extend(parsed);
             }
         }
 
         CssPropertyWithConditionsVec::from_vec(props)
+    }
+    
+    /// Parse a block segment like `:hover { ... }` or `@os linux { ... }`
+    #[cfg(feature = "parser")]
+    fn parse_block_segment(
+        segment: &str,
+        inherited_conditions: &[DynamicSelector],
+        key_map: &crate::props::property::CssKeyMap,
+    ) -> Option<Vec<CssPropertyWithConditions>> {
+        // Find the opening brace
+        let brace_pos = segment.find('{')?;
+        let selector = segment[..brace_pos].trim();
+        
+        // Extract content between braces (excluding the braces themselves)
+        let content_start = brace_pos + 1;
+        let content_end = segment.rfind('}')?;
+        if content_end <= content_start {
+            return None;
+        }
+        let content = &segment[content_start..content_end];
+        
+        // Parse selector to get conditions
+        let mut conditions = inherited_conditions.to_vec();
+        
+        if let Some(new_conditions) = Self::parse_selector_to_conditions(selector) {
+            conditions.extend(new_conditions);
+        } else {
+            // Unknown selector, skip this block
+            return None;
+        }
+        
+        // Recursively parse the content with the new conditions
+        let parsed = Self::parse_with_conditions(content, conditions);
+        Some(parsed.into_library_owned_vec())
+    }
+    
+    /// Parse a selector string into DynamicSelector conditions
+    #[cfg(feature = "parser")]
+    fn parse_selector_to_conditions(selector: &str) -> Option<Vec<DynamicSelector>> {
+        let selector = selector.trim();
+        
+        // Handle pseudo-selectors
+        if selector.starts_with(':') {
+            let pseudo = &selector[1..];
+            match pseudo {
+                "hover" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Hover)]),
+                "active" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Active)]),
+                "focus" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Focus)]),
+                "focus-within" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::FocusWithin)]),
+                "disabled" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Disabled)]),
+                "checked" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Checked)]),
+                "visited" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Visited)]),
+                _ => return None,
+            }
+        }
+        
+        // Handle @-rules
+        if selector.starts_with('@') {
+            let rule_content = &selector[1..];
+            
+            // @os linux, @os windows, etc.
+            if rule_content.starts_with("os ") {
+                let os_name = rule_content[3..].trim();
+                if let Some(os_cond) = Self::parse_os_name(os_name) {
+                    return Some(vec![DynamicSelector::Os(os_cond)]);
+                }
+            }
+            
+            // @media (min-width: 800px), etc.
+            if rule_content.starts_with("media ") {
+                let media_query = rule_content[6..].trim();
+                if let Some(media_conds) = Self::parse_media_query(media_query) {
+                    return Some(media_conds);
+                }
+            }
+            
+            // @theme dark, @theme light
+            if rule_content.starts_with("theme ") {
+                let theme = rule_content[6..].trim();
+                match theme {
+                    "dark" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Dark)]),
+                    "light" => return Some(vec![DynamicSelector::Theme(ThemeCondition::Light)]),
+                    _ => return None,
+                }
+            }
+            
+            return None;
+        }
+        
+        // Handle universal selector * (treat as unconditional)
+        if selector == "*" {
+            return Some(vec![]);
+        }
+        
+        // Empty selector means unconditional
+        if selector.is_empty() {
+            return Some(vec![]);
+        }
+        
+        None
+    }
+    
+    /// Parse OS name to OsCondition
+    #[cfg(feature = "parser")]
+    fn parse_os_name(name: &str) -> Option<OsCondition> {
+        match name.to_lowercase().as_str() {
+            "linux" => Some(OsCondition::Linux),
+            "windows" | "win" => Some(OsCondition::Windows),
+            "macos" | "mac" | "osx" => Some(OsCondition::MacOS),
+            "ios" => Some(OsCondition::IOS),
+            "android" => Some(OsCondition::Android),
+            "apple" => Some(OsCondition::Apple),
+            "web" | "wasm" => Some(OsCondition::Web),
+            "any" | "*" => Some(OsCondition::Any),
+            _ => None,
+        }
+    }
+    
+    /// Parse simple media query
+    #[cfg(feature = "parser")]
+    fn parse_media_query(query: &str) -> Option<Vec<DynamicSelector>> {
+        let query = query.trim();
+        
+        // Handle (min-width: XXXpx)
+        if query.starts_with('(') && query.ends_with(')') {
+            let inner = &query[1..query.len()-1];
+            if let Some((key, value)) = inner.split_once(':') {
+                let key = key.trim();
+                let value = value.trim();
+                
+                // Parse pixel value
+                let px_value = value.strip_suffix("px")
+                    .and_then(|v| v.trim().parse::<f32>().ok());
+                
+                match key {
+                    "min-width" => {
+                        if let Some(px) = px_value {
+                            return Some(vec![DynamicSelector::ViewportWidth(
+                                MinMaxRange::with_min(px)
+                            )]);
+                        }
+                    }
+                    "max-width" => {
+                        if let Some(px) = px_value {
+                            return Some(vec![DynamicSelector::ViewportWidth(
+                                MinMaxRange::with_max(px)
+                            )]);
+                        }
+                    }
+                    "min-height" => {
+                        if let Some(px) = px_value {
+                            return Some(vec![DynamicSelector::ViewportHeight(
+                                MinMaxRange::with_min(px)
+                            )]);
+                        }
+                    }
+                    "max-height" => {
+                        if let Some(px) = px_value {
+                            return Some(vec![DynamicSelector::ViewportHeight(
+                                MinMaxRange::with_max(px)
+                            )]);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        
+        // Handle screen, print, all
+        match query {
+            "screen" => Some(vec![DynamicSelector::Media(MediaType::Screen)]),
+            "print" => Some(vec![DynamicSelector::Media(MediaType::Print)]),
+            "all" => Some(vec![DynamicSelector::Media(MediaType::All)]),
+            _ => None,
+        }
+    }
+    
+    /// Parse a simple property like "color: red"
+    #[cfg(feature = "parser")]
+    fn parse_property_segment(
+        segment: &str,
+        inherited_conditions: &[DynamicSelector],
+        key_map: &crate::props::property::CssKeyMap,
+    ) -> Option<Vec<CssPropertyWithConditions>> {
+        use crate::props::property::{
+            parse_combined_css_property, parse_css_property, CombinedCssPropertyType,
+            CssPropertyType,
+        };
+
+        let segment = segment.trim();
+        if segment.is_empty() {
+            return None;
+        }
+        
+        let (key, value) = segment.split_once(':')?;
+        let key = key.trim();
+        let value = value.trim();
+        
+        let mut props = Vec::new();
+        let conditions = if inherited_conditions.is_empty() {
+            DynamicSelectorVec::from_const_slice(&[])
+        } else {
+            DynamicSelectorVec::from_vec(inherited_conditions.to_vec())
+        };
+        
+        // First, try to parse as a regular (non-shorthand) property
+        if let Some(prop_type) = CssPropertyType::from_str(key, key_map) {
+            if let Ok(prop) = parse_css_property(prop_type, value) {
+                props.push(CssPropertyWithConditions {
+                    property: prop,
+                    apply_if: conditions.clone(),
+                });
+                return Some(props);
+            }
+        }
+        
+        // If not found, try as a shorthand (combined) property
+        if let Some(combined_type) = CombinedCssPropertyType::from_str(key, key_map) {
+            if let Ok(expanded_props) = parse_combined_css_property(combined_type, value) {
+                for prop in expanded_props {
+                    props.push(CssPropertyWithConditions {
+                        property: prop,
+                        apply_if: conditions.clone(),
+                    });
+                }
+                return Some(props);
+            }
+        }
+        
+        None
+    }
+
+    /// Parse CSS properties from a string, all with "normal" (unconditional) state
+    /// 
+    /// Deprecated: Use `parse()` instead which supports selectors and nesting
+    #[cfg(feature = "parser")]
+    pub fn parse_normal(style: &str) -> Self {
+        Self::parse(style)
     }
 
     /// Parse CSS properties from a string, all with hover condition
+    /// 
+    /// Deprecated: Use `parse(":hover { ... }")` instead
     #[cfg(feature = "parser")]
     pub fn parse_hover(style: &str) -> Self {
-        use crate::props::property::{
-            parse_combined_css_property, parse_css_property, CombinedCssPropertyType, CssKeyMap,
-            CssPropertyType,
-        };
-
-        let mut props = Vec::new();
-        let key_map = CssKeyMap::get();
-
-        for pair in style.split(';') {
-            let pair = pair.trim();
-            if pair.is_empty() {
-                continue;
-            }
-            if let Some((key, value)) = pair.split_once(':') {
-                let key = key.trim();
-                let value = value.trim();
-                // First, try to parse as a regular (non-shorthand) property
-                if let Some(prop_type) = CssPropertyType::from_str(key, &key_map) {
-                    if let Ok(prop) = parse_css_property(prop_type, value) {
-                        props.push(CssPropertyWithConditions::on_hover(prop));
-                        continue;
-                    }
-                }
-                // If not found, try as a shorthand (combined) property
-                if let Some(combined_type) = CombinedCssPropertyType::from_str(key, &key_map) {
-                    if let Ok(expanded_props) = parse_combined_css_property(combined_type, value) {
-                        for prop in expanded_props {
-                            props.push(CssPropertyWithConditions::on_hover(prop));
-                        }
-                    }
-                }
-            }
-        }
-
-        CssPropertyWithConditionsVec::from_vec(props)
+        // Wrap in :hover { } and parse
+        let wrapped = format!(":hover {{ {} }}", style);
+        Self::parse(&wrapped)
     }
 
     /// Parse CSS properties from a string, all with active condition
+    /// 
+    /// Deprecated: Use `parse(":active { ... }")` instead
     #[cfg(feature = "parser")]
     pub fn parse_active(style: &str) -> Self {
-        use crate::props::property::{
-            parse_combined_css_property, parse_css_property, CombinedCssPropertyType, CssKeyMap,
-            CssPropertyType,
-        };
-
-        let mut props = Vec::new();
-        let key_map = CssKeyMap::get();
-
-        for pair in style.split(';') {
-            let pair = pair.trim();
-            if pair.is_empty() {
-                continue;
-            }
-            if let Some((key, value)) = pair.split_once(':') {
-                let key = key.trim();
-                let value = value.trim();
-                // First, try to parse as a regular (non-shorthand) property
-                if let Some(prop_type) = CssPropertyType::from_str(key, &key_map) {
-                    if let Ok(prop) = parse_css_property(prop_type, value) {
-                        props.push(CssPropertyWithConditions::on_active(prop));
-                        continue;
-                    }
-                }
-                // If not found, try as a shorthand (combined) property
-                if let Some(combined_type) = CombinedCssPropertyType::from_str(key, &key_map) {
-                    if let Ok(expanded_props) = parse_combined_css_property(combined_type, value) {
-                        for prop in expanded_props {
-                            props.push(CssPropertyWithConditions::on_active(prop));
-                        }
-                    }
-                }
-            }
-        }
-
-        CssPropertyWithConditionsVec::from_vec(props)
+        let wrapped = format!(":active {{ {} }}", style);
+        Self::parse(&wrapped)
     }
 
     /// Parse CSS properties from a string, all with focus condition
+    /// 
+    /// Deprecated: Use `parse(":focus { ... }")` instead
     #[cfg(feature = "parser")]
     pub fn parse_focus(style: &str) -> Self {
-        use crate::props::property::{
-            parse_combined_css_property, parse_css_property, CombinedCssPropertyType, CssKeyMap,
-            CssPropertyType,
-        };
-
-        let mut props = Vec::new();
-        let key_map = CssKeyMap::get();
-
-        for pair in style.split(';') {
-            let pair = pair.trim();
-            if pair.is_empty() {
-                continue;
-            }
-            if let Some((key, value)) = pair.split_once(':') {
-                let key = key.trim();
-                let value = value.trim();
-                // First, try to parse as a regular (non-shorthand) property
-                if let Some(prop_type) = CssPropertyType::from_str(key, &key_map) {
-                    if let Ok(prop) = parse_css_property(prop_type, value) {
-                        props.push(CssPropertyWithConditions::on_focus(prop));
-                        continue;
-                    }
-                }
-                // If not found, try as a shorthand (combined) property
-                if let Some(combined_type) = CombinedCssPropertyType::from_str(key, &key_map) {
-                    if let Ok(expanded_props) = parse_combined_css_property(combined_type, value) {
-                        for prop in expanded_props {
-                            props.push(CssPropertyWithConditions::on_focus(prop));
-                        }
-                    }
-                }
-            }
-        }
-
-        CssPropertyWithConditionsVec::from_vec(props)
+        let wrapped = format!(":focus {{ {} }}", style);
+        Self::parse(&wrapped)
     }
 }

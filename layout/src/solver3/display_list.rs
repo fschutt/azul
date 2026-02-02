@@ -2659,8 +2659,8 @@ where
     ) -> Result<()> {
         // TODO: This will always paint images over the glyphs
         // TODO: Handle z-index within inline content (e.g. background images)
-        // TODO: Handle text decorations (underline, strikethrough, etc.)
-        // TODO: Handle text shadows
+        // NOTE: Text decorations (underline, strikethrough, overline) are handled in push_text_layout_to_display_list
+        // TODO: Text shadows not yet implemented
         // TODO: Handle text overflowing (based on container_rect and overflow behavior)
 
         // Calculate actual content bounds from the layout

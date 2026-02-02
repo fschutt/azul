@@ -128,6 +128,134 @@ impl Default for FontLoadingConfig {
     }
 }
 
+/// Mock environment for CSS evaluation.
+/// 
+/// Allows overriding auto-detected system properties for testing and development.
+/// Any field set to `None` will use the auto-detected value.
+/// Any field set to `Some(...)` will override the auto-detected value.
+/// 
+/// # Example
+/// ```rust
+/// use azul_css::dynamic_selector::{OsCondition, ThemeCondition, OsVersion};
+/// 
+/// // Mock a Linux dark theme environment on any platform
+/// let mock = CssMockEnvironment {
+///     os: Some(OsCondition::Linux),
+///     theme: Some(ThemeCondition::Dark),
+///     ..Default::default()
+/// };
+/// 
+/// // Mock Windows XP for retro testing
+/// let mock = CssMockEnvironment {
+///     os: Some(OsCondition::Windows),
+///     os_version: Some(OsVersion::WIN_XP),
+///     ..Default::default()
+/// };
+/// ```
+#[derive(Debug, Clone, Default)]
+#[repr(C)]
+pub struct CssMockEnvironment {
+    /// Override the detected operating system
+    pub os: Option<azul_css::dynamic_selector::OsCondition>,
+    /// Override the detected OS version
+    pub os_version: Option<azul_css::dynamic_selector::OsVersion>,
+    /// Override the Linux desktop environment (only applies when os = Linux)
+    pub desktop_env: Option<azul_css::dynamic_selector::LinuxDesktopEnv>,
+    /// Override the current theme (light/dark)
+    pub theme: Option<azul_css::dynamic_selector::ThemeCondition>,
+    /// Override the current language (BCP 47 tag, e.g., "de-DE", "en-US")
+    pub language: Option<AzString>,
+    /// Override the reduced motion preference
+    pub prefers_reduced_motion: Option<bool>,
+    /// Override the high contrast preference
+    pub prefers_high_contrast: Option<bool>,
+    /// Override viewport dimensions (for @media queries)
+    /// Only use for testing - normally set by window size
+    pub viewport_width: Option<f32>,
+    pub viewport_height: Option<f32>,
+}
+
+impl CssMockEnvironment {
+    /// Create a mock for Linux environment
+    pub fn linux() -> Self {
+        Self {
+            os: Some(azul_css::dynamic_selector::OsCondition::Linux),
+            ..Default::default()
+        }
+    }
+    
+    /// Create a mock for Windows environment
+    pub fn windows() -> Self {
+        Self {
+            os: Some(azul_css::dynamic_selector::OsCondition::Windows),
+            ..Default::default()
+        }
+    }
+    
+    /// Create a mock for macOS environment
+    pub fn macos() -> Self {
+        Self {
+            os: Some(azul_css::dynamic_selector::OsCondition::MacOS),
+            ..Default::default()
+        }
+    }
+    
+    /// Create a mock for dark theme
+    pub fn dark_theme() -> Self {
+        Self {
+            theme: Some(azul_css::dynamic_selector::ThemeCondition::Dark),
+            ..Default::default()
+        }
+    }
+    
+    /// Create a mock for light theme
+    pub fn light_theme() -> Self {
+        Self {
+            theme: Some(azul_css::dynamic_selector::ThemeCondition::Light),
+            ..Default::default()
+        }
+    }
+    
+    /// Apply this mock to a DynamicSelectorContext
+    pub fn apply_to(&self, ctx: &mut azul_css::dynamic_selector::DynamicSelectorContext) {
+        if let Some(os) = self.os {
+            ctx.os = os;
+        }
+        if let Some(os_version) = self.os_version {
+            ctx.os_version = os_version;
+        }
+        if let Some(de) = self.desktop_env {
+            ctx.desktop_env = azul_css::dynamic_selector::OptionLinuxDesktopEnv::Some(de);
+        }
+        if let Some(theme) = self.theme.clone() {
+            ctx.theme = theme;
+        }
+        if let Some(lang) = &self.language {
+            ctx.language = lang.clone();
+        }
+        if let Some(reduced) = self.prefers_reduced_motion {
+            ctx.prefers_reduced_motion = if reduced {
+                azul_css::dynamic_selector::BoolCondition::True
+            } else {
+                azul_css::dynamic_selector::BoolCondition::False
+            };
+        }
+        if let Some(high_contrast) = self.prefers_high_contrast {
+            ctx.prefers_high_contrast = if high_contrast {
+                azul_css::dynamic_selector::BoolCondition::True
+            } else {
+                azul_css::dynamic_selector::BoolCondition::False
+            };
+        }
+        if let Some(w) = self.viewport_width {
+            ctx.viewport_width = w;
+        }
+        if let Some(h) = self.viewport_height {
+            ctx.viewport_height = h;
+        }
+    }
+}
+
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -158,6 +286,16 @@ pub struct AppConfig {
     /// Configuration for how system fonts should be loaded.
     /// Default: LoadAllSystemFonts (scan all system fonts at startup)
     pub font_loading: FontLoadingConfig,
+    /// Optional mock environment for CSS evaluation.
+    /// 
+    /// When set, this overrides the auto-detected system properties (OS, theme, etc.)
+    /// for CSS @-rules and dynamic selectors. This is useful for:
+    /// - Testing OS-specific styles on a different platform
+    /// - Screenshot testing with consistent environment
+    /// - Previewing how the app looks on different systems
+    /// 
+    /// Default: None (use auto-detected system properties)
+    pub mock_css_environment: Option<CssMockEnvironment>,
 }
 
 impl AppConfig {
@@ -171,7 +309,27 @@ impl AppConfig {
             icon_provider: crate::icon::IconProviderHandle::new(),
             bundled_fonts: NamedFontVec::from_const_slice(&[]),
             font_loading: FontLoadingConfig::default(),
+            mock_css_environment: None,
         }
+    }
+    
+    /// Create config with a mock CSS environment for testing
+    /// 
+    /// This allows you to simulate how your app would look on a different OS,
+    /// with a different theme, language, or accessibility settings.
+    /// 
+    /// # Example
+    /// ```rust
+    /// let config = AppConfig::create()
+    ///     .with_mock_environment(CssMockEnvironment {
+    ///         os: Some(OsCondition::Linux),
+    ///         theme: Some(ThemeCondition::Dark),
+    ///         ..Default::default()
+    ///     });
+    /// ```
+    pub fn with_mock_environment(mut self, env: CssMockEnvironment) -> Self {
+        self.mock_css_environment = Some(env);
+        self
     }
 }
 
