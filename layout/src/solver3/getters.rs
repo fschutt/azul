@@ -316,8 +316,11 @@ macro_rules! get_css_property_pixel {
                 }
             }
 
-            // 3. Fallback to Auto (not set)
-            MultiValue::Auto
+            // 3. Fallback to Initial (not set)
+            // IMPORTANT: Use Initial, not Auto! In CSS, the initial value for 
+            // margin is 0, not auto. Using Auto here caused margins to be treated
+            // as "margin: auto" which blocks align-self: stretch in flexbox.
+            MultiValue::Initial
         }
     };
 }
