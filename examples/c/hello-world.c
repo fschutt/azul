@@ -49,26 +49,6 @@ AzResultRefAnyString MyDataModel_fromJson(AzJson json) {
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
 // Helper functions to create CSS types
-static inline AzStyleTextColor make_text_color(AzColorU color) {
-    AzStyleTextColor result = { .inner = color };
-    return result;
-}
-
-static inline AzStyleBorderBottomColor make_border_bottom_color(AzColorU color) {
-    AzStyleBorderBottomColor result = { .inner = color };
-    return result;
-}
-
-static inline AzStyleBorderBottomStyle make_border_bottom_style_solid(void) {
-    AzStyleBorderBottomStyle result = { .inner = AzBorderStyle_solid() };
-    return result;
-}
-
-static inline AzLayoutBorderBottomWidth make_border_bottom_width_px(float px) {
-    AzLayoutBorderBottomWidth result = { .inner = AzPixelValue_px(px) };
-    return result;
-}
-
 static inline AzLayoutPaddingTop make_padding_top_px(float px) {
     AzLayoutPaddingTop result = { .inner = AzPixelValue_px(px) };
     return result;
@@ -89,94 +69,12 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     int written = snprintf(buffer, 20, "%d", d.ptr->counter);
     MyDataModelRef_delete(&d);
 
-    // Get the system style for native look & feel
-    AzSystemStyle system_style = AzSystemStyle_create();
-    
-    // Determine if dark mode by checking the theme
-    bool is_dark = (system_style.theme == AzTheme_Dark);
-    
-    // Get colors from system style
-    AzColorU text_color = is_dark 
-        ? AzColorU_rgb(255, 255, 255)  // White text for dark mode
-        : AzColorU_rgb(0, 0, 0);       // Black text for light mode
-    
-    AzColorU window_bg = is_dark
-        ? AzColorU_rgb(30, 30, 30)     // Dark background
-        : AzColorU_rgb(255, 255, 255); // Light background
-    
     // =========================================================================
-    // Custom Titlebar - drawn by us since we use NoTitle decorations
+    // Custom Titlebar - using the Titlebar widget
     // =========================================================================
     
-    // Get title bar colors based on theme
-    AzColorU titlebar_bg = is_dark 
-        ? AzColorU_rgb(45, 45, 45)     // Dark titlebar
-        : AzColorU_rgb(240, 240, 240); // Light titlebar
-    
-    // Title text - wrapped in a div so it can participate in flex layout
-    AzDom title_text = AzDom_createText(AZ_STR("Hello World - Custom Title"));
-    AzDom title_container = AzDom_createDiv();
-    AzDom_addChild(&title_container, title_text);
-    
-    // Style the title container (the div is the flex item)
-    AzDom_addCssProperty(&title_container, AzCssPropertyWithConditions_simple(
-        AzCssProperty_flexGrow(AzLayoutFlexGrow_create(1.0))
-    ));
-    AzDom_addCssProperty(&title_container, AzCssPropertyWithConditions_simple(
-        AzCssProperty_textAlign(AzStyleTextAlign_Center)
-    ));
-    AzDom_addCssProperty(&title_container, AzCssPropertyWithConditions_simple(
-        AzCssProperty_fontSize(AzStyleFontSize_px(13.0))
-    ));
-    AzDom_addCssProperty(&title_container, AzCssPropertyWithConditions_simple(
-        AzCssProperty_textColor(make_text_color(text_color))
-    ));
-    
-    // Create titlebar container
-    AzDom titlebar = AzDom_createDiv();
-    AzDom_addChild(&titlebar, title_container);
-    
-    // Style the titlebar
-    AzDom_addCssProperty(&titlebar, AzCssPropertyWithConditions_simple(
-        AzCssProperty_display(AzLayoutDisplay_Flex)
-    ));
-    AzDom_addCssProperty(&titlebar, AzCssPropertyWithConditions_simple(
-        AzCssProperty_flexDirection(AzLayoutFlexDirection_Row)
-    ));
-    AzDom_addCssProperty(&titlebar, AzCssPropertyWithConditions_simple(
-        AzCssProperty_alignItems(AzLayoutAlignItems_Center)
-    ));
-    AzDom_addCssProperty(&titlebar, AzCssPropertyWithConditions_simple(
-        AzCssProperty_justifyContent(AzLayoutJustifyContent_Center)
-    ));
-    AzDom_addCssProperty(&titlebar, AzCssPropertyWithConditions_simple(
-        AzCssProperty_height(AzLayoutHeight_px(AzPixelValue_px(32.0)))
-    ));
-    // Use align-self: stretch instead of width: 100% for proper flex behavior
-    AzDom_addCssProperty(&titlebar, AzCssPropertyWithConditions_simple(
-        AzCssProperty_alignSelf(AzLayoutAlignSelf_Stretch)
-    ));
-    
-    // Titlebar background color
-    AzStyleBackgroundContent bg_content = AzStyleBackgroundContent_color(titlebar_bg);
-    AzStyleBackgroundContentVec bg_vec = AzStyleBackgroundContentVec_fromItem(bg_content);
-    AzDom_addCssProperty(&titlebar, AzCssPropertyWithConditions_simple(
-        AzCssProperty_backgroundContent(bg_vec)
-    ));
-    
-    // Titlebar bottom border
-    AzColorU border_color = is_dark 
-        ? AzColorU_rgb(60, 60, 60)
-        : AzColorU_rgb(200, 200, 200);
-    AzDom_addCssProperty(&titlebar, AzCssPropertyWithConditions_simple(
-        AzCssProperty_borderBottomWidth(make_border_bottom_width_px(1.0))
-    ));
-    AzDom_addCssProperty(&titlebar, AzCssPropertyWithConditions_simple(
-        AzCssProperty_borderBottomStyle(make_border_bottom_style_solid())
-    ));
-    AzDom_addCssProperty(&titlebar, AzCssPropertyWithConditions_simple(
-        AzCssProperty_borderBottomColor(make_border_bottom_color(border_color))
-    ));
+    AzTitlebar titlebar = AzTitlebar_create(AZ_STR("Hello World"));
+    AzDom titlebar_dom = AzTitlebar_dom(titlebar);
 
     // =========================================================================
     // Main Content Area
@@ -187,10 +85,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom label = AzDom_createText(label_text);
     
     AzDom_addCssProperty(&label, AzCssPropertyWithConditions_simple(
-        AzCssProperty_fontSize(AzStyleFontSize_px(50.0))
-    ));
-    AzDom_addCssProperty(&label, AzCssPropertyWithConditions_simple(
-        AzCssProperty_textColor(make_text_color(text_color))
+        AzCssProperty_fontSize(AzStyleFontSize_px(32.0))
     ));
 
     // Create a proper Button widget with Primary style
@@ -201,12 +96,12 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzButton_setOnClick(&button, data_clone, on_click);
     AzDom button_dom = AzButton_dom(button);
 
-    // Content container
+    // Content container - simple column layout, no centering
     AzDom content = AzDom_createDiv();
     AzDom_addChild(&content, label);
     AzDom_addChild(&content, button_dom);
     
-    // Style the content
+    // Style the content - simple flex column
     AzDom_addCssProperty(&content, AzCssPropertyWithConditions_simple(
         AzCssProperty_display(AzLayoutDisplay_Flex)
     ));
@@ -214,34 +109,21 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzCssProperty_flexDirection(AzLayoutFlexDirection_Column)
     ));
     AzDom_addCssProperty(&content, AzCssPropertyWithConditions_simple(
-        AzCssProperty_alignItems(AzLayoutAlignItems_Center)
-    ));
-    AzDom_addCssProperty(&content, AzCssPropertyWithConditions_simple(
-        AzCssProperty_justifyContent(AzLayoutJustifyContent_Center)
-    ));
-    AzDom_addCssProperty(&content, AzCssPropertyWithConditions_simple(
         AzCssProperty_flexGrow(AzLayoutFlexGrow_create(1.0))
     ));
     AzDom_addCssProperty(&content, AzCssPropertyWithConditions_simple(
-        AzCssProperty_paddingTop(make_padding_top_px(20.0))
+        AzCssProperty_paddingTop(make_padding_top_px(10.0))
     ));
     AzDom_addCssProperty(&content, AzCssPropertyWithConditions_simple(
-        AzCssProperty_paddingBottom(make_padding_bottom_px(20.0))
-    ));
-    
-    // Content background
-    AzStyleBackgroundContent content_bg_content = AzStyleBackgroundContent_color(window_bg);
-    AzStyleBackgroundContentVec content_bg_vec = AzStyleBackgroundContentVec_fromItem(content_bg_content);
-    AzDom_addCssProperty(&content, AzCssPropertyWithConditions_simple(
-        AzCssProperty_backgroundContent(content_bg_vec)
+        AzCssProperty_paddingBottom(make_padding_bottom_px(10.0))
     ));
 
     // =========================================================================
-    // Body - contains titlebar + content
+    // Body - contains titlebar + content, transparent background
     // =========================================================================
     
     AzDom body = AzDom_createBody();
-    AzDom_addChild(&body, titlebar);
+    AzDom_addChild(&body, titlebar_dom);
     AzDom_addChild(&body, content);
     
     // Style body for flexbox layout
@@ -251,9 +133,6 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addCssProperty(&body, AzCssPropertyWithConditions_simple(
         AzCssProperty_flexDirection(AzLayoutFlexDirection_Column)
     ));
-
-    // Clean up
-    AzSystemStyle_delete(&system_style);
 
     // Use empty CSS - styling is inline
     AzCss css = AzCss_empty();

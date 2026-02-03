@@ -144,6 +144,8 @@ pub mod ribbon;
 /// Tab container widgets
 pub mod tabs;
 pub mod text_input;
+/// Titlebar widget for custom window chrome
+pub mod titlebar;
 /// Tree view widget
 pub mod tree_view;
 // /// Spreadsheet (iframe) widget

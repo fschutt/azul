@@ -32088,6 +32088,106 @@
             },
             "repr": "C"
           },
+          "Titlebar": {
+            "doc": [
+              "A native-styled titlebar widget for custom window chrome.",
+              "Renders a centered title text using the system title font.",
+              "Designed to be used with WindowDecorations::NoTitle."
+            ],
+            "external": "azul_layout::widgets::titlebar::Titlebar",
+            "derive": [
+              "Debug",
+              "Clone"
+            ],
+            "struct_fields": [
+              {
+                "title": {
+                  "type": "String",
+                  "doc": ["The title text to display"]
+                }
+              },
+              {
+                "height": {
+                  "type": "f32",
+                  "doc": ["Height of the titlebar in pixels (default: 32.0)"]
+                }
+              },
+              {
+                "container_style": {
+                  "type": "CssPropertyWithConditionsVec",
+                  "doc": ["Style for the titlebar container"]
+                }
+              },
+              {
+                "title_style": {
+                  "type": "CssPropertyWithConditionsVec",
+                  "doc": ["Style for the title text"]
+                }
+              }
+            ],
+            "constructors": {
+              "create": {
+                "doc": ["Create a new titlebar with the given title text"],
+                "fn_args": [
+                  {
+                    "title": "String"
+                  }
+                ],
+                "fn_body": "azul_layout::widgets::titlebar::Titlebar::create(title)"
+              },
+              "with_height": {
+                "doc": ["Create a titlebar with a custom height"],
+                "fn_args": [
+                  {
+                    "title": "String"
+                  },
+                  {
+                    "height": "f32"
+                  }
+                ],
+                "fn_body": "azul_layout::widgets::titlebar::Titlebar::with_height(title, height)"
+              }
+            },
+            "functions": {
+              "set_height": {
+                "doc": ["Set the titlebar height"],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "height": "f32"
+                  }
+                ],
+                "fn_body": "titlebar.set_height(height);"
+              },
+              "set_title": {
+                "doc": ["Set the title text"],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "title": "String"
+                  }
+                ],
+                "fn_body": "titlebar.set_title(title);"
+              },
+              "dom": {
+                "doc": ["Convert this titlebar into a DOM tree"],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  }
+                ],
+                "returns": {
+                  "type": "Dom"
+                },
+                "fn_body": "titlebar.dom()"
+              }
+            },
+            "repr": "C"
+          },
           "ListView": {
             "doc": [
               "List view, optionally able to lazy-load data"
