@@ -1438,6 +1438,7 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     macos_window.current_window_state.window_focused = true;
+                    macos_window.dynamic_selector_context.window_focused = true;
 
                     // Phase 2: OnFocus callback - sync IME position after focus
                     macos_window.sync_ime_position_to_os();
@@ -1452,6 +1453,7 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     macos_window.current_window_state.window_focused = false;
+                    macos_window.dynamic_selector_context.window_focused = false;
                 }
             }
         }

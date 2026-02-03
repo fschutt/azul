@@ -16,6 +16,7 @@ use core::{
 
 #[cfg(feature = "parser")]
 use crate::props::basic::parse::{strip_quotes, UnclosedQuotesError};
+use crate::system::SystemFontType;
 use crate::{
     corety::{AzString, U8Vec},
     format_rust_code::{FormatAsRustCode, GetHash},
@@ -296,12 +297,24 @@ impl Drop for FontRef {
 
 // --- Font Family ---
 
-/// Represents a `font-family` attribute
+/// Represents a `font-family` attribute.
+/// 
+/// Can be:
+/// - `System(AzString)`: A named font family (e.g., "Arial", "Times New Roman")
+/// - `SystemType(SystemFontType)`: A semantic system font type (e.g., `system:ui`, `system:monospace`)
+/// - `File(AzString)`: A font loaded from a file URL
+/// - `Ref(FontRef)`: A reference to a pre-loaded font
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum StyleFontFamily {
+    /// Named font family (e.g., "Arial", "Times New Roman", "monospace")
     System(AzString),
+    /// Semantic system font type (e.g., `system:ui`, `system:monospace:bold`)
+    /// Resolved at runtime based on platform and accessibility settings
+    SystemType(SystemFontType),
+    /// Font loaded from a file URL
     File(AzString),
+    /// Reference to a pre-loaded font
     Ref(FontRef),
 }
 
@@ -323,6 +336,7 @@ impl StyleFontFamily {
                     owned
                 }
             }
+            StyleFontFamily::SystemType(st) => st.as_css_str().to_string(),
             StyleFontFamily::File(s) => format!("url({})", s.clone().into_library_owned_string()),
             StyleFontFamily::Ref(s) => format!("font-ref(0x{:x})", s.parsed as usize),
         }
@@ -377,6 +391,9 @@ impl crate::format_rust_code::FormatAsRustCode for StyleFontFamily {
         match self {
             StyleFontFamily::System(id) => {
                 format!("StyleFontFamily::System(STRING_{})", id.get_hash())
+            }
+            StyleFontFamily::SystemType(st) => {
+                format!("StyleFontFamily::SystemType(SystemFontType::{:?})", st)
             }
             StyleFontFamily::File(path) => {
                 format!("StyleFontFamily::File(STRING_{})", path.get_hash())
@@ -588,6 +605,16 @@ pub fn parse_style_font_family<'a>(
 
     for font in multiple_fonts {
         let font = font.trim();
+        
+        // Check for system font type syntax: system:ui, system:monospace:bold, etc.
+        if font.starts_with("system:") {
+            if let Some(system_type) = SystemFontType::from_css_str(font) {
+                fonts.push(StyleFontFamily::SystemType(system_type));
+                continue;
+            }
+            // Invalid system font type, fall through to treat as regular font name
+        }
+        
         if let Ok(stripped) = strip_quotes(font) {
             fonts.push(StyleFontFamily::System(stripped.0.to_string().into()));
         } else {
@@ -1061,5 +1088,76 @@ mod tests {
             result.as_slice()[1],
             StyleFontFamily::System("monospace".into())
         );
+    }
+    
+    #[test]
+    fn test_parse_system_font_type() {
+        use crate::system::SystemFontType;
+        
+        // Single system font type
+        let result = parse_style_font_family("system:ui").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result.as_slice()[0], StyleFontFamily::SystemType(SystemFontType::Ui));
+        
+        // System font type with bold variant
+        let result = parse_style_font_family("system:monospace:bold").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result.as_slice()[0], StyleFontFamily::SystemType(SystemFontType::MonospaceBold));
+        
+        // System font type with italic variant
+        let result = parse_style_font_family("system:monospace:italic").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result.as_slice()[0], StyleFontFamily::SystemType(SystemFontType::MonospaceItalic));
+        
+        // System font type with fallback
+        let result = parse_style_font_family("system:ui, Arial, sans-serif").unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result.as_slice()[0], StyleFontFamily::SystemType(SystemFontType::Ui));
+        assert_eq!(result.as_slice()[1], StyleFontFamily::System("Arial".into()));
+        assert_eq!(result.as_slice()[2], StyleFontFamily::System("sans-serif".into()));
+        
+        // All system font types
+        assert!(parse_style_font_family("system:ui").is_ok());
+        assert!(parse_style_font_family("system:ui:bold").is_ok());
+        assert!(parse_style_font_family("system:monospace").is_ok());
+        assert!(parse_style_font_family("system:monospace:bold").is_ok());
+        assert!(parse_style_font_family("system:monospace:italic").is_ok());
+        assert!(parse_style_font_family("system:title").is_ok());
+        assert!(parse_style_font_family("system:title:bold").is_ok());
+        assert!(parse_style_font_family("system:menu").is_ok());
+        assert!(parse_style_font_family("system:small").is_ok());
+        assert!(parse_style_font_family("system:serif").is_ok());
+        assert!(parse_style_font_family("system:serif:bold").is_ok());
+        
+        // Invalid system font type should be parsed as regular font name
+        let result = parse_style_font_family("system:invalid").unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result.as_slice()[0], StyleFontFamily::System("system:invalid".into()));
+    }
+    
+    #[test]
+    fn test_system_font_type_css_roundtrip() {
+        use crate::system::SystemFontType;
+        
+        // Test that as_css_str() and from_css_str() are inverses
+        let types = [
+            SystemFontType::Ui,
+            SystemFontType::UiBold,
+            SystemFontType::Monospace,
+            SystemFontType::MonospaceBold,
+            SystemFontType::MonospaceItalic,
+            SystemFontType::Title,
+            SystemFontType::TitleBold,
+            SystemFontType::Menu,
+            SystemFontType::Small,
+            SystemFontType::Serif,
+            SystemFontType::SerifBold,
+        ];
+        
+        for ft in &types {
+            let css = ft.as_css_str();
+            let parsed = SystemFontType::from_css_str(css).unwrap();
+            assert_eq!(*ft, parsed, "Roundtrip failed for {:?}", ft);
+        }
     }
 }

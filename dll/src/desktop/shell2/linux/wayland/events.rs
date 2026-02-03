@@ -676,11 +676,13 @@ extern "C" fn keyboard_enter_handler(
 ) {
 }
 extern "C" fn keyboard_leave_handler(
-    _data: *mut c_void,
+    data: *mut c_void,
     _keyboard: *mut wl_keyboard,
     _serial: u32,
     _surface: *mut wl_surface,
 ) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.handle_keyboard_leave();
 }
 extern "C" fn keyboard_repeat_info_handler(
     _data: *mut c_void,

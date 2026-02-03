@@ -334,6 +334,7 @@ impl PlatformWindow for X11Window {
                 defines::FocusIn => {
                     // Window gained focus
                     self.current_window_state.window_focused = true;
+                    self.dynamic_selector_context.window_focused = true;
 
                     // Phase 2: OnFocus callback - sync IME position after focus
                     self.sync_ime_position_to_os();
@@ -343,6 +344,7 @@ impl PlatformWindow for X11Window {
                 defines::FocusOut => {
                     // Window lost focus
                     self.current_window_state.window_focused = false;
+                    self.dynamic_selector_context.window_focused = false;
                     ProcessEventResult::DoNothing
                 }
                 defines::ConfigureNotify => {

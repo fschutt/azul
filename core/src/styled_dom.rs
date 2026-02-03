@@ -182,6 +182,8 @@ pub struct StyledNodeState {
     pub focus_within: bool,
     /// Link has been visited (:visited)
     pub visited: bool,
+    /// Window is not focused (:backdrop) - GTK compatibility
+    pub backdrop: bool,
 }
 
 impl core::fmt::Debug for StyledNodeState {
@@ -208,6 +210,9 @@ impl core::fmt::Debug for StyledNodeState {
         if self.visited {
             v.push("visited");
         }
+        if self.backdrop {
+            v.push("backdrop");
+        }
         if v.is_empty() {
             v.push("normal");
         }
@@ -226,6 +231,7 @@ impl StyledNodeState {
             checked: false,
             focus_within: false,
             visited: false,
+            backdrop: false,
         }
     }
 
@@ -240,6 +246,7 @@ impl StyledNodeState {
             5 => self.checked,
             6 => self.focus_within,
             7 => self.visited,
+            8 => self.backdrop,
             _ => false,
         }
     }
@@ -253,6 +260,7 @@ impl StyledNodeState {
             && !self.checked
             && !self.focus_within
             && !self.visited
+            && !self.backdrop
     }
 
     /// Convert to PseudoStateFlags for use with dynamic selectors
@@ -265,6 +273,7 @@ impl StyledNodeState {
             checked: self.checked,
             focus_within: self.focus_within,
             visited: self.visited,
+            backdrop: self.backdrop,
         }
     }
 
@@ -278,6 +287,7 @@ impl StyledNodeState {
             checked: flags.checked,
             focus_within: flags.focus_within,
             visited: flags.visited,
+            backdrop: flags.backdrop,
         }
     }
 }

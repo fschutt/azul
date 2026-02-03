@@ -118,31 +118,248 @@ pub struct IconStyleOptions {
     pub inherit_text_color: bool,
 }
 
+/// System font types that can be resolved at runtime based on OS settings.
+/// 
+/// This enum allows specifying semantic font roles that get resolved to
+/// actual font families based on the current platform and user preferences.
+/// For example, `Monospace` resolves to:
+/// - macOS: SF Mono or Menlo
+/// - Windows: Cascadia Mono or Consolas
+/// - Linux: Ubuntu Mono or DejaVu Sans Mono
+/// 
+/// Font variants (bold, italic) can be combined with the base type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum SystemFontType {
+    /// UI font for buttons, labels, menus (SF Pro, Segoe UI, Cantarell)
+    Ui,
+    /// Bold variant of UI font
+    UiBold,
+    /// Monospace font for code (SF Mono, Consolas, Ubuntu Mono)
+    Monospace,
+    /// Bold variant of monospace font
+    MonospaceBold,
+    /// Italic variant of monospace font
+    MonospaceItalic,
+    /// Font for window titles
+    Title,
+    /// Bold variant of title font
+    TitleBold,
+    /// Font for menu items
+    Menu,
+    /// Small/caption font
+    Small,
+    /// Serif font for reading content (New York on macOS, Georgia on Windows)
+    Serif,
+    /// Bold variant of serif font
+    SerifBold,
+}
+
+impl Default for SystemFontType {
+    fn default() -> Self {
+        SystemFontType::Ui
+    }
+}
+
+impl SystemFontType {
+    /// Parse a SystemFontType from a CSS string.
+    /// 
+    /// Supported formats:
+    /// - `system:ui`, `system:ui:bold`
+    /// - `system:monospace`, `system:monospace:bold`, `system:monospace:italic`
+    /// - `system:title`, `system:title:bold`
+    /// - `system:menu`
+    /// - `system:small`
+    /// - `system:serif`, `system:serif:bold`
+    pub fn from_css_str(s: &str) -> Option<Self> {
+        let s = s.trim();
+        if !s.starts_with("system:") {
+            return None;
+        }
+        let rest = &s[7..]; // Skip "system:"
+        match rest {
+            "ui" => Some(SystemFontType::Ui),
+            "ui:bold" => Some(SystemFontType::UiBold),
+            "monospace" => Some(SystemFontType::Monospace),
+            "monospace:bold" => Some(SystemFontType::MonospaceBold),
+            "monospace:italic" => Some(SystemFontType::MonospaceItalic),
+            "title" => Some(SystemFontType::Title),
+            "title:bold" => Some(SystemFontType::TitleBold),
+            "menu" => Some(SystemFontType::Menu),
+            "small" => Some(SystemFontType::Small),
+            "serif" => Some(SystemFontType::Serif),
+            "serif:bold" => Some(SystemFontType::SerifBold),
+            _ => None,
+        }
+    }
+    
+    /// Get the CSS syntax for this system font type.
+    pub fn as_css_str(&self) -> &'static str {
+        match self {
+            SystemFontType::Ui => "system:ui",
+            SystemFontType::UiBold => "system:ui:bold",
+            SystemFontType::Monospace => "system:monospace",
+            SystemFontType::MonospaceBold => "system:monospace:bold",
+            SystemFontType::MonospaceItalic => "system:monospace:italic",
+            SystemFontType::Title => "system:title",
+            SystemFontType::TitleBold => "system:title:bold",
+            SystemFontType::Menu => "system:menu",
+            SystemFontType::Small => "system:small",
+            SystemFontType::Serif => "system:serif",
+            SystemFontType::SerifBold => "system:serif:bold",
+        }
+    }
+}
+
+/// Accessibility settings detected from the operating system.
+/// 
+/// These settings allow apps to adapt their UI for users with accessibility needs.
+/// Detection methods:
+/// - macOS: UIAccessibility APIs (isBoldTextEnabled, isReduceMotionEnabled, etc.)
+/// - Windows: SystemParametersInfo (SPI_GETHIGHCONTRAST, SPI_GETCLIENTAREAANIMATION)
+/// - Linux: gsettings (org.gnome.desktop.interface, org.gnome.desktop.a11y)
+#[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
+pub struct AccessibilitySettings {
+    /// User prefers bold text for better readability
+    /// macOS: UIAccessibility.isBoldTextEnabled
+    /// Windows: N/A (font scaling)
+    /// Linux: org.gnome.desktop.interface text-scaling-factor
+    pub prefers_bold_text: bool,
+    /// User prefers larger text
+    /// macOS: preferredContentSizeCategory
+    /// Windows: SystemParametersInfo text scale factor
+    /// Linux: org.gnome.desktop.interface text-scaling-factor
+    pub prefers_larger_text: bool,
+    /// Text scaling factor (1.0 = normal, 1.5 = 150%, etc.)
+    pub text_scale_factor: f32,
+    /// User prefers high contrast colors
+    /// macOS: UIAccessibility.isDarkerSystemColorsEnabled
+    /// Windows: SPI_GETHIGHCONTRAST
+    /// Linux: org.gnome.desktop.a11y.interface high-contrast
+    pub prefers_high_contrast: bool,
+    /// User prefers reduced motion/animations
+    /// macOS: UIAccessibility.isReduceMotionEnabled
+    /// Windows: SPI_GETCLIENTAREAANIMATION (inverted)
+    /// Linux: org.gnome.desktop.interface enable-animations (inverted)
+    pub prefers_reduced_motion: bool,
+    /// User prefers reduced transparency
+    /// macOS: UIAccessibility.isReduceTransparencyEnabled
+    /// Windows: N/A
+    /// Linux: N/A
+    pub prefers_reduced_transparency: bool,
+    /// Screen reader is active (VoiceOver, Narrator, Orca)
+    pub screen_reader_active: bool,
+    /// User prefers differentiate without color
+    /// macOS: UIAccessibility.shouldDifferentiateWithoutColor
+    pub differentiate_without_color: bool,
+}
+
 /// Common system colors used for UI elements.
+/// 
+/// These colors are queried from the operating system and automatically adapt
+/// to the current theme (light/dark mode) and accent color settings.
+/// 
+/// On macOS, these correspond to NSColor semantic colors.
+/// On Windows, these come from UISettings.
+/// On Linux/GTK, these come from the GTK theme.
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
 pub struct SystemColors {
+    // === Primary semantic colors ===
+    /// Primary text color (NSColor.textColor on macOS)
     pub text: OptionColorU,
+    /// Secondary text color for less prominent text (NSColor.secondaryLabelColor)
+    pub secondary_text: OptionColorU,
+    /// Tertiary text color for disabled/placeholder text (NSColor.tertiaryLabelColor)
+    pub tertiary_text: OptionColorU,
+    /// Background color for content areas (NSColor.textBackgroundColor)
     pub background: OptionColorU,
+    
+    // === Accent colors ===
+    /// System accent color chosen by user (NSColor.controlAccentColor on macOS)
     pub accent: OptionColorU,
+    /// Text color on accent backgrounds
     pub accent_text: OptionColorU,
+    
+    // === Control colors ===
+    /// Button/control background (NSColor.controlColor)
     pub button_face: OptionColorU,
+    /// Button/control text color (NSColor.controlTextColor)
     pub button_text: OptionColorU,
+    /// Disabled control text color (NSColor.disabledControlTextColor)
+    pub disabled_text: OptionColorU,
+    
+    // === Window colors ===
+    /// Window background color (NSColor.windowBackgroundColor)
     pub window_background: OptionColorU,
+    /// Under-page background color (NSColor.underPageBackgroundColor)
+    pub under_page_background: OptionColorU,
+    
+    // === Selection colors ===
+    /// Selection background when window is focused (NSColor.selectedContentBackgroundColor)
     pub selection_background: OptionColorU,
+    /// Selection text color when window is focused
     pub selection_text: OptionColorU,
+    /// Selection background when window is NOT focused (NSColor.unemphasizedSelectedContentBackgroundColor)
+    /// This is used for :backdrop state styling
+    pub selection_background_inactive: OptionColorU,
+    /// Selection text color when window is NOT focused
+    pub selection_text_inactive: OptionColorU,
+    
+    // === Additional semantic colors ===
+    /// Link color (NSColor.linkColor)
+    pub link: OptionColorU,
+    /// Separator/divider color (NSColor.separatorColor)
+    pub separator: OptionColorU,
+    /// Grid/table line color (NSColor.gridColor)
+    pub grid: OptionColorU,
+    /// Find/search highlight color (NSColor.findHighlightColor)
+    pub find_highlight: OptionColorU,
+    
+    // === Sidebar colors (macOS-specific) ===
+    /// Sidebar background color
+    pub sidebar_background: OptionColorU,
+    /// Selected row in sidebar
+    pub sidebar_selection: OptionColorU,
 }
 
 /// Common system font settings.
+/// 
+/// On macOS, these are queried from NSFont.
+/// On Windows, these come from SystemParametersInfo.
+/// On Linux, these come from GTK/gsettings.
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
 pub struct SystemFonts {
     /// The primary font used for UI elements like buttons and labels.
+    /// On macOS: SF Pro (system font)
+    /// On Windows: Segoe UI
+    /// On Linux: Cantarell, Ubuntu, or system default
     pub ui_font: OptionString,
     /// The default font size for UI elements, in points.
     pub ui_font_size: OptionF32,
     /// The font used for code or other monospaced text.
+    /// On macOS: SF Mono or Menlo
+    /// On Windows: Cascadia Mono or Consolas
+    /// On Linux: Ubuntu Mono or DejaVu Sans Mono
     pub monospace_font: OptionString,
+    /// Monospace font size in points
+    pub monospace_font_size: OptionF32,
+    /// Bold variant of the UI font (if different)
+    pub ui_font_bold: OptionString,
+    /// Font for window titles
+    pub title_font: OptionString,
+    /// Title font size in points
+    pub title_font_size: OptionF32,
+    /// Font for menu items
+    pub menu_font: OptionString,
+    /// Menu font size in points
+    pub menu_font_size: OptionF32,
+    /// Small/caption font for less prominent text
+    pub small_font: OptionString,
+    /// Small font size in points
+    pub small_font_size: OptionF32,
 }
 
 /// Common system metrics for UI element sizing and spacing.
@@ -153,6 +370,255 @@ pub struct SystemMetrics {
     pub corner_radius: OptionPixelValue,
     /// The width of standard borders.
     pub border_width: OptionPixelValue,
+}
+
+/// Apple system font family names for font fallback chains.
+/// 
+/// These are the canonical names for Apple's system fonts, which should
+/// be used in font fallback chains for proper rendering on Apple platforms.
+pub mod apple_fonts {
+    /// SF Pro - Primary system font for iOS, iPadOS, macOS, tvOS
+    /// Best for UI text, labels, and buttons
+    pub const SF_PRO: &str = ".SF NS";
+    pub const SF_PRO_DISPLAY: &str = ".SF NS Display";
+    pub const SF_PRO_TEXT: &str = ".SF NS Text";
+    
+    /// SF Compact - System font optimized for watchOS
+    /// Optimized for small sizes and narrow columns
+    pub const SF_COMPACT: &str = ".SF Compact";
+    pub const SF_COMPACT_DISPLAY: &str = ".SF Compact Display";
+    pub const SF_COMPACT_TEXT: &str = ".SF Compact Text";
+    
+    /// SF Mono - Monospaced font used in Xcode
+    /// Enables alignment between rows and columns of text
+    pub const SF_MONO: &str = "SF Mono";
+    
+    /// New York - Serif font for reading
+    /// Performs as traditional reading face at small sizes
+    pub const NEW_YORK: &str = "New York";
+    
+    /// SF Arabic - Arabic system font
+    pub const SF_ARABIC: &str = "SF Arabic";
+    
+    /// SF Armenian - Armenian system font
+    pub const SF_ARMENIAN: &str = "SF Armenian";
+    
+    /// SF Georgian - Georgian system font
+    pub const SF_GEORGIAN: &str = "SF Georgian";
+    
+    /// SF Hebrew - Hebrew system font with niqqud support
+    pub const SF_HEBREW: &str = "SF Hebrew";
+    
+    /// Legacy macOS fonts for fallback
+    pub const MENLO: &str = "Menlo";
+    pub const MONACO: &str = "Monaco";
+    pub const LUCIDA_GRANDE: &str = "Lucida Grande";
+    pub const HELVETICA_NEUE: &str = "Helvetica Neue";
+}
+
+/// Windows system font family names.
+pub mod windows_fonts {
+    /// Modern Windows 11 fonts
+    pub const SEGOE_UI_VARIABLE: &str = "Segoe UI Variable";
+    pub const SEGOE_UI_VARIABLE_TEXT: &str = "Segoe UI Variable Text";
+    pub const SEGOE_UI_VARIABLE_DISPLAY: &str = "Segoe UI Variable Display";
+    
+    /// Standard Windows fonts
+    pub const SEGOE_UI: &str = "Segoe UI";
+    pub const CONSOLAS: &str = "Consolas";
+    pub const CASCADIA_CODE: &str = "Cascadia Code";
+    pub const CASCADIA_MONO: &str = "Cascadia Mono";
+    
+    /// Legacy Windows fonts
+    pub const TAHOMA: &str = "Tahoma";
+    pub const MS_SANS_SERIF: &str = "MS Sans Serif";
+    pub const LUCIDA_CONSOLE: &str = "Lucida Console";
+    pub const COURIER_NEW: &str = "Courier New";
+}
+
+/// Linux/GTK common font family names.
+pub mod linux_fonts {
+    /// GNOME default fonts
+    pub const CANTARELL: &str = "Cantarell";
+    pub const ADWAITA: &str = "Adwaita";
+    
+    /// Ubuntu fonts
+    pub const UBUNTU: &str = "Ubuntu";
+    pub const UBUNTU_MONO: &str = "Ubuntu Mono";
+    
+    /// DejaVu fonts (widely available)
+    pub const DEJAVU_SANS: &str = "DejaVu Sans";
+    pub const DEJAVU_SANS_MONO: &str = "DejaVu Sans Mono";
+    pub const DEJAVU_SERIF: &str = "DejaVu Serif";
+    
+    /// Liberation fonts (metrically compatible with Windows fonts)
+    pub const LIBERATION_SANS: &str = "Liberation Sans";
+    pub const LIBERATION_MONO: &str = "Liberation Mono";
+    pub const LIBERATION_SERIF: &str = "Liberation Serif";
+    
+    /// Noto fonts (broad Unicode coverage)
+    pub const NOTO_SANS: &str = "Noto Sans";
+    pub const NOTO_MONO: &str = "Noto Sans Mono";
+    pub const NOTO_SERIF: &str = "Noto Serif";
+    
+    /// KDE default fonts
+    pub const HACK: &str = "Hack";
+    
+    /// Generic fallback names
+    pub const MONOSPACE: &str = "Monospace";
+    pub const SANS_SERIF: &str = "Sans";
+    pub const SERIF: &str = "Serif";
+}
+
+impl SystemFontType {
+    /// Returns the font fallback chain for this font type on the given platform.
+    /// 
+    /// The returned list contains font family names in order of preference.
+    /// The first available font should be used.
+    pub fn get_fallback_chain(&self, platform: &Platform) -> Vec<&'static str> {
+        match platform {
+            Platform::MacOs | Platform::Ios => self.macos_fallback_chain(),
+            Platform::Windows => self.windows_fallback_chain(),
+            Platform::Linux(_) => self.linux_fallback_chain(),
+            Platform::Android => self.android_fallback_chain(),
+            Platform::Unknown => self.generic_fallback_chain(),
+        }
+    }
+    
+    fn macos_fallback_chain(&self) -> Vec<&'static str> {
+        match self {
+            SystemFontType::Ui | SystemFontType::UiBold => vec![
+                apple_fonts::SF_PRO,
+                apple_fonts::SF_PRO_TEXT,
+                apple_fonts::HELVETICA_NEUE,
+                apple_fonts::LUCIDA_GRANDE,
+            ],
+            SystemFontType::Monospace | SystemFontType::MonospaceBold | SystemFontType::MonospaceItalic => vec![
+                apple_fonts::SF_MONO,
+                apple_fonts::MENLO,
+                apple_fonts::MONACO,
+            ],
+            SystemFontType::Title | SystemFontType::TitleBold => vec![
+                apple_fonts::SF_PRO_DISPLAY,
+                apple_fonts::SF_PRO,
+                apple_fonts::HELVETICA_NEUE,
+            ],
+            SystemFontType::Menu => vec![
+                apple_fonts::SF_PRO,
+                apple_fonts::SF_PRO_TEXT,
+            ],
+            SystemFontType::Small => vec![
+                apple_fonts::SF_PRO_TEXT,
+                apple_fonts::SF_PRO,
+            ],
+            SystemFontType::Serif | SystemFontType::SerifBold => vec![
+                apple_fonts::NEW_YORK,
+                "Georgia",
+                "Times New Roman",
+            ],
+        }
+    }
+    
+    fn windows_fallback_chain(&self) -> Vec<&'static str> {
+        match self {
+            SystemFontType::Ui | SystemFontType::UiBold => vec![
+                windows_fonts::SEGOE_UI_VARIABLE_TEXT,
+                windows_fonts::SEGOE_UI,
+                windows_fonts::TAHOMA,
+            ],
+            SystemFontType::Monospace | SystemFontType::MonospaceBold | SystemFontType::MonospaceItalic => vec![
+                windows_fonts::CASCADIA_MONO,
+                windows_fonts::CASCADIA_CODE,
+                windows_fonts::CONSOLAS,
+                windows_fonts::LUCIDA_CONSOLE,
+                windows_fonts::COURIER_NEW,
+            ],
+            SystemFontType::Title | SystemFontType::TitleBold => vec![
+                windows_fonts::SEGOE_UI_VARIABLE_DISPLAY,
+                windows_fonts::SEGOE_UI,
+            ],
+            SystemFontType::Menu => vec![
+                windows_fonts::SEGOE_UI,
+                windows_fonts::TAHOMA,
+            ],
+            SystemFontType::Small => vec![
+                windows_fonts::SEGOE_UI,
+            ],
+            SystemFontType::Serif | SystemFontType::SerifBold => vec![
+                "Cambria",
+                "Georgia",
+                "Times New Roman",
+            ],
+        }
+    }
+    
+    fn linux_fallback_chain(&self) -> Vec<&'static str> {
+        match self {
+            SystemFontType::Ui | SystemFontType::UiBold => vec![
+                linux_fonts::CANTARELL,
+                linux_fonts::UBUNTU,
+                linux_fonts::NOTO_SANS,
+                linux_fonts::DEJAVU_SANS,
+                linux_fonts::LIBERATION_SANS,
+                linux_fonts::SANS_SERIF,
+            ],
+            SystemFontType::Monospace | SystemFontType::MonospaceBold | SystemFontType::MonospaceItalic => vec![
+                linux_fonts::UBUNTU_MONO,
+                linux_fonts::HACK,
+                linux_fonts::NOTO_MONO,
+                linux_fonts::DEJAVU_SANS_MONO,
+                linux_fonts::LIBERATION_MONO,
+                linux_fonts::MONOSPACE,
+            ],
+            SystemFontType::Title | SystemFontType::TitleBold => vec![
+                linux_fonts::CANTARELL,
+                linux_fonts::UBUNTU,
+                linux_fonts::NOTO_SANS,
+            ],
+            SystemFontType::Menu => vec![
+                linux_fonts::CANTARELL,
+                linux_fonts::UBUNTU,
+                linux_fonts::NOTO_SANS,
+            ],
+            SystemFontType::Small => vec![
+                linux_fonts::CANTARELL,
+                linux_fonts::UBUNTU,
+                linux_fonts::NOTO_SANS,
+            ],
+            SystemFontType::Serif | SystemFontType::SerifBold => vec![
+                linux_fonts::NOTO_SERIF,
+                linux_fonts::DEJAVU_SERIF,
+                linux_fonts::LIBERATION_SERIF,
+                linux_fonts::SERIF,
+            ],
+        }
+    }
+    
+    fn android_fallback_chain(&self) -> Vec<&'static str> {
+        match self {
+            SystemFontType::Ui | SystemFontType::UiBold => vec!["Roboto", "Noto Sans"],
+            SystemFontType::Monospace | SystemFontType::MonospaceBold | SystemFontType::MonospaceItalic => {
+                vec!["Roboto Mono", "Droid Sans Mono", "monospace"]
+            }
+            SystemFontType::Title | SystemFontType::TitleBold => vec!["Roboto", "Noto Sans"],
+            SystemFontType::Menu => vec!["Roboto"],
+            SystemFontType::Small => vec!["Roboto"],
+            SystemFontType::Serif | SystemFontType::SerifBold => vec!["Noto Serif", "Droid Serif", "serif"],
+        }
+    }
+    
+    fn generic_fallback_chain(&self) -> Vec<&'static str> {
+        match self {
+            SystemFontType::Ui | SystemFontType::UiBold => vec!["sans-serif"],
+            SystemFontType::Monospace | SystemFontType::MonospaceBold | SystemFontType::MonospaceItalic => {
+                vec!["monospace"]
+            }
+            SystemFontType::Title | SystemFontType::TitleBold => vec!["sans-serif"],
+            SystemFontType::Menu => vec!["sans-serif"],
+            SystemFontType::Small => vec!["sans-serif"],
+            SystemFontType::Serif | SystemFontType::SerifBold => vec!["serif"],
+        }
+    }
 }
 
 impl SystemStyle {
@@ -1540,6 +2006,7 @@ pub mod defaults {
                 ui_font: OptionString::Some("Segoe UI Variable Text".into()),
                 ui_font_size: OptionF32::Some(9.0),
                 monospace_font: OptionString::Some("Consolas".into()),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
@@ -1572,6 +2039,7 @@ pub mod defaults {
                 ui_font: OptionString::Some("Segoe UI Variable Text".into()),
                 ui_font_size: OptionF32::Some(9.0),
                 monospace_font: OptionString::Some("Consolas".into()),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
@@ -1604,6 +2072,7 @@ pub mod defaults {
                 ui_font: OptionString::Some("Segoe UI".into()),
                 ui_font_size: OptionF32::Some(9.0),
                 monospace_font: OptionString::Some("Consolas".into()),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(6.0)),
@@ -1636,6 +2105,7 @@ pub mod defaults {
                 ui_font: OptionString::Some("Tahoma".into()),
                 ui_font_size: OptionF32::Some(8.0),
                 monospace_font: OptionString::Some("Lucida Console".into()),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(3.0)),
@@ -1671,6 +2141,7 @@ pub mod defaults {
                 ui_font: OptionString::Some(".SF NS".into()),
                 ui_font_size: OptionF32::Some(13.0),
                 monospace_font: OptionString::Some("Menlo".into()),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(8.0)),
@@ -1703,7 +2174,15 @@ pub mod defaults {
             fonts: SystemFonts {
                 ui_font: OptionString::Some(".SF NS".into()),
                 ui_font_size: OptionF32::Some(13.0),
-                monospace_font: OptionString::Some("Menlo".into()),
+                monospace_font: OptionString::Some("SF Mono".into()),
+                monospace_font_size: OptionF32::Some(12.0),
+                title_font: OptionString::Some(".SF NS".into()),
+                title_font_size: OptionF32::Some(13.0),
+                menu_font: OptionString::Some(".SF NS".into()),
+                menu_font_size: OptionF32::Some(13.0),
+                small_font: OptionString::Some(".SF NS".into()),
+                small_font_size: OptionF32::Some(11.0),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(8.0)),
@@ -1734,6 +2213,8 @@ pub mod defaults {
                 ui_font: OptionString::Some("Lucida Grande".into()),
                 ui_font_size: OptionF32::Some(13.0),
                 monospace_font: OptionString::Some("Monaco".into()),
+                monospace_font_size: OptionF32::Some(12.0),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(12.0)),
@@ -1766,6 +2247,7 @@ pub mod defaults {
                 ui_font: OptionString::Some("Cantarell".into()),
                 ui_font_size: OptionF32::Some(11.0),
                 monospace_font: OptionString::Some("Monospace".into()),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
@@ -1796,6 +2278,7 @@ pub mod defaults {
                 ui_font: OptionString::Some("Cantarell".into()),
                 ui_font_size: OptionF32::Some(11.0),
                 monospace_font: OptionString::Some("Monospace".into()),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
@@ -1825,6 +2308,7 @@ pub mod defaults {
                 ui_font: OptionString::Some("DejaVu Sans".into()),
                 ui_font_size: OptionF32::Some(10.0),
                 monospace_font: OptionString::Some("DejaVu Sans Mono".into()),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
@@ -1854,6 +2338,7 @@ pub mod defaults {
                 ui_font: OptionString::Some("Noto Sans".into()),
                 ui_font_size: OptionF32::Some(10.0),
                 monospace_font: OptionString::Some("Hack".into()),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
@@ -1885,6 +2370,7 @@ pub mod defaults {
                 ui_font: OptionString::Some("Roboto".into()),
                 ui_font_size: OptionF32::Some(14.0),
                 monospace_font: OptionString::Some("Droid Sans Mono".into()),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(12.0)),
@@ -1914,6 +2400,7 @@ pub mod defaults {
                 ui_font: OptionString::Some("Roboto".into()),
                 ui_font_size: OptionF32::Some(14.0),
                 monospace_font: OptionString::Some("Droid Sans Mono".into()),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(2.0)),
@@ -1943,6 +2430,7 @@ pub mod defaults {
                 ui_font: OptionString::Some(".SFUI-Display-Regular".into()),
                 ui_font_size: OptionF32::Some(17.0),
                 monospace_font: OptionString::Some("Menlo".into()),
+                ..Default::default()
             },
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(10.0)),

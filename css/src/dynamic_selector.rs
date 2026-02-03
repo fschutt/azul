@@ -15,6 +15,8 @@ pub struct PseudoStateFlags {
     pub checked: bool,
     pub focus_within: bool,
     pub visited: bool,
+    /// Window is not focused (equivalent to GTK :backdrop)
+    pub backdrop: bool,
 }
 
 impl PseudoStateFlags {
@@ -29,6 +31,7 @@ impl PseudoStateFlags {
             PseudoStateType::Checked => self.checked,
             PseudoStateType::FocusWithin => self.focus_within,
             PseudoStateType::Visited => self.visited,
+            PseudoStateType::Backdrop => self.backdrop,
         }
     }
 }
@@ -663,6 +666,8 @@ pub enum PseudoStateType {
     FocusWithin,
     /// Link has been visited (:visited)
     Visited,
+    /// Window is not focused (:backdrop) - GTK compatibility
+    Backdrop,
 }
 
 impl_option!(
@@ -706,6 +711,10 @@ pub struct DynamicSelectorContext {
 
     /// Language/Locale (BCP 47 tag, e.g., "en-US", "de-DE")
     pub language: AzString,
+
+    /// Whether the window currently has focus (for :backdrop pseudo-class)
+    /// When false, :backdrop styles should be applied
+    pub window_focused: bool,
 }
 
 impl Default for DynamicSelectorContext {
@@ -726,6 +735,7 @@ impl Default for DynamicSelectorContext {
             orientation: OrientationType::Landscape,
             pseudo_state: PseudoStateFlags::default(),
             language: AzString::from_const_str("en-US"),
+            window_focused: true,
         }
     }
 }
@@ -757,6 +767,7 @@ impl DynamicSelectorContext {
             orientation: OrientationType::Landscape,
             pseudo_state: PseudoStateFlags::default(),
             language: system_style.language.clone(),
+            window_focused: true,
         }
     }
 
@@ -830,7 +841,7 @@ impl DynamicSelector {
             Self::PrefersHighContrast(pref) => {
                 bool::from(*pref) == bool::from(ctx.prefers_high_contrast)
             }
-            Self::PseudoState(state) => Self::match_pseudo_state(*state, &ctx.pseudo_state),
+            Self::PseudoState(state) => Self::match_pseudo_state(*state, ctx),
             Self::Language(lang_cond) => lang_cond.matches(ctx.language.as_str()),
         }
     }
@@ -865,7 +876,8 @@ impl DynamicSelector {
         }
     }
 
-    fn match_pseudo_state(state: PseudoStateType, node_state: &PseudoStateFlags) -> bool {
+    fn match_pseudo_state(state: PseudoStateType, ctx: &DynamicSelectorContext) -> bool {
+        let node_state = &ctx.pseudo_state;
         match state {
             PseudoStateType::Normal => true, // Normal is always active (base state)
             PseudoStateType::Hover => node_state.hover,
@@ -875,6 +887,8 @@ impl DynamicSelector {
             PseudoStateType::Checked => node_state.checked,
             PseudoStateType::FocusWithin => node_state.focus_within,
             PseudoStateType::Visited => node_state.visited,
+            // :backdrop is true when window is NOT focused (opposite of window_focused)
+            PseudoStateType::Backdrop => !ctx.window_focused,
         }
     }
 }
@@ -1239,6 +1253,7 @@ impl CssPropertyWithConditionsVec {
                 "disabled" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Disabled)]),
                 "checked" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Checked)]),
                 "visited" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Visited)]),
+                "backdrop" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Backdrop)]),
                 _ => return None,
             }
         }

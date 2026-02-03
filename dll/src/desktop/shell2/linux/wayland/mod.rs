@@ -1656,6 +1656,7 @@ impl WaylandWindow {
         // activity
         if is_pressed && !self.current_window_state.window_focused {
             self.current_window_state.window_focused = true;
+            self.dynamic_selector_context.window_focused = true;
             self.sync_ime_position_to_os();
         }
 
@@ -2002,6 +2003,14 @@ impl WaylandWindow {
         self.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(logical_pos);
         self.update_hit_test(logical_pos);
+        self.frame_needs_regeneration = true;
+    }
+
+    /// Handle keyboard leave event (window lost focus)
+    pub fn handle_keyboard_leave(&mut self) {
+        self.previous_window_state = Some(self.current_window_state.clone());
+        self.current_window_state.window_focused = false;
+        self.dynamic_selector_context.window_focused = false;
         self.frame_needs_regeneration = true;
     }
 

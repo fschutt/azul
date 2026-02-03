@@ -26380,6 +26380,11 @@
                 "visited": {
                   "type": "bool"
                 }
+              },
+              {
+                "backdrop": {
+                  "type": "bool"
+                }
               }
             ],
             "repr": "C"
@@ -28463,6 +28468,30 @@
                 },
                 "monospace_font": {
                   "type": "OptionString"
+                },
+                "monospace_font_size": {
+                  "type": "OptionF32"
+                },
+                "ui_font_bold": {
+                  "type": "OptionString"
+                },
+                "title_font": {
+                  "type": "OptionString"
+                },
+                "title_font_size": {
+                  "type": "OptionF32"
+                },
+                "menu_font": {
+                  "type": "OptionString"
+                },
+                "menu_font_size": {
+                  "type": "OptionF32"
+                },
+                "small_font": {
+                  "type": "OptionString"
+                },
+                "small_font_size": {
+                  "type": "OptionF32"
                 }
               }
             ],
@@ -28567,6 +28596,12 @@
                 "text": {
                   "type": "OptionColorU"
                 },
+                "secondary_text": {
+                  "type": "OptionColorU"
+                },
+                "tertiary_text": {
+                  "type": "OptionColorU"
+                },
                 "background": {
                   "type": "OptionColorU"
                 },
@@ -28582,13 +28617,43 @@
                 "button_text": {
                   "type": "OptionColorU"
                 },
+                "disabled_text": {
+                  "type": "OptionColorU"
+                },
                 "window_background": {
+                  "type": "OptionColorU"
+                },
+                "under_page_background": {
                   "type": "OptionColorU"
                 },
                 "selection_background": {
                   "type": "OptionColorU"
                 },
                 "selection_text": {
+                  "type": "OptionColorU"
+                },
+                "selection_background_inactive": {
+                  "type": "OptionColorU"
+                },
+                "selection_text_inactive": {
+                  "type": "OptionColorU"
+                },
+                "link": {
+                  "type": "OptionColorU"
+                },
+                "separator": {
+                  "type": "OptionColorU"
+                },
+                "grid": {
+                  "type": "OptionColorU"
+                },
+                "find_highlight": {
+                  "type": "OptionColorU"
+                },
+                "sidebar_background": {
+                  "type": "OptionColorU"
+                },
+                "sidebar_selection": {
                   "type": "OptionColorU"
                 }
               }

@@ -325,6 +325,7 @@ pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> 
             CssPathPseudoSelector::Hover
                 | CssPathPseudoSelector::Active
                 | CssPathPseudoSelector::Focus
+                | CssPathPseudoSelector::Backdrop
         )
     }
 
@@ -433,6 +434,11 @@ fn match_pseudo_selector(
         ),
         CssPathPseudoSelector::Focus => match_interactive_pseudo(
             CssPathPseudoSelector::Focus,
+            expected_path_ending,
+            is_last_content_group,
+        ),
+        CssPathPseudoSelector::Backdrop => match_interactive_pseudo(
+            CssPathPseudoSelector::Backdrop,
             expected_path_ending,
             is_last_content_group,
         ),

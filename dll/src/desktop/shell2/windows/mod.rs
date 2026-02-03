@@ -2530,6 +2530,7 @@ unsafe extern "system" fn window_proc(
             window.previous_window_state = Some(window.current_window_state.clone());
             window.current_window_state.flags.has_focus = true;
             window.current_window_state.window_focused = true;
+            window.dynamic_selector_context.window_focused = true;
 
             // Phase 2: OnFocus callback - sync IME position after focus
             window.sync_ime_position_to_os();
@@ -2542,6 +2543,7 @@ unsafe extern "system" fn window_proc(
             window.previous_window_state = Some(window.current_window_state.clone());
             window.current_window_state.flags.has_focus = false;
             window.current_window_state.window_focused = false;
+            window.dynamic_selector_context.window_focused = false;
 
             0
         }

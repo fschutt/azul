@@ -1035,6 +1035,8 @@ pub enum CssPathPseudoSelector {
     Focus,
     /// `:lang(de)` - element matches language
     Lang(AzString),
+    /// `:backdrop` - window is not focused (GTK compatibility)
+    Backdrop,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1076,6 +1078,7 @@ impl fmt::Display for CssPathPseudoSelector {
             Active => write!(f, "active"),
             Focus => write!(f, "focus"),
             Lang(lang) => write!(f, "lang({})", lang.as_str()),
+            Backdrop => write!(f, "backdrop"),
         }
     }
 }
@@ -1429,6 +1432,7 @@ pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
         CssPathPseudoSelector::Hover => format!("CssPathPseudoSelector::Hover"),
         CssPathPseudoSelector::Active => format!("CssPathPseudoSelector::Active"),
         CssPathPseudoSelector::Focus => format!("CssPathPseudoSelector::Focus"),
+        CssPathPseudoSelector::Backdrop => format!("CssPathPseudoSelector::Backdrop"),
         CssPathPseudoSelector::Lang(lang) => format!(
             "CssPathPseudoSelector::Lang(AzString::from_const_str(\"{}\"))",
             lang.as_str()

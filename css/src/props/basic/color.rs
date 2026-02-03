@@ -1338,14 +1338,26 @@ mod tests {
         
         let system_colors = SystemColors {
             text: OptionColorU::Some(ColorU::BLACK),
+            secondary_text: OptionColorU::None,
+            tertiary_text: OptionColorU::None,
             background: OptionColorU::Some(ColorU::WHITE),
             accent: OptionColorU::Some(ColorU::new_rgb(0, 122, 255)), // macOS blue
             accent_text: OptionColorU::Some(ColorU::WHITE),
             button_face: OptionColorU::Some(ColorU::new_rgb(240, 240, 240)),
             button_text: OptionColorU::Some(ColorU::BLACK),
+            disabled_text: OptionColorU::None,
             window_background: OptionColorU::Some(ColorU::WHITE),
+            under_page_background: OptionColorU::None,
             selection_background: OptionColorU::Some(ColorU::new_rgb(0, 120, 215)),
             selection_text: OptionColorU::Some(ColorU::WHITE),
+            selection_background_inactive: OptionColorU::None,
+            selection_text_inactive: OptionColorU::None,
+            link: OptionColorU::None,
+            separator: OptionColorU::None,
+            grid: OptionColorU::None,
+            find_highlight: OptionColorU::None,
+            sidebar_background: OptionColorU::None,
+            sidebar_selection: OptionColorU::None,
         };
         
         // Test resolution of system colors
