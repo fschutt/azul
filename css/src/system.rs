@@ -370,6 +370,10 @@ pub struct SystemMetrics {
     pub corner_radius: OptionPixelValue,
     /// The width of standard borders.
     pub border_width: OptionPixelValue,
+    /// The horizontal (left/right) padding for buttons and similar controls.
+    pub button_padding_horizontal: OptionPixelValue,
+    /// The vertical (top/bottom) padding for buttons and similar controls.
+    pub button_padding_vertical: OptionPixelValue,
 }
 
 /// Apple system font family names for font fallback chains.
@@ -2011,6 +2015,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_LIGHT))),
             app_specific_stylesheet: None,
@@ -2044,6 +2050,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_DARK))),
             app_specific_stylesheet: None,
@@ -2077,6 +2085,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(6.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(10.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(5.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
             app_specific_stylesheet: None,
@@ -2110,6 +2120,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(3.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(8.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(4.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_CLASSIC))),
             app_specific_stylesheet: None,
@@ -2146,6 +2158,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(8.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_LIGHT))),
             app_specific_stylesheet: None,
@@ -2187,6 +2201,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(8.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_DARK))),
             app_specific_stylesheet: None,
@@ -2219,6 +2235,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(12.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_AQUA))),
             app_specific_stylesheet: None,
@@ -2252,6 +2270,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(8.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
             app_specific_stylesheet: None,
@@ -2283,6 +2303,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(8.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_DARK))),
             app_specific_stylesheet: None,
@@ -2313,6 +2335,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(10.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
             app_specific_stylesheet: None,
@@ -2343,6 +2367,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_KDE_OXYGEN))),
             app_specific_stylesheet: None,
@@ -2375,6 +2401,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(12.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(10.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_LIGHT))),
             app_specific_stylesheet: None,
@@ -2405,6 +2433,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(2.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(8.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_DARK))),
             app_specific_stylesheet: None,
@@ -2435,6 +2465,8 @@ pub mod defaults {
             metrics: SystemMetrics {
                 corner_radius: OptionPixelValue::Some(PixelValue::px(10.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(0.5)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(20.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(12.0)),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_IOS_LIGHT))),
             app_specific_stylesheet: None,

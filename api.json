@@ -18648,6 +18648,143 @@
                 ],
                 "fn_args": [],
                 "fn_body": "azul_css::props::basic::color::ColorU::apple_gray_dark()"
+              },
+              "bootstrap_primary": {
+                "doc": [
+                  "Primary button color (blue) - used for main actions"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_primary()"
+              },
+              "bootstrap_primary_hover": {
+                "doc": [
+                  "Primary button hover color"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_primary_hover()"
+              },
+              "bootstrap_primary_active": {
+                "doc": [
+                  "Primary button active/pressed color"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_primary_active()"
+              },
+              "bootstrap_secondary": {
+                "doc": [
+                  "Secondary button color (gray)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_secondary()"
+              },
+              "bootstrap_secondary_hover": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_secondary_hover()"
+              },
+              "bootstrap_secondary_active": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_secondary_active()"
+              },
+              "bootstrap_success": {
+                "doc": [
+                  "Success button color (green) - used for confirmations"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_success()"
+              },
+              "bootstrap_success_hover": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_success_hover()"
+              },
+              "bootstrap_success_active": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_success_active()"
+              },
+              "bootstrap_danger": {
+                "doc": [
+                  "Danger button color (red) - used for destructive actions"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_danger()"
+              },
+              "bootstrap_danger_hover": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_danger_hover()"
+              },
+              "bootstrap_danger_active": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_danger_active()"
+              },
+              "bootstrap_warning": {
+                "doc": [
+                  "Warning button color (yellow) - uses BLACK text"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_warning()"
+              },
+              "bootstrap_warning_hover": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_warning_hover()"
+              },
+              "bootstrap_warning_active": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_warning_active()"
+              },
+              "bootstrap_info": {
+                "doc": [
+                  "Info button color (teal/cyan)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_info()"
+              },
+              "bootstrap_info_hover": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_info_hover()"
+              },
+              "bootstrap_info_active": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_info_active()"
+              },
+              "bootstrap_light": {
+                "doc": [
+                  "Light button color"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_light()"
+              },
+              "bootstrap_light_hover": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_light_hover()"
+              },
+              "bootstrap_light_active": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_light_active()"
+              },
+              "bootstrap_dark": {
+                "doc": [
+                  "Dark button color"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_dark()"
+              },
+              "bootstrap_dark_hover": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_dark_hover()"
+              },
+              "bootstrap_dark_active": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_dark_active()"
+              },
+              "bootstrap_link": {
+                "doc": [
+                  "Link button text color"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_link()"
+              },
+              "bootstrap_link_hover": {
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::bootstrap_link_hover()"
               }
             },
             "functions": {
@@ -18672,6 +18809,429 @@
                   "type": "bool"
                 },
                 "fn_body": "object.has_alpha()"
+              },
+              "interpolate": {
+                "doc": [
+                  "Interpolate between two colors. t=0.0 returns self, t=1.0 returns other."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "other": "ColorU"
+                  },
+                  {
+                    "t": "f32"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.interpolate(&other, t)"
+              },
+              "lighten": {
+                "doc": [
+                  "Lighten a color by a percentage (0.0 to 1.0).",
+                  "Returns a new color blended towards white."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "amount": "f32"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.lighten(amount)"
+              },
+              "darken": {
+                "doc": [
+                  "Darken a color by a percentage (0.0 to 1.0).",
+                  "Returns a new color blended towards black."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "amount": "f32"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.darken(amount)"
+              },
+              "mix": {
+                "doc": [
+                  "Mix two colors together with a given ratio (0.0 = self, 1.0 = other)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "other": "ColorU"
+                  },
+                  {
+                    "ratio": "f32"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.mix(&other, ratio)"
+              },
+              "hover_variant": {
+                "doc": [
+                  "Create a hover variant (slightly lighter for dark colors, darker for light colors).",
+                  "Useful for button hover states."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.hover_variant()"
+              },
+              "active_variant": {
+                "doc": [
+                  "Create an active/pressed variant (darker than hover).",
+                  "Useful for button active states."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.active_variant()"
+              },
+              "luminance": {
+                "doc": [
+                  "Calculate relative luminance (0.0 = black, 1.0 = white).",
+                  "Uses the sRGB luminance formula."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "f32"
+                },
+                "fn_body": "object.luminance()"
+              },
+              "relative_luminance": {
+                "doc": [
+                  "Calculate relative luminance per WCAG 2.1 specification.",
+                  "Uses sRGB to linear conversion for accurate results."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "f32"
+                },
+                "fn_body": "object.relative_luminance()"
+              },
+              "contrast_text": {
+                "doc": [
+                  "Returns white or black text color for best contrast on this background."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.contrast_text()"
+              },
+              "best_contrast_text": {
+                "doc": [
+                  "Suggest the best text color (black or white) for this background,",
+                  "ensuring WCAG AA compliance for normal text."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.best_contrast_text()"
+              },
+              "contrast_ratio": {
+                "doc": [
+                  "Calculate the contrast ratio between this color and another.",
+                  "Returns a value between 1.0 (no contrast) and 21.0 (max contrast).",
+                  "",
+                  "WCAG 2.1 requirements:",
+                  "- AA normal text: >= 4.5:1",
+                  "- AA large text: >= 3.0:1",
+                  "- AAA normal text: >= 7.0:1",
+                  "- AAA large text: >= 4.5:1"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "other": "ColorU"
+                  }
+                ],
+                "returns": {
+                  "type": "f32"
+                },
+                "fn_body": "object.contrast_ratio(&other)"
+              },
+              "meets_wcag_aa": {
+                "doc": [
+                  "Check if the contrast ratio meets WCAG AA requirements for normal text (>= 4.5:1)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "other": "ColorU"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.meets_wcag_aa(&other)"
+              },
+              "meets_wcag_aa_large": {
+                "doc": [
+                  "Check if the contrast ratio meets WCAG AA requirements for large text (>= 3.0:1).",
+                  "Large text is defined as 18pt+ or 14pt+ bold."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "other": "ColorU"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.meets_wcag_aa_large(&other)"
+              },
+              "meets_wcag_aaa": {
+                "doc": [
+                  "Check if the contrast ratio meets WCAG AAA requirements for normal text (>= 7.0:1)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "other": "ColorU"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.meets_wcag_aaa(&other)"
+              },
+              "meets_wcag_aaa_large": {
+                "doc": [
+                  "Check if the contrast ratio meets WCAG AAA requirements for large text (>= 4.5:1)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "other": "ColorU"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.meets_wcag_aaa_large(&other)"
+              },
+              "apca_contrast": {
+                "doc": [
+                  "Calculate the APCA (Accessible Perceptual Contrast Algorithm) contrast.",
+                  "This is a newer algorithm that may replace WCAG contrast in future standards.",
+                  "Returns a value between -108 (white on black) and 106 (black on white).",
+                  "For most purposes, use the absolute value."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "background": "ColorU"
+                  }
+                ],
+                "returns": {
+                  "type": "f32"
+                },
+                "fn_body": "object.apca_contrast(&background)"
+              },
+              "meets_apca_body": {
+                "doc": [
+                  "Check if the APCA contrast meets the recommended minimum for body text (|Lc| >= 60)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "background": "ColorU"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.meets_apca_body(&background)"
+              },
+              "meets_apca_large": {
+                "doc": [
+                  "Check if the APCA contrast meets the minimum for large text (|Lc| >= 45)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "background": "ColorU"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.meets_apca_large(&background)"
+              },
+              "is_light": {
+                "doc": [
+                  "Returns true if this color is considered 'light' (luminance > 0.5)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_light()"
+              },
+              "is_dark": {
+                "doc": [
+                  "Returns true if this color is considered 'dark' (luminance <= 0.5)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "object.is_dark()"
+              },
+              "ensure_contrast": {
+                "doc": [
+                  "Adjust the color to ensure it meets the minimum contrast ratio against a background.",
+                  "Returns the original color if it already meets the requirement."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "background": "ColorU"
+                  },
+                  {
+                    "min_ratio": "f32"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.ensure_contrast(&background, min_ratio)"
+              },
+              "with_alpha": {
+                "doc": [
+                  "Set the alpha channel while keeping RGB values."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "a": "u8"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.with_alpha(a)"
+              },
+              "with_alpha_f32": {
+                "doc": [
+                  "Set the alpha as a float (0.0 to 1.0)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "a": "f32"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.with_alpha_f32(a)"
+              },
+              "invert": {
+                "doc": [
+                  "Invert the color (keeping alpha)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.invert()"
+              },
+              "to_grayscale": {
+                "doc": [
+                  "Convert to grayscale using luminance weights."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "ColorU"
+                },
+                "fn_body": "object.to_grayscale()"
               }
             },
             "repr": "C"
@@ -73109,6 +73669,18 @@
                   "type": "OptionPixelValue"
                 },
                 "border_width": {
+                  "type": "OptionPixelValue"
+                },
+                "button_padding_horizontal": {
+                  "doc": [
+                    "The horizontal (left/right) padding for buttons and similar controls."
+                  ],
+                  "type": "OptionPixelValue"
+                },
+                "button_padding_vertical": {
+                  "doc": [
+                    "The vertical (top/bottom) padding for buttons and similar controls."
+                  ],
                   "type": "OptionPixelValue"
                 }
               }

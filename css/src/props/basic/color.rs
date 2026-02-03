@@ -261,6 +261,220 @@ impl ColorU {
             Self::WHITE
         }
     }
+    
+    // ============================================================
+    // WCAG Accessibility and Contrast Helpers
+    // Based on W3C WCAG 2.1 guidelines and Chromium research
+    // ============================================================
+    
+    /// Converts a single sRGB channel to linear RGB.
+    /// Used for accurate luminance and contrast calculations.
+    fn srgb_to_linear(c: f32) -> f32 {
+        if c <= 0.03928 {
+            c / 12.92
+        } else {
+            libm::powf((c + 0.055) / 1.055, 2.4)
+        }
+    }
+    
+    /// Calculate relative luminance per WCAG 2.1 specification.
+    /// Returns a value between 0.0 (darkest) and 1.0 (lightest).
+    /// Uses the sRGB to linear conversion for accurate results.
+    pub fn relative_luminance(&self) -> f32 {
+        let r = Self::srgb_to_linear((self.r as f32) / 255.0);
+        let g = Self::srgb_to_linear((self.g as f32) / 255.0);
+        let b = Self::srgb_to_linear((self.b as f32) / 255.0);
+        0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+    
+    /// Calculate the contrast ratio between this color and another.
+    /// Returns a value between 1.0 (no contrast) and 21.0 (max contrast).
+    /// 
+    /// WCAG 2.1 requirements:
+    /// - AA normal text: >= 4.5:1
+    /// - AA large text: >= 3.0:1
+    /// - AAA normal text: >= 7.0:1
+    /// - AAA large text: >= 4.5:1
+    pub fn contrast_ratio(&self, other: &Self) -> f32 {
+        let l1 = self.relative_luminance();
+        let l2 = other.relative_luminance();
+        let lighter = if l1 > l2 { l1 } else { l2 };
+        let darker = if l1 > l2 { l2 } else { l1 };
+        (lighter + 0.05) / (darker + 0.05)
+    }
+    
+    /// Check if the contrast ratio meets WCAG AA requirements for normal text (>= 4.5:1).
+    pub fn meets_wcag_aa(&self, other: &Self) -> bool {
+        self.contrast_ratio(other) >= 4.5
+    }
+    
+    /// Check if the contrast ratio meets WCAG AA requirements for large text (>= 3.0:1).
+    /// Large text is defined as 18pt+ or 14pt+ bold.
+    pub fn meets_wcag_aa_large(&self, other: &Self) -> bool {
+        self.contrast_ratio(other) >= 3.0
+    }
+    
+    /// Check if the contrast ratio meets WCAG AAA requirements for normal text (>= 7.0:1).
+    pub fn meets_wcag_aaa(&self, other: &Self) -> bool {
+        self.contrast_ratio(other) >= 7.0
+    }
+    
+    /// Check if the contrast ratio meets WCAG AAA requirements for large text (>= 4.5:1).
+    pub fn meets_wcag_aaa_large(&self, other: &Self) -> bool {
+        self.contrast_ratio(other) >= 4.5
+    }
+    
+    /// Returns true if this color is considered "light" (luminance > 0.5).
+    /// Useful for determining if dark or light text should be used.
+    pub fn is_light(&self) -> bool {
+        self.luminance() > 0.5
+    }
+    
+    /// Returns true if this color is considered "dark" (luminance <= 0.5).
+    pub fn is_dark(&self) -> bool {
+        self.luminance() <= 0.5
+    }
+    
+    /// Suggest the best text color (black or white) for this background,
+    /// ensuring WCAG AA compliance for normal text.
+    /// 
+    /// If neither black nor white meets AA requirements (unlikely), 
+    /// returns the one with higher contrast.
+    pub fn best_contrast_text(&self) -> Self {
+        let white_contrast = self.contrast_ratio(&Self::WHITE);
+        let black_contrast = self.contrast_ratio(&Self::BLACK);
+        
+        if white_contrast >= black_contrast {
+            Self::WHITE
+        } else {
+            Self::BLACK
+        }
+    }
+    
+    /// Adjust the color to ensure it meets the minimum contrast ratio against a background.
+    /// Lightens or darkens the color as needed.
+    /// 
+    /// Returns the original color if it already meets the requirement,
+    /// otherwise returns an adjusted color that meets the minimum contrast.
+    pub fn ensure_contrast(&self, background: &Self, min_ratio: f32) -> Self {
+        let current_ratio = self.contrast_ratio(background);
+        if current_ratio >= min_ratio {
+            return *self;
+        }
+        
+        // Determine if we should lighten or darken
+        let bg_luminance = background.relative_luminance();
+        let should_lighten = bg_luminance < 0.5;
+        
+        // Binary search for the right amount
+        let mut low = 0.0f32;
+        let mut high = 1.0f32;
+        let mut result = *self;
+        
+        for _ in 0..16 {
+            let mid = (low + high) / 2.0;
+            let candidate = if should_lighten {
+                self.lighten(mid)
+            } else {
+                self.darken(mid)
+            };
+            
+            if candidate.contrast_ratio(background) >= min_ratio {
+                result = candidate;
+                high = mid;
+            } else {
+                low = mid;
+            }
+        }
+        
+        result
+    }
+    
+    /// Calculate the APCA (Accessible Perceptual Contrast Algorithm) contrast.
+    /// This is a newer algorithm that may replace WCAG contrast in future standards.
+    /// Returns a value between -108 (white on black) and 106 (black on white).
+    /// 
+    /// Note: The sign indicates polarity (negative = light text on dark bg).
+    /// For most purposes, use the absolute value.
+    pub fn apca_contrast(&self, background: &Self) -> f32 {
+        // Convert to Y (luminance) using sRGB TRC
+        let text_y = self.relative_luminance();
+        let bg_y = background.relative_luminance();
+        
+        // Soft clamp
+        let text_y = if text_y < 0.0 { 0.0 } else { text_y };
+        let bg_y = if bg_y < 0.0 { 0.0 } else { bg_y };
+        
+        // APCA 0.0.98G constants
+        const NORMBLKTXT: f32 = 0.56;
+        const NORMWHT: f32 = 0.57;
+        const REVTXT: f32 = 0.62;
+        const REVWHT: f32 = 0.65;
+        const BLKTHRS: f32 = 0.022;
+        const SCALEBLKT: f32 = 1.414;
+        const SCALEWHT: f32 = 1.14;
+        
+        // Clamp black levels
+        let txt_clamp = if text_y < BLKTHRS { 
+            text_y + libm::powf(BLKTHRS - text_y, SCALEBLKT)
+        } else { 
+            text_y 
+        };
+        let bg_clamp = if bg_y < BLKTHRS { 
+            bg_y + libm::powf(BLKTHRS - bg_y, SCALEBLKT)
+        } else { 
+            bg_y 
+        };
+        
+        // Calculate contrast
+        let sapc = if bg_clamp > txt_clamp {
+            // Dark text on light bg
+            let s = (libm::powf(bg_clamp, NORMWHT) - libm::powf(txt_clamp, NORMBLKTXT)) * SCALEWHT;
+            if s < 0.1 { 0.0 } else { s * 100.0 }
+        } else {
+            // Light text on dark bg  
+            let s = (libm::powf(bg_clamp, REVWHT) - libm::powf(txt_clamp, REVTXT)) * SCALEWHT;
+            if s > -0.1 { 0.0 } else { s * 100.0 }
+        };
+        
+        sapc
+    }
+    
+    /// Check if the APCA contrast meets the recommended minimum for body text (|Lc| >= 60).
+    pub fn meets_apca_body(&self, background: &Self) -> bool {
+        libm::fabsf(self.apca_contrast(background)) >= 60.0
+    }
+    
+    /// Check if the APCA contrast meets the minimum for large text (|Lc| >= 45).
+    pub fn meets_apca_large(&self, background: &Self) -> bool {
+        libm::fabsf(self.apca_contrast(background)) >= 45.0
+    }
+    
+    /// Set the alpha channel while keeping RGB values.
+    pub fn with_alpha(&self, a: u8) -> Self {
+        Self { r: self.r, g: self.g, b: self.b, a }
+    }
+    
+    /// Set the alpha as a float (0.0 to 1.0).
+    pub fn with_alpha_f32(&self, a: f32) -> Self {
+        self.with_alpha((a.clamp(0.0, 1.0) * 255.0) as u8)
+    }
+    
+    /// Invert the color (keeping alpha).
+    pub fn invert(&self) -> Self {
+        Self {
+            r: 255 - self.r,
+            g: 255 - self.g,
+            b: 255 - self.b,
+            a: self.a,
+        }
+    }
+    
+    /// Convert to grayscale using luminance weights.
+    pub fn to_grayscale(&self) -> Self {
+        let gray = (0.299 * self.r as f32 + 0.587 * self.g as f32 + 0.114 * self.b as f32) as u8;
+        Self { r: gray, g: gray, b: gray, a: self.a }
+    }
 
     pub const fn has_alpha(&self) -> bool {
         self.a != Self::ALPHA_OPAQUE
