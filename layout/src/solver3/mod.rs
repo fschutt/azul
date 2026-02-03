@@ -716,6 +716,12 @@ fn get_containing_block_for_node(
             return (content_pos, size);
         }
     }
+    
+    // For ROOT nodes: the containing block is the viewport.
+    // Do NOT subtract margin here - margins are handled in calculate_used_size().
+    // The margin creates space between viewport edge and element's border-box,
+    // but the available space for calculating width/height percentages
+    // is still the full viewport size.
     (viewport.origin, viewport.size)
 }
 

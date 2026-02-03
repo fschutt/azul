@@ -31,7 +31,7 @@ use crate::{
     font_traits::{
         AvailableSpace, FontLoaderTrait, FontManager, ImageSource, InlineContent, InlineImage,
         InlineShape, LayoutCache, LayoutFragment, ObjectFit, ParsedFontTrait, ShapeDefinition,
-        StyleProperties, StyledRun, UnifiedConstraints,
+        StyleProperties, UnifiedConstraints,
     },
     solver3::{
         fc::split_text_for_whitespace,
@@ -1363,35 +1363,6 @@ fn apply_height_constraints(
     result = result.max(min_height);
 
     result
-}
-
-fn collect_text_recursive(
-    tree: &LayoutTree,
-    node_index: usize,
-    styled_dom: &StyledDom,
-    content: &mut Vec<InlineContent>,
-) {
-    let node = match tree.get(node_index) {
-        Some(n) => n,
-        None => return,
-    };
-
-    // If this node has text content, add it
-    if let Some(dom_id) = node.dom_node_id {
-        if let Some(text) = extract_text_from_node(styled_dom, dom_id) {
-            content.push(InlineContent::Text(StyledRun {
-                text,
-                style: std::sync::Arc::new(StyleProperties::default()),
-                logical_start_byte: 0,
-                source_node_id: Some(dom_id),
-            }));
-        }
-    }
-
-    // Recurse into children
-    for &child_index in &node.children {
-        collect_text_recursive(tree, child_index, styled_dom, content);
-    }
 }
 
 pub fn extract_text_from_node(styled_dom: &StyledDom, node_id: NodeId) -> Option<String> {

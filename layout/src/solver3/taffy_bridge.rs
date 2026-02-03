@@ -723,6 +723,16 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let dom_id = self.tree.get(node_idx).and_then(|n| n.dom_node_id);
         let mut style = self.translate_style_to_taffy(dom_id);
         
+        // FIX: For root nodes, zero out the margin in Taffy styles.
+        // The root's margin has already been accounted for in the known_dimensions
+        // (viewport size minus margins). If we also pass the margin to Taffy,
+        // it gets subtracted twice - once from known_dimensions and once by Taffy
+        // when computing the container's content area.
+        let is_root = self.tree.get(node_idx).map(|n| n.parent.is_none()).unwrap_or(false);
+        if is_root {
+            style.margin = taffy::Rect::zero();
+        }
+        
         // FIX: Apply cross-axis intrinsic size suppression for stretch alignment.
         // This enables align-self: stretch to work correctly by ensuring Taffy
         // sees the cross-axis size as Auto (allowing stretch) rather than a definite value.

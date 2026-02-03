@@ -365,6 +365,26 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
         }
         FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints)
             .map(BfcLayoutResult::from_output),
+        FormattingContext::InlineBlock => {
+            // InlineBlock establishes a new block formatting context for its contents,
+            // but if it only contains inline content (text), treat it as an IFC root.
+            // Check if all children are inline/text nodes
+            let has_only_inline_children = node.children.iter().all(|&child_idx| {
+                tree.get(child_idx)
+                    .map(|c| matches!(c.formatting_context, FormattingContext::Inline))
+                    .unwrap_or(true)
+            });
+            
+            if has_only_inline_children {
+                // InlineBlock with only inline content - use IFC layout
+                layout_ifc(ctx, text_cache, tree, node_index, constraints)
+                    .map(BfcLayoutResult::from_output)
+            } else {
+                // InlineBlock with block children - use BFC layout
+                let mut temp_float_cache = std::collections::BTreeMap::new();
+                layout_bfc(ctx, tree, text_cache, node_index, constraints, &mut temp_float_cache)
+            }
+        }
         FormattingContext::Table => layout_table_fc(ctx, tree, text_cache, node_index, constraints)
             .map(BfcLayoutResult::from_output),
         FormattingContext::Flex | FormattingContext::Grid => {
@@ -406,6 +426,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<BfcLayoutResult> {
+    // Available space comes directly from constraints - margins are handled by Taffy
     let available_space = TaffySize {
         width: AvailableSpace::Definite(constraints.available_size.width),
         height: AvailableSpace::Definite(constraints.available_size.height),
@@ -426,10 +447,16 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     // This is critical for `align-self: stretch` to work - Taffy needs to know the
     // cross-axis size of the container to stretch children to fill it.
     let is_root = node.parent.is_none();
+    
+    // NOTE: For root nodes, margins are already handled by calculate_used_size_for_node()
+    // which subtracts margin from the containing block width when resolving 'auto' width.
+    // Therefore, constraints.available_size already reflects the margin-adjusted size.
+    // We do NOT subtract margins again here - that would cause double subtraction.
+    
     let effective_width = if has_explicit_width {
         explicit_width
     } else if is_root && constraints.available_size.width.is_finite() {
-        // Root node: use viewport width as the container's known width
+        // Root node: use available_size directly (margin already subtracted in sizing.rs)
         Some(constraints.available_size.width)
     } else {
         None
@@ -437,7 +464,7 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     let effective_height = if has_explicit_height {
         explicit_height
     } else if is_root && constraints.available_size.height.is_finite() {
-        // Root node: use viewport height as the container's known height
+        // Root node: use available_size directly (margin already subtracted in sizing.rs)
         Some(constraints.available_size.height)
     } else {
         None
@@ -485,9 +512,15 @@ fn layout_flex_grid<T: ParsedFontTrait>(
         height: adjusted_height,
     };
 
+    // parent_size tells Taffy the size of the container's parent.
+    // For root nodes, the "parent" is the viewport, but since margins are already
+    // handled by calculate_used_size_for_node(), we use containing_block_size directly.
+    // For non-root nodes, containing_block_size is already the parent's content-box.
+    let parent_size = translate_taffy_size(constraints.containing_block_size);
+
     let taffy_inputs = LayoutInput {
         known_dimensions,
-        parent_size: translate_taffy_size(constraints.containing_block_size),
+        parent_size,
         available_space,
         run_mode: taffy::RunMode::PerformLayout,
         sizing_mode,
@@ -776,38 +809,17 @@ fn layout_bfc<T: ParsedFontTrait>(
             (children_containing_block_size.width - scrollbar_reservation).max(0.0);
     }
 
-    // Pass 1: Size all children (floats and normal flow)
-    let pass1_start = std::time::Instant::now();
-    let pass1_child_count = node.children.len();
-    for (child_pass1_idx, &child_index) in node.children.iter().enumerate() {
-        let child_start = std::time::Instant::now();
-        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
-        let child_dom_id = child_node.dom_node_id;
+    // NOTE: We removed the explicit "Pass 1" sizing loop that was here.
+    // The old implementation called calculate_layout_for_subtree on each child
+    // with position (0,0) just to get their sizes. However, this also recursively
+    // laid out grandchildren with incorrect positions.
+    //
+    // The correct approach: The main layout driver (calculate_layout_for_subtree in cache.rs)
+    // handles sizing and positioning in a single top-down pass. By the time layout_bfc
+    // is called, intrinsic sizes are already available from the bottom-up sizing pass.
+    // We calculate each child's used_size just-in-time during the positioning pass below.
 
-        // Skip out-of-flow children (absolute/fixed)
-        let position_type = get_position_type(ctx.styled_dom, child_dom_id);
-        if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
-            continue;
-        }
-
-        // Size all children (floats and normal flow) - floats will be positioned later in Pass 2
-        let mut temp_positions = BTreeMap::new();
-        crate::solver3::cache::calculate_layout_for_subtree(
-            ctx,
-            tree,
-            text_cache,
-            child_index,
-            LogicalPosition::zero(),
-            children_containing_block_size, // Use this node's content-box as containing block
-            &mut temp_positions,
-            &mut bool::default(),
-            float_cache,
-        )?;
-        let _child_time = child_start.elapsed();
-    }
-    let _pass1_time = pass1_start.elapsed();
-
-    // Pass 2: Single-pass interleaved layout (position floats and normal flow in DOM order)
+    // Single positioning pass: position floats and normal flow in DOM order
 
     let mut main_pen = 0.0f32;
     let mut max_cross_size = 0.0f32;
@@ -857,7 +869,27 @@ fn layout_bfc<T: ParsedFontTrait>(
             let float_type = get_float_property(ctx.styled_dom, Some(node_id));
 
             if float_type != LayoutFloat::None {
-                let float_size = child_node.used_size.unwrap_or_default();
+                // Calculate float size just-in-time if not already computed
+                let float_size = match child_node.used_size {
+                    Some(size) => size,
+                    None => {
+                        let intrinsic = child_node.intrinsic_sizes.unwrap_or_default();
+                        let computed_size = crate::solver3::sizing::calculate_used_size_for_node(
+                            ctx.styled_dom,
+                            child_dom_id,
+                            children_containing_block_size,
+                            intrinsic,
+                            &child_node.box_props,
+                            ctx.viewport_size,
+                        )?;
+                        if let Some(node_mut) = tree.get_mut(child_index) {
+                            node_mut.used_size = Some(computed_size);
+                        }
+                        computed_size
+                    }
+                };
+                // Re-borrow after potential mutation
+                let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
                 let float_margin = &child_node.box_props.margin;
 
                 // CSS 2.2 § 9.5: Float margins don't collapse with any other margins.
@@ -927,7 +959,30 @@ fn layout_bfc<T: ParsedFontTrait>(
         }
         last_child_index = Some(child_index);
 
-        let child_size = child_node.used_size.unwrap_or_default();
+        // Calculate child's used_size just-in-time if not already computed
+        // This replaces the old "Pass 1" that recursively laid out grandchildren with wrong positions
+        let child_size = match child_node.used_size {
+            Some(size) => size,
+            None => {
+                // Calculate size without recursive layout
+                let intrinsic = child_node.intrinsic_sizes.unwrap_or_default();
+                let child_used_size = crate::solver3::sizing::calculate_used_size_for_node(
+                    ctx.styled_dom,
+                    child_dom_id,
+                    children_containing_block_size,
+                    intrinsic,
+                    &child_node.box_props,
+                    ctx.viewport_size,
+                )?;
+                // Update the node with computed size (we need to re-borrow mutably)
+                if let Some(node_mut) = tree.get_mut(child_index) {
+                    node_mut.used_size = Some(child_used_size);
+                }
+                child_used_size
+            }
+        };
+        // Re-borrow child_node after potential mutation
+        let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
         let child_margin = &child_node.box_props.margin;
 
         debug_info!(
