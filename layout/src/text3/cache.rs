@@ -94,12 +94,16 @@ impl AvailableSpace {
         }
     }
 
-    /// Returns the definite value, or 0.0 for min-content, or f32::MAX for max-content
+    /// Returns the definite value, or a large value for both min-content and max-content.
+    /// 
+    /// For intrinsic sizing, we use a large value to let text lay out fully,
+    /// then measure the result. The distinction between min/max-content is handled
+    /// by the line breaking algorithm, not by constraining the available width.
     pub fn to_f32_for_layout(self) -> f32 {
         match self {
             AvailableSpace::Definite(v) => v,
-            AvailableSpace::MinContent => 0.0,
-            AvailableSpace::MaxContent => f32::MAX,
+            AvailableSpace::MinContent => f32::MAX / 2.0,
+            AvailableSpace::MaxContent => f32::MAX / 2.0,
         }
     }
 
@@ -5634,17 +5638,21 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     //
     // Handle the different available space modes:
     // - Definite(width): Use the specified width for column calculation
-    // - MinContent: Use 0.0 to force line breaks at every opportunity
+    // - MinContent: Force line breaks at word boundaries, return widest word width
     // - MaxContent: Use a large value to allow content to expand naturally
+    //
+    // IMPORTANT: For MinContent, we do NOT use 0.0 (which would break after every character).
+    // Instead, we use a large width but track the is_min_content flag to force word-level
+    // line breaks in the line breaker. The actual min-content width is the width of the
+    // widest resulting line (typically the widest word).
+    let is_min_content = matches!(fragment_constraints.available_width, AvailableSpace::MinContent);
+    let is_max_content = matches!(fragment_constraints.available_width, AvailableSpace::MaxContent);
+    
     let column_width = match fragment_constraints.available_width {
         AvailableSpace::Definite(width) => (width - total_column_gap) / num_columns as f32,
-        AvailableSpace::MinContent => {
-            // Min-content: effectively 0 width forces immediate line breaks
-            0.0
-        }
-        AvailableSpace::MaxContent => {
-            // Max-content: very large width allows content to expand
-            // Using f32::MAX / 2.0 to avoid overflow issues
+        AvailableSpace::MinContent | AvailableSpace::MaxContent => {
+            // For intrinsic sizing, use a large width to measure actual content width.
+            // The line breaker will handle MinContent specially by breaking after each word.
             f32::MAX / 2.0
         }
     };
@@ -5703,7 +5711,15 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
 
             // Create constraints specific to the current column for the line breaker.
             let mut column_constraints = fragment_constraints.clone();
-            column_constraints.available_width = AvailableSpace::Definite(column_width);
+            // For MinContent/MaxContent, preserve the semantic type so the line breaker
+            // can handle word-level breaking correctly. Only use Definite for actual widths.
+            if is_min_content {
+                column_constraints.available_width = AvailableSpace::MinContent;
+            } else if is_max_content {
+                column_constraints.available_width = AvailableSpace::MaxContent;
+            } else {
+                column_constraints.available_width = AvailableSpace::Definite(column_width);
+            }
             let line_constraints = get_line_constraints(
                 line_top_y,
                 fragment_constraints.line_height,
@@ -6990,10 +7006,14 @@ fn get_line_constraints(
         // it should NOT override a definite width constraint from CSS.
         // CSS Text Level 3: For 'white-space: pre/nowrap', text overflows horizontally
         // if it doesn't fit, rather than expanding the container.
+        //
+        // For MinContent/MaxContent intrinsic sizing: use a large value to let text 
+        // lay out fully. The line breaker handles min-content by breaking at word 
+        // boundaries. The actual content width is measured from the laid-out lines.
         let segment_width = match constraints.available_width {
             AvailableSpace::Definite(w) => w, // Respect definite width from CSS
             AvailableSpace::MaxContent => f32::MAX / 2.0, // For intrinsic max-content sizing
-            AvailableSpace::MinContent => 0.0, // For intrinsic min-content sizing
+            AvailableSpace::MinContent => f32::MAX / 2.0, // For intrinsic min-content sizing
         };
         // Note: TextWrap::NoWrap is handled by the LineBreaker in break_one_line()
         // to prevent soft wraps. The text will simply overflow if it exceeds segment_width.

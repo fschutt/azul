@@ -421,10 +421,35 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     let (explicit_height, has_explicit_height) =
         resolve_explicit_dimension_height(ctx, node, constraints);
 
+    // FIX: For root nodes or nodes where the parent provides a definite size,
+    // use the available_size as known_dimensions if no explicit CSS width/height is set.
+    // This is critical for `align-self: stretch` to work - Taffy needs to know the
+    // cross-axis size of the container to stretch children to fill it.
+    let is_root = node.parent.is_none();
+    let effective_width = if has_explicit_width {
+        explicit_width
+    } else if is_root && constraints.available_size.width.is_finite() {
+        // Root node: use viewport width as the container's known width
+        Some(constraints.available_size.width)
+    } else {
+        None
+    };
+    let effective_height = if has_explicit_height {
+        explicit_height
+    } else if is_root && constraints.available_size.height.is_finite() {
+        // Root node: use viewport height as the container's known height
+        Some(constraints.available_size.height)
+    } else {
+        None
+    };
+    let has_effective_width = effective_width.is_some();
+    let has_effective_height = effective_height.is_some();
+
     // FIX: Taffy interprets known_dimensions as Border Box size.
     // CSS width/height properties define Content Box size (by default, box-sizing: content-box).
     // We must add border and padding to the explicit dimensions to get the correct Border
     // Box size for Taffy.
+    // NOTE: For root nodes using viewport size, no adjustment needed - viewport is already border-box.
     let width_adjustment = node.box_props.border.left
         + node.box_props.border.right
         + node.box_props.padding.left
@@ -434,13 +459,22 @@ fn layout_flex_grid<T: ParsedFontTrait>(
         + node.box_props.padding.top
         + node.box_props.padding.bottom;
 
-    // Apply adjustment only if dimensions are explicit (convert content-box to border-box)
-    let adjusted_width = explicit_width.map(|w| w + width_adjustment);
-    let adjusted_height = explicit_height.map(|h| h + height_adjustment);
+    // Apply adjustment only if dimensions come from explicit CSS (convert content-box to border-box)
+    // For root nodes using viewport size, no adjustment needed
+    let adjusted_width = if has_explicit_width {
+        explicit_width.map(|w| w + width_adjustment)
+    } else {
+        effective_width // Already in border-box for viewport
+    };
+    let adjusted_height = if has_explicit_height {
+        explicit_height.map(|h| h + height_adjustment)
+    } else {
+        effective_height // Already in border-box for viewport
+    };
 
     // CSS Flexbox § 9.2: Use InherentSize when explicit dimensions are set,
     // ContentSize for auto-sizing (shrink-to-fit behavior).
-    let sizing_mode = if has_explicit_width || has_explicit_height {
+    let sizing_mode = if has_effective_width || has_effective_height {
         taffy::SizingMode::InherentSize
     } else {
         taffy::SizingMode::ContentSize
@@ -2746,7 +2780,9 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
             LayoutOverflow::Scroll => text3::cache::OverflowBehavior::Scroll,
             LayoutOverflow::Auto => text3::cache::OverflowBehavior::Auto,
         },
-        available_width: text3::cache::AvailableSpace::from_f32(constraints.available_size.width),
+        // Use the semantic available_width_type directly instead of converting from float.
+        // This preserves MinContent/MaxContent semantics for intrinsic sizing.
+        available_width: constraints.available_width_type,
         // For scrollable containers (overflow: scroll/auto), don't constrain height
         // so that the full content is laid out and content_size is calculated correctly.
         available_height: match overflow_behaviour {

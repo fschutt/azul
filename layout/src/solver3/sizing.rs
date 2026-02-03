@@ -249,10 +249,31 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                 }
             }
             FormattingContext::Inline => {
-                // KEY OPTIMIZATION: Inline nodes don't calculate their own intrinsic size!
-                // They are measured as part of their parent IFC root.
-                // Return default (zero) - the parent IFC root handles measurement.
-                Ok(IntrinsicSizes::default())
+                // There are TWO cases for FormattingContext::Inline:
+                // 1. A true inline element (display: inline, e.g., <span>)
+                //    -> Returns default(0,0), measured by parent IFC root
+                // 2. An "IFC root" - a block with display:block but only inline children
+                //    -> Should measure its inline content
+                //
+                // We distinguish by checking if this node has direct text content.
+                // An IFC root has text children; a true inline is part of another IFC.
+                let has_direct_text = if let Some(dom_id) = node.dom_node_id {
+                    let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
+                    dom_id.az_children(node_hierarchy).any(|child_id| {
+                        let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
+                        matches!(child_node_data.get_node_type(), NodeType::Text(_))
+                    })
+                } else {
+                    false
+                };
+                
+                if has_direct_text {
+                    // This is an IFC root (block with inline content) - measure it
+                    self.calculate_ifc_root_intrinsic_sizes(tree, node_index)
+                } else {
+                    // True inline element - measured by parent IFC root
+                    Ok(IntrinsicSizes::default())
+                }
             }
             FormattingContext::InlineBlock => {
                 // Inline-block IS an atomic inline - it needs its own intrinsic size

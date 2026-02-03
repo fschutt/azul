@@ -113,26 +113,28 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         ? AzColorU_rgb(45, 45, 45)     // Dark titlebar
         : AzColorU_rgb(240, 240, 240); // Light titlebar
     
-    // Title text
+    // Title text - wrapped in a div so it can participate in flex layout
     AzDom title_text = AzDom_createText(AZ_STR("Hello World - Custom Title"));
+    AzDom title_container = AzDom_createDiv();
+    AzDom_addChild(&title_container, title_text);
     
-    // Style the title text
-    AzDom_addCssProperty(&title_text, AzCssPropertyWithConditions_simple(
-        AzCssProperty_fontSize(AzStyleFontSize_px(13.0))
-    ));
-    AzDom_addCssProperty(&title_text, AzCssPropertyWithConditions_simple(
-        AzCssProperty_textColor(make_text_color(text_color))
-    ));
-    AzDom_addCssProperty(&title_text, AzCssPropertyWithConditions_simple(
+    // Style the title container (the div is the flex item)
+    AzDom_addCssProperty(&title_container, AzCssPropertyWithConditions_simple(
         AzCssProperty_flexGrow(AzLayoutFlexGrow_create(1.0))
     ));
-    AzDom_addCssProperty(&title_text, AzCssPropertyWithConditions_simple(
+    AzDom_addCssProperty(&title_container, AzCssPropertyWithConditions_simple(
         AzCssProperty_textAlign(AzStyleTextAlign_Center)
+    ));
+    AzDom_addCssProperty(&title_container, AzCssPropertyWithConditions_simple(
+        AzCssProperty_fontSize(AzStyleFontSize_px(13.0))
+    ));
+    AzDom_addCssProperty(&title_container, AzCssPropertyWithConditions_simple(
+        AzCssProperty_textColor(make_text_color(text_color))
     ));
     
     // Create titlebar container
     AzDom titlebar = AzDom_createDiv();
-    AzDom_addChild(&titlebar, title_text);
+    AzDom_addChild(&titlebar, title_container);
     
     // Style the titlebar
     AzDom_addCssProperty(&titlebar, AzCssPropertyWithConditions_simple(
@@ -150,8 +152,9 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addCssProperty(&titlebar, AzCssPropertyWithConditions_simple(
         AzCssProperty_height(AzLayoutHeight_px(AzPixelValue_px(32.0)))
     ));
+    // Use align-self: stretch instead of width: 100% for proper flex behavior
     AzDom_addCssProperty(&titlebar, AzCssPropertyWithConditions_simple(
-        AzCssProperty_width(AzLayoutWidth_px(AzPixelValue_percent(100.0)))
+        AzCssProperty_alignSelf(AzLayoutAlignSelf_Stretch)
     ));
     
     // Titlebar background color

@@ -1090,13 +1090,16 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         // Determine available size from Taffy's inputs
         // For MinContent/MaxContent, we need to handle differently - use 0 for MinContent
         // to get the minimum width, and infinity for MaxContent
+        // FIX: For MinContent, we should use INFINITY and let the text layout
+        // calculate its actual min-content width (widest word). Using 0.0 was wrong
+        // because it forced text to wrap after every character.
         let available_width = inputs
             .known_dimensions
             .width
             .or_else(|| match inputs.available_space.width {
                 AvailableSpace::Definite(w) => Some(w),
-                AvailableSpace::MinContent => Some(0.0), // Force minimum width calculation
-                AvailableSpace::MaxContent => None,      // Use infinity for max-content
+                AvailableSpace::MinContent => None, // Use infinity, return intrinsic min-content
+                AvailableSpace::MaxContent => None, // Use infinity for max-content
             })
             .unwrap_or(f32::INFINITY);
 
@@ -1105,7 +1108,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             .height
             .or_else(|| match inputs.available_space.height {
                 AvailableSpace::Definite(h) => Some(h),
-                AvailableSpace::MinContent => Some(0.0),
+                AvailableSpace::MinContent => None, // Use infinity, return intrinsic min-content
                 AvailableSpace::MaxContent => None,
             })
             .unwrap_or(f32::INFINITY);

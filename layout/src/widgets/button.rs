@@ -2,7 +2,7 @@ use std::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeType, TabIndex},
     refany::RefAny,
     resources::{ImageRef, OptionImageRef},
 };
@@ -1000,7 +1000,13 @@ impl Button {
             Class(AzString::from_const_str(type_class)),
         ];
 
-        Dom::create_button(self.label)
+        // Create label element with styling
+        let label_dom = Dom::create_text(self.label)
+            .with_css_props(self.label_style);
+
+        // Create button container with label as child
+        Dom::create_node(NodeType::Button)
+            .with_child(label_dom)
             .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(self.container_style)
             .with_callbacks(callbacks.into())

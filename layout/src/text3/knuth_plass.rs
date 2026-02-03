@@ -222,12 +222,18 @@ fn find_optimal_breakpoints(nodes: &[LayoutNode], constraints: &UnifiedConstrain
     // For Knuth-Plass, we need a definite line width.
     //
     // For MaxContent, use a very large value (no line breaks unless forced).
-    // For MinContent, use 0.0 (break at every opportunity).
+    // For MinContent, we also use a large value but will break at every word boundary.
+    // The actual min-content width is determined by the widest resulting line.
 
+    let is_min_content = matches!(constraints.available_width, AvailableSpace::MinContent);
+    
     let line_width = match constraints.available_width {
         AvailableSpace::Definite(w) => w,
         AvailableSpace::MaxContent => f32::MAX / 2.0,
-        AvailableSpace::MinContent => 0.0,
+        // For MinContent: use a large width and let the greedy line breaker
+        // break after each word. We DON'T use 0.0 because that breaks after
+        // every character (including mid-word).
+        AvailableSpace::MinContent => f32::MAX / 2.0,
     };
     let mut breakpoints = vec![
         Breakpoint {
@@ -372,10 +378,12 @@ fn position_lines_from_breaks(
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll);
 
         // Get the available width as f32 for calculations
+        // For MinContent/MaxContent, we use the actual computed line_width
+        // since there's no "available" space to justify into.
         let available_width_f32 = match constraints.available_width {
             AvailableSpace::Definite(w) => w,
-            AvailableSpace::MaxContent => f32::MAX / 2.0,
-            AvailableSpace::MinContent => 0.0,
+            AvailableSpace::MaxContent => line_width,
+            AvailableSpace::MinContent => line_width,
         };
 
         if should_justify {

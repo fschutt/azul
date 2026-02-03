@@ -2013,9 +2013,19 @@ where
             }
         }
 
-        // Skip inline and inline-block elements - they are rendered by text3 in paint_inline_content
+        // Skip inline and inline-block elements ONLY if they participate in an IFC (Inline Formatting Context).
+        // In Flex or Grid containers, inline-block elements are treated as flex/grid items and must be painted here.
         // Inline elements participate in inline formatting context and their backgrounds
         // must be positioned by the text layout engine, not the block layout engine
+        //
+        // IMPORTANT: The parent check must look at the PARENT NODE's formatting_context,
+        // not the current node's. If parent is Flex/Grid, we paint this element as a flex/grid item.
+        // Also check parent_formatting_context field which stores parent's FC during tree construction.
+        let parent_is_flex_or_grid = node.parent_formatting_context
+            .as_ref()
+            .map(|fc| matches!(fc, FormattingContext::Flex | FormattingContext::Grid))
+            .unwrap_or(false);
+        
         if let Some(dom_id) = node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
             let display = self
@@ -2032,9 +2042,21 @@ where
                 .unwrap_or(LayoutDisplay::Inline);
 
             if display == LayoutDisplay::InlineBlock || display == LayoutDisplay::Inline {
-                // text3 will handle this via InlineShape (for inline-block)
-                // or glyph runs with background_color (for inline)
-                return Ok(());
+                debug_info!(
+                    self.ctx,
+                    "[paint_node] node {} has display={:?}, parent_formatting_context={:?}, parent_is_flex_or_grid={}",
+                    node_index,
+                    display,
+                    node.parent_formatting_context,
+                    parent_is_flex_or_grid
+                );
+
+                if !parent_is_flex_or_grid {
+                    // text3 will handle this via InlineShape (for inline-block)
+                    // or glyph runs with background_color (for inline)
+                    return Ok(());
+                }
+                // Fall through to paint this element - it's a flex/grid item
             }
         }
 
