@@ -721,7 +721,25 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// Gets or computes the Taffy style for a given node index.
     fn get_taffy_style(&self, node_idx: usize) -> Style {
         let dom_id = self.tree.get(node_idx).and_then(|n| n.dom_node_id);
-        let style = self.translate_style_to_taffy(dom_id);
+        let mut style = self.translate_style_to_taffy(dom_id);
+        
+        // FIX: Apply cross-axis intrinsic size suppression for stretch alignment.
+        // This enables align-self: stretch to work correctly by ensuring Taffy
+        // sees the cross-axis size as Auto (allowing stretch) rather than a definite value.
+        let (suppress_width, suppress_height) = self.should_suppress_cross_intrinsic(node_idx, &style);
+
+        if suppress_width {
+            // Force width to Auto and set min-width to 0 to allow stretching.
+            // Taffy treats Auto size + Stretch alignment as a signal to fill the container.
+            style.size.width = taffy::Dimension::auto(); 
+            style.min_size.width = taffy::Dimension::length(0.0);
+        }
+
+        if suppress_height {
+            style.size.height = taffy::Dimension::auto();
+            style.min_size.height = taffy::Dimension::length(0.0);
+        }
+
         style
     }
 
@@ -782,13 +800,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 }
 
                 // All conditions met: suppress intrinsic cross-size
-                let result = if is_row {
+                if is_row {
                     (false, true) // Suppress height for row flex
                 } else {
                     (true, false) // Suppress width for column flex
-                };
-
-                result
+                }
             }
             FormattingContext::Grid => {
                 // TODO: Implement grid stretch detection
@@ -953,8 +969,9 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
 
     fn get_core_container_style(&self, node_id: taffy::NodeId) -> Self::CoreContainerStyle<'_> {
         let node_idx: usize = node_id.into();
-        let dom_id = self.tree.get(node_idx).and_then(|n| n.dom_node_id);
-        self.translate_style_to_taffy(dom_id)
+        // Use get_taffy_style instead of translate_style_to_taffy to apply
+        // cross-axis intrinsic suppression for stretch alignment
+        self.get_taffy_style(node_idx)
     }
 
     fn set_unrounded_layout(&mut self, node_id: taffy::NodeId, layout: &Layout) {
@@ -1246,6 +1263,20 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 // HOWEVER: If intrinsic sizes are 0 but content_width is non-zero, use content_width.
                 // This happens for FormattingContext::Inline nodes that are measured by their
                 // parent IFC root and don't have their own intrinsic sizes stored.
+                //
+                // CRITICAL FIX: For InlineBlock elements with width: auto (known_dimensions.width = None),
+                // we must use intrinsic max-content width instead of content_width from BFC layout.
+                // The BFC layout was done with the full container width, but InlineBlock should
+                // shrink-to-fit its content. This is per CSS 2.1 § 10.3.9: "shrink-to-fit width".
+                let fc = self
+                    .tree
+                    .get(node_idx)
+                    .map(|s| s.formatting_context.clone())
+                    .unwrap_or_default();
+                
+                let is_shrink_to_fit = matches!(fc, FormattingContext::InlineBlock)
+                    && inputs.known_dimensions.width.is_none();
+                
                 let effective_content_width = match inputs.available_space.width {
                     AvailableSpace::MinContent => {
                         if intrinsic.min_content_width > 0.0 {
@@ -1261,7 +1292,17 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                             content_width
                         }
                     }
-                    AvailableSpace::Definite(_) => content_width,
+                    AvailableSpace::Definite(_) => {
+                        // For shrink-to-fit elements (InlineBlock with auto width),
+                        // use intrinsic max-content width clamped by available space.
+                        // CSS 2.1 § 10.3.9: shrink-to-fit = min(max(preferred minimum, available), preferred)
+                        if is_shrink_to_fit && intrinsic.max_content_width > 0.0 {
+                            // Use max-content (preferred width) - already clamped by min/max-width in sizing
+                            intrinsic.max_content_width
+                        } else {
+                            content_width
+                        }
+                    }
                 };
 
                 // Convert content-box size to border-box size (for when we compute our own size)
