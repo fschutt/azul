@@ -249,15 +249,25 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                 }
             }
             FormattingContext::Inline => {
-                // There are TWO cases for FormattingContext::Inline:
-                // 1. A true inline element (display: inline, e.g., <span>)
-                //    -> Returns default(0,0), measured by parent IFC root
-                // 2. An "IFC root" - a block with display:block but only inline children
+                // There are THREE cases for FormattingContext::Inline:
+                // 1. A Text node (NodeType::Text) - this IS the text content itself
+                //    -> Needs to measure itself as an atomic inline unit
+                // 2. An IFC root - a block with only inline children (has text child nodes)
                 //    -> Should measure its inline content
+                // 3. A true inline element (display: inline, e.g., <span>) with no text
+                //    -> Returns default(0,0), measured by parent IFC root
                 //
-                // We distinguish by checking if this node has direct text content.
-                // An IFC root has text children; a true inline is part of another IFC.
-                let has_direct_text = if let Some(dom_id) = node.dom_node_id {
+                // We distinguish by:
+                // - Checking if THIS node is a Text node (case 1)
+                // - Checking if this node has direct text children (case 2)
+                let is_text_node = if let Some(dom_id) = node.dom_node_id {
+                    let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+                    matches!(node_data.get_node_type(), NodeType::Text(_))
+                } else {
+                    false
+                };
+
+                let has_direct_text_children = if let Some(dom_id) = node.dom_node_id {
                     let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
                     dom_id.az_children(node_hierarchy).any(|child_id| {
                         let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
@@ -267,18 +277,31 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                     false
                 };
                 
-                if has_direct_text {
-                    // This is an IFC root (block with inline content) - measure it
+                if is_text_node || has_direct_text_children {
+                    // Case 1 or 2: Text node or IFC root - measure inline content
                     self.calculate_ifc_root_intrinsic_sizes(tree, node_index)
                 } else {
-                    // True inline element - measured by parent IFC root
+                    // Case 3: True inline element - measured by parent IFC root
                     Ok(IntrinsicSizes::default())
                 }
             }
             FormattingContext::InlineBlock => {
-                // Inline-block IS an atomic inline - it needs its own intrinsic size
-                // calculated like a block, then treated as atomic in parent IFC
-                self.calculate_block_intrinsic_sizes(tree, node_index, child_intrinsics)
+                // Inline-block IS an atomic inline - it needs its own intrinsic size.
+                // BUT, if the inline-block contains inline/text children, it's an IFC root
+                // and we need to measure its inline content, not just aggregate child intrinsics.
+                let has_inline_children = node.children.iter().any(|&child_idx| {
+                    tree.get(child_idx)
+                        .map(|c| matches!(c.formatting_context, FormattingContext::Inline))
+                        .unwrap_or(false)
+                });
+                
+                if has_inline_children {
+                    // InlineBlock with inline children - measure as IFC root
+                    self.calculate_ifc_root_intrinsic_sizes(tree, node_index)
+                } else {
+                    // InlineBlock with block children - aggregate like block
+                    self.calculate_block_intrinsic_sizes(tree, node_index, child_intrinsics)
+                }
             }
             FormattingContext::Table => {
                 self.calculate_table_intrinsic_sizes(tree, node_index, child_intrinsics)

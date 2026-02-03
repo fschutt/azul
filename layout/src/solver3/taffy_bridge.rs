@@ -1242,10 +1242,25 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     .and_then(|n| n.intrinsic_sizes)
                     .unwrap_or_default();
 
-                // For MinContent/MaxContent queries, use intrinsic sizes instead of layout result
+                // For MinContent/MaxContent queries, use intrinsic sizes instead of layout result.
+                // HOWEVER: If intrinsic sizes are 0 but content_width is non-zero, use content_width.
+                // This happens for FormattingContext::Inline nodes that are measured by their
+                // parent IFC root and don't have their own intrinsic sizes stored.
                 let effective_content_width = match inputs.available_space.width {
-                    AvailableSpace::MinContent => intrinsic.min_content_width,
-                    AvailableSpace::MaxContent => intrinsic.max_content_width,
+                    AvailableSpace::MinContent => {
+                        if intrinsic.min_content_width > 0.0 {
+                            intrinsic.min_content_width
+                        } else {
+                            content_width
+                        }
+                    }
+                    AvailableSpace::MaxContent => {
+                        if intrinsic.max_content_width > 0.0 {
+                            intrinsic.max_content_width
+                        } else {
+                            content_width
+                        }
+                    }
                     AvailableSpace::Definite(_) => content_width,
                 };
 
