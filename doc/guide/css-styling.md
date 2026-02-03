@@ -65,6 +65,10 @@ Dom::div()
 
 ## Typography
 
+Azul supports both explicit font families and semantic system font types that resolve to platform-appropriate fonts at runtime.
+
+### Explicit Font Families
+
 ```rust
 Dom::div()
     .with_inline_style("
@@ -79,7 +83,56 @@ Dom::div()
     ")
 ```
 
+### System Font Types
+
+Use `system:` prefix to get platform-native fonts that automatically resolve based on the OS:
+
+```css
+/* UI font for buttons, labels, menus */
+font-family: system:ui;
+font-family: system:ui:bold;
+
+/* Monospace font for code */
+font-family: system:monospace;
+font-family: system:monospace:bold;
+font-family: system:monospace:italic;
+
+/* Title font for headings */
+font-family: system:title;
+font-family: system:title:bold;
+
+/* Menu font */
+font-family: system:menu;
+
+/* Small/caption font */
+font-family: system:small;
+
+/* Serif font for reading content */
+font-family: system:serif;
+font-family: system:serif:bold;
+```
+
+These resolve to platform-specific fonts:
+
+| System Type | macOS | Windows | Linux |
+|-------------|-------|---------|-------|
+| `system:ui` | SF Pro | Segoe UI Variable | Cantarell, Ubuntu |
+| `system:monospace` | SF Mono, Menlo | Cascadia Mono, Consolas | Ubuntu Mono, DejaVu Sans Mono |
+| `system:title` | SF Pro Display | Segoe UI Variable Display | Cantarell |
+| `system:serif` | New York | Cambria, Georgia | Noto Serif, DejaVu Serif |
+
+### System Fonts with Fallbacks
+
+Combine system fonts with explicit fallbacks:
+
+```css
+font-family: system:ui, Arial, sans-serif;
+font-family: system:monospace:bold, Consolas, monospace;
+```
+
 ## Colors
+
+### Explicit Colors
 
 Supported formats:
 
@@ -91,18 +144,59 @@ color: rgba(255, 0, 0, 0.5); /* RGBA */
 background: red;          /* Named colors */
 ```
 
-## Backgrounds
+### System Colors
 
-```rust
-Dom::div()
-    .with_inline_style("
-        background: #f5f5f5;
-        background-color: white;
-        background-image: linear-gradient(to bottom, #fff, #eee);
-    ")
+Use `system:` prefix for OS-native semantic colors that adapt to light/dark themes and user preferences:
+
+```css
+/* Primary semantic colors */
+color: system:text;                    /* Primary text color */
+color: system:secondary-text;          /* Less prominent text */
+color: system:disabled-text;           /* Disabled elements */
+background: system:background;         /* Content background */
+
+/* Accent colors */
+background: system:accent;             /* User-selected accent color */
+color: system:accent-text;             /* Text on accent backgrounds */
+
+/* Control colors */
+background: system:button-face;        /* Button background */
+color: system:button-text;             /* Button text */
+
+/* Window colors */
+background: system:window-background;  /* Window/panel background */
+
+/* Selection colors */
+background: system:selection-background; /* Selected text background */
+color: system:selection-text;            /* Selected text color */
+
+/* Additional semantic colors */
+color: system:link;                    /* Hyperlink color */
+border-color: system:separator;        /* Divider/separator lines */
+border-color: system:grid;             /* Table/grid lines */
+background: system:find-highlight;     /* Search highlight */
 ```
 
-## Borders
+These colors automatically adapt to the user's theme (light/dark mode) and accessibility settings.
+
+### The :backdrop Pseudo-Selector
+
+Style elements differently when the window is not focused:
+
+```css
+.selected-item {
+    background: system:selection-background;
+    color: system:selection-text;
+}
+
+/* When window loses focus, use inactive selection colors */
+.selected-item:backdrop {
+    background: system:selection-background-inactive;
+    color: system:selection-text-inactive;
+}
+```
+
+## Backgrounds
 
 ```rust
 Dom::div()
