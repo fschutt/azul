@@ -35,3 +35,4 @@ LICENSE-LINUX.txt
 LICENSE-MAC.txt
 Cargo.lock
 *.lock
+commits.txt

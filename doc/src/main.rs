@@ -1141,6 +1141,61 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
+        // Regression analysis - walk git history to find when tests changed
+        // 
+        // Usage:
+        //   debug-regression <commits.txt>        - Process commits from file (one hash per line)
+        //   debug-regression statistics           - Generate report from existing data
+        ["debug-regression", "statistics"] => {
+            println!("Generating regression statistics report...");
+            let config = reftest::regression::RegressionConfig {
+                azul_root: project_root.clone(),
+                refs_file: None,
+                refs: vec![], // Not needed for statistics
+                test_dir: PathBuf::from(manifest_dir).join("working"),
+                output_dir: PathBuf::from("target").join("reftest"),
+            };
+            reftest::regression::run_statistics(config)?;
+            return Ok(());
+        }
+        ["debug-regression", file_path] => {
+            let path = PathBuf::from(file_path);
+            if path.exists() && path.is_file() {
+                println!("Running regression analysis from file: {}", path.display());
+                let config = reftest::regression::RegressionConfig {
+                    azul_root: project_root.clone(),
+                    refs_file: Some(path),
+                    refs: vec![],
+                    test_dir: PathBuf::from(manifest_dir).join("working"),
+                    output_dir: PathBuf::from("target").join("reftest"),
+                };
+                reftest::regression::run_regression_analysis(config)?;
+            } else {
+                // Treat as single ref
+                println!("Running regression analysis for ref: {}", file_path);
+                let config = reftest::regression::RegressionConfig {
+                    azul_root: project_root.clone(),
+                    refs_file: None,
+                    refs: vec![file_path.to_string()],
+                    test_dir: PathBuf::from(manifest_dir).join("working"),
+                    output_dir: PathBuf::from("target").join("reftest"),
+                };
+                reftest::regression::run_regression_analysis(config)?;
+            }
+            return Ok(());
+        }
+        ["debug-regression"] => {
+            println!("Usage:");
+            println!("  azul-doc debug-regression <commits.txt>   - Process commits from file");
+            println!("  azul-doc debug-regression <git-ref>       - Process single ref");
+            println!("  azul-doc debug-regression statistics      - Generate HTML report");
+            println!();
+            println!("Example workflow:");
+            println!("  1. Generate commit list:  ./scripts/find_layout_commits.py c0e504a3..HEAD > commits.txt");
+            println!("  2. Run regression:        cargo run --release -- debug-regression commits.txt");
+            println!("  3. Generate report:       cargo run --release -- debug-regression statistics");
+            return Ok(());
+        }
         ["reftest", test_name] if *test_name != "open" && *test_name != "headless" => {
             // Run single reftest
             println!("Running reftest for: {}", test_name);

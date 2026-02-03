@@ -32,6 +32,7 @@ use image::{self, GenericImageView};
 use serde_derive::{Deserialize, Serialize};
 
 pub mod debug;
+pub mod regression;
 
 pub const WIDTH: u32 = 1920;
 pub const HEIGHT: u32 = 1080;
