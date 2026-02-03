@@ -325,10 +325,77 @@ AzFontRef* find_font_by_url(BrowserData* data, const char* url) {
 }
 
 // ============================================================================
+// Local File Loading
+// ============================================================================
+
+// Check if path is a local file (not a URL)
+bool is_local_file(const char* path) {
+    // If it starts with http:// or https://, it's a URL
+    if (strncmp(path, "http://", 7) == 0 || strncmp(path, "https://", 8) == 0) {
+        return false;
+    }
+    // Otherwise assume it's a local file path
+    return true;
+}
+
+// Load a local .xht/.xhtml/.html file
+bool load_local_file(BrowserData* data) {
+    browser_data_set_status(data, "Loading local file...");
+    printf("\n[BROWSER] Loading local file: %s\n", data->url);
+    
+    // Read the file using Azul's file API
+    AzFilePath file_path = { .inner = az_str(data->url) };
+    AzResultStringFileError read_result = AzFilePath_readString(&file_path);
+    
+    if (read_result.Ok.tag == AzResultStringFileError_Tag_Err) {
+        printf("[BROWSER] Failed to read file: %s\n", data->url);
+        browser_data_set_error(data, "Failed to read file");
+        AzFileError_delete(&read_result.Err.payload);
+        return false;
+    }
+    
+    AzString html = read_result.Ok.payload;
+    
+    CStr html_cstr = cstr_new_ref(&html);
+    printf("[BROWSER] File loaded (%zu bytes)\n", strlen(cstr_ptr(&html_cstr)));
+    browser_data_set_status(data, "Parsing XHTML...");
+    
+    // Print first 200 chars for debugging
+    printf("[BROWSER] XHTML preview (first 200 chars):\n%.200s\n", cstr_ptr(&html_cstr));
+    cstr_free(&html_cstr);
+    
+    // Parse XHTML to XML
+    AzResultXmlXmlError xml_result = AzXml_fromStr(html);
+    
+    printf("[BROWSER] XML parse result tag: %d (Ok=%d, Err=%d)\n",
+           xml_result.Ok.tag, AzResultXmlXmlError_Tag_Ok, AzResultXmlXmlError_Tag_Err);
+    
+    if (xml_result.Ok.tag == AzResultXmlXmlError_Tag_Err) {
+        browser_data_set_error(data, "Failed to parse XHTML");
+        AzXmlError_delete(&xml_result.Err.payload);
+        return false;
+    }
+    
+    data->parsed_xml = xml_result.Ok.payload;
+    data->has_xml = true;
+    
+    printf("[BROWSER] XHTML parsed successfully\n");
+    browser_data_set_status(data, "Ready");
+    
+    data->is_loading = false;
+    return true;
+}
+
+// ============================================================================
 // Main Page Loading Logic
 // ============================================================================
 
 bool load_page(BrowserData* data) {
+    // Check if this is a local file
+    if (is_local_file(data->url)) {
+        return load_local_file(data);
+    }
+    
     browser_data_set_status(data, "Fetching page...");
     printf("\n[BROWSER] Fetching: %s\n", data->url);
     
@@ -560,7 +627,10 @@ int main(int argc, char** argv) {
     }
     
     printf("=== Azul Simple Browser ===\n");
-    printf("URL: %s\n\n", url);
+    printf("URL/File: %s\n\n", url);
+    printf("Usage: ./browser <url or file.xht>\n");
+    printf("  URL:  ./browser https://example.com\n");
+    printf("  File: ./browser test.xht\n\n");
     printf("Note: This is a static browser demo without JavaScript support.\n");
     printf("It demonstrates fetching HTML, parsing it, downloading resources,\n");
     printf("and using FontRef/ImageRef for rendering.\n\n");
