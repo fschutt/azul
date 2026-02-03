@@ -18098,6 +18098,9 @@
                 "fn_body": "azul_css::props::basic::color::ColorU::rgba(r, g, b, a)"
               },
               "rgb": {
+                "doc": [
+                  "Creates a new color with RGB values (alpha = 255)."
+                ],
                 "fn_args": [
                   {
                     "r": "u8"
@@ -18276,6 +18279,9 @@
                 "fn_body": "azul_css::props::basic::color::ColorU::light_pink()"
               },
               "rgba": {
+                "doc": [
+                  "Creates a new color with RGBA values."
+                ],
                 "fn_args": [
                   {
                     "r": "u8"
@@ -18291,6 +18297,357 @@
                   }
                 ],
                 "fn_body": "azul_css::props::basic::color::ColorU::rgba(r, g, b, a)"
+              },
+              "new": {
+                "doc": [
+                  "Alias for `rgba` - kept for internal compatibility, not exposed in FFI."
+                ],
+                "fn_args": [
+                  {
+                    "r": "u8"
+                  },
+                  {
+                    "g": "u8"
+                  },
+                  {
+                    "b": "u8"
+                  },
+                  {
+                    "a": "u8"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::new(r, g, b, a)"
+              },
+              "new_rgb": {
+                "doc": [
+                  "Alias for `rgb` - kept for internal compatibility, not exposed in FFI."
+                ],
+                "fn_args": [
+                  {
+                    "r": "u8"
+                  },
+                  {
+                    "g": "u8"
+                  },
+                  {
+                    "b": "u8"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::new_rgb(r, g, b)"
+              },
+              "strawberry": {
+                "doc": [
+                  "Strawberry color palette (shade: 100, 300, 500, 700, 900)"
+                ],
+                "fn_args": [
+                  {
+                    "shade": "usize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::strawberry(shade)"
+              },
+              "palette_orange": {
+                "doc": [
+                  "Orange color palette (shade: 100, 300, 500, 700, 900)"
+                ],
+                "fn_args": [
+                  {
+                    "shade": "usize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::palette_orange(shade)"
+              },
+              "banana": {
+                "doc": [
+                  "Banana color palette (shade: 100, 300, 500, 700, 900)"
+                ],
+                "fn_args": [
+                  {
+                    "shade": "usize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::banana(shade)"
+              },
+              "palette_lime": {
+                "doc": [
+                  "Lime color palette (shade: 100, 300, 500, 700, 900)"
+                ],
+                "fn_args": [
+                  {
+                    "shade": "usize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::palette_lime(shade)"
+              },
+              "mint": {
+                "doc": [
+                  "Mint color palette (shade: 100, 300, 500, 700, 900)"
+                ],
+                "fn_args": [
+                  {
+                    "shade": "usize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::mint(shade)"
+              },
+              "blueberry": {
+                "doc": [
+                  "Blueberry color palette (shade: 100, 300, 500, 700, 900)"
+                ],
+                "fn_args": [
+                  {
+                    "shade": "usize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::blueberry(shade)"
+              },
+              "grape": {
+                "doc": [
+                  "Grape color palette (shade: 100, 300, 500, 700, 900)"
+                ],
+                "fn_args": [
+                  {
+                    "shade": "usize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::grape(shade)"
+              },
+              "bubblegum": {
+                "doc": [
+                  "Bubblegum color palette (shade: 100, 300, 500, 700, 900)"
+                ],
+                "fn_args": [
+                  {
+                    "shade": "usize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::bubblegum(shade)"
+              },
+              "cocoa": {
+                "doc": [
+                  "Cocoa color palette (shade: 100, 300, 500, 700, 900)"
+                ],
+                "fn_args": [
+                  {
+                    "shade": "usize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::cocoa(shade)"
+              },
+              "palette_silver": {
+                "doc": [
+                  "Silver color palette (shade: 100, 300, 500, 700, 900)"
+                ],
+                "fn_args": [
+                  {
+                    "shade": "usize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::palette_silver(shade)"
+              },
+              "slate": {
+                "doc": [
+                  "Slate color palette (shade: 100, 300, 500, 700, 900)"
+                ],
+                "fn_args": [
+                  {
+                    "shade": "usize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::slate(shade)"
+              },
+              "dark": {
+                "doc": [
+                  "Dark color palette (shade: 100, 300, 500, 700, 900)"
+                ],
+                "fn_args": [
+                  {
+                    "shade": "usize"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::color::ColorU::dark(shade)"
+              },
+              "apple_red": {
+                "doc": [
+                  "Apple Red (light mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_red()"
+              },
+              "apple_red_dark": {
+                "doc": [
+                  "Apple Red (dark mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_red_dark()"
+              },
+              "apple_orange": {
+                "doc": [
+                  "Apple Orange (light mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_orange()"
+              },
+              "apple_orange_dark": {
+                "doc": [
+                  "Apple Orange (dark mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_orange_dark()"
+              },
+              "apple_yellow": {
+                "doc": [
+                  "Apple Yellow (light mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_yellow()"
+              },
+              "apple_yellow_dark": {
+                "doc": [
+                  "Apple Yellow (dark mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_yellow_dark()"
+              },
+              "apple_green": {
+                "doc": [
+                  "Apple Green (light mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_green()"
+              },
+              "apple_green_dark": {
+                "doc": [
+                  "Apple Green (dark mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_green_dark()"
+              },
+              "apple_mint": {
+                "doc": [
+                  "Apple Mint (light mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_mint()"
+              },
+              "apple_mint_dark": {
+                "doc": [
+                  "Apple Mint (dark mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_mint_dark()"
+              },
+              "apple_teal": {
+                "doc": [
+                  "Apple Teal (light mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_teal()"
+              },
+              "apple_teal_dark": {
+                "doc": [
+                  "Apple Teal (dark mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_teal_dark()"
+              },
+              "apple_cyan": {
+                "doc": [
+                  "Apple Cyan (light mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_cyan()"
+              },
+              "apple_cyan_dark": {
+                "doc": [
+                  "Apple Cyan (dark mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_cyan_dark()"
+              },
+              "apple_blue": {
+                "doc": [
+                  "Apple Blue (light mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_blue()"
+              },
+              "apple_blue_dark": {
+                "doc": [
+                  "Apple Blue (dark mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_blue_dark()"
+              },
+              "apple_indigo": {
+                "doc": [
+                  "Apple Indigo (light mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_indigo()"
+              },
+              "apple_indigo_dark": {
+                "doc": [
+                  "Apple Indigo (dark mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_indigo_dark()"
+              },
+              "apple_purple": {
+                "doc": [
+                  "Apple Purple (light mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_purple()"
+              },
+              "apple_purple_dark": {
+                "doc": [
+                  "Apple Purple (dark mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_purple_dark()"
+              },
+              "apple_pink": {
+                "doc": [
+                  "Apple Pink (light mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_pink()"
+              },
+              "apple_pink_dark": {
+                "doc": [
+                  "Apple Pink (dark mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_pink_dark()"
+              },
+              "apple_brown": {
+                "doc": [
+                  "Apple Brown (light mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_brown()"
+              },
+              "apple_brown_dark": {
+                "doc": [
+                  "Apple Brown (dark mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_brown_dark()"
+              },
+              "apple_gray": {
+                "doc": [
+                  "Apple Gray (light mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_gray()"
+              },
+              "apple_gray_dark": {
+                "doc": [
+                  "Apple Gray (dark mode)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::props::basic::color::ColorU::apple_gray_dark()"
               }
             },
             "functions": {
@@ -18315,23 +18672,6 @@
                   "type": "bool"
                 },
                 "fn_body": "object.has_alpha()"
-              },
-              "interpolate": {
-                "fn_args": [
-                  {
-                    "self": "ref"
-                  },
-                  {
-                    "other": "ColorU"
-                  },
-                  {
-                    "t": "f32"
-                  }
-                ],
-                "returns": {
-                  "type": "ColorU"
-                },
-                "fn_body": "object.interpolate(&other, t)"
               }
             },
             "repr": "C"
