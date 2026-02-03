@@ -53,6 +53,25 @@ pub enum Platform {
     Unknown,
 }
 
+impl Platform {
+    /// Get the current platform at compile time.
+    #[inline]
+    pub fn current() -> Self {
+        #[cfg(target_os = "macos")]
+        { Platform::MacOs }
+        #[cfg(target_os = "windows")]
+        { Platform::Windows }
+        #[cfg(target_os = "linux")]
+        { Platform::Linux(DesktopEnvironment::Other(AzString::from_const_str("unknown"))) }
+        #[cfg(target_os = "android")]
+        { Platform::Android }
+        #[cfg(target_os = "ios")]
+        { Platform::Ios }
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux", target_os = "android", target_os = "ios")))]
+        { Platform::Unknown }
+    }
+}
+
 /// Represents the detected Linux Desktop Environment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
@@ -208,6 +227,23 @@ impl SystemFontType {
             SystemFontType::Serif => "system:serif",
             SystemFontType::SerifBold => "system:serif:bold",
         }
+    }
+    
+    /// Returns true if this system font type implies bold weight.
+    /// Used when resolving system fonts to pass the correct weight to fontconfig.
+    pub fn is_bold(&self) -> bool {
+        matches!(
+            self,
+            SystemFontType::UiBold
+                | SystemFontType::MonospaceBold
+                | SystemFontType::TitleBold
+                | SystemFontType::SerifBold
+        )
+    }
+    
+    /// Returns true if this system font type implies italic style.
+    pub fn is_italic(&self) -> bool {
+        matches!(self, SystemFontType::MonospaceItalic)
     }
 }
 
@@ -588,22 +624,22 @@ impl TitlebarMetrics {
 /// 
 /// These are the canonical names for Apple's system fonts, which should
 /// be used in font fallback chains for proper rendering on Apple platforms.
+/// Note: The names here must match what rust-fontconfig indexes from the font metadata.
 pub mod apple_fonts {
-    /// SF Pro - Primary system font for iOS, iPadOS, macOS, tvOS
-    /// Best for UI text, labels, and buttons
-    pub const SF_PRO: &str = ".SF NS";
-    pub const SF_PRO_DISPLAY: &str = ".SF NS Display";
-    pub const SF_PRO_TEXT: &str = ".SF NS Text";
+    /// System Font - Primary system font for macOS
+    /// This is how rust-fontconfig indexes the SF Pro font family
+    pub const SYSTEM_FONT: &str = "System Font";
+    
+    /// SF NS variants as indexed by rust-fontconfig
+    pub const SF_NS_ROUNDED: &str = "SF NS Rounded";
     
     /// SF Compact - System font optimized for watchOS
     /// Optimized for small sizes and narrow columns
-    pub const SF_COMPACT: &str = ".SF Compact";
-    pub const SF_COMPACT_DISPLAY: &str = ".SF Compact Display";
-    pub const SF_COMPACT_TEXT: &str = ".SF Compact Text";
+    pub const SF_COMPACT: &str = "SF Compact";
     
     /// SF Mono - Monospaced font used in Xcode
     /// Enables alignment between rows and columns of text
-    pub const SF_MONO: &str = "SF Mono";
+    pub const SF_MONO: &str = "SF NS Mono Light";
     
     /// New York - Serif font for reading
     /// Performs as traditional reading face at small sizes
@@ -623,9 +659,13 @@ pub mod apple_fonts {
     
     /// Legacy macOS fonts for fallback
     pub const MENLO: &str = "Menlo";
+    pub const MENLO_REGULAR: &str = "Menlo Regular";
+    pub const MENLO_BOLD: &str = "Menlo Bold";
     pub const MONACO: &str = "Monaco";
     pub const LUCIDA_GRANDE: &str = "Lucida Grande";
+    pub const LUCIDA_GRANDE_BOLD: &str = "Lucida Grande Bold";
     pub const HELVETICA_NEUE: &str = "Helvetica Neue";
+    pub const HELVETICA_NEUE_BOLD: &str = "Helvetica Neue Bold";
 }
 
 /// Windows system font family names.
@@ -699,33 +739,51 @@ impl SystemFontType {
     
     fn macos_fallback_chain(&self) -> Vec<&'static str> {
         match self {
-            SystemFontType::Ui | SystemFontType::UiBold => vec![
-                apple_fonts::SF_PRO,
-                apple_fonts::SF_PRO_TEXT,
+            // For Normal weight, try System Font first, then Helvetica Neue
+            SystemFontType::Ui => vec![
+                apple_fonts::SYSTEM_FONT,
                 apple_fonts::HELVETICA_NEUE,
                 apple_fonts::LUCIDA_GRANDE,
             ],
-            SystemFontType::Monospace | SystemFontType::MonospaceBold | SystemFontType::MonospaceItalic => vec![
-                apple_fonts::SF_MONO,
+            // For Bold weight, use Helvetica Neue first (System Font has no Bold variant in fontconfig)
+            SystemFontType::UiBold => vec![
+                apple_fonts::HELVETICA_NEUE, // Will be queried with weight=Bold -> "Helvetica Neue Bold"
+                apple_fonts::LUCIDA_GRANDE,
+            ],
+            // Monospace fonts: Menlo has bold variant
+            SystemFontType::Monospace => vec![
                 apple_fonts::MENLO,
                 apple_fonts::MONACO,
             ],
-            SystemFontType::Title | SystemFontType::TitleBold => vec![
-                apple_fonts::SF_PRO_DISPLAY,
-                apple_fonts::SF_PRO,
+            SystemFontType::MonospaceBold | SystemFontType::MonospaceItalic => vec![
+                apple_fonts::MENLO, // Menlo Bold exists
+                apple_fonts::MONACO,
+            ],
+            // Title: same strategy - use Helvetica Neue for bold
+            SystemFontType::Title => vec![
+                apple_fonts::SYSTEM_FONT,
                 apple_fonts::HELVETICA_NEUE,
             ],
+            SystemFontType::TitleBold => vec![
+                apple_fonts::HELVETICA_NEUE, // Will be queried with weight=Bold
+                apple_fonts::LUCIDA_GRANDE,
+            ],
             SystemFontType::Menu => vec![
-                apple_fonts::SF_PRO,
-                apple_fonts::SF_PRO_TEXT,
+                apple_fonts::SYSTEM_FONT,
+                apple_fonts::HELVETICA_NEUE,
             ],
             SystemFontType::Small => vec![
-                apple_fonts::SF_PRO_TEXT,
-                apple_fonts::SF_PRO,
+                apple_fonts::SYSTEM_FONT,
+                apple_fonts::HELVETICA_NEUE,
             ],
-            SystemFontType::Serif | SystemFontType::SerifBold => vec![
+            // Serif fonts - Georgia has bold variant
+            SystemFontType::Serif => vec![
                 apple_fonts::NEW_YORK,
                 "Georgia",
+                "Times New Roman",
+            ],
+            SystemFontType::SerifBold => vec![
+                "Georgia", // Georgia Bold exists
                 "Times New Roman",
             ],
         }

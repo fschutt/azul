@@ -705,6 +705,11 @@ impl LayoutWindow {
             size: window_state.size.dimensions,
         };
 
+        // Get the platform from system_style, falling back to compile-time detection
+        let platform = self.system_style.as_ref()
+            .map(|s| s.platform.clone())
+            .unwrap_or_else(azul_css::system::Platform::current);
+
         // Font Resolution And Loading
         // This must happen BEFORE layout_document() is called
         {
@@ -724,10 +729,10 @@ impl LayoutWindow {
 
             // Step 0: Register embedded FontRefs (e.g. Material Icons)
             // These fonts bypass fontconfig and are used directly
-            register_embedded_fonts_from_styled_dom(&styled_dom, &self.font_manager);
+            register_embedded_fonts_from_styled_dom(&styled_dom, &self.font_manager, &platform);
 
             // Step 1: Resolve font chains (cached by FontChainKey)
-            let chains = collect_and_resolve_font_chains(&styled_dom, &self.font_manager.fc_cache);
+            let chains = collect_and_resolve_font_chains(&styled_dom, &self.font_manager.fc_cache, &platform);
             if let Some(msgs) = debug_messages.as_mut() {
                 msgs.push(LayoutDebugMessage::info(format!(
                     "[FontLoading] Resolved {} font chains",

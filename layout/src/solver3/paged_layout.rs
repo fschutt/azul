@@ -134,10 +134,13 @@ where
             load_fonts_from_disk, register_embedded_fonts_from_styled_dom,
         };
 
-        // Register embedded FontRefs (e.g. Material Icons) before resolving chains
-        register_embedded_fonts_from_styled_dom(&new_dom, font_manager);
+        // TODO: Accept platform as parameter instead of using ::current()
+        let platform = azul_css::system::Platform::current();
 
-        let chains = collect_and_resolve_font_chains(&new_dom, &font_manager.fc_cache);
+        // Register embedded FontRefs (e.g. Material Icons) before resolving chains
+        register_embedded_fonts_from_styled_dom(&new_dom, font_manager, &platform);
+
+        let chains = collect_and_resolve_font_chains(&new_dom, &font_manager.fc_cache, &platform);
         let required_fonts = collect_font_ids_from_chains(&chains);
         let already_loaded = font_manager.get_loaded_font_ids();
         let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
@@ -575,5 +578,8 @@ fn get_containing_block_for_node(
             return (content_pos, size);
         }
     }
+    
+    // For ROOT nodes: the containing block is the viewport.
+    // Do NOT subtract margin here - margins are handled in calculate_used_size().
     (viewport.origin, viewport.size)
 }

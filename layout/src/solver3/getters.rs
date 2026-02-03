@@ -2039,10 +2039,14 @@ impl ResolvedFontChains {
 ///
 /// # Arguments
 /// * `styled_dom` - The styled DOM to extract font stacks from
+/// * `platform` - The current platform for resolving system font types
 ///
 /// # Returns
 /// A `CollectedFontStacks` containing all unique font stacks and a hash-to-index mapping
-pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedFontStacks {
+pub fn collect_font_stacks_from_styled_dom(
+    styled_dom: &StyledDom,
+    platform: &azul_css::system::Platform,
+) -> CollectedFontStacks {
     let mut font_stacks = Vec::new();
     let mut hash_to_index: HashMap<u64, usize> = HashMap::new();
     let mut seen_hashes = std::collections::HashSet::new();
@@ -2099,8 +2103,8 @@ pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedF
             .unwrap_or(azul_css::props::basic::font::StyleFontStyle::Normal);
 
         // Convert to fontconfig types
-        let fc_weight = super::fc::convert_font_weight(font_weight);
-        let fc_style = super::fc::convert_font_style(font_style);
+        let mut fc_weight = super::fc::convert_font_weight(font_weight);
+        let mut fc_style = super::fc::convert_font_style(font_style);
 
         // Build font stack (only for non-Ref font families)
         let mut font_stack = Vec::with_capacity(font_families.len() + 3);
@@ -2111,12 +2115,42 @@ pub fn collect_font_stacks_from_styled_dom(styled_dom: &StyledDom) -> CollectedF
             if matches!(family, StyleFontFamily::Ref(_)) {
                 continue;
             }
-            font_stack.push(FontSelector {
-                family: family.as_string(),
-                weight: fc_weight,
-                style: fc_style,
-                unicode_ranges: Vec::new(),
-            });
+            
+            // Handle SystemFontType specially - resolve to actual font names
+            // and apply the font weight/style from the system font type
+            if let StyleFontFamily::SystemType(system_type) = family {
+                // Get platform-specific font names using the provided platform
+                let font_names = system_type.get_fallback_chain(platform);
+                
+                // Override weight/style based on system font type
+                let system_weight = if system_type.is_bold() {
+                    FcWeight::Bold
+                } else {
+                    fc_weight
+                };
+                let system_style = if system_type.is_italic() {
+                    FontStyle::Italic
+                } else {
+                    fc_style
+                };
+                
+                // Add each font name from the fallback chain
+                for font_name in font_names {
+                    font_stack.push(FontSelector {
+                        family: font_name.to_string(),
+                        weight: system_weight,
+                        style: system_style,
+                        unicode_ranges: Vec::new(),
+                    });
+                }
+            } else {
+                font_stack.push(FontSelector {
+                    family: family.as_string(),
+                    weight: fc_weight,
+                    style: fc_style,
+                    unicode_ranges: Vec::new(),
+                });
+            }
         }
 
         // Add generic fallbacks
@@ -2258,14 +2292,16 @@ pub fn resolve_font_chains(
 /// # Arguments
 /// * `styled_dom` - The styled DOM to extract font stacks from
 /// * `fc_cache` - The fontconfig cache to resolve fonts against
+/// * `platform` - The current platform for resolving system font types
 ///
 /// # Returns
 /// A `ResolvedFontChains` containing all resolved font chains
 pub fn collect_and_resolve_font_chains(
     styled_dom: &StyledDom,
     fc_cache: &FcFontCache,
+    platform: &azul_css::system::Platform,
 ) -> ResolvedFontChains {
-    let collected = collect_font_stacks_from_styled_dom(styled_dom);
+    let collected = collect_font_stacks_from_styled_dom(styled_dom, platform);
     resolve_font_chains(&collected, fc_cache)
 }
 
@@ -2276,8 +2312,9 @@ pub fn collect_and_resolve_font_chains(
 pub fn register_embedded_fonts_from_styled_dom<T: crate::font_traits::ParsedFontTrait>(
     styled_dom: &StyledDom,
     font_manager: &crate::text3::cache::FontManager<T>,
+    platform: &azul_css::system::Platform,
 ) {
-    let collected = collect_font_stacks_from_styled_dom(styled_dom);
+    let collected = collect_font_stacks_from_styled_dom(styled_dom, platform);
     for (_ptr, font_ref) in &collected.font_refs {
         font_manager.register_embedded_font(font_ref);
     }
@@ -2414,6 +2451,7 @@ where
 /// * `fc_cache` - The fontconfig cache
 /// * `already_loaded` - Set of FontIds that are already loaded
 /// * `load_fn` - Function to load and parse font bytes
+/// * `platform` - The current platform for resolving system font types
 ///
 /// # Returns
 /// A tuple of (ResolvedFontChains, FontLoadResult)
@@ -2422,12 +2460,13 @@ pub fn resolve_and_load_fonts<T, F>(
     fc_cache: &FcFontCache,
     already_loaded: &HashSet<FontId>,
     load_fn: F,
+    platform: &azul_css::system::Platform,
 ) -> (ResolvedFontChains, FontLoadResult<T>)
 where
     F: Fn(&[u8], usize) -> Result<T, crate::text3::cache::LayoutError>,
 {
     // Step 1-2: Collect and resolve font chains
-    let chains = collect_and_resolve_font_chains(styled_dom, fc_cache);
+    let chains = collect_and_resolve_font_chains(styled_dom, fc_cache, platform);
 
     // Step 3: Extract all required FontIds
     let required_fonts = collect_font_ids_from_chains(&chains);
