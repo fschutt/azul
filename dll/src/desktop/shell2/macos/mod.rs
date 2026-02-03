@@ -2243,9 +2243,13 @@ impl MacOSWindow {
         fc_cache_opt: Option<Arc<rust_fontconfig::FcFontCache>>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        // If background_color is None, use system window background
+        // If background_color is None and no material effect, use system window background
+        // Note: When a material is set, the renderer will use transparent clear color automatically
         if options.window_state.background_color.is_none() {
-            options.window_state.background_color = config.system_style.colors.window_background;
+            if matches!(options.window_state.flags.background_material, WindowBackgroundMaterial::Opaque) {
+                options.window_state.background_color = config.system_style.colors.window_background;
+            }
+            // For materials, leave background_color as None - renderer handles transparency
         }
         
         log_debug!(
@@ -2467,6 +2471,51 @@ impl MacOSWindow {
                 }
             }
         }
+
+        // Apply initial window decorations from options
+        // This must be done before window is visible to avoid flicker
+        log_trace!(
+            LogCategory::Window,
+            "[MacOSWindow::new] Applying window decorations: {:?}",
+            options.window_state.flags.decorations
+        );
+        {
+            let mut style_mask = window.styleMask();
+            match options.window_state.flags.decorations {
+                WindowDecorations::Normal => {
+                    // Already has default decorations, nothing to do
+                }
+                WindowDecorations::NoTitle => {
+                    // Extended frame: controls visible but no title
+                    style_mask.insert(NSWindowStyleMask::FullSizeContentView);
+                    window.setStyleMask(style_mask);
+                    unsafe {
+                        window.setTitlebarAppearsTransparent(true);
+                        window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+                    }
+                }
+                WindowDecorations::NoControls => {
+                    // Title bar but no controls
+                    style_mask.remove(NSWindowStyleMask::Closable);
+                    style_mask.remove(NSWindowStyleMask::Miniaturizable);
+                    window.setStyleMask(style_mask);
+                }
+                WindowDecorations::None => {
+                    // Borderless window
+                    style_mask.remove(NSWindowStyleMask::Titled);
+                    style_mask.remove(NSWindowStyleMask::Closable);
+                    style_mask.remove(NSWindowStyleMask::Miniaturizable);
+                    style_mask.remove(NSWindowStyleMask::Resizable);
+                    window.setStyleMask(style_mask);
+                }
+            }
+        }
+
+        // Apply initial background material from options
+        // Note: We can't call self.apply_background_material() yet because the window struct
+        // isn't created yet. We'll apply it after the struct is built and stored in its final location.
+        // Store the initial material to apply later.
+        let initial_background_material = options.window_state.flags.background_material;
 
         // Create and set window delegate for handling window events
         let window_delegate = WindowDelegate::new(mtm);
@@ -2886,6 +2935,17 @@ impl MacOSWindow {
                 e
             );
             // Not a fatal error - window will still work, just without VSYNC
+        }
+
+        // Apply initial background material if not Opaque
+        // This must be done after the window struct is built but before showing
+        if !matches!(initial_background_material, WindowBackgroundMaterial::Opaque) {
+            log_trace!(
+                LogCategory::Window,
+                "[Window Init] Applying initial background material: {:?}",
+                initial_background_material
+            );
+            window.apply_background_material(initial_background_material);
         }
 
         // Show window immediately - drawRect will handle the first frame rendering
@@ -3670,6 +3730,22 @@ impl MacOSWindow {
                             effect_view.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
                             effect_view.setState(NSVisualEffectState::Active);
 
+                            // Set autoresizing mask on effect view so IT resizes with window
+                            use objc2_app_kit::NSAutoresizingMaskOptions;
+                            effect_view.setAutoresizingMask(
+                                NSAutoresizingMaskOptions::ViewWidthSizable |
+                                NSAutoresizingMaskOptions::ViewHeightSizable
+                            );
+                            
+                            // Set autoresizing mask on original view so it resizes with effect view
+                            content_view.setAutoresizingMask(
+                                NSAutoresizingMaskOptions::ViewWidthSizable |
+                                NSAutoresizingMaskOptions::ViewHeightSizable
+                            );
+                            
+                            // Set frame to match effect view
+                            content_view.setFrame(frame);
+
                             // Add original view as subview
                             effect_view.addSubview(&content_view);
 
@@ -3677,6 +3753,37 @@ impl MacOSWindow {
                             let effect_view_ptr = Retained::as_ptr(&effect_view) as *const NSView;
                             let effect_view_ref = &*effect_view_ptr;
                             self.window.setContentView(Some(effect_view_ref));
+                        }
+                    }
+
+                    // Make the GL context surface transparent
+                    // NSOpenGLCPSurfaceOpacity = 236
+                    if let Some(ref gl_context) = self.gl_context {
+                        unsafe {
+                            const NS_OPENGL_CP_SURFACE_OPACITY: i32 = 236;
+                            let opacity: i32 = 0; // 0 = transparent, 1 = opaque
+                            let _: () = msg_send![
+                                &**gl_context,
+                                setValues: &opacity as *const i32
+                                forParameter: NS_OPENGL_CP_SURFACE_OPACITY
+                            ];
+                        }
+                    }
+
+                    // Make the GL/CPU view layer non-opaque so blur shows through
+                    if let Some(ref gl_view) = self.gl_view {
+                        unsafe {
+                            let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
+                            if let Some(layer) = (*view_ptr).layer() {
+                                let _: () = msg_send![&*layer, setOpaque: false];
+                            }
+                        }
+                    } else if let Some(ref cpu_view) = self.cpu_view {
+                        unsafe {
+                            let view_ptr = Retained::as_ptr(cpu_view) as *const NSView;
+                            if let Some(layer) = (*view_ptr).layer() {
+                                let _: () = msg_send![&*layer, setOpaque: false];
+                            }
                         }
                     }
 
@@ -4825,7 +4932,21 @@ impl PlatformWindow for MacOSWindow {
         );
 
         // Tell macOS to schedule a drawRect: call
-        if let Some(view) = unsafe { self.window.contentView() } {
+        // Use the GL view directly if available (when using materials, contentView is the effect view)
+        if let Some(ref gl_view) = self.gl_view {
+            unsafe {
+                let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
+                let view_ref = &*view_ptr;
+                view_ref.setNeedsDisplay(true);
+            }
+        } else if let Some(ref cpu_view) = self.cpu_view {
+            unsafe {
+                let view_ptr = Retained::as_ptr(cpu_view) as *const NSView;
+                let view_ref = &*view_ptr;
+                view_ref.setNeedsDisplay(true);
+            }
+        } else if let Some(view) = unsafe { self.window.contentView() } {
+            // Fallback to content view
             unsafe {
                 view.setNeedsDisplay(true);
             }

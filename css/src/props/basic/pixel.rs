@@ -878,6 +878,212 @@ pub fn parse_pixel_value_with_auto<'a>(
     }
 }
 
+// ============================================================================
+// System Metric References (system:button-padding, system:button-radius, etc.)
+// ============================================================================
+
+/// Reference to a specific system metric value.
+/// These are resolved at runtime based on the user's system preferences.
+/// 
+/// CSS syntax: `system:button-padding`, `system:button-radius`, `system:titlebar-height`, etc.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum SystemMetricRef {
+    /// Button corner radius (system:button-radius)
+    ButtonRadius,
+    /// Button horizontal padding (system:button-padding-horizontal)
+    ButtonPaddingHorizontal,
+    /// Button vertical padding (system:button-padding-vertical)
+    ButtonPaddingVertical,
+    /// Button border width (system:button-border-width)
+    ButtonBorderWidth,
+    /// Titlebar height (system:titlebar-height)
+    TitlebarHeight,
+    /// Titlebar button area width (system:titlebar-button-width)
+    TitlebarButtonWidth,
+    /// Titlebar horizontal padding (system:titlebar-padding)
+    TitlebarPadding,
+    /// Safe area top inset for notched devices (system:safe-area-top)
+    SafeAreaTop,
+    /// Safe area bottom inset (system:safe-area-bottom)
+    SafeAreaBottom,
+    /// Safe area left inset (system:safe-area-left)
+    SafeAreaLeft,
+    /// Safe area right inset (system:safe-area-right)
+    SafeAreaRight,
+}
+
+impl Default for SystemMetricRef {
+    fn default() -> Self {
+        SystemMetricRef::ButtonRadius
+    }
+}
+
+impl SystemMetricRef {
+    /// Resolve this system metric reference against actual system metrics.
+    pub fn resolve(&self, metrics: &crate::system::SystemMetrics) -> Option<PixelValue> {
+        match self {
+            SystemMetricRef::ButtonRadius => metrics.corner_radius.as_option().copied(),
+            SystemMetricRef::ButtonPaddingHorizontal => metrics.button_padding_horizontal.as_option().copied(),
+            SystemMetricRef::ButtonPaddingVertical => metrics.button_padding_vertical.as_option().copied(),
+            SystemMetricRef::ButtonBorderWidth => metrics.border_width.as_option().copied(),
+            SystemMetricRef::TitlebarHeight => metrics.titlebar.height.as_option().copied(),
+            SystemMetricRef::TitlebarButtonWidth => metrics.titlebar.button_area_width.as_option().copied(),
+            SystemMetricRef::TitlebarPadding => metrics.titlebar.padding_horizontal.as_option().copied(),
+            SystemMetricRef::SafeAreaTop => metrics.titlebar.safe_area.top.as_option().copied(),
+            SystemMetricRef::SafeAreaBottom => metrics.titlebar.safe_area.bottom.as_option().copied(),
+            SystemMetricRef::SafeAreaLeft => metrics.titlebar.safe_area.left.as_option().copied(),
+            SystemMetricRef::SafeAreaRight => metrics.titlebar.safe_area.right.as_option().copied(),
+        }
+    }
+
+    /// Returns the CSS string representation of this system metric reference.
+    pub fn as_css_str(&self) -> &'static str {
+        match self {
+            SystemMetricRef::ButtonRadius => "system:button-radius",
+            SystemMetricRef::ButtonPaddingHorizontal => "system:button-padding-horizontal",
+            SystemMetricRef::ButtonPaddingVertical => "system:button-padding-vertical",
+            SystemMetricRef::ButtonBorderWidth => "system:button-border-width",
+            SystemMetricRef::TitlebarHeight => "system:titlebar-height",
+            SystemMetricRef::TitlebarButtonWidth => "system:titlebar-button-width",
+            SystemMetricRef::TitlebarPadding => "system:titlebar-padding",
+            SystemMetricRef::SafeAreaTop => "system:safe-area-top",
+            SystemMetricRef::SafeAreaBottom => "system:safe-area-bottom",
+            SystemMetricRef::SafeAreaLeft => "system:safe-area-left",
+            SystemMetricRef::SafeAreaRight => "system:safe-area-right",
+        }
+    }
+
+    /// Parse a system metric reference from a CSS string (without the "system:" prefix).
+    pub fn from_css_str(s: &str) -> Option<Self> {
+        match s {
+            "button-radius" => Some(SystemMetricRef::ButtonRadius),
+            "button-padding-horizontal" => Some(SystemMetricRef::ButtonPaddingHorizontal),
+            "button-padding-vertical" => Some(SystemMetricRef::ButtonPaddingVertical),
+            "button-border-width" => Some(SystemMetricRef::ButtonBorderWidth),
+            "titlebar-height" => Some(SystemMetricRef::TitlebarHeight),
+            "titlebar-button-width" => Some(SystemMetricRef::TitlebarButtonWidth),
+            "titlebar-padding" => Some(SystemMetricRef::TitlebarPadding),
+            "safe-area-top" => Some(SystemMetricRef::SafeAreaTop),
+            "safe-area-bottom" => Some(SystemMetricRef::SafeAreaBottom),
+            "safe-area-left" => Some(SystemMetricRef::SafeAreaLeft),
+            "safe-area-right" => Some(SystemMetricRef::SafeAreaRight),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for SystemMetricRef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_css_str())
+    }
+}
+
+impl FormatAsCssValue for SystemMetricRef {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_css_str())
+    }
+}
+
+/// A pixel value reference that can be either a concrete value or a system metric.
+/// System metrics are lazily evaluated at runtime based on the user's system theme.
+/// 
+/// CSS syntax: `10px`, `1.5em`, `system:button-padding`, etc.
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C, u8)]
+pub enum PixelValueOrSystem {
+    /// A concrete pixel value.
+    Value(PixelValue),
+    /// A reference to a system metric, resolved at runtime.
+    System(SystemMetricRef),
+}
+
+impl Default for PixelValueOrSystem {
+    fn default() -> Self {
+        PixelValueOrSystem::Value(PixelValue::zero())
+    }
+}
+
+impl From<PixelValue> for PixelValueOrSystem {
+    fn from(value: PixelValue) -> Self {
+        PixelValueOrSystem::Value(value)
+    }
+}
+
+impl PixelValueOrSystem {
+    /// Create a new PixelValueOrSystem from a concrete value.
+    pub const fn value(v: PixelValue) -> Self {
+        PixelValueOrSystem::Value(v)
+    }
+    
+    /// Create a new PixelValueOrSystem from a system metric reference.
+    pub const fn system(s: SystemMetricRef) -> Self {
+        PixelValueOrSystem::System(s)
+    }
+    
+    /// Resolve the pixel value against a SystemMetrics struct.
+    /// Returns the system metric if available, or falls back to the provided default.
+    pub fn resolve(&self, system_metrics: &crate::system::SystemMetrics, fallback: PixelValue) -> PixelValue {
+        match self {
+            PixelValueOrSystem::Value(v) => *v,
+            PixelValueOrSystem::System(ref_type) => ref_type.resolve(system_metrics).unwrap_or(fallback),
+        }
+    }
+    
+    /// Returns the concrete value if available, or a default fallback for system metrics.
+    pub fn to_pixel_value_with_fallback(&self, fallback: PixelValue) -> PixelValue {
+        match self {
+            PixelValueOrSystem::Value(v) => *v,
+            PixelValueOrSystem::System(_) => fallback,
+        }
+    }
+    
+    /// Returns the concrete value if available, or zero for system metrics.
+    pub fn to_pixel_value_default(&self) -> PixelValue {
+        self.to_pixel_value_with_fallback(PixelValue::zero())
+    }
+}
+
+impl fmt::Display for PixelValueOrSystem {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PixelValueOrSystem::Value(v) => write!(f, "{}", v),
+            PixelValueOrSystem::System(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+impl FormatAsCssValue for PixelValueOrSystem {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PixelValueOrSystem::Value(v) => v.format_as_css_value(f),
+            PixelValueOrSystem::System(s) => s.format_as_css_value(f),
+        }
+    }
+}
+
+/// Parse a pixel value that may include system metric references.
+/// 
+/// Accepts: `10px`, `1.5em`, `system:button-padding`, etc.
+#[cfg(feature = "parser")]
+pub fn parse_pixel_value_or_system<'a>(
+    input: &'a str,
+) -> Result<PixelValueOrSystem, CssPixelValueParseError<'a>> {
+    let input = input.trim();
+    
+    // Check for system metric reference
+    if let Some(metric_name) = input.strip_prefix("system:") {
+        if let Some(metric_ref) = SystemMetricRef::from_css_str(metric_name) {
+            return Ok(PixelValueOrSystem::System(metric_ref));
+        } else {
+            return Err(CssPixelValueParseError::InvalidPixelValue(input));
+        }
+    }
+    
+    // Parse as regular pixel value
+    Ok(PixelValueOrSystem::Value(parse_pixel_value(input)?))
+}
+
 #[cfg(all(test, feature = "parser"))]
 mod tests {
     use super::*;

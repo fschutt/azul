@@ -126,13 +126,24 @@ pub const WR_SHADER_CACHE: Option<&Rc<RefCell<webrender::Shaders>>> = None;
 pub fn default_renderer_options(
     options: &azul_layout::window_state::WindowCreateOptions,
 ) -> WrRendererOptions {
+    use azul_core::window::WindowBackgroundMaterial;
     use azul_css::props::basic::color::ColorU;
     use webrender::{api::ColorF as WrColorF, ShaderPrecacheFlags};
 
-    // Use background_color if specified, otherwise default to white
-    let bg = options.window_state.background_color.as_option()
-        .copied()
-        .unwrap_or(ColorU::WHITE);
+    // Determine background color for WebRender clear
+    // If a material effect is used (not Opaque), use fully transparent clear color
+    // so the material effect shows through from behind
+    let bg = if !matches!(options.window_state.flags.background_material, WindowBackgroundMaterial::Opaque) {
+        // Material effect - need transparent background
+        // Note: We use alpha=0 with non-zero RGB to avoid pre-multiplied alpha issues
+        // Some OpenGL implementations render (0,0,0,0) as black
+        ColorU { r: 0, g: 0, b: 0, a: 0 }
+    } else {
+        // Use background_color if specified, otherwise default to white
+        options.window_state.background_color.as_option()
+            .copied()
+            .unwrap_or(ColorU::WHITE)
+    };
 
     WrRendererOptions {
         resource_override_path: None,

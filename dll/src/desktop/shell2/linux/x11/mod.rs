@@ -569,9 +569,14 @@ impl X11Window {
         mut options: WindowCreateOptions,
         resources: Arc<super::AppResources>,
     ) -> Result<Self, WindowError> {
-        // If background_color is None, use system window background
+        // If background_color is None and no material effect, use system window background
+        // Note: When a material is set, the renderer will use transparent clear color automatically
         if options.window_state.background_color.is_none() {
-            options.window_state.background_color = resources.system_style.colors.window_background;
+            use azul_core::window::WindowBackgroundMaterial;
+            if matches!(options.window_state.flags.background_material, WindowBackgroundMaterial::Opaque) {
+                options.window_state.background_color = resources.system_style.colors.window_background;
+            }
+            // For materials, leave background_color as None - renderer handles transparency
         }
         
         // Extract create_callback before consuming options
@@ -1026,6 +1031,20 @@ impl X11Window {
                     ExternalSystemCallbacks::rust_internal().get_system_time_fn,
                 );
                 layout_window.timers.insert(timer_id, debug_timer);
+            }
+        }
+
+        // Apply initial background material if not Opaque
+        {
+            use azul_core::window::WindowBackgroundMaterial;
+            let initial_material = window.current_window_state.flags.background_material;
+            if !matches!(initial_material, WindowBackgroundMaterial::Opaque) {
+                log_trace!(
+                    crate::log::LogCategory::Window,
+                    "[X11] Applying initial background material: {:?}",
+                    initial_material
+                );
+                window.apply_background_material(initial_material);
             }
         }
 

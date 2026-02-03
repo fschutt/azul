@@ -81,10 +81,32 @@ pub fn create_hwnd(
             )
         };
 
-        // Window style - use standard overlapped window
-        // WS_OVERLAPPEDWINDOW = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME |
-        // WS_MINIMIZEBOX | WS_MAXIMIZEBOX
-        let style = WS_OVERLAPPEDWINDOW | WS_TABSTOP;
+        // Window style - based on decorations option
+        use azul_core::window::WindowDecorations;
+        use dlopen::constants::{
+            WS_CAPTION, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_POPUP, WS_SYSMENU,
+            WS_THICKFRAME,
+        };
+
+        let style = match options.window_state.flags.decorations {
+            WindowDecorations::Normal => {
+                // Full decorations: WS_OVERLAPPEDWINDOW
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_TABSTOP
+            }
+            WindowDecorations::NoTitle => {
+                // Extended frame: controls visible but no title text
+                // On Windows, we still use full decorations but will hide title via DWM later
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_TABSTOP
+            }
+            WindowDecorations::NoControls => {
+                // Title bar but no minimize/maximize buttons
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_TABSTOP
+            }
+            WindowDecorations::None => {
+                // Borderless popup window
+                WS_POPUP | WS_TABSTOP
+            }
+        };
 
         let style_ex = WS_EX_APPWINDOW | WS_EX_ACCEPTFILES;
 

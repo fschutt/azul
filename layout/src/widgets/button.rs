@@ -928,7 +928,7 @@ impl Button {
     
     /// Set the button type and update styling accordingly
     #[inline]
-    pub fn set_type(&mut self, button_type: ButtonType) {
+    pub fn set_button_type(&mut self, button_type: ButtonType) {
         self.button_type = button_type;
         self.container_style = CssPropertyWithConditionsVec::from_vec(build_button_container_style(button_type));
     }
@@ -936,7 +936,7 @@ impl Button {
     /// Builder method to set the button type
     #[inline]
     pub fn with_button_type(mut self, button_type: ButtonType) -> Self {
-        self.set_type(button_type);
+        self.set_button_type(button_type);
         self
     }
 

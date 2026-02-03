@@ -26,7 +26,7 @@ use alloc::{
 use core::time::Duration;
 
 use crate::{
-    corety::{AzString, OptionF32, OptionString},
+    corety::{AzString, OptionF32, OptionString, OptionU16},
     css::Stylesheet,
     parser2::{new_from_str, CssParseWarnMsg},
     props::{
@@ -129,7 +129,7 @@ pub struct IconStyleOptions {
 /// 
 /// Font variants (bold, italic) can be combined with the base type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(u8)]
+#[repr(C)]
 pub enum SystemFontType {
     /// UI font for buttons, labels, menus (SF Pro, Segoe UI, Cantarell)
     Ui,
@@ -374,6 +374,214 @@ pub struct SystemMetrics {
     pub button_padding_horizontal: OptionPixelValue,
     /// The vertical (top/bottom) padding for buttons and similar controls.
     pub button_padding_vertical: OptionPixelValue,
+    /// Titlebar layout information (button positions, safe areas, etc.)
+    pub titlebar: TitlebarMetrics,
+}
+
+/// Which side of the titlebar the window control buttons are on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum TitlebarButtonSide {
+    /// Buttons are on the left (macOS default)
+    Left,
+    /// Buttons are on the right (Windows, most Linux DEs)
+    #[default]
+    Right,
+}
+
+/// Which window control buttons are available in the titlebar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct TitlebarButtons {
+    /// Close button is available
+    pub has_close: bool,
+    /// Minimize button is available
+    pub has_minimize: bool,
+    /// Maximize/zoom button is available
+    pub has_maximize: bool,
+    /// Fullscreen button is available (macOS green button behavior)
+    pub has_fullscreen: bool,
+}
+
+impl Default for TitlebarButtons {
+    fn default() -> Self {
+        Self {
+            has_close: true,
+            has_minimize: true,
+            has_maximize: true,
+            has_fullscreen: false,
+        }
+    }
+}
+
+/// Safe area insets for devices with notches, rounded corners, or sensor housings.
+/// 
+/// On devices like iPhones with notches or Dynamic Island, the safe area
+/// indicates regions where content should not be placed to avoid being
+/// obscured by hardware features.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct SafeAreaInsets {
+    /// Inset from the top edge (notch, camera housing, etc.)
+    pub top: OptionPixelValue,
+    /// Inset from the bottom edge (home indicator on iPhone)
+    pub bottom: OptionPixelValue,
+    /// Inset from the left edge (rounded corners)
+    pub left: OptionPixelValue,
+    /// Inset from the right edge (rounded corners)
+    pub right: OptionPixelValue,
+}
+
+/// Metrics for titlebar layout and window chrome.
+/// 
+/// This provides information needed to correctly position custom titlebar
+/// content when using `WindowDecorations::NoTitle` (expanded title mode).
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct TitlebarMetrics {
+    /// Which side the window control buttons are on
+    pub button_side: TitlebarButtonSide,
+    /// Which buttons are available
+    pub buttons: TitlebarButtons,
+    /// Height of the titlebar in pixels
+    pub height: OptionPixelValue,
+    /// Width reserved for window control buttons (close/min/max)
+    /// This is the space to avoid when drawing custom title text
+    pub button_area_width: OptionPixelValue,
+    /// Horizontal padding inside the titlebar
+    pub padding_horizontal: OptionPixelValue,
+    /// Safe area insets for notched/rounded displays
+    pub safe_area: SafeAreaInsets,
+    /// Title text font (from SystemFonts::title_font)
+    pub title_font: OptionString,
+    /// Title text font size
+    pub title_font_size: OptionF32,
+    /// Title text font weight (400 = normal, 600 = semibold, 700 = bold)
+    pub title_font_weight: OptionU16,
+}
+
+impl Default for TitlebarMetrics {
+    fn default() -> Self {
+        Self {
+            button_side: TitlebarButtonSide::Right,
+            buttons: TitlebarButtons::default(),
+            height: OptionPixelValue::Some(PixelValue::px(32.0)),
+            button_area_width: OptionPixelValue::Some(PixelValue::px(100.0)),
+            padding_horizontal: OptionPixelValue::Some(PixelValue::px(8.0)),
+            safe_area: SafeAreaInsets::default(),
+            title_font: OptionString::None,
+            title_font_size: OptionF32::Some(13.0),
+            title_font_weight: OptionU16::Some(600), // Semibold
+        }
+    }
+}
+
+impl TitlebarMetrics {
+    /// Windows-style titlebar (buttons on right)
+    pub fn windows() -> Self {
+        Self {
+            button_side: TitlebarButtonSide::Right,
+            buttons: TitlebarButtons {
+                has_close: true,
+                has_minimize: true,
+                has_maximize: true,
+                has_fullscreen: false,
+            },
+            height: OptionPixelValue::Some(PixelValue::px(32.0)),
+            button_area_width: OptionPixelValue::Some(PixelValue::px(138.0)), // 3 buttons * 46px
+            padding_horizontal: OptionPixelValue::Some(PixelValue::px(8.0)),
+            safe_area: SafeAreaInsets::default(),
+            title_font: OptionString::Some("Segoe UI Variable Text".into()),
+            title_font_size: OptionF32::Some(12.0),
+            title_font_weight: OptionU16::Some(400), // Normal
+        }
+    }
+    
+    /// macOS-style titlebar (buttons on left, "traffic lights")
+    pub fn macos() -> Self {
+        Self {
+            button_side: TitlebarButtonSide::Left,
+            buttons: TitlebarButtons {
+                has_close: true,
+                has_minimize: true,
+                has_maximize: false, // macOS has fullscreen instead
+                has_fullscreen: true,
+            },
+            height: OptionPixelValue::Some(PixelValue::px(28.0)),
+            button_area_width: OptionPixelValue::Some(PixelValue::px(78.0)), // 3 buttons with gaps
+            padding_horizontal: OptionPixelValue::Some(PixelValue::px(8.0)),
+            safe_area: SafeAreaInsets::default(),
+            title_font: OptionString::Some(".SF NS".into()),
+            title_font_size: OptionF32::Some(13.0),
+            title_font_weight: OptionU16::Some(600), // Semibold
+        }
+    }
+    
+    /// Linux GNOME-style titlebar (buttons on right by default)
+    pub fn linux_gnome() -> Self {
+        Self {
+            button_side: TitlebarButtonSide::Right, // Default, can be changed in settings
+            buttons: TitlebarButtons {
+                has_close: true,
+                has_minimize: true,
+                has_maximize: true,
+                has_fullscreen: false,
+            },
+            height: OptionPixelValue::Some(PixelValue::px(35.0)),
+            button_area_width: OptionPixelValue::Some(PixelValue::px(100.0)),
+            padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
+            safe_area: SafeAreaInsets::default(),
+            title_font: OptionString::Some("Cantarell".into()),
+            title_font_size: OptionF32::Some(11.0),
+            title_font_weight: OptionU16::Some(700), // Bold
+        }
+    }
+    
+    /// iOS-style safe area (for notched devices)
+    pub fn ios() -> Self {
+        Self {
+            button_side: TitlebarButtonSide::Left,
+            buttons: TitlebarButtons {
+                has_close: false, // iOS apps don't have close buttons
+                has_minimize: false,
+                has_maximize: false,
+                has_fullscreen: false,
+            },
+            height: OptionPixelValue::Some(PixelValue::px(44.0)),
+            button_area_width: OptionPixelValue::Some(PixelValue::px(0.0)),
+            padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
+            safe_area: SafeAreaInsets {
+                // iPhone notch safe area
+                top: OptionPixelValue::Some(PixelValue::px(47.0)),
+                bottom: OptionPixelValue::Some(PixelValue::px(34.0)),
+                left: OptionPixelValue::None,
+                right: OptionPixelValue::None,
+            },
+            title_font: OptionString::Some(".SFUI-Semibold".into()),
+            title_font_size: OptionF32::Some(17.0),
+            title_font_weight: OptionU16::Some(600),
+        }
+    }
+    
+    /// Android-style titlebar (action bar)
+    pub fn android() -> Self {
+        Self {
+            button_side: TitlebarButtonSide::Left, // Back button on left
+            buttons: TitlebarButtons {
+                has_close: false,
+                has_minimize: false,
+                has_maximize: false,
+                has_fullscreen: false,
+            },
+            height: OptionPixelValue::Some(PixelValue::px(56.0)),
+            button_area_width: OptionPixelValue::Some(PixelValue::px(48.0)), // Back button
+            padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
+            safe_area: SafeAreaInsets::default(),
+            title_font: OptionString::Some("Roboto Medium".into()),
+            title_font_size: OptionF32::Some(20.0),
+            title_font_weight: OptionU16::Some(500),
+        }
+    }
 }
 
 /// Apple system font family names for font fallback chains.
@@ -1860,7 +2068,7 @@ pub mod defaults {
         },
         system::{
             DesktopEnvironment, Platform, SystemColors, SystemFonts, SystemMetrics, SystemStyle,
-            Theme, IconStyleOptions,
+            Theme, IconStyleOptions, TitlebarMetrics,
         },
     };
 
@@ -2017,6 +2225,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
+                titlebar: TitlebarMetrics::windows(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_LIGHT))),
             app_specific_stylesheet: None,
@@ -2052,6 +2261,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
+                titlebar: TitlebarMetrics::windows(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_DARK))),
             app_specific_stylesheet: None,
@@ -2087,6 +2297,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(10.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(5.0)),
+                titlebar: TitlebarMetrics::windows(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
             app_specific_stylesheet: None,
@@ -2122,6 +2333,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(8.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(4.0)),
+                titlebar: TitlebarMetrics::windows(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_CLASSIC))),
             app_specific_stylesheet: None,
@@ -2160,6 +2372,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
+                titlebar: TitlebarMetrics::macos(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_LIGHT))),
             app_specific_stylesheet: None,
@@ -2203,6 +2416,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
+                titlebar: TitlebarMetrics::macos(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_DARK))),
             app_specific_stylesheet: None,
@@ -2237,6 +2451,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
+                titlebar: TitlebarMetrics::macos(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_MACOS_AQUA))),
             app_specific_stylesheet: None,
@@ -2272,6 +2487,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(8.0)),
+                titlebar: TitlebarMetrics::linux_gnome(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
             app_specific_stylesheet: None,
@@ -2305,6 +2521,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(8.0)),
+                titlebar: TitlebarMetrics::linux_gnome(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_DARK))),
             app_specific_stylesheet: None,
@@ -2337,6 +2554,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(10.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
+                titlebar: TitlebarMetrics::linux_gnome(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
             app_specific_stylesheet: None,
@@ -2369,6 +2587,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
+                titlebar: TitlebarMetrics::linux_gnome(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_KDE_OXYGEN))),
             app_specific_stylesheet: None,
@@ -2403,6 +2622,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(16.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(10.0)),
+                titlebar: TitlebarMetrics::android(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_LIGHT))),
             app_specific_stylesheet: None,
@@ -2435,6 +2655,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(8.0)),
+                titlebar: TitlebarMetrics::android(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_DARK))),
             app_specific_stylesheet: None,
@@ -2467,6 +2688,7 @@ pub mod defaults {
                 border_width: OptionPixelValue::Some(PixelValue::px(0.5)),
                 button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(20.0)),
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(12.0)),
+                titlebar: TitlebarMetrics::ios(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_IOS_LIGHT))),
             app_specific_stylesheet: None,

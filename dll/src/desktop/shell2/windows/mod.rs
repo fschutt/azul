@@ -193,9 +193,14 @@ impl Win32Window {
         fc_cache: Arc<FcFontCache>,
         app_data: Arc<std::cell::RefCell<RefAny>>,
     ) -> Result<Self, WindowError> {
-        // If background_color is None, use system window background
+        // If background_color is None and no material effect, use system window background
+        // Note: When a material is set, the renderer will use transparent clear color automatically
         if options.window_state.background_color.is_none() {
-            options.window_state.background_color = config.system_style.colors.window_background;
+            use azul_core::window::WindowBackgroundMaterial;
+            if matches!(options.window_state.flags.background_material, WindowBackgroundMaterial::Opaque) {
+                options.window_state.background_color = config.system_style.colors.window_background;
+            }
+            // For materials, leave background_color as None - renderer handles transparency
         }
         
         let total_start = std::time::Instant::now();
@@ -541,6 +546,22 @@ impl Win32Window {
             }
         }
         timing_log!("Initialize accessibility adapter");
+
+        // Apply initial background material if not Opaque
+        // This enables Mica/Acrylic effects on Windows 11
+        {
+            use azul_core::window::WindowBackgroundMaterial;
+            let initial_material = result.current_window_state.flags.background_material;
+            if !matches!(initial_material, WindowBackgroundMaterial::Opaque) {
+                log_trace!(
+                    LogCategory::Window,
+                    "[Win32] Applying initial background material: {:?}",
+                    initial_material
+                );
+                result.apply_background_material(initial_material);
+            }
+        }
+        timing_log!("Apply initial background material");
 
         // Render FIRST FRAME before showing window to avoid black flash
         // This ensures the window has content when it becomes visible

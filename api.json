@@ -19479,6 +19479,61 @@
             ],
             "repr": "C"
           },
+          "PixelValueOrSystem": {
+            "doc": [
+              "A pixel value that can be either concrete or a system metric reference.",
+              "System metrics are resolved at runtime based on user's system theme.",
+              "CSS syntax: 10px, 1.5em, system:button-padding, etc."
+            ],
+            "external": "azul_css::props::basic::pixel::PixelValueOrSystem",
+            "custom_impls": [
+              "Default",
+              "Display",
+              "From"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "enum_fields": [
+              {
+                "Value": {
+                  "type": "PixelValue"
+                },
+                "System": {
+                  "type": "SystemMetricRef"
+                }
+              }
+            ],
+            "constructors": {
+              "value": {
+                "doc": [
+                  "Creates a PixelValueOrSystem from a concrete value."
+                ],
+                "fn_args": [
+                  {
+                    "v": "PixelValue"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::pixel::PixelValueOrSystem::value(v)"
+              },
+              "system": {
+                "doc": [
+                  "Creates a PixelValueOrSystem from a system metric reference."
+                ],
+                "fn_args": [
+                  {
+                    "s": "SystemMetricRef"
+                  }
+                ],
+                "fn_body": "azul_css::props::basic::pixel::PixelValueOrSystem::system(s)"
+              }
+            },
+            "repr": "C, u8"
+          },
           "BoxShadowClipMode": {
             "doc": [
               "What direction should a `box-shadow` be clipped in (inset or outset)."
@@ -21970,14 +22025,13 @@
               {
                 "System": {
                   "type": "String"
-                }
-              },
-              {
+                },
+                "SystemType": {
+                  "type": "SystemFontType"
+                },
                 "File": {
                   "type": "String"
-                }
-              },
-              {
+                },
                 "Ref": {
                   "type": "FontRef"
                 }
@@ -30009,19 +30063,53 @@
               }
             ],
             "repr": "C"
-          }
-        }
-      },
-      "widgets": {
-        "doc": [
-          "Default, built-in widgets (button, label, textinput, etc.)"
-        ],
-        "classes": {
-          "ButtonType": {
-            "external": "azul_layout::widgets::button::ButtonType",
+          },
+          "SafeAreaInsets": {
             "doc": [
-              "The semantic type/role of a button.",
-              "Each type has distinct styling to indicate its purpose to the user."
+              "Safe area insets for devices with notches, rounded corners, or sensor housings."
+            ],
+            "external": "azul_css::system::SafeAreaInsets",
+            "derive": [
+              "Debug",
+              "Default",
+              "Clone",
+              "Copy",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "top": {
+                  "type": "OptionPixelValue",
+                  "doc": [
+                    "Inset from the top edge (notch, camera housing, etc.)"
+                  ]
+                },
+                "bottom": {
+                  "type": "OptionPixelValue",
+                  "doc": [
+                    "Inset from the bottom edge (home indicator on iPhone)"
+                  ]
+                },
+                "left": {
+                  "type": "OptionPixelValue",
+                  "doc": [
+                    "Inset from the left edge (rounded corners)"
+                  ]
+                },
+                "right": {
+                  "type": "OptionPixelValue",
+                  "doc": [
+                    "Inset from the right edge (rounded corners)"
+                  ]
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "SystemFontType": {
+            "external": "azul_css::system::SystemFontType",
+            "custom_impls": [
+              "Default"
             ],
             "derive": [
               "Debug",
@@ -30032,6 +30120,47 @@
               "PartialOrd",
               "Ord",
               "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Ui": {},
+                "UiBold": {},
+                "Monospace": {},
+                "MonospaceBold": {},
+                "MonospaceItalic": {},
+                "Title": {},
+                "TitleBold": {},
+                "Menu": {},
+                "Small": {},
+                "Serif": {},
+                "SerifBold": {}
+              }
+            ],
+            "repr": "C"
+          }
+        }
+      },
+      "widgets": {
+        "doc": [
+          "Default, built-in widgets (button, label, textinput, etc.)"
+        ],
+        "classes": {
+          "ButtonType": {
+            "doc": [
+              "The semantic type/role of a button.",
+              "Each type has distinct styling to indicate its purpose to the user."
+            ],
+            "external": "azul_layout::widgets::button::ButtonType",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash",
+              "Default"
             ],
             "enum_fields": [
               {
@@ -30153,7 +30282,7 @@
                 },
                 "fn_body": "button.with_on_click(data, callback)"
               },
-              "set_type": {
+              "set_button_type": {
                 "doc": [
                   "Set the button type and update styling accordingly"
                 ],
@@ -30165,7 +30294,7 @@
                     "button_type": "ButtonType"
                   }
                 ],
-                "fn_body": "button.set_type(button_type);"
+                "fn_body": "button.set_button_type(button_type);"
               },
               "with_button_type": {
                 "doc": [
@@ -32300,6 +32429,86 @@
                   "type": "usize",
                   "doc": [
                     "Number of elements in the slice"
+                  ]
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TitlebarButtons": {
+            "doc": [
+              "Which window control buttons are available in the titlebar."
+            ],
+            "external": "azul_css::system::TitlebarButtons",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "has_close": {
+                  "type": "bool",
+                  "doc": [
+                    "Close button is available"
+                  ]
+                },
+                "has_minimize": {
+                  "type": "bool",
+                  "doc": [
+                    "Minimize button is available"
+                  ]
+                },
+                "has_maximize": {
+                  "type": "bool",
+                  "doc": [
+                    "Maximize/zoom button is available"
+                  ]
+                },
+                "has_fullscreen": {
+                  "type": "bool",
+                  "doc": [
+                    "Fullscreen button is available (macOS green button behavior)"
+                  ]
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "TitlebarButtonSide": {
+            "doc": [
+              "Which side of the titlebar the window control buttons are on."
+            ],
+            "external": "azul_css::system::TitlebarButtonSide",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash",
+              "Default"
+            ],
+            "enum_fields": [
+              {
+                "Left": {
+                  "doc": [
+                    "Buttons are on the left (macOS default)"
+                  ]
+                },
+                "Right": {
+                  "doc": [
+                    "Buttons are on the right (Windows, most Linux DEs)"
                   ]
                 }
               }
@@ -48583,7 +48792,8 @@
                 "Focus": {},
                 "Lang": {
                   "type": "String"
-                }
+                },
+                "Backdrop": {}
               }
             ],
             "repr": "C, u8"
@@ -72641,28 +72851,15 @@
             ],
             "enum_fields": [
               {
-                "Normal": {}
-              },
-              {
-                "Hover": {}
-              },
-              {
-                "Active": {}
-              },
-              {
-                "Focus": {}
-              },
-              {
-                "Disabled": {}
-              },
-              {
-                "Checked": {}
-              },
-              {
-                "FocusWithin": {}
-              },
-              {
-                "Visited": {}
+                "Normal": {},
+                "Hover": {},
+                "Active": {},
+                "Focus": {},
+                "Disabled": {},
+                "Checked": {},
+                "FocusWithin": {},
+                "Visited": {},
+                "Backdrop": {}
               }
             ],
             "repr": "C"
@@ -73672,19 +73869,137 @@
                   "type": "OptionPixelValue"
                 },
                 "button_padding_horizontal": {
+                  "type": "OptionPixelValue",
                   "doc": [
                     "The horizontal (left/right) padding for buttons and similar controls."
-                  ],
-                  "type": "OptionPixelValue"
+                  ]
                 },
                 "button_padding_vertical": {
+                  "type": "OptionPixelValue",
                   "doc": [
                     "The vertical (top/bottom) padding for buttons and similar controls."
-                  ],
-                  "type": "OptionPixelValue"
+                  ]
+                },
+                "titlebar": {
+                  "type": "TitlebarMetrics",
+                  "doc": [
+                    "Titlebar layout information (button positions, safe areas, etc.)"
+                  ]
                 }
               }
             ],
+            "repr": "C"
+          },
+          "TitlebarMetrics": {
+            "doc": [
+              "Metrics for titlebar layout and window chrome.",
+              "Provides information needed to correctly position custom titlebar",
+              "content when using WindowDecorations::NoTitle (expanded title mode)."
+            ],
+            "external": "azul_css::system::TitlebarMetrics",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq"
+            ],
+            "struct_fields": [
+              {
+                "button_side": {
+                  "type": "TitlebarButtonSide",
+                  "doc": [
+                    "Which side the window control buttons are on"
+                  ]
+                },
+                "buttons": {
+                  "type": "TitlebarButtons",
+                  "doc": [
+                    "Which buttons are available"
+                  ]
+                },
+                "height": {
+                  "type": "OptionPixelValue",
+                  "doc": [
+                    "Height of the titlebar in pixels"
+                  ]
+                },
+                "button_area_width": {
+                  "type": "OptionPixelValue",
+                  "doc": [
+                    "Width reserved for window control buttons (close/min/max)"
+                  ]
+                },
+                "padding_horizontal": {
+                  "type": "OptionPixelValue",
+                  "doc": [
+                    "Horizontal padding inside the titlebar"
+                  ]
+                },
+                "safe_area": {
+                  "type": "SafeAreaInsets",
+                  "doc": [
+                    "Safe area insets for notched/rounded displays"
+                  ]
+                },
+                "title_font": {
+                  "type": "OptionString",
+                  "doc": [
+                    "Title text font"
+                  ]
+                },
+                "title_font_size": {
+                  "type": "OptionF32",
+                  "doc": [
+                    "Title text font size"
+                  ]
+                },
+                "title_font_weight": {
+                  "type": "OptionU16",
+                  "doc": [
+                    "Title text font weight (400 = normal, 600 = semibold, 700 = bold)"
+                  ]
+                }
+              }
+            ],
+            "constructors": {
+              "windows": {
+                "doc": [
+                  "Windows-style titlebar (buttons on right)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::system::TitlebarMetrics::windows()"
+              },
+              "macos": {
+                "doc": [
+                  "macOS-style titlebar (buttons on left, traffic lights)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::system::TitlebarMetrics::macos()"
+              },
+              "linux_gnome": {
+                "doc": [
+                  "Linux GNOME-style titlebar"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::system::TitlebarMetrics::linux_gnome()"
+              },
+              "ios": {
+                "doc": [
+                  "iOS-style safe area (for notched devices)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::system::TitlebarMetrics::ios()"
+              },
+              "android": {
+                "doc": [
+                  "Android-style titlebar (action bar)"
+                ],
+                "fn_args": [],
+                "fn_body": "azul_css::system::TitlebarMetrics::android()"
+              }
+            },
             "repr": "C"
           },
           "ScrollIntoViewBehavior": {
@@ -74069,6 +74384,108 @@
                 "IOS": {},
                 "Linux": {},
                 "Android": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "SystemMetricRef": {
+            "doc": [
+              "Reference to a specific system metric value.",
+              "These are resolved at runtime based on the user's system preferences.",
+              "CSS syntax: system:button-padding, system:button-radius, etc."
+            ],
+            "external": "azul_css::props::basic::pixel::SystemMetricRef",
+            "custom_impls": [
+              "Default",
+              "Display"
+            ],
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "ButtonRadius": {
+                  "doc": [
+                    "Button corner radius (system:button-radius)"
+                  ]
+                }
+              },
+              {
+                "ButtonPaddingHorizontal": {
+                  "doc": [
+                    "Button horizontal padding (system:button-padding-horizontal)"
+                  ]
+                }
+              },
+              {
+                "ButtonPaddingVertical": {
+                  "doc": [
+                    "Button vertical padding (system:button-padding-vertical)"
+                  ]
+                }
+              },
+              {
+                "ButtonBorderWidth": {
+                  "doc": [
+                    "Button border width (system:button-border-width)"
+                  ]
+                }
+              },
+              {
+                "TitlebarHeight": {
+                  "doc": [
+                    "Titlebar height (system:titlebar-height)"
+                  ]
+                }
+              },
+              {
+                "TitlebarButtonWidth": {
+                  "doc": [
+                    "Titlebar button area width (system:titlebar-button-width)"
+                  ]
+                }
+              },
+              {
+                "TitlebarPadding": {
+                  "doc": [
+                    "Titlebar horizontal padding (system:titlebar-padding)"
+                  ]
+                }
+              },
+              {
+                "SafeAreaTop": {
+                  "doc": [
+                    "Safe area top inset for notched devices (system:safe-area-top)"
+                  ]
+                }
+              },
+              {
+                "SafeAreaBottom": {
+                  "doc": [
+                    "Safe area bottom inset (system:safe-area-bottom)"
+                  ]
+                }
+              },
+              {
+                "SafeAreaLeft": {
+                  "doc": [
+                    "Safe area left inset (system:safe-area-left)"
+                  ]
+                }
+              },
+              {
+                "SafeAreaRight": {
+                  "doc": [
+                    "Safe area right inset (system:safe-area-right)"
+                  ]
+                }
               }
             ],
             "repr": "C"
