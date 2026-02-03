@@ -230,15 +230,20 @@ const BUTTON_ACTIVE_BACKGROUND_WINDOWS: &[StyleBackgroundContent] =
     })];
 
 static BUTTON_CONTAINER_WINDOWS: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    // Use InlineFlex so flex properties work correctly
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineFlex)),
+    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(BUTTON_NORMAL_BACKGROUND),
     )),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-        LayoutFlexDirection::Column,
+        LayoutFlexDirection::Row,
     )),
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(
+        LayoutAlignItems::Center,
     )),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -459,13 +464,17 @@ const LINUX_BORDER_COLOR: ColorU = ColorU {
 };
 
 static BUTTON_CONTAINER_LINUX: &[CssPropertyWithConditions] = &[
-    // Linux/GTK-style button styling
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    // Linux/GTK-style button styling - use InlineFlex so flex properties work
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineFlex)),
+    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-        LayoutFlexDirection::Column,
+        LayoutFlexDirection::Row,
     )),
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(
+        LayoutAlignItems::Center,
     )),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -598,13 +607,17 @@ const MAC_BOX_SHADOW: &[StyleBoxShadow] = &[StyleBoxShadow {
 }];
 
 static BUTTON_CONTAINER_MAC: &[CssPropertyWithConditions] = &[
-    // macOS native button styling
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    // macOS native button styling - use InlineFlex so flex properties work
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineFlex)),
+    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
-        LayoutFlexDirection::Column,
+        LayoutFlexDirection::Row,
     )),
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_align_items(
+        LayoutAlignItems::Center,
     )),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
@@ -805,11 +818,13 @@ fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithC
     
     let mut props = Vec::with_capacity(40);
     
-    // Basic layout
-    props.push(CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)));
+    // Basic layout - use InlineFlex so flex properties (justify-content, align-items) work
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineFlex)));
     props.push(CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)));
     props.push(CssPropertyWithConditions::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)));
     props.push(CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)));
+    // Prevent stretching when inside a flex column container
+    props.push(CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)));
     props.push(CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)));
     props.push(CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))));
     
