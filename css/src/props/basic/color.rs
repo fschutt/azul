@@ -204,6 +204,63 @@ impl ColorU {
             a: libm::roundf(self.a as f32 + (other.a as f32 - self.a as f32) * t) as u8,
         }
     }
+    
+    /// Lighten a color by a percentage (0.0 to 1.0).
+    /// Returns a new color blended towards white.
+    pub fn lighten(&self, amount: f32) -> Self {
+        self.interpolate(&Self::WHITE, amount.clamp(0.0, 1.0))
+    }
+    
+    /// Darken a color by a percentage (0.0 to 1.0).
+    /// Returns a new color blended towards black.
+    pub fn darken(&self, amount: f32) -> Self {
+        self.interpolate(&Self::BLACK, amount.clamp(0.0, 1.0))
+    }
+    
+    /// Mix two colors together with a given ratio (0.0 = self, 1.0 = other).
+    pub fn mix(&self, other: &Self, ratio: f32) -> Self {
+        self.interpolate(other, ratio.clamp(0.0, 1.0))
+    }
+    
+    /// Create a hover variant (slightly lighter for dark colors, darker for light colors).
+    /// This is useful for button hover states.
+    pub fn hover_variant(&self) -> Self {
+        let luminance = self.luminance();
+        if luminance > 0.5 {
+            self.darken(0.08)
+        } else {
+            self.lighten(0.12)
+        }
+    }
+    
+    /// Create an active/pressed variant (darker than hover).
+    /// This is useful for button active states.
+    pub fn active_variant(&self) -> Self {
+        let luminance = self.luminance();
+        if luminance > 0.5 {
+            self.darken(0.15)
+        } else {
+            self.lighten(0.05)
+        }
+    }
+    
+    /// Calculate relative luminance (0.0 = black, 1.0 = white).
+    /// Uses the sRGB luminance formula.
+    pub fn luminance(&self) -> f32 {
+        let r = (self.r as f32) / 255.0;
+        let g = (self.g as f32) / 255.0;
+        let b = (self.b as f32) / 255.0;
+        0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+    
+    /// Returns white or black text color for best contrast on this background.
+    pub fn contrast_text(&self) -> Self {
+        if self.luminance() > 0.5 {
+            Self::BLACK
+        } else {
+            Self::WHITE
+        }
+    }
 
     pub const fn has_alpha(&self) -> bool {
         self.a != Self::ALPHA_OPAQUE
@@ -405,6 +462,55 @@ impl ColorU {
     pub fn apple_gray() -> Self { Self::rgb(142, 142, 147) }
     /// Apple Gray (dark mode)
     pub fn apple_gray_dark() -> Self { Self::rgb(152, 152, 157) }
+
+    // ============================================================
+    // Bootstrap-style semantic button colors
+    // These provide consistent button styling across platforms
+    // ============================================================
+
+    /// Primary button color (blue) - used for main actions
+    pub fn bootstrap_primary() -> Self { Self::rgb(13, 110, 253) }
+    pub fn bootstrap_primary_hover() -> Self { Self::rgb(11, 94, 215) }
+    pub fn bootstrap_primary_active() -> Self { Self::rgb(10, 88, 202) }
+    
+    /// Secondary button color (gray) - used for secondary actions
+    pub fn bootstrap_secondary() -> Self { Self::rgb(108, 117, 125) }
+    pub fn bootstrap_secondary_hover() -> Self { Self::rgb(92, 99, 106) }
+    pub fn bootstrap_secondary_active() -> Self { Self::rgb(86, 94, 100) }
+    
+    /// Success button color (green) - used for confirmations
+    pub fn bootstrap_success() -> Self { Self::rgb(25, 135, 84) }
+    pub fn bootstrap_success_hover() -> Self { Self::rgb(21, 115, 71) }
+    pub fn bootstrap_success_active() -> Self { Self::rgb(20, 108, 67) }
+    
+    /// Danger button color (red) - used for destructive actions
+    pub fn bootstrap_danger() -> Self { Self::rgb(220, 53, 69) }
+    pub fn bootstrap_danger_hover() -> Self { Self::rgb(187, 45, 59) }
+    pub fn bootstrap_danger_active() -> Self { Self::rgb(176, 42, 55) }
+    
+    /// Warning button color (yellow) - used for warnings, uses BLACK text
+    pub fn bootstrap_warning() -> Self { Self::rgb(255, 193, 7) }
+    pub fn bootstrap_warning_hover() -> Self { Self::rgb(255, 202, 44) }
+    pub fn bootstrap_warning_active() -> Self { Self::rgb(255, 205, 57) }
+    
+    /// Info button color (teal/cyan) - used for informational actions
+    pub fn bootstrap_info() -> Self { Self::rgb(13, 202, 240) }
+    pub fn bootstrap_info_hover() -> Self { Self::rgb(49, 210, 242) }
+    pub fn bootstrap_info_active() -> Self { Self::rgb(61, 213, 243) }
+    
+    /// Light button color - used for light-themed buttons
+    pub fn bootstrap_light() -> Self { Self::rgb(248, 249, 250) }
+    pub fn bootstrap_light_hover() -> Self { Self::rgb(233, 236, 239) }
+    pub fn bootstrap_light_active() -> Self { Self::rgb(218, 222, 226) }
+    
+    /// Dark button color - used for dark-themed buttons
+    pub fn bootstrap_dark() -> Self { Self::rgb(33, 37, 41) }
+    pub fn bootstrap_dark_hover() -> Self { Self::rgb(66, 70, 73) }
+    pub fn bootstrap_dark_active() -> Self { Self::rgb(78, 81, 84) }
+    
+    /// Link button text color
+    pub fn bootstrap_link() -> Self { Self::rgb(13, 110, 253) }
+    pub fn bootstrap_link_hover() -> Self { Self::rgb(10, 88, 202) }
 }
 
 /// f32-based color, range 0.0 to 1.0 (similar to webrenders ColorF)

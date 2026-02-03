@@ -171,6 +171,7 @@ impl FileInput {
         Button {
             label: button_label,
             image: self.image,
+            button_type: crate::widgets::button::ButtonType::Default,
             container_style: self.container_style,
             label_style: self.label_style,
             image_style: self.image_style,

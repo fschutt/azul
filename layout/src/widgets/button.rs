@@ -10,7 +10,7 @@ use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
         basic::{
-            color::{ColorU, ColorOrSystem},
+            color::{ColorU, ColorOrSystem, SystemColorRef},
             font::{StyleFontFamily, StyleFontFamilyVec},
             *,
         },
@@ -18,10 +18,53 @@ use azul_css::{
         property::{CssProperty, *},
         style::*,
     },
+    system::SystemFontType,
     *,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
+
+/// The semantic type/role of a button.
+/// 
+/// Each type has distinct styling to indicate its purpose to the user.
+/// Colors are based on Bootstrap's button variants for familiarity.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum ButtonType {
+    /// Default button style - neutral/gray appearance
+    #[default]
+    Default,
+    /// Primary action button - blue, uses system accent color on macOS
+    Primary,
+    /// Secondary button - gray, less prominent than primary
+    Secondary,
+    /// Success/confirmation button - green with white text
+    Success,
+    /// Danger/destructive button - red with white text
+    Danger,
+    /// Warning button - yellow with BLACK text
+    Warning,
+    /// Informational button - teal/cyan with white text
+    Info,
+    /// Link-style button - appears as a hyperlink, no background
+    Link,
+}
+
+impl ButtonType {
+    /// Get the CSS class name for this button type
+    pub fn class_name(&self) -> &'static str {
+        match self {
+            ButtonType::Default => "__azul-btn-default",
+            ButtonType::Primary => "__azul-btn-primary",
+            ButtonType::Secondary => "__azul-btn-secondary",
+            ButtonType::Success => "__azul-btn-success",
+            ButtonType::Danger => "__azul-btn-danger",
+            ButtonType::Warning => "__azul-btn-warning",
+            ButtonType::Info => "__azul-btn-info",
+            ButtonType::Link => "__azul-btn-link",
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -30,6 +73,8 @@ pub struct Button {
     pub label: AzString,
     /// Optional image that is displayed next to the label
     pub image: OptionImageRef,
+    /// The semantic type of this button (Primary, Success, Danger, etc.)
+    pub button_type: ButtonType,
     /// Style for this button container
     pub container_style: CssPropertyWithConditionsVec,
     /// Style of the label
@@ -689,43 +734,210 @@ static BUTTON_LABEL_MAC: &[CssPropertyWithConditions] = &[
 
 static BUTTON_LABEL_OTHER: &[CssPropertyWithConditions] = &[];
 
+// ============================================================
+// ButtonType-specific styling
+// ============================================================
+
+/// Get the background color for a button type
+fn get_button_colors(button_type: ButtonType) -> (ColorU, ColorU, ColorU) {
+    // Returns (normal, hover, active) colors
+    match button_type {
+        ButtonType::Default => (
+            ColorU::rgb(248, 249, 250), // Light gray
+            ColorU::rgb(233, 236, 239), // Darker gray on hover
+            ColorU::rgb(218, 222, 226), // Even darker on active
+        ),
+        ButtonType::Primary => (
+            ColorU::bootstrap_primary(),
+            ColorU::bootstrap_primary_hover(),
+            ColorU::bootstrap_primary_active(),
+        ),
+        ButtonType::Secondary => (
+            ColorU::bootstrap_secondary(),
+            ColorU::bootstrap_secondary_hover(),
+            ColorU::bootstrap_secondary_active(),
+        ),
+        ButtonType::Success => (
+            ColorU::bootstrap_success(),
+            ColorU::bootstrap_success_hover(),
+            ColorU::bootstrap_success_active(),
+        ),
+        ButtonType::Danger => (
+            ColorU::bootstrap_danger(),
+            ColorU::bootstrap_danger_hover(),
+            ColorU::bootstrap_danger_active(),
+        ),
+        ButtonType::Warning => (
+            ColorU::bootstrap_warning(),
+            ColorU::bootstrap_warning_hover(),
+            ColorU::bootstrap_warning_active(),
+        ),
+        ButtonType::Info => (
+            ColorU::bootstrap_info(),
+            ColorU::bootstrap_info_hover(),
+            ColorU::bootstrap_info_active(),
+        ),
+        ButtonType::Link => (
+            ColorU::TRANSPARENT,
+            ColorU::TRANSPARENT,
+            ColorU::TRANSPARENT,
+        ),
+    }
+}
+
+/// Get the text color for a button type
+fn get_button_text_color(button_type: ButtonType) -> ColorU {
+    match button_type {
+        ButtonType::Default => ColorU::rgb(33, 37, 41),   // Dark text
+        ButtonType::Warning => ColorU::BLACK,             // Black text on yellow
+        ButtonType::Link => ColorU::bootstrap_link(),     // Blue link color
+        _ => ColorU::WHITE,                               // White text on colored buttons
+    }
+}
+
+/// Build container style properties for a button type
+fn build_button_container_style(button_type: ButtonType) -> Vec<CssPropertyWithConditions> {
+    let (bg_normal, bg_hover, bg_active) = get_button_colors(button_type);
+    let text_color = get_button_text_color(button_type);
+    
+    // Focus outline uses system accent color
+    let focus_outline_color = ColorU::bootstrap_primary();
+    
+    let mut props = Vec::with_capacity(40);
+    
+    // Basic layout
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::InlineBlock)));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Row)));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_justify_content(LayoutJustifyContent::Center)));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))));
+    
+    // Text color
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor { inner: text_color })));
+    
+    // Padding (Bootstrap-like)
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(6))));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(6))));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(12))));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(12))));
+    
+    // Border radius
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(StyleBorderTopLeftRadius::const_px(4))));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_border_top_right_radius(StyleBorderTopRightRadius::const_px(4))));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_border_bottom_left_radius(StyleBorderBottomLeftRadius::const_px(4))));
+    props.push(CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(StyleBorderBottomRightRadius::const_px(4))));
+    
+    if button_type == ButtonType::Link {
+        // Link buttons have no background or border
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_background_content(
+            StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(ColorU::TRANSPARENT)]),
+        )));
+        
+        // Underline on hover - use TextDecoration::Underline variant
+        props.push(CssPropertyWithConditions::on_hover(CssProperty::TextDecoration(StyleTextDecoration::Underline.into())));
+    } else {
+        // Normal background
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_background_content(
+            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(bg_normal)]),
+        )));
+        
+        // Border (subtle for Default, transparent for others to maintain size)
+        let border_color = if button_type == ButtonType::Default {
+            ColorU::rgb(206, 212, 218)
+        } else {
+            bg_normal
+        };
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))));
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))));
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))));
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))));
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })));
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })));
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })));
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })));
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor { inner: border_color })));
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: border_color })));
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: border_color })));
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_border_right_color(StyleBorderRightColor { inner: border_color })));
+        
+        // Hover state
+        props.push(CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(
+            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(bg_hover)]).into(),
+        )));
+        if button_type == ButtonType::Default {
+            let hover_border = ColorU::rgb(173, 181, 189);
+            props.push(CssPropertyWithConditions::on_hover(CssProperty::BorderTopColor(StyleBorderTopColor { inner: hover_border }.into())));
+            props.push(CssPropertyWithConditions::on_hover(CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: hover_border }.into())));
+            props.push(CssPropertyWithConditions::on_hover(CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: hover_border }.into())));
+            props.push(CssPropertyWithConditions::on_hover(CssProperty::BorderRightColor(StyleBorderRightColor { inner: hover_border }.into())));
+        }
+        
+        // Active (pressed) state
+        props.push(CssPropertyWithConditions::on_active(CssProperty::BackgroundContent(
+            StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(bg_active)]).into(),
+        )));
+        
+        // Focus state - uses accent color for outline
+        // This makes the button feel "native" as it uses the system accent
+        props.push(CssPropertyWithConditions::on_focus(CssProperty::BorderTopColor(StyleBorderTopColor { inner: focus_outline_color }.into())));
+        props.push(CssPropertyWithConditions::on_focus(CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: focus_outline_color }.into())));
+        props.push(CssPropertyWithConditions::on_focus(CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: focus_outline_color }.into())));
+        props.push(CssPropertyWithConditions::on_focus(CssProperty::BorderRightColor(StyleBorderRightColor { inner: focus_outline_color }.into())));
+    }
+    
+    props
+}
+
+/// Build label style properties
+fn build_button_label_style() -> Vec<CssPropertyWithConditions> {
+    // Use system UI font
+    let font_family = StyleFontFamilyVec::from_vec(vec![
+        StyleFontFamily::SystemType(SystemFontType::Ui),
+    ]);
+    
+    vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+        CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+        CssPropertyWithConditions::simple(CssProperty::const_font_family(font_family)),
+    ]
+}
+
 impl Button {
     #[inline]
     pub fn create(label: AzString) -> Self {
+        Self::with_type(label, ButtonType::Default)
+    }
+    
+    /// Create a button with a specific type (Primary, Success, Danger, etc.)
+    #[inline]
+    pub fn with_type(label: AzString, button_type: ButtonType) -> Self {
+        let container_style = build_button_container_style(button_type);
+        let label_style = build_button_label_style();
+        
         Self {
             label,
             image: None.into(),
+            button_type,
             on_click: None.into(),
-
-            #[cfg(target_os = "windows")]
-            container_style: CssPropertyWithConditionsVec::from_const_slice(
-                BUTTON_CONTAINER_WINDOWS,
-            ),
-            #[cfg(target_os = "linux")]
-            container_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_CONTAINER_LINUX),
-            #[cfg(target_os = "macos")]
-            container_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_CONTAINER_MAC),
-            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-            container_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_CONTAINER_OTHER),
-
-            #[cfg(target_os = "windows")]
-            label_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_WINDOWS),
-            #[cfg(target_os = "linux")]
-            label_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_LINUX),
-            #[cfg(target_os = "macos")]
-            label_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_MAC),
-            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-            label_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_OTHER),
-
-            #[cfg(target_os = "windows")]
-            image_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_WINDOWS),
-            #[cfg(target_os = "linux")]
-            image_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_LINUX),
-            #[cfg(target_os = "macos")]
-            image_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_MAC),
-            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-            image_style: CssPropertyWithConditionsVec::from_const_slice(BUTTON_LABEL_OTHER),
+            container_style: CssPropertyWithConditionsVec::from_vec(container_style),
+            label_style: CssPropertyWithConditionsVec::from_vec(label_style.clone()),
+            image_style: CssPropertyWithConditionsVec::from_vec(label_style),
         }
+    }
+    
+    /// Set the button type and update styling accordingly
+    #[inline]
+    pub fn set_type(&mut self, button_type: ButtonType) {
+        self.button_type = button_type;
+        self.container_style = CssPropertyWithConditionsVec::from_vec(build_button_container_style(button_type));
+    }
+    
+    /// Builder method to set the button type
+    #[inline]
+    pub fn with_button_type(mut self, button_type: ButtonType) -> Self {
+        self.set_type(button_type);
+        self
     }
 
     #[inline(always)]
@@ -781,11 +993,15 @@ impl Button {
             None => Vec::new(),
         };
 
-        static BUTTON_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-button"))];
+        // Add both the base class and the type-specific class
+        let type_class = self.button_type.class_name();
+        let classes: Vec<IdOrClass> = vec![
+            Class(AzString::from_const_str("__azul-native-button")),
+            Class(AzString::from_const_str(type_class)),
+        ];
 
         Dom::create_button(self.label)
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(BUTTON_CLASS))
+            .with_ids_and_classes(IdOrClassVec::from_vec(classes))
             .with_css_props(self.container_style)
             .with_callbacks(callbacks.into())
             .with_tab_index(TabIndex::Auto)

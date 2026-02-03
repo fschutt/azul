@@ -29457,6 +29457,50 @@
           "Default, built-in widgets (button, label, textinput, etc.)"
         ],
         "classes": {
+          "ButtonType": {
+            "external": "azul_layout::widgets::button::ButtonType",
+            "doc": [
+              "The semantic type/role of a button.",
+              "Each type has distinct styling to indicate its purpose to the user."
+            ],
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Default": {}
+              },
+              {
+                "Primary": {}
+              },
+              {
+                "Secondary": {}
+              },
+              {
+                "Success": {}
+              },
+              {
+                "Danger": {}
+              },
+              {
+                "Warning": {}
+              },
+              {
+                "Info": {}
+              },
+              {
+                "Link": {}
+              }
+            ],
+            "repr": "C"
+          },
           "Button": {
             "external": "azul_layout::widgets::button::Button",
             "derive": [
@@ -29472,6 +29516,9 @@
                 },
                 "image": {
                   "type": "OptionImageRef"
+                },
+                "button_type": {
+                  "type": "ButtonType"
                 },
                 "container_style": {
                   "type": "CssPropertyWithConditionsVec"
@@ -29498,6 +29545,20 @@
                   }
                 ],
                 "fn_body": "azul_layout::widgets::button::Button::create(label)"
+              },
+              "with_type": {
+                "doc": [
+                  "Creates a new button with a specific type (Primary, Secondary, Success, Danger, Warning, Info, Link)"
+                ],
+                "fn_args": [
+                  {
+                    "label": "String"
+                  },
+                  {
+                    "button_type": "ButtonType"
+                  }
+                ],
+                "fn_body": "azul_layout::widgets::button::Button::with_type(label, button_type)"
               }
             },
             "functions": {
@@ -29531,6 +29592,37 @@
                   "type": "Button"
                 },
                 "fn_body": "button.with_on_click(data, callback)"
+              },
+              "set_type": {
+                "doc": [
+                  "Set the button type and update styling accordingly"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "button_type": "ButtonType"
+                  }
+                ],
+                "fn_body": "button.set_type(button_type);"
+              },
+              "with_button_type": {
+                "doc": [
+                  "Builder method to set the button type"
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "button_type": "ButtonType"
+                  }
+                ],
+                "returns": {
+                  "type": "Button"
+                },
+                "fn_body": "button.with_button_type(button_type)"
               },
               "dom": {
                 "fn_args": [
