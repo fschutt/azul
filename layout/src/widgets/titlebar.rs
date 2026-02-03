@@ -103,9 +103,9 @@ fn build_container_style(height: f32) -> CssPropertyWithConditionsVec {
 
 /// Build the default style for the title text
 fn build_title_style() -> CssPropertyWithConditionsVec {
-    // Use system title font
+    // Use system title font with bold weight (standard for window titles)
     let font_family = StyleFontFamilyVec::from_vec(vec![
-        StyleFontFamily::SystemType(SystemFontType::Title),
+        StyleFontFamily::SystemType(SystemFontType::TitleBold),
     ]);
     
     let mut props = Vec::new();
