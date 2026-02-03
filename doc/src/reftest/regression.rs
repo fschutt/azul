@@ -406,90 +406,41 @@ fn process_commit(
     }
     println!("OK");
     
-    // Build azul-dll with build-dll feature (same as what we normally build with)
-    print!("│  [BUILD] azul-dll --features build-dll ");
-    std::io::stdout().flush()?;
-    
-    let output = Command::new("cargo")
-        .current_dir(temp_dir)
-        .args(["build", "--release", "-p", "azul-dll", "--features", "build-dll"])
-        .env("CARGO_TERM_COLOR", "never")
-        .output()?;
-    
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        // Extract key error lines
-        let error_summary: String = stderr
-            .lines()
-            .filter(|l| l.contains("error[") || l.contains("error:"))
-            .take(10)
-            .collect::<Vec<_>>()
-            .join("\n");
-        
-        let err = if error_summary.is_empty() {
-            // Take last 20 lines
-            stderr.lines().rev().take(20).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
-        } else {
-            error_summary
-        };
-        
-        println!("FAILED");
-        fs::write(commit_dir.join("BUILD_ERROR.txt"), &err)?;
-        println!("└─ Skipped (build error)\n");
-        return Ok(());
-    }
-    println!("OK");
-    
-    // Build azul-doc
-    print!("│  [BUILD] azul-doc ");
-    std::io::stdout().flush()?;
-    
-    let output = Command::new("cargo")
-        .current_dir(temp_dir.join("doc"))
-        .args(["build", "--release"])
-        .env("CARGO_TERM_COLOR", "never")
-        .output()?;
-    
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let error_summary: String = stderr
-            .lines()
-            .filter(|l| l.contains("error[") || l.contains("error:"))
-            .take(10)
-            .collect::<Vec<_>>()
-            .join("\n");
-        
-        let err = if error_summary.is_empty() {
-            stderr.lines().rev().take(20).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
-        } else {
-            error_summary
-        };
-        
-        println!("FAILED");
-        fs::write(commit_dir.join("BUILD_ERROR.txt"), &err)?;
-        println!("└─ Skipped (doc build error)\n");
-        return Ok(());
-    }
-    println!("OK");
-    
-    // Run reftest
-    print!("│  [REFTEST] ");
+    // Run reftest (this will build azul-doc and run all tests in /doc/working)
+    print!("│  [REFTEST] cargo run --release -p azul-doc -- reftest ");
     std::io::stdout().flush()?;
     
     let reftest_output_dir = temp_dir.join("doc").join("target").join("reftest");
     
+    // Run: cargo run --release -p azul-doc -- reftest
+    // This builds azul-doc and runs all reftests in /doc/working
     let output = Command::new("cargo")
-        .current_dir(temp_dir.join("doc"))
-        .args(["run", "--release", "--", "reftest"])
+        .current_dir(temp_dir)
+        .args(["run", "--release", "-p", "azul-doc", "--", "reftest"])
         .env("CARGO_TERM_COLOR", "never")
         .output()?;
     
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let err = format!("Reftest failed:\n{}", stderr.lines().rev().take(20).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Combine stderr and stdout for error info
+        let combined = format!("{}\n{}", stderr, stdout);
+        let error_summary: String = combined
+            .lines()
+            .filter(|l| l.contains("error[") || l.contains("error:") || l.contains("FAILED"))
+            .take(15)
+            .collect::<Vec<_>>()
+            .join("\n");
+        
+        let err = if error_summary.is_empty() {
+            combined.lines().rev().take(30).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
+        } else {
+            error_summary
+        };
+        
         println!("FAILED");
         fs::write(commit_dir.join("BUILD_ERROR.txt"), &err)?;
-        println!("└─ Skipped (reftest error)\n");
+        println!("└─ Skipped (build/reftest error)\n");
         return Ok(());
     }
     println!("OK");
