@@ -297,7 +297,23 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
                 
                 if has_inline_children {
                     // InlineBlock with inline children - measure as IFC root
-                    self.calculate_ifc_root_intrinsic_sizes(tree, node_index)
+                    let mut intrinsic = self.calculate_ifc_root_intrinsic_sizes(tree, node_index)?;
+                    
+                    // FIX: Add padding and border to the intrinsic size.
+                    // The measurement above only accounts for the text content.
+                    // Since this node is an InlineBlock, it is a box that includes its own chrome.
+                    // We use the resolved box_props (resolved during tree generation).
+                    let h_extras = node.box_props.padding.left + node.box_props.padding.right 
+                                 + node.box_props.border.left + node.box_props.border.right;
+                    let v_extras = node.box_props.padding.top + node.box_props.padding.bottom 
+                                 + node.box_props.border.top + node.box_props.border.bottom;
+                    
+                    intrinsic.min_content_width += h_extras;
+                    intrinsic.max_content_width += h_extras;
+                    intrinsic.min_content_height += v_extras;
+                    intrinsic.max_content_height += v_extras;
+                    
+                    Ok(intrinsic)
                 } else {
                     // InlineBlock with block children - aggregate like block
                     self.calculate_block_intrinsic_sizes(tree, node_index, child_intrinsics)
