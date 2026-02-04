@@ -408,7 +408,17 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             .map(|l| l.bounds().width)
             .unwrap_or(0.0);
 
-        let height = max_layout
+        // CSS Intrinsic & Extrinsic Sizing Module Level 3:
+        // min-content height is the height when content is laid out at min-content width
+        // max-content height is the height when content is laid out at max-content width
+        // These can differ when text wraps differently at different widths.
+        let min_content_height = min_layout
+            .fragment_layouts
+            .get("min")
+            .map(|l| l.bounds().height)
+            .unwrap_or(0.0);
+
+        let max_content_height = max_layout
             .fragment_layouts
             .get("max")
             .map(|l| l.bounds().height)
@@ -418,8 +428,8 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
             min_content_width: min_width,
             max_content_width: max_width,
             preferred_width: None,
-            min_content_height: height,
-            max_content_height: height,
+            min_content_height,
+            max_content_height,
             preferred_height: None,
         })
     }
