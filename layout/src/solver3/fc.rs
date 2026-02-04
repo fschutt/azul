@@ -366,24 +366,12 @@ pub fn layout_formatting_context<T: ParsedFontTrait>(
         FormattingContext::Inline => layout_ifc(ctx, text_cache, tree, node_index, constraints)
             .map(BfcLayoutResult::from_output),
         FormattingContext::InlineBlock => {
-            // InlineBlock establishes a new block formatting context for its contents,
-            // but if it only contains inline content (text), treat it as an IFC root.
-            // Check if all children are inline/text nodes
-            let has_only_inline_children = node.children.iter().all(|&child_idx| {
-                tree.get(child_idx)
-                    .map(|c| matches!(c.formatting_context, FormattingContext::Inline))
-                    .unwrap_or(true)
-            });
-            
-            if has_only_inline_children {
-                // InlineBlock with only inline content - use IFC layout
-                layout_ifc(ctx, text_cache, tree, node_index, constraints)
-                    .map(BfcLayoutResult::from_output)
-            } else {
-                // InlineBlock with block children - use BFC layout
-                let mut temp_float_cache = std::collections::BTreeMap::new();
-                layout_bfc(ctx, tree, text_cache, node_index, constraints, &mut temp_float_cache)
-            }
+            // CSS 2.2 § 9.4.1: "inline-blocks... establish new block formatting contexts"
+            // InlineBlock ALWAYS establishes a BFC for its contents.
+            // The element itself participates as an atomic inline in its parent's IFC,
+            // but its children are laid out in a BFC, not an IFC.
+            let mut temp_float_cache = std::collections::BTreeMap::new();
+            layout_bfc(ctx, tree, text_cache, node_index, constraints, &mut temp_float_cache)
         }
         FormattingContext::Table => layout_table_fc(ctx, tree, text_cache, node_index, constraints)
             .map(BfcLayoutResult::from_output),
