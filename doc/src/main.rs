@@ -1147,15 +1147,47 @@ fn main() -> anyhow::Result<()> {
         //   debug-regression <commits.txt>        - Process commits from file (one hash per line)
         //   debug-regression statistics           - Generate report from existing data
         ["debug-regression", "statistics"] => {
-            println!("Generating regression statistics report...");
             let config = reftest::regression::RegressionConfig {
                 azul_root: project_root.clone(),
                 refs_file: None,
-                refs: vec![], // Not needed for statistics
+                refs: vec![],
                 test_dir: PathBuf::from(manifest_dir).join("working"),
                 output_dir: PathBuf::from("target").join("reftest"),
             };
             reftest::regression::run_statistics(config)?;
+            return Ok(());
+        }
+        ["debug-regression", "statistics", "prompt"] => {
+            let config = reftest::regression::RegressionConfig {
+                azul_root: project_root.clone(),
+                refs_file: None,
+                refs: vec![],
+                test_dir: PathBuf::from(manifest_dir).join("working"),
+                output_dir: PathBuf::from("target").join("reftest"),
+            };
+            reftest::regression::run_statistics_prompt(config)?;
+            return Ok(());
+        }
+        ["debug-regression", "statistics", "send"] => {
+            let config = reftest::regression::RegressionConfig {
+                azul_root: project_root.clone(),
+                refs_file: None,
+                refs: vec![],
+                test_dir: PathBuf::from(manifest_dir).join("working"),
+                output_dir: PathBuf::from("target").join("reftest"),
+            };
+            reftest::regression::run_statistics_send(config, None)?;
+            return Ok(());
+        }
+        ["debug-regression", "statistics", "send", "-o", output_path] => {
+            let config = reftest::regression::RegressionConfig {
+                azul_root: project_root.clone(),
+                refs_file: None,
+                refs: vec![],
+                test_dir: PathBuf::from(manifest_dir).join("working"),
+                output_dir: PathBuf::from("target").join("reftest"),
+            };
+            reftest::regression::run_statistics_send(config, Some(PathBuf::from(output_path)))?;
             return Ok(());
         }
         ["debug-regression", file_path] => {
@@ -1186,14 +1218,19 @@ fn main() -> anyhow::Result<()> {
         }
         ["debug-regression"] => {
             println!("Usage:");
-            println!("  azul-doc debug-regression <commits.txt>   - Process commits from file");
-            println!("  azul-doc debug-regression <git-ref>       - Process single ref");
-            println!("  azul-doc debug-regression statistics      - Generate HTML report");
+            println!("  azul-doc debug-regression <commits.txt>      - Process commits from file");
+            println!("  azul-doc debug-regression <git-ref>          - Process single ref");
+            println!("  azul-doc debug-regression statistics         - Generate diff report (stdout)");
+            println!("  azul-doc debug-regression statistics prompt  - Generate Gemini prompt with source");
+            println!("  azul-doc debug-regression statistics send    - Send prompt to Gemini API");
+            println!("  azul-doc debug-regression statistics send -o <file>  - Save response to file");
             println!();
             println!("Example workflow:");
-            println!("  1. Generate commit list:  ./scripts/find_layout_commits.py c0e504a3..HEAD > commits.txt");
+            println!("  1. Generate commit list:  ./scripts/find_layout_commits.py c0e504a3..HEAD -o commits.txt");
             println!("  2. Run regression:        cargo run --release -- debug-regression commits.txt");
-            println!("  3. Generate report:       cargo run --release -- debug-regression statistics");
+            println!("  3. View diffs:            cargo run --release -- debug-regression statistics");
+            println!("  4. Generate prompt:       cargo run --release -- debug-regression statistics prompt > prompt.md");
+            println!("  5. Send to Gemini:        cargo run --release -- debug-regression statistics send -o response.md");
             return Ok(());
         }
         ["reftest", test_name] if *test_name != "open" && *test_name != "headless" => {
@@ -1759,6 +1796,33 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!();
     println!("Commands:");
     println!();
+    println!("  TESTING:");
+    println!("    reftest                       - Run all reftests (open report in browser)");
+    println!("    reftest open                  - Same as 'reftest'");
+    println!("    reftest <test_name>           - Run a single reftest by name");
+    println!("    reftest headless <test_name>  - Run single test without Chrome reference");
+    println!();
+    println!("  DEBUG (single test analysis):");
+    println!("    debug <test_name>             - Debug test with Gemini LLM analysis");
+    println!("    debug <test_name> --dry-run   - Generate prompt without calling API");
+    println!("    debug <test_name> --add-working-diff");
+    println!("                                  - Include current git diff in prompt");
+    println!("    debug <test_name> --no-screenshots");
+    println!("                                  - Exclude screenshots (saves tokens)");
+    println!("    debug <test_name> <question>  - Ask specific question about the test");
+    println!();
+    println!("  DEBUG-REGRESSION (git history analysis):");
+    println!("    debug-regression              - Show usage for regression testing");
+    println!("    debug-regression <git-ref>    - Process single commit/branch/tag");
+    println!("    debug-regression <file.txt>   - Process commits from file (one per line)");
+    println!("    debug-regression statistics   - Generate diff report for all processed commits");
+    println!("    debug-regression statistics prompt");
+    println!("                                  - Generate Gemini prompt from statistics");
+    println!("    debug-regression statistics send");
+    println!("                                  - Send prompt to Gemini API, print response");
+    println!("    debug-regression statistics send -o <file>");
+    println!("                                  - Send prompt to Gemini API, save to file");
+    println!();
     println!("  AUTOFIX (synchronize workspace types with api.json):");
     println!("    autofix                       - Analyze and generate patches for api.json");
     println!("    autofix run                   - Same as 'autofix'");
@@ -1780,9 +1844,7 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    autofix difficult             - Rank types by FFI difficulty");
     println!("    autofix internal              - Show types that should be internal-only");
     println!("    autofix modules               - Show types in wrong modules");
-    println!(
-        "    autofix deps                  - Analyze function dependencies on difficult types"
-    );
+    println!("    autofix deps                  - Analyze function dependencies on difficult types");
     println!();
     println!("  API MANAGEMENT:");
     println!("    normalize                     - Normalize/reformat api.json");
@@ -1790,6 +1852,10 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    print [options]               - Print API information");
     println!("    unused                        - Find unused types in api.json");
     println!("    unused patch                  - Generate patches to remove unused types");
+    println!();
+    println!("  DISCOVERY (find unindexed types):");
+    println!("    discover                      - Scan workspace for all unindexed types");
+    println!("    discover <pattern>            - Scan for types matching pattern");
     println!();
     println!("  CODE GENERATION:");
     println!("    codegen                       - Generate Rust library code");
@@ -1799,19 +1865,6 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    codegen python                - Generate Python bindings");
     println!("    codegen all                   - Generate all bindings + DLL API + memtest");
     println!();
-    println!("  Note: Memory layout tests are integrated into 'codegen all' output.");
-    println!("        Run them with: cd dll && cargo test");
-    println!();
-    println!("  TESTING:");
-    println!("    reftest                       - Run all reftests");
-    println!("    reftest open                  - Run all reftests and open report in browser");
-    println!("    reftest <test_name>           - Run a single reftest by name");
-    println!("    reftest headless <test_name>  - Run single test without Chrome reference");
-    println!("    debug <test_name> [options] [question]  - Debug test with Gemini LLM analysis");
-    println!("      Options: --dry-run          - Generate prompt without calling API");
-    println!("               --add-working-diff - Include current git diff");
-    println!("               --no-screenshots   - Exclude screenshots (saves tokens)");
-    println!();
     println!("  PACKAGING:");
     println!("    nfpm                          - Generate NFPM config (latest version)");
     println!("    nfpm <version>                - Generate NFPM config for specific version");
@@ -1819,6 +1872,10 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("  DEPLOYMENT:");
     println!("    deploy                        - Build and deploy (production, inline CSS)");
     println!("    deploy debug                  - Deploy in debug mode (external CSS)");
+    println!("    fast-deploy-with-reftests     - Quick deploy with reftest regeneration");
+    println!();
+    println!("  OTHER:");
+    println!("    v2 dll                        - Generate v2 DLL bindings");
     println!();
     Ok(())
 }
