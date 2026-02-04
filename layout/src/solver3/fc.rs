@@ -1177,14 +1177,14 @@ fn layout_bfc<T: ParsedFontTrait>(
                 //  coordinate systems. The parent's margin is NEVER in our (the
                 //  parent's content-box) coordinate system!
                 //
-                // IMPORTANT: The escaped margin should only be the CHILD's margin, not
-                // a collapsed value of parent+child. The parent's own margin is handled
-                // separately when the parent is positioned in ITS parent's BFC.
-                // 
-                // What we return as escaped_top_margin is what escapes THROUGH us from
-                // our children, to be used by our parent for positioning US.
+                // We collapse the parent's margin with the child's margin.
+                // This combined margin is what "escapes" to the grandparent.
+                // The grandparent uses this to position the parent.
+                //
+                // Effectively, we are saying "The parent starts here, but its effective
+                // top margin is now max(parent_margin, child_margin)".
 
-                accumulated_top_margin = child_margin_top;
+                accumulated_top_margin = collapse_margins(parent_margin_top, child_margin_top);
                 top_margin_resolved = true;
                 top_margin_escaped = true;
 
