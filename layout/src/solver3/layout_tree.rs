@@ -734,9 +734,22 @@ impl LayoutTreeBuilder {
             // formatting context layout and don't require anonymous box generation at this stage.
             _ => {
                 // Filter out display: none children - they don't participate in layout
+                // ALSO filter out whitespace-only text nodes for Flex/Grid/etc containers
+                // to prevent them from becoming unwanted anonymous items.
                 let children: Vec<NodeId> = dom_id
                     .az_children(&styled_dom.node_hierarchy.as_container())
-                    .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
+                    .filter(|&child_id| {
+                        if get_display_type(styled_dom, child_id) == LayoutDisplay::None {
+                            return false;
+                        }
+                        // Check for whitespace-only text
+                        let node_data = &styled_dom.node_data.as_container()[child_id];
+                        if let NodeType::Text(text) = node_data.get_node_type() {
+                            // Skip if text is empty or just whitespace
+                            return !text.as_str().trim().is_empty();
+                        }
+                        true
+                    })
                     .collect();
 
                 for child_dom_id in children {
