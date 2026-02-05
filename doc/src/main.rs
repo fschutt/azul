@@ -14,6 +14,7 @@ pub mod docgen;
 pub mod patch;
 pub mod print;
 pub mod reftest;
+pub mod spec;
 pub mod utils;
 
 fn main() -> anyhow::Result<()> {
@@ -1258,6 +1259,12 @@ fn main() -> anyhow::Result<()> {
                 let _ = std::process::Command::new("open").arg(&report_path).spawn();
             }
 
+            return Ok(());
+        }
+        ["spec", rest @ ..] => {
+            let args: Vec<String> = rest.iter().map(|s| s.to_string()).collect();
+            spec::run_spec_command(&args, &project_root)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["reftest"] | ["reftest", "open"] => {
