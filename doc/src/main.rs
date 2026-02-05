@@ -1158,6 +1158,29 @@ fn main() -> anyhow::Result<()> {
             reftest::regression::run_statistics(config)?;
             return Ok(());
         }
+        ["debug-regression", "visual"] => {
+            let config = reftest::regression::RegressionConfig {
+                azul_root: project_root.clone(),
+                refs_file: None,
+                refs: vec![],
+                test_dir: PathBuf::from(manifest_dir).join("working"),
+                output_dir: PathBuf::from("target").join("reftest"),
+            };
+            reftest::regression::run_visual_report(config)?;
+            
+            // Open in browser
+            let report_path = PathBuf::from("target/reftest/regression/visual.html");
+            if report_path.exists() {
+                println!("Opening report in browser...");
+                #[cfg(target_os = "macos")]
+                let _ = std::process::Command::new("open").arg(&report_path).spawn();
+                #[cfg(target_os = "linux")]
+                let _ = std::process::Command::new("xdg-open").arg(&report_path).spawn();
+                #[cfg(target_os = "windows")]
+                let _ = std::process::Command::new("cmd").args(["/C", "start", report_path.to_str().unwrap()]).spawn();
+            }
+            return Ok(());
+        }
         ["debug-regression", "statistics", "prompt"] => {
             let config = reftest::regression::RegressionConfig {
                 azul_root: project_root.clone(),
@@ -1221,6 +1244,7 @@ fn main() -> anyhow::Result<()> {
             println!("Usage:");
             println!("  azul-doc debug-regression <commits.txt>      - Process commits from file");
             println!("  azul-doc debug-regression <git-ref>          - Process single ref");
+            println!("  azul-doc debug-regression visual             - Generate visual HTML report");
             println!("  azul-doc debug-regression statistics         - Generate diff report (stdout)");
             println!("  azul-doc debug-regression statistics prompt  - Generate Gemini prompt with source");
             println!("  azul-doc debug-regression statistics send    - Send prompt to Gemini API");
@@ -1229,9 +1253,10 @@ fn main() -> anyhow::Result<()> {
             println!("Example workflow:");
             println!("  1. Generate commit list:  ./scripts/find_layout_commits.py c0e504a3..HEAD -o commits.txt");
             println!("  2. Run regression:        cargo run --release -- debug-regression commits.txt");
-            println!("  3. View diffs:            cargo run --release -- debug-regression statistics");
-            println!("  4. Generate prompt:       cargo run --release -- debug-regression statistics prompt > prompt.md");
-            println!("  5. Send to Gemini:        cargo run --release -- debug-regression statistics send -o response.md");
+            println!("  3. View visual report:    cargo run --release -- debug-regression visual");
+            println!("  4. View text diffs:       cargo run --release -- debug-regression statistics");
+            println!("  5. Generate prompt:       cargo run --release -- debug-regression statistics prompt > prompt.md");
+            println!("  6. Send to Gemini:        cargo run --release -- debug-regression statistics send -o response.md");
             return Ok(());
         }
         ["reftest", test_name] if *test_name != "open" && *test_name != "headless" => {
@@ -1822,6 +1847,7 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("    debug-regression              - Show usage for regression testing");
     println!("    debug-regression <git-ref>    - Process single commit/branch/tag");
     println!("    debug-regression <file.txt>   - Process commits from file (one per line)");
+    println!("    debug-regression visual       - Generate visual HTML report with screenshots");
     println!("    debug-regression statistics   - Generate diff report for all processed commits");
     println!("    debug-regression statistics prompt");
     println!("                                  - Generate Gemini prompt from statistics");

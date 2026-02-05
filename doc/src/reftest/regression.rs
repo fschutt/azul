@@ -37,6 +37,7 @@ pub struct CommitInfo {
     pub hash: String,
     pub short_hash: String,
     pub message: String,
+    pub body: String,
     pub date: String,
     pub author: String,
 }
@@ -161,7 +162,7 @@ pub fn run_statistics(config: RegressionConfig) -> anyhow::Result<()> {
     
     // Collect all processed commits
     eprintln!("[1/2] Collecting commit data...");
-    let commits = collect_processed_commits(&regression_dir)?;
+    let commits = collect_processed_commits(&regression_dir, &config.azul_root)?;
     eprintln!("  Found {} processed commits", commits.len());
     
     // Generate TXT report to stdout
@@ -171,7 +172,36 @@ pub fn run_statistics(config: RegressionConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Get or create the persistent temp directory
+/// Generate a visual HTML report showing all screenshots organized by commit
+pub fn run_visual_report(config: RegressionConfig) -> anyhow::Result<()> {
+    eprintln!("╔═══════════════════════════════════════════════════════════════╗");
+    eprintln!("║         Azul Reftest Visual Regression Report                 ║");
+    eprintln!("╚═══════════════════════════════════════════════════════════════╝");
+    eprintln!();
+    
+    let regression_dir = config.output_dir.join("regression");
+    
+    if !regression_dir.exists() {
+        eprintln!("No regression data found. Run 'debug-regression' first.");
+        return Ok(());
+    }
+    
+    // Collect all processed commits
+    eprintln!("[1/2] Collecting commit data...");
+    let commits = collect_processed_commits(&regression_dir, &config.azul_root)?;
+    eprintln!("  Found {} processed commits", commits.len());
+    
+    // Generate HTML report
+    eprintln!("[2/2] Generating visual HTML report...");
+    generate_visual_html_report(&commits, &regression_dir, &config.azul_root)?;
+    
+    let report_path = regression_dir.join("visual.html");
+    eprintln!("  Report generated: {}", report_path.display());
+    
+    Ok(())
+}
+
+/// Generate or create the persistent temp directory
 fn get_or_create_temp_dir(config: &RegressionConfig) -> anyhow::Result<PathBuf> {
     let temp_base = std::env::temp_dir().join(TEMP_DIR_NAME);
     
@@ -228,9 +258,10 @@ fn resolve_refs(config: &RegressionConfig) -> anyhow::Result<Vec<CommitInfo>> {
     let mut commits = Vec::new();
     
     for git_ref in &config.refs {
+        // Use %x00 as delimiter to handle multi-line body
         let output = Command::new("git")
             .current_dir(&config.azul_root)
-            .args(["log", "-1", "--format=%H|%h|%s|%ci|%an", git_ref])
+            .args(["log", "-1", "--format=%H%x00%h%x00%s%x00%b%x00%ci%x00%an", git_ref])
             .output()?;
         
         if !output.status.success() {
@@ -251,12 +282,27 @@ fn resolve_refs(config: &RegressionConfig) -> anyhow::Result<Vec<CommitInfo>> {
 
 /// Parse a git log line into CommitInfo
 fn parse_commit_line(line: &str) -> Option<CommitInfo> {
+    // Try new format with null separator first (6 parts: hash, short_hash, subject, body, date, author)
+    let parts: Vec<&str> = line.splitn(6, '\0').collect();
+    if parts.len() == 6 {
+        return Some(CommitInfo {
+            hash: parts[0].to_string(),
+            short_hash: parts[1].to_string(),
+            message: parts[2].to_string(),
+            body: parts[3].trim().to_string(),
+            date: parts[4].to_string(),
+            author: parts[5].to_string(),
+        });
+    }
+    
+    // Fall back to old pipe-separated format (5 parts, no body)
     let parts: Vec<&str> = line.splitn(5, '|').collect();
     if parts.len() == 5 {
         Some(CommitInfo {
             hash: parts[0].to_string(),
             short_hash: parts[1].to_string(),
             message: parts[2].to_string(),
+            body: String::new(),
             date: parts[3].to_string(),
             author: parts[4].to_string(),
         })
@@ -285,7 +331,7 @@ fn find_pending_commits(commits: &[CommitInfo], regression_dir: &Path) -> Vec<Co
 }
 
 /// Collect all processed commits from the regression directory
-fn collect_processed_commits(regression_dir: &Path) -> anyhow::Result<Vec<(CommitInfo, CommitStatus)>> {
+fn collect_processed_commits(regression_dir: &Path, azul_root: &Path) -> anyhow::Result<Vec<(CommitInfo, CommitStatus)>> {
     let mut results = Vec::new();
     
     for entry in fs::read_dir(regression_dir)? {
@@ -303,26 +349,15 @@ fn collect_processed_commits(regression_dir: &Path) -> anyhow::Result<Vec<(Commi
             continue;
         }
         
-        // Try to read commit info from the directory
-        let commit_info_path = path.join("commit_info.txt");
-        let commit = if commit_info_path.exists() {
-            let content = fs::read_to_string(&commit_info_path)?;
-            parse_commit_line(&content).unwrap_or_else(|| CommitInfo {
-                hash: dir_name.clone(),
-                short_hash: dir_name.clone(),
-                message: "Unknown".to_string(),
-                date: "Unknown".to_string(),
-                author: "Unknown".to_string(),
-            })
-        } else {
-            CommitInfo {
-                hash: dir_name.clone(),
-                short_hash: dir_name.clone(),
-                message: "Unknown".to_string(),
-                date: "Unknown".to_string(),
-                author: "Unknown".to_string(),
-            }
-        };
+        // Fetch commit info directly from git using the short hash
+        let commit = fetch_commit_info_from_git(&dir_name, azul_root).unwrap_or_else(|| CommitInfo {
+            hash: dir_name.clone(),
+            short_hash: dir_name.clone(),
+            message: "Unknown".to_string(),
+            body: String::new(),
+            date: "Unknown".to_string(),
+            author: "Unknown".to_string(),
+        });
         
         let status = if path.join("BUILD_ERROR.txt").exists() {
             let err = fs::read_to_string(path.join("BUILD_ERROR.txt"))
@@ -350,10 +385,27 @@ fn collect_processed_commits(regression_dir: &Path) -> anyhow::Result<Vec<(Commi
         results.push((commit, status));
     }
     
-    // Sort by short_hash for consistent ordering
-    results.sort_by(|a, b| a.0.short_hash.cmp(&b.0.short_hash));
+    // Sort by date (newest first for visual report)
+    results.sort_by(|a, b| b.0.date.cmp(&a.0.date));
     
     Ok(results)
+}
+
+/// Fetch commit info directly from git
+fn fetch_commit_info_from_git(commit_ref: &str, azul_root: &Path) -> Option<CommitInfo> {
+    let output = Command::new("git")
+        .current_dir(azul_root)
+        .args(["log", "-1", "--format=%H%x00%h%x00%s%x00%b%x00%ci%x00%an", commit_ref])
+        .output()
+        .ok()?;
+    
+    if !output.status.success() {
+        return None;
+    }
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout.trim();
+    parse_commit_line(line)
 }
 
 /// Process a single commit
@@ -367,10 +419,10 @@ fn process_commit(
     let commit_dir = regression_dir.join(&commit.short_hash);
     fs::create_dir_all(&commit_dir)?;
     
-    // Save commit info for later
+    // Save commit info for later (use null separator to handle multi-line body)
     fs::write(
         commit_dir.join("commit_info.txt"),
-        format!("{}|{}|{}|{}|{}", commit.hash, commit.short_hash, commit.message, commit.date, commit.author)
+        format!("{}\0{}\0{}\0{}\0{}\0{}", commit.hash, commit.short_hash, commit.message, commit.body, commit.date, commit.author)
     )?;
     
     println!("┌─ [{}/{}] {} ─────────────────────────────────────", current, total, commit.short_hash);
@@ -631,7 +683,7 @@ fn generate_html_report(
     </style>
 </head>
 <body>
-    <h1>🔍 Azul Reftest Regression Analysis</h1>
+    <h1>Azul Reftest Regression Analysis</h1>
 "#);
 
     // Summary section
@@ -1410,7 +1462,7 @@ pub fn run_statistics_send(config: RegressionConfig, output_path: Option<PathBuf
 /// Generate the full prompt as a String (used by both run_statistics_prompt and run_statistics_send)
 fn generate_full_prompt(config: &RegressionConfig) -> anyhow::Result<String> {
     let regression_dir = config.output_dir.join("regression");
-    let commits = collect_processed_commits(&regression_dir)?;
+    let commits = collect_processed_commits(&regression_dir, &config.azul_root)?;
     
     let mut prompt = String::new();
     
@@ -1701,4 +1753,688 @@ fn compare_images(path1: &Path, path2: &Path) -> anyhow::Result<i64> {
     }
     
     Ok(diff)
+}
+
+/// Generate a visual HTML report showing screenshots organized by commit (vertically)
+fn generate_visual_html_report(
+    commit_data: &[(CommitInfo, CommitStatus)],
+    regression_dir: &Path,
+    azul_root: &Path,
+) -> anyhow::Result<()> {
+    // Sort commits by date (newest first to show most recent at top)
+    let mut sorted_commits: Vec<_> = commit_data.iter().collect();
+    sorted_commits.sort_by(|a, b| b.0.date.cmp(&a.0.date));
+    
+    // Collect all test names from successful commits
+    let mut all_test_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for (_, status) in &sorted_commits {
+        if let CommitStatus::Success { screenshots } = status {
+            for test_name in screenshots.keys() {
+                all_test_names.insert(test_name.clone());
+            }
+        }
+    }
+    
+    let test_names: Vec<String> = all_test_names.into_iter().collect();
+    
+    // Load Chrome references if available
+    let chrome_dir = regression_dir.join("chrome");
+    
+    // Build HTML - styled similar to reftest.html
+    let mut html = String::new();
+    html.push_str(r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Azul Regression Visual Report</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="shortcut icon" type="image/x-icon" href="https://azul.rs/favicon.ico">
+  <link rel="stylesheet" type="text/css" href="https://azul.rs/main.css">
+  <style>
+    :root {
+      --color-pass: #2ecc71;
+      --color-warning: #f39c12;
+      --color-fail: #e74c3c;
+      --color-primary: #4a6bdf;
+      --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      --border-radius: 6px;
+    }
+    
+    /* Summary bar */
+    .summary-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+      align-items: center;
+      padding: 0.75rem 0;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid #ddd;
+      font-size: 0.95rem;
+    }
+    .summary-bar .stat { display: inline-flex; align-items: center; gap: 0.3rem; }
+    .summary-bar .stat-value { font-weight: 700; }
+    .summary-bar .stat-value.pass { color: var(--color-pass); }
+    .summary-bar .stat-value.fail { color: var(--color-fail); }
+    
+    /* Controls */
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      align-items: center;
+    }
+    .controls select, .controls input[type="text"] {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.9rem;
+      border: 1px solid #ccc;
+      border-radius: var(--border-radius);
+      font-family: inherit;
+    }
+    .controls select { min-width: 200px; }
+    .controls input[type="text"] { min-width: 250px; flex: 1; max-width: 350px; }
+    .controls input[type="text"]:focus { outline: 2px solid var(--color-primary); }
+    .controls label { display: flex; align-items: center; gap: 0.3rem; font-size: 0.9rem; }
+    
+    /* Test card - similar to reftest.html */
+    .test-card {
+      background: #fafafa;
+      border-radius: var(--border-radius);
+      margin-bottom: 0.75rem;
+      border-left: 4px solid var(--color-primary);
+      overflow: hidden;
+    }
+    .test-card-header {
+      padding: 0.6rem 0.8rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+      background: rgba(74, 107, 223, 0.05);
+    }
+    .test-card-header:hover { background: rgba(74, 107, 223, 0.1); }
+    .test-card-header-left { display: flex; align-items: center; gap: 0.5rem; }
+    .collapse-icon { font-size: 0.8rem; transition: transform 0.15s; color: #666; }
+    .test-card.collapsed .collapse-icon { transform: rotate(-90deg); }
+    .test-card.collapsed .test-card-body { display: none; }
+    .test-card-title { margin: 0; font-size: 1rem; font-weight: 600; color: var(--color-primary); }
+    .test-card-body { border-top: 1px solid #eee; }
+    
+    /* Chrome reference */
+    .chrome-reference {
+      background: #e8f5e9;
+      padding: 12px 16px;
+      border-bottom: 2px solid #c8e6c9;
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+    }
+    .chrome-reference-label { color: #2e7d32; font-weight: 600; font-size: 0.9rem; min-width: 180px; }
+    .chrome-reference img {
+      max-width: 400px;
+      max-height: 200px;
+      border: 2px solid #4caf50;
+      border-radius: var(--border-radius);
+      cursor: pointer;
+    }
+    
+    /* Commit row */
+    .commit-row {
+      padding: 12px 16px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      align-items: flex-start;
+      justify-content: space-between;
+    }
+    .commit-row:hover { background: #fafafa; }
+    .commit-row.build-error { background: #ffebee; border-left: 3px solid var(--color-fail); }
+    .commit-row.has-regression { background: #fff3e0; border-left: 3px solid var(--color-warning); }
+    .commit-row.has-improvement { background: #e8f5e9; border-left: 3px solid var(--color-pass); }
+    
+    .commit-info { flex: 1 1 350px; max-width: 500px; }
+    .commit-header { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .commit-hash {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      background: #f0f0f0;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    .commit-hash a { color: var(--color-primary); text-decoration: none; }
+    .commit-hash a:hover { text-decoration: underline; }
+    .commit-subject { font-weight: 600; font-size: 0.9rem; margin-top: 4px; color: #333; }
+    .commit-body {
+      font-size: 0.8rem;
+      color: #666;
+      margin-top: 4px;
+      white-space: pre-wrap;
+      background: #f8f8f8;
+      padding: 6px 8px;
+      border-radius: 4px;
+      border-left: 2px solid #ddd;
+    }
+    .commit-meta { font-size: 0.75rem; color: #888; margin-top: 4px; }
+    .commit-diff { margin-top: 6px; font-size: 0.8rem; }
+    .diff-count { font-weight: 600; }
+    .diff-improved { color: var(--color-pass); }
+    .diff-regressed { color: var(--color-fail); }
+    .diff-same { color: #888; }
+    .diff-delta { font-size: 0.75rem; margin-left: 4px; }
+    
+    /* Action buttons in commit info */
+    .commit-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 8px; }
+    .action-btn {
+      padding: 0.3rem 0.5rem;
+      background: #f0f0f0;
+      border: 1px solid #ccc;
+      border-radius: var(--border-radius);
+      cursor: pointer;
+      font-size: 0.75rem;
+      transition: all 0.15s;
+    }
+    .action-btn:hover { background: #e0e0e0; }
+    .action-btn.primary { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+    .action-btn.primary:hover { background: #3a5bc9; }
+    
+    .commit-screenshot { flex: 0 0 auto; text-align: right; }
+    .commit-screenshot img {
+      max-width: 400px;
+      max-height: 200px;
+      border: 1px solid #ddd;
+      border-radius: var(--border-radius);
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    .commit-screenshot img:hover { transform: scale(1.02); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .no-screenshot { color: #999; font-style: italic; padding: 20px; }
+    .build-error-msg {
+      background: #ffcdd2;
+      color: #b71c1c;
+      padding: 8px;
+      border-radius: var(--border-radius);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      max-height: 200px;
+      overflow: auto;
+      white-space: pre-wrap;
+      text-align: left;
+      max-width: 400px;
+    }
+    
+    /* Responsive layout */
+    @media (max-width: 768px) {
+      .commit-row { justify-content: flex-start; }
+      .commit-info { flex: 1 1 100%; max-width: 100%; }
+      .commit-screenshot { flex: 1 1 100%; text-align: center; }
+      .commit-screenshot img { max-width: 100%; }
+      .build-error-msg { max-width: 100%; }
+    }
+    
+    /* Modal */
+    .overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 1000;
+      overflow-y: auto;
+      backdrop-filter: blur(2px);
+    }
+    .overlay-content {
+      background: white;
+      margin: 2rem auto;
+      padding: 1.25rem;
+      max-width: 95%;
+      width: 900px;
+      border-radius: var(--border-radius);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    .overlay-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid #ddd;
+    }
+    .overlay-title { margin: 0; font-size: 1.2rem; }
+    .overlay-close {
+      font-size: 1.5rem;
+      cursor: pointer;
+      width: 28px; height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+    }
+    .overlay-close:hover { background: #f0f0f0; }
+    .overlay-data {
+      max-height: 70vh;
+      overflow: auto;
+      background: #f8f8f8;
+      padding: 0.75rem;
+      border-radius: var(--border-radius);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      white-space: pre-wrap;
+      line-height: 1.4;
+    }
+    .overlay-data img { max-width: 100%; }
+    
+    main { min-height: auto; padding: 30px; }
+    main h1 { margin-bottom: 0.5rem; font-size: 1.8rem; }
+  </style>
+</head>
+<body>
+  <div class="center">
+    <aside>
+      <header>
+        <h1 style="display:none;">Azul GUI Framework</h1>
+        <a href="https://azul.rs"><img src="https://azul.rs/logo.svg" alt="Azul Logo" style="width:100px;height:100px;"></a>
+      </header>
+      <nav>
+        <ul class="nav-grid">
+          <li><a href="https://azul.rs">overview</a></li>
+          <li><a href="https://azul.rs/releases.html">releases</a></li>
+          <li><a href="https://github.com/fschutt/azul">code</a></li>
+          <li><a href="https://discord.gg/V96ZGKqQvn">discord</a></li>
+          <li><a href="https://azul.rs/guide.html">guide</a></li>
+          <li><a href="https://azul.rs/api.html">api</a></li>
+          <li class="active"><a href="https://azul.rs/reftest.html">reftests</a></li>
+          <li><a href="https://azul.rs/blog.html">blog</a></li>
+          <li><a href="https://azul.rs/donate.html">donate</a></li>
+        </ul>
+      </nav>
+    </aside>
+    <main>
+      <h1>azul-layout regression analysis</h1>
+      
+      <div class="summary-bar">
+        <span class="stat">Commits: <span class="stat-value">"#);
+    
+    html.push_str(&sorted_commits.len().to_string());
+    html.push_str(r#"</span></span>
+        <span class="stat">Tests: <span class="stat-value">"#);
+    html.push_str(&test_names.len().to_string());
+    html.push_str(r#"</span></span>
+        <span class="stat">Successful: <span class="stat-value pass">"#);
+    let success_count = sorted_commits.iter().filter(|(_, s)| matches!(s, CommitStatus::Success { .. })).count();
+    let failed_count = sorted_commits.iter().filter(|(_, s)| matches!(s, CommitStatus::BuildFailed(_))).count();
+    html.push_str(&success_count.to_string());
+    html.push_str(r#"</span></span>
+        <span class="stat">Failed: <span class="stat-value fail">"#);
+    html.push_str(&failed_count.to_string());
+    html.push_str(r#"</span></span>
+        <span class="stat" style="color:#888;font-size:0.85rem;">Generated: "#);
+    html.push_str(&chrono::Local::now().format("%Y-%m-%d %H:%M").to_string());
+    html.push_str(r#"</span>
+      </div>
+      
+      <div class="controls">
+        <select id="testFilter" onchange="filterTests()">
+          <option value="all">All tests</option>
+"#);
+    
+    for test in &test_names {
+        html.push_str(&format!("          <option value=\"{}\">{}</option>\n", test, test));
+    }
+    
+    html.push_str(r#"        </select>
+        <input type="text" id="searchInput" placeholder="Search commits..." oninput="filterCommits()">
+        <label><input type="checkbox" id="hideErrors" onchange="filterCommits()"> Hide build errors</label>
+        <button class="action-btn" onclick="collapseAll()">Collapse All</button>
+        <button class="action-btn" onclick="expandAll()">Expand All</button>
+      </div>
+"#);
+
+    // Generate test sections - COLLAPSED by default
+    for test_name in &test_names {
+        html.push_str(&format!(r#"
+      <div class="test-card collapsed" data-test="{}">
+        <div class="test-card-header" onclick="toggleCard(this)">
+          <div class="test-card-header-left">
+            <span class="collapse-icon">▼</span>
+            <h3 class="test-card-title">{}</h3>
+          </div>
+          <span style="font-size:0.8rem;color:#666;">{} commits</span>
+        </div>
+        <div class="test-card-body">
+"#, test_name, test_name, sorted_commits.iter().filter(|(_, s)| matches!(s, CommitStatus::Success { .. })).count()));
+        
+        // Chrome reference if exists
+        let chrome_img = chrome_dir.join(format!("{}.png", test_name));
+        if chrome_img.exists() {
+            html.push_str(r#"          <div class="chrome-reference">
+            <span class="chrome-reference-label">Chrome Reference</span>
+            <img src="chrome/"#);
+            html.push_str(test_name);
+            html.push_str(r#".png" alt="Chrome Reference" onclick="showImageModal(this.src, 'Chrome Reference')">
+          </div>
+"#);
+        }
+        
+        // Track previous diff for delta calculation
+        let mut prev_diff: Option<i64> = None;
+        
+        // Commit rows
+        for (commit, status) in &sorted_commits {
+            match status {
+                CommitStatus::Success { screenshots } => {
+                    // Try to get diff count from results.json
+                    let results_path = regression_dir.join(&commit.short_hash).join("results.json");
+                    let diff_count = if results_path.exists() {
+                        if let Ok(content) = fs::read_to_string(&results_path) {
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                                json.get("tests")
+                                    .and_then(|t| t.as_array())
+                                    .and_then(|tests| {
+                                        tests.iter().find(|t| {
+                                            t.get("test_name").and_then(|n| n.as_str()) == Some(test_name)
+                                        })
+                                    })
+                                    .and_then(|t| t.get("diff_count"))
+                                    .and_then(|d| d.as_i64())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    
+                    let delta = diff_count.and_then(|curr| prev_diff.map(|prev| curr - prev));
+                    let row_class = match delta {
+                        Some(d) if d > 1000 => "commit-row has-regression",
+                        Some(d) if d < -1000 => "commit-row has-improvement",
+                        _ => "commit-row",
+                    };
+                    
+                    // GitHub commit link
+                    let github_url = format!("https://github.com/fschutt/azul/commit/{}", commit.hash);
+                    
+                    html.push_str(&format!(r#"          <div class="{}" data-commit="{}">
+            <div class="commit-info">
+              <div class="commit-header">
+                <span class="commit-hash"><a href="{}" target="_blank">{}</a></span>
+                <span style="font-size:0.7rem;color:#888;">{}</span>
+              </div>
+              <div class="commit-subject">{}</div>
+"#, 
+                        row_class,
+                        commit.short_hash,
+                        github_url,
+                        commit.short_hash,
+                        commit.date.split_whitespace().next().unwrap_or(""),
+                        html_escape(&commit.message)
+                    ));
+                    
+                    // Show commit body if present
+                    if !commit.body.is_empty() {
+                        html.push_str(&format!(r#"              <div class="commit-body">{}</div>
+"#, html_escape(&commit.body)));
+                    }
+                    
+                    html.push_str(&format!(r#"              <div class="commit-meta">by {}</div>
+"#, html_escape(&commit.author)));
+                    
+                    // Diff count display
+                    if let Some(diff) = diff_count {
+                        let diff_class = if diff == 0 { "diff-improved" } else if diff < 10000 { "diff-same" } else { "diff-regressed" };
+                        html.push_str(&format!(r#"              <div class="commit-diff">
+                <span class="diff-count {}">{}px</span>"#, diff_class, diff));
+                        
+                        if let Some(d) = delta {
+                            let delta_class = if d < 0 { "diff-improved" } else if d > 0 { "diff-regressed" } else { "diff-same" };
+                            let sign = if d > 0 { "+" } else { "" };
+                            html.push_str(&format!(r#" <span class="diff-delta {}">({}{} from prev)</span>"#, delta_class, sign, d));
+                        }
+                        html.push_str(r#"
+              </div>
+"#);
+                        prev_diff = Some(diff);
+                    }
+                    
+                    // Action buttons in left column
+                    html.push_str(&format!(r#"              <div class="commit-actions">
+                <button class="action-btn" onclick="showDebugInfo('{}', '{}')">Debug</button>
+                <button class="action-btn primary" onclick="copyCommitInfo('{}', '{}')">Copy</button>
+              </div>
+            </div>
+"#, commit.short_hash, test_name, commit.short_hash, test_name));
+                    
+                    // Screenshot
+                    if let Some(screenshot_path) = screenshots.get(test_name) {
+                        let relative_path = format!("{}/{}", commit.short_hash, screenshot_path.file_name().unwrap().to_string_lossy());
+                        html.push_str(&format!(r#"            <div class="commit-screenshot">
+              <img src="{}" alt="Azul @ {}" onclick="showImageModal(this.src, 'Azul @ {} - {}')">
+            </div>
+"#, relative_path, commit.short_hash, commit.short_hash, html_escape(&commit.message)));
+                    } else {
+                        html.push_str(r#"            <div class="commit-screenshot">
+              <span class="no-screenshot">No screenshot</span>
+            </div>
+"#);
+                    }
+                    
+                    html.push_str("          </div>\n");
+                }
+                CommitStatus::BuildFailed(err) => {
+                    let github_url = format!("https://github.com/fschutt/azul/commit/{}", commit.hash);
+                    html.push_str(&format!(r#"          <div class="commit-row build-error" data-commit="{}">
+            <div class="commit-info">
+              <div class="commit-header">
+                <span class="commit-hash"><a href="{}" target="_blank">{}</a></span>
+                <span style="font-size:0.7rem;color:#888;">{}</span>
+              </div>
+              <div class="commit-subject">{}</div>
+"#, 
+                        commit.short_hash,
+                        github_url,
+                        commit.short_hash,
+                        commit.date.split_whitespace().next().unwrap_or(""),
+                        html_escape(&commit.message)
+                    ));
+                    
+                    if !commit.body.is_empty() {
+                        html.push_str(&format!(r#"              <div class="commit-body">{}</div>
+"#, html_escape(&commit.body)));
+                    }
+                    
+                    html.push_str(&format!(r#"              <div class="commit-meta">by {}</div>
+            </div>
+            <div class="commit-screenshot">
+              <div class="build-error-msg">{}</div>
+            </div>
+          </div>
+"#, 
+                        html_escape(&commit.author),
+                        html_escape(&err.lines().take(8).collect::<Vec<_>>().join("\n"))
+                    ));
+                }
+                CommitStatus::Pending => {
+                    // Skip pending
+                }
+            }
+        }
+        
+        html.push_str("        </div>\n      </div>\n");
+    }
+    
+    // Modal and scripts
+    html.push_str(r#"
+    </main>
+  </div>
+  
+  <!-- Image Modal -->
+  <div class="overlay" id="imageModal" onclick="closeImageModal()">
+    <div class="overlay-content" style="width:auto;max-width:95%;" onclick="event.stopPropagation()">
+      <div class="overlay-header">
+        <h2 class="overlay-title" id="imageModalTitle">Image</h2>
+        <span class="overlay-close" onclick="closeImageModal()">&times;</span>
+      </div>
+      <div class="overlay-data" id="imageModalBody" style="text-align:center;background:transparent;">
+        <img id="imageModalImg" src="" alt="">
+      </div>
+    </div>
+  </div>
+  
+  <!-- Debug Modal -->
+  <div class="overlay" id="debugModal" onclick="closeDebugModal()">
+    <div class="overlay-content" onclick="event.stopPropagation()">
+      <div class="overlay-header">
+        <h2 class="overlay-title" id="debugModalTitle">Debug Info</h2>
+        <span class="overlay-close" onclick="closeDebugModal()">&times;</span>
+      </div>
+      <div class="overlay-data" id="debugContent"></div>
+    </div>
+  </div>
+  
+  <script>
+    function toggleCard(header) {
+      const card = header.closest('.test-card');
+      card.classList.toggle('collapsed');
+      const icon = header.querySelector('.collapse-icon');
+      icon.textContent = card.classList.contains('collapsed') ? '▼' : '▲';
+    }
+    
+    function collapseAll() {
+      document.querySelectorAll('.test-card').forEach(card => {
+        card.classList.add('collapsed');
+        card.querySelector('.collapse-icon').textContent = '▼';
+      });
+    }
+    
+    function expandAll() {
+      document.querySelectorAll('.test-card').forEach(card => {
+        card.classList.remove('collapsed');
+        card.querySelector('.collapse-icon').textContent = '▲';
+      });
+    }
+    
+    function filterTests() {
+      const filter = document.getElementById('testFilter').value;
+      document.querySelectorAll('.test-card').forEach(card => {
+        card.style.display = (filter === 'all' || card.dataset.test === filter) ? 'block' : 'none';
+      });
+    }
+    
+    function filterCommits() {
+      const search = document.getElementById('searchInput').value.toLowerCase();
+      const hideErrors = document.getElementById('hideErrors').checked;
+      
+      document.querySelectorAll('.commit-row').forEach(row => {
+        const commit = row.dataset.commit.toLowerCase();
+        const text = row.textContent.toLowerCase();
+        const isBuildError = row.classList.contains('build-error');
+        
+        let visible = true;
+        if (search && !commit.includes(search) && !text.includes(search)) visible = false;
+        if (hideErrors && isBuildError) visible = false;
+        
+        row.style.display = visible ? 'flex' : 'none';
+      });
+    }
+    
+    function showImageModal(src, title) {
+      document.getElementById('imageModalImg').src = src;
+      document.getElementById('imageModalTitle').textContent = title;
+      document.getElementById('imageModal').style.display = 'block';
+      document.body.style.overflow = 'hidden';
+    }
+    
+    function closeImageModal() {
+      document.getElementById('imageModal').style.display = 'none';
+      document.body.style.overflow = 'auto';
+    }
+    
+    function showDebugInfo(commitHash, testName) {
+      document.getElementById('debugModalTitle').textContent = `Debug: ${testName} @ ${commitHash}`;
+      document.getElementById('debugContent').textContent = 'Loading...';
+      document.getElementById('debugModal').style.display = 'block';
+      document.body.style.overflow = 'hidden';
+      
+      fetch(`${commitHash}/results.json`)
+        .then(r => r.json())
+        .then(data => {
+          const test = data.tests.find(t => t.test_name === testName);
+          if (test) {
+            const info = [
+              `Test: ${test.test_name}`,
+              `Passed: ${test.passed}`,
+              `Diff Count: ${test.diff_count}`,
+              '',
+              '=== DISPLAY LIST ===',
+              test.display_list || 'N/A',
+              '',
+              '=== RENDER WARNINGS ===',
+              Array.isArray(test.render_warnings) ? test.render_warnings.join('\n') : (test.render_warnings || 'N/A'),
+            ].join('\n');
+            document.getElementById('debugContent').textContent = info;
+          } else {
+            document.getElementById('debugContent').textContent = 'Test not found in results.json';
+          }
+        })
+        .catch(err => {
+          document.getElementById('debugContent').textContent = `Failed to load: ${err}`;
+        });
+    }
+    
+    function closeDebugModal() {
+      document.getElementById('debugModal').style.display = 'none';
+      document.body.style.overflow = 'auto';
+    }
+    
+    function copyCommitInfo(commitHash, testName) {
+      fetch(`${commitHash}/results.json`)
+        .then(r => r.json())
+        .then(data => {
+          const test = data.tests.find(t => t.test_name === testName);
+          if (test) {
+            const info = [
+              `Commit: ${commitHash}`,
+              `Test: ${test.test_name}`,
+              `Diff Count: ${test.diff_count}`,
+              `GitHub: https://github.com/fschutt/azul/commit/${commitHash}`,
+              '',
+              '=== DISPLAY LIST ===',
+              test.display_list || 'N/A',
+              '',
+              '=== RENDER WARNINGS ===',
+              Array.isArray(test.render_warnings) ? test.render_warnings.join('\n') : (test.render_warnings || 'N/A'),
+            ].join('\n');
+            navigator.clipboard.writeText(info).then(() => alert('Copied to clipboard!'));
+          }
+        })
+        .catch(err => alert('Failed to copy: ' + err));
+    }
+    
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        closeImageModal();
+        closeDebugModal();
+      }
+    });
+  </script>
+</body>
+</html>
+"#);
+    
+    let report_path = regression_dir.join("visual.html");
+    fs::write(&report_path, html)?;
+    
+    Ok(())
+}
+
+/// Escape HTML special characters
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+     .replace('<', "&lt;")
+     .replace('>', "&gt;")
+     .replace('"', "&quot;")
+     .replace('\'', "&#039;")
 }
