@@ -676,6 +676,32 @@ pub enum CssPropertyCategory {
     InheritedPaint,
 }
 
+/// Fine-grained dirty classification for CSS property changes.
+///
+/// Inspired by Taffy's binary dirty flag but extended to 4 levels for CSS-specific
+/// optimizations. Instead of "clean vs dirty", we classify property changes by their
+/// actual layout impact, enabling the engine to skip unnecessary work.
+///
+/// Reference: Taffy (https://github.com/DioxusLabs/taffy) uses a binary dirty flag
+/// (clean/dirty). Our improvement: 4-level classification enables IFC-only reflow,
+/// sizing-only recomputation, and paint-only updates without full subtree relayout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum RelayoutScope {
+    /// No relayout needed — repaint only (e.g., color, background, opacity, transform).
+    /// The node's size and position are unchanged.
+    None,
+    /// Only the IFC (Inline Formatting Context) containing this node needs re-shaping.
+    /// Block-level siblings are unaffected unless the IFC height changes,
+    /// in which case this auto-upgrades to SizingOnly.
+    IfcOnly,
+    /// This node's sizing needs recomputation. Parent may need repositioning
+    /// of subsequent siblings but doesn't need full recursive relayout.
+    SizingOnly,
+    /// Full subtree relayout required (e.g., display, position, float change).
+    Full,
+}
+
 /// Represents a CSS key (for example `"border-radius"` => `BorderRadius`).
 /// You can also derive this key from a `CssProperty` by calling `CssProperty::get_type()`.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, strum_macros::EnumIter)]
@@ -1136,6 +1162,72 @@ impl CssPropertyType {
             CssPropertyType::Opacity |
             CssPropertyType::Transform /* | CssPropertyType::Color */ => true,
             _ => false
+        }
+    }
+
+    /// Context-dependent relayout scope for a CSS property change.
+    ///
+    /// This is a more granular replacement for `can_trigger_relayout()`.
+    /// Instead of returning a flat bool, it classifies the property change
+    /// into one of four impact levels (see `RelayoutScope`).
+    ///
+    /// Inspired by Taffy's binary dirty flag, extended with CSS-specific
+    /// knowledge: font/text changes only affect IFC, sizing changes don't
+    /// require full subtree relayout, and paint-only changes skip layout entirely.
+    ///
+    /// `node_is_ifc_member`: whether this node participates in an IFC
+    /// (has inline formatting context membership). When true, font/text
+    /// property changes trigger IFC-only relayout instead of being ignored.
+    pub fn relayout_scope(&self, node_is_ifc_member: bool) -> RelayoutScope {
+        use CssPropertyType::*;
+        match self {
+            // Pure paint — never triggers relayout
+            TextColor | Cursor | BackgroundContent | BackgroundPosition
+            | BackgroundSize | BackgroundRepeat | BorderTopColor | BorderRightColor
+            | BorderLeftColor | BorderBottomColor | BorderTopStyle | BorderRightStyle
+            | BorderLeftStyle | BorderBottomStyle | BorderTopLeftRadius
+            | BorderTopRightRadius | BorderBottomLeftRadius | BorderBottomRightRadius
+            | ColumnRuleColor | ColumnRuleStyle | BoxShadowLeft | BoxShadowRight
+            | BoxShadowTop | BoxShadowBottom | BoxDecorationBreak | Scrollbar
+            | Opacity | Transform | TransformOrigin | PerspectiveOrigin
+            | BackfaceVisibility | MixBlendMode | Filter | BackdropFilter
+            | TextShadow | SelectionBackgroundColor | SelectionColor
+            | SelectionRadius | CaretColor | CaretAnimationDuration
+            | CaretWidth => RelayoutScope::None,
+
+            // Font/text properties — IFC-only if inside inline context,
+            // otherwise no layout impact (block with only block children
+            // inherits but doesn't directly reflow).
+            FontFamily | FontSize | FontWeight | FontStyle
+            | LetterSpacing | WordSpacing | LineHeight | TextAlign | TextJustify
+            | TextIndent | WhiteSpace | TabSize | Hyphens
+            | HyphenationLanguage | TextCombineUpright | TextDecoration
+            | HangingPunctuation | InitialLetter | LineClamp
+            | Direction | VerticalAlign => {
+                if node_is_ifc_member {
+                    RelayoutScope::IfcOnly
+                } else {
+                    // Block container with only block children: font properties
+                    // are inherited but don't affect this node's own sizing.
+                    // Children pick up the change via inheritance and get their
+                    // own dirty flags.
+                    RelayoutScope::None
+                }
+            }
+
+            // Sizing properties — only this node's size changes.
+            // Parent may reposition subsequent siblings but doesn't need
+            // full recursive relayout of unaffected subtrees.
+            Width | Height | MinWidth | MinHeight | MaxWidth | MaxHeight
+            | PaddingTop | PaddingRight | PaddingBottom | PaddingLeft
+            | PaddingInlineStart | PaddingInlineEnd
+            | BorderTopWidth | BorderRightWidth | BorderBottomWidth
+            | BorderLeftWidth | BoxSizing
+            | ScrollbarWidth => RelayoutScope::SizingOnly,
+
+            // Everything else: display, position, float, margin, flex-*,
+            // grid-*, overflow, writing-mode, etc. — full relayout.
+            _ => RelayoutScope::Full,
         }
     }
 }
