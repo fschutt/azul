@@ -723,11 +723,21 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let dom_id = self.tree.get(node_idx).and_then(|n| n.dom_node_id);
         let mut style = self.translate_style_to_taffy(dom_id);
         
-        // FIX: For root nodes, zero out the margin in Taffy styles.
-        // The root's margin has already been accounted for in the known_dimensions
-        // (viewport size minus margins). If we also pass the margin to Taffy,
-        // it gets subtracted twice - once from known_dimensions and once by Taffy
-        // when computing the container's content area.
+        // CSS 2.1 § 10.3.3: Root element margin handling for Flex/Grid.
+        //
+        // The root element's margin is already resolved and subtracted from
+        // available_size by calculate_used_size_for_node() (sizing.rs). The
+        // resulting margin-adjusted size is passed to Taffy as known_dimensions.
+        //
+        // Taffy's layout algorithm reads margin from the style and subtracts it
+        // from known_dimensions internally. If we also pass the margin through
+        // the style, it gets subtracted twice:
+        //   1. calculate_used_size_for_node: viewport - margin → available_size
+        //   2. Taffy: known_dimensions - style.margin → content_area
+        //
+        // Zeroing the style margin for root nodes prevents this double-subtraction.
+        // This is NOT a hack — it's the correct integration point between Azul's
+        // BFC-level sizing and Taffy's Flex/Grid algorithm.
         let is_root = self.tree.get(node_idx).map(|n| n.parent.is_none()).unwrap_or(false);
         if is_root {
             style.margin = taffy::Rect::zero();

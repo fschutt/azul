@@ -1505,10 +1505,27 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
 /// Uses the per-node multi-slot cache (inspired by Taffy's 9+1 architecture) to
 /// avoid O(n²) complexity. Each node has 9 measurement slots + 1 full layout slot.
 ///
+/// ## Two-Mode Architecture (CSS Two-Pass Layout)
+///
 /// `compute_mode` determines behavior:
-/// - `ComputeSize`: Only compute the node's border-box size (for parent's sizing pass).
-///   Currently behaves identically to PerformLayout; will be optimized in Phase 3.
-/// - `PerformLayout`: Compute size AND position all children (full layout).
+///
+/// - **`ComputeSize`** (BFC Pass 1 — sizing):
+///   Computes only the node's border-box size. On cache hit from measurement slots,
+///   sets `used_size` and returns immediately — no child positioning. This is the
+///   key to O(n) two-pass BFC: Pass 1 fills measurement caches cheaply.
+///
+/// - **`PerformLayout`** (BFC Pass 2 — positioning):
+///   Computes size AND positions all children. On cache hit from layout slot,
+///   applies cached child positions recursively. When Pass 2 provides the same
+///   constraints as Pass 1, the "result matches request" optimization triggers
+///   automatic cache hits.
+///
+/// ## Cache Hit Rates (Taffy's "result matches request" optimization)
+///
+/// When Pass 1 measures a node with available_size A and gets result_size R,
+/// then Pass 2 provides R as a known_dimension, `get_size()` / `get_layout()`
+/// recognize R == cached.result_size as a cache hit. This is the fundamental
+/// mechanism ensuring O(n) total complexity across both passes.
 pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -1521,70 +1538,106 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     float_cache: &mut BTreeMap<usize, fc::FloatingContext>,
     compute_mode: ComputeMode,
 ) -> Result<()> {
-    static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    
-    let start = std::time::Instant::now();
-    
     // === PER-NODE CACHE CHECK (Taffy-inspired 9+1 slot cache) ===
-    // Check the per-node cache first. For PerformLayout mode, check the layout slot.
-    // For ComputeSize mode (future), check the measurement slots.
     //
-    // We clone the cache entry to release the borrow on ctx before recursive calls.
-    let cache_hit = if node_index < ctx.cache_map.entries.len() {
-        ctx.cache_map.entries[node_index]
-            .get_layout(containing_block_size)
-            .cloned()
-    } else {
-        None
-    };
+    // Two-mode cache lookup (CSS two-pass architecture):
+    //
+    // ComputeSize (Pass 1 — sizing):
+    //   1. Check measurement slots (get_size) → if hit, set used_size and return.
+    //      No child positioning needed — we only need the node's border-box size.
+    //   2. Fall back to layout slot → if hit, extract size from full layout result.
+    //
+    // PerformLayout (Pass 2 — positioning):
+    //   1. Check layout slot (get_layout) → if hit, apply cached child positions.
+    //   2. No fallback to measurement slots (we need full positions, not just size).
+    //
+    // This split is critical for O(n) two-pass BFC:
+    // - Pass 1 populates measurement slots (cheap: no absolute positioning)
+    // - Pass 2 hits layout slot or re-computes with positions
+    if node_index < ctx.cache_map.entries.len() {
+        match compute_mode {
+            ComputeMode::ComputeSize => {
+                // ComputeSize: check measurement slot first (Taffy's 9-slot scheme)
+                let sizing_hit = ctx.cache_map.entries[node_index]
+                    .get_size(0, containing_block_size)
+                    .cloned();
+                if let Some(cached_sizing) = sizing_hit {
+                    // SIZING CACHE HIT — set used_size and return immediately.
+                    // No child positioning needed in ComputeSize mode.
+                    if let Some(node) = tree.get_mut(node_index) {
+                        node.used_size = Some(cached_sizing.result_size);
+                        node.escaped_top_margin = cached_sizing.escaped_top_margin;
+                        node.escaped_bottom_margin = cached_sizing.escaped_bottom_margin;
+                        node.baseline = cached_sizing.baseline;
+                    }
+                    return Ok(());
+                }
+                // Fall through to layout slot check
+                let layout_hit = ctx.cache_map.entries[node_index]
+                    .get_layout(containing_block_size)
+                    .cloned();
+                if let Some(cached_layout) = layout_hit {
+                    // Layout slot hit in ComputeSize mode — extract size only
+                    if let Some(node) = tree.get_mut(node_index) {
+                        node.used_size = Some(cached_layout.result_size);
+                        node.overflow_content_size = Some(cached_layout.content_size);
+                        node.scrollbar_info = Some(cached_layout.scrollbar_info.clone());
+                    }
+                    return Ok(());
+                }
+            }
+            ComputeMode::PerformLayout => {
+                // PerformLayout: check layout slot (the single "full layout" slot)
+                let layout_hit = ctx.cache_map.entries[node_index]
+                    .get_layout(containing_block_size)
+                    .cloned();
+                if let Some(cached_layout) = layout_hit {
+                    // LAYOUT CACHE HIT — apply cached results with child positions
+                    if let Some(node) = tree.get_mut(node_index) {
+                        node.used_size = Some(cached_layout.result_size);
+                        node.overflow_content_size = Some(cached_layout.content_size);
+                        node.scrollbar_info = Some(cached_layout.scrollbar_info.clone());
+                    }
 
-    if let Some(cached_layout) = cache_hit {
-        // CACHE HIT — apply cached results without re-computing
-        if let Some(node) = tree.get_mut(node_index) {
-            node.used_size = Some(cached_layout.result_size);
-            node.overflow_content_size = Some(cached_layout.content_size);
-            node.scrollbar_info = Some(cached_layout.scrollbar_info.clone());
+                    let box_props = tree.get(node_index)
+                        .map(|n| n.box_props.clone())
+                        .unwrap_or_default();
+                    let self_content_box_pos = calculate_content_box_pos(containing_block_pos, &box_props);
+
+                    // Apply cached child positions and recurse
+                    let result_size = cached_layout.result_size;
+                    for (child_index, child_relative_pos) in &cached_layout.child_positions {
+                        let child_abs_pos = LogicalPosition::new(
+                            self_content_box_pos.x + child_relative_pos.x,
+                            self_content_box_pos.y + child_relative_pos.y,
+                        );
+                        calculated_positions.insert(*child_index, child_abs_pos);
+
+                        let child_available_size = box_props.inner_size(
+                            result_size,
+                            LayoutWritingMode::HorizontalTb,
+                        );
+                        calculate_layout_for_subtree(
+                            ctx,
+                            tree,
+                            text_cache,
+                            *child_index,
+                            child_abs_pos,
+                            child_available_size,
+                            calculated_positions,
+                            reflow_needed_for_scrollbars,
+                            float_cache,
+                            compute_mode,
+                        )?;
+                    }
+
+                    return Ok(());
+                }
+            }
         }
-
-        // Calculate content-box position for this node
-        let box_props = tree.get(node_index)
-            .map(|n| n.box_props.clone())
-            .unwrap_or_default();
-        let self_content_box_pos = calculate_content_box_pos(containing_block_pos, &box_props);
-
-        // Apply cached child positions
-        let result_size = cached_layout.result_size;
-        for (child_index, child_relative_pos) in &cached_layout.child_positions {
-            let child_abs_pos = LogicalPosition::new(
-                self_content_box_pos.x + child_relative_pos.x,
-                self_content_box_pos.y + child_relative_pos.y,
-            );
-            calculated_positions.insert(*child_index, child_abs_pos);
-
-            // Recursively position descendants — they'll also hit their cache entries
-            let child_available_size = box_props.inner_size(
-                result_size,
-                LayoutWritingMode::HorizontalTb,
-            );
-            calculate_layout_for_subtree(
-                ctx,
-                tree,
-                text_cache,
-                *child_index,
-                child_abs_pos,
-                child_available_size,
-                calculated_positions,
-                reflow_needed_for_scrollbars,
-                float_cache,
-                compute_mode,
-            )?;
-        }
-
-        return Ok(());
     }
     
-    // === CACHE MISS - compute layout ===
+    // === CACHE MISS — compute layout ===
     
     // Phase 1: Prepare layout context (calculate used size, constraints)
     let PreparedLayoutContext {
@@ -1597,14 +1650,11 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
         prepare_layout_context(ctx, node, containing_block_size)?
     };
-    let phase1_time = start.elapsed();
 
     // Phase 2: Layout children using the formatting context
-    let phase2_start = std::time::Instant::now();
     let layout_result =
         layout_formatting_context(ctx, tree, text_cache, node_index, &constraints, float_cache)?;
     let content_size = layout_result.output.overflow_size;
-    let _phase2_time = phase2_start.elapsed();
 
     // Phase 2.5: Resolve 'auto' main-axis size based on content
     // For anonymous boxes, use default styled node state
@@ -1723,8 +1773,12 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
 
     // === STORE RESULT IN PER-NODE CACHE (Taffy-inspired 9+1 slot cache) ===
     // Store both the full layout entry and a sizing measurement entry.
+    // This enables O(n) two-pass BFC: Pass 1 populates cache, Pass 2 reads it.
     if node_index < ctx.cache_map.entries.len() {
-        let baseline = tree.get(node_index).and_then(|n| n.baseline);
+        let node_ref = tree.get(node_index);
+        let baseline = node_ref.and_then(|n| n.baseline);
+        let escaped_top = node_ref.and_then(|n| n.escaped_top_margin);
+        let escaped_bottom = node_ref.and_then(|n| n.escaped_bottom_margin);
 
         // Store in the layout slot (PerformLayout result)
         ctx.cache_map.get_mut(node_index).store_layout(LayoutCacheEntry {
@@ -1732,8 +1786,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
             result_size: final_used_size,
             content_size,
             child_positions: child_positions_for_cache.clone(),
-            escaped_top_margin: None, // TODO: propagate from BFC layout
-            escaped_bottom_margin: None,
+            escaped_top_margin: escaped_top,
+            escaped_bottom_margin: escaped_bottom,
             scrollbar_info: merged_scrollbar_info.clone(),
         });
 
@@ -1744,45 +1798,12 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
             available_size: containing_block_size,
             result_size: final_used_size,
             baseline,
-            escaped_top_margin: None,
-            escaped_bottom_margin: None,
+            escaped_top_margin: escaped_top,
+            escaped_bottom_margin: escaped_bottom,
         });
     }
 
     Ok(())
-}
-
-/// Recursively apply cached positions to descendant nodes.
-/// This is used when we have a cache hit - we need to set positions for all
-/// descendants without re-computing layout.
-fn apply_cached_positions_recursive(
-    tree: &LayoutTree,
-    node_index: usize,
-    node_abs_pos: LogicalPosition,
-    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
-) {
-    let Some(node) = tree.get(node_index) else { return };
-    
-    // Calculate content-box position
-    let content_box_pos = LogicalPosition::new(
-        node_abs_pos.x + node.box_props.border.left + node.box_props.padding.left,
-        node_abs_pos.y + node.box_props.border.top + node.box_props.padding.top,
-    );
-    
-    // Process children using their cached relative positions
-    for &child_index in &node.children {
-        if let Some(child_node) = tree.get(child_index) {
-            let child_rel_pos = child_node.relative_position.unwrap_or_default();
-            let child_abs_pos = LogicalPosition::new(
-                content_box_pos.x + child_rel_pos.x,
-                content_box_pos.y + child_rel_pos.y,
-            );
-            calculated_positions.insert(child_index, child_abs_pos);
-            
-            // Recurse to grandchildren
-            apply_cached_positions_recursive(tree, child_index, child_abs_pos, calculated_positions);
-        }
-    }
 }
 
 /// Recursively set static positions for out-of-flow descendants without doing layout
