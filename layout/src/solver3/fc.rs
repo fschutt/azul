@@ -797,17 +797,61 @@ fn layout_bfc<T: ParsedFontTrait>(
             (children_containing_block_size.width - scrollbar_reservation).max(0.0);
     }
 
-    // NOTE: We removed the explicit "Pass 1" sizing loop that was here.
-    // The old implementation called calculate_layout_for_subtree on each child
-    // with position (0,0) just to get their sizes. However, this also recursively
-    // laid out grandchildren with incorrect positions.
+    // === Pass 1: Pre-compute child sizes (restored two-pass BFC) ===
     //
-    // The correct approach: The main layout driver (calculate_layout_for_subtree in cache.rs)
-    // handles sizing and positioning in a single top-down pass. By the time layout_bfc
-    // is called, intrinsic sizes are already available from the bottom-up sizing pass.
-    // We calculate each child's used_size just-in-time during the positioning pass below.
+    // Inspired by Taffy's two-pass approach: first measure, then position.
+    //
+    // This was removed in commit 1a3e5850 and replaced with a single-pass approach
+    // that computed sizes just-in-time during positioning. The single-pass approach
+    // caused regression 8e092a2e because positioning decisions (margin collapsing,
+    // float clearance, available width after floats) depend on knowing ALL sibling
+    // sizes upfront, not just the ones visited so far.
+    //
+    // With the per-node cache (§9.1-§9.2), the re-added Pass 1 is efficient:
+    // - Each child subtree is computed once and stored in NodeCache
+    // - Pass 2 positioning reads sizes from tree nodes (used_size set by Pass 1)
+    // - When calculate_layout_for_subtree recurses into children after layout_bfc
+    //   returns, it hits the per-node cache (same available_size) — O(1) per child.
+    //
+    // Performance: O(n) for the tree. No double-computation thanks to caching.
+    {
+        let mut temp_positions = BTreeMap::new();
+        let mut temp_scrollbar_reflow = false;
 
-    // Single positioning pass: position floats and normal flow in DOM order
+        for &child_index in &node.children {
+            let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
+            let child_dom_id = child_node.dom_node_id;
+
+            // Skip absolutely/fixed positioned children — they're laid out separately
+            let position_type = get_position_type(ctx.styled_dom, child_dom_id);
+            if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
+                continue;
+            }
+
+            // Compute the child's full subtree layout with temporary positions.
+            // Position (0,0) is intentionally wrong — Pass 1 only cares about sizing.
+            // The correct positions are determined in Pass 2 below.
+            crate::solver3::cache::calculate_layout_for_subtree(
+                ctx,
+                tree,
+                text_cache,
+                child_index,
+                LogicalPosition::zero(),
+                children_containing_block_size,
+                &mut temp_positions,
+                &mut temp_scrollbar_reflow,
+                float_cache,
+                crate::solver3::cache::ComputeMode::ComputeSize,
+            )?;
+        }
+    }
+
+    // === Pass 2: Position children using known sizes ===
+    //
+    // All children now have used_size set from Pass 1. This pass handles:
+    // - Margin collapsing (parent-child + sibling-sibling)
+    // - Float positioning and clearance
+    // - Normal flow block positioning
 
     let mut main_pen = 0.0f32;
     let mut max_cross_size = 0.0f32;
