@@ -1198,6 +1198,39 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     let debug_enabled = generator.ctx.debug_messages.is_some();
     let mut builder = DisplayListBuilder::with_debug(debug_enabled);
 
+    // 0. Canvas background propagation (CSS 2.1 § 14.2):
+    //    "The background of the root element becomes the background of the canvas."
+    //    If the root (html) has a transparent background, propagate from <body>.
+    //    The canvas background fills the ENTIRE viewport, not just the root's content box.
+    //    This is critical when <html> doesn't have height:100% — without this,
+    //    the body's background only covers the body's content area, not the viewport.
+    {
+        let root_node = tree.get(tree.root);
+        if let Some(root) = root_node {
+            if let Some(root_dom_id) = root.dom_node_id {
+                let root_state = generator.get_styled_node_state(root_dom_id);
+                let canvas_bg = get_background_color(
+                    generator.ctx.styled_dom,
+                    root_dom_id,
+                    &root_state,
+                );
+                if canvas_bg.a > 0 {
+                    let viewport_rect = LogicalRect {
+                        origin: LogicalPosition::zero(),
+                        size: generator.ctx.viewport_size,
+                    };
+                    builder.push_rect(viewport_rect, canvas_bg, BorderRadius::default());
+                    debug_info!(
+                        generator.ctx,
+                        "[DisplayList] Canvas background: color=({},{},{},{}), size={:?}",
+                        canvas_bg.r, canvas_bg.g, canvas_bg.b, canvas_bg.a,
+                        generator.ctx.viewport_size
+                    );
+                }
+            }
+        }
+    }
+
     // 1. Build a tree of stacking contexts, which defines the global paint order.
     let stacking_context_tree = generator.collect_stacking_contexts(tree.root)?;
 
