@@ -70,7 +70,7 @@ fn test_flex_column_child_text_has_nonzero_width() {
         scroll_id_to_node_id: BTreeMap::new(),
         counters: BTreeMap::new(),
         float_cache: BTreeMap::new(),
-        subtree_layout_cache: BTreeMap::new(),
+            cache_map: Default::default(),
     };
     let mut text_cache = TextLayoutCache::new();
 
@@ -183,7 +183,7 @@ fn test_flex_row_text_child_has_intrinsic_width() {
         scroll_id_to_node_id: BTreeMap::new(),
         counters: BTreeMap::new(),
         float_cache: BTreeMap::new(),
-        subtree_layout_cache: BTreeMap::new(),
+            cache_map: Default::default(),
     };
     let mut text_cache = TextLayoutCache::new();
 

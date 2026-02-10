@@ -30,7 +30,6 @@ fn run_layout(html: &str) -> Vec<DisplayListItem> {
         counters: BTreeMap::new(),
         float_cache: BTreeMap::new(),
         cache_map: Default::default(),
-        subtree_layout_cache: BTreeMap::new(),
     };
     let mut text_cache = TextLayoutCache::new();
 

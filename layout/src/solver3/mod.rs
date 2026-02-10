@@ -184,10 +184,6 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// This is separate from selections - the cursor represents the text insertion point
     /// in a contenteditable element and should be painted independently.
     pub cursor_location: Option<(DomId, NodeId, TextCursor)>,
-    /// Memoization cache for layout results (legacy global BTreeMap).
-    /// Key: (node_index, available_size), Value: computed layout result.
-    /// TODO: Remove once per-node cache (cache_map) is fully wired in.
-    pub subtree_layout_cache: std::collections::BTreeMap<cache::LayoutCacheKey, cache::LayoutCacheValue>,
     /// Per-node multi-slot cache (Taffy-inspired 9+1 architecture).
     /// Moved out of LayoutCache via std::mem::take for the duration of layout,
     /// then moved back after the layout pass completes.
@@ -399,7 +395,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     // Create temporary context without counters for tree generation
     let mut counter_values = BTreeMap::new();
-    let mut subtree_layout_cache = BTreeMap::new();
     let mut ctx_temp = LayoutContext {
         styled_dom: &new_dom,
         font_manager,
@@ -411,7 +406,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         fragmentation_context: None,
         cursor_is_visible,
         cursor_location: cursor_location.clone(),
-        subtree_layout_cache: BTreeMap::new(),
         cache_map: cache::LayoutCacheMap::default(), // temp context doesn't need real cache
         system_style: system_style.clone(),
     };
@@ -456,7 +450,6 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         fragmentation_context: None,
         cursor_is_visible,
         cursor_location,
-        subtree_layout_cache,
         cache_map, // Moved from LayoutCache; will be moved back after layout
         system_style,
     };

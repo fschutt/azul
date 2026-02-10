@@ -56,52 +56,6 @@ use crate::{
     text3::cache::AvailableSpace as Text3AvailableSpace,
 };
 
-/// Cache key for memoizing layout results (legacy global BTreeMap cache).
-/// Uses fixed-point representation for float values to enable BTreeMap usage.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct LayoutCacheKey {
-    pub node_index: usize,
-    /// Available width in hundredths of a pixel (fixed-point)
-    pub available_width: i32,
-    /// Available height in hundredths of a pixel (fixed-point)
-    pub available_height: i32,
-}
-
-impl LayoutCacheKey {
-    pub fn new(node_index: usize, available_size: LogicalSize) -> Self {
-        Self {
-            node_index,
-            available_width: f32_to_fixed(available_size.width),
-            available_height: f32_to_fixed(available_size.height),
-        }
-    }
-}
-
-/// Convert f32 to fixed-point i32 (hundredths of a pixel)
-#[inline]
-fn f32_to_fixed(val: f32) -> i32 {
-    if !val.is_finite() {
-        i32::MAX
-    } else {
-        (val * 100.0).round() as i32
-    }
-}
-
-/// Cached layout result for a node at a given available size (legacy global BTreeMap cache).
-#[derive(Debug, Clone)]
-pub struct LayoutCacheValue {
-    /// The computed border-box size
-    pub used_size: LogicalSize,
-    /// Baseline for inline alignment
-    pub baseline: Option<f32>,
-    /// Content overflow size (for scrolling)
-    pub content_size: LogicalSize,
-    /// Child positions relative to this node's content-box
-    pub child_positions: Vec<(usize, LogicalPosition)>,
-    /// Scrollbar requirements
-    pub scrollbar_info: ScrollbarRequirements,
-}
-
 // ============================================================================
 // Per-Node Multi-Slot Cache (inspired by Taffy's 9+1 slot cache architecture)
 //
@@ -397,11 +351,6 @@ pub struct LayoutCache {
     /// External to LayoutTree — indexed by node index for O(1) lookup.
     /// Persists across frames; resized after reconciliation.
     pub cache_map: LayoutCacheMap,
-    /// Legacy memoization cache for layout results (kept temporarily for A/B comparison).
-    /// Key: (node_index, available_size), Value: computed layout result.
-    /// This prevents O(n²) complexity by avoiding redundant layout calculations.
-    /// TODO: Remove once per-node cache (cache_map) is fully wired in.
-    pub subtree_layout_cache: BTreeMap<LayoutCacheKey, LayoutCacheValue>,
 }
 
 /// The result of a reconciliation pass.
@@ -1799,17 +1748,6 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
             escaped_bottom_margin: None,
         });
     }
-
-    // Also store in legacy BTreeMap cache (kept for A/B comparison, will be removed in Phase 6)
-    let cache_key = LayoutCacheKey::new(node_index, containing_block_size);
-    let cache_value = LayoutCacheValue {
-        used_size: final_used_size,
-        baseline: tree.get(node_index).and_then(|n| n.baseline),
-        content_size,
-        child_positions: child_positions_for_cache,
-        scrollbar_info: merged_scrollbar_info,
-    };
-    ctx.subtree_layout_cache.insert(cache_key, cache_value);
 
     Ok(())
 }

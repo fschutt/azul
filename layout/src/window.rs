@@ -477,7 +477,6 @@ impl LayoutWindow {
                 counters: BTreeMap::new(),
                 float_cache: BTreeMap::new(),
                 cache_map: Default::default(),
-                subtree_layout_cache: BTreeMap::new(),
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::new(fc_cache)?,
@@ -550,7 +549,6 @@ impl LayoutWindow {
                 counters: BTreeMap::new(),
                 float_cache: BTreeMap::new(),
                 cache_map: Default::default(),
-                subtree_layout_cache: BTreeMap::new(),
             },
             text_cache: TextLayoutCache::new(),
             font_manager: FontManager::new(fc_cache)?,
@@ -965,7 +963,6 @@ impl LayoutWindow {
             counters: BTreeMap::new(),
             float_cache: BTreeMap::new(),
             cache_map: Default::default(),
-            subtree_layout_cache: BTreeMap::new(),
         };
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();

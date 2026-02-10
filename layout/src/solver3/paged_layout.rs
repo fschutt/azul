@@ -234,7 +234,6 @@ where
         fragmentation_context: Some(&mut fragmentation_context),
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
-        subtree_layout_cache: BTreeMap::new(),
         cache_map: crate::solver3::cache::LayoutCacheMap::default(),
         system_style: None,
     };
@@ -354,7 +353,6 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         fragmentation_context: Some(fragmentation_context),
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
-        subtree_layout_cache: BTreeMap::new(),
         cache_map: cache::LayoutCacheMap::default(),
         system_style: None,
     };
@@ -385,7 +383,6 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     }
 
     // Now create the real context with computed counters and fragmentation
-    let mut subtree_layout_cache = BTreeMap::new();
     let mut ctx = LayoutContext {
         styled_dom: &new_dom,
         font_manager,
@@ -397,7 +394,6 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         fragmentation_context: Some(fragmentation_context),
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
-        subtree_layout_cache,
         cache_map,
         system_style: None,
     };

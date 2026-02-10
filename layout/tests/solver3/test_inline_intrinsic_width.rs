@@ -66,7 +66,6 @@ mod inline_intrinsic_width_tests {
             counters: BTreeMap::new(),
             float_cache: BTreeMap::new(),
             cache_map: Default::default(),
-            subtree_layout_cache: BTreeMap::new(),
         };
         let mut text_cache = TextLayoutCache::new();
         let font_manager = create_test_font_manager().expect("Failed to create font manager");
@@ -180,7 +179,6 @@ mod inline_intrinsic_width_tests {
             counters: BTreeMap::new(),
             float_cache: BTreeMap::new(),
             cache_map: Default::default(),
-            subtree_layout_cache: BTreeMap::new(),
         };
         let mut text_cache = TextLayoutCache::new();
         let font_manager = create_test_font_manager().expect("Failed to create font manager");
