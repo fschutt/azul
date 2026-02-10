@@ -810,8 +810,8 @@ pub fn get_background_color(
             .ptr
             .get_background_content(node_data, &node_id, node_state)
             .and_then(|bg| bg.get_property())
-            .and_then(|bg_vec| bg_vec.get(0))
-            .and_then(|first_bg| match first_bg {
+            .and_then(|bg_vec| bg_vec.get(0).cloned())
+            .and_then(|first_bg| match &first_bg {
                 azul_css::props::style::StyleBackgroundContent::Color(color) => Some(color.clone()),
                 azul_css::props::style::StyleBackgroundContent::Image(_) => None, // Has image, not transparent
                 _ => None,

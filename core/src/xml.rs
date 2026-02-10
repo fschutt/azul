@@ -2967,7 +2967,7 @@ pub fn render_dom_from_body_node<'a>(
 ) -> Result<StyledDom, RenderDomError> {
     // OPTIMIZATION: Build Dom tree first, then style once at the end
     // This avoids O(n) StyledDom::create() calls for each of the ~360k nodes
-    let mut body_dom = xml_node_to_dom_fast(body_node, component_map)?;
+    let body_dom = xml_node_to_dom_fast(body_node, component_map)?;
     
     // OPTIMIZATION: Combine all CSS rules and apply ONCE instead of multiple restyle() calls
     // Each restyle() is O(n * m) where n=nodes and m=CSS rules
@@ -2992,49 +2992,36 @@ pub fn render_dom_from_body_node<'a>(
     
     let combined_css = Css::new(combined_stylesheets);
     
-    // Apply combined CSS once to the complete DOM tree
-    let mut body_styled = body_dom.style(combined_css);
-
-    // Check if the rendered result is already wrapped in HTML
-    let root_node_id = match body_styled.root.into_crate_internal() {
-        Some(id) => id,
-        None => {
-            // Empty DOM, create default HTML > Body structure
-            let html_dom = Dom::create_html()
-                .with_child(Dom::create_body())
-                .style(Css::empty());
-            return Ok(html_dom);
-        }
-    };
-
-    let root_node_data = &body_styled.node_data.as_ref()[root_node_id.index()];
-    let root_node_type = &root_node_data.node_type;
-
+    // IMPORTANT: Build the full DOM tree BEFORE applying CSS.
+    // CSS selectors like `html { background: ... }` must be able to match the
+    // <html> element, which means it must exist in the tree when CSS is applied.
+    // Previously, CSS was applied to the body-only tree first, then <html> was
+    // wrapped around it with Css::empty() — causing html-targeted rules to be lost.
+    
+    // Determine the root node type from the un-styled DOM
     use crate::dom::NodeType;
-
-    // Wrap in HTML if needed
-    let dom = match root_node_type {
+    let root_node_type = body_dom.root.node_type.clone();
+    
+    let mut full_dom = match root_node_type {
         NodeType::Html => {
-            // Already has proper HTML root, return as-is
-            body_styled
+            // Already has proper HTML root, style as-is
+            body_dom
         }
         NodeType::Body => {
-            // Has Body root, wrap in HTML
-            let mut html_dom = Dom::create_html().style(Css::empty());
-            html_dom.append_child(body_styled);
-            html_dom
+            // Has Body root, wrap in HTML first, then style the whole tree
+            Dom::create_html().with_child(body_dom)
         }
         _ => {
             // Other elements (div, etc), wrap in HTML > Body
-            let mut body_dom = Dom::create_body().style(Css::empty());
-            body_dom.append_child(body_styled);
-            let mut html_dom = Dom::create_html().style(Css::empty());
-            html_dom.append_child(body_dom);
-            html_dom
+            let body_wrapper = Dom::create_body().with_child(body_dom);
+            Dom::create_html().with_child(body_wrapper)
         }
     };
+    
+    // Apply combined CSS once to the COMPLETE DOM tree (including html wrapper)
+    let styled = full_dom.style(combined_css);
 
-    Ok(dom)
+    Ok(styled)
 }
 
 /// Takes a single (expanded) app node and renders the DOM or returns an error

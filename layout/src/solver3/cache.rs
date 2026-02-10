@@ -152,7 +152,7 @@ pub struct LayoutCacheEntry {
 /// collisions were possible).
 ///
 /// NOT stored on LayoutNode — lives in the external `LayoutCacheMap`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct NodeCache {
     /// 9 measurement slots (Taffy's deterministic scheme):
     /// - Slot 0: both dimensions known
@@ -168,6 +168,16 @@ pub struct NodeCache {
     /// Fast check for dirty propagation (Taffy optimization).
     /// When true, all slots are empty — ancestors are also dirty.
     pub is_empty: bool,
+}
+
+impl Default for NodeCache {
+    fn default() -> Self {
+        Self {
+            measure_entries: [None, None, None, None, None, None, None, None, None],
+            layout_entry: None,
+            is_empty: true, // fresh cache is empty/dirty
+        }
+    }
 }
 
 impl NodeCache {
