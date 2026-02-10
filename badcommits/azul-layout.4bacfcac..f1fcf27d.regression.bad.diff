@@ -1,0 +1,396 @@
+diff --git a/core/src/ua_css.rs b/core/src/ua_css.rs
+index 003080332..fa8e6665b 100644
+--- a/core/src/ua_css.rs
++++ b/core/src/ua_css.rs
+@@ -742,9 +742,10 @@ pub fn get_ua_property(
+         (NT::Dir, PT::Display) => Some(&DISPLAY_BLOCK),
+ 
+         // Generic Container
+-        // NOTE: Html gets its dimensions from the Initial Containing Block, not from CSS
++        // NOTE: Html element has height: auto by default (shrinks to content)
++        // The Initial Containing Block provides the viewport dimensions,
++        // but the HTML element itself does not have height: 100% in browser UA stylesheets
+         (NT::Html, PT::Display) => Some(&DISPLAY_BLOCK),
+-        (NT::Html, PT::Height) => Some(&HEIGHT_100_PERCENT),
+ 
+         // Universal fallback for display property
+         // Per CSS spec, unknown/custom elements should default to inline
+diff --git a/layout/src/solver3/cache.rs b/layout/src/solver3/cache.rs
+index 60be07cc9..da972fad8 100644
+--- a/layout/src/solver3/cache.rs
++++ b/layout/src/solver3/cache.rs
+@@ -973,10 +973,7 @@ fn log_child_positioning<T: ParsedFontTrait>(
+     child_relative_pos: LogicalPosition,
+     child_absolute_pos: LogicalPosition,
+ ) {
+-    let Some(debug_msgs) = ctx.debug_messages.as_mut() else {
+-        return;
+-    };
+-
++    // Always print positioning info for debugging
+     let child_dom_name = child_node
+         .dom_node_id
+         .and_then(|id| {
+@@ -989,6 +986,10 @@ fn log_child_positioning<T: ParsedFontTrait>(
+         .map(|n| format!("{:?}", n.node_type))
+         .unwrap_or_else(|| "Unknown".to_string());
+ 
++    let Some(debug_msgs) = ctx.debug_messages.as_mut() else {
++        return;
++    };
++
+     debug_msgs.push(LayoutDebugMessage::new(
+         LayoutDebugMessageType::PositionCalculation,
+         format!(
+diff --git a/layout/src/solver3/fc.rs b/layout/src/solver3/fc.rs
+index d9e98fdfc..c43e9f579 100644
+--- a/layout/src/solver3/fc.rs
++++ b/layout/src/solver3/fc.rs
+@@ -1087,8 +1087,15 @@ fn layout_bfc<T: ParsedFontTrait>(
+                 //  the blocked case, which double-counted the margin by mixing
+                 //  coordinate systems. The parent's margin is NEVER in our (the
+                 //  parent's content-box) coordinate system!
+-
+-                accumulated_top_margin = collapse_margins(parent_margin_top, child_margin_top);
++                //
++                // IMPORTANT: The escaped margin should only be the CHILD's margin, not
++                // a collapsed value of parent+child. The parent's own margin is handled
++                // separately when the parent is positioned in ITS parent's BFC.
++                // 
++                // What we return as escaped_top_margin is what escapes THROUGH us from
++                // our children, to be used by our parent for positioning US.
++
++                accumulated_top_margin = child_margin_top;
+                 top_margin_resolved = true;
+                 top_margin_escaped = true;
+ 
+@@ -1344,6 +1351,7 @@ fn layout_bfc<T: ParsedFontTrait>(
+         //
+         // CSS 2.2 § 10.3.3: If margin-left and margin-right are both auto, 
+         // their used values are equal, centering the element horizontally.
++        
+         let (child_cross_pos, mut child_main_pos) = if establishes_bfc {
+             // BFC: Position in space between floats
+             (
+@@ -1411,37 +1419,19 @@ fn layout_bfc<T: ParsedFontTrait>(
+             (cross_pos, main_pen)
+         };
+ 
+-        // CSS 2.2 § 8.3.1: If child's top margin escaped through parent, adjust position
+-        // "If the top margin of a box collapses with its first child's top margin,
+-        // the top border edge of the box is defined to coincide with the top border edge of the
+-        // child." This means the child's margin appears ABOVE the parent, so we offset the
+-        // child down. IMPORTANT: This only applies to the FIRST child! For siblings, normal
+-        // margin collapse applies.
+-        let child_escaped_margin = child_node.escaped_top_margin.unwrap_or(0.0);
+-        let is_first_in_flow_child = Some(child_index) == first_child_index;
+-
+-        if child_escaped_margin > 0.0 && is_first_in_flow_child {
+-            child_main_pos += child_escaped_margin;
+-            total_escaped_top_margin += child_escaped_margin;
+-            debug_info!(
+-                ctx,
+-                "[layout_bfc] FIRST child {} has escaped_top_margin={}, adjusting position from \
+-                 {} to {}, total_escaped={}",
+-                child_index,
+-                child_escaped_margin,
+-                main_pen,
+-                child_main_pos,
+-                total_escaped_top_margin
+-            );
+-        } else if child_escaped_margin > 0.0 {
+-            debug_info!(
+-                ctx,
+-                "[layout_bfc] NON-FIRST child {} has escaped_top_margin={} but NOT adjusting \
+-                 position (sibling margin collapse handles this)",
+-                child_index,
+-                child_escaped_margin
+-            );
+-        }
++        // NOTE: We do NOT adjust child_main_pos based on child's escaped_top_margin here!
++        // The escaped_top_margin represents margins that escaped FROM the child's own children.
++        // The child's position in THIS BFC is determined by main_pen and the child's own margin
++        // (which was already handled in the margin collapse logic above).
++        //
++        // Previously, this code incorrectly added child_escaped_margin to child_main_pos,
++        // which caused double-application of margins because:
++        // 1. The child's margin was used to calculate its position in THIS BFC
++        // 2. Then its escaped_top_margin (which included its own margin) was added again
++        //
++        // The correct behavior per CSS 2.2 § 8.3.1 is:
++        // - The child's escaped_top_margin is used by THIS node's parent to position THIS node
++        // - It does NOT affect how we position the child within our content-box
+ 
+         // final_pos is [CoordinateSpace::Parent] - relative to this BFC's content-box
+         let final_pos =
+@@ -1611,21 +1601,10 @@ fn layout_bfc<T: ParsedFontTrait>(
+         output.positions.insert(child_index, final_pos);
+ 
+         // Advance the pen past the child's content size
+-        // For FIRST child with escaped margin: the escaped margin was added to position,
+-        // so we need to add it to main_pen too for correct sibling positioning
+-        // For NON-FIRST children: escaped margins are internal to that child, don't affect our pen
+-        if is_first_in_flow_child && child_escaped_margin > 0.0 {
+-            main_pen += child_size.main(writing_mode) + child_escaped_margin;
+-            debug_info!(
+-                ctx,
+-                "[layout_bfc] Advanced main_pen by child_size={} + escaped={} = {} total",
+-                child_size.main(writing_mode),
+-                child_escaped_margin,
+-                main_pen
+-            );
+-        } else {
+-            main_pen += child_size.main(writing_mode);
+-        }
++        // CSS margin collapse: escaped margins are handled via accumulated_top_margin
++        // at the START of layout, not by adjusting positions after layout.
++        // We simply advance by the child's actual size.
++        main_pen += child_size.main(writing_mode);
+         has_content = true;
+ 
+         // Update last margin for next sibling
+diff --git a/layout/src/solver3/layout_tree.rs b/layout/src/solver3/layout_tree.rs
+index 3328b6733..4ba0e98ff 100644
+--- a/layout/src/solver3/layout_tree.rs
++++ b/layout/src/solver3/layout_tree.rs
+@@ -733,8 +733,10 @@ impl LayoutTreeBuilder {
+             // Inline, TableCell, etc., have their children processed as part of their
+             // formatting context layout and don't require anonymous box generation at this stage.
+             _ => {
++                // Filter out display: none children - they don't participate in layout
+                 let children: Vec<NodeId> = dom_id
+                     .az_children(&styled_dom.node_hierarchy.as_container())
++                    .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
+                     .collect();
+ 
+                 for child_dom_id in children {
+@@ -754,8 +756,10 @@ impl LayoutTreeBuilder {
+         parent_idx: usize,
+         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+     ) -> Result<()> {
++        // Filter out display: none children - they don't participate in layout
+         let children: Vec<NodeId> = parent_dom_id
+             .az_children(&styled_dom.node_hierarchy.as_container())
++            .filter(|&child_id| get_display_type(styled_dom, child_id) != LayoutDisplay::None)
+             .collect();
+ 
+         // Debug: log which children we found
+@@ -1554,6 +1558,24 @@ fn collect_box_props(
+     // Resolve to get initial box_props
+     let resolved = unresolved.resolve(&params);
+ 
++    // Debug ALL nodes with non-zero margins or vh units
++    if let Some(msgs) = debug_messages.as_mut() {
++        // Check if any margin uses vh
++        let has_vh = match &unresolved_margin.top {
++            UnresolvedMargin::Length(pv) => pv.metric == azul_css::props::basic::SizeMetric::Vh,
++            _ => false,
++        };
++        if has_vh || resolved.margin.top > 0.0 || resolved.margin.left > 0.0 {
++            msgs.push(LayoutDebugMessage::box_props(format!(
++                "NodeId {:?} ({:?}): unresolved_margin_top={:?}, resolved_margin_top={:.2}, viewport_size={:?}",
++                dom_id, node_data.node_type,
++                unresolved_margin.top,
++                resolved.margin.top,
++                viewport_size
++            )));
++        }
++    }
++
+     // Debug margin_auto detection
+     if let Some(msgs) = debug_messages.as_mut() {
+         msgs.push(LayoutDebugMessage::box_props(format!(
+diff --git a/layout/src/solver3/mod.rs b/layout/src/solver3/mod.rs
+index 85a278d81..a4a04d75e 100644
+--- a/layout/src/solver3/mod.rs
++++ b/layout/src/solver3/mod.rs
+@@ -496,6 +496,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
+             // content starts at (margin + border + padding, margin + border + padding).
+             // We pass margin-adjusted position so calculate_content_box_pos works correctly.
+             let root_node = &new_tree.nodes[root_idx];
++            
+             let is_root_with_margin = root_node.parent.is_none()
+                 && (root_node.box_props.margin.left != 0.0 || root_node.box_props.margin.top != 0.0);
+ 
+diff --git a/layout/tests/body_margin_vh.rs b/layout/tests/body_margin_vh.rs
+new file mode 100644
+index 000000000..b05184614
+--- /dev/null
++++ b/layout/tests/body_margin_vh.rs
+@@ -0,0 +1,128 @@
++/// Test body margin with vh units (like example.com)
++/// Verifies that margin: 15vh auto on body positions body correctly
++use azul_core::dom::{Dom, DomId};
++use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
++use azul_core::resources::RendererResources;
++use azul_layout::font::loading::build_font_cache;
++use azul_layout::font_traits::{FontManager, TextLayoutCache};
++use azul_layout::paged::FragmentationContext;
++use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
++use azul_layout::solver3::pagination::FakePageConfig;
++use azul_layout::text3::default::PathLoader;
++use azul_layout::xml::DomXmlExt;
++use azul_layout::Solver3LayoutCache;
++use std::collections::BTreeMap;
++
++/// Test case from example.com: body { margin: 15vh auto; }
++/// With a 768px viewport height, 15vh = 115.2px
++/// The body should be positioned at y=115.2 from the viewport top
++#[test]
++fn test_body_margin_15vh_auto() {
++    let html = r#"
++    <html>
++        <head>
++            <style>
++                html {
++                    background: #f0f0f2;
++                }
++                body {
++                    background-color: #ffffff;
++                    margin: 15vh auto;
++                    max-width: 660px;
++                    padding: 45px;
++                }
++                div {
++                    background: red;
++                    height: 50px;
++                }
++            </style>
++        </head>
++        <body>
++            <div>Content</div>
++        </body>
++    </html>
++    "#;
++
++    let styled_dom = Dom::from_xml_string(html);
++
++    // Create font cache and font manager
++    let fc_cache = build_font_cache();
++    let mut font_manager = FontManager::new(fc_cache).expect("Failed to create font manager");
++
++    // Create layout cache and text cache
++    let mut layout_cache = Solver3LayoutCache {
++        tree: None,
++        calculated_positions: BTreeMap::new(),
++        viewport: None,
++        scroll_ids: BTreeMap::new(),
++        scroll_id_to_node_id: BTreeMap::new(),
++        counters: BTreeMap::new(),
++        float_cache: BTreeMap::new(),
++        subtree_layout_cache: BTreeMap::new(),
++    };
++    let mut text_cache = TextLayoutCache::new();
++
++    // Use viewport 1024x768 like the debug output
++    let content_size = LogicalSize::new(1024.0, 768.0);
++    let fragmentation_context = FragmentationContext::new_paged(content_size);
++
++    let viewport = LogicalRect {
++        origin: LogicalPosition::zero(),
++        size: content_size,
++    };
++
++    let renderer_resources = RendererResources::default();
++    let mut debug_messages = Some(Vec::new());
++
++    let loader = PathLoader::new();
++    let font_loader = |bytes: &[u8], index: usize| loader.load_font(bytes, index);
++    let page_config = FakePageConfig::new();
++
++    let _display_lists = layout_document_paged_with_config(
++        &mut layout_cache,
++        &mut text_cache,
++        fragmentation_context,
++        styled_dom,
++        viewport,
++        &mut font_manager,
++        &BTreeMap::new(),
++        &BTreeMap::new(),
++        &mut debug_messages,
++        None,
++        &renderer_resources,
++        azul_core::resources::IdNamespace(0),
++        DomId::ROOT_ID,
++        font_loader,
++        page_config,
++    )
++    .expect("Layout should succeed");
++
++    // Get body position from layout cache
++    // Body should be at node index 1 (html is 0, body is 1)
++    let body_position = layout_cache.calculated_positions.get(&1);
++    
++    println!("Layout cache positions:");
++    for (id, pos) in &layout_cache.calculated_positions {
++        println!("  Node {}: {:?}", id, pos);
++    }
++    
++    // Expected: 15% of 768px = 115.2px
++    let expected_body_y = 768.0 * 0.15;
++    println!("Expected body Y: {:.2}", expected_body_y);
++    
++    if let Some(pos) = body_position {
++        println!("Actual body Y: {:.2}", pos.y);
++        
++        // Allow small floating-point tolerance
++        let tolerance = 1.0;
++        assert!(
++            (pos.y - expected_body_y).abs() < tolerance,
++            "Body margin-top should be ~{:.2}px (15vh), but got {:.2}px. \
++             This might indicate margin is being applied twice!",
++            expected_body_y,
++            pos.y
++        );
++    } else {
++        panic!("Body position not found in layout cache");
++    }
++}
+diff --git a/layout/tests/inline_block_text.rs b/layout/tests/inline_block_text.rs
+index 62d0febce..07304e7af 100644
+--- a/layout/tests/inline_block_text.rs
++++ b/layout/tests/inline_block_text.rs
+@@ -50,6 +50,7 @@ fn test_inline_block_text_generates_text_items() {
+         scroll_id_to_node_id: BTreeMap::new(),
+         counters: BTreeMap::new(),
+         float_cache: BTreeMap::new(),
++        subtree_layout_cache: BTreeMap::new(),
+     };
+     let mut text_cache = TextLayoutCache::new();
+ 
+@@ -264,6 +265,7 @@ fn test_text_wraps_at_constrained_width() {
+         scroll_id_to_node_id: BTreeMap::new(),
+         counters: BTreeMap::new(),
+         float_cache: BTreeMap::new(),
++        subtree_layout_cache: BTreeMap::new(),
+     };
+     let mut text_cache = TextLayoutCache::new();
+ 
+@@ -431,6 +433,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
+         scroll_id_to_node_id: BTreeMap::new(),
+         counters: BTreeMap::new(),
+         float_cache: BTreeMap::new(),
++        subtree_layout_cache: BTreeMap::new(),
+     };
+     let mut text_cache = TextLayoutCache::new();
+ 
+@@ -643,6 +646,7 @@ fn test_body_as_root_inline_block_positioning() {
+         scroll_id_to_node_id: BTreeMap::new(),
+         counters: BTreeMap::new(),
+         float_cache: BTreeMap::new(),
++        subtree_layout_cache: BTreeMap::new(),
+     };
+     let mut text_cache = TextLayoutCache::new();
+ 
+diff --git a/layout/tests/inline_gradient_border.rs b/layout/tests/inline_gradient_border.rs
+index 98779ab6f..a525f2199 100644
+--- a/layout/tests/inline_gradient_border.rs
++++ b/layout/tests/inline_gradient_border.rs
+@@ -29,6 +29,7 @@ fn run_layout(html: &str) -> Vec<DisplayListItem> {
+         scroll_id_to_node_id: BTreeMap::new(),
+         counters: BTreeMap::new(),
+         float_cache: BTreeMap::new(),
++        subtree_layout_cache: BTreeMap::new(),
+     };
+     let mut text_cache = TextLayoutCache::new();
+ 

@@ -56,7 +56,7 @@ use crate::{
     text3::cache::AvailableSpace as Text3AvailableSpace,
 };
 
-/// Cache key for memoizing layout results.
+/// Cache key for memoizing layout results (legacy global BTreeMap cache).
 /// Uses fixed-point representation for float values to enable BTreeMap usage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LayoutCacheKey {
@@ -87,7 +87,7 @@ fn f32_to_fixed(val: f32) -> i32 {
     }
 }
 
-/// Cached layout result for a node at a given available size.
+/// Cached layout result for a node at a given available size (legacy global BTreeMap cache).
 #[derive(Debug, Clone)]
 pub struct LayoutCacheValue {
     /// The computed border-box size
@@ -100,6 +100,274 @@ pub struct LayoutCacheValue {
     pub child_positions: Vec<(usize, LogicalPosition)>,
     /// Scrollbar requirements
     pub scrollbar_info: ScrollbarRequirements,
+}
+
+// ============================================================================
+// Per-Node Multi-Slot Cache (inspired by Taffy's 9+1 slot cache architecture)
+//
+// Instead of a global BTreeMap keyed by (node_index, available_size), each node
+// gets its own deterministic cache with 9 measurement slots + 1 full layout slot.
+// This eliminates O(log n) lookups, prevents slot collisions between MinContent/
+// MaxContent/Definite measurements, and cleanly separates sizing from positioning.
+//
+// Reference: https://github.com/DioxusLabs/taffy — Cache struct in src/tree/cache.rs
+// Azul improvement: cache is EXTERNAL (Vec<NodeCache> parallel to LayoutTree.nodes)
+// rather than stored on the node, keeping LayoutNode slim and avoiding &mut tree
+// for cache operations.
+// ============================================================================
+
+/// Determines whether `calculate_layout_for_subtree` should only compute
+/// the node's size (for parent's sizing pass) or perform full layout
+/// including child positioning.
+///
+/// Inspired by Taffy's `RunMode` enum. The two-mode approach enables the
+/// classic CSS two-pass layout: Pass 1 (ComputeSize) measures all children,
+/// Pass 2 (PerformLayout) positions them using the measured sizes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComputeMode {
+    /// Only compute the node's border-box size and baseline.
+    /// Does NOT store child positions. Used in BFC Pass 1 (sizing).
+    ComputeSize,
+    /// Compute size AND position all children.
+    /// Stores the full layout result including child positions.
+    /// Used in BFC Pass 2 (positioning) and as the final layout step.
+    PerformLayout,
+}
+
+/// Constraint classification for deterministic cache slot selection.
+///
+/// Inspired by Taffy's `AvailableSpace` enum. Each constraint type maps to a
+/// different cache slot, preventing collisions between e.g. MinContent and
+/// Definite measurements of the same node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AvailableWidthType {
+    /// A definite pixel value (or percentage resolved to pixels).
+    Definite,
+    /// Shrink-to-fit: the smallest size that doesn't cause overflow.
+    MinContent,
+    /// Use all available space: the largest size the content can use.
+    MaxContent,
+}
+
+/// Cache entry for sizing (ComputeSize mode) — stores NO positions.
+///
+/// This is the lightweight entry stored in the 9 measurement slots.
+/// It records what constraints were provided and what size resulted,
+/// enabling Taffy's "result matches request" optimization.
+#[derive(Debug, Clone)]
+pub struct SizingCacheEntry {
+    /// The available size that was provided as input.
+    pub available_size: LogicalSize,
+    /// The computed border-box size (output).
+    pub result_size: LogicalSize,
+    /// Baseline for inline alignment (if applicable).
+    pub baseline: Option<f32>,
+    /// First child's escaped top margin (CSS 2.2 § 8.3.1).
+    pub escaped_top_margin: Option<f32>,
+    /// Last child's escaped bottom margin (CSS 2.2 § 8.3.1).
+    pub escaped_bottom_margin: Option<f32>,
+}
+
+/// Cache entry for full layout (PerformLayout mode).
+///
+/// This is the single "final layout" slot. It includes child positions
+/// (relative to parent's content-box) and overflow/scrollbar info.
+#[derive(Debug, Clone)]
+pub struct LayoutCacheEntry {
+    /// The available size that was provided as input.
+    pub available_size: LogicalSize,
+    /// The computed border-box size (output).
+    pub result_size: LogicalSize,
+    /// Content overflow size (for scrolling).
+    pub content_size: LogicalSize,
+    /// Child positions relative to parent's content-box (NOT absolute).
+    pub child_positions: Vec<(usize, LogicalPosition)>,
+    /// First child's escaped top margin.
+    pub escaped_top_margin: Option<f32>,
+    /// Last child's escaped bottom margin.
+    pub escaped_bottom_margin: Option<f32>,
+    /// Scrollbar requirements for this node.
+    pub scrollbar_info: ScrollbarRequirements,
+}
+
+/// Per-node cache entry with 9 measurement slots + 1 full layout slot.
+///
+/// Inspired by Taffy's `Cache` struct (9+1 slots per node). The deterministic
+/// slot index is computed from the constraint combination, so entries never
+/// clobber each other (unlike the old global BTreeMap where fixed-point
+/// collisions were possible).
+///
+/// NOT stored on LayoutNode — lives in the external `LayoutCacheMap`.
+#[derive(Debug, Clone, Default)]
+pub struct NodeCache {
+    /// 9 measurement slots (Taffy's deterministic scheme):
+    /// - Slot 0: both dimensions known
+    /// - Slots 1-2: only width known (MaxContent/Definite vs MinContent)
+    /// - Slots 3-4: only height known (MaxContent/Definite vs MinContent)
+    /// - Slots 5-8: neither known (2×2 combos of width/height constraint types)
+    pub measure_entries: [Option<SizingCacheEntry>; 9],
+
+    /// 1 full layout slot (with child positions, overflow, baseline).
+    /// Only populated after PerformLayout, not after ComputeSize.
+    pub layout_entry: Option<LayoutCacheEntry>,
+
+    /// Fast check for dirty propagation (Taffy optimization).
+    /// When true, all slots are empty — ancestors are also dirty.
+    pub is_empty: bool,
+}
+
+impl NodeCache {
+    /// Clear all cache entries, marking this node as dirty.
+    pub fn clear(&mut self) {
+        self.measure_entries = [None, None, None, None, None, None, None, None, None];
+        self.layout_entry = None;
+        self.is_empty = true;
+    }
+
+    /// Compute the deterministic slot index from constraint dimensions.
+    ///
+    /// This is Taffy's slot selection scheme: given whether width/height are
+    /// "known" (definite constraint provided by parent) and what type of
+    /// constraint applies to the unknown dimension(s), we get a unique slot 0–8.
+    pub fn slot_index(
+        width_known: bool,
+        height_known: bool,
+        width_type: AvailableWidthType,
+        height_type: AvailableWidthType,
+    ) -> usize {
+        match (width_known, height_known) {
+            (true, true) => 0,
+            (true, false) => {
+                if width_type == AvailableWidthType::MinContent { 2 } else { 1 }
+            }
+            (false, true) => {
+                if height_type == AvailableWidthType::MinContent { 4 } else { 3 }
+            }
+            (false, false) => {
+                let w = if width_type == AvailableWidthType::MinContent { 1 } else { 0 };
+                let h = if height_type == AvailableWidthType::MinContent { 1 } else { 0 };
+                5 + w * 2 + h
+            }
+        }
+    }
+
+    /// Look up a sizing cache entry, implementing Taffy's "result matches request"
+    /// optimization: if the caller provides the result size as a known dimension
+    /// (common in Pass1→Pass2 transitions), it's still a cache hit.
+    pub fn get_size(&self, slot: usize, known_dims: LogicalSize) -> Option<&SizingCacheEntry> {
+        let entry = self.measure_entries[slot].as_ref()?;
+        // Exact match on input constraints
+        if (known_dims.width - entry.available_size.width).abs() < 0.1
+            && (known_dims.height - entry.available_size.height).abs() < 0.1
+        {
+            return Some(entry);
+        }
+        // "Result matches request" — if the caller provides the result size
+        // as a known dimension, it's still a hit. This is the key optimization
+        // that makes two-pass layout O(n): Pass 1 measures a node, Pass 2
+        // provides the measured size as a constraint → automatic cache hit.
+        if (known_dims.width - entry.result_size.width).abs() < 0.1
+            && (known_dims.height - entry.result_size.height).abs() < 0.1
+        {
+            return Some(entry);
+        }
+        None
+    }
+
+    /// Store a sizing result in the given slot.
+    pub fn store_size(&mut self, slot: usize, entry: SizingCacheEntry) {
+        self.measure_entries[slot] = Some(entry);
+        self.is_empty = false;
+    }
+
+    /// Look up the full layout cache entry.
+    pub fn get_layout(&self, known_dims: LogicalSize) -> Option<&LayoutCacheEntry> {
+        let entry = self.layout_entry.as_ref()?;
+        if (known_dims.width - entry.available_size.width).abs() < 0.1
+            && (known_dims.height - entry.available_size.height).abs() < 0.1
+        {
+            return Some(entry);
+        }
+        // "Result matches request" for layout too
+        if (known_dims.width - entry.result_size.width).abs() < 0.1
+            && (known_dims.height - entry.result_size.height).abs() < 0.1
+        {
+            return Some(entry);
+        }
+        None
+    }
+
+    /// Store a full layout result.
+    pub fn store_layout(&mut self, entry: LayoutCacheEntry) {
+        self.layout_entry = Some(entry);
+        self.is_empty = false;
+    }
+}
+
+/// External layout cache, parallel to `LayoutTree.nodes`.
+///
+/// `cache_map.entries[i]` holds the cache for `LayoutTree.nodes[i]`.
+/// Stored on `LayoutCache` (persists across frames).
+///
+/// This is Azul's improvement over Taffy's on-node cache:
+/// - `LayoutNode` stays slim (0 bytes overhead)
+/// - No `&mut tree` needed to read/write cache entries
+/// - Cache can be resized independently after reconciliation
+/// - O(1) indexed lookup (Vec) instead of O(log n) (BTreeMap)
+#[derive(Debug, Clone, Default)]
+pub struct LayoutCacheMap {
+    pub entries: Vec<NodeCache>,
+}
+
+impl LayoutCacheMap {
+    /// Resize to match tree length after reconciliation.
+    /// New nodes get empty (dirty) caches. Removed nodes' caches are dropped.
+    pub fn resize_to_tree(&mut self, tree_len: usize) {
+        self.entries.resize_with(tree_len, NodeCache::default);
+    }
+
+    /// O(1) lookup by layout tree index.
+    #[inline]
+    pub fn get(&self, node_index: usize) -> &NodeCache {
+        &self.entries[node_index]
+    }
+
+    /// O(1) mutable lookup by layout tree index.
+    #[inline]
+    pub fn get_mut(&mut self, node_index: usize) -> &mut NodeCache {
+        &mut self.entries[node_index]
+    }
+
+    /// Invalidate a node and propagate dirty flags upward through ancestors.
+    ///
+    /// Implements Taffy's early-stop optimization: propagation halts at the
+    /// first ancestor whose cache is already empty (i.e., already dirty).
+    /// This prevents redundant O(depth) propagation when multiple children
+    /// of the same parent are dirtied.
+    pub fn mark_dirty(&mut self, node_index: usize, tree: &[LayoutNode]) {
+        if node_index >= self.entries.len() {
+            return;
+        }
+        let cache = &mut self.entries[node_index];
+        if cache.is_empty {
+            return; // Already dirty → ancestors are too
+        }
+        cache.clear();
+
+        // Propagate upward (Taffy's early-stop optimization)
+        let mut current = tree.get(node_index).and_then(|n| n.parent);
+        while let Some(parent_idx) = current {
+            if parent_idx >= self.entries.len() {
+                break;
+            }
+            let parent_cache = &mut self.entries[parent_idx];
+            if parent_cache.is_empty {
+                break; // Stop early — ancestor already dirty
+            }
+            parent_cache.clear();
+            current = tree.get(parent_idx).and_then(|n| n.parent);
+        }
+    }
 }
 
 /// The persistent cache that holds the layout state between frames.
@@ -125,9 +393,14 @@ pub struct LayoutCache {
     /// children always have access to correct float exclusions even when layout is
     /// recalculated.
     pub float_cache: BTreeMap<usize, fc::FloatingContext>,
-    /// Memoization cache for layout results.
+    /// Per-node multi-slot cache (inspired by Taffy's 9+1 architecture).
+    /// External to LayoutTree — indexed by node index for O(1) lookup.
+    /// Persists across frames; resized after reconciliation.
+    pub cache_map: LayoutCacheMap,
+    /// Legacy memoization cache for layout results (kept temporarily for A/B comparison).
     /// Key: (node_index, available_size), Value: computed layout result.
     /// This prevents O(n²) complexity by avoiding redundant layout calculations.
+    /// TODO: Remove once per-node cache (cache_map) is fully wired in.
     pub subtree_layout_cache: BTreeMap<LayoutCacheKey, LayoutCacheValue>,
 }
 

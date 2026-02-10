@@ -476,6 +476,7 @@ impl LayoutWindow {
                 scroll_id_to_node_id: BTreeMap::new(),
                 counters: BTreeMap::new(),
                 float_cache: BTreeMap::new(),
+                cache_map: Default::default(),
                 subtree_layout_cache: BTreeMap::new(),
             },
             text_cache: TextLayoutCache::new(),
@@ -548,6 +549,7 @@ impl LayoutWindow {
                 scroll_id_to_node_id: BTreeMap::new(),
                 counters: BTreeMap::new(),
                 float_cache: BTreeMap::new(),
+                cache_map: Default::default(),
                 subtree_layout_cache: BTreeMap::new(),
             },
             text_cache: TextLayoutCache::new(),
@@ -962,6 +964,7 @@ impl LayoutWindow {
             scroll_id_to_node_id: BTreeMap::new(),
             counters: BTreeMap::new(),
             float_cache: BTreeMap::new(),
+            cache_map: Default::default(),
             subtree_layout_cache: BTreeMap::new(),
         };
         self.text_cache = TextLayoutCache::new();

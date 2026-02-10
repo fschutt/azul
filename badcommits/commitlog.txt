@@ -1,0 +1,87 @@
+commit 8e092a2e44e84a5862e141cd1bbeb77d59d96859
+Author: Felix Schütt <felix.schuett@maps4print.com>
+Date:   Tue Feb 3 23:27:01 2026 +0100
+
+    fix(layout): prevent double margin subtraction for root nodes
+    
+    - Zero out root node margin in Taffy styles since margins are already
+      accounted for in known_dimensions (viewport minus margins)
+    - Add InlineBlock formatting context handling in fc.rs
+    - Add comments clarifying margin handling in containing block calculation
+    - Remove unused collect_text_recursive function from sizing.rs
+    
+    This fixes body margin being subtracted twice, causing incorrect layout.
+
+commit 72ab2a264f299110b1e497a7624a11f07b770a11
+Author: Felix Schütt <felix.schuett@maps4print.com>
+Date:   Tue Feb 3 23:26:53 2026 +0100
+
+    fix(titlebar): use TitleBold instead of Title for window title font
+    
+    Window titles should use bold font weight, matching native OS behavior.
+    SystemFontType::TitleBold resolves to 'Helvetica Neue Bold' on macOS.
+
+
+
+---
+
+
+commit f1fcf27deb49ce33d7be9f4bcbe0b190a5fa9ead
+Author: Felix Schütt <felix.schuett@maps4print.com>
+Date:   Sat Jan 31 05:21:42 2026 +0100
+
+    Fix margin double-application bug for body with margin: 15vh auto
+    
+    - Fix accumulated_top_margin calculation: use only child_margin_top
+      instead of collapse_margins(parent, child) for first child positioning
+    - Remove incorrect child_main_pos += child_escaped_margin adjustment
+    - Simplify main_pen advancement to only use child size
+    - Remove height: 100% from HTML UA stylesheet (not standard browser behavior)
+    - Add body_margin_vh.rs test to verify 15vh margin resolves correctly
+    - Add subtree_layout_cache field to test files
+    
+    The bug caused body margins to be applied twice: once during child
+    positioning and again via escaped_top_margin propagation. Now the body
+    with margin: 15vh auto correctly positions at 115.2px (15% of 768px)
+    instead of 230.4px.
+
+commit 4bacfcac900979e26f4b14c3603d4ccaec2e83e1
+Author: Felix Schütt <felix.schuett@maps4print.com>
+Date:   Sat Jan 31 03:49:10 2026 +0100
+
+    Add UnresolvedBoxProps for lazy CSS box property resolution
+
+
+---
+
+
+commit c33e94b0169caeb44908e6dfb37e158deaf7428f
+Author: Felix Schütt <felix.schuett@maps4print.com>
+Date:   Fri Jan 30 14:32:51 2026 +0100
+
+    fix(layout): preserve whitespace-only text nodes for CSS white-space handling
+    
+    - XML parser now preserves ALL non-empty text nodes (including whitespace-only)
+    - Whitespace significance is determined by CSS white-space property at layout time
+    - For white-space: normal/nowrap: properly collapse whitespace sequences to single space
+    - Preserve inter-element spacing (e.g. '<span>A</span> <span>B</span>')
+    - Fixes missing indentation in pre-wrap code blocks
+    
+    Per CSS Text Level 3 Section 4.1.1, whitespace collapsing depends on the
+    computed white-space property, not parsing-time decisions.
+
+commit a017dcc21dad8e6be9b78b141524564db9b74631
+Author: Felix Schütt <felix.schuett@maps4print.com>
+Date:   Fri Jan 30 07:31:04 2026 +0100
+
+    Add xml perf test
+
+commit 551d15ee6db3e51364f7355125cd1e543dba51a7
+Author: Felix Schütt <felix.schuett@maps4print.com>
+Date:   Fri Jan 30 06:56:23 2026 +0100
+
+    perf(layout): optimize intrinsic sizing for IFC roots
+    
+    Reduces intrinsic size calculation from 6.66s to 60ms (~110x faster).
+    Only IFC roots now call layout_flow(), not every inline element.
+
