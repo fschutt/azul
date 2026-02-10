@@ -737,6 +737,65 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     Ok((new_tree, recon_result))
 }
 
+/// CSS 2.2 § 9.2.2.1: Checks whether an inline run consists entirely of
+/// whitespace-only text nodes, in which case it should NOT generate an
+/// anonymous IFC wrapper in a BFC mixed-content context.
+///
+/// This prevents whitespace between block elements from creating empty
+/// anonymous blocks that take up vertical space (regression c33e94b0).
+///
+/// Exception: if the parent (or any ancestor) has `white-space: pre`,
+/// `pre-wrap`, or `pre-line`, whitespace IS significant and the wrapper
+/// must still be created.
+fn is_whitespace_only_inline_run(
+    styled_dom: &StyledDom,
+    inline_run: &[(usize, NodeId)],
+    parent_dom_id: NodeId,
+) -> bool {
+    use azul_css::props::style::text::StyleWhiteSpace;
+
+    if inline_run.is_empty() {
+        return true;
+    }
+
+    // Check if the parent preserves whitespace
+    let parent_node_data = &styled_dom.node_data.as_container()[parent_dom_id];
+    let parent_state = &styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
+    let white_space = styled_dom
+        .css_property_cache
+        .ptr
+        .get_white_space(parent_node_data, &parent_dom_id, parent_state)
+        .and_then(|s| s.get_property().copied());
+
+    // If white-space preserves whitespace, don't strip
+    if matches!(
+        white_space,
+        Some(StyleWhiteSpace::Pre) | Some(StyleWhiteSpace::PreWrap) | Some(StyleWhiteSpace::PreLine)
+    ) {
+        return false;
+    }
+
+    // Check that every node in the run is a whitespace-only text node
+    let binding = styled_dom.node_data.as_container();
+    for &(_, dom_id) in inline_run {
+        if let Some(data) = binding.get(dom_id) {
+            match data.get_node_type() {
+                NodeType::Text(text) => {
+                    let s = text.as_str();
+                    if !s.chars().all(|c| c.is_whitespace()) {
+                        return false; // Non-whitespace text → must create wrapper
+                    }
+                }
+                _ => {
+                    return false; // Non-text inline element → must create wrapper
+                }
+            }
+        }
+    }
+
+    true // All nodes are whitespace-only text
+}
+
 /// Recursively traverses the new DOM and old tree, building a new tree and marking dirty nodes.
 pub fn reconcile_recursive(
     styled_dom: &StyledDom,
@@ -851,6 +910,20 @@ pub fn reconcile_recursive(
             if is_block_level(styled_dom, new_child_dom_id) {
                 // End current inline run if any
                 if !inline_run.is_empty() {
+                    // CSS 2.2 § 9.2.2.1: If the inline run consists entirely of
+                    // whitespace-only text nodes (and white-space doesn't preserve it),
+                    // skip creating the anonymous IFC wrapper. This prevents inter-block
+                    // whitespace from creating empty blocks that take up vertical space.
+                    if is_whitespace_only_inline_run(styled_dom, &inline_run, new_dom_id) {
+                        if let Some(msgs) = debug_messages.as_mut() {
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "[reconcile_recursive] Skipping whitespace-only inline run ({} nodes) between blocks in node {}",
+                                inline_run.len(),
+                                new_dom_id.index()
+                            )));
+                        }
+                        inline_run.clear();
+                    } else {
                     // Create anonymous IFC wrapper for the inline run
                     // This wrapper establishes an Inline Formatting Context
                     let anon_idx = new_tree_builder.create_anonymous_node(
@@ -889,6 +962,7 @@ pub fn reconcile_recursive(
                     // Mark anonymous wrapper as dirty for layout
                     recon.intrinsic_dirty.insert(anon_idx);
                     children_are_different = true;
+                    } // end else (non-whitespace run)
                 }
 
                 // Process block-level child directly under parent
@@ -922,6 +996,17 @@ pub fn reconcile_recursive(
 
         // Process any remaining inline run at the end
         if !inline_run.is_empty() {
+            // CSS 2.2 § 9.2.2.1: Skip whitespace-only trailing inline runs
+            if is_whitespace_only_inline_run(styled_dom, &inline_run, new_dom_id) {
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[reconcile_recursive] Skipping trailing whitespace-only inline run ({} nodes) in node {}",
+                        inline_run.len(),
+                        new_dom_id.index()
+                    )));
+                }
+                // Don't create a wrapper — just drop the run
+            } else {
             let anon_idx = new_tree_builder.create_anonymous_node(
                 new_node_idx,
                 AnonymousBoxType::InlineWrapper,
@@ -956,6 +1041,7 @@ pub fn reconcile_recursive(
 
             recon.intrinsic_dirty.insert(anon_idx);
             children_are_different = true;
+            } // end else (non-whitespace trailing run)
         }
     }
 
