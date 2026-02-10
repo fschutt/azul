@@ -281,6 +281,7 @@ impl<'a> Iterator for CssGroupIterator<'a> {
 pub fn construct_html_cascade_tree(
     node_hierarchy: &NodeHierarchyRef,
     node_depths_sorted: &[(usize, NodeId)],
+    node_data: &NodeDataContainerRef<NodeData>,
 ) -> NodeDataContainer<CascadeInfo> {
     let mut nodes = (0..node_hierarchy.len())
         .map(|_| CascadeInfo {
@@ -290,24 +291,66 @@ pub fn construct_html_cascade_tree(
         .collect::<Vec<_>>();
 
     for (_depth, parent_id) in node_depths_sorted {
-        // Note: :nth-child() starts at 1 instead of 0
-        let index_in_parent = parent_id.preceding_siblings(node_hierarchy).count();
+        // Per CSS Selectors Level 4 §13: "Standalone text and other non-element
+        // nodes are not counted when calculating the position of an element in
+        // the list of children of its parent."
+        //
+        // We count only element siblings when computing index_in_parent.
+        let element_index_in_parent = parent_id
+            .preceding_siblings(node_hierarchy)
+            .filter(|sib_id| !node_data[*sib_id].is_text_node())
+            .count();
 
         let parent_html_matcher = CascadeInfo {
-            index_in_parent: (index_in_parent - 1) as u32,
-            // Necessary for :last selectors
-            is_last_child: node_hierarchy[*parent_id].next_sibling.is_none(),
+            index_in_parent: (element_index_in_parent - 1) as u32,
+            // Necessary for :last selectors — find last element sibling
+            is_last_child: {
+                let mut is_last_element = true;
+                let mut next = node_hierarchy[*parent_id].next_sibling;
+                while let Some(sib_id) = next {
+                    if !node_data[sib_id].is_text_node() {
+                        is_last_element = false;
+                        break;
+                    }
+                    next = node_hierarchy[sib_id].next_sibling;
+                }
+                is_last_element
+            },
         };
 
         nodes[parent_id.index()] = parent_html_matcher;
 
-        for (child_idx, child_id) in parent_id.children(node_hierarchy).enumerate() {
+        // Count only element children for index_in_parent
+        let mut element_idx: u32 = 0;
+        for child_id in parent_id.children(node_hierarchy) {
+            let is_text = node_data[child_id].is_text_node();
+
+            // Find whether this is the last element child (skip trailing text nodes)
+            let is_last_element_child = if is_text {
+                false
+            } else {
+                let mut is_last = true;
+                let mut next = node_hierarchy[child_id].next_sibling;
+                while let Some(sib_id) = next {
+                    if !node_data[sib_id].is_text_node() {
+                        is_last = false;
+                        break;
+                    }
+                    next = node_hierarchy[sib_id].next_sibling;
+                }
+                is_last
+            };
+
             let child_html_matcher = CascadeInfo {
-                index_in_parent: child_idx as u32,
-                is_last_child: node_hierarchy[child_id].next_sibling.is_none(),
+                index_in_parent: element_idx,
+                is_last_child: is_last_element_child,
             };
 
             nodes[child_id.index()] = child_html_matcher;
+
+            if !is_text {
+                element_idx += 1;
+            }
         }
     }
 

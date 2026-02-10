@@ -834,7 +834,11 @@ impl StyledDom {
         let mut css_property_cache = CssPropertyCache::empty(compact_dom.node_data.len());
 
         let html_tree =
-            construct_html_cascade_tree(&compact_dom.node_hierarchy.as_ref(), &non_leaf_nodes[..]);
+            construct_html_cascade_tree(
+                &compact_dom.node_hierarchy.as_ref(),
+                &non_leaf_nodes[..],
+                &compact_dom.node_data.as_ref(),
+            );
 
         let non_leaf_nodes = non_leaf_nodes
             .iter()

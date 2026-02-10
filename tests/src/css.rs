@@ -197,7 +197,7 @@ fn test_case_issue_93() {
     let node_hierarchy = &dom.node_hierarchy;
     let node_data = &dom.node_data;
     let nodes_sorted: Vec<_> = node_hierarchy.as_ref().get_parents_sorted_by_depth();
-    let html_node_tree = construct_html_cascade_tree(&node_hierarchy.as_ref(), &nodes_sorted);
+    let html_node_tree = construct_html_cascade_tree(&node_hierarchy.as_ref(), &nodes_sorted, &node_data.as_ref());
 
     //  rules: [
     //    ".tabwidget-tab-label"                        : ColorU::BLACK,
