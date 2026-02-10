@@ -849,6 +849,7 @@ fn process_layout_children<T: ParsedFontTrait>(
                 fill: None,
                 stroke: None,
                 baseline_offset: used_height,
+                alignment: crate::solver3::getters::get_vertical_align_for_node(ctx.styled_dom, child_dom_id),
                 source_node_id: Some(child_dom_id),
             }));
         }

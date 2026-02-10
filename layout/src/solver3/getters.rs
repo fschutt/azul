@@ -26,7 +26,7 @@ use azul_css::{
         style::{
             border_radius::StyleBorderRadius,
             lists::{StyleListStylePosition, StyleListStyleType},
-            StyleTextAlign, StyleUserSelect,
+            StyleTextAlign, StyleUserSelect, StyleVerticalAlign,
         },
     },
 };
@@ -1414,6 +1414,32 @@ pub fn get_display_property(
     };
     let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     get_display_property_internal(styled_dom, id, node_state)
+}
+
+/// Reads the CSS `vertical-align` property for a DOM node and converts it to
+/// the text3 `VerticalAlign` enum used during inline layout.
+pub fn get_vertical_align_for_node(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+) -> crate::text3::cache::VerticalAlign {
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let va = styled_dom
+        .css_property_cache
+        .ptr
+        .get_vertical_align(node_data, &dom_id, &node_state)
+        .and_then(|s| s.get_property().copied())
+        .unwrap_or_default();
+    match va {
+        StyleVerticalAlign::Baseline => crate::text3::cache::VerticalAlign::Baseline,
+        StyleVerticalAlign::Top => crate::text3::cache::VerticalAlign::Top,
+        StyleVerticalAlign::Middle => crate::text3::cache::VerticalAlign::Middle,
+        StyleVerticalAlign::Bottom => crate::text3::cache::VerticalAlign::Bottom,
+        StyleVerticalAlign::Sub => crate::text3::cache::VerticalAlign::Sub,
+        StyleVerticalAlign::Superscript => crate::text3::cache::VerticalAlign::Super,
+        StyleVerticalAlign::TextTop => crate::text3::cache::VerticalAlign::TextTop,
+        StyleVerticalAlign::TextBottom => crate::text3::cache::VerticalAlign::TextBottom,
+    }
 }
 
 pub fn get_style_properties(

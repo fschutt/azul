@@ -1521,6 +1521,9 @@ pub struct InlineShape {
     pub fill: Option<ColorU>,
     pub stroke: Option<Stroke>,
     pub baseline_offset: f32,
+    /// Per-item vertical alignment (CSS `vertical-align` on the inline-block element).
+    /// This overrides the global `TextStyleOptions::vertical_align` for this shape.
+    pub alignment: VerticalAlign,
     /// The NodeId of the element that created this shape
     /// (e.g., inline-block) - this allows us to look up
     /// styling information (background, border) when rendering
@@ -1556,6 +1559,7 @@ pub struct MeasuredShape {
     pub shape_def: ShapeDefinition,
     pub size: Size,
     pub baseline_offset: f32,
+    pub alignment: VerticalAlign,
     pub content_index: usize,
 }
 
@@ -1605,6 +1609,7 @@ impl PartialEq for InlineShape {
             && self.shape_def == other.shape_def
             && self.fill == other.fill
             && self.stroke == other.stroke
+            && self.alignment == other.alignment
             && self.source_node_id == other.source_node_id
     }
 }
@@ -1617,6 +1622,7 @@ impl Hash for InlineShape {
         self.fill.hash(state);
         self.stroke.hash(state);
         self.baseline_offset.to_bits().hash(state);
+        self.alignment.hash(state);
         self.source_node_id.hash(state);
     }
 }
@@ -1633,6 +1639,7 @@ impl PartialOrd for InlineShape {
                         .unwrap_or(Ordering::Equal)
                 })
                 .then_with(|| self.baseline_offset.total_cmp(&other.baseline_offset))
+                .then_with(|| self.alignment.cmp(&other.alignment))
                 .then_with(|| self.source_node_id.cmp(&other.source_node_id)),
         )
     }
@@ -5470,6 +5477,22 @@ fn apply_text_orientation(
 // --- Stage 5 & 6 Implementation: Combined Layout Pass ---
 // This section replaces the previous simple line breaking and positioning logic.
 
+/// Extracts the per-item vertical-align from a ShapedItem.
+///
+/// For `Object` items (inline-blocks, images), this returns the alignment stored
+/// in the original `InlineContent`. For text clusters and other items, returns `None`
+/// to indicate the global `constraints.vertical_align` should be used.
+fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
+    match item {
+        ShapedItem::Object { content, .. } => match content {
+            InlineContent::Image(img) => Some(img.alignment),
+            InlineContent::Shape(shape) => Some(shape.alignment),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// Gets the ascent (distance from baseline to top) and descent (distance from baseline to bottom)
 /// for a single item.
 pub fn get_item_vertical_metrics(item: &ShapedItem) -> (f32, f32) {
@@ -6447,30 +6470,20 @@ pub fn position_one_line<T: ParsedFontTrait>(
         //
         // Vertical alignment positioning (CSS vertical-align)
         //
-        // Currently, we use `constraints.vertical_align` for ALL items on the line.
-        // This is the GLOBAL vertical alignment set on the containing block.
+        // Per CSS Inline Layout Level 3 § 4 (Baseline Alignment), each inline
+        // element can specify its own `vertical-align`. For Object items
+        // (inline-blocks, images), we use their per-item alignment stored in
+        // `InlineContent::Shape.alignment` or `InlineContent::Image.alignment`.
+        // For text clusters or items without a per-item override, we fall back
+        // to the global `constraints.vertical_align` from the containing block.
         //
-        // KNOWN LIMITATION / TODO:
-        //
-        // Per-item vertical-align (stored in `InlineImage.alignment`) is NOT used here.
-        // According to CSS, each inline element can have its own vertical-align value:
-        //   <img style="vertical-align: top"> would align to line top
-        //   <img style="vertical-align: middle"> would center in line box
-        //   <img style="vertical-align: bottom"> would align to line bottom
-        //
-        // To fix this, we would need dir_to:
-        // 1. Add a helper function `get_item_vertical_align(&item)` that extracts the alignment
-        //    from ShapedItem::Object -> InlineContent::Image -> alignment
-        // 2. Use that alignment instead of `constraints.vertical_align` for Objects
-        //
-        // For now, all items use the global alignment which works correctly for
-        // text-only content or when all images have the same alignment.
-        //
-        // Reference: CSS Inline Layout Level 3 § 4 Baseline Alignment
-        // https://www.w3.org/TR/css-inline-3/#baseline-alignment
+        // Reference: https://www.w3.org/TR/css-inline-3/#baseline-alignment
         for item in justified_segment_items {
             let (item_ascent, item_descent) = get_item_vertical_metrics(&item);
-            let item_baseline_pos = match constraints.vertical_align {
+            // Use per-item alignment if available, otherwise fall back to global
+            let effective_align = get_item_vertical_align(&item)
+                .unwrap_or(constraints.vertical_align);
+            let item_baseline_pos = match effective_align {
                 VerticalAlign::Top => line_top_y + item_ascent,
                 VerticalAlign::Middle => {
                     line_top_y + (line_box_height / 2.0) - ((item_ascent + item_descent) / 2.0)

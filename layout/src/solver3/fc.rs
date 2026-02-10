@@ -5176,6 +5176,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     stroke: None,
                     // Adjust baseline offset by top margin
                     baseline_offset: baseline_offset + margin.top,
+                    alignment: crate::solver3::getters::get_vertical_align_for_node(ctx.styled_dom, dom_id),
                     source_node_id: Some(dom_id),
                 }));
                 child_map.insert(shape_content_index, child_index);
@@ -5637,6 +5638,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 stroke: None,
                 // Adjust baseline offset by top margin
                 baseline_offset: baseline_offset + margin.top,
+                alignment: crate::solver3::getters::get_vertical_align_for_node(ctx.styled_dom, dom_id),
                 source_node_id: Some(dom_id),
             }));
             child_map.insert(shape_content_index, child_index);
@@ -5910,6 +5912,7 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     fill: None,
                     stroke: None,
                     baseline_offset,
+                    alignment: crate::solver3::getters::get_vertical_align_for_node(ctx.styled_dom, child_dom_id),
                     source_node_id: Some(child_dom_id),
                 }));
 
