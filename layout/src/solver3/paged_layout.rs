@@ -371,6 +371,15 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     // Step 1.3: Compute CSS Counters
     cache::compute_counters(&new_dom, &new_tree, &mut counter_values);
 
+    // Step 1.4: Resize and invalidate per-node cache (Taffy-inspired 9+1 slot cache)
+    cache.cache_map.resize_to_tree(new_tree.nodes.len());
+    for &node_idx in &recon_result.intrinsic_dirty {
+        cache.cache_map.mark_dirty(node_idx, &new_tree.nodes);
+    }
+    for &node_idx in &recon_result.layout_roots {
+        cache.cache_map.mark_dirty(node_idx, &new_tree.nodes);
+    }
+
     // Now create the real context with computed counters and fragmentation
     let mut subtree_layout_cache = BTreeMap::new();
     let mut ctx = LayoutContext {

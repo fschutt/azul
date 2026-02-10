@@ -427,6 +427,17 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // as list markers need counter values during formatting context layout
     cache::compute_counters(&new_dom, &new_tree, &mut counter_values);
 
+    // Step 1.4: Resize and invalidate per-node cache (Taffy-inspired 9+1 slot cache)
+    // The cache_map lives on LayoutCache and persists across frames.
+    // After reconciliation, we resize it to match the new tree and mark dirty nodes.
+    cache.cache_map.resize_to_tree(new_tree.nodes.len());
+    for &node_idx in &recon_result.intrinsic_dirty {
+        cache.cache_map.mark_dirty(node_idx, &new_tree.nodes);
+    }
+    for &node_idx in &recon_result.layout_roots {
+        cache.cache_map.mark_dirty(node_idx, &new_tree.nodes);
+    }
+
     // Now create the real context with computed counters
     let mut ctx = LayoutContext {
         styled_dom: &new_dom,
