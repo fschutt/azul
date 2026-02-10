@@ -235,6 +235,7 @@ where
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
         subtree_layout_cache: BTreeMap::new(),
+        cache_map: crate::solver3::cache::LayoutCacheMap::default(),
         system_style: None,
     };
 
@@ -354,6 +355,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
         subtree_layout_cache: BTreeMap::new(),
+        cache_map: cache::LayoutCacheMap::default(),
         system_style: None,
     };
 
@@ -372,12 +374,14 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     cache::compute_counters(&new_dom, &new_tree, &mut counter_values);
 
     // Step 1.4: Resize and invalidate per-node cache (Taffy-inspired 9+1 slot cache)
-    cache.cache_map.resize_to_tree(new_tree.nodes.len());
+    // Move cache_map out of LayoutCache for the duration of layout.
+    let mut cache_map = std::mem::take(&mut cache.cache_map);
+    cache_map.resize_to_tree(new_tree.nodes.len());
     for &node_idx in &recon_result.intrinsic_dirty {
-        cache.cache_map.mark_dirty(node_idx, &new_tree.nodes);
+        cache_map.mark_dirty(node_idx, &new_tree.nodes);
     }
     for &node_idx in &recon_result.layout_roots {
-        cache.cache_map.mark_dirty(node_idx, &new_tree.nodes);
+        cache_map.mark_dirty(node_idx, &new_tree.nodes);
     }
 
     // Now create the real context with computed counters and fragmentation
@@ -394,6 +398,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
         subtree_layout_cache,
+        cache_map,
         system_style: None,
     };
 
@@ -473,6 +478,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
                 &mut calculated_positions,
                 &mut reflow_needed_for_scrollbars,
                 &mut cache.float_cache,
+                cache::ComputeMode::PerformLayout,
             )?;
 
             // For root nodes, the position should be at (margin.left, margin.top) relative
@@ -538,12 +544,16 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         dom_id,
     )?;
 
+    // Move cache_map back into LayoutCache before dropping ctx
+    let cache_map_back = std::mem::take(&mut ctx.cache_map);
+
     cache.tree = Some(new_tree);
     cache.calculated_positions = calculated_positions;
     cache.viewport = Some(viewport);
     cache.scroll_ids = scroll_ids;
     cache.scroll_id_to_node_id = scroll_id_to_node_id;
     cache.counters = counter_values;
+    cache.cache_map = cache_map_back;
 
     Ok(display_list)
 }

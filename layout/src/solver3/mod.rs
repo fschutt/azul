@@ -184,10 +184,14 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// This is separate from selections - the cursor represents the text insertion point
     /// in a contenteditable element and should be painted independently.
     pub cursor_location: Option<(DomId, NodeId, TextCursor)>,
-    /// Memoization cache for layout results.
+    /// Memoization cache for layout results (legacy global BTreeMap).
     /// Key: (node_index, available_size), Value: computed layout result.
-    /// This prevents O(n²) complexity by avoiding redundant layout calculations.
+    /// TODO: Remove once per-node cache (cache_map) is fully wired in.
     pub subtree_layout_cache: std::collections::BTreeMap<cache::LayoutCacheKey, cache::LayoutCacheValue>,
+    /// Per-node multi-slot cache (Taffy-inspired 9+1 architecture).
+    /// Moved out of LayoutCache via std::mem::take for the duration of layout,
+    /// then moved back after the layout pass completes.
+    pub cache_map: cache::LayoutCacheMap,
     /// System style containing colors, fonts, metrics, and theme information.
     /// Used for selection colors, caret styling, and other system-themed elements.
     pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
@@ -408,6 +412,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible,
         cursor_location: cursor_location.clone(),
         subtree_layout_cache: BTreeMap::new(),
+        cache_map: cache::LayoutCacheMap::default(), // temp context doesn't need real cache
         system_style: system_style.clone(),
     };
 
@@ -428,14 +433,15 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cache::compute_counters(&new_dom, &new_tree, &mut counter_values);
 
     // Step 1.4: Resize and invalidate per-node cache (Taffy-inspired 9+1 slot cache)
-    // The cache_map lives on LayoutCache and persists across frames.
-    // After reconciliation, we resize it to match the new tree and mark dirty nodes.
-    cache.cache_map.resize_to_tree(new_tree.nodes.len());
+    // Move cache_map out of LayoutCache for the duration of layout (avoids borrow conflicts).
+    // It will be moved back after the layout pass completes.
+    let mut cache_map = std::mem::take(&mut cache.cache_map);
+    cache_map.resize_to_tree(new_tree.nodes.len());
     for &node_idx in &recon_result.intrinsic_dirty {
-        cache.cache_map.mark_dirty(node_idx, &new_tree.nodes);
+        cache_map.mark_dirty(node_idx, &new_tree.nodes);
     }
     for &node_idx in &recon_result.layout_roots {
-        cache.cache_map.mark_dirty(node_idx, &new_tree.nodes);
+        cache_map.mark_dirty(node_idx, &new_tree.nodes);
     }
 
     // Now create the real context with computed counters
@@ -451,6 +457,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible,
         cursor_location,
         subtree_layout_cache,
+        cache_map, // Moved from LayoutCache; will be moved back after layout
         system_style,
     };
 
@@ -565,6 +572,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 &mut calculated_positions,
                 &mut reflow_needed_for_scrollbars,
                 &mut cache.float_cache,
+                cache::ComputeMode::PerformLayout,
             )?;
 
             // CRITICAL: Insert the root node's own position into calculated_positions
@@ -678,12 +686,16 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         dom_id,
     )?;
 
+    // Move cache_map back into LayoutCache before dropping ctx
+    let cache_map_back = std::mem::take(&mut ctx.cache_map);
+
     cache.tree = Some(new_tree);
     cache.calculated_positions = calculated_positions;
     cache.viewport = Some(viewport);
     cache.scroll_ids = scroll_ids;
     cache.scroll_id_to_node_id = scroll_id_to_node_id;
     cache.counters = counter_values;
+    cache.cache_map = cache_map_back;
 
     Ok(display_list)
 }

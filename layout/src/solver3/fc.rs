@@ -3955,6 +3955,8 @@ fn measure_cell_min_content_width<T: ParsedFontTrait>(
         &mut temp_positions,
         &mut temp_scrollbar_reflow,
         &mut temp_float_cache,
+        // ComputeSize: we only need the resulting size, not final positions
+        crate::solver3::cache::ComputeMode::ComputeSize,
     )?;
 
     let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
@@ -4016,6 +4018,8 @@ fn measure_cell_max_content_width<T: ParsedFontTrait>(
         &mut temp_positions,
         &mut temp_scrollbar_reflow,
         &mut temp_float_cache,
+        // ComputeSize: we only need the resulting size, not final positions
+        crate::solver3::cache::ComputeMode::ComputeSize,
     )?;
 
     let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
@@ -4412,6 +4416,8 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             &mut temp_positions,
             &mut temp_scrollbar_reflow,
             &mut temp_float_cache,
+            // PerformLayout: final table cell layout with definite width
+            crate::solver3::cache::ComputeMode::PerformLayout,
         )?;
 
         let cell_node = tree.get(cell_index).ok_or(LayoutError::InvalidTree)?;
