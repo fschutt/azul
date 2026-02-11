@@ -115,11 +115,10 @@ impl SoftwareTitlebar {
     /// `SystemStyle` available for pixel-perfect metrics.
     #[inline]
     pub fn new(title: AzString) -> Self {
-        let (padding_left, padding_right) = if DEFAULT_BUTTON_SIDE_LEFT {
-            (DEFAULT_BUTTON_AREA_WIDTH, 0.0)
-        } else {
-            (0.0, DEFAULT_BUTTON_AREA_WIDTH)
-        };
+        // Equal padding on both sides keeps text-align:center at the window midpoint.
+        // The button-side half prevents overlap; the opposite half balances it.
+        let half = DEFAULT_BUTTON_AREA_WIDTH / 2.0;
+        let (padding_left, padding_right) = (half, half);
         Self {
             title,
             height: DEFAULT_TITLEBAR_HEIGHT,
@@ -188,10 +187,14 @@ impl SoftwareTitlebar {
             .map(|pv| pv.to_pixels_internal(0.0, 0.0))
             .unwrap_or(0.0);
 
-        let (padding_left, padding_right) = match tm.button_side {
-            TitlebarButtonSide::Left => (button_area + safe_left + pad_h, safe_right + pad_h),
-            TitlebarButtonSide::Right => (safe_left + pad_h, button_area + safe_right + pad_h),
-        };
+        // Equal padding on both sides so text-align:center stays at the window midpoint.
+        // button_area/2 on each side: the button-side half clears the traffic-lights/caption
+        // buttons, the opposite half balances the centering offset.
+        let half_btn = button_area / 2.0;
+        let (padding_left, padding_right) = (
+            half_btn + safe_left + pad_h,
+            half_btn + safe_right + pad_h,
+        );
 
         // Bug 8: resolve title color from system style, with dark/light fallback
         let title_color = system_style.colors.text.into_option().unwrap_or(
