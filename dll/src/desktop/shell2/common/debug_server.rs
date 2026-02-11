@@ -2649,12 +2649,50 @@ fn process_debug_event(
         }
 
         DebugEvent::HitTest { x, y } => {
-            let hit_test = callback_info.get_hit_test_frame(0);
+            use azul_core::dom::{DomId, DomNodeId};
+            use azul_core::id::NodeId;
+
+            let mut result_node_id: Option<u64> = None;
+            let mut result_tag: Option<String> = None;
+
+            // Iterate all nodes and find the deepest one whose bounds contain (x, y).
+            // Later nodes in the tree (higher NodeId) that are nested deeper will
+            // naturally be the "topmost" rendered element at that point.
+            let dom_id = DomId { inner: 0 };
+            let layout_window = callback_info.get_layout_window();
+
+            if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
+                let node_count = layout_result.styled_dom.node_data.as_container().len();
+
+                for i in 0..node_count {
+                    let node_id = NodeId::new(i);
+                    let dom_node_id = DomNodeId {
+                        dom: dom_id,
+                        node: Some(node_id).into(),
+                    };
+
+                    if let Some(rect) = callback_info.get_node_hit_test_bounds(dom_node_id) {
+                        let px = *x;
+                        let py = *y;
+                        if px >= rect.origin.x
+                            && px <= rect.origin.x + rect.size.width
+                            && py >= rect.origin.y
+                            && py <= rect.origin.y + rect.size.height
+                        {
+                            result_node_id = Some(i as u64);
+                            result_tag = callback_info
+                                .get_node_tag_name(dom_node_id)
+                                .map(|s| s.as_str().to_string());
+                        }
+                    }
+                }
+            }
+
             let response = HitTestResponse {
                 x: *x,
                 y: *y,
-                node_id: None, // TODO: extract from hit_test
-                node_tag: None,
+                node_id: result_node_id,
+                node_tag: result_tag,
             };
             send_ok(request, None, Some(ResponseData::HitTest(response)));
         }
