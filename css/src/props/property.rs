@@ -702,6 +702,12 @@ pub enum RelayoutScope {
     Full,
 }
 
+impl Default for RelayoutScope {
+    fn default() -> Self {
+        RelayoutScope::None
+    }
+}
+
 /// Represents a CSS key (for example `"border-radius"` => `BorderRadius`).
 /// You can also derive this key from a `CssProperty` by calling `CssProperty::get_type()`.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, strum_macros::EnumIter)]

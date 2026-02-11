@@ -2108,6 +2108,26 @@ fn layout_ifc<T: ParsedFontTrait>(
         return Ok(LayoutOutput::default());
     }
 
+    // === Phase 2c stub: IFC incremental relayout decision tree ===
+    //
+    // When a cached IFC layout exists and only specific items are dirty,
+    // we can potentially skip full text_cache.layout_flow() and just:
+    //   - Reshape only the dirty items (IfcOnly scope)
+    //   - Shift x_offsets for subsequent items on the same line (nowrap fast path)
+    //   - Or partial line-break reflow from the affected line onward
+    //
+    // For now, this is a no-op: we always fall through to full relayout.
+    // The item_metrics on CachedInlineLayout enable this optimization
+    // once Phase 2d is implemented.
+    let _cached_ifc = tree
+        .get(node_index)
+        .and_then(|n| n.inline_layout_result.as_ref());
+    // TODO(Phase 2d): Check dirty children's RelayoutScope via item_metrics.
+    //   If max scope is None → return cached layout directly (repaint only).
+    //   If max scope is IfcOnly and all dirty items are on nowrap lines
+    //     → reshape + shift, skip layout_flow().
+    //   Otherwise → full layout_flow() below.
+
     // Phase 2: Translate constraints and define a single layout fragment for text3.
     let text3_constraints =
         translate_to_text3_constraints(ctx, constraints, ctx.styled_dom, ifc_root_dom_id);

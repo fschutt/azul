@@ -13,6 +13,7 @@ use azul_css::{
             CaretColorValue, ColumnCountValue, ColumnFillValue, ColumnRuleColorValue,
             ColumnRuleStyleValue, ColumnRuleWidthValue, ColumnSpanValue, ColumnWidthValue,
             ContentValue, CounterIncrementValue, CounterResetValue, CssProperty, CssPropertyType,
+            RelayoutScope,
             FlowFromValue, FlowIntoValue, LayoutAlignContentValue, LayoutAlignItemsValue,
             LayoutAlignSelfValue, LayoutBorderBottomWidthValue, LayoutBorderLeftWidthValue,
             LayoutBorderRightWidthValue, LayoutBorderTopWidthValue, LayoutBoxSizingValue,
@@ -135,6 +136,17 @@ pub struct RestyleResult {
     /// Whether only GPU-level properties changed (opacity, transform)
     /// If true and needs_display_list is false, we can update via GPU without display list rebuild
     pub gpu_only_changes: bool,
+    /// The highest `RelayoutScope` seen across all property changes.
+    ///
+    /// This enables the IFC incremental layout optimization (Phase 2):
+    /// - `None`      → repaint only, zero layout work
+    /// - `IfcOnly`   → only the affected IFC needs re-shaping/repositioning
+    /// - `SizingOnly`→ this node's size changed, parent repositions siblings
+    /// - `Full`      → full subtree relayout
+    ///
+    /// When `max_relayout_scope <= IfcOnly`, the layout engine can skip
+    /// full `calculate_layout_for_subtree` and use the IFC fast path instead.
+    pub max_relayout_scope: RelayoutScope,
 }
 
 impl RestyleResult {
@@ -151,6 +163,10 @@ impl RestyleResult {
         self.needs_layout = self.needs_layout || other.needs_layout;
         self.needs_display_list = self.needs_display_list || other.needs_display_list;
         self.gpu_only_changes = self.gpu_only_changes && other.gpu_only_changes;
+        // Keep the highest (most expensive) scope
+        if other.max_relayout_scope > self.max_relayout_scope {
+            self.max_relayout_scope = other.max_relayout_scope;
+        }
     }
 }
 
@@ -1772,9 +1788,22 @@ impl StyledDom {
             for (node_id, props) in changes {
                 for change in &props {
                     let prop_type = change.current_prop.get_type();
-                    
-                    // Check if this property triggers relayout
-                    if prop_type.can_trigger_relayout() {
+
+                    // Use the granular RelayoutScope instead of the binary
+                    // can_trigger_relayout(). We pass node_is_ifc_member = true
+                    // conservatively: this means font/text property changes will
+                    // produce IfcOnly (rather than None). Phase 2c can refine
+                    // this by checking whether the node actually participates
+                    // in an IFC.
+                    let scope = prop_type.relayout_scope(/* node_is_ifc_member */ true);
+
+                    // Track the highest scope seen
+                    if scope > result.max_relayout_scope {
+                        result.max_relayout_scope = scope;
+                    }
+
+                    // Any scope above None triggers layout
+                    if scope != RelayoutScope::None {
                         result.needs_layout = true;
                         result.gpu_only_changes = false;
                     }

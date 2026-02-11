@@ -1617,6 +1617,9 @@ pub fn get_style_properties(
                 }
             });
         
+        // Get platform for resolving system font types
+        let platform = system_style.map(|ss| &ss.platform);
+
         if let Some(font_ref) = font_ref {
             // Use FontStack::Ref for embedded fonts
             FontStack::Ref(font_ref)
@@ -1625,12 +1628,48 @@ pub fn get_style_properties(
             let mut stack = Vec::with_capacity(font_families.len() + 3);
 
             for i in 0..font_families.len() {
-                stack.push(crate::text3::cache::FontSelector {
-                    family: font_families.get(i).unwrap().as_string(),
-                    weight: fc_weight,
-                    style: fc_style,
-                    unicode_ranges: Vec::new(),
-                });
+                let family = font_families.get(i).unwrap();
+
+                // Handle SystemFontType specially - resolve to actual OS font names
+                // (e.g., "system:ui" → ["System Font", "Helvetica Neue", "Lucida Grande"] on macOS)
+                if let azul_css::props::basic::font::StyleFontFamily::SystemType(system_type) = family {
+                    if let Some(platform) = platform {
+                        let font_names = system_type.get_fallback_chain(platform);
+                        let system_weight = if system_type.is_bold() {
+                            rust_fontconfig::FcWeight::Bold
+                        } else {
+                            fc_weight
+                        };
+                        let system_style_val = if system_type.is_italic() {
+                            crate::text3::cache::FontStyle::Italic
+                        } else {
+                            fc_style
+                        };
+                        for font_name in font_names {
+                            stack.push(crate::text3::cache::FontSelector {
+                                family: font_name.to_string(),
+                                weight: system_weight,
+                                style: system_style_val,
+                                unicode_ranges: Vec::new(),
+                            });
+                        }
+                    } else {
+                        // No platform info - fall back to generic sans-serif
+                        stack.push(crate::text3::cache::FontSelector {
+                            family: "sans-serif".to_string(),
+                            weight: fc_weight,
+                            style: fc_style,
+                            unicode_ranges: Vec::new(),
+                        });
+                    }
+                } else {
+                    stack.push(crate::text3::cache::FontSelector {
+                        family: family.as_string(),
+                        weight: fc_weight,
+                        style: fc_style,
+                        unicode_ranges: Vec::new(),
+                    });
+                }
             }
 
             // Add generic fallbacks (serif/sans-serif will be resolved based on Unicode ranges later)

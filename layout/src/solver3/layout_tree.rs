@@ -151,6 +151,32 @@ pub enum DirtyFlag {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct SubtreeHash(pub u64);
 
+/// Per-item metrics cached from the last IFC layout.
+///
+/// These metrics enable incremental IFC relayout (Phase 2 optimization):
+/// when a single inline item changes, we can check whether its advance width
+/// changed and potentially skip full line-breaking for unaffected lines.
+///
+/// Index in `CachedInlineLayout::item_metrics` matches the item order in
+/// `UnifiedLayout::items`.
+#[derive(Debug, Clone)]
+pub struct InlineItemMetrics {
+    /// The DOM NodeId of the source node for this item (for dirty checking).
+    /// `None` for generated content (list markers, hyphens, etc.)
+    pub source_node_id: Option<NodeId>,
+    /// Advance width of this item (glyph run width, inline-block width, etc.)
+    pub advance_width: f32,
+    /// Advance height contribution from this item to its line box.
+    pub line_height_contribution: f32,
+    /// Whether this item can participate in line breaking.
+    /// `false` for items inside `white-space: nowrap` or `white-space: pre`.
+    pub can_break: bool,
+    /// Which line this item was placed on (0-indexed).
+    pub line_index: u32,
+    /// X offset within its line.
+    pub x_offset: f32,
+}
+
 /// Cached inline layout result with the constraints used to compute it.
 ///
 /// This structure solves a fundamental architectural problem: inline layouts
@@ -182,6 +208,14 @@ pub struct CachedInlineLayout {
     /// The full constraints used to compute this layout.
     /// Used for quick relayout after text edits without rebuilding from CSS.
     pub constraints: Option<UnifiedConstraints>,
+    /// Per-item metrics for incremental IFC relayout (Phase 2).
+    ///
+    /// Each entry corresponds to one `PositionedItem` in `layout.items`.
+    /// These metrics enable the IFC relayout decision tree:
+    /// - Check if a dirty node's advance_width changed → skip repositioning if not
+    /// - Use `can_break` + `line_index` for the nowrap fast path
+    /// - Use `x_offset` for shifting subsequent items without full line-breaking
+    pub item_metrics: Vec<InlineItemMetrics>,
 }
 
 impl CachedInlineLayout {
@@ -191,11 +225,13 @@ impl CachedInlineLayout {
         available_width: AvailableSpace,
         has_floats: bool,
     ) -> Self {
+        let item_metrics = Self::extract_item_metrics(&layout);
         Self {
             layout,
             available_width,
             has_floats,
             constraints: None,
+            item_metrics,
         }
     }
 
@@ -206,12 +242,56 @@ impl CachedInlineLayout {
         has_floats: bool,
         constraints: UnifiedConstraints,
     ) -> Self {
+        let item_metrics = Self::extract_item_metrics(&layout);
         Self {
             layout,
             available_width,
             has_floats,
             constraints: Some(constraints),
+            item_metrics,
         }
+    }
+
+    /// Extracts per-item metrics from a computed `UnifiedLayout`.
+    ///
+    /// This is called automatically by the constructors. The metrics
+    /// enable incremental IFC relayout in Phase 2c/2d by providing
+    /// cached advance widths, line assignments, and break information
+    /// for each positioned item.
+    fn extract_item_metrics(layout: &UnifiedLayout) -> Vec<InlineItemMetrics> {
+        use crate::text3::cache::{ShapedItem, get_item_vertical_metrics};
+
+        layout.items.iter().map(|positioned_item| {
+            let bounds = positioned_item.item.bounds();
+            let (ascent, descent) = get_item_vertical_metrics(&positioned_item.item);
+
+            let source_node_id = match &positioned_item.item {
+                ShapedItem::Cluster(c) => c.source_node_id,
+                // Objects (inline-blocks, images) and other generated items
+                // don't expose source_node_id directly on ShapedItem.
+                // Phase 2c will refine this via the ContentIndex mapping.
+                ShapedItem::Object { .. }
+                | ShapedItem::CombinedBlock { .. }
+                | ShapedItem::Tab { .. }
+                | ShapedItem::Break { .. } => None,
+            };
+
+            // For Phase 2a, default can_break = true for all items.
+            // Phase 2c will refine this by checking the white-space property
+            // on the IFC root's style or the item's own style context.
+            // (Note: text3::StyleProperties doesn't carry white-space;
+            //  that's resolved at the IFC/BFC boundary level.)
+            let can_break = !matches!(&positioned_item.item, ShapedItem::Break { .. });
+
+            InlineItemMetrics {
+                source_node_id,
+                advance_width: bounds.width,
+                line_height_contribution: ascent + descent,
+                can_break,
+                line_index: positioned_item.line_index as u32,
+                x_offset: positioned_item.position.x,
+            }
+        }).collect()
     }
 
     /// Checks if this cached layout is valid for the given constraints.

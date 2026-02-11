@@ -96,8 +96,6 @@ fn build_container_style(height: f32) -> CssPropertyWithConditionsVec {
         CssProperty::const_height(LayoutHeight::const_px(height as isize)),
     ));
     
-    // Transparent background (relies on window material)
-    
     CssPropertyWithConditionsVec::from_vec(props)
 }
 
