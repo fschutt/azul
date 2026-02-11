@@ -56,12 +56,14 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     int written = snprintf(buffer, 20, "%d", d.ptr->counter);
     MyDataModelRef_delete(&d);
 
-    // Counter label
+    // Counter label (wrapped in a div to make it block-level)
     AzString label_text = AzString_copyFromBytes((const uint8_t*)buffer, 0, written);
     AzDom label = AzDom_createText(label_text);
-    AzDom_addCssProperty(&label, AzCssPropertyWithConditions_simple(
+    AzDom label_wrapper = AzDom_createDiv();
+    AzDom_addCssProperty(&label_wrapper, AzCssPropertyWithConditions_simple(
         AzCssProperty_fontSize(AzStyleFontSize_px(32.0))
     ));
+    AzDom_addChild(&label_wrapper, label);
 
     // Button
     AzButton button = AzButton_create(AZ_STR("Increase counter"));
@@ -72,7 +74,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 
     // Body
     AzDom body = AzDom_createBody();
-    AzDom_addChild(&body, label);
+    AzDom_addChild(&body, label_wrapper);
     AzDom_addChild(&body, button_dom);
 
     return AzDom_style(&body, AzCss_empty());
