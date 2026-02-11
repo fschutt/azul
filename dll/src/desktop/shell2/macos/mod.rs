@@ -76,9 +76,9 @@ use crate::desktop::{
         WindowProperties,
     },
     wr_translate2::{
-        default_renderer_options, translate_document_id_wr, translate_id_namespace_wr,
-        wr_translate_document_id, wr_translate_pipeline_id, AsyncHitTester,
-        Compositor as WrCompositor, Notifier, WrRenderApi, WrTransaction, WR_SHADER_CACHE,
+        create_program_cache, default_renderer_options, translate_document_id_wr,
+        translate_id_namespace_wr, wr_translate_document_id, wr_translate_pipeline_id,
+        AsyncHitTester, Compositor as WrCompositor, Notifier, WrRenderApi, WrTransaction,
     },
 };
 
@@ -2599,7 +2599,7 @@ impl MacOSWindow {
         let (mut renderer, sender) = webrender::create_webrender_instance(
             gl_funcs.clone(),
             Box::new(notifier),
-            default_renderer_options(&options),
+            default_renderer_options(&options, create_program_cache(&gl_funcs)),
             None, // shaders cache
         )
         .map_err(|e| {

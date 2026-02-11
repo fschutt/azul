@@ -70,6 +70,8 @@ pub mod menu_renderer;
 pub mod shell2;
 /// WebRender type translations and hit-testing for shell2
 pub mod wr_translate2;
+/// Shader disk cache for WebRender program binaries
+pub mod shader_cache;
 /// Font & image resource handling, lookup and caching
 pub mod resources {
     pub use azul_core::resources::*;

@@ -53,7 +53,7 @@ pub use webrender::{
 };
 
 use crate::desktop::shell2::common::debug_server::LogCategory;
-use crate::log_debug;
+use crate::{log_debug, log_info};
 
 /// Asynchronous hit tester that can be in "requested" or "resolved" state
 pub enum AsyncHitTester {
@@ -119,12 +119,54 @@ impl WrRenderNotifier for Notifier {
     }
 }
 
-/// Shader cache (TODO: implement proper caching)
-pub const WR_SHADER_CACHE: Option<&Rc<RefCell<webrender::Shaders>>> = None;
+/// Create a ProgramCache backed by an on-disk shader cache.
+///
+/// Queries the GL context for renderer + version strings, creates a
+/// `ShaderDiskCache` keyed on that info, loads any previously-cached
+/// binaries, and returns the `Rc<ProgramCache>` ready to be passed
+/// into `WebRenderOptions.cached_programs`.
+///
+/// Returns `None` if the cache directory cannot be created or GL
+/// strings are unavailable (e.g. CPU fallback).
+pub fn create_program_cache(
+    gl: &Rc<azul_core::gl::GenericGlContext>,
+) -> Option<Rc<webrender::ProgramCache>> {
+    use crate::desktop::shader_cache::ShaderDiskCache;
+
+    let renderer_name = gl.get_string(azul_core::gl::RENDERER);
+    let version_string = gl.get_string(azul_core::gl::VERSION);
+
+    if renderer_name.is_empty() || version_string.is_empty() {
+        return None;
+    }
+
+    let disk_cache = ShaderDiskCache::new(&renderer_name, &version_string)?;
+
+    // Create a second ShaderDiskCache pointing at the same directory
+    // so we can pre-load cached binaries before the observer is moved
+    // into the ProgramCache (which takes ownership).
+    let loader = ShaderDiskCache::new(&renderer_name, &version_string)?;
+
+    // Create ProgramCache with the disk observer
+    let program_cache = webrender::ProgramCache::new(Some(Box::new(disk_cache)));
+
+    // Pre-load any existing cached binaries from disk
+    let count = loader.load_all_from_disk(&program_cache);
+    if count > 0 {
+        log_info!(
+            LogCategory::Rendering,
+            "[Shader Cache] Loaded {} cached shader binaries from disk",
+            count
+        );
+    }
+
+    Some(program_cache)
+}
 
 /// Default WebRender renderer options
 pub fn default_renderer_options(
     options: &azul_layout::window_state::WindowCreateOptions,
+    cached_programs: Option<Rc<webrender::ProgramCache>>,
 ) -> WrRendererOptions {
     use azul_core::window::WindowBackgroundMaterial;
     use azul_css::props::basic::color::ColorU;
@@ -160,9 +202,10 @@ pub fn default_renderer_options(
         debug_flags: wr_translate_debug_flags(&options.window_state.debug_state),
         // Shader precaching: use EMPTY to avoid blocking startup with full compilation.
         // Shaders will be compiled on-demand when first needed by the renderer.
-        // TODO Phase 2: Implement disk cache for compiled shader binaries
-        // (glGetProgramBinary/glProgramBinary) so even lazy compilation is instant.
+        // When a disk cache is present, shaders are loaded via glProgramBinary
+        // which is near-instant (<1ms per shader).
         precache_flags: ShaderPrecacheFlags::EMPTY,
+        cached_programs,
         ..WrRendererOptions::default()
     }
 }

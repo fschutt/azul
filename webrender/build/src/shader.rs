@@ -46,7 +46,7 @@ impl ShaderVersion {
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone, Default)]
 #[cfg_attr(feature = "serialize_program", derive(Deserialize, Serialize))]
-pub struct ProgramSourceDigest(u64);
+pub struct ProgramSourceDigest(pub u64);
 
 impl ::std::fmt::Display for ProgramSourceDigest {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {

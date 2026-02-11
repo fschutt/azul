@@ -796,13 +796,13 @@ impl ProgramSourceInfo {
 
 #[cfg_attr(feature = "serialize_program", derive(Deserialize, Serialize))]
 pub struct ProgramBinary {
-    bytes: Vec<u8>,
-    format: gl::GLenum,
-    source_digest: ProgramSourceDigest,
+    pub bytes: Vec<u8>,
+    pub format: gl::GLenum,
+    pub source_digest: ProgramSourceDigest,
 }
 
 impl ProgramBinary {
-    fn new(bytes: Vec<u8>, format: gl::GLenum, source_digest: ProgramSourceDigest) -> Self {
+    pub fn new(bytes: Vec<u8>, format: gl::GLenum, source_digest: ProgramSourceDigest) -> Self {
         ProgramBinary {
             bytes,
             format,
@@ -895,7 +895,6 @@ impl ProgramCache {
 
     /// Load ProgramBinary to ProgramCache.
     /// The function is typically used to load ProgramBinary from disk.
-    #[cfg(feature = "serialize_program")]
     pub fn load_program_binary(&self, program_binary: Arc<ProgramBinary>) {
         let digest = program_binary.source_digest.clone();
         let entry = ProgramCacheEntry {

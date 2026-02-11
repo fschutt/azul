@@ -1414,7 +1414,10 @@ impl WaylandWindow {
             Box::new(Notifier {
                 new_frame_ready: new_frame_ready.clone(),
             }),
-            wr_translate2::default_renderer_options(options),
+            wr_translate2::default_renderer_options(
+                options,
+                wr_translate2::create_program_cache(&gl_functions.functions),
+            ),
             None,
         )
         .map_err(|e| WindowError::PlatformError(format!("WebRender init failed: {:?}", e)))?;

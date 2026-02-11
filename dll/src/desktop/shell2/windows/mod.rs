@@ -71,8 +71,8 @@ use crate::desktop::{
         Compositor, WindowError, WindowProperties,
     },
     wr_translate2::{
-        default_renderer_options, translate_document_id_wr, translate_id_namespace_wr,
-        wr_translate_document_id, AsyncHitTester, Notifier, WR_SHADER_CACHE,
+        create_program_cache, default_renderer_options, translate_document_id_wr,
+        translate_id_namespace_wr, wr_translate_document_id, AsyncHitTester, Notifier,
     },
 };
 
@@ -344,7 +344,7 @@ impl Win32Window {
             Box::new(Notifier {
                 new_frame_ready: new_frame_ready.clone(),
             }),
-            default_renderer_options(&options),
+            default_renderer_options(&options, create_program_cache(&gl_functions.functions)),
             None, // shader cache
         )
         .map_err(|e| WindowError::PlatformError(format!("WebRender error: {:?}", e)))?;
