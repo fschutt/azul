@@ -38,6 +38,20 @@ use crate::{
     },
 };
 
+// ── Native OS discovery via dlopen (feature = "system") ──────────────────
+
+#[cfg(all(feature = "system", target_os = "macos"))]
+#[path = "system_native_macos.rs"]
+mod native_macos;
+
+#[cfg(all(feature = "system", target_os = "windows"))]
+#[path = "system_native_windows.rs"]
+mod native_windows;
+
+#[cfg(all(feature = "system", target_os = "linux"))]
+#[path = "system_native_linux.rs"]
+mod native_linux;
+
 // --- Public Data Structures ---
 
 /// Represents the detected platform.
@@ -117,6 +131,18 @@ pub struct SystemStyle {
     pub icon_style: IconStyleOptions,
     /// Scrollbar style information (boxed to ensure stable FFI size)
     pub scrollbar: Option<Box<ComputedScrollbarStyle>>,
+    /// Detailed accessibility settings (superset of prefers_reduced_motion / prefers_high_contrast)
+    pub accessibility: AccessibilitySettings,
+    /// Input interaction timing / distance thresholds from the OS
+    pub input: InputMetrics,
+    /// Text rendering / anti-aliasing hints from the OS
+    pub text_rendering: TextRenderingHints,
+    /// Focus ring / indicator visual style
+    pub focus_visuals: FocusVisuals,
+    /// OS-level scrollbar visibility / click-behaviour preferences
+    pub scrollbar_preferences: ScrollbarPreferences,
+    /// Linux-specific customisation (icon theme, cursor theme, GTK theme, ...)
+    pub linux: LinuxCustomization,
 }
 
 /// Icon-specific styling options for accessibility and theming.
@@ -620,6 +646,182 @@ impl TitlebarMetrics {
     }
 }
 
+// ── Input interaction metrics ────────────────────────────────────────────
+
+/// Input interaction timing and distance thresholds from the OS.
+///
+/// These values are queried from the operating system to match the user's
+/// configured double-click speed, drag sensitivity, caret blink rate, etc.
+///
+/// # Platform APIs
+/// - **macOS:** `NSEvent.doubleClickInterval`
+/// - **Windows:** `GetDoubleClickTime()`, `GetSystemMetrics(SM_CXDOUBLECLK)`,
+///   `GetCaretBlinkTime()`, `SystemParametersInfo(SPI_GETWHEELSCROLLLINES)`
+/// - **Linux:** XDG Desktop Portal / gsettings
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct InputMetrics {
+    /// Max milliseconds between clicks to register a double-click.
+    pub double_click_time_ms: u32,
+    /// Max pixels the mouse can move between clicks and still count.
+    pub double_click_distance_px: f32,
+    /// Pixels the mouse must move while held down before a drag starts.
+    pub drag_threshold_px: f32,
+    /// Caret blink rate in milliseconds (0 = no blink).
+    pub caret_blink_rate_ms: u32,
+    /// Lines to scroll per mouse wheel notch.
+    pub wheel_scroll_lines: u32,
+}
+
+impl Default for InputMetrics {
+    fn default() -> Self {
+        Self {
+            double_click_time_ms: 500,
+            double_click_distance_px: 4.0,
+            drag_threshold_px: 5.0,
+            caret_blink_rate_ms: 530,
+            wheel_scroll_lines: 3,
+        }
+    }
+}
+
+// ── Text rendering hints ─────────────────────────────────────────────────
+
+/// Subpixel rendering layout for font smoothing.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub enum SubpixelType {
+    /// No subpixel rendering (grayscale anti-aliasing only).
+    #[default]
+    None,
+    /// Horizontal RGB subpixel layout (most common for LCD monitors).
+    Rgb,
+    /// Horizontal BGR subpixel layout.
+    Bgr,
+    /// Vertical RGB subpixel layout.
+    VRgb,
+    /// Vertical BGR subpixel layout.
+    VBgr,
+}
+
+/// Text rendering configuration from the OS.
+///
+/// These hints allow the framework to match the host's font smoothing
+/// settings for crisp, consistent text rendering.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct TextRenderingHints {
+    /// Whether font smoothing (anti-aliasing) is enabled.
+    pub font_smoothing_enabled: bool,
+    /// Subpixel rendering type.
+    pub subpixel_type: SubpixelType,
+    /// Font smoothing gamma (1000 = default, higher = more contrast).
+    pub font_smoothing_gamma: u32,
+    /// User prefers increased text contrast.
+    pub increased_contrast: bool,
+}
+
+impl Default for TextRenderingHints {
+    fn default() -> Self {
+        Self {
+            font_smoothing_enabled: true,
+            subpixel_type: SubpixelType::None,
+            font_smoothing_gamma: 1000,
+            increased_contrast: false,
+        }
+    }
+}
+
+// ── Focus ring visuals ───────────────────────────────────────────────────
+
+/// Focus ring / indicator visual style.
+///
+/// When an element receives keyboard focus the OS typically draws a visible
+/// ring or border.  These values come from the OS preferences.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct FocusVisuals {
+    /// Focus ring / indicator colour.
+    /// macOS: `NSColor.keyboardFocusIndicatorColor`
+    pub focus_ring_color: OptionColorU,
+    /// Width of focus border / ring.
+    /// Windows: `SystemParametersInfo(SPI_GETFOCUSBORDERWIDTH)`
+    pub focus_border_width: OptionPixelValue,
+    /// Height of focus border / ring.
+    pub focus_border_height: OptionPixelValue,
+}
+
+// ── Scrollbar preferences ────────────────────────────────────────────────
+
+/// When scrollbars should be shown (OS-level preference).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub enum ScrollbarVisibility {
+    /// Always show scrollbars.
+    Always,
+    /// Show only while scrolling, then fade out.
+    #[default]
+    WhenScrolling,
+    /// Automatic: depends on input device (trackpad → overlay, mouse → always).
+    Automatic,
+}
+
+/// What happens when clicking the scrollbar track area.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub enum ScrollbarTrackClick {
+    /// Jump to the clicked position.
+    JumpToPosition,
+    /// Scroll by one page.
+    #[default]
+    PageUpDown,
+}
+
+/// OS-level scrollbar behaviour preferences.
+///
+/// These are separate from the CSS scrollbar *appearance* (`ComputedScrollbarStyle`).
+/// They control *when* scrollbars appear and *how* clicking the track behaves.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct ScrollbarPreferences {
+    /// How scrollbars should be shown.
+    /// macOS: `NSScroller.preferredScrollerStyle`
+    pub visibility: ScrollbarVisibility,
+    /// What happens when clicking the scrollbar track.
+    pub track_click: ScrollbarTrackClick,
+}
+
+impl Default for ScrollbarPreferences {
+    fn default() -> Self {
+        Self {
+            visibility: ScrollbarVisibility::WhenScrolling,
+            track_click: ScrollbarTrackClick::PageUpDown,
+        }
+    }
+}
+
+// ── Linux-specific customisation ─────────────────────────────────────────
+
+/// Linux-specific customisation settings.
+///
+/// Read from GTK / KDE / XDG settings on Linux; `Default` (all `None` / 0)
+/// on other platforms.
+#[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
+pub struct LinuxCustomization {
+    /// GTK theme name (e.g. "Adwaita", "Breeze", "Numix").
+    pub gtk_theme: OptionString,
+    /// Icon theme name (e.g. "Papirus", "Numix", "Breeze").
+    pub icon_theme: OptionString,
+    /// Cursor theme name (e.g. "Breeze_Snow", "DMZ-Black").
+    pub cursor_theme: OptionString,
+    /// Cursor size in pixels (0 = unset / use OS default).
+    pub cursor_size: u32,
+    /// GTK button layout string (e.g. "close,minimize,maximize:menu").
+    /// Determines button side and order for CSD titlebars on Linux.
+    pub titlebar_button_layout: OptionString,
+}
+
 /// Apple system font family names for font fallback chains.
 /// 
 /// These are the canonical names for Apple's system fonts, which should
@@ -900,9 +1102,39 @@ impl SystemStyle {
     /// If the "io" feature is disabled, this returns a hard-coded, deterministic
     /// style based on the target operating system.
     pub fn detect() -> Self {
-        // Step 1: Get the base style (either from I/O or hardcoded defaults).
+        // Step 1: Get the base style.
+        //
+        // Priority order:
+        //   1. `system` feature → native OS APIs via dlopen / FFI (most accurate)
+        //   2. `io` feature     → CLI-based discovery (slower, text-parsing)
+        //   3. neither          → hard-coded compile-time defaults
         let mut style = {
-            #[cfg(feature = "io")]
+            // ── Priority 1: native dlopen discovery ──────────────────────
+            #[cfg(feature = "system")]
+            {
+                #[cfg(target_os = "macos")]
+                {
+                    native_macos::discover()
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    native_windows::discover()
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    native_linux::discover()
+                }
+                #[cfg(not(any(
+                    target_os = "macos",
+                    target_os = "windows",
+                    target_os = "linux",
+                )))]
+                {
+                    Self::default()
+                }
+            }
+            // ── Priority 2: CLI-based discovery ──────────────────────────
+            #[cfg(all(not(feature = "system"), feature = "io"))]
             {
                 #[cfg(target_os = "linux")]
                 {
@@ -933,11 +1165,11 @@ impl SystemStyle {
                 )))]
                 {
                     Self::default()
-                } // Fallback for unknown OS
+                }
             }
-            #[cfg(not(feature = "io"))]
+            // ── Priority 3: hard-coded compile-time defaults ─────────────
+            #[cfg(not(any(feature = "system", feature = "io")))]
             {
-                // Return hard-coded defaults based on compile-time target
                 #[cfg(target_os = "windows")]
                 {
                     defaults::windows_11_light()
@@ -2292,6 +2524,7 @@ pub mod defaults {
             os_version: OsVersion::WIN_11,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 
@@ -2328,6 +2561,7 @@ pub mod defaults {
             os_version: OsVersion::WIN_11,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 
@@ -2364,6 +2598,7 @@ pub mod defaults {
             os_version: OsVersion::WIN_7,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 
@@ -2400,6 +2635,7 @@ pub mod defaults {
             os_version: OsVersion::WIN_XP,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 
@@ -2439,6 +2675,7 @@ pub mod defaults {
             os_version: OsVersion::MACOS_SONOMA,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 
@@ -2483,6 +2720,7 @@ pub mod defaults {
             os_version: OsVersion::MACOS_SONOMA,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 
@@ -2518,6 +2756,7 @@ pub mod defaults {
             os_version: OsVersion::MACOS_TIGER,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 
@@ -2554,6 +2793,7 @@ pub mod defaults {
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 
@@ -2588,6 +2828,7 @@ pub mod defaults {
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 
@@ -2621,6 +2862,7 @@ pub mod defaults {
             os_version: OsVersion::LINUX_2_6,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 
@@ -2654,6 +2896,7 @@ pub mod defaults {
             os_version: OsVersion::LINUX_6_0,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 
@@ -2689,6 +2932,7 @@ pub mod defaults {
             os_version: OsVersion::ANDROID_14,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 
@@ -2722,6 +2966,7 @@ pub mod defaults {
             os_version: OsVersion::ANDROID_ICE_CREAM_SANDWICH,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 
@@ -2755,6 +3000,7 @@ pub mod defaults {
             os_version: OsVersion::IOS_17,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            ..Default::default()
         }
     }
 }
