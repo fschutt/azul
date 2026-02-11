@@ -176,6 +176,21 @@ pub fn regenerate_layout(
             true,         // has maximize
             system_style, // pass SystemStyle for native look
         )
+    } else if current_window_state.flags.decorations
+        == azul_core::window::WindowDecorations::NoTitleAutoInject
+    {
+        // Auto-inject a SoftwareTitlebar at the top of the user's DOM.
+        // The titlebar is a regular layout widget with DragStart/Drag/DoubleClick
+        // callbacks — no special event-system hooks required.
+        log_debug!(
+            LogCategory::Layout,
+            "[regenerate_layout] Auto-injecting SoftwareTitlebar (NoTitleAutoInject)"
+        );
+        inject_software_titlebar(
+            user_styled_dom,
+            &current_window_state.title,
+            system_style,
+        )
     } else {
         user_styled_dom
     };
@@ -528,4 +543,32 @@ pub fn generate_frame(
     wr_translate2::generate_frame(&mut txn, layout_window, render_api, true, gl_context);
 
     render_api.send_transaction(wr_translate2::wr_translate_document_id(document_id), txn);
+}
+
+/// Wrap the user's `StyledDom` with a `SoftwareTitlebar` at the top.
+///
+/// The titlebar carries DragStart / Drag / DoubleClick callbacks so that the
+/// window can be moved and maximized through regular `CallbackInfo` APIs
+/// (gesture manager + `modify_window_state`).  No special event-system hooks
+/// are needed.
+fn inject_software_titlebar(
+    user_dom: azul_core::styled_dom::StyledDom,
+    window_title: &str,
+    system_style: &SystemStyle,
+) -> azul_core::styled_dom::StyledDom {
+    use azul_layout::widgets::titlebar::SoftwareTitlebar;
+
+    let titlebar = SoftwareTitlebar::from_system_style(
+        window_title.into(),
+        system_style,
+    );
+    let mut titlebar_dom = titlebar.dom();
+
+    // Style the titlebar DOM (all properties are inline — no external CSS needed)
+    let titlebar_styled = titlebar_dom.style(azul_css::css::Css::empty());
+
+    let mut container = azul_core::styled_dom::StyledDom::default();
+    container.append_child(titlebar_styled);
+    container.append_child(user_dom);
+    container
 }

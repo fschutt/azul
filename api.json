@@ -28002,6 +28002,7 @@
               {
                 "Normal": {},
                 "NoTitle": {},
+                "NoTitleAutoInject": {},
                 "NoControls": {},
                 "None": {}
               }
@@ -32113,15 +32114,21 @@
                 }
               },
               {
-                "container_style": {
-                  "type": "CssPropertyWithConditionsVec",
-                  "doc": ["Style for the titlebar container"]
+                "font_size": {
+                  "type": "f32",
+                  "doc": ["Font size for the title text in pixels"]
                 }
               },
               {
-                "title_style": {
-                  "type": "CssPropertyWithConditionsVec",
-                  "doc": ["Style for the title text"]
+                "padding_left": {
+                  "type": "f32",
+                  "doc": ["Extra padding on the left side (px) for window control buttons"]
+                }
+              },
+              {
+                "padding_right": {
+                  "type": "f32",
+                  "doc": ["Extra padding on the right side (px) for window control buttons"]
                 }
               }
             ],

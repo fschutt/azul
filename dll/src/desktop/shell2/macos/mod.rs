@@ -2485,7 +2485,7 @@ impl MacOSWindow {
                 WindowDecorations::Normal => {
                     // Already has default decorations, nothing to do
                 }
-                WindowDecorations::NoTitle => {
+                WindowDecorations::NoTitle | WindowDecorations::NoTitleAutoInject => {
                     // Extended frame: controls visible but no title
                     style_mask.insert(NSWindowStyleMask::FullSizeContentView);
                     window.setStyleMask(style_mask);
@@ -3590,7 +3590,7 @@ impl MacOSWindow {
                         .setTitleVisibility(NSWindowTitleVisibility::Visible);
                 }
             }
-            WindowDecorations::NoTitle => {
+            WindowDecorations::NoTitle | WindowDecorations::NoTitleAutoInject => {
                 // Extended frame: controls visible but no title
                 style_mask.insert(NSWindowStyleMask::Titled);
                 style_mask.insert(NSWindowStyleMask::Closable);

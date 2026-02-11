@@ -912,8 +912,17 @@ pub enum WindowFrame {
 pub enum WindowDecorations {
     /// Full decorations: title bar with controls
     Normal,
-    /// No title text but controls visible (extended frame)
+    /// No title text but controls visible (extended frame).
+    /// The application must draw its own title text.
     NoTitle,
+    /// Like `NoTitle`, but the framework auto-injects a `SoftwareTitlebar`
+    /// at the top of the user's DOM after calling the layout callback.
+    ///
+    /// The injected titlebar reads `TitlebarMetrics` from `SystemStyle` for
+    /// correct padding around the OS-drawn window control buttons, uses the
+    /// system title font, and carries the `__azul-native-titlebar` class for
+    /// automatic window-drag activation.
+    NoTitleAutoInject,
     /// No controls visible but title bar area present
     NoControls,
     /// No decorations at all (borderless)

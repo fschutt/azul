@@ -93,7 +93,7 @@ pub fn create_hwnd(
                 // Full decorations: WS_OVERLAPPEDWINDOW
                 WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_TABSTOP
             }
-            WindowDecorations::NoTitle => {
+            WindowDecorations::NoTitle | WindowDecorations::NoTitleAutoInject => {
                 // Extended frame: controls visible but no title text
                 // On Windows, we still use full decorations but will hide title via DWM later
                 WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_TABSTOP

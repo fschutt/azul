@@ -3446,7 +3446,8 @@ fn is_hit_on_titlebar(
             |id_or_class| {
                 matches!(
                     id_or_class,
-                    IdOrClass::Class(c) if c.as_str() == "csd-title" || c.as_str() == "csd-titlebar"
+                    IdOrClass::Class(c) if c.as_str() == "csd-title"
+                        || c.as_str() == "csd-titlebar"
                 )
             },
         );
