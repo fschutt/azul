@@ -25,7 +25,7 @@
 //! # Key Types
 //!
 //! - `ProcessEventResult`: DoNothing / RequestRedraw / RegenerateAndRedraw
-//! - `SoftwareTitlebar`: Titlebar widget with drag / close / min / max callbacks
+//! - `Titlebar`: Titlebar widget with drag / close / min / max callbacks
 //! - `ScrollbarDragState`: Tracks scrollbar dragging across events
 
 #![allow(dead_code)]

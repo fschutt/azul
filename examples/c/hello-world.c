@@ -92,7 +92,7 @@ int main() {
     window.window_state.size.dimensions.height = 300.0;
 
     // NoTitleAutoInject: OS draws close/min/max buttons,
-    // framework auto-injects a SoftwareTitlebar with drag support.
+    // framework auto-injects a Titlebar with drag support.
     window.window_state.flags.decorations = AzWindowDecorations_NoTitleAutoInject;
     window.window_state.flags.background_material = AzWindowBackgroundMaterial_Sidebar;
 

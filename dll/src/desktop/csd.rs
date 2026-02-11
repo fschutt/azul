@@ -5,10 +5,10 @@
 //! window controls (close, minimize, maximize) is automatically injected
 //! into the user's DOM.
 //!
-//! All button/drag logic lives in [`azul_layout::widgets::titlebar::SoftwareTitlebar`].
+//! All button/drag logic lives in [`azul_layout::widgets::titlebar::Titlebar`].
 //! This module is just the integration layer that:
 //!   1. Decides *whether* to inject a titlebar (`should_inject_csd`)
-//!   2. Creates a `SoftwareTitlebar` from the live `SystemStyle`
+//!   2. Creates a `Titlebar` from the live `SystemStyle`
 //!   3. Styles it with the CSD stylesheet (`SystemStyle::create_csd_stylesheet`)
 //!   4. Optionally injects a menu bar below the titlebar
 
@@ -22,13 +22,13 @@ use azul_core::{
 };
 use azul_css::{css::Css, system::SystemStyle};
 use azul_layout::callbacks::CallbackInfo;
-use azul_layout::widgets::titlebar::SoftwareTitlebar;
+use azul_layout::widgets::titlebar::Titlebar;
 
 use crate::desktop::menu_renderer::SystemStyleMenuExt;
 use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::log_debug;
 
-// ── Menu bar callback (not part of SoftwareTitlebar) ─────────────────────
+// ── Menu bar callback (not part of Titlebar) ───────────────────────────
 
 /// Callback for menu bar items - shows dropdown menu below the item
 extern "C" fn csd_menubar_item_callback(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
@@ -85,11 +85,11 @@ extern "C" fn csd_menubar_item_callback(data: &mut RefAny, info: &mut CallbackIn
     Update::DoNothing
 }
 
-// ── Titlebar creation (delegates to SoftwareTitlebar) ────────────────────
+// ── Titlebar creation (delegates to Titlebar) ────────────────────────
 
 /// Create a CSD titlebar `StyledDom` with window controls using `SystemStyle`.
 ///
-/// Builds a [`SoftwareTitlebar`] in full-CSD mode (`dom_with_buttons`),
+/// Builds a [`Titlebar`] in full-CSD mode (`dom_with_buttons`),
 /// then styles it with the CSD stylesheet from `SystemStyle`.
 pub fn create_titlebar_styled_dom(
     title: &str,
@@ -97,7 +97,7 @@ pub fn create_titlebar_styled_dom(
 ) -> StyledDom {
     let tm = &system_style.metrics.titlebar;
 
-    let titlebar = SoftwareTitlebar::from_system_style_csd(
+    let titlebar = Titlebar::from_system_style_csd(
         title.into(),
         system_style,
     );
@@ -166,7 +166,7 @@ pub fn should_inject_csd(has_decorations: bool, decorations: WindowDecorations) 
 /// Inject CSD titlebar and/or menu into user's DOM.
 ///
 /// Creates a container `StyledDom` and appends:
-/// 1. Titlebar with close/min/max buttons (via [`SoftwareTitlebar::dom_with_buttons`])
+/// 1. Titlebar with close/min/max buttons (via [`Titlebar::dom_with_buttons`])
 /// 2. Menu bar (if the root node carries a `Menu`)
 /// 3. User's content DOM
 pub fn wrap_user_dom_with_decorations(

@@ -74818,8 +74818,8 @@
             ],
             "repr": "C"
           },
-          "SoftwareTitlebar": {
-            "external": "azul_layout::widgets::titlebar::SoftwareTitlebar",
+          "Titlebar": {
+            "external": "azul_layout::widgets::titlebar::Titlebar",
             "custom_impls": [
               "Default"
             ],
@@ -74861,13 +74861,13 @@
                     "title": "String"
                   }
                 ],
-                "fn_body": "azul_layout::widgets::titlebar::SoftwareTitlebar::new(title)"
+                "fn_body": "azul_layout::widgets::titlebar::Titlebar::new(title)"
               }
             },
             "functions": {
               "dom": {
                 "doc": [
-                  "Convert this titlebar into a DOM tree"
+                  "Convert this titlebar into a title-only DOM tree (no window control buttons)"
                 ],
                 "fn_args": [
                   {
@@ -74878,6 +74878,26 @@
                   "type": "Dom"
                 },
                 "fn_body": "object.dom()"
+              },
+              "domWithButtons": {
+                "doc": [
+                  "Convert this titlebar into a full CSD DOM tree with close/minimize/maximize buttons"
+                ],
+                "fn_args": [
+                  {
+                    "self": "value"
+                  },
+                  {
+                    "buttons": "TitlebarButtons"
+                  },
+                  {
+                    "button_side": "TitlebarButtonSide"
+                  }
+                ],
+                "returns": {
+                  "type": "Dom"
+                },
+                "fn_body": "object.dom_with_buttons(&buttons, button_side)"
               }
             },
             "repr": "C"

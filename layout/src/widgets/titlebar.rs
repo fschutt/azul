@@ -60,25 +60,29 @@ const DEFAULT_BUTTON_SIDE_LEFT: bool = false;
 const DEFAULT_TITLE_COLOR_LIGHT: ColorU = ColorU { r: 76, g: 76, b: 76, a: 255 };  // #4c4c4c
 const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU { r: 229, g: 229, b: 229, a: 255 }; // #e5e5e5
 
-// ── SoftwareTitlebar ─────────────────────────────────────────────────────
+// ── Titlebar ─────────────────────────────────────────────────────────────
 
-/// A software-rendered titlebar with optional close / minimize / maximize
+/// A titlebar widget with optional close / minimize / maximize
 /// buttons, drag-to-move, and double-click-to-maximize.
 ///
 /// # Two modes
 ///
-/// 1. **Title-only** ([`SoftwareTitlebar::dom`], the default for
+/// 1. **Title-only** ([`Titlebar::dom`], the default for
 ///    `WindowDecorations::NoTitleAutoInject`):
 ///    The OS still draws the native window-control buttons (traffic lights on
 ///    macOS, caption buttons on Windows).  The titlebar reserves
 ///    `padding_left` / `padding_right` so the title text doesn't overlap them.
 ///
-/// 2. **Full CSD** ([`SoftwareTitlebar::dom_with_buttons`], used when
+/// 2. **Full CSD** ([`Titlebar::dom_with_buttons`], used when
 ///    `WindowDecorations::None` + `has_decorations`):
 ///    The titlebar renders its own close / minimize / maximize buttons as
 ///    regular DOM nodes.  Each button carries a plain `MouseDown` callback
 ///    that calls `CallbackInfo::modify_window_state()` — exactly the same
 ///    mechanism used for window dragging.  No special event-system hooks.
+///
+/// Window-control buttons use `Dom::create_icon("close")` etc. so that
+/// icons are resolved through the icon provider system (Material Icons
+/// by default) and can be swapped out by registering a different icon pack.
 ///
 /// # Button layout
 ///
@@ -93,7 +97,7 @@ const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU { r: 229, g: 229, b: 229, a: 255
 /// These match the output of `SystemStyle::create_csd_stylesheet()`.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
-pub struct SoftwareTitlebar {
+pub struct Titlebar {
     /// The title text to display.
     pub title: AzString,
     /// Height of the titlebar in CSS pixels.
@@ -108,10 +112,10 @@ pub struct SoftwareTitlebar {
     pub title_color: ColorU,
 }
 
-impl SoftwareTitlebar {
+impl Titlebar {
     /// Create a titlebar with compile-time platform defaults.
     ///
-    /// Use [`SoftwareTitlebar::from_system_style`] when you have a
+    /// Use [`Titlebar::from_system_style`] when you have a
     /// `SystemStyle` available for pixel-perfect metrics.
     #[inline]
     pub fn new(title: AzString) -> Self {
@@ -129,7 +133,7 @@ impl SoftwareTitlebar {
         }
     }
 
-    /// FFI-compatible alias for [`SoftwareTitlebar::new`].
+    /// FFI-compatible alias for [`Titlebar::new`].
     #[inline]
     pub fn create(title: AzString) -> Self {
         Self::new(title)
@@ -158,7 +162,7 @@ impl SoftwareTitlebar {
     /// Swap this titlebar with a default instance, returning the old value.
     #[inline]
     pub fn swap_with_default(&mut self) -> Self {
-        let mut s = SoftwareTitlebar::new(AzString::from_const_str(""));
+        let mut s = Titlebar::new(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
     }
@@ -437,7 +441,7 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
         ]);
         children.push(Dom::create_div()
             .with_ids_and_classes(classes)
-            .with_child(Dom::create_text("\u{2212}"))  // −
+            .with_child(Dom::create_icon("minimize"))
             .with_callbacks(vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseDown),
                 callback: CoreCallback {
@@ -456,7 +460,7 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
         ]);
         children.push(Dom::create_div()
             .with_ids_and_classes(classes)
-            .with_child(Dom::create_text("\u{25A1}"))  // □
+            .with_child(Dom::create_icon("maximize"))
             .with_callbacks(vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseDown),
                 callback: CoreCallback {
@@ -475,7 +479,7 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
         ]);
         children.push(Dom::create_div()
             .with_ids_and_classes(classes)
-            .with_child(Dom::create_text("\u{00D7}"))  // ×
+            .with_child(Dom::create_icon("close"))
             .with_callbacks(vec![CoreCallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseDown),
                 callback: CoreCallback {
@@ -492,13 +496,13 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
         .with_children(DomVec::from_vec(children))
 }
 
-impl From<SoftwareTitlebar> for Dom {
-    fn from(t: SoftwareTitlebar) -> Dom { t.dom() }
+impl From<Titlebar> for Dom {
+    fn from(t: Titlebar) -> Dom { t.dom() }
 }
 
-impl Default for SoftwareTitlebar {
+impl Default for Titlebar {
     fn default() -> Self {
-        SoftwareTitlebar::new(AzString::from_const_str(""))
+        Titlebar::new(AzString::from_const_str(""))
     }
 }
 

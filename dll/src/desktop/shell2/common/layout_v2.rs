@@ -177,12 +177,12 @@ pub fn regenerate_layout(
     } else if current_window_state.flags.decorations
         == azul_core::window::WindowDecorations::NoTitleAutoInject
     {
-        // Auto-inject a SoftwareTitlebar at the top of the user's DOM.
+        // Auto-inject a Titlebar at the top of the user's DOM.
         // The titlebar is a regular layout widget with DragStart/Drag/DoubleClick
         // callbacks — no special event-system hooks required.
         log_debug!(
             LogCategory::Layout,
-            "[regenerate_layout] Auto-injecting SoftwareTitlebar (NoTitleAutoInject)"
+            "[regenerate_layout] Auto-injecting Titlebar (NoTitleAutoInject)"
         );
         inject_software_titlebar(
             user_styled_dom,
@@ -543,7 +543,7 @@ pub fn generate_frame(
     render_api.send_transaction(wr_translate2::wr_translate_document_id(document_id), txn);
 }
 
-/// Wrap the user's `StyledDom` with a `SoftwareTitlebar` at the top.
+/// Wrap the user's `StyledDom` with a `Titlebar` at the top.
 ///
 /// The titlebar carries DragStart / Drag / DoubleClick callbacks so that the
 /// window can be moved and maximized through regular `CallbackInfo` APIs
@@ -554,9 +554,9 @@ fn inject_software_titlebar(
     window_title: &str,
     system_style: &SystemStyle,
 ) -> azul_core::styled_dom::StyledDom {
-    use azul_layout::widgets::titlebar::SoftwareTitlebar;
+    use azul_layout::widgets::titlebar::Titlebar;
 
-    let titlebar = SoftwareTitlebar::from_system_style(
+    let titlebar = Titlebar::from_system_style(
         window_title.into(),
         system_style,
     );

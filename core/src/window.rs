@@ -915,7 +915,7 @@ pub enum WindowDecorations {
     /// No title text but controls visible (extended frame).
     /// The application must draw its own title text.
     NoTitle,
-    /// Like `NoTitle`, but the framework auto-injects a `SoftwareTitlebar`
+    /// Like `NoTitle`, but the framework auto-injects a `Titlebar`
     /// at the top of the user's DOM after calling the layout callback.
     ///
     /// The injected titlebar reads `TitlebarMetrics` from `SystemStyle` for
