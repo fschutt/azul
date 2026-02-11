@@ -366,10 +366,8 @@ pub fn parse_grid_template<'a>(input: &'a str) -> Result<GridTemplate, GridParse
             ' ' if paren_depth == 0 => {
                 if !current.trim().is_empty() {
                     let track_str = current.trim().to_string();
-                    tracks.push(
-                        parse_grid_track_owned(&track_str)
-                            .map_err(|_| GridParseError::InvalidValue(input))?,
-                    );
+                    parse_grid_track_or_repeat(&track_str, &mut tracks)
+                        .map_err(|_| GridParseError::InvalidValue(input))?;
                     current.clear();
                 }
             }
@@ -379,14 +377,65 @@ pub fn parse_grid_template<'a>(input: &'a str) -> Result<GridTemplate, GridParse
 
     if !current.trim().is_empty() {
         let track_str = current.trim().to_string();
-        tracks.push(
-            parse_grid_track_owned(&track_str).map_err(|_| GridParseError::InvalidValue(input))?,
-        );
+        parse_grid_track_or_repeat(&track_str, &mut tracks)
+            .map_err(|_| GridParseError::InvalidValue(input))?;
     }
 
     Ok(GridTemplate {
         tracks: GridTrackSizingVec::from_vec(tracks),
     })
+}
+
+/// Parse a single grid track token, which may be `repeat(N, track)` or a plain track.
+/// For `repeat(N, track_list)`, the tracks are expanded inline.
+#[cfg(feature = "parser")]
+fn parse_grid_track_or_repeat(input: &str, tracks: &mut Vec<GridTrackSizing>) -> Result<(), ()> {
+    let input = input.trim();
+
+    // Handle repeat(N, track_list)
+    if input.starts_with("repeat(") && input.ends_with(')') {
+        let content = &input[7..input.len() - 1];
+        // Find the first comma that separates the count from the track list
+        let comma_pos = content.find(',').ok_or(())?;
+        let count_str = content[..comma_pos].trim();
+        let track_list_str = content[comma_pos + 1..].trim();
+
+        let count: usize = count_str.parse().map_err(|_| ())?;
+        if count == 0 || count > 10000 {
+            return Err(());
+        }
+
+        // Parse the track list (may contain multiple space-separated tracks)
+        let mut repeat_tracks = Vec::new();
+        let mut current = String::new();
+        let mut paren_depth = 0;
+        for ch in track_list_str.chars() {
+            match ch {
+                '(' => { paren_depth += 1; current.push(ch); }
+                ')' => { paren_depth -= 1; current.push(ch); }
+                ' ' if paren_depth == 0 => {
+                    if !current.trim().is_empty() {
+                        repeat_tracks.push(parse_grid_track_owned(current.trim())?);
+                        current.clear();
+                    }
+                }
+                _ => current.push(ch),
+            }
+        }
+        if !current.trim().is_empty() {
+            repeat_tracks.push(parse_grid_track_owned(current.trim())?);
+        }
+
+        // Expand: repeat N times
+        for _ in 0..count {
+            tracks.extend(repeat_tracks.iter().cloned());
+        }
+        return Ok(());
+    }
+
+    // Plain single track
+    tracks.push(parse_grid_track_owned(input)?);
+    Ok(())
 }
 
 #[cfg(feature = "parser")]
@@ -1065,5 +1114,54 @@ mod tests {
     fn test_parse_grid_placement_zero_line() {
         let result = parse_grid_placement("0").unwrap();
         assert!(matches!(result.grid_start, GridLine::Line(0)));
+    }
+
+    // repeat() tests
+    #[test]
+    fn test_parse_grid_template_repeat_fr() {
+        let result = parse_grid_template("repeat(3, 1fr)").unwrap();
+        assert_eq!(result.tracks.len(), 3);
+        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fr(100)));
+        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::Fr(100)));
+        assert!(matches!(result.tracks.as_ref()[2], GridTrackSizing::Fr(100)));
+    }
+
+    #[test]
+    fn test_parse_grid_template_repeat_px() {
+        let result = parse_grid_template("repeat(2, 100px)").unwrap();
+        assert_eq!(result.tracks.len(), 2);
+        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fixed(_)));
+        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::Fixed(_)));
+    }
+
+    #[test]
+    fn test_parse_grid_template_repeat_multiple_tracks() {
+        // repeat(2, 100px 1fr) should expand to [100px, 1fr, 100px, 1fr]
+        let result = parse_grid_template("repeat(2, 100px 1fr)").unwrap();
+        assert_eq!(result.tracks.len(), 4);
+        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fixed(_)));
+        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::Fr(100)));
+        assert!(matches!(result.tracks.as_ref()[2], GridTrackSizing::Fixed(_)));
+        assert!(matches!(result.tracks.as_ref()[3], GridTrackSizing::Fr(100)));
+    }
+
+    #[test]
+    fn test_parse_grid_template_repeat_with_other_tracks() {
+        // "100px repeat(2, 1fr) auto" should produce [100px, 1fr, 1fr, auto]
+        let result = parse_grid_template("100px repeat(2, 1fr) auto").unwrap();
+        assert_eq!(result.tracks.len(), 4);
+        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::Fixed(_)));
+        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::Fr(100)));
+        assert!(matches!(result.tracks.as_ref()[2], GridTrackSizing::Fr(100)));
+        assert!(matches!(result.tracks.as_ref()[3], GridTrackSizing::Auto));
+    }
+
+    #[test]
+    fn test_parse_grid_template_repeat_minmax() {
+        let result = parse_grid_template("repeat(3, minmax(100px, 1fr))").unwrap();
+        assert_eq!(result.tracks.len(), 3);
+        assert!(matches!(result.tracks.as_ref()[0], GridTrackSizing::MinMax(_)));
+        assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::MinMax(_)));
+        assert!(matches!(result.tracks.as_ref()[2], GridTrackSizing::MinMax(_)));
     }
 }

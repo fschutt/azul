@@ -245,6 +245,18 @@ pub fn layout_justify_content_to_taffy(val: LayoutJustifyContentValue) -> taffy:
     }
 }
 
+pub fn layout_justify_items_to_taffy(
+    val: azul_css::props::property::LayoutJustifyItemsValue,
+) -> taffy::AlignItems {
+    use azul_css::props::layout::grid::LayoutJustifyItems;
+    match val.get_property_or_default().unwrap_or_default() {
+        LayoutJustifyItems::Start => taffy::AlignItems::Start,
+        LayoutJustifyItems::End => taffy::AlignItems::End,
+        LayoutJustifyItems::Center => taffy::AlignItems::Center,
+        LayoutJustifyItems::Stretch => taffy::AlignItems::Stretch,
+    }
+}
+
 // TODO: gap, grid, visibility, z_index, flex_basis, etc. analog ergänzen
 // --- CSS <-> Taffy Übersetzungsfunktionen ---
 
@@ -618,6 +630,16 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     }
                 }),
         );
+        taffy_style.justify_items = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::JustifyItems)
+            .and_then(|p| {
+                if let CssProperty::JustifyItems(v) = p {
+                    Some(*v)
+                } else {
+                    None
+                }
+            })
+            .map(|v| layout_justify_items_to_taffy(v));
         taffy_style.justify_content = Some(
             cache
                 .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
@@ -690,6 +712,22 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             .and_then(|p| {
                 if let CssProperty::AlignSelf(v) = p {
                     layout_align_self_to_taffy(*v)
+                } else {
+                    None
+                }
+            });
+        taffy_style.justify_self = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::JustifySelf)
+            .and_then(|p| {
+                if let CssProperty::JustifySelf(v) = p {
+                    use azul_css::props::layout::grid::LayoutJustifySelf;
+                    match v.get_property_or_default().unwrap_or_default() {
+                        LayoutJustifySelf::Auto => None,
+                        LayoutJustifySelf::Start => Some(taffy::AlignSelf::Start),
+                        LayoutJustifySelf::End => Some(taffy::AlignSelf::End),
+                        LayoutJustifySelf::Center => Some(taffy::AlignSelf::Center),
+                        LayoutJustifySelf::Stretch => Some(taffy::AlignSelf::Stretch),
+                    }
                 } else {
                     None
                 }

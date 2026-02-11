@@ -442,8 +442,9 @@ pub fn reposition_clean_subtrees(
 }
 
 /// Convert LayoutOverflow to OverflowBehavior
+/// CSS Overflow Module Level 3: initial value of `overflow` is `visible`.
 pub fn to_overflow_behavior(overflow: MultiValue<LayoutOverflow>) -> fc::OverflowBehavior {
-    match overflow.unwrap_or_default() {
+    match overflow.unwrap_or(LayoutOverflow::Visible) {
         LayoutOverflow::Visible => fc::OverflowBehavior::Visible,
         LayoutOverflow::Hidden | LayoutOverflow::Clip => fc::OverflowBehavior::Hidden,
         LayoutOverflow::Scroll => fc::OverflowBehavior::Scroll,

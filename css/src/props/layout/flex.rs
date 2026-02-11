@@ -593,8 +593,8 @@ pub fn parse_layout_align_items<'a>(
     match input.trim() {
         "stretch" => Ok(LayoutAlignItems::Stretch),
         "center" => Ok(LayoutAlignItems::Center),
-        "flex-start" => Ok(LayoutAlignItems::Start),
-        "flex-end" => Ok(LayoutAlignItems::End),
+        "start" | "flex-start" => Ok(LayoutAlignItems::Start),
+        "end" | "flex-end" => Ok(LayoutAlignItems::End),
         "baseline" => Ok(LayoutAlignItems::Baseline),
         _ => Err(AlignItemsParseError::InvalidValue(input)),
     }
@@ -997,6 +997,14 @@ mod tests {
             LayoutAlignItems::End
         );
         assert_eq!(
+            parse_layout_align_items("start").unwrap(),
+            LayoutAlignItems::Start
+        );
+        assert_eq!(
+            parse_layout_align_items("end").unwrap(),
+            LayoutAlignItems::End
+        );
+        assert_eq!(
             parse_layout_align_items("center").unwrap(),
             LayoutAlignItems::Center
         );
@@ -1004,7 +1012,7 @@ mod tests {
             parse_layout_align_items("baseline").unwrap(),
             LayoutAlignItems::Baseline
         );
-        assert!(parse_layout_align_items("end").is_err());
+        assert!(parse_layout_align_items("invalid").is_err());
     }
 
     #[test]
