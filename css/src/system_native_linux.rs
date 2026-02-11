@@ -308,6 +308,54 @@ fn discover_linux_extras(style: &mut super::SystemStyle) {
             }
         }
     }
+
+    // ── Animation metrics ────────────────────────────────────────────
+    if let Some(anim_s) = gsettings_get("org.gnome.desktop.interface", "enable-animations") {
+        let enabled = anim_s.trim() != "false";
+        style.animation.animations_enabled = enabled;
+        if !enabled {
+            style.prefers_reduced_motion = crate::dynamic_selector::BoolCondition::True;
+            style.accessibility.prefers_reduced_motion = true;
+        }
+    }
+
+    // ── Audio metrics ────────────────────────────────────────────────
+    if let Some(ev) = gsettings_get("org.gnome.desktop.sound", "event-sounds") {
+        style.audio.event_sounds_enabled = ev.trim() != "false";
+    }
+    if let Some(inp) = gsettings_get("org.gnome.desktop.sound", "input-feedback-sounds") {
+        style.audio.input_feedback_sounds_enabled = inp.trim() != "false";
+    }
+
+    // ── Visual hints ─────────────────────────────────────────────────
+    // Note: these keys are deprecated in newer GNOME (3.28+) but still
+    // respected by many GTK apps.  Safe to query; returns None if absent.
+    if let Some(v) = gsettings_get("org.gnome.desktop.interface", "menus-have-icons") {
+        style.visual_hints.show_menu_images = v.trim() != "false";
+    }
+    if let Some(v) = gsettings_get("org.gnome.desktop.interface", "buttons-have-icons") {
+        style.visual_hints.show_button_images = v.trim() != "false";
+    }
+    if let Some(v) = gsettings_get("org.gnome.desktop.interface", "toolbar-style") {
+        style.visual_hints.toolbar_style = match v.trim() {
+            "text" => super::ToolbarStyle::TextOnly,
+            "both" => super::ToolbarStyle::TextBelowIcon,
+            "both-horiz" => super::ToolbarStyle::TextBesideIcon,
+            _ => super::ToolbarStyle::IconsOnly,
+        };
+    }
+
+    // ── Input extras (caret blink) ───────────────────────────────────
+    if let Some(blink) = gsettings_get("org.gnome.desktop.interface", "cursor-blink") {
+        if blink.trim() == "false" {
+            style.input.caret_blink_rate_ms = 0;
+        }
+    }
+    if let Some(blink_time) = gsettings_get("org.gnome.desktop.interface", "cursor-blink-time") {
+        if let Ok(ms) = blink_time.trim().parse::<u32>() {
+            style.input.caret_blink_rate_ms = ms;
+        }
+    }
 }
 
 // ── Public entry point ───────────────────────────────────────────────────

@@ -345,6 +345,9 @@ pub(super) fn discover() -> super::SystemStyle {
             };
 
             style.text_rendering.increased_contrast = increase_contrast;
+
+            // ── 6b. Animation metrics from accessibility ─────────────
+            style.animation.animations_enabled = !reduce_motion;
         }
 
         // ── 7. OS version from NSProcessInfo ─────────────────────────
@@ -387,5 +390,15 @@ pub(super) fn discover() -> super::SystemStyle {
     }
 
     style.platform = super::Platform::MacOs;
+
+    // macOS HIG: fixed visual hints
+    style.visual_hints = super::VisualHints {
+        show_button_images: false,  // macOS HIG: standard push buttons don't show icons
+        show_menu_images: true,     // menus can show icons
+        toolbar_style: super::ToolbarStyle::IconsOnly, // default toolbar style
+        show_tooltips: true,
+        flash_on_alert: true,
+    };
+
     style
 }

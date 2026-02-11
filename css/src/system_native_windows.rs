@@ -32,6 +32,11 @@ const SM_CXVSCROLL: i32 = 2;
 const SPI_GETFONTSMOOTHING: u32 = 0x004A;
 const SPI_GETFONTSMOOTHINGTYPE: u32 = 0x200A;
 const SPI_GETWHEELSCROLLLINES: u32 = 0x0068;
+const SPI_GETMOUSEHOVERTIME: u32 = 0x0066;
+const SPI_GETCLIENTAREAANIMATION: u32 = 0x1042;
+const SPI_GETKEYBOARDCUES: u32 = 0x100A;
+const SPI_GETBEEP: u32 = 0x0001;
+const SPI_GETCARETWIDTH: u32 = 0x2006;
 
 const FE_FONTSMOOTHINGSTANDARD: u32 = 1;
 const FE_FONTSMOOTHINGCLEARTYPE: u32 = 2;
@@ -141,15 +146,29 @@ pub(super) fn discover() -> super::SystemStyle {
             double_click_distance_px: (u32_lib.GetSystemMetrics)(SM_CXDOUBLECLK) as f32,
             drag_threshold_px:       (u32_lib.GetSystemMetrics)(SM_CXDRAG) as f32,
             caret_blink_rate_ms:     (u32_lib.GetCaretBlinkTime)(),
+            caret_width_px: {
+                let mut w: u32 = 1;
+                (u32_lib.SystemParametersInfoW)(
+                    SPI_GETCARETWIDTH, 0,
+                    &mut w as *mut u32 as *mut c_void, 0,
+                );
+                w as f32
+            },
             wheel_scroll_lines: {
                 let mut lines: u32 = 3;
                 (u32_lib.SystemParametersInfoW)(
-                    SPI_GETWHEELSCROLLLINES,
-                    0,
-                    &mut lines as *mut u32 as *mut c_void,
-                    0,
+                    SPI_GETWHEELSCROLLLINES, 0,
+                    &mut lines as *mut u32 as *mut c_void, 0,
                 );
                 lines
+            },
+            hover_time_ms: {
+                let mut hover: u32 = 400;
+                (u32_lib.SystemParametersInfoW)(
+                    SPI_GETMOUSEHOVERTIME, 0,
+                    &mut hover as *mut u32 as *mut c_void, 0,
+                );
+                hover
             },
         };
 
@@ -214,6 +233,47 @@ pub(super) fn discover() -> super::SystemStyle {
             if luma < 128 {
                 style.theme = super::Theme::Dark;
             }
+        }
+
+        // ── Animation metrics ────────────────────────────────────────
+        {
+            let mut anim: i32 = 1;
+            (u32_lib.SystemParametersInfoW)(
+                SPI_GETCLIENTAREAANIMATION, 0,
+                &mut anim as *mut i32 as *mut c_void, 0,
+            );
+            let mut kb_cues: i32 = 0;
+            (u32_lib.SystemParametersInfoW)(
+                SPI_GETKEYBOARDCUES, 0,
+                &mut kb_cues as *mut i32 as *mut c_void, 0,
+            );
+            style.animation = super::AnimationMetrics {
+                animations_enabled: anim != 0,
+                animation_duration_factor: 1.0,
+                focus_indicator_behavior: if kb_cues != 0 {
+                    super::FocusBehavior::AlwaysVisible
+                } else {
+                    super::FocusBehavior::KeyboardOnly
+                },
+            };
+            if anim == 0 {
+                style.prefers_reduced_motion =
+                    crate::dynamic_selector::BoolCondition::True;
+                style.accessibility.prefers_reduced_motion = true;
+            }
+        }
+
+        // ── Audio metrics ────────────────────────────────────────────
+        {
+            let mut beep: i32 = 1;
+            (u32_lib.SystemParametersInfoW)(
+                SPI_GETBEEP, 0,
+                &mut beep as *mut i32 as *mut c_void, 0,
+            );
+            style.audio = super::AudioMetrics {
+                event_sounds_enabled: beep != 0,
+                input_feedback_sounds_enabled: false,
+            };
         }
     }
 

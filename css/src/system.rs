@@ -143,6 +143,12 @@ pub struct SystemStyle {
     pub scrollbar_preferences: ScrollbarPreferences,
     /// Linux-specific customisation (icon theme, cursor theme, GTK theme, ...)
     pub linux: LinuxCustomization,
+    /// Visual hints: icons in menus/buttons, toolbar style, tooltips
+    pub visual_hints: VisualHints,
+    /// Animation enable/disable, speed factor, focus indicator behaviour
+    pub animation: AnimationMetrics,
+    /// Audio feedback preferences (event sounds, input sounds)
+    pub audio: AudioMetrics,
 }
 
 /// Icon-specific styling options for accessibility and theming.
@@ -669,8 +675,13 @@ pub struct InputMetrics {
     pub drag_threshold_px: f32,
     /// Caret blink rate in milliseconds (0 = no blink).
     pub caret_blink_rate_ms: u32,
+    /// Width of the text caret/cursor in pixels (typically 1–2).
+    pub caret_width_px: f32,
     /// Lines to scroll per mouse wheel notch.
     pub wheel_scroll_lines: u32,
+    /// Milliseconds to wait before a hover triggers (e.g. tooltip delay).
+    /// Windows: `SystemParametersInfo(SPI_GETMOUSEHOVERTIME)` — default 400.
+    pub hover_time_ms: u32,
 }
 
 impl Default for InputMetrics {
@@ -680,7 +691,9 @@ impl Default for InputMetrics {
             double_click_distance_px: 4.0,
             drag_threshold_px: 5.0,
             caret_blink_rate_ms: 530,
+            caret_width_px: 1.0,
             wheel_scroll_lines: 3,
+            hover_time_ms: 400,
         }
     }
 }
@@ -820,6 +833,134 @@ pub struct LinuxCustomization {
     /// GTK button layout string (e.g. "close,minimize,maximize:menu").
     /// Determines button side and order for CSD titlebars on Linux.
     pub titlebar_button_layout: OptionString,
+}
+
+// ── Visual hints (icons in menus / buttons / toolbar style) ──────────────
+
+/// Toolbar display style (icons, text, or both).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub enum ToolbarStyle {
+    /// Show only icons in toolbars.
+    #[default]
+    IconsOnly,
+    /// Show only text labels in toolbars.
+    TextOnly,
+    /// Show text beside the icon (horizontal).
+    TextBesideIcon,
+    /// Show text below the icon (vertical).
+    TextBelowIcon,
+}
+
+/// Visual hints from the OS about how icons and decorations should be shown.
+///
+/// These preferences differ heavily between Linux desktops (KDE vs GNOME)
+/// and are less configurable on macOS / Windows where HIG rules apply.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct VisualHints {
+    /// Show icons on push buttons?  (Common in KDE, rare in Win/Mac.)
+    /// Linux: `org.gnome.desktop.interface buttons-have-icons`, KDE ShowIconsOnPushButtons.
+    pub show_button_images: bool,
+    /// Show icons in context menus?  (GNOME defaults off since 3.x; Win/Mac/KDE usually on.)
+    /// Linux: `org.gnome.desktop.interface menus-have-icons`.
+    pub show_menu_images: bool,
+    /// Toolbar display style.
+    /// Linux: `org.gnome.desktop.interface toolbar-style`, KDE `ToolButtonStyle`.
+    pub toolbar_style: ToolbarStyle,
+    /// Should tooltips be shown on hover?
+    pub show_tooltips: bool,
+    /// Flash the window taskbar entry on alert?
+    pub flash_on_alert: bool,
+}
+
+impl Default for VisualHints {
+    fn default() -> Self {
+        Self {
+            show_button_images: false,
+            show_menu_images: true,
+            toolbar_style: ToolbarStyle::IconsOnly,
+            show_tooltips: true,
+            flash_on_alert: true,
+        }
+    }
+}
+
+// ── Animation metrics ────────────────────────────────────────────────────
+
+/// Focus indicator behaviour (always visible vs keyboard-only).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub enum FocusBehavior {
+    /// Focus indicators are always visible when an element has focus.
+    #[default]
+    AlwaysVisible,
+    /// Focus indicators are hidden until the user presses a keyboard key
+    /// (Alt, Tab, arrow keys, etc.).  Windows: `SPI_GETKEYBOARDCUES`.
+    KeyboardOnly,
+}
+
+/// Animation-related preferences from the OS.
+///
+/// These control whether UI animations (transitions, fades, slides) should
+/// play and at what speed.
+///
+/// # Platform APIs
+/// - **Windows:** `SystemParametersInfo(SPI_GETCLIENTAREAANIMATION)`,
+///   `SPI_GETKEYBOARDCUES`
+/// - **macOS:** `NSWorkspace.accessibilityDisplayShouldReduceMotion`
+/// - **Linux:** `org.gnome.desktop.interface enable-animations`,
+///   KDE `AnimationDurationFactor`
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct AnimationMetrics {
+    /// Global enable/disable for UI animations.
+    pub animations_enabled: bool,
+    /// Animation speed factor (1.0 = normal, 0.5 = 2× faster, 2.0 = 2× slower).
+    /// Primarily used in KDE.
+    pub animation_duration_factor: f32,
+    /// When to show focus rectangles / rings.
+    pub focus_indicator_behavior: FocusBehavior,
+}
+
+impl Default for AnimationMetrics {
+    fn default() -> Self {
+        Self {
+            animations_enabled: true,
+            animation_duration_factor: 1.0,
+            focus_indicator_behavior: FocusBehavior::AlwaysVisible,
+        }
+    }
+}
+
+// ── Audio metrics ────────────────────────────────────────────────────────
+
+/// Audio-feedback preferences from the OS.
+///
+/// Controls whether the app should make sounds on events (error pings,
+/// notifications) or on input (clicks, key presses).
+///
+/// # Platform APIs
+/// - **Windows:** `SystemParametersInfo(SPI_GETBEEP)`
+/// - **macOS:** `NSSound.soundEffectAudioVolume`
+/// - **Linux:** `org.gnome.desktop.sound event-sounds`,
+///   `org.gnome.desktop.sound input-feedback-sounds`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct AudioMetrics {
+    /// Should the app make sounds on events?  (Error ping, notification, etc.)
+    pub event_sounds_enabled: bool,
+    /// Should the app make sounds on input?  (Clicks, typing feedback.)
+    pub input_feedback_sounds_enabled: bool,
+}
+
+impl Default for AudioMetrics {
+    fn default() -> Self {
+        Self {
+            event_sounds_enabled: true,
+            input_feedback_sounds_enabled: false,
+        }
+    }
 }
 
 /// Apple system font family names for font fallback chains.
