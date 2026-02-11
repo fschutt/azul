@@ -1,5 +1,5 @@
 use azul_core::{
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec},
+    dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClass::Id, IdOrClassVec},
     refany::RefAny,
 };
 use azul_css::{
@@ -14,7 +14,7 @@ use azul_css::{
         property::{CssProperty, *},
         style::*,
     },
-    system::{SystemFontType, SystemStyle, TitlebarButtonSide, TitlebarMetrics},
+    system::{SystemFontType, SystemStyle, TitlebarButtonSide, TitlebarButtons, TitlebarMetrics},
     *,
 };
 
@@ -54,46 +54,36 @@ const DEFAULT_BUTTON_SIDE_LEFT: bool = false;
 
 // ── SoftwareTitlebar ─────────────────────────────────────────────────────
 
-/// A software-rendered titlebar that reads layout metrics from [`TitlebarMetrics`]
-/// to reserve the correct padding for the OS-drawn window-control buttons
-/// (close / minimize / maximize / fullscreen).
+/// A software-rendered titlebar with optional close / minimize / maximize
+/// buttons, drag-to-move, and double-click-to-maximize.
 ///
-/// # How it works
+/// # Two modes
 ///
-/// When `WindowDecorations::NoTitle` is active the operating system still draws
-/// the "traffic-light" buttons (macOS) or the caption buttons (Windows) over
-/// the content area. The application must avoid placing title text underneath
-/// those buttons. `SoftwareTitlebar` does this by reading `TitlebarMetrics`
-/// from the current `SystemStyle` and translating the values into
-/// `padding-left` / `padding-right` on the container.
+/// 1. **Title-only** ([`SoftwareTitlebar::dom`], the default for
+///    `WindowDecorations::NoTitleAutoInject`):
+///    The OS still draws the native window-control buttons (traffic lights on
+///    macOS, caption buttons on Windows).  The titlebar reserves
+///    `padding_left` / `padding_right` so the title text doesn't overlap them.
 ///
-/// The title text uses:
-/// - `white-space: nowrap` + `overflow: hidden` + `text-overflow: ellipsis`
-///   so it never wraps to a second line.
-/// - The system title font (`SystemFontType::TitleBold` on macOS,
-///   `SystemFontType::Title` on other platforms) at the platform's standard
-///   font-size (13 px on macOS, 12 px on Windows, …).
-/// - `text-align: center` so the title appears centered inside the remaining
-///   space (between left and right padding).
+/// 2. **Full CSD** ([`SoftwareTitlebar::dom_with_buttons`], used when
+///    `WindowDecorations::None` + `has_decorations`):
+///    The titlebar renders its own close / minimize / maximize buttons as
+///    regular DOM nodes.  Each button carries a plain `MouseDown` callback
+///    that calls `CallbackInfo::modify_window_state()` — exactly the same
+///    mechanism used for window dragging.  No special event-system hooks.
 ///
-/// The container carries the CSS class `__azul-native-titlebar` which is
-/// recognised by the event system for automatic window-drag activation on
-/// `DragStart`.
+/// # Button layout
 ///
-/// # Example
+/// `button_side` controls where the buttons appear:
+/// - `Left` — macOS traffic-light style (buttons before title)
+/// - `Right` — Windows / Linux style (title then buttons)
 ///
-/// ```rust,no_run
-/// use azul_layout::widgets::SoftwareTitlebar;
+/// # Styling
 ///
-/// // Without SystemStyle (uses compile-time defaults):
-/// let tb = SoftwareTitlebar::new("My App".into());
-///
-/// // With SystemStyle (uses runtime-detected metrics):
-/// // let tb = SoftwareTitlebar::from_system_style("My App".into(), &system_style);
-///
-/// let dom = tb.dom();
-/// ```
-#[derive(Debug, Clone)]
+/// The DOM uses CSS classes `.csd-titlebar`, `.csd-title`, `.csd-buttons`,
+/// `.csd-button`, `.csd-close`, `.csd-minimize`, `.csd-maximize`.
+/// These match the output of `SystemStyle::create_csd_stylesheet()`.
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SoftwareTitlebar {
     /// The title text to display.
@@ -103,10 +93,8 @@ pub struct SoftwareTitlebar {
     /// Font size for the title text in CSS pixels.
     pub font_size: f32,
     /// Extra padding on the **left** side (px).
-    /// Set to `button_area_width` when the buttons are on the left (macOS).
     pub padding_left: f32,
     /// Extra padding on the **right** side (px).
-    /// Set to `button_area_width` when the buttons are on the right (Windows/Linux).
     pub padding_right: f32,
 }
 
@@ -137,7 +125,7 @@ impl SoftwareTitlebar {
         Self::new(title)
     }
 
-    /// Create a titlebar with a custom height (uses compile-time defaults for padding).
+    /// Create a titlebar with a custom height.
     #[inline]
     pub fn with_height(title: AzString, height: f32) -> Self {
         let mut tb = Self::new(title);
@@ -165,14 +153,8 @@ impl SoftwareTitlebar {
         s
     }
 
-    /// Create a titlebar whose metrics come from a live [`SystemStyle`].
-    ///
-    /// This reads `system_style.metrics.titlebar` for:
-    /// - `height`
-    /// - `button_area_width`
-    /// - `button_side`
-    /// - `title_font_size`
-    /// - `safe_area` (added to the respective padding side)
+    /// Create from a live [`SystemStyle`] (for title-only mode, padding
+    /// reserves space for OS-drawn buttons).
     pub fn from_system_style(title: AzString, system_style: &SystemStyle) -> Self {
         let tm = &system_style.metrics.titlebar;
         let height = tm.height.as_ref()
@@ -199,11 +181,22 @@ impl SoftwareTitlebar {
         Self { title, height, font_size, padding_left, padding_right }
     }
 
-    /// Build the CSS properties for the container div.
+    /// Create from [`SystemStyle`] for **full CSD** mode (no padding — the
+    /// buttons are rendered as DOM children).
+    pub fn from_system_style_csd(title: AzString, system_style: &SystemStyle) -> Self {
+        let tm = &system_style.metrics.titlebar;
+        let height = tm.height.as_ref()
+            .map(|pv| pv.to_pixels_internal(0.0, 0.0))
+            .unwrap_or(DEFAULT_TITLEBAR_HEIGHT);
+        let font_size = tm.title_font_size
+            .into_option()
+            .unwrap_or(DEFAULT_TITLE_FONT_SIZE);
+        Self { title, height, font_size, padding_left: 0.0, padding_right: 0.0 }
+    }
+
+    /// Build inline CSS for the container div.
     fn build_container_style(&self) -> CssPropertyWithConditionsVec {
         let mut props = Vec::with_capacity(8);
-
-        // Flex row, center content
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_display(LayoutDisplay::Flex),
         ));
@@ -211,18 +204,11 @@ impl SoftwareTitlebar {
             CssProperty::const_flex_direction(LayoutFlexDirection::Row),
         ));
         props.push(CssPropertyWithConditions::simple(
-            CssProperty::const_justify_content(LayoutJustifyContent::Center),
-        ));
-        props.push(CssPropertyWithConditions::simple(
             CssProperty::const_align_items(LayoutAlignItems::Center),
         ));
-
-        // Fixed height
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_height(LayoutHeight::const_px(self.height as isize)),
         ));
-
-        // Reserve space for the window-control buttons via padding
         if self.padding_left > 0.0 {
             props.push(CssPropertyWithConditions::simple(
                 CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
@@ -237,27 +223,24 @@ impl SoftwareTitlebar {
                 )),
             ));
         }
-
         CssPropertyWithConditionsVec::from_vec(props)
     }
 
-    /// Build the CSS properties for the title text node.
+    /// Build inline CSS for the title text node.
     fn build_title_style(&self) -> CssPropertyWithConditionsVec {
         let font_family = StyleFontFamilyVec::from_vec(vec![
             StyleFontFamily::SystemType(SystemFontType::TitleBold),
         ]);
-
-        let mut props = Vec::with_capacity(6);
-
-        // Font
+        let mut props = Vec::with_capacity(8);
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_font_size(StyleFontSize::const_px(self.font_size as isize)),
         ));
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_font_family(font_family),
         ));
-
-        // Centre text, no line-break, clip overflow
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1)),
+        ));
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_text_align(StyleTextAlign::Center),
         ));
@@ -267,158 +250,269 @@ impl SoftwareTitlebar {
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_overflow_x(LayoutOverflow::Hidden),
         ));
-
-        // Dark-grey text (works for light and dark titlebars with sidebar material)
-        props.push(CssPropertyWithConditions::simple(
-            CssProperty::const_text_color(StyleTextColor {
-                inner: ColorU { r: 76, g: 76, b: 76, a: 255 },
-            }),
-        ));
-
         CssPropertyWithConditionsVec::from_vec(props)
     }
 
-    /// Convert this titlebar into a DOM sub-tree.
+    /// Title-only DOM (for `NoTitleAutoInject`).
     ///
-    /// The root div carries class `__azul-native-titlebar`.
-    /// Drag callbacks (DragStart / Drag / DoubleClick) are attached so that
-    /// the user can move and maximize the window by interacting with the
-    /// titlebar — no special event-system hooks required.
+    /// The OS draws the native window-control buttons; this just renders
+    /// a centred title with drag support.
     #[inline]
     pub fn dom(self) -> Dom {
+        self.dom_inner(false, &TitlebarButtons::default(), TitlebarButtonSide::Right)
+    }
+
+    /// Full-CSD DOM with close / minimize / maximize buttons.
+    ///
+    /// Each button is a div with a `MouseDown` callback that calls
+    /// `modify_window_state()` — no special hooks needed.
+    pub fn dom_with_buttons(
+        self,
+        buttons: &TitlebarButtons,
+        button_side: TitlebarButtonSide,
+    ) -> Dom {
+        self.dom_inner(true, buttons, button_side)
+    }
+
+    /// Inner builder for both modes.
+    fn dom_inner(
+        self,
+        show_buttons: bool,
+        buttons: &TitlebarButtons,
+        button_side: TitlebarButtonSide,
+    ) -> Dom {
         use azul_core::{
             callbacks::{CoreCallback, CoreCallbackData},
             dom::{EventFilter, HoverEventFilter},
         };
 
-        static TITLEBAR_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-titlebar"))];
-        static TITLE_CLASS: &[IdOrClass] =
-            &[Class(AzString::from_const_str("__azul-native-titlebar-title"))];
-
-        let container_style = self.build_container_style();
-        let title_style = self.build_title_style();
-
-        let title_text = Dom::create_text(self.title)
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(TITLE_CLASS))
-            .with_css_props(title_style);
-
         #[derive(Debug, Clone, Copy)]
-        struct TitlebarDragMarker;
+        struct DragMarker;
 
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(TITLEBAR_CLASS))
-            .with_css_props(container_style)
-            .with_callbacks(
-                vec![
-                    CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::DragStart),
-                        callback: CoreCallback {
-                            cb: self::drag::titlebar_drag_start as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                        refany: RefAny::new(TitlebarDragMarker),
+        // Build styles BEFORE moving self.title
+        let title_style = self.build_title_style();
+        let container_style = self.build_container_style();
+
+        // ── Title node with drag callbacks ──
+        let title_classes = IdOrClassVec::from_vec(vec![Class("csd-title".into())]);
+
+        let title_node = Dom::create_div()
+            .with_ids_and_classes(title_classes)
+            .with_css_props(title_style)
+            .with_child(Dom::create_text(self.title)) // moves self.title
+            .with_callbacks(vec![
+                CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::DragStart),
+                    callback: CoreCallback {
+                        cb: self::callbacks::titlebar_drag_start as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
                     },
-                    CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::Drag),
-                        callback: CoreCallback {
-                            cb: self::drag::titlebar_drag as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                        refany: RefAny::new(TitlebarDragMarker),
+                    refany: RefAny::new(DragMarker),
+                },
+                CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::Drag),
+                    callback: CoreCallback {
+                        cb: self::callbacks::titlebar_drag as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
                     },
-                    CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::DoubleClick),
-                        callback: CoreCallback {
-                            cb: self::drag::titlebar_double_click as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                        refany: RefAny::new(TitlebarDragMarker),
+                    refany: RefAny::new(DragMarker),
+                },
+                CoreCallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::DoubleClick),
+                    callback: CoreCallback {
+                        cb: self::callbacks::titlebar_double_click as usize,
+                        ctx: azul_core::refany::OptionRefAny::None,
                     },
-                ]
-                .into(),
-            )
-            .with_child(title_text)
+                    refany: RefAny::new(DragMarker),
+                },
+            ].into());
+
+        // ── Button container (CSD mode only) ──
+        let button_container = if show_buttons {
+            Some(build_button_container(buttons))
+        } else {
+            None
+        };
+
+        // ── Root ──
+        let container_classes = IdOrClassVec::from_vec(vec![
+            Class("csd-titlebar".into()),
+            Class("__azul-native-titlebar".into()),
+        ]);
+        let mut root = Dom::create_div()
+            .with_ids_and_classes(container_classes)
+            .with_css_props(container_style);
+
+        // Button side determines child order:
+        //   Left  (macOS):   [buttons] [title]
+        //   Right (Win/Lin): [title] [buttons]
+        match button_side {
+            TitlebarButtonSide::Left => {
+                if let Some(btn) = button_container { root = root.with_child(btn); }
+                root = root.with_child(title_node);
+            }
+            TitlebarButtonSide::Right => {
+                root = root.with_child(title_node);
+                if let Some(btn) = button_container { root = root.with_child(btn); }
+            }
+        }
+
+        root
     }
+}
+
+/// Build the `.csd-buttons` container with close/min/max button DOM nodes.
+fn build_button_container(buttons: &TitlebarButtons) -> Dom {
+    use azul_core::{
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::{EventFilter, HoverEventFilter},
+    };
+
+    let mut children = Vec::new();
+
+    if buttons.has_minimize {
+        let classes = IdOrClassVec::from_vec(vec![
+            Id("csd-button-minimize".into()),
+            Class("csd-button".into()),
+            Class("csd-minimize".into()),
+        ]);
+        children.push(Dom::create_div()
+            .with_ids_and_classes(classes)
+            .with_child(Dom::create_text("\u{2212}"))  // −
+            .with_callbacks(vec![CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::MouseDown),
+                callback: CoreCallback {
+                    cb: self::callbacks::csd_minimize as usize,
+                    ctx: azul_core::refany::OptionRefAny::None,
+                },
+                refany: RefAny::new(()),
+            }].into()));
+    }
+
+    if buttons.has_maximize {
+        let classes = IdOrClassVec::from_vec(vec![
+            Id("csd-button-maximize".into()),
+            Class("csd-button".into()),
+            Class("csd-maximize".into()),
+        ]);
+        children.push(Dom::create_div()
+            .with_ids_and_classes(classes)
+            .with_child(Dom::create_text("\u{25A1}"))  // □
+            .with_callbacks(vec![CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::MouseDown),
+                callback: CoreCallback {
+                    cb: self::callbacks::csd_maximize as usize,
+                    ctx: azul_core::refany::OptionRefAny::None,
+                },
+                refany: RefAny::new(()),
+            }].into()));
+    }
+
+    if buttons.has_close {
+        let classes = IdOrClassVec::from_vec(vec![
+            Id("csd-button-close".into()),
+            Class("csd-button".into()),
+            Class("csd-close".into()),
+        ]);
+        children.push(Dom::create_div()
+            .with_ids_and_classes(classes)
+            .with_child(Dom::create_text("\u{00D7}"))  // ×
+            .with_callbacks(vec![CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::MouseDown),
+                callback: CoreCallback {
+                    cb: self::callbacks::csd_close as usize,
+                    ctx: azul_core::refany::OptionRefAny::None,
+                },
+                refany: RefAny::new(()),
+            }].into()));
+    }
+
+    let classes = IdOrClassVec::from_vec(vec![Class("csd-buttons".into())]);
+    Dom::create_div()
+        .with_ids_and_classes(classes)
+        .with_children(DomVec::from_vec(children))
 }
 
 impl From<SoftwareTitlebar> for Dom {
-    fn from(t: SoftwareTitlebar) -> Dom {
-        t.dom()
-    }
+    fn from(t: SoftwareTitlebar) -> Dom { t.dom() }
 }
 
 impl Default for SoftwareTitlebar {
-    fn default() -> Self {
-        SoftwareTitlebar::new(AzString::from_const_str(""))
-    }
+    fn default() -> Self { SoftwareTitlebar::new(AzString::from_const_str("")) }
 }
 
-// ── Drag / double-click callbacks ────────────────────────────────────────
+// ── Titlebar callbacks ───────────────────────────────────────────────────
 
-/// Callback functions wired to the titlebar container so that the user can
-/// drag-move and double-click-maximize the window.
+/// All titlebar callbacks: drag, double-click, close, minimize, maximize.
 ///
-/// These are plain `extern "C"` callbacks that operate through
-/// `CallbackInfo::get_gesture_drag_manager()` and
-/// `CallbackInfo::modify_window_state()` — no magic class detection needed.
-mod drag {
+/// Every callback is a plain `extern "C"` function that uses
+/// `CallbackInfo::modify_window_state()`.  No special hooks needed.
+pub(crate) mod callbacks {
     use azul_core::callbacks::Update;
     use azul_core::refany::RefAny;
     use crate::callbacks::CallbackInfo;
 
-    /// Called on `HoverEventFilter::DragStart`.
-    ///
-    /// The gesture/drag manager already records the start position; we just
-    /// return `DoNothing` to let the framework track the drag.
-    pub(super) extern "C" fn titlebar_drag_start(
-        _data: RefAny,
-        _info: CallbackInfo,
-    ) -> Update {
-        Update::DoNothing
-    }
+    /// DragStart — framework tracks position, we just acknowledge.
+    pub extern "C" fn titlebar_drag_start(
+        _data: RefAny, _info: CallbackInfo,
+    ) -> Update { Update::DoNothing }
 
-    /// Called on `HoverEventFilter::Drag` (continuously while dragging).
-    ///
-    /// Reads the current drag delta from the gesture manager and moves the
-    /// window accordingly via `modify_window_state`.
-    pub(super) extern "C" fn titlebar_drag(
-        _data: RefAny,
-        mut info: CallbackInfo,
+    /// Drag — move window via gesture manager.
+    pub extern "C" fn titlebar_drag(
+        _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
-        let gesture_manager = info.get_gesture_drag_manager();
-
-        if let Some(new_position) = gesture_manager.get_window_position_from_drag() {
-            let mut window_state = info.get_current_window_state().clone();
-            window_state.position = new_position;
-            info.modify_window_state(window_state);
+        let gm = info.get_gesture_drag_manager();
+        if let Some(new_pos) = gm.get_window_position_from_drag() {
+            let mut ws = info.get_current_window_state().clone();
+            ws.position = new_pos;
+            info.modify_window_state(ws);
         }
-
         Update::DoNothing
     }
 
-    /// Called on `HoverEventFilter::DoubleClick`.
-    ///
-    /// Toggles the window between `Maximized` and `Normal`.
-    pub(super) extern "C" fn titlebar_double_click(
-        _data: RefAny,
-        mut info: CallbackInfo,
+    /// DoubleClick — toggle Maximized ↔ Normal.
+    pub extern "C" fn titlebar_double_click(
+        _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         use azul_core::window::WindowFrame;
+        let mut s = info.get_current_window_state().clone();
+        s.flags.frame = if s.flags.frame == WindowFrame::Maximized {
+            WindowFrame::Normal } else { WindowFrame::Maximized };
+        info.modify_window_state(s);
+        Update::DoNothing
+    }
 
-        let mut state = info.get_current_window_state().clone();
-        state.flags.frame = if state.flags.frame == WindowFrame::Maximized {
-            WindowFrame::Normal
-        } else {
-            WindowFrame::Maximized
-        };
-        info.modify_window_state(state);
+    /// Close button — `close_requested = true`.
+    pub extern "C" fn csd_close(
+        _data: RefAny, mut info: CallbackInfo,
+    ) -> Update {
+        let mut s = info.get_current_window_state().clone();
+        s.flags.close_requested = true;
+        info.modify_window_state(s);
+        Update::DoNothing
+    }
+
+    /// Minimize button — `frame = Minimized`.
+    pub extern "C" fn csd_minimize(
+        _data: RefAny, mut info: CallbackInfo,
+    ) -> Update {
+        use azul_core::window::WindowFrame;
+        let mut s = info.get_current_window_state().clone();
+        s.flags.frame = WindowFrame::Minimized;
+        info.modify_window_state(s);
+        Update::DoNothing
+    }
+
+    /// Maximize button — toggle Maximized ↔ Normal.
+    pub extern "C" fn csd_maximize(
+        _data: RefAny, mut info: CallbackInfo,
+    ) -> Update {
+        use azul_core::window::WindowFrame;
+        let mut s = info.get_current_window_state().clone();
+        s.flags.frame = if s.flags.frame == WindowFrame::Maximized {
+            WindowFrame::Normal } else { WindowFrame::Maximized };
+        info.modify_window_state(s);
         Update::DoNothing
     }
 }
 
-// ── Backward-compatible alias ────────────────────────────────────────────
-
-/// **Deprecated** – prefer [`SoftwareTitlebar`] which reads `TitlebarMetrics`
-/// from `SystemStyle` for correct button-area padding.
-pub type Titlebar = SoftwareTitlebar;
