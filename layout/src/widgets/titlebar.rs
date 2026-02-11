@@ -20,6 +20,7 @@ use azul_css::{
 
 // ── Compile-time defaults (used when no SystemStyle is available) ─────────
 
+// Verified: macOS 11 Big Sur – macOS 15 Sequoia (2020–2025)
 #[cfg(target_os = "macos")]
 const DEFAULT_TITLEBAR_HEIGHT: f32 = 28.0;
 #[cfg(target_os = "windows")]
@@ -38,8 +39,10 @@ const DEFAULT_TITLE_FONT_SIZE: f32 = 13.0;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 const DEFAULT_TITLE_FONT_SIZE: f32 = 13.0;
 
+// Verified: macOS 11–15 traffic-light geometry = 78px including gaps
 #[cfg(target_os = "macos")]
 const DEFAULT_BUTTON_AREA_WIDTH: f32 = 78.0;
+// Windows 10/11: 3 buttons × 46px = 138px
 #[cfg(target_os = "windows")]
 const DEFAULT_BUTTON_AREA_WIDTH: f32 = 138.0;
 #[cfg(target_os = "linux")]
@@ -47,10 +50,15 @@ const DEFAULT_BUTTON_AREA_WIDTH: f32 = 100.0;
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 const DEFAULT_BUTTON_AREA_WIDTH: f32 = 100.0;
 
+// macOS: traffic lights on the left.  All others: right.
 #[cfg(target_os = "macos")]
 const DEFAULT_BUTTON_SIDE_LEFT: bool = true;
 #[cfg(not(target_os = "macos"))]
 const DEFAULT_BUTTON_SIDE_LEFT: bool = false;
+
+// Default title text color for light / dark fallback
+const DEFAULT_TITLE_COLOR_LIGHT: ColorU = ColorU { r: 76, g: 76, b: 76, a: 255 };  // #4c4c4c
+const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU { r: 229, g: 229, b: 229, a: 255 }; // #e5e5e5
 
 // ── SoftwareTitlebar ─────────────────────────────────────────────────────
 
@@ -96,6 +104,8 @@ pub struct SoftwareTitlebar {
     pub padding_left: f32,
     /// Extra padding on the **right** side (px).
     pub padding_right: f32,
+    /// Title text color (resolved from SystemStyle.colors.text or platform default).
+    pub title_color: ColorU,
 }
 
 impl SoftwareTitlebar {
@@ -116,6 +126,7 @@ impl SoftwareTitlebar {
             font_size: DEFAULT_TITLE_FONT_SIZE,
             padding_left,
             padding_right,
+            title_color: DEFAULT_TITLE_COLOR_LIGHT,
         }
     }
 
@@ -172,13 +183,25 @@ impl SoftwareTitlebar {
         let safe_right = tm.safe_area.right.as_ref()
             .map(|pv| pv.to_pixels_internal(0.0, 0.0))
             .unwrap_or(0.0);
+        // Bug 9: apply padding_horizontal from TitlebarMetrics
+        let pad_h = tm.padding_horizontal.as_ref()
+            .map(|pv| pv.to_pixels_internal(0.0, 0.0))
+            .unwrap_or(0.0);
 
         let (padding_left, padding_right) = match tm.button_side {
-            TitlebarButtonSide::Left => (button_area + safe_left, safe_right),
-            TitlebarButtonSide::Right => (safe_left, button_area + safe_right),
+            TitlebarButtonSide::Left => (button_area + safe_left + pad_h, safe_right + pad_h),
+            TitlebarButtonSide::Right => (safe_left + pad_h, button_area + safe_right + pad_h),
         };
 
-        Self { title, height, font_size, padding_left, padding_right }
+        // Bug 8: resolve title color from system style, with dark/light fallback
+        let title_color = system_style.colors.text.into_option().unwrap_or(
+            match system_style.theme {
+                azul_css::system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
+                azul_css::system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
+            }
+        );
+
+        Self { title, height, font_size, padding_left, padding_right, title_color }
     }
 
     /// Create from [`SystemStyle`] for **full CSD** mode (no padding — the
@@ -191,21 +214,37 @@ impl SoftwareTitlebar {
         let font_size = tm.title_font_size
             .into_option()
             .unwrap_or(DEFAULT_TITLE_FONT_SIZE);
-        Self { title, height, font_size, padding_left: 0.0, padding_right: 0.0 }
+        let title_color = system_style.colors.text.into_option().unwrap_or(
+            match system_style.theme {
+                azul_css::system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
+                azul_css::system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
+            }
+        );
+        Self { title, height, font_size, padding_left: 0.0, padding_right: 0.0, title_color }
     }
 
     /// Build inline CSS for the container div.
-    fn build_container_style(&self) -> CssPropertyWithConditionsVec {
+    /// Build inline CSS for the container div.
+    fn build_container_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
         let mut props = Vec::with_capacity(8);
-        props.push(CssPropertyWithConditions::simple(
-            CssProperty::const_display(LayoutDisplay::Flex),
-        ));
-        props.push(CssPropertyWithConditions::simple(
-            CssProperty::const_flex_direction(LayoutFlexDirection::Row),
-        ));
-        props.push(CssPropertyWithConditions::simple(
-            CssProperty::const_align_items(LayoutAlignItems::Center),
-        ));
+        if show_buttons {
+            // CSD mode: flex layout to place buttons + title side by side
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_display(LayoutDisplay::Flex),
+            ));
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_flex_direction(LayoutFlexDirection::Row),
+            ));
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_align_items(LayoutAlignItems::Center),
+            ));
+        } else {
+            // Title-only mode: block layout — title fills width automatically.
+            // Bug 12: avoids flex-grow complexity; text centers via text-align.
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_display(LayoutDisplay::Block),
+            ));
+        }
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_height(LayoutHeight::const_px(self.height as isize)),
         ));
@@ -227,20 +266,30 @@ impl SoftwareTitlebar {
     }
 
     /// Build inline CSS for the title text node.
-    fn build_title_style(&self) -> CssPropertyWithConditionsVec {
+    fn build_title_style(&self, show_buttons: bool) -> CssPropertyWithConditionsVec {
         let font_family = StyleFontFamilyVec::from_vec(vec![
             StyleFontFamily::SystemType(SystemFontType::TitleBold),
         ]);
-        let mut props = Vec::with_capacity(8);
+        let mut props = Vec::with_capacity(10);
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_font_size(StyleFontSize::const_px(self.font_size as isize)),
         ));
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_font_family(font_family),
         ));
+        // Bug 8: use resolved title color from SystemStyle (adapts to dark mode)
         props.push(CssPropertyWithConditions::simple(
-            CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1)),
+            CssProperty::const_text_color(StyleTextColor { inner: self.title_color }),
         ));
+        // In CSD mode (flex container), title must grow to fill remaining space
+        if show_buttons {
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1)),
+            ));
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_min_width(LayoutMinWidth::const_px(0)),
+            ));
+        }
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_text_align(StyleTextAlign::Center),
         ));
@@ -250,6 +299,13 @@ impl SoftwareTitlebar {
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_overflow_x(LayoutOverflow::Hidden),
         ));
+        // Vertically center the text: pad from top by (height - font_size) / 2
+        let v_pad = ((self.height - self.font_size) / 2.0).max(0.0);
+        if v_pad > 0.0 {
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_padding_top(LayoutPaddingTop::const_px(v_pad as isize)),
+            ));
+        }
         CssPropertyWithConditionsVec::from_vec(props)
     }
 
@@ -290,8 +346,8 @@ impl SoftwareTitlebar {
         struct DragMarker;
 
         // Build styles BEFORE moving self.title
-        let title_style = self.build_title_style();
-        let container_style = self.build_container_style();
+        let title_style = self.build_title_style(show_buttons);
+        let container_style = self.build_container_style(show_buttons);
 
         // ── Title node with drag callbacks ──
         let title_classes = IdOrClassVec::from_vec(vec![Class("csd-title".into())]);
@@ -438,7 +494,9 @@ impl From<SoftwareTitlebar> for Dom {
 }
 
 impl Default for SoftwareTitlebar {
-    fn default() -> Self { SoftwareTitlebar::new(AzString::from_const_str("")) }
+    fn default() -> Self {
+        SoftwareTitlebar::new(AzString::from_const_str(""))
+    }
 }
 
 // ── Titlebar callbacks ───────────────────────────────────────────────────
