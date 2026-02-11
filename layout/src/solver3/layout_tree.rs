@@ -1305,7 +1305,10 @@ pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
         get_display_type(styled_dom, node_id),
         LayoutDisplay::Block
             | LayoutDisplay::FlowRoot
+            | LayoutDisplay::Flex
+            | LayoutDisplay::Grid
             | LayoutDisplay::Table
+            | LayoutDisplay::TableCaption
             | LayoutDisplay::TableRow
             | LayoutDisplay::TableRowGroup
             | LayoutDisplay::ListItem
