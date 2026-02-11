@@ -22,6 +22,7 @@ use azul_layout::{
     window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
+use rust_fontconfig::registry::FcFontRegistry;
 use webrender::{RenderApi as WrRenderApi, Transaction as WrTransaction};
 
 use super::debug_server::{self, LogCategory};
@@ -60,6 +61,7 @@ pub fn regenerate_layout(
     image_cache: &ImageCache,
     gl_context_ptr: &OptionGlContextPtr,
     fc_cache: &Arc<FcFontCache>,
+    font_registry: &Option<Arc<FcFontRegistry>>,
     system_style: &Arc<SystemStyle>,
     icon_provider: &SharedIconProvider,
     document_id: DocumentId,
@@ -67,8 +69,23 @@ pub fn regenerate_layout(
 ) -> Result<(), String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");
 
-    // Update layout_window's fc_cache with the shared one
-    layout_window.font_manager.fc_cache = fc_cache.clone();
+    // If the async font registry is available, request commonly-used fonts
+    // and block until they are ready (eliminates FOUC). On cache hits this
+    // is effectively free; on first run it blocks until the Scout + Builder
+    // threads have parsed the needed fonts.
+    if let Some(registry) = font_registry.as_ref() {
+        log_debug!(LogCategory::Layout, "[regenerate_layout] Requesting fonts from registry...");
+        let common_families = rust_fontconfig::registry::get_common_font_families();
+        let font_stacks: Vec<Vec<String>> = common_families.into_iter().map(|f| vec![f]).collect();
+        registry.request_fonts(&font_stacks);
+        // Snapshot the registry into an FcFontCache for use during layout
+        let snapshot = Arc::new(registry.into_fc_font_cache());
+        layout_window.font_manager.fc_cache = snapshot.clone();
+        log_debug!(LogCategory::Layout, "[regenerate_layout] Font registry snapshot complete");
+    } else {
+        // Fallback: use the provided fc_cache directly
+        layout_window.font_manager.fc_cache = fc_cache.clone();
+    }
 
     // 1. Call user's layout callback to get new DOM
     log_debug!(
@@ -80,7 +97,7 @@ pub fn regenerate_layout(
     let layout_ref_data = LayoutCallbackInfoRefData {
         image_cache,
         gl_context: gl_context_ptr,
-        system_fonts: &*fc_cache,
+        system_fonts: &*layout_window.font_manager.fc_cache,
         system_style: system_style.clone(),
     };
 

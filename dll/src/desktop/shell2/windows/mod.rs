@@ -162,6 +162,8 @@ pub struct Win32Window {
     pub app_data: Arc<RefCell<RefAny>>,
     /// Font cache (shared across all windows)
     pub fc_cache: Arc<FcFontCache>,
+    /// Async font registry for background font scanning
+    pub font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
     /// System style (shared across all windows)
     pub system_style: Arc<azul_css::system::SystemStyle>,
     /// Dynamic selector context for evaluating conditional CSS properties
@@ -191,6 +193,7 @@ impl Win32Window {
         mut options: WindowCreateOptions,
         config: azul_core::resources::AppConfig,
         fc_cache: Arc<FcFontCache>,
+        font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
         app_data: Arc<std::cell::RefCell<RefAny>>,
     ) -> Result<Self, WindowError> {
         // If background_color is None and no material effect, use system window background
@@ -522,6 +525,7 @@ impl Win32Window {
             dpi: dpi_functions,
             app_data,
             fc_cache,
+            font_registry,
             system_style,
             dynamic_selector_context,
             icon_provider: config.icon_provider.clone(),
@@ -846,6 +850,7 @@ impl Win32Window {
             &self.image_cache,
             &self.gl_context_ptr,
             &self.fc_cache,
+            &self.font_registry,
             &self.system_style,
             &self.icon_provider,
             self.document_id,
@@ -2946,7 +2951,8 @@ impl PlatformWindow for Win32Window {
         // Use existing new() implementation with provided app_data
         let fc_cache = Arc::new(rust_fontconfig::FcFontCache::build());
         let app_data_arc = Arc::new(std::cell::RefCell::new(app_data));
-        Self::new(options, fc_cache, app_data_arc)
+        let config = azul_core::resources::AppConfig::default();
+        Self::new(options, config, fc_cache, None, app_data_arc)
     }
 
     fn get_state(&self) -> FullWindowState {

@@ -1592,6 +1592,8 @@ pub struct MacOSWindow {
     app_data: Arc<RefCell<RefAny>>,
     /// Shared font cache (shared across windows to cache font loading)
     fc_cache: Arc<rust_fontconfig::FcFontCache>,
+    /// Async font registry for background font scanning
+    font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
     /// System style (shared across windows)
     system_style: Arc<azul_css::system::SystemStyle>,
     /// Dynamic selector context for evaluating conditional CSS properties
@@ -2218,9 +2220,10 @@ impl MacOSWindow {
         config: azul_core::resources::AppConfig,
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache: Arc<rust_fontconfig::FcFontCache>,
+        font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, config, shared_icon_provider, Some(fc_cache), mtm)
+        Self::new_with_options_internal(options, app_data, config, shared_icon_provider, Some(fc_cache), font_registry, mtm)
     }
 
     /// Create a new macOS window with given options.
@@ -2231,7 +2234,7 @@ impl MacOSWindow {
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, config, shared_icon_provider, None, mtm)
+        Self::new_with_options_internal(options, app_data, config, shared_icon_provider, None, None, mtm)
     }
 
     /// Internal constructor with optional fc_cache parameter
@@ -2241,6 +2244,7 @@ impl MacOSWindow {
         config: azul_core::resources::AppConfig,
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache_opt: Option<Arc<rust_fontconfig::FcFontCache>>,
+        font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
         // If background_color is None and no material effect, use system window background
@@ -2583,6 +2587,8 @@ impl MacOSWindow {
             "[Window Init] Creating WebRender instance"
         );
 
+
+
         // Create synchronization primitives for frame readiness
         let new_frame_ready = Arc::new((Mutex::new(false), Condvar::new()));
 
@@ -2599,6 +2605,8 @@ impl MacOSWindow {
         .map_err(|e| {
             WindowError::PlatformError(format!("WebRender initialization failed: {:?}", e))
         })?;
+
+
 
         renderer.set_external_image_handler(Box::new(WrCompositor::default()));
 
@@ -2786,6 +2794,7 @@ impl MacOSWindow {
             gl_context_ptr,
             app_data: app_data_arc,
             fc_cache,
+            font_registry,
             system_style,
             dynamic_selector_context,
             icon_provider: shared_icon_provider,
@@ -2992,6 +3001,7 @@ impl MacOSWindow {
             &self.image_cache,
             &self.gl_context_ptr,
             &self.fc_cache,
+            &self.font_registry,
             &self.system_style,
             &self.icon_provider,
             self.document_id,

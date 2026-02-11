@@ -14,6 +14,7 @@ use azul_layout::{
     window_state::{WindowCreateOptions, WindowCreateOptionsVec},
 };
 use rust_fontconfig::FcFontCache;
+use rust_fontconfig::registry::FcFontRegistry;
 
 use crate::desktop::shell2::common::debug_server::{self, DebugServerHandle, LogCategory};
 use crate::log_error;
@@ -72,9 +73,10 @@ impl App {
         let data = self.ptr.data.clone();
         let config = self.ptr.config.clone();
         let fc_cache = (*self.ptr.fc_cache).clone();
+        let font_registry = self.ptr.font_registry.clone();
 
         // Use shell2 for the actual run loop
-        let err = crate::desktop::shell2::run(data, config, fc_cache, root_window);
+        let err = crate::desktop::shell2::run(data, config, fc_cache, font_registry, root_window);
 
         if let Err(e) = err {
             crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
@@ -100,7 +102,12 @@ pub struct AppInternal {
     /// No window is actually shown until the `.run_inner()` method is called.
     pub windows: WindowCreateOptionsVec,
     /// Font configuration cache (shared across all windows)
+    /// Initially empty — populated from the registry at first layout time
     pub fc_cache: Box<Arc<FcFontCache>>,
+    /// Async font registry: background threads race to discover and parse fonts.
+    /// At layout time, `request_fonts()` blocks until the needed fonts are ready,
+    /// then snapshots into `fc_cache`. This eliminates the ~700ms startup block.
+    pub font_registry: Option<Arc<FcFontRegistry>>,
     /// Debug server handle (if AZUL_DEBUG is set)
     #[allow(dead_code)]
     pub debug_server: Option<Arc<DebugServerHandle>>,
@@ -140,24 +147,52 @@ impl AppInternal {
         );
 
         #[cfg(not(miri))]
-        let fc_cache = {
+        let (fc_cache, font_registry) = {
             debug_server::log(
                 debug_server::LogLevel::Info,
                 debug_server::LogCategory::Resources,
-                "Building FcFontCache...",
+                "Starting async font registry...",
                 None,
             );
-            let cache = Arc::new(FcFontCache::build());
+
+            // Create the async font registry (returns immediately)
+            let registry = FcFontRegistry::new();
+
+            // Try to load on-disk font cache (~10-20ms if cache exists, 0ms otherwise)
+            let had_cache = registry.load_from_disk_cache();
+            if had_cache {
+                debug_server::log(
+                    debug_server::LogLevel::Info,
+                    debug_server::LogCategory::Resources,
+                    "Loaded font metadata from disk cache",
+                    None,
+                );
+            }
+
+            // Spawn Scout + Builder threads (returns immediately)
+            registry.spawn_scout_and_builders();
+
             debug_server::log(
                 debug_server::LogLevel::Info,
                 debug_server::LogCategory::Resources,
-                "FcFontCache built successfully",
+                "Font registry spawned (background threads scanning)",
                 None,
             );
-            cache
+
+            // Start with an empty FcFontCache; it will be populated at first layout
+            // from the registry via request_fonts() + into_fc_font_cache()
+            let cache = if had_cache {
+                // If we had a disk cache, snapshot the registry now so the fc_cache
+                // is immediately usable (contains cached fonts from last run)
+                Arc::new(registry.into_fc_font_cache())
+            } else {
+                Arc::new(FcFontCache::default())
+            };
+
+            (cache, Some(registry))
         };
         #[cfg(miri)]
-        let fc_cache = Arc::new(FcFontCache::default());
+        let (fc_cache, font_registry) = (Arc::new(FcFontCache::default()), None);
 
         #[cfg(all(
             feature = "logging",
@@ -192,6 +227,7 @@ impl AppInternal {
             data: initial_data,
             config: app_config,
             fc_cache: Box::new(fc_cache),
+            font_registry: font_registry,
             debug_server,
         }
     }
@@ -227,6 +263,7 @@ impl AppInternal {
             self.data,
             self.config.clone(),
             (*self.fc_cache).clone(),
+            self.font_registry.clone(),
             root_window,
         );
 

@@ -8,6 +8,7 @@ use std::{ffi::c_void, sync::Arc};
 use azul_core::{refany::RefAny, resources::AppConfig};
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
+use rust_fontconfig::registry::FcFontRegistry;
 
 use super::common::debug_server;
 use super::common::debug_server::LogCategory;
@@ -43,6 +44,7 @@ pub fn run(
     app_data: RefAny,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
+    font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     use super::common::debug_server;
@@ -89,7 +91,7 @@ pub fn run(
             None,
         );
         let window =
-            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), config.clone(), shared_icon_provider.clone(), fc_cache.clone(), mtm)?;
+            MacOSWindow::new_with_fc_cache(root_window, app_data.clone(), config.clone(), shared_icon_provider.clone(), fc_cache.clone(), font_registry.clone(), mtm)?;
         debug_server::log(
             debug_server::LogLevel::Info,
             debug_server::LogCategory::Window,
@@ -253,6 +255,7 @@ pub fn run(
                                         config.clone(),
                                         shared_icon_provider.clone(),
                                         fc_cache.clone(),
+                                        font_registry.clone(),
                                         mtm,
                                     ) {
                                         Ok(new_window) => {
@@ -318,7 +321,7 @@ pub fn run(
 // Store initial options globally for the AppDelegate to retrieve.
 // Unsafe, but simple for this minimal example.
 #[cfg(target_os = "ios")]
-pub(super) static mut INITIAL_OPTIONS: Option<(AppConfig, Arc<FcFontCache>, WindowCreateOptions)> =
+pub(super) static mut INITIAL_OPTIONS: Option<(AppConfig, Arc<FcFontCache>, Option<Arc<FcFontRegistry>>, WindowCreateOptions)> =
     None;
 
 // On iOS, the `run` function doesn't manage an event loop.
@@ -329,10 +332,11 @@ pub fn run(
     app_data: RefAny,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
+    font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     unsafe {
-        INITIAL_OPTIONS = Some((app_data, config, fc_cache, root_window));
+        INITIAL_OPTIONS = Some((app_data, config, fc_cache, font_registry, root_window));
         crate::desktop::shell2::ios::launch_app();
         Ok(()) // Unreachable
     }
@@ -343,6 +347,7 @@ pub fn run(
     app_data: RefAny,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
+    font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     log_trace!(LogCategory::Window, "[shell2::run] Windows run() called");
@@ -366,7 +371,7 @@ pub fn run(
         LogCategory::Window,
         "[shell2::run] calling Win32Window::new"
     );
-    let window = Win32Window::new(root_window, config.clone(), fc_cache.clone(), app_data_arc.clone())?;
+    let window = Win32Window::new(root_window, config.clone(), fc_cache.clone(), font_registry.clone(), app_data_arc.clone())?;
     log_trace!(
         LogCategory::Window,
         "[shell2::run] Win32Window::new returned successfully"
@@ -483,7 +488,9 @@ pub fn run(
 
                         match Win32Window::new(
                             pending_create,
+                            config.clone(),
                             window.fc_cache.clone(),
+                            window.font_registry.clone(),
                             window.app_data.clone(),
                         ) {
                             Ok(new_window) => {
@@ -596,6 +603,7 @@ pub fn run(
     app_data: RefAny,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
+    font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     use std::cell::RefCell;
@@ -605,7 +613,7 @@ pub fn run(
     use super::linux::{registry, AppResources, LinuxWindow};
 
     // Initialize shared resources once at startup
-    let resources = Arc::new(AppResources::new(config.clone(), fc_cache));
+    let resources = Arc::new(AppResources::new(config.clone(), fc_cache, font_registry));
 
     log_debug!(
         debug_server::LogCategory::EventLoop,

@@ -9,6 +9,7 @@ use azul_core::{refany::RefAny, resources::AppConfig};
 use azul_css::system::SystemStyle;
 use azul_core::icon::IconProviderHandle;
 use rust_fontconfig::FcFontCache;
+use rust_fontconfig::registry::FcFontRegistry;
 
 use super::super::common::debug_server::LogCategory;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
@@ -28,6 +29,9 @@ pub struct AppResources {
     /// Font configuration cache (shared across all windows)
     pub fc_cache: Arc<FcFontCache>,
 
+    /// Async font registry for background font scanning
+    pub font_registry: Option<Arc<FcFontRegistry>>,
+
     /// Application data (user's global state)
     pub app_data: Arc<RefCell<RefAny>>,
 
@@ -42,7 +46,7 @@ impl AppResources {
     /// Create new shared resources
     ///
     /// This should be called once at application startup.
-    pub fn new(config: AppConfig, fc_cache: Arc<FcFontCache>) -> Self {
+    pub fn new(config: AppConfig, fc_cache: Arc<FcFontCache>, font_registry: Option<Arc<FcFontRegistry>>) -> Self {
         // Create empty app data (user can set this later)
         let app_data = Arc::new(RefCell::new(RefAny::new(())));
 
@@ -76,6 +80,7 @@ impl AppResources {
         Self {
             config,
             fc_cache,
+            font_registry,
             app_data,
             system_style,
             icon_provider,
@@ -86,6 +91,6 @@ impl AppResources {
     pub fn default_for_testing() -> Self {
         let config = AppConfig::default();
         let fc_cache = Arc::new(FcFontCache::default());
-        Self::new(config, fc_cache)
+        Self::new(config, fc_cache, None)
     }
 }

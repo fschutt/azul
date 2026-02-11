@@ -158,9 +158,11 @@ pub fn default_renderer_options(
         },
         enable_multithreading: false,
         debug_flags: wr_translate_debug_flags(&options.window_state.debug_state),
-        // Enable shader precaching: compile all shaders at initialization
-        // This prevents stuttering when shaders are compiled on-demand
-        precache_flags: ShaderPrecacheFlags::FULL_COMPILE,
+        // Shader precaching: use EMPTY to avoid blocking startup with full compilation.
+        // Shaders will be compiled on-demand when first needed by the renderer.
+        // TODO Phase 2: Implement disk cache for compiled shader binaries
+        // (glGetProgramBinary/glProgramBinary) so even lazy compilation is instant.
+        precache_flags: ShaderPrecacheFlags::EMPTY,
         ..WrRendererOptions::default()
     }
 }

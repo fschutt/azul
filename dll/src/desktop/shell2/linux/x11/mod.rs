@@ -1402,6 +1402,7 @@ impl X11Window {
             &self.image_cache,
             &self.gl_context_ptr,
             &self.resources.fc_cache,
+            &self.resources.font_registry,
             &self.resources.system_style,
             &self.resources.icon_provider,
             self.document_id.ok_or("No document ID")?,
