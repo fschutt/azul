@@ -245,9 +245,11 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 .copied()
                 .unwrap_or_default();
 
-            // Special case: If this is a fixed-position element with (0,0) static position
-            // and it has a positioned parent, use the parent's content-box position
-            if position_type == LayoutPosition::Fixed && static_pos == LogicalPosition::zero() {
+            // Special case: If this is a fixed-position element and it has a positioned
+            // parent, update static_pos to be relative to the parent's final absolute
+            // position (content-box). The initial static_pos from process_out_of_flow_children
+            // may include border/padding offsets, so we must always recalculate here.
+            if position_type == LayoutPosition::Fixed {
                 if let Some((_, parent_pos, border_left, border_top, padding_left, padding_top)) =
                     parent_info
                 {
