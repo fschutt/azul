@@ -745,11 +745,12 @@ fn test_body_as_root_inline_block_positioning() {
     if let Some((button_bounds, _)) = button_bg {
         println!("\nButton background: x={}, y={}", button_bounds.origin.x, button_bounds.origin.y);
 
-        // CRITICAL: Button should be at x > 30 (after margin 8 + text ~25)
-        // If button is at x ~= 25 (just text width, no margin), the bug exists!
+        // CRITICAL: Button should be at x > 15 (after margin 8 + text ~25, minus padding ~10)
+        // The background rect now correctly includes the padding area, so its origin
+        // is shifted left by padding-left. If button is at x ~= 0, the body margin bug exists.
         assert!(
-            button_bounds.origin.x > 30.0,
-            "BUG: Button is at x={:.1}, expected > 30 (margin 8 + text ~25). \
+            button_bounds.origin.x > 15.0,
+            "BUG: Button is at x={:.1}, expected > 15 (margin 8 + text ~25 - padding 10). \
              Body margin is NOT being applied to calculated_positions!",
             button_bounds.origin.x
         );

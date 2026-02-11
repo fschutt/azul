@@ -1490,6 +1490,11 @@ pub struct InlineBorderInfo {
     pub left_color: ColorU,
     /// Border radius (if any)
     pub radius: Option<f32>,
+    /// Padding widths in pixels for each side (needed to expand background rect)
+    pub padding_top: f32,
+    pub padding_right: f32,
+    pub padding_bottom: f32,
+    pub padding_left: f32,
 }
 
 impl Default for InlineBorderInfo {
@@ -1504,6 +1509,10 @@ impl Default for InlineBorderInfo {
             bottom_color: ColorU::TRANSPARENT,
             left_color: ColorU::TRANSPARENT,
             radius: None,
+            padding_top: 0.0,
+            padding_right: 0.0,
+            padding_bottom: 0.0,
+            padding_left: 0.0,
         }
     }
 }
@@ -1513,6 +1522,24 @@ impl InlineBorderInfo {
     pub fn has_border(&self) -> bool {
         self.top > 0.0 || self.right > 0.0 || self.bottom > 0.0 || self.left > 0.0
     }
+
+    /// Returns true if any border or padding is present
+    pub fn has_chrome(&self) -> bool {
+        self.has_border()
+            || self.padding_top > 0.0
+            || self.padding_right > 0.0
+            || self.padding_bottom > 0.0
+            || self.padding_left > 0.0
+    }
+
+    /// Total left inset (border + padding)
+    pub fn left_inset(&self) -> f32 { self.left + self.padding_left }
+    /// Total right inset (border + padding)
+    pub fn right_inset(&self) -> f32 { self.right + self.padding_right }
+    /// Total top inset (border + padding)
+    pub fn top_inset(&self) -> f32 { self.top + self.padding_top }
+    /// Total bottom inset (border + padding)
+    pub fn bottom_inset(&self) -> f32 { self.bottom + self.padding_bottom }
 }
 
 #[derive(Debug, Clone)]

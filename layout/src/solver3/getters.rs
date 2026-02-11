@@ -1189,8 +1189,31 @@ pub fn get_inline_border_info(
     let bottom = get_border_width_px_bottom(&border_info.widths.bottom);
     let left = get_border_width_px_left(&border_info.widths.left);
 
-    // Only return Some if there's actually a border
-    if top == 0.0 && right == 0.0 && bottom == 0.0 && left == 0.0 {
+    // Fetch padding values for inline elements
+    fn resolve_padding(mv: MultiValue<PixelValue>) -> f32 {
+        match mv {
+            MultiValue::Exact(pv) => {
+                use azul_css::props::basic::SizeMetric;
+                match pv.metric {
+                    SizeMetric::Px => pv.number.get(),
+                    SizeMetric::Pt => pv.number.get() * 1.333333,
+                    SizeMetric::Em | SizeMetric::Rem => pv.number.get() * 16.0,
+                    _ => 0.0,
+                }
+            }
+            _ => 0.0,
+        }
+    }
+
+    let p_top = resolve_padding(get_css_padding_top(styled_dom, node_id, node_state));
+    let p_right = resolve_padding(get_css_padding_right(styled_dom, node_id, node_state));
+    let p_bottom = resolve_padding(get_css_padding_bottom(styled_dom, node_id, node_state));
+    let p_left = resolve_padding(get_css_padding_left(styled_dom, node_id, node_state));
+
+    // Only return Some if there's actually a border or padding
+    let has_border = top > 0.0 || right > 0.0 || bottom > 0.0 || left > 0.0;
+    let has_padding = p_top > 0.0 || p_right > 0.0 || p_bottom > 0.0 || p_left > 0.0;
+    if !has_border && !has_padding {
         return None;
     }
 
@@ -1204,6 +1227,10 @@ pub fn get_inline_border_info(
         bottom_color: get_border_color_bottom(&border_info.colors.bottom),
         left_color: get_border_color_left(&border_info.colors.left),
         radius: get_border_radius_px(styled_dom, node_id, node_state),
+        padding_top: p_top,
+        padding_right: p_right,
+        padding_bottom: p_bottom,
+        padding_left: p_left,
     })
 }
 

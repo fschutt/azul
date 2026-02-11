@@ -2781,10 +2781,24 @@ where
                 let font_size = glyph_run.font_size_px;
                 let ascent = font_size * 0.8; // Approximate ascent
 
-                let run_bounds = LogicalRect::new(
+                let mut run_bounds = LogicalRect::new(
                     LogicalPosition::new(run_start_x, baseline_y - ascent),
                     LogicalSize::new(run_width, font_size),
                 );
+
+                // Expand run_bounds by padding + border so the background/border
+                // rect covers the full inline box, not just the glyph area.
+                if let Some(border) = &glyph_run.border {
+                    let left_inset = border.left_inset();
+                    let right_inset = border.right_inset();
+                    let top_inset = border.top_inset();
+                    let bottom_inset = border.bottom_inset();
+
+                    run_bounds.origin.x -= left_inset;
+                    run_bounds.origin.y -= top_inset;
+                    run_bounds.size.width += left_inset + right_inset;
+                    run_bounds.size.height += top_inset + bottom_inset;
+                }
 
                 // Use unified inline background/border painting
                 builder.push_inline_backgrounds_and_border(
