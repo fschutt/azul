@@ -1235,6 +1235,255 @@ impl SystemFontType {
 }
 
 impl SystemStyle {
+
+    /// Format the SystemStyle as a human-readable JSON string for debugging.
+    ///
+    /// This does NOT use serde — it manually formats the most important fields
+    /// so that they can be verified against OS-reported values in a test script.
+    pub fn to_json_string(&self) -> AzString {
+        use alloc::format;
+
+        fn opt_color(c: &OptionColorU) -> alloc::string::String {
+            match c.as_ref() {
+                Some(c) => format!("\"#{:02x}{:02x}{:02x}{:02x}\"", c.r, c.g, c.b, c.a),
+                None => "null".into(),
+            }
+        }
+        fn opt_str(s: &OptionString) -> alloc::string::String {
+            match s.as_ref() {
+                Some(s) => format!("\"{}\"", s.as_str()),
+                None => "null".into(),
+            }
+        }
+        fn opt_f32(v: &OptionF32) -> alloc::string::String {
+            match v.into_option() {
+                Some(v) => format!("{:.2}", v),
+                None => "null".into(),
+            }
+        }
+        fn opt_u16(v: &OptionU16) -> alloc::string::String {
+            match v.into_option() {
+                Some(v) => format!("{}", v),
+                None => "null".into(),
+            }
+        }
+        fn opt_px(v: &OptionPixelValue) -> alloc::string::String {
+            match v.as_ref() {
+                Some(v) => format!("{:.1}", v.to_pixels_internal(0.0, 0.0)),
+                None => "null".into(),
+            }
+        }
+
+        let tm = &self.metrics.titlebar;
+        let inp = &self.input;
+        let tr = &self.text_rendering;
+        let acc = &self.accessibility;
+        let sp = &self.scrollbar_preferences;
+        let lnx = &self.linux;
+        let vh = &self.visual_hints;
+        let anim = &self.animation;
+        let audio = &self.audio;
+
+        let json = format!(
+r#"{{
+  "theme": "{:?}",
+  "platform": "{:?}",
+  "os_version": "{:?}:{}",
+  "language": "{}",
+  "prefers_reduced_motion": {:?},
+  "prefers_high_contrast": {:?},
+  "colors": {{
+    "text": {},
+    "secondary_text": {},
+    "tertiary_text": {},
+    "background": {},
+    "accent": {},
+    "accent_text": {},
+    "button_face": {},
+    "button_text": {},
+    "disabled_text": {},
+    "window_background": {},
+    "under_page_background": {},
+    "selection_background": {},
+    "selection_text": {},
+    "selection_background_inactive": {},
+    "selection_text_inactive": {},
+    "link": {},
+    "separator": {},
+    "grid": {},
+    "find_highlight": {},
+    "sidebar_background": {},
+    "sidebar_selection": {}
+  }},
+  "fonts": {{
+    "ui_font": {},
+    "ui_font_size": {},
+    "monospace_font": {},
+    "title_font": {},
+    "menu_font": {},
+    "small_font": {}
+  }},
+  "titlebar": {{
+    "button_side": "{:?}",
+    "height": {},
+    "button_area_width": {},
+    "padding_horizontal": {},
+    "title_font": {},
+    "title_font_size": {},
+    "title_font_weight": {},
+    "has_close": {},
+    "has_minimize": {},
+    "has_maximize": {},
+    "has_fullscreen": {}
+  }},
+  "input": {{
+    "double_click_time_ms": {},
+    "double_click_distance_px": {:.1},
+    "drag_threshold_px": {:.1},
+    "caret_blink_rate_ms": {},
+    "caret_width_px": {:.1},
+    "wheel_scroll_lines": {},
+    "hover_time_ms": {}
+  }},
+  "text_rendering": {{
+    "font_smoothing_enabled": {},
+    "subpixel_type": "{:?}",
+    "font_smoothing_gamma": {},
+    "increased_contrast": {}
+  }},
+  "accessibility": {{
+    "prefers_bold_text": {},
+    "prefers_larger_text": {},
+    "text_scale_factor": {:.2},
+    "prefers_high_contrast": {},
+    "prefers_reduced_motion": {},
+    "prefers_reduced_transparency": {},
+    "screen_reader_active": {},
+    "differentiate_without_color": {}
+  }},
+  "scrollbar_preferences": {{
+    "visibility": "{:?}",
+    "track_click": "{:?}"
+  }},
+  "linux": {{
+    "gtk_theme": {},
+    "icon_theme": {},
+    "cursor_theme": {},
+    "cursor_size": {},
+    "titlebar_button_layout": {}
+  }},
+  "visual_hints": {{
+    "show_button_images": {},
+    "show_menu_images": {},
+    "toolbar_style": "{:?}",
+    "show_tooltips": {}
+  }},
+  "animation": {{
+    "animations_enabled": {},
+    "animation_duration_factor": {:.2},
+    "focus_indicator_behavior": "{:?}"
+  }},
+  "audio": {{
+    "event_sounds_enabled": {},
+    "input_feedback_sounds_enabled": {}
+  }}
+}}"#,
+            // top-level
+            self.theme,
+            self.platform,
+            self.os_version.os, self.os_version.version_id,
+            self.language.as_str(),
+            self.prefers_reduced_motion,
+            self.prefers_high_contrast,
+            // colors
+            opt_color(&self.colors.text),
+            opt_color(&self.colors.secondary_text),
+            opt_color(&self.colors.tertiary_text),
+            opt_color(&self.colors.background),
+            opt_color(&self.colors.accent),
+            opt_color(&self.colors.accent_text),
+            opt_color(&self.colors.button_face),
+            opt_color(&self.colors.button_text),
+            opt_color(&self.colors.disabled_text),
+            opt_color(&self.colors.window_background),
+            opt_color(&self.colors.under_page_background),
+            opt_color(&self.colors.selection_background),
+            opt_color(&self.colors.selection_text),
+            opt_color(&self.colors.selection_background_inactive),
+            opt_color(&self.colors.selection_text_inactive),
+            opt_color(&self.colors.link),
+            opt_color(&self.colors.separator),
+            opt_color(&self.colors.grid),
+            opt_color(&self.colors.find_highlight),
+            opt_color(&self.colors.sidebar_background),
+            opt_color(&self.colors.sidebar_selection),
+            // fonts
+            opt_str(&self.fonts.ui_font),
+            opt_f32(&self.fonts.ui_font_size),
+            opt_str(&self.fonts.monospace_font),
+            opt_str(&self.fonts.title_font),
+            opt_str(&self.fonts.menu_font),
+            opt_str(&self.fonts.small_font),
+            // titlebar
+            tm.button_side,
+            opt_px(&tm.height),
+            opt_px(&tm.button_area_width),
+            opt_px(&tm.padding_horizontal),
+            opt_str(&tm.title_font),
+            opt_f32(&tm.title_font_size),
+            opt_u16(&tm.title_font_weight),
+            tm.buttons.has_close,
+            tm.buttons.has_minimize,
+            tm.buttons.has_maximize,
+            tm.buttons.has_fullscreen,
+            // input
+            inp.double_click_time_ms,
+            inp.double_click_distance_px,
+            inp.drag_threshold_px,
+            inp.caret_blink_rate_ms,
+            inp.caret_width_px,
+            inp.wheel_scroll_lines,
+            inp.hover_time_ms,
+            // text_rendering
+            tr.font_smoothing_enabled,
+            tr.subpixel_type,
+            tr.font_smoothing_gamma,
+            tr.increased_contrast,
+            // accessibility
+            acc.prefers_bold_text,
+            acc.prefers_larger_text,
+            acc.text_scale_factor,
+            acc.prefers_high_contrast,
+            acc.prefers_reduced_motion,
+            acc.prefers_reduced_transparency,
+            acc.screen_reader_active,
+            acc.differentiate_without_color,
+            // scrollbar_preferences
+            sp.visibility,
+            sp.track_click,
+            // linux
+            opt_str(&lnx.gtk_theme),
+            opt_str(&lnx.icon_theme),
+            opt_str(&lnx.cursor_theme),
+            lnx.cursor_size,
+            opt_str(&lnx.titlebar_button_layout),
+            // visual_hints
+            vh.show_button_images,
+            vh.show_menu_images,
+            vh.toolbar_style,
+            vh.show_tooltips,
+            // animation
+            anim.animations_enabled,
+            anim.animation_duration_factor,
+            anim.focus_indicator_behavior,
+            // audio
+            audio.event_sounds_enabled,
+            audio.input_feedback_sounds_enabled,
+        );
+
+        AzString::from(json)
+    }
+
     /// Discovers the system's UI style, and loads an optional app-specific stylesheet.
     ///
     /// If the "io" feature is enabled, this function may be slow as it can

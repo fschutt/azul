@@ -29308,7 +29308,7 @@
               }
             ],
             "constructors": {
-              "create": {
+              "detect": {
                 "doc": [
                   "Discovers the system's UI style, and loads an optional app-specific stylesheet.",
                   "",

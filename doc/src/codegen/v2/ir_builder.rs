@@ -1841,6 +1841,28 @@ impl<'a> IRBuilder<'a> {
                 is_unsafe: false,
             });
         }
+
+        // _toDbgString (Debug)
+        if traits.is_debug {
+            self.ir.functions.push(FunctionDef {
+                c_name: format!("Az{}_toDbgString", type_name),
+                class_name: type_name.to_string(),
+                method_name: "toDbgString".to_string(),
+                kind: FunctionKind::DebugToString,
+                args: vec![FunctionArg {
+                    name: "instance".to_string(),
+                    type_name: type_name.to_string(),
+                    ref_kind: ArgRefKind::Ptr,
+                    doc: None,
+                    callback_info: None,
+                }],
+                return_type: Some("String".to_string()),
+                fn_body: None,
+                doc: vec![format!("Returns the debug string representation of `{}`.", type_name)],
+                is_const: true,
+                is_unsafe: false,
+            });
+        }
     }
 
     /// Detect if an argument type is a callback typedef and return info for code generation

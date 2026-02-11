@@ -429,6 +429,9 @@ pub enum FunctionKind {
     /// Default::default: `fn _default() -> Self`
     Default,
 
+    /// fmt::Debug: `fn _toDbgString(&self) -> AzString`
+    DebugToString,
+
     /// Enum variant constructor: `fn EnumName_variantName(payload) -> EnumName`
     /// Generated automatically for each enum variant
     EnumVariantConstructor,
@@ -447,6 +450,7 @@ impl FunctionKind {
                 | FunctionKind::PartialCmp
                 | FunctionKind::Cmp
                 | FunctionKind::Hash
+                | FunctionKind::DebugToString
         )
     }
 
@@ -470,6 +474,7 @@ impl FunctionKind {
             FunctionKind::Cmp => Some("Ord"),
             FunctionKind::Hash => Some("Hash"),
             FunctionKind::Default => Some("Default"),
+            FunctionKind::DebugToString => Some("Debug"),
             _ => None,
         }
     }
@@ -484,6 +489,7 @@ impl FunctionKind {
             FunctionKind::Cmp => "_cmp",
             FunctionKind::Hash => "_hash",
             FunctionKind::Default => "_default",
+            FunctionKind::DebugToString => "_toDbgString",
             _ => "",
         }
     }

@@ -2509,6 +2509,17 @@ impl RustGenerator {
                     external_path, prefixed_name, external_path
                 )
             }
+            FunctionKind::DebugToString => {
+                let arg_name = func
+                    .args
+                    .first()
+                    .map(|a| a.name.as_str())
+                    .unwrap_or("instance");
+                format!(
+                    "{{ let s = format!(\"{{:#?}}\", *({} as *const {} as *const {})); {}String::from(s.as_str()) }}",
+                    arg_name, prefixed_name, external_path, config.type_prefix
+                )
+            }
             FunctionKind::Constructor
             | FunctionKind::StaticMethod
             | FunctionKind::Method

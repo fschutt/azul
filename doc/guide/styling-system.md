@@ -67,7 +67,7 @@ use azul::system::SystemStyle;
 // - Desktop environment (GNOME, KDE, etc.)
 // - Theme (light/dark)
 // - Accessibility settings (reduced motion, high contrast)
-let style = SystemStyle::create();
+let style = SystemStyle::detect();
 
 println!("Platform: {:?}", style.platform);
 println!("Theme: {:?}", style.theme);
@@ -448,7 +448,7 @@ Available system colors:
 In Rust code:
 
 ```rust
-let style = SystemStyle::create();
+let style = SystemStyle::detect();
 let accent = style.colors.accent; // System accent color
 let selection = style.colors.selection_background;
 ```
