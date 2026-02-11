@@ -30416,6 +30416,9 @@
           },
           "AnimationMetrics": {
             "external": "azul_css::system::AnimationMetrics",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Clone",
@@ -74845,6 +74848,9 @@
                 },
                 "padding_right": {
                   "type": "f32"
+                },
+                "title_color": {
+                  "type": "ColorU"
                 }
               }
             ],
@@ -74881,6 +74887,9 @@
           },
           "VisualHints": {
             "external": "azul_css::system::VisualHints",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Clone",
@@ -74910,6 +74919,9 @@
           },
           "AudioMetrics": {
             "external": "azul_css::system::AudioMetrics",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Clone",
