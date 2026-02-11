@@ -12421,9 +12421,6 @@
                 },
                 "tab_index": {
                   "type": "OptionTabIndex"
-                },
-                "parent_node_ids": {
-                  "type": "NodeHierarchyItemIdVec"
                 }
               }
             ],

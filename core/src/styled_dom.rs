@@ -706,8 +706,6 @@ pub struct TagIdToNodeIdMapping {
     pub node_id: NodeHierarchyItemId,
     /// Whether this node has a tab-index field
     pub tab_index: OptionTabIndex,
-    /// Parents of this NodeID, sorted in depth order, necessary for efficient hit-testing
-    pub parent_node_ids: NodeHierarchyItemIdVec,
 }
 
 impl_option!(
@@ -997,7 +995,6 @@ impl StyledDom {
         // shift all the node ids in other by self.len()
         let self_len = self.node_hierarchy.as_ref().len();
         let other_len = other.node_hierarchy.as_ref().len();
-        let self_tag_len = self.tag_ids_to_node_ids.as_ref().len();
         let self_root_id = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
         let other_root_id = other.root.into_crate_internal().unwrap_or(NodeId::ZERO);
 
@@ -1055,8 +1052,9 @@ impl StyledDom {
         self.get_css_property_cache_mut()
             .append(other.get_css_property_cache_mut());
 
+        // Tag IDs are globally unique (AtomicUsize counter) and never collide,
+        // so we only shift node_id (which changes when DOMs are merged).
         for tag_id_node_id in other.tag_ids_to_node_ids.iter_mut() {
-            tag_id_node_id.tag_id.inner += self_tag_len as u64;
             tag_id_node_id.node_id.inner += self_len;
         }
 
@@ -1099,7 +1097,6 @@ impl StyledDom {
         // shift all the node ids in other by self.len()
         let self_len = self.node_hierarchy.as_ref().len();
         let other_len = other.node_hierarchy.as_ref().len();
-        let self_tag_len = self.tag_ids_to_node_ids.as_ref().len();
         let self_root_id = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
         let other_root_id = other.root.into_crate_internal().unwrap_or(NodeId::ZERO);
 
@@ -1151,8 +1148,9 @@ impl StyledDom {
         self.get_css_property_cache_mut()
             .append(other.get_css_property_cache_mut());
 
+        // Tag IDs are globally unique (AtomicUsize counter) and never collide,
+        // so we only shift node_id (which changes when DOMs are merged).
         for tag_id_node_id in other.tag_ids_to_node_ids.iter_mut() {
-            tag_id_node_id.tag_id.inner += self_tag_len as u64;
             tag_id_node_id.node_id.inner += self_len;
         }
 

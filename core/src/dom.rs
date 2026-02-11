@@ -165,16 +165,15 @@ impl TagId {
     }
 
     /// Creates a new, unique hit-testing tag ID.
+    /// Wraps around to 1 on overflow (0 is reserved for "no tag").
     pub fn unique() -> Self {
-        TagId {
-            inner: TAG_ID.fetch_add(1, Ordering::SeqCst) as u64,
+        loop {
+            let current = TAG_ID.load(Ordering::SeqCst);
+            let next = if current == usize::MAX { 1 } else { current + 1 };
+            if TAG_ID.compare_exchange(current, next, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                return TagId { inner: current as u64 };
+            }
         }
-    }
-
-    /// Resets the counter (usually done after each frame) so that we can
-    /// track hit-testing Tag IDs of subsequent frames.
-    pub fn reset() {
-        TAG_ID.swap(1, Ordering::SeqCst);
     }
 }
 

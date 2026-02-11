@@ -956,16 +956,6 @@ impl CssPropertyCache {
                         tag_id: TagId::from_crate_internal(TagId::unique()),
                         node_id: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
                         tab_index: tab_index.into(),
-                        parent_node_ids: {
-                            let mut parents = Vec::new();
-                            let mut cur_parent = node_hierarchy.as_container()[node_id].parent_id();
-                            while let Some(c) = cur_parent.clone() {
-                                parents.push(NodeHierarchyItemId::from_crate_internal(Some(c)));
-                                cur_parent = node_hierarchy.as_container()[c].parent_id();
-                            }
-                            parents.reverse(); // parents sorted in depth-increasing order
-                            parents.into()
-                        },
                     })
                 }
             })
