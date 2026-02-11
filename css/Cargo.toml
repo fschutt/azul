@@ -35,3 +35,8 @@ parser = ["dep:azul-simplecss"]
 
 # File I/O and serialization support
 io = ["dep:serde", "dep:serde_json", "dep:dirs-next"]
+
+# Native OS discovery via dlopen / FFI.
+# On macOS & Windows this uses raw dlopen / LoadLibrary – zero external crates.
+# On Linux this optionally uses zbus (pure-Rust D-Bus) for XDG Desktop Portal queries.
+system = []
