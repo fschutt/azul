@@ -25,7 +25,7 @@
 //! # Key Types
 //!
 //! - `ProcessEventResult`: DoNothing / RequestRedraw / RegenerateAndRedraw
-//! - `CsdAction`: TitlebarDrag / Minimize / Maximize / Close
+//! - `SoftwareTitlebar`: Titlebar widget with drag / close / min / max callbacks
 //! - `ScrollbarDragState`: Tracks scrollbar dragging across events
 
 #![allow(dead_code)]

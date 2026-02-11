@@ -172,8 +172,6 @@ pub fn regenerate_layout(
             user_styled_dom,
             &current_window_state.title,
             true,         // inject titlebar
-            true,         // has minimize
-            true,         // has maximize
             system_style, // pass SystemStyle for native look
         )
     } else if current_window_state.flags.decorations
