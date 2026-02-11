@@ -567,7 +567,12 @@ fn inject_software_titlebar(
     // Style the titlebar DOM (all properties are inline — no external CSS needed)
     let titlebar_styled = titlebar_dom.style(azul_css::css::Css::empty());
 
-    let mut container = azul_core::styled_dom::StyledDom::default();
+    // Use an Html root (not Body!) so we don't get double <body> nesting.
+    // StyledDom::default() creates a Body root, and the user's DOM also starts
+    // with Body — nesting body>body causes double 8px UA margin.
+    // Html has display:block but no margin in the UA stylesheet.
+    let mut container = azul_core::dom::Dom::create_html()
+        .style(azul_css::css::Css::empty());
     container.append_child(titlebar_styled);
     container.append_child(user_dom);
     container
