@@ -14,7 +14,7 @@
  * HTML content like emails, static pages, etc.
  * 
  * Compile with: 
- *   gcc -o browser browser.c -I. -L../../target/release -lazul_dll -Wl,-rpath,../../target/release
+ *   gcc -o browser browser.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
  * 
  * Note: The azul-dll must be compiled with the 'http' feature:
  *   cargo build -p azul-dll --features http,build-dll --release

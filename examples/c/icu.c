@@ -9,7 +9,7 @@
  * - String collation/sorting
  * 
  * Compile with: 
- *   gcc -o icu icu.c -I. -L../../target/debug -lazul_dll -Wl,-rpath,../../target/debug
+ *   gcc -o icu icu.c -I. -L../../target/debug -lazul -Wl,-rpath,../../target/debug
  * 
  * Note: The azul-dll must be compiled with the 'icu' feature:
  *   cargo build -p azul-dll --features icu

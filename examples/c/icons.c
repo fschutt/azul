@@ -7,7 +7,7 @@
  * - The icon resolution system (icon name -> visual representation)
  * 
  * Compile with: 
- *   gcc -o icons icons.c -I. -L../../target/release -lazul_dll -Wl,-rpath,../../target/release
+ *   gcc -o icons icons.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
  */
 
 #include "azul.h"

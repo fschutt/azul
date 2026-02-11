@@ -9,7 +9,7 @@
  * - Path manipulation
  * 
  * Compile with: 
- *   gcc -o file file.c -I. -L../../target/release -lazul_dll -Wl,-rpath,../../target/release
+ *   gcc -o file file.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
  */
 
 #include "azul.h"

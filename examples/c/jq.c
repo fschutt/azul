@@ -9,7 +9,7 @@
  * - Wildcard queries with jq_all()
  * 
  * Compile with: 
- *   clang -o jq jq.c -I. -L../../target/release -lazul_dll -Wl,-rpath,../../target/release
+ *   clang -o jq jq.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
  */
 
 #include "azul.h"

@@ -8,7 +8,7 @@
  * - Error handling for HTTP operations
  * 
  * Compile with: 
- *   gcc -o http http.c -I. -L../../target/release -lazul_dll -Wl,-rpath,../../target/release
+ *   gcc -o http http.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
  * 
  * Note: The azul-dll must be compiled with the 'http' feature:
  *   cargo build -p azul-dll --features http,build-dll --release

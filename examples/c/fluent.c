@@ -8,7 +8,7 @@
  * - Language selection
  * 
  * Compile with: 
- *   gcc -o fluent fluent.c -I. -L../../target/release -lazul_dll -Wl,-rpath,../../target/release
+ *   gcc -o fluent fluent.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
  */
 
 #include "azul.h"
