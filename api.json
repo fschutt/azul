@@ -875,6 +875,10 @@
                 "DragStart": {},
                 "Drag": {},
                 "DragEnd": {},
+                "DragEnter": {},
+                "DragOver": {},
+                "DragLeave": {},
+                "Drop": {},
                 "DoubleClick": {},
                 "LongPress": {},
                 "SwipeLeft": {},
@@ -27070,6 +27074,10 @@
                 "DragStart": {},
                 "Drag": {},
                 "DragEnd": {},
+                "DragEnter": {},
+                "DragOver": {},
+                "DragLeave": {},
+                "Drop": {},
                 "DoubleClick": {},
                 "LongPress": {},
                 "SwipeLeft": {},
@@ -27221,40 +27229,32 @@
               {
                 "hover": {
                   "type": "bool"
-                }
-              },
-              {
+                },
                 "active": {
                   "type": "bool"
-                }
-              },
-              {
+                },
                 "focused": {
                   "type": "bool"
-                }
-              },
-              {
+                },
                 "disabled": {
                   "type": "bool"
-                }
-              },
-              {
+                },
                 "checked": {
                   "type": "bool"
-                }
-              },
-              {
+                },
                 "focus_within": {
                   "type": "bool"
-                }
-              },
-              {
+                },
                 "visited": {
                   "type": "bool"
-                }
-              },
-              {
+                },
                 "backdrop": {
+                  "type": "bool"
+                },
+                "dragging": {
+                  "type": "bool"
+                },
+                "drag_over": {
                   "type": "bool"
                 }
               }
@@ -27378,6 +27378,10 @@
                 "DragStart": {},
                 "Drag": {},
                 "DragEnd": {},
+                "DragEnter": {},
+                "DragOver": {},
+                "DragLeave": {},
+                "Drop": {},
                 "DoubleClick": {},
                 "LongPress": {},
                 "SwipeLeft": {},
@@ -49312,7 +49316,9 @@
                 "Lang": {
                   "type": "String"
                 },
-                "Backdrop": {}
+                "Backdrop": {},
+                "Dragging": {},
+                "DragOver": {}
               }
             ],
             "repr": "C, u8"
@@ -73411,7 +73417,9 @@
                 "Checked": {},
                 "FocusWithin": {},
                 "Visited": {},
-                "Backdrop": {}
+                "Backdrop": {},
+                "Dragging": {},
+                "DragOver": {}
               }
             ],
             "repr": "C"
