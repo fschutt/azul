@@ -74,14 +74,27 @@ pub fn regenerate_layout(
     // is effectively free; on first run it blocks until the Scout + Builder
     // threads have parsed the needed fonts.
     if let Some(registry) = font_registry.as_ref() {
-        log_debug!(LogCategory::Layout, "[regenerate_layout] Requesting fonts from registry...");
-        let common_families = rust_fontconfig::registry::get_common_font_families();
-        let font_stacks: Vec<Vec<String>> = common_families.into_iter().map(|f| vec![f]).collect();
-        registry.request_fonts(&font_stacks);
-        // Snapshot the registry into an FcFontCache for use during layout
-        let snapshot = Arc::new(registry.into_fc_font_cache());
-        layout_window.font_manager.fc_cache = snapshot.clone();
-        log_debug!(LogCategory::Layout, "[regenerate_layout] Font registry snapshot complete");
+        // Avoid replacing a complete font cache (e.g. loaded from disk cache at
+        // startup) with an incomplete snapshot while background builder threads
+        // are still parsing fonts.  This prevents a race condition where only
+        // some variants of a font family (e.g. only the Italic variant of
+        // "System Font") are available when the snapshot is taken, causing
+        // incorrect font selection on some launches.
+        let current_cache_empty = layout_window.font_manager.fc_cache.is_empty();
+        let build_complete = registry.is_build_complete();
+
+        if current_cache_empty || build_complete {
+            log_debug!(LogCategory::Layout, "[regenerate_layout] Requesting fonts from registry...");
+            let common_families = rust_fontconfig::registry::get_common_font_families();
+            let font_stacks: Vec<Vec<String>> = common_families.into_iter().map(|f| vec![f]).collect();
+            registry.request_fonts(&font_stacks);
+            // Snapshot the registry into an FcFontCache for use during layout
+            let snapshot = Arc::new(registry.into_fc_font_cache());
+            layout_window.font_manager.fc_cache = snapshot.clone();
+            log_debug!(LogCategory::Layout, "[regenerate_layout] Font registry snapshot complete");
+        } else {
+            log_debug!(LogCategory::Layout, "[regenerate_layout] Using existing font cache (build still in progress, {} faces loaded)", registry.progress().2);
+        }
     } else {
         // Fallback: use the provided fc_cache directly
         layout_window.font_manager.fc_cache = fc_cache.clone();

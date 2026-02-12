@@ -169,15 +169,19 @@ pub struct InputSession {
     pub ended: bool,
     /// Session ID for tracking (incremental counter)
     pub session_id: u64,
+    /// Window position at the time this session started (mouse-down).
+    /// Used by titlebar drag callbacks to compute new window position.
+    pub window_position_at_start: azul_core::window::WindowPosition,
 }
 
 impl InputSession {
     /// Create a new input session
-    fn new(session_id: u64, first_sample: InputSample) -> Self {
+    fn new(session_id: u64, first_sample: InputSample, window_position: azul_core::window::WindowPosition) -> Self {
         Self {
             samples: vec![first_sample],
             ended: false,
             session_id,
+            window_position_at_start: window_position,
         }
     }
 
@@ -414,12 +418,16 @@ impl GestureAndDragManager {
     /// This begins recording samples for gesture detection.
     /// Call this when receiving mouse button down event.
     ///
+    /// `window_position` is the current OS window position at the time of mouse-down.
+    /// It is stored so that drag callbacks can compute the new window position.
+    ///
     /// Returns the session ID for this new session.
     pub fn start_input_session(
         &mut self,
         position: LogicalPosition,
         timestamp: CoreInstant,
         button_state: u8,
+        window_position: azul_core::window::WindowPosition,
     ) -> u64 {
         self.start_input_session_with_pen(
             position,
@@ -429,6 +437,7 @@ impl GestureAndDragManager {
             0.5,        // default pressure for mouse
             (0.0, 0.0), // no tilt for mouse
             (0.0, 0.0), // no touch radius for mouse
+            window_position,
         )
     }
 
@@ -442,6 +451,7 @@ impl GestureAndDragManager {
         pressure: f32,
         tilt: (f32, f32),
         touch_radius: (f32, f32),
+        window_position: azul_core::window::WindowPosition,
     ) -> u64 {
         // Clear old ended sessions, but keep the most recent ended session
         // for double-click detection. detect_double_click() needs two ended
@@ -467,7 +477,7 @@ impl GestureAndDragManager {
             touch_radius,
         };
 
-        let session = InputSession::new(session_id, sample);
+        let session = InputSession::new(session_id, sample, window_position);
         self.input_sessions.push(session);
 
         session_id
@@ -629,6 +639,9 @@ impl GestureAndDragManager {
         let direct_distance = session.direct_distance()?;
 
         if direct_distance >= self.config.drag_distance_threshold {
+            #[cfg(feature = "std")]
+            eprintln!("[GESTURE] detect_drag: distance={:.1}px >= threshold={:.1}px, samples={}",
+                direct_distance, self.config.drag_distance_threshold, session.samples.len());
             let first = session.first_sample()?;
             let last = session.last_sample()?;
 
@@ -932,6 +945,28 @@ impl GestureAndDragManager {
             .map(|sample| sample.position)
     }
 
+    /// Get the drag delta (current mouse position minus mouse-down position)
+    /// from the current input session.
+    ///
+    /// Returns `None` if there is no active session or not enough samples.
+    pub fn get_drag_delta(&self) -> Option<(f32, f32)> {
+        let session = self.get_current_session()?;
+        let first = session.first_sample()?;
+        let last = session.last_sample()?;
+        Some((
+            last.position.x - first.position.x,
+            last.position.y - first.position.y,
+        ))
+    }
+
+    /// Get the window position that was stored when the current input session
+    /// started (i.e. on mouse-down).  Titlebar drag callbacks use this
+    /// together with `get_drag_delta()` to compute the new window position.
+    pub fn get_window_position_at_session_start(&self) -> Option<azul_core::window::WindowPosition> {
+        let session = self.get_current_session()?;
+        Some(session.window_position_at_start)
+    }
+
     // ========================================================================
     // UNIFIED DRAG CONTEXT API (NEW)
     // ========================================================================
@@ -1012,11 +1047,17 @@ impl GestureAndDragManager {
         _start_hit_test: Option<HitTest>,
     ) {
         if let Some(detected) = self.detect_drag() {
+            #[cfg(feature = "std")]
+            eprintln!("[GESTURE] activate_window_drag: start={:?} current={:?} win_pos={:?}",
+                detected.start_position, detected.current_position, initial_window_position);
             self.active_drag = Some(DragContext::window_move(
                 detected.start_position,
                 initial_window_position,
                 detected.session_id,
             ));
+        } else {
+            #[cfg(feature = "std")]
+            eprintln!("[GESTURE] activate_window_drag: detect_drag() returned None!");
         }
     }
 
@@ -1029,6 +1070,10 @@ impl GestureAndDragManager {
     /// Update positions for active drag (call on mouse move)
     pub fn update_active_drag_positions(&mut self, position: LogicalPosition) {
         if let Some(ref mut drag) = self.active_drag {
+            #[cfg(feature = "std")]
+            if drag.is_window_move() {
+                eprintln!("[GESTURE] update_active_drag_positions: pos={:?}", position);
+            }
             drag.update_position(position);
         }
     }
@@ -1213,6 +1258,13 @@ impl GestureAndDragManager {
 
         let delta_x = drag.current_position.x - drag.start_position.x;
         let delta_y = drag.current_position.y - drag.start_position.y;
+
+        #[cfg(feature = "std")]
+        eprintln!("[GESTURE] get_window_position_from_drag: delta=({},{}), start=({},{}), current=({},{}), initial_win={:?}",
+            delta_x, delta_y,
+            drag.start_position.x, drag.start_position.y,
+            drag.current_position.x, drag.current_position.y,
+            drag.initial_window_position);
 
         match drag.initial_window_position {
             WindowPosition::Initialized(initial_pos) => {

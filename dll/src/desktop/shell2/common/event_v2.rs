@@ -1064,6 +1064,9 @@ pub trait PlatformWindowV2 {
         is_button_down: bool,
         is_button_up: bool,
     ) {
+        // Capture window position BEFORE borrowing layout_window mutably
+        let window_position = self.get_current_window_state().position;
+
         // Get access to gesture manager
         let layout_window = match self.get_layout_window_mut() {
             Some(lw) => lw,
@@ -1081,8 +1084,9 @@ pub trait PlatformWindowV2 {
 
         // Record based on event type
         if is_button_down {
-            // Start new input session
-            manager.start_input_session(position, current_time.clone(), button_state);
+            // Start new input session — pass current window position so
+            // titlebar drag callbacks can compute new position from delta
+            manager.start_input_session(position, current_time.clone(), button_state, window_position);
         } else if is_button_up {
             // End current session
             manager.end_current_session();
@@ -2451,37 +2455,10 @@ pub trait PlatformWindowV2 {
             result = result.max(recursive_result);
         }
 
-        // Auto-activate window drag if DragStart occurred on titlebar
-        // This allows titlebar dragging to work even when mouse leaves window
-        if synthetic_events
-            .iter()
-            .any(|e| matches!(e.event_type, azul_core::events::EventType::DragStart))
-        {
-            // Get current window position before mutable borrow
-            let current_pos = self.get_current_window_state().position;
-
-            // Check if drag was on a titlebar element (class="csd-title" or "csd-titlebar")
-            if let Some(hit_test) = hit_test_for_dispatch.as_ref() {
-                if let Some(layout_window) = self.get_layout_window_mut() {
-                    let is_titlebar_drag = is_hit_on_titlebar(hit_test, layout_window);
-
-                    if is_titlebar_drag && !layout_window.gesture_drag_manager.is_window_dragging()
-                    {
-                        // Activate window drag with current window position
-                        let hit_test_clone = hit_test.hovered_nodes.values().next().cloned();
-
-                        layout_window
-                            .gesture_drag_manager
-                            .activate_window_drag(current_pos, hit_test_clone);
-
-                        log_debug!(
-                            super::debug_server::LogCategory::Input,
-                            "[Event V2] Auto-activated window drag on titlebar DragStart"
-                        );
-                    }
-                }
-            }
-        }
+        // NOTE: Window drag is handled entirely by titlebar callbacks.
+        // The DragStart/Drag callbacks on the csd-title node read the
+        // gesture manager's drag delta and window_position_at_session_start
+        // to compute the new window position via modify_window_state().
 
         // W3C "flag and defer" pattern: Finalize pending focus changes after all events processed
         // 
@@ -3429,46 +3406,8 @@ pub trait PlatformWindowV2 {
     }
 }
 
-/// Checks if any hit node has the CSD titlebar class ("csd-title" or "csd-titlebar").
-///
-/// This is used to determine if a drag gesture should activate window dragging.
-fn is_hit_on_titlebar(
-    hit_test: &azul_core::hit_test::FullHitTest,
-    layout_window: &LayoutWindow,
-) -> bool {
-    use azul_core::dom::IdOrClass;
-
-    for (dom_id, hit) in hit_test.hovered_nodes.iter() {
-        let (node_id, _hit_item) = match hit.regular_hit_test_nodes.iter().next() {
-            Some(n) => n,
-            None => continue,
-        };
-
-        let layout_result = match layout_window.layout_results.get(dom_id) {
-            Some(lr) => lr,
-            None => continue,
-        };
-
-        let binding = layout_result.styled_dom.node_data.as_container();
-        let node_data = match binding.get(*node_id) {
-            Some(nd) => nd,
-            None => continue,
-        };
-
-        let has_titlebar_class = node_data.get_ids_and_classes().as_ref().iter().any(
-            |id_or_class| {
-                matches!(
-                    id_or_class,
-                    IdOrClass::Class(c) if c.as_str() == "csd-title"
-                        || c.as_str() == "csd-titlebar"
-                )
-            },
-        );
-
-        if has_titlebar_class {
-            return true;
-        }
-    }
-
-    false
-}
+// NOTE: is_hit_on_titlebar was removed.
+// Window drag is now handled entirely by titlebar callbacks in titlebar.rs.
+// The callbacks use gesture_drag_manager.get_drag_delta() and
+// gesture_drag_manager.get_window_position_at_session_start() to compute
+// the new window position.

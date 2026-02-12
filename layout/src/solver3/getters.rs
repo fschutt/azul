@@ -2344,15 +2344,18 @@ pub fn resolve_font_chains(
         }
 
         // Resolve the font chain
+        // IMPORTANT: Use False (not DontCare) when style is Normal.
+        // DontCare means "accept italic too" which can match italic fonts.
+        // False means "must NOT be italic" which correctly prefers Normal.
         let italic = if is_italic {
             PatternMatch::True
         } else {
-            PatternMatch::DontCare
+            PatternMatch::False
         };
         let oblique = if is_oblique {
             PatternMatch::True
         } else {
-            PatternMatch::DontCare
+            PatternMatch::False
         };
 
         let mut trace = Vec::new();

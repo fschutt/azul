@@ -225,55 +225,80 @@ define_class!(
 
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
+                    let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    macos_window.sync_window_state();
                 }
             }
         }
 
         #[unsafe(method(mouseUp:))]
         fn mouse_up(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
+                    let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    macos_window.sync_window_state();
                 }
             }
         }
 
         #[unsafe(method(mouseDragged:))]
         fn mouse_dragged(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_mouse_move(event);
+                    let result = macos_window.handle_mouse_move(event);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    macos_window.sync_window_state();
                 }
             }
         }
 
         #[unsafe(method(rightMouseDown:))]
         fn right_mouse_down(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
+                    let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    macos_window.sync_window_state();
                 }
             }
         }
 
         #[unsafe(method(rightMouseUp:))]
         fn right_mouse_up(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
+                    let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    macos_window.sync_window_state();
                 }
             }
         }
@@ -784,55 +809,80 @@ define_class!(
 
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
+                    let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    macos_window.sync_window_state();
                 }
             }
         }
 
         #[unsafe(method(mouseUp:))]
         fn mouse_up(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
+                    let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    macos_window.sync_window_state();
                 }
             }
         }
 
         #[unsafe(method(mouseDragged:))]
         fn mouse_dragged(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_mouse_move(event);
+                    let result = macos_window.handle_mouse_move(event);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    macos_window.sync_window_state();
                 }
             }
         }
 
         #[unsafe(method(rightMouseDown:))]
         fn right_mouse_down(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
+                    let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    macos_window.sync_window_state();
                 }
             }
         }
 
         #[unsafe(method(rightMouseUp:))]
         fn right_mouse_up(&self, event: &NSEvent) {
-            // Forward to MacOSWindow for handling
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
+                    use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
+                    let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
+                    if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
+                        macos_window.frame_needs_regeneration = true;
+                        macos_window.request_redraw();
+                    }
+                    macos_window.sync_window_state();
                 }
             }
         }
@@ -1461,8 +1511,24 @@ define_class!(
         /// Called when the window is moved
         #[unsafe(method(windowDidMove:))]
         fn window_did_move(&self, _notification: &NSNotification) {
-            // Window position is tracked in the main event loop
-            // No need to update state here, just for consistency
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                    let frame = macos_window.window.frame();
+                    if let Some(screen) = macos_window.window.screen() {
+                        let screen_frame = screen.frame();
+                        let top_left_x = frame.origin.x as i32;
+                        let top_left_y = (screen_frame.size.height - frame.origin.y - frame.size.height) as i32;
+                        let pos = azul_core::window::WindowPosition::Initialized(
+                            azul_core::geom::PhysicalPositionI32::new(top_left_x, top_left_y),
+                        );
+                        macos_window.current_window_state.position = pos;
+                        if let Some(ref mut lw) = macos_window.layout_window {
+                            lw.current_window_state.position = pos;
+                        }
+                    }
+                }
+            }
         }
 
         #[unsafe(method(windowDidChangeBackingProperties:))]
@@ -2964,6 +3030,26 @@ impl MacOSWindow {
         );
         unsafe {
             window.window.makeKeyAndOrderFront(None);
+        }
+
+        // Read back the actual window position from the OS and store it
+        // so that titlebar drag callbacks can compute correct new positions.
+        unsafe {
+            let frame = window.window.frame();
+            // macOS uses bottom-left origin; we store top-left for consistency
+            // frame.origin is bottom-left, frame.origin.y + frame.size.height = top
+            if let Some(screen) = window.window.screen() {
+                let screen_frame = screen.frame();
+                let top_left_x = frame.origin.x as i32;
+                let top_left_y = (screen_frame.size.height - frame.origin.y - frame.size.height) as i32;
+                let pos = azul_core::window::WindowPosition::Initialized(
+                    azul_core::geom::PhysicalPositionI32::new(top_left_x, top_left_y),
+                );
+                window.current_window_state.position = pos;
+                if let Some(ref mut lw) = window.layout_window {
+                    lw.current_window_state.position = pos;
+                }
+            }
         }
 
         log_info!(

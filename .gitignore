@@ -36,3 +36,4 @@ LICENSE-MAC.txt
 Cargo.lock
 *.lock
 commits.txt
+out-italic.txt

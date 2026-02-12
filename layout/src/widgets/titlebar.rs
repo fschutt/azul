@@ -524,17 +524,30 @@ pub(crate) mod callbacks {
     use azul_core::refany::RefAny;
     use crate::callbacks::CallbackInfo;
 
-    /// DragStart — framework tracks position, we just acknowledge.
+    /// DragStart — just acknowledge, actual movement happens in titlebar_drag.
     pub extern "C" fn titlebar_drag_start(
         _data: RefAny, _info: CallbackInfo,
-    ) -> Update { Update::DoNothing }
+    ) -> Update {
+        Update::DoNothing
+    }
 
-    /// Drag — move window via gesture manager.
+    /// Drag — compute new window position from gesture manager's drag delta
+    /// and the window position that was captured at mouse-down.
     pub extern "C" fn titlebar_drag(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
+        use azul_core::window::WindowPosition;
+        use azul_core::geom::PhysicalPositionI32;
+
         let gm = info.get_gesture_drag_manager();
-        if let Some(new_pos) = gm.get_window_position_from_drag() {
+        let delta = gm.get_drag_delta();
+        let initial_pos = gm.get_window_position_at_session_start();
+
+        if let (Some((dx, dy)), Some(WindowPosition::Initialized(pos))) = (delta, initial_pos) {
+            let new_pos = WindowPosition::Initialized(PhysicalPositionI32::new(
+                pos.x + dx as i32,
+                pos.y - dy as i32, // macOS y-axis is flipped
+            ));
             let mut ws = info.get_current_window_state().clone();
             ws.position = new_pos;
             info.modify_window_state(ws);
