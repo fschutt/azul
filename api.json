@@ -884,7 +884,9 @@
                 "PinchIn": {},
                 "PinchOut": {},
                 "RotateClockwise": {},
-                "RotateCounterClockwise": {}
+                "RotateCounterClockwise": {},
+                "DpiChanged": {},
+                "MonitorChanged": {}
               }
             ],
             "repr": "C"
@@ -4020,7 +4022,7 @@
                   }
                 ],
                 "returns": {
-                  "type": "OptionLogicalPosition"
+                  "type": "OptionCursorNodePosition"
                 },
                 "fn_body": "object.get_cursor_relative_to_node()"
               },
@@ -4048,6 +4050,105 @@
                   "type": "OptionLogicalPosition"
                 },
                 "fn_body": "object.get_cursor_position().into()"
+              },
+              "get_cursor_position_screen": {
+                "doc": [
+                  "Get the current cursor position in screen (global/desktop) coordinates"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionScreenPosition"
+                },
+                "fn_body": "object.get_cursor_position_screen()"
+              },
+              "get_drag_delta": {
+                "doc": [
+                  "Get the drag delta from drag start to current position, in window-local logical coordinates"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionDragDelta"
+                },
+                "fn_body": "object.get_drag_delta()"
+              },
+              "get_drag_delta_screen": {
+                "doc": [
+                  "Get the total drag delta in screen coordinates (from drag start to now)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionDragDelta"
+                },
+                "fn_body": "object.get_drag_delta_screen()"
+              },
+              "get_drag_delta_screen_incremental": {
+                "doc": [
+                  "Get the incremental screen drag delta since the last frame (robust against external position changes)"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionDragDelta"
+                },
+                "fn_body": "object.get_drag_delta_screen_incremental()"
+              },
+              "begin_interactive_move": {
+                "doc": [
+                  "Begin an interactive window move (CSD titlebar drag). On Wayland this delegates to the compositor; on other platforms it is a no-op (use get_drag_delta instead)."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  }
+                ],
+                "fn_body": "object.begin_interactive_move()"
+              },
+              "get_monitors": {
+                "doc": [
+                  "Get all connected monitors (cached, no syscall).",
+                  "Returns the monitor list from the app-level cache.",
+                  "Updated automatically when monitors are added/removed."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "MonitorVec"
+                },
+                "fn_body": "object.get_monitors()"
+              },
+              "get_current_monitor": {
+                "doc": [
+                  "Get the monitor the window is currently displayed on.",
+                  "Returns the full Monitor struct with DPI, size, position, etc.",
+                  "Returns None if monitor information is unavailable."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionMonitor"
+                },
+                "fn_body": "object.get_current_monitor()"
               },
               "get_current_time": {
                 "fn_args": [
@@ -15125,6 +15226,46 @@
                 "KeyboardOnly": {}
               }
             ],
+            "repr": "C"
+          },
+          "DragDelta": {
+            "external": "azul_core::geom::DragDelta",
+            "derive": [
+              "Default",
+              "Copy",
+              "Clone",
+              "PartialOrd",
+              "PartialEq",
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "dx": {
+                  "type": "f32"
+                },
+                "dy": {
+                  "type": "f32"
+                }
+              }
+            ],
+            "constructors": {
+              "create": {
+                "fn_args": [
+                  {
+                    "dx": "f32"
+                  },
+                  {
+                    "dy": "f32"
+                  }
+                ],
+                "fn_body": "azul_core::geom::DragDelta::new(dx, dy)"
+              },
+              "zero": {
+                "fn_args": [],
+                "fn_body": "azul_core::geom::DragDelta::zero()"
+              }
+            },
+            "functions": {},
             "repr": "C"
           }
         }
@@ -26982,7 +27123,9 @@
             "enum_fields": [
               {
                 "DeviceConnected": {},
-                "DeviceDisconnected": {}
+                "DeviceDisconnected": {},
+                "MonitorConnected": {},
+                "MonitorDisconnected": {}
               }
             ],
             "repr": "C"
@@ -27290,6 +27433,86 @@
               "zero": {
                 "fn_args": [],
                 "fn_body": "azul_core::geom::LogicalPosition::zero()"
+              }
+            },
+            "functions": {},
+            "repr": "C"
+          },
+          "ScreenPosition": {
+            "external": "azul_core::geom::ScreenPosition",
+            "derive": [
+              "Default",
+              "Copy",
+              "Clone",
+              "PartialOrd",
+              "PartialEq",
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "x": {
+                  "type": "f32"
+                },
+                "y": {
+                  "type": "f32"
+                }
+              }
+            ],
+            "constructors": {
+              "create": {
+                "fn_args": [
+                  {
+                    "x": "f32"
+                  },
+                  {
+                    "y": "f32"
+                  }
+                ],
+                "fn_body": "azul_core::geom::ScreenPosition::new(x, y)"
+              },
+              "zero": {
+                "fn_args": [],
+                "fn_body": "azul_core::geom::ScreenPosition::zero()"
+              }
+            },
+            "functions": {},
+            "repr": "C"
+          },
+          "CursorNodePosition": {
+            "external": "azul_core::geom::CursorNodePosition",
+            "derive": [
+              "Default",
+              "Copy",
+              "Clone",
+              "PartialOrd",
+              "PartialEq",
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "x": {
+                  "type": "f32"
+                },
+                "y": {
+                  "type": "f32"
+                }
+              }
+            ],
+            "constructors": {
+              "create": {
+                "fn_args": [
+                  {
+                    "x": "f32"
+                  },
+                  {
+                    "y": "f32"
+                  }
+                ],
+                "fn_body": "azul_core::geom::CursorNodePosition::new(x, y)"
+              },
+              "zero": {
+                "fn_args": [],
+                "fn_body": "azul_core::geom::CursorNodePosition::zero()"
               }
             },
             "functions": {},
@@ -68005,30 +68228,6 @@
             ],
             "repr": "C, u8"
           },
-          "OptionTagId": {
-            "external": "azul_core::dom::OptionTagId",
-            "derive": [
-              "Clone",
-              "Debug",
-              "PartialEq",
-              "Hash",
-              "Ord",
-              "Eq",
-              "PartialOrd",
-              "Copy"
-            ],
-            "enum_fields": [
-              {
-                "None": {}
-              },
-              {
-                "Some": {
-                  "type": "TagId"
-                }
-              }
-            ],
-            "repr": "C, u8"
-          },
           "OptionDuration": {
             "external": "azul_core::task::OptionDuration",
             "derive": [
@@ -68208,6 +68407,63 @@
                 "None": {},
                 "Some": {
                   "type": "LogicalPosition"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "OptionScreenPosition": {
+            "external": "azul_core::geom::OptionScreenPosition",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialOrd",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "ScreenPosition"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "OptionCursorNodePosition": {
+            "external": "azul_core::geom::OptionCursorNodePosition",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialOrd",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "CursorNodePosition"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "OptionDragDelta": {
+            "external": "azul_core::geom::OptionDragDelta",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy",
+              "PartialOrd",
+              "PartialEq"
+            ],
+            "enum_fields": [
+              {
+                "None": {},
+                "Some": {
+                  "type": "DragDelta"
                 }
               }
             ],
