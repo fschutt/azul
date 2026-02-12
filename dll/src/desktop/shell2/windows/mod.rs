@@ -1017,15 +1017,109 @@ impl Win32Window {
                     WindowFrame::Maximized => {
                         (self.win32.user32.ShowWindow)(self.hwnd, SW_MAXIMIZE);
                     }
-                    WindowFrame::Normal | WindowFrame::Fullscreen => {
-                        // Restore from minimized/maximized
-                        if previous.flags.frame == WindowFrame::Minimized
+                    WindowFrame::Fullscreen => {
+                        // Borderless fullscreen: remove WS_OVERLAPPEDWINDOW, resize to monitor
+                        let style = (self.win32.user32.GetWindowLongPtrW)(
+                            self.hwnd, dlopen::constants::GWL_STYLE,
+                        );
+                        let new_style = style & !(dlopen::constants::WS_OVERLAPPEDWINDOW as isize);
+                        (self.win32.user32.SetWindowLongPtrW)(
+                            self.hwnd, dlopen::constants::GWL_STYLE, new_style,
+                        );
+                        (self.win32.user32.ShowWindow)(self.hwnd, SW_MAXIMIZE);
+                    }
+                    WindowFrame::Normal => {
+                        if previous.flags.frame == WindowFrame::Fullscreen {
+                            // Restore window style first
+                            let style = (self.win32.user32.GetWindowLongPtrW)(
+                                self.hwnd, dlopen::constants::GWL_STYLE,
+                            );
+                            let new_style = style | (dlopen::constants::WS_OVERLAPPEDWINDOW as isize);
+                            (self.win32.user32.SetWindowLongPtrW)(
+                                self.hwnd, dlopen::constants::GWL_STYLE, new_style,
+                            );
+                            (self.win32.user32.ShowWindow)(self.hwnd, SW_RESTORE);
+                        } else if previous.flags.frame == WindowFrame::Minimized
                             || previous.flags.frame == WindowFrame::Maximized
                         {
                             (self.win32.user32.ShowWindow)(self.hwnd, SW_RESTORE);
                         }
                     }
                 }
+            }
+        }
+
+        // Decorations changed?
+        if previous.flags.decorations != current.flags.decorations {
+            use azul_core::window::WindowDecorations;
+            use dlopen::constants::*;
+            unsafe {
+                let style = (self.win32.user32.GetWindowLongPtrW)(
+                    self.hwnd, GWL_STYLE,
+                );
+                let new_style = match current.flags.decorations {
+                    WindowDecorations::None => {
+                        (style & !((WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX) as isize))
+                            | WS_POPUP as isize
+                    }
+                    _ => {
+                        // Normal, NoTitle, NoTitleAutoInject, NoControls all keep basic chrome
+                        (style & !(WS_POPUP as isize))
+                            | (WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX) as isize
+                    }
+                };
+                (self.win32.user32.SetWindowLongPtrW)(
+                    self.hwnd, GWL_STYLE, new_style,
+                );
+                (self.win32.user32.SetWindowPos)(
+                    self.hwnd, std::ptr::null_mut(), 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                );
+            }
+        }
+
+        // Resizable changed?
+        if previous.flags.is_resizable != current.flags.is_resizable {
+            use dlopen::constants::*;
+            unsafe {
+                let style = (self.win32.user32.GetWindowLongPtrW)(
+                    self.hwnd, GWL_STYLE,
+                );
+                let new_style = if current.flags.is_resizable {
+                    style | (WS_THICKFRAME | WS_MAXIMIZEBOX) as isize
+                } else {
+                    style & !((WS_THICKFRAME | WS_MAXIMIZEBOX) as isize)
+                };
+                (self.win32.user32.SetWindowLongPtrW)(
+                    self.hwnd, GWL_STYLE, new_style,
+                );
+                (self.win32.user32.SetWindowPos)(
+                    self.hwnd, std::ptr::null_mut(), 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                );
+            }
+        }
+
+        // Focus changed?
+        if !previous.flags.has_focus && current.flags.has_focus {
+            unsafe {
+                (self.win32.user32.SetForegroundWindow)(self.hwnd);
+            }
+        }
+
+        // Always-on-top changed?
+        if previous.flags.is_always_on_top != current.flags.is_always_on_top {
+            use dlopen::constants::*;
+            unsafe {
+                let insert_after = if current.flags.is_always_on_top {
+                    HWND_TOPMOST
+                } else {
+                    HWND_NOTOPMOST
+                };
+                (self.win32.user32.SetWindowPos)(
+                    self.hwnd, insert_after, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE,
+                );
             }
         }
 

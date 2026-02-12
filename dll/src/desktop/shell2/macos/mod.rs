@@ -3405,6 +3405,30 @@ impl MacOSWindow {
             }
         }
 
+        // Min dimensions changed?
+        if previous.size.min_dimensions != current.size.min_dimensions {
+            use azul_core::geom::OptionLogicalSize;
+            let min_size = match current.size.min_dimensions {
+                OptionLogicalSize::Some(dims) => NSSize::new(dims.width as f64, dims.height as f64),
+                OptionLogicalSize::None => NSSize::new(0.0, 0.0),
+            };
+            unsafe {
+                self.window.setContentMinSize(min_size);
+            }
+        }
+
+        // Max dimensions changed?
+        if previous.size.max_dimensions != current.size.max_dimensions {
+            use azul_core::geom::OptionLogicalSize;
+            let max_size = match current.size.max_dimensions {
+                OptionLogicalSize::Some(dims) => NSSize::new(dims.width as f64, dims.height as f64),
+                OptionLogicalSize::None => NSSize::new(f64::MAX, f64::MAX),
+            };
+            unsafe {
+                self.window.setContentMaxSize(max_size);
+            }
+        }
+
         // Position changed?
         if previous.position != current.position {
             match current.position {
@@ -3475,6 +3499,22 @@ impl MacOSWindow {
                         WindowFrame::Fullscreen => {
                             self.window.toggleFullScreen(None);
                         }
+                    }
+                }
+            }
+
+            // Focus changed?
+            if !previous.flags.has_focus && current.flags.has_focus {
+                self.window.makeKeyAndOrderFront(None);
+            }
+
+            // Always-on-top changed?
+            if previous.flags.is_always_on_top != current.flags.is_always_on_top {
+                unsafe {
+                    if current.flags.is_always_on_top {
+                        self.window.setLevel(objc2_app_kit::NSFloatingWindowLevel);
+                    } else {
+                        self.window.setLevel(objc2_app_kit::NSNormalWindowLevel);
                     }
                 }
             }

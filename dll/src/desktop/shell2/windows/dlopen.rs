@@ -210,10 +210,14 @@ pub mod constants {
 
     // GetWindowLongPtr indices
     pub const GWLP_USERDATA: i32 = -21;
+    pub const GWL_STYLE: i32 = -16;
+    pub const GWL_EXSTYLE: i32 = -20;
 
     // Special constants
     pub const CW_USEDEFAULT: i32 = 0x80000000_u32 as i32;
     pub const HWND_TOP: *mut core::ffi::c_void = 0 as *mut core::ffi::c_void;
+    pub const HWND_TOPMOST: *mut core::ffi::c_void = -1isize as *mut core::ffi::c_void;
+    pub const HWND_NOTOPMOST: *mut core::ffi::c_void = -2isize as *mut core::ffi::c_void;
 
     // Window Messages
     pub const WM_CLOSE: u32 = 0x0010;

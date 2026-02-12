@@ -1788,13 +1788,13 @@ impl X11Window {
                         );
                     }
                 }
-                WindowFrame::Normal | WindowFrame::Fullscreen => {
-                    // Restore to normal - remove maximize state
-                    if previous.flags.frame == WindowFrame::Maximized {
-                        unsafe {
-                            let screen = (self.xlib.XDefaultScreen)(self.display);
-                            let root = (self.xlib.XRootWindow)(self.display, screen);
+                WindowFrame::Normal => {
+                    // Restore to normal - remove maximize and fullscreen states
+                    unsafe {
+                        let screen = (self.xlib.XDefaultScreen)(self.display);
+                        let root = (self.xlib.XRootWindow)(self.display, screen);
 
+                        if previous.flags.frame == WindowFrame::Maximized {
                             let mut event: defines::XClientMessageEvent = std::mem::zeroed();
                             event.type_ = defines::ClientMessage;
                             event.window = self.window;
@@ -1825,8 +1825,137 @@ impl X11Window {
                                 &mut event as *mut _ as *mut defines::XEvent,
                             );
                         }
+
+                        if previous.flags.frame == WindowFrame::Fullscreen {
+                            let mut event: defines::XClientMessageEvent = std::mem::zeroed();
+                            event.type_ = defines::ClientMessage;
+                            event.window = self.window;
+                            event.message_type = (self.xlib.XInternAtom)(
+                                self.display,
+                                b"_NET_WM_STATE\0".as_ptr() as *const i8,
+                                0,
+                            );
+                            event.format = 32;
+                            event.data.l[0] = 0; // _NET_WM_STATE_REMOVE
+                            event.data.l[1] = (self.xlib.XInternAtom)(
+                                self.display,
+                                b"_NET_WM_STATE_FULLSCREEN\0".as_ptr() as *const i8,
+                                0,
+                            ) as i64;
+                            event.data.l[3] = 1; // Source indication
+
+                            (self.xlib.XSendEvent)(
+                                self.display,
+                                root,
+                                0,
+                                defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
+                                &mut event as *mut _ as *mut defines::XEvent,
+                            );
+                        }
+
+                        if previous.flags.frame == WindowFrame::Minimized {
+                            (self.xlib.XMapWindow)(self.display, self.window);
+                        }
                     }
                 }
+                WindowFrame::Fullscreen => {
+                    // Set fullscreen via _NET_WM_STATE
+                    unsafe {
+                        let screen = (self.xlib.XDefaultScreen)(self.display);
+                        let root = (self.xlib.XRootWindow)(self.display, screen);
+
+                        // If previously maximized, remove maximize first
+                        if previous.flags.frame == WindowFrame::Maximized {
+                            let mut event: defines::XClientMessageEvent = std::mem::zeroed();
+                            event.type_ = defines::ClientMessage;
+                            event.window = self.window;
+                            event.message_type = (self.xlib.XInternAtom)(
+                                self.display,
+                                b"_NET_WM_STATE\0".as_ptr() as *const i8,
+                                0,
+                            );
+                            event.format = 32;
+                            event.data.l[0] = 0; // _NET_WM_STATE_REMOVE
+                            event.data.l[1] = (self.xlib.XInternAtom)(
+                                self.display,
+                                b"_NET_WM_STATE_MAXIMIZED_VERT\0".as_ptr() as *const i8,
+                                0,
+                            ) as i64;
+                            event.data.l[2] = (self.xlib.XInternAtom)(
+                                self.display,
+                                b"_NET_WM_STATE_MAXIMIZED_HORZ\0".as_ptr() as *const i8,
+                                0,
+                            ) as i64;
+                            event.data.l[3] = 1;
+
+                            (self.xlib.XSendEvent)(
+                                self.display,
+                                root,
+                                0,
+                                defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
+                                &mut event as *mut _ as *mut defines::XEvent,
+                            );
+                        }
+
+                        let mut event: defines::XClientMessageEvent = std::mem::zeroed();
+                        event.type_ = defines::ClientMessage;
+                        event.window = self.window;
+                        event.message_type = (self.xlib.XInternAtom)(
+                            self.display,
+                            b"_NET_WM_STATE\0".as_ptr() as *const i8,
+                            0,
+                        );
+                        event.format = 32;
+                        event.data.l[0] = 1; // _NET_WM_STATE_ADD
+                        event.data.l[1] = (self.xlib.XInternAtom)(
+                            self.display,
+                            b"_NET_WM_STATE_FULLSCREEN\0".as_ptr() as *const i8,
+                            0,
+                        ) as i64;
+                        event.data.l[3] = 1; // Source indication
+
+                        (self.xlib.XSendEvent)(
+                            self.display,
+                            root,
+                            0,
+                            defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
+                            &mut event as *mut _ as *mut defines::XEvent,
+                        );
+                    }
+                }
+            }
+        }
+
+        // Always-on-top changed?
+        if previous.flags.is_always_on_top != current.flags.is_always_on_top {
+            unsafe {
+                let screen = (self.xlib.XDefaultScreen)(self.display);
+                let root = (self.xlib.XRootWindow)(self.display, screen);
+
+                let mut event: defines::XClientMessageEvent = std::mem::zeroed();
+                event.type_ = defines::ClientMessage;
+                event.window = self.window;
+                event.message_type = (self.xlib.XInternAtom)(
+                    self.display,
+                    b"_NET_WM_STATE\0".as_ptr() as *const i8,
+                    0,
+                );
+                event.format = 32;
+                event.data.l[0] = if current.flags.is_always_on_top { 1 } else { 0 };
+                event.data.l[1] = (self.xlib.XInternAtom)(
+                    self.display,
+                    b"_NET_WM_STATE_ABOVE\0".as_ptr() as *const i8,
+                    0,
+                ) as i64;
+                event.data.l[3] = 1; // Source indication
+
+                (self.xlib.XSendEvent)(
+                    self.display,
+                    root,
+                    0,
+                    defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
+                    &mut event as *mut _ as *mut defines::XEvent,
+                );
             }
         }
 

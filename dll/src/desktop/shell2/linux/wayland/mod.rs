@@ -2306,29 +2306,78 @@ impl WaylandWindow {
                 needs_commit = true;
             }
 
-            // Window frame state changed? (Minimize/Maximize/Normal)
+            // Window frame state changed? (Minimize/Maximize/Normal/Fullscreen)
             if prev.flags.frame != self.current_window_state.flags.frame {
                 match self.current_window_state.flags.frame {
                     WindowFrame::Minimized => {
-                        // Wayland: Request minimize
                         unsafe {
                             (self.wayland.xdg_toplevel_set_minimized)(self.xdg_toplevel);
                         }
                     }
                     WindowFrame::Maximized => {
-                        // Wayland: Request maximize
+                        // If previously fullscreen, unset fullscreen first
+                        if prev.flags.frame == WindowFrame::Fullscreen {
+                            unsafe {
+                                (self.wayland.xdg_toplevel_unset_fullscreen)(self.xdg_toplevel);
+                            }
+                        }
                         unsafe {
                             (self.wayland.xdg_toplevel_set_maximized)(self.xdg_toplevel);
                         }
                     }
-                    WindowFrame::Normal | WindowFrame::Fullscreen => {
-                        // Wayland: Restore (unset maximize)
+                    WindowFrame::Fullscreen => {
+                        // If previously maximized, unset maximized first
                         if prev.flags.frame == WindowFrame::Maximized {
                             unsafe {
                                 (self.wayland.xdg_toplevel_unset_maximized)(self.xdg_toplevel);
                             }
                         }
+                        unsafe {
+                            (self.wayland.xdg_toplevel_set_fullscreen)(
+                                self.xdg_toplevel,
+                                std::ptr::null_mut(), // NULL = current output
+                            );
+                        }
                     }
+                    WindowFrame::Normal => {
+                        if prev.flags.frame == WindowFrame::Maximized {
+                            unsafe {
+                                (self.wayland.xdg_toplevel_unset_maximized)(self.xdg_toplevel);
+                            }
+                        }
+                        if prev.flags.frame == WindowFrame::Fullscreen {
+                            unsafe {
+                                (self.wayland.xdg_toplevel_unset_fullscreen)(self.xdg_toplevel);
+                            }
+                        }
+                        // Note: Wayland has no explicit "unminimize" — the compositor handles it
+                    }
+                }
+                needs_commit = true;
+            }
+
+            // Min dimensions changed?
+            if prev.size.min_dimensions != self.current_window_state.size.min_dimensions {
+                use azul_core::geom::OptionLogicalSize;
+                let (w, h) = match self.current_window_state.size.min_dimensions {
+                    OptionLogicalSize::Some(dims) => (dims.width as i32, dims.height as i32),
+                    OptionLogicalSize::None => (0, 0), // 0 = no minimum
+                };
+                unsafe {
+                    (self.wayland.xdg_toplevel_set_min_size)(self.xdg_toplevel, w, h);
+                }
+                needs_commit = true;
+            }
+
+            // Max dimensions changed?
+            if prev.size.max_dimensions != self.current_window_state.size.max_dimensions {
+                use azul_core::geom::OptionLogicalSize;
+                let (w, h) = match self.current_window_state.size.max_dimensions {
+                    OptionLogicalSize::Some(dims) => (dims.width as i32, dims.height as i32),
+                    OptionLogicalSize::None => (0, 0), // 0 = no maximum
+                };
+                unsafe {
+                    (self.wayland.xdg_toplevel_set_max_size)(self.xdg_toplevel, w, h);
                 }
                 needs_commit = true;
             }
