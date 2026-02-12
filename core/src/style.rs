@@ -485,6 +485,16 @@ fn match_pseudo_selector(
             expected_path_ending,
             is_last_content_group,
         ),
+        CssPathPseudoSelector::Dragging => match_interactive_pseudo(
+            CssPathPseudoSelector::Dragging,
+            expected_path_ending,
+            is_last_content_group,
+        ),
+        CssPathPseudoSelector::DragOver => match_interactive_pseudo(
+            CssPathPseudoSelector::DragOver,
+            expected_path_ending,
+            is_last_content_group,
+        ),
         CssPathPseudoSelector::Lang(lang) => {
             // :lang() is matched via DynamicSelector at runtime, not during CSS cascade
             // During cascade, we just check if this is the expected ending

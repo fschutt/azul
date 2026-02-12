@@ -1126,6 +1126,14 @@ fn matches_hover_filter(
         (TouchMove, EventType::TouchMove) => true,
         (TouchEnd, EventType::TouchEnd) => true,
         (TouchCancel, EventType::TouchCancel) => true,
+        (DragStart, EventType::DragStart) => true,
+        (Drag, EventType::Drag) => true,
+        (DragEnd, EventType::DragEnd) => true,
+        (DragEnter, EventType::DragEnter) => true,
+        (DragOver, EventType::DragOver) => true,
+        (DragLeave, EventType::DragLeave) => true,
+        (Drop, EventType::Drop) => true,
+        (DoubleClick, EventType::DoubleClick) => true,
         _ => false,
     }
 }
@@ -1194,6 +1202,13 @@ fn matches_focus_filter(
         (VirtualKeyUp, EventType::KeyUp) => true,
         (FocusReceived, EventType::Focus) => true,
         (FocusLost, EventType::Blur) => true,
+        (DragStart, EventType::DragStart) => true,
+        (Drag, EventType::Drag) => true,
+        (DragEnd, EventType::DragEnd) => true,
+        (DragEnter, EventType::DragEnter) => true,
+        (DragOver, EventType::DragOver) => true,
+        (DragLeave, EventType::DragLeave) => true,
+        (Drop, EventType::Drop) => true,
         _ => false,
     }
 }
@@ -1275,6 +1290,13 @@ fn matches_window_filter(
         (ThemeChanged, EventType::ThemeChange) => true,
         (WindowFocusReceived, EventType::WindowFocusIn) => true,
         (WindowFocusLost, EventType::WindowFocusOut) => true,
+        (DragStart, EventType::DragStart) => true,
+        (Drag, EventType::Drag) => true,
+        (DragEnd, EventType::DragEnd) => true,
+        (DragEnter, EventType::DragEnter) => true,
+        (DragOver, EventType::DragOver) => true,
+        (DragLeave, EventType::DragLeave) => true,
+        (Drop, EventType::Drop) => true,
         _ => false,
     }
 }
@@ -1587,6 +1609,14 @@ pub enum HoverEventFilter {
     Drag,
     /// Drag ended on the hovered element
     DragEnd,
+    /// Dragged element entered this element (drop target)
+    DragEnter,
+    /// Dragged element is over this element (drop target, fires continuously)
+    DragOver,
+    /// Dragged element left this element (drop target)
+    DragLeave,
+    /// Element was dropped on this element (drop target)
+    Drop,
     /// Double-click detected on the hovered element
     DoubleClick,
     /// Long press detected on the hovered element
@@ -1665,6 +1695,10 @@ impl HoverEventFilter {
             HoverEventFilter::DragStart => Some(FocusEventFilter::DragStart),
             HoverEventFilter::Drag => Some(FocusEventFilter::Drag),
             HoverEventFilter::DragEnd => Some(FocusEventFilter::DragEnd),
+            HoverEventFilter::DragEnter => Some(FocusEventFilter::DragEnter),
+            HoverEventFilter::DragOver => Some(FocusEventFilter::DragOver),
+            HoverEventFilter::DragLeave => Some(FocusEventFilter::DragLeave),
+            HoverEventFilter::Drop => Some(FocusEventFilter::Drop),
             HoverEventFilter::DoubleClick => Some(FocusEventFilter::DoubleClick),
             HoverEventFilter::LongPress => Some(FocusEventFilter::LongPress),
             HoverEventFilter::SwipeLeft => Some(FocusEventFilter::SwipeLeft),
@@ -1742,6 +1776,14 @@ pub enum FocusEventFilter {
     Drag,
     /// Drag ended on the focused element
     DragEnd,
+    /// Dragged element entered this focused element (drop target)
+    DragEnter,
+    /// Dragged element is over this focused element (drop target)
+    DragOver,
+    /// Dragged element left this focused element (drop target)
+    DragLeave,
+    /// Element was dropped on this focused element (drop target)
+    Drop,
     /// Double-click detected on the focused element
     DoubleClick,
     /// Long press detected on the focused element
@@ -1849,6 +1891,14 @@ pub enum WindowEventFilter {
     Drag,
     /// Drag ended anywhere in window
     DragEnd,
+    /// Dragged element entered a drop target in window
+    DragEnter,
+    /// Dragged element is over a drop target in window
+    DragOver,
+    /// Dragged element left a drop target in window
+    DragLeave,
+    /// Element was dropped on a drop target in window
+    Drop,
     /// Double-click detected anywhere in window
     DoubleClick,
     /// Long press detected anywhere in window
@@ -1922,6 +1972,10 @@ impl WindowEventFilter {
             WindowEventFilter::DragStart => Some(HoverEventFilter::DragStart),
             WindowEventFilter::Drag => Some(HoverEventFilter::Drag),
             WindowEventFilter::DragEnd => Some(HoverEventFilter::DragEnd),
+            WindowEventFilter::DragEnter => Some(HoverEventFilter::DragEnter),
+            WindowEventFilter::DragOver => Some(HoverEventFilter::DragOver),
+            WindowEventFilter::DragLeave => Some(HoverEventFilter::DragLeave),
+            WindowEventFilter::Drop => Some(HoverEventFilter::Drop),
             WindowEventFilter::DoubleClick => Some(HoverEventFilter::DoubleClick),
             WindowEventFilter::LongPress => Some(HoverEventFilter::LongPress),
             WindowEventFilter::SwipeLeft => Some(HoverEventFilter::SwipeLeft),
@@ -2308,10 +2362,10 @@ fn event_type_to_filters(event_type: EventType) -> Vec<EventFilter> {
         E::DragStart => vec![EF::Hover(H::DragStart), EF::Window(W::DragStart)],
         E::Drag => vec![EF::Hover(H::Drag), EF::Window(W::Drag)],
         E::DragEnd => vec![EF::Hover(H::DragEnd), EF::Window(W::DragEnd)],
-        E::DragEnter => vec![EF::Hover(H::MouseEnter)],
-        E::DragOver => vec![EF::Hover(H::MouseOver)],
-        E::DragLeave => vec![EF::Hover(H::MouseLeave)],
-        E::Drop => vec![EF::Hover(H::DroppedFile)],
+        E::DragEnter => vec![EF::Hover(H::DragEnter), EF::Window(W::DragEnter)],
+        E::DragOver => vec![EF::Hover(H::DragOver), EF::Window(W::DragOver)],
+        E::DragLeave => vec![EF::Hover(H::DragLeave), EF::Window(W::DragLeave)],
+        E::Drop => vec![EF::Hover(H::Drop), EF::Window(W::Drop)],
 
         // Touch events
         E::TouchStart => vec![EF::Hover(H::TouchStart)],

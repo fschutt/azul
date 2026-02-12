@@ -109,10 +109,18 @@ pub struct NodeDrag {
     pub start_position: LogicalPosition,
     /// Current drag position
     pub current_position: LogicalPosition,
+    /// Offset from node origin to click point (for correct visual positioning)
+    pub drag_offset: LogicalPosition,
     /// Optional: DOM node currently under cursor (drop target)
     pub current_drop_target: OptionDomNodeId,
+    /// Previous drop target (for generating DragEnter/DragLeave events)
+    pub previous_drop_target: OptionDomNodeId,
     /// Drag data (MIME types and content)
     pub drag_data: DragData,
+    /// Whether the current drop target has accepted the drop via accept_drop()
+    pub drop_accepted: bool,
+    /// Drop effect set by the drop target
+    pub drop_effect: DropEffect,
 }
 
 /// Window move drag state.
@@ -360,8 +368,12 @@ impl DragContext {
                 node_id,
                 start_position,
                 current_position: start_position,
+                drag_offset: LogicalPosition::zero(),
                 current_drop_target: OptionDomNodeId::None,
+                previous_drop_target: OptionDomNodeId::None,
                 drag_data,
+                drop_accepted: false,
+                drop_effect: DropEffect::None,
             }),
             session_id,
         )

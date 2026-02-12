@@ -200,6 +200,10 @@ pub struct StyledNodeState {
     pub visited: bool,
     /// Window is not focused (:backdrop) - GTK compatibility
     pub backdrop: bool,
+    /// Element is currently being dragged (:dragging)
+    pub dragging: bool,
+    /// A dragged element is over this drop target (:drag-over)
+    pub drag_over: bool,
 }
 
 impl core::fmt::Debug for StyledNodeState {
@@ -229,6 +233,12 @@ impl core::fmt::Debug for StyledNodeState {
         if self.backdrop {
             v.push("backdrop");
         }
+        if self.dragging {
+            v.push("dragging");
+        }
+        if self.drag_over {
+            v.push("drag_over");
+        }
         if v.is_empty() {
             v.push("normal");
         }
@@ -248,6 +258,8 @@ impl StyledNodeState {
             focus_within: false,
             visited: false,
             backdrop: false,
+            dragging: false,
+            drag_over: false,
         }
     }
 
@@ -263,6 +275,8 @@ impl StyledNodeState {
             6 => self.focus_within,
             7 => self.visited,
             8 => self.backdrop,
+            9 => self.dragging,
+            10 => self.drag_over,
             _ => false,
         }
     }
@@ -277,6 +291,8 @@ impl StyledNodeState {
             && !self.focus_within
             && !self.visited
             && !self.backdrop
+            && !self.dragging
+            && !self.drag_over
     }
 
     /// Convert to PseudoStateFlags for use with dynamic selectors
@@ -290,6 +306,8 @@ impl StyledNodeState {
             focus_within: self.focus_within,
             visited: self.visited,
             backdrop: self.backdrop,
+            dragging: self.dragging,
+            drag_over: self.drag_over,
         }
     }
 
@@ -304,6 +322,8 @@ impl StyledNodeState {
             focus_within: flags.focus_within,
             visited: flags.visited,
             backdrop: flags.backdrop,
+            dragging: flags.dragging,
+            drag_over: flags.drag_over,
         }
     }
 }
