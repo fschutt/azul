@@ -531,8 +531,13 @@ pub(crate) mod callbacks {
         Update::DoNothing
     }
 
-    /// Drag — compute new window position from gesture manager's drag delta
-    /// and the window position that was captured at mouse-down.
+    /// Drag — compute new window position from gesture manager's screen-absolute
+    /// drag delta and the window position that was captured at mouse-down.
+    ///
+    /// Uses `get_drag_delta_screen()` instead of `get_drag_delta()` because
+    /// screen-absolute coordinates are stable during window movement.
+    /// Window-local coordinates oscillate ("jiggle") because moving the window
+    /// shifts the cursor's position relative to the window.
     pub extern "C" fn titlebar_drag(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
@@ -540,13 +545,15 @@ pub(crate) mod callbacks {
         use azul_core::geom::PhysicalPositionI32;
 
         let gm = info.get_gesture_drag_manager();
-        let delta = gm.get_drag_delta();
+        let delta = gm.get_drag_delta_screen();
         let initial_pos = gm.get_window_position_at_session_start();
 
         if let (Some((dx, dy)), Some(WindowPosition::Initialized(pos))) = (delta, initial_pos) {
+            // Window position is stored with Y=0 at top of screen (Y increases downward).
+            // Screen delta dY is positive when moving down. So new_y = pos.y + dy.
             let new_pos = WindowPosition::Initialized(PhysicalPositionI32::new(
                 pos.x + dx as i32,
-                pos.y - dy as i32, // macOS y-axis is flipped
+                pos.y + dy as i32,
             ));
             let mut ws = info.get_current_window_state().clone();
             ws.position = new_pos;
