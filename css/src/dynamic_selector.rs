@@ -17,6 +17,10 @@ pub struct PseudoStateFlags {
     pub visited: bool,
     /// Window is not focused (equivalent to GTK :backdrop)
     pub backdrop: bool,
+    /// Element is currently being dragged (:dragging)
+    pub dragging: bool,
+    /// A dragged element is over this drop target (:drag-over)
+    pub drag_over: bool,
 }
 
 impl PseudoStateFlags {
@@ -32,6 +36,8 @@ impl PseudoStateFlags {
             PseudoStateType::FocusWithin => self.focus_within,
             PseudoStateType::Visited => self.visited,
             PseudoStateType::Backdrop => self.backdrop,
+            PseudoStateType::Dragging => self.dragging,
+            PseudoStateType::DragOver => self.drag_over,
         }
     }
 }
@@ -668,6 +674,10 @@ pub enum PseudoStateType {
     Visited,
     /// Window is not focused (:backdrop) - GTK compatibility
     Backdrop,
+    /// Element is currently being dragged (:dragging)
+    Dragging,
+    /// A dragged element is over this drop target (:drag-over)
+    DragOver,
 }
 
 impl_option!(
@@ -889,6 +899,8 @@ impl DynamicSelector {
             PseudoStateType::Visited => node_state.visited,
             // :backdrop is true when window is NOT focused (opposite of window_focused)
             PseudoStateType::Backdrop => !ctx.window_focused,
+            PseudoStateType::Dragging => node_state.dragging,
+            PseudoStateType::DragOver => node_state.drag_over,
         }
     }
 }
@@ -1254,6 +1266,8 @@ impl CssPropertyWithConditionsVec {
                 "checked" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Checked)]),
                 "visited" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Visited)]),
                 "backdrop" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Backdrop)]),
+                "dragging" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Dragging)]),
+                "drag-over" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::DragOver)]),
                 _ => return None,
             }
         }

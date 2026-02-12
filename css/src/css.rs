@@ -1037,6 +1037,10 @@ pub enum CssPathPseudoSelector {
     Lang(AzString),
     /// `:backdrop` - window is not focused (GTK compatibility)
     Backdrop,
+    /// `:dragging` - element is currently being dragged
+    Dragging,
+    /// `:drag-over` - a dragged element is over this drop target
+    DragOver,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1079,6 +1083,8 @@ impl fmt::Display for CssPathPseudoSelector {
             Focus => write!(f, "focus"),
             Lang(lang) => write!(f, "lang({})", lang.as_str()),
             Backdrop => write!(f, "backdrop"),
+            Dragging => write!(f, "dragging"),
+            DragOver => write!(f, "drag-over"),
         }
     }
 }
@@ -1437,6 +1443,8 @@ pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
             "CssPathPseudoSelector::Lang(AzString::from_const_str(\"{}\"))",
             lang.as_str()
         ),
+        CssPathPseudoSelector::Dragging => format!("CssPathPseudoSelector::Dragging"),
+        CssPathPseudoSelector::DragOver => format!("CssPathPseudoSelector::DragOver"),
     }
 }
 

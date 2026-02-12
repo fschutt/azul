@@ -341,6 +341,8 @@ pub fn pseudo_selector_from_str<'a>(
         "hover" => Ok(CssPathPseudoSelector::Hover),
         "active" => Ok(CssPathPseudoSelector::Active),
         "focus" => Ok(CssPathPseudoSelector::Focus),
+        "dragging" => Ok(CssPathPseudoSelector::Dragging),
+        "drag-over" => Ok(CssPathPseudoSelector::DragOver),
         "nth-child" => {
             let value = value.ok_or(CssPseudoSelectorParseError::EmptyNthChild)?;
             let parsed = parse_nth_child_selector(value)?;
