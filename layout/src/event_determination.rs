@@ -562,6 +562,59 @@ pub fn determine_all_events(
                 timestamp.clone(),
                 EventData::None,
             ));
+
+            // When mouse is released during a node drag, generate a Drop event
+            // on the current drop target (if any)
+            if manager.is_node_drag_active() {
+                events.push(SyntheticEvent::new(
+                    EventType::Drop,
+                    EventSource::User,
+                    root_node.clone(),
+                    timestamp.clone(),
+                    EventData::None,
+                ));
+            }
+        }
+
+        // Detect DragEnter/DragOver/DragLeave events on drop targets
+        // These fire on the node UNDER the cursor (drop target), not the dragged node.
+        // We use the hover_manager's current hover node as the "drop target".
+        if manager.is_node_drag_active() && current_mouse_down {
+            let current_hover = hover_manager.current_hover_node();
+            let previous_hover = hover_manager.previous_hover_node();
+
+            // If the hover node changed, generate DragLeave on old + DragEnter on new
+            if current_hover != previous_hover {
+                if previous_hover.is_some() {
+                    events.push(SyntheticEvent::new(
+                        EventType::DragLeave,
+                        EventSource::User,
+                        root_node.clone(),
+                        timestamp.clone(),
+                        EventData::None,
+                    ));
+                }
+                if current_hover.is_some() {
+                    events.push(SyntheticEvent::new(
+                        EventType::DragEnter,
+                        EventSource::User,
+                        root_node.clone(),
+                        timestamp.clone(),
+                        EventData::None,
+                    ));
+                }
+            }
+
+            // DragOver fires continuously while hovering a drop target
+            if current_hover.is_some() {
+                events.push(SyntheticEvent::new(
+                    EventType::DragOver,
+                    EventSource::User,
+                    root_node.clone(),
+                    timestamp.clone(),
+                    EventData::None,
+                ));
+            }
         }
 
         // Detect DoubleClick

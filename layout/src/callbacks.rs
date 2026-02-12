@@ -2814,30 +2814,37 @@ impl CallbackInfo {
     /// Check if a node or file drag is currently active
     ///
     /// Returns true if either a node drag or file drag is in progress.
+    /// Uses gesture_drag_manager as the primary source of truth,
+    /// with drag_drop_manager as fallback.
     pub fn is_drag_active(&self) -> bool {
-        self.get_layout_window().drag_drop_manager.is_dragging()
+        let lw = self.get_layout_window();
+        lw.gesture_drag_manager.is_dragging() || lw.drag_drop_manager.is_dragging()
     }
 
     /// Check if a node drag is specifically active
     pub fn is_node_drag_active(&self) -> bool {
-        self.get_layout_window()
-            .drag_drop_manager
-            .is_dragging_node()
+        let lw = self.get_layout_window();
+        lw.gesture_drag_manager.is_node_dragging_any() || lw.drag_drop_manager.is_dragging_node()
     }
 
     /// Check if a file drag is specifically active
     pub fn is_file_drag_active(&self) -> bool {
-        self.get_layout_window()
-            .drag_drop_manager
-            .is_dragging_file()
+        let lw = self.get_layout_window();
+        lw.gesture_drag_manager.is_file_dropping() || lw.drag_drop_manager.is_dragging_file()
     }
 
     /// Get the current drag/drop state (if any)
     ///
     /// Returns None if no drag is active, or Some with drag state.
-    /// Uses legacy DragState type for backwards compatibility.
+    /// Checks gesture_drag_manager first, then falls back to drag_drop_manager.
     pub fn get_drag_state(&self) -> Option<crate::managers::drag_drop::DragState> {
-        self.get_layout_window().drag_drop_manager.get_drag_state()
+        let lw = self.get_layout_window();
+        // Try gesture manager first (primary source of truth)
+        if let Some(ctx) = lw.gesture_drag_manager.get_drag_context() {
+            return crate::managers::drag_drop::DragState::from_context(ctx);
+        }
+        // Fallback to drag_drop_manager
+        lw.drag_drop_manager.get_drag_state()
     }
 
     /// Get the current drag context (if any)

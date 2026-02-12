@@ -1196,6 +1196,11 @@ impl GestureAndDragManager {
         self.active_drag.as_ref().is_some_and(|d| d.is_node_drag())
     }
 
+    /// Check if a node drag is active (alias for event determination)
+    pub fn is_node_drag_active(&self) -> bool {
+        self.is_node_dragging_any()
+    }
+
     /// Check if a specific node is being dragged
     pub fn is_node_dragging(&self, dom_id: DomId, node_id: NodeId) -> bool {
         self.active_drag.as_ref().is_some_and(|d| {

@@ -138,6 +138,29 @@ impl HoverManager {
             .any(|(_, history)| history.len() >= 2)
     }
 
+    /// Get the deepest hovered node from the current mouse hit test.
+    ///
+    /// Returns the NodeId of the most specific (deepest in DOM tree) node
+    /// that the mouse cursor is currently over, or None if not hovering anything.
+    pub fn current_hover_node(&self) -> Option<azul_core::id::NodeId> {
+        let current = self.get_current_mouse()?;
+        let dom_id = azul_core::dom::DomId { inner: 0 };
+        let ht = current.hovered_nodes.get(&dom_id)?;
+        ht.regular_hit_test_nodes.keys().last().copied()
+    }
+
+    /// Get the deepest hovered node from the previous frame's mouse hit test.
+    ///
+    /// Returns the NodeId from one frame ago, or None if not hovering anything
+    /// or no previous frame exists.
+    pub fn previous_hover_node(&self) -> Option<azul_core::id::NodeId> {
+        let history = self.hover_histories.get(&InputPointId::Mouse)?;
+        let previous = history.get(1)?; // index 1 = one frame ago
+        let dom_id = azul_core::dom::DomId { inner: 0 };
+        let ht = previous.hovered_nodes.get(&dom_id)?;
+        ht.regular_hit_test_nodes.keys().last().copied()
+    }
+
     /// Remap NodeIds in all hover histories after DOM reconciliation.
     ///
     /// When the DOM is regenerated, NodeIds can change. This method updates
