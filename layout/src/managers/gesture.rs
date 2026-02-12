@@ -135,8 +135,17 @@ impl Default for GestureDetectionConfig {
 /// Single input sample with position and timestamp
 #[derive(Debug, Clone, PartialEq)]
 pub struct InputSample {
-    /// Position in logical coordinates
+    /// Position in logical coordinates (window-local, Y=0 at top of window)
     pub position: LogicalPosition,
+    /// Position in virtual screen coordinates (Y=0 at top of primary monitor).
+    ///
+    /// Computed as `window_position + position` at the time the sample is recorded.
+    /// This is stable during window drags because `window_pos + cursor_local`
+    /// always equals the true screen position, even when the window moves.
+    ///
+    /// All coordinates are in logical pixels (HiDPI-independent).
+    /// On Wayland, this is an estimate (compositor does not expose global position).
+    pub screen_position: LogicalPosition,
     /// Timestamp when this sample was recorded (from ExternalSystemCallbacks)
     pub timestamp: CoreInstant,
     /// Mouse button state (bitfield: 0x01 = left, 0x02 = right, 0x04 = middle)
@@ -428,6 +437,7 @@ impl GestureAndDragManager {
         timestamp: CoreInstant,
         button_state: u8,
         window_position: azul_core::window::WindowPosition,
+        screen_position: LogicalPosition,
     ) -> u64 {
         self.start_input_session_with_pen(
             position,
@@ -438,6 +448,7 @@ impl GestureAndDragManager {
             (0.0, 0.0), // no tilt for mouse
             (0.0, 0.0), // no touch radius for mouse
             window_position,
+            screen_position,
         )
     }
 
@@ -452,6 +463,7 @@ impl GestureAndDragManager {
         tilt: (f32, f32),
         touch_radius: (f32, f32),
         window_position: azul_core::window::WindowPosition,
+        screen_position: LogicalPosition,
     ) -> u64 {
         // Clear old ended sessions, but keep the most recent ended session
         // for double-click detection. detect_double_click() needs two ended
@@ -469,6 +481,7 @@ impl GestureAndDragManager {
 
         let sample = InputSample {
             position,
+            screen_position,
             timestamp,
             button_state,
             event_id,
@@ -494,6 +507,7 @@ impl GestureAndDragManager {
         position: LogicalPosition,
         timestamp: CoreInstant,
         button_state: u8,
+        screen_position: LogicalPosition,
     ) -> bool {
         self.record_input_sample_with_pen(
             position,
@@ -503,6 +517,7 @@ impl GestureAndDragManager {
             0.5,        // default pressure for mouse
             (0.0, 0.0), // no tilt for mouse
             (0.0, 0.0), // no touch radius for mouse
+            screen_position,
         )
     }
 
@@ -516,6 +531,7 @@ impl GestureAndDragManager {
         pressure: f32,
         tilt: (f32, f32),
         touch_radius: (f32, f32),
+        screen_position: LogicalPosition,
     ) -> bool {
         let session = match self.input_sessions.last_mut() {
             Some(s) => s,
@@ -535,6 +551,7 @@ impl GestureAndDragManager {
 
         session.samples.push(InputSample {
             position,
+            screen_position,
             timestamp,
             button_state,
             event_id,
@@ -959,9 +976,30 @@ impl GestureAndDragManager {
         ))
     }
 
+    /// Get the drag delta in **screen-absolute** coordinates.
+    ///
+    /// Unlike `get_drag_delta()` which uses window-local coordinates (and therefore
+    /// oscillates during window drags due to the window moving under the cursor),
+    /// this method uses screen-absolute positions that are stable regardless of
+    /// window movement.
+    ///
+    /// **Use this for window dragging (titlebar drag).**
+    /// Use `get_drag_delta()` for in-window operations (node drag-and-drop, etc.).
+    ///
+    /// Returns `None` if there is no active session or not enough samples.
+    pub fn get_drag_delta_screen(&self) -> Option<(f32, f32)> {
+        let session = self.get_current_session()?;
+        let first = session.first_sample()?;
+        let last = session.last_sample()?;
+        Some((
+            last.screen_position.x - first.screen_position.x,
+            last.screen_position.y - first.screen_position.y,
+        ))
+    }
+
     /// Get the window position that was stored when the current input session
     /// started (i.e. on mouse-down).  Titlebar drag callbacks use this
-    /// together with `get_drag_delta()` to compute the new window position.
+    /// together with `get_drag_delta_screen()` to compute the new window position.
     pub fn get_window_position_at_session_start(&self) -> Option<azul_core::window::WindowPosition> {
         let session = self.get_current_session()?;
         Some(session.window_position_at_start)
