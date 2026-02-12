@@ -55,7 +55,7 @@ use azul_css::{
 
 use crate::{
     callbacks::Update,
-    dom::{Dom, DomId, NodeData, NodeDataVec, OptionTabIndex, OptionTagId, TabIndex, TagId},
+    dom::{Dom, DomId, NodeData, NodeDataVec, OptionTabIndex, TabIndex, TagId},
     id::{
         Node, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut, NodeHierarchy,
         NodeId,
@@ -314,10 +314,6 @@ impl StyledNodeState {
 pub struct StyledNode {
     /// Current state of this styled node (used later for caching the style / layout)
     pub styled_node_state: StyledNodeState,
-    /// Optional tag ID
-    ///
-    /// NOTE: The tag ID has to be adjusted after the layout is done (due to scroll tags)
-    pub tag_id: OptionTagId,
 }
 
 impl_option!(
@@ -836,7 +832,6 @@ impl StyledDom {
 
         let mut styled_nodes = vec![
             StyledNode {
-                tag_id: OptionTagId::None,
                 styled_node_state: StyledNodeState::new()
             };
             compact_dom.len()
@@ -885,18 +880,6 @@ impl StyledDom {
             node_hierarchy.as_container().internal,
             compact_dom.node_data.as_ref().internal,
         );
-
-        tag_ids
-            .iter()
-            .filter_map(|tag_id_node_id_mapping| {
-                tag_id_node_id_mapping
-                    .node_id
-                    .into_crate_internal()
-                    .map(|node_id| (node_id, tag_id_node_id_mapping.tag_id))
-            })
-            .for_each(|(nid, tag_id)| {
-                styled_nodes[nid.index()].tag_id = OptionTagId::Some(tag_id);
-            });
 
         // Pre-filter all EventFilter::Window and EventFilter::Not nodes
         // since we need them in the CallbacksOfHitTest::new function
@@ -1247,28 +1230,6 @@ impl StyledDom {
                 self.node_hierarchy.as_container().internal,
                 self.node_data.as_container().internal,
             );
-
-        // Restyling may change the tag IDs
-        let mut styled_nodes_mut = self.styled_nodes.as_container_mut();
-
-        styled_nodes_mut
-            .internal
-            .iter_mut()
-            .for_each(|styled_node| {
-                styled_node.tag_id = None.into();
-            });
-
-        new_tag_ids
-            .iter()
-            .filter_map(|tag_id_node_id_mapping| {
-                tag_id_node_id_mapping
-                    .node_id
-                    .into_crate_internal()
-                    .map(|node_id| (node_id, tag_id_node_id_mapping.tag_id))
-            })
-            .for_each(|(nid, tag_id)| {
-                styled_nodes_mut[nid].tag_id = Some(tag_id).into();
-            });
 
         self.tag_ids_to_node_ids = new_tag_ids.into();
     }

@@ -1257,9 +1257,12 @@ impl LayoutWindow {
         let layout_result = self.layout_results.get(&node_id.dom)?;
         let nid = node_id.node.into_crate_internal()?;
 
-        // Get the actual tag_id from styled_nodes (matches what get_tag_id in display_list.rs uses)
-        let styled_nodes = layout_result.styled_dom.styled_nodes.as_container();
-        let tag_id = styled_nodes.get(nid)?.tag_id.into_option()?.inner;
+        // Look up tag_id from the authoritative tag_ids_to_node_ids mapping
+        let nid_encoded = NodeHierarchyItemId::from_crate_internal(Some(nid));
+        let tag_id = layout_result.styled_dom.tag_ids_to_node_ids.iter()
+            .find(|m| m.node_id == nid_encoded)?
+            .tag_id
+            .inner;
 
         // Search the display list for a HitTestArea with matching tag
         // Note: tag is now (u64, u16) tuple where tag.0 is the TagId.inner

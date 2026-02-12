@@ -687,25 +687,29 @@ pub fn fullhittest_new_webrender(
             // Third pass: Convert regular DOM node hit test results
             // WebRender returns items in z-order (front to back), so we use
             // enumerate() to capture this ordering in hit_depth.
+            //
+            // BUG-4 fix: Build a HashMap for O(1) tag→node lookup instead of O(n) linear search.
+            // BUG-5 fix: Use positive filter (== TAG_TYPE_DOM_NODE) instead of negative blacklist.
+            let tag_to_node: std::collections::HashMap<u64, azul_core::id::NodeId> = layout_result
+                .styled_dom
+                .tag_ids_to_node_ids
+                .iter()
+                .filter_map(|m| m.node_id.into_crate_internal().map(|nid| (m.tag_id.inner, nid)))
+                .collect();
+
             let hit_items = wr_result
                 .items
                 .iter()
                 .enumerate()
                 .filter_map(|(depth, i)| {
                     let tag_type_marker = i.tag.1 & 0xFF00;
-                    // Skip scrollbar tags (0x0200), cursor tags (0x0400), and scroll container tags (0x0500)
-                    if tag_type_marker == TAG_TYPE_SCROLLBAR || tag_type_marker == TAG_TYPE_CURSOR || tag_type_marker == TAG_TYPE_SCROLL_CONTAINER {
+                    // Only process DOM node tags (0x0100) — skip everything else
+                    if tag_type_marker != TAG_TYPE_DOM_NODE {
                         return None;
                     }
                     
-                    // Map WebRender tag to DOM node ID
-                    let node_id = layout_result
-                        .styled_dom
-                        .tag_ids_to_node_ids
-                        .iter()
-                        .find(|q| q.tag_id.inner == i.tag.0)?
-                        .node_id
-                        .into_crate_internal()?;
+                    // Map WebRender tag to DOM node ID via O(1) HashMap lookup
+                    let node_id = *tag_to_node.get(&i.tag.0)?;
 
                     // Use point_relative_to_item from WebRender - this correctly accounts for
                     // all CSS transforms, scroll offsets, and stacking contexts.

@@ -169,6 +169,37 @@ impl FocusManager {
     pub fn needs_cursor_initialization(&self) -> bool {
         self.cursor_needs_initialization
     }
+
+    /// Remap NodeIds in pending contenteditable focus after DOM reconciliation.
+    ///
+    /// This handles the edge case where a DOM rebuild happens between setting
+    /// pending focus and consuming it after layout.
+    pub fn remap_pending_focus_node_ids(
+        &mut self,
+        dom_id: DomId,
+        node_id_map: &std::collections::BTreeMap<NodeId, NodeId>,
+    ) {
+        if let Some(ref mut pending) = self.pending_contenteditable_focus {
+            if pending.dom_id != dom_id {
+                return;
+            }
+            match node_id_map.get(&pending.container_node_id) {
+                Some(&new_id) => pending.container_node_id = new_id,
+                None => {
+                    self.pending_contenteditable_focus = None;
+                    self.cursor_needs_initialization = false;
+                    return;
+                }
+            }
+            match node_id_map.get(&pending.text_node_id) {
+                Some(&new_id) => pending.text_node_id = new_id,
+                None => {
+                    self.pending_contenteditable_focus = None;
+                    self.cursor_needs_initialization = false;
+                }
+            }
+        }
+    }
 }
 
 /// Direction for cursor navigation

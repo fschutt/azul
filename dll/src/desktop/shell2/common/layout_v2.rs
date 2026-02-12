@@ -118,66 +118,16 @@ pub fn regenerate_layout(
     // This must happen after the user's layout callback and before CSD injection
     azul_core::icon::resolve_icons_in_styled_dom(&mut user_styled_dom, icon_provider, system_style);
 
-    // 2.5. STATE MIGRATION: Transfer heavy resources from old DOM to new DOM
-    // This allows components like video players to preserve their decoder handles
-    // across frame updates without polluting the application data model.
-    // 
-    // ALSO: Update FocusManager, ScrollManager, etc. with new NodeIds!
-    // The node_moves tell us: old NodeId X is now new NodeId Y
-    if let Some(old_layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
-        // Get old node data (from previous frame)
-        let old_node_data_vec = &old_layout_result.styled_dom.node_data;
-        let old_node_data: Vec<azul_core::dom::NodeData> = old_node_data_vec.as_ref().to_vec();
-        
-        // Get new node data (from current frame, mutable)
-        let mut new_node_data: Vec<azul_core::dom::NodeData> = user_styled_dom.node_data.as_ref().to_vec();
-        
-        // Build layout maps for reconciliation (empty for now - we just need node moves)
-        let old_layout_map = azul_core::FastHashMap::default();
-        let new_layout_map = azul_core::FastHashMap::default();
-        
-        // Run reconciliation to find matched nodes
-        let diff_result = azul_core::diff::reconcile_dom(
-            &old_node_data,
-            &new_node_data,
-            &old_layout_map,
-            &new_layout_map,
-            azul_core::dom::DomId::ROOT_ID,
-            azul_core::task::Instant::now(),
-        );
-        
-        // Execute state migration for matched nodes with merge callbacks
-        if !diff_result.node_moves.is_empty() {
-            let mut old_node_data_mut = old_node_data;
-            azul_core::diff::transfer_states(
-                &mut old_node_data_mut,
-                &mut new_node_data,
-                &diff_result.node_moves,
-            );
-            
-            // Update the styled_dom with the merged node data
-            user_styled_dom.node_data = new_node_data.into();
-            
-            log_debug!(
-                LogCategory::Layout,
-                "[regenerate_layout] State migration: {} node moves processed",
-                diff_result.node_moves.len()
-            );
-        }
-        
-        // 2.6. UPDATE MANAGERS WITH NEW NODE IDS
-        // The node_moves tell us which old NodeIds map to which new NodeIds.
-        // We need to update FocusManager, ScrollManager, etc. so they point to
-        // the correct nodes in the new DOM.
-        update_managers_with_node_moves(
-            layout_window,
-            &diff_result.node_moves,
-            azul_core::dom::DomId::ROOT_ID,
-        );
-    }
-
     // 3. Conditionally inject Client-Side Decorations (CSD)
-    let styled_dom = if csd::should_inject_csd(
+    //
+    // IMPORTANT: CSD injection MUST happen BEFORE state migration (step 3.5)
+    // and manager updates (step 3.6). The old layout_result.styled_dom contains
+    // the full DOM *with* the titlebar from the previous frame. If we reconcile
+    // old-DOM-with-titlebar vs new-DOM-without-titlebar, the node_moves will be
+    // wrong (all user NodeIds would be off by the titlebar node count). By
+    // injecting the titlebar first, both old and new DOMs have matching structure
+    // and reconciliation produces correct node mappings.
+    let mut styled_dom = if csd::should_inject_csd(
         current_window_state.flags.has_decorations,
         current_window_state.flags.decorations,
     ) {
@@ -209,6 +159,69 @@ pub fn regenerate_layout(
     } else {
         user_styled_dom
     };
+
+    // 3.5. STATE MIGRATION: Transfer heavy resources from old DOM to new DOM
+    // This allows components like video players to preserve their decoder handles
+    // across frame updates without polluting the application data model.
+    //
+    // ALSO: Update FocusManager, ScrollManager, etc. with new NodeIds!
+    // The node_moves tell us: old NodeId X is now new NodeId Y
+    //
+    // NOTE: This runs AFTER CSD injection so that both old and new DOMs have
+    // matching structure (both include titlebar nodes). This ensures reconciliation
+    // produces correct node mappings and manager NodeIds are not invalidated by
+    // a subsequent titlebar injection shifting all indices.
+    if let Some(old_layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
+        // Get old node data (from previous frame — includes titlebar if it was injected)
+        let old_node_data_vec = &old_layout_result.styled_dom.node_data;
+        let old_node_data: Vec<azul_core::dom::NodeData> = old_node_data_vec.as_ref().to_vec();
+
+        // Get new node data (from current frame — now also includes titlebar)
+        let mut new_node_data: Vec<azul_core::dom::NodeData> = styled_dom.node_data.as_ref().to_vec();
+
+        // Build layout maps for reconciliation (empty for now - we just need node moves)
+        let old_layout_map = azul_core::FastHashMap::default();
+        let new_layout_map = azul_core::FastHashMap::default();
+
+        // Run reconciliation to find matched nodes
+        let diff_result = azul_core::diff::reconcile_dom(
+            &old_node_data,
+            &new_node_data,
+            &old_layout_map,
+            &new_layout_map,
+            azul_core::dom::DomId::ROOT_ID,
+            azul_core::task::Instant::now(),
+        );
+
+        // Execute state migration for matched nodes with merge callbacks
+        if !diff_result.node_moves.is_empty() {
+            let mut old_node_data_mut = old_node_data;
+            azul_core::diff::transfer_states(
+                &mut old_node_data_mut,
+                &mut new_node_data,
+                &diff_result.node_moves,
+            );
+
+            // Update the styled_dom with the merged node data
+            styled_dom.node_data = new_node_data.into();
+
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] State migration: {} node moves processed",
+                diff_result.node_moves.len()
+            );
+        }
+
+        // 3.6. UPDATE MANAGERS WITH NEW NODE IDS
+        // The node_moves tell us which old NodeIds map to which new NodeIds.
+        // We need to update FocusManager, ScrollManager, etc. so they point to
+        // the correct nodes in the new DOM.
+        update_managers_with_node_moves(
+            layout_window,
+            &diff_result.node_moves,
+            azul_core::dom::DomId::ROOT_ID,
+        );
+    }
 
     log_debug!(
         LogCategory::Layout,
@@ -525,6 +538,15 @@ fn update_managers_with_node_moves(
     
     // 4. Update SelectionManager
     layout_window.selection_manager.remap_node_ids(dom_id, &node_id_map);
+
+    // 5. Update HoverManager (BUG-1 fix: hover histories contain NodeIds that must be remapped)
+    layout_window.hover_manager.remap_node_ids(dom_id, &node_id_map);
+
+    // 6. Update GestureAndDragManager (BUG-2 fix: active drags contain NodeIds)
+    layout_window.gesture_drag_manager.remap_node_ids(dom_id, &node_id_map);
+
+    // 7. Update FocusManager pending contenteditable focus (BUG-3 fix)
+    layout_window.focus_manager.remap_pending_focus_node_ids(dom_id, &node_id_map);
 }
 
 /// Helper function to generate WebRender frame

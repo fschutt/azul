@@ -28441,9 +28441,6 @@
               {
                 "styled_node_state": {
                   "type": "StyledNodeState"
-                },
-                "tag_id": {
-                  "type": "OptionTagId"
                 }
               }
             ],

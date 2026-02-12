@@ -1224,4 +1224,22 @@ impl GestureAndDragManager {
     pub fn get_scrollbar_scroll_offset(&self) -> Option<f32> {
         self.active_drag.as_ref()?.calculate_scrollbar_scroll_offset()
     }
+
+    /// Remap NodeIds in active drag context after DOM reconciliation.
+    ///
+    /// When the DOM is regenerated during an active drag, NodeIds can change.
+    /// If a critical NodeId was removed, the drag is cancelled.
+    pub fn remap_node_ids(
+        &mut self,
+        dom_id: azul_core::dom::DomId,
+        node_id_map: &std::collections::BTreeMap<azul_core::id::NodeId, azul_core::id::NodeId>,
+    ) {
+        if let Some(ref mut drag) = self.active_drag {
+            if !drag.remap_node_ids(dom_id, node_id_map) {
+                // Critical node removed — cancel the drag
+                drag.cancelled = true;
+                self.active_drag = None;
+            }
+        }
+    }
 }

@@ -581,6 +581,91 @@ impl DragContext {
         // Clamp to valid range
         Some(new_offset.clamp(0.0, scrollable_range))
     }
+
+    /// Remap NodeIds stored in this drag context after DOM reconciliation.
+    ///
+    /// When the DOM is regenerated during an active drag, NodeIds can change.
+    /// This updates all stored NodeIds using the old→new mapping.
+    /// Returns `false` if a critical NodeId was removed (drag should be cancelled).
+    pub fn remap_node_ids(
+        &mut self,
+        dom_id: DomId,
+        node_id_map: &alloc::collections::BTreeMap<NodeId, NodeId>,
+    ) -> bool {
+        match &mut self.drag_type {
+            ActiveDragType::TextSelection(ref mut drag) => {
+                if drag.dom_id != dom_id {
+                    return true;
+                }
+                if let Some(&new_id) = node_id_map.get(&drag.anchor_ifc_node) {
+                    drag.anchor_ifc_node = new_id;
+                } else {
+                    return false; // anchor node removed
+                }
+                if let Some(ref mut container) = drag.auto_scroll_container {
+                    if let Some(&new_id) = node_id_map.get(container) {
+                        *container = new_id;
+                    } else {
+                        drag.auto_scroll_container = None;
+                    }
+                }
+                true
+            }
+            ActiveDragType::ScrollbarThumb(ref mut drag) => {
+                if let Some(&new_id) = node_id_map.get(&drag.scroll_container_node) {
+                    drag.scroll_container_node = new_id;
+                    true
+                } else {
+                    false // scroll container removed
+                }
+            }
+            ActiveDragType::Node(ref mut drag) => {
+                if drag.dom_id != dom_id {
+                    return true;
+                }
+                if let Some(&new_id) = node_id_map.get(&drag.node_id) {
+                    drag.node_id = new_id;
+                } else {
+                    return false; // dragged node removed
+                }
+                // Drop target remap
+                if let Some(dt) = drag.current_drop_target.into_option() {
+                    if dt.dom == dom_id {
+                        if let Some(old_nid) = dt.node.into_crate_internal() {
+                            if let Some(&new_nid) = node_id_map.get(&old_nid) {
+                                drag.current_drop_target = Some(DomNodeId {
+                                    dom: dom_id,
+                                    node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(new_nid)),
+                                }).into();
+                            } else {
+                                drag.current_drop_target = OptionDomNodeId::None;
+                            }
+                        }
+                    }
+                }
+                true
+            }
+            // WindowMove, WindowResize, and FileDrop don't reference DOM NodeIds
+            ActiveDragType::WindowMove(_) | ActiveDragType::WindowResize(_) => true,
+            ActiveDragType::FileDrop(ref mut drag) => {
+                if let Some(dt) = drag.drop_target.into_option() {
+                    if dt.dom == dom_id {
+                        if let Some(old_nid) = dt.node.into_crate_internal() {
+                            if let Some(&new_nid) = node_id_map.get(&old_nid) {
+                                drag.drop_target = Some(DomNodeId {
+                                    dom: dom_id,
+                                    node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(new_nid)),
+                                }).into();
+                            } else {
+                                drag.drop_target = OptionDomNodeId::None;
+                            }
+                        }
+                    }
+                }
+                true
+            }
+        }
+    }
 }
 
 azul_css::impl_option!(

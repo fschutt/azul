@@ -54,6 +54,10 @@ pub const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
 /// Marker for text selection hit-test areas (determines text selection regions)
 /// These are pushed for text runs to enable text selection without affecting
 /// other hit-test logic. Selection may trigger re-rendering.
+///
+/// NOTE: Currently unused — text selection uses TAG_TYPE_CURSOR (0x0400) for hit-testing.
+/// Kept as reserved namespace for future use (e.g., selection drag handles).
+#[deprecated(note = "TAG_TYPE_SELECTION is currently unused; text selection uses TAG_TYPE_CURSOR")]
 pub const TAG_TYPE_SELECTION: u16 = 0x0300;
 
 /// Marker for cursor hit-test areas (determines which cursor icon to show)
