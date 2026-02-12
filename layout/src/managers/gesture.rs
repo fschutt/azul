@@ -656,9 +656,6 @@ impl GestureAndDragManager {
         let direct_distance = session.direct_distance()?;
 
         if direct_distance >= self.config.drag_distance_threshold {
-            #[cfg(feature = "std")]
-            eprintln!("[GESTURE] detect_drag: distance={:.1}px >= threshold={:.1}px, samples={}",
-                direct_distance, self.config.drag_distance_threshold, session.samples.len());
             let first = session.first_sample()?;
             let last = session.last_sample()?;
 
@@ -997,6 +994,38 @@ impl GestureAndDragManager {
         ))
     }
 
+    /// Get the **incremental** (frame-to-frame) drag delta in screen coordinates.
+    ///
+    /// Returns `(dx, dy)` where `dx = last_screen.x - previous_screen.x` and
+    /// `dy = last_screen.y - previous_screen.y`.
+    ///
+    /// Unlike `get_drag_delta_screen()` which returns the *total* delta since drag
+    /// start, this returns only the delta since the previous sample. This is used
+    /// by `titlebar_drag` to apply position changes incrementally:
+    ///
+    /// ```text
+    /// new_pos = current_window_pos + incremental_delta
+    /// ```
+    ///
+    /// This approach is more robust than `initial_pos + total_delta` because it
+    /// automatically handles external window position changes (DPI change, OS
+    /// clamping, compositor resize) that would make `initial_pos` stale.
+    ///
+    /// Returns `None` if there is no active session or fewer than 2 samples.
+    pub fn get_drag_delta_screen_incremental(&self) -> Option<(f32, f32)> {
+        let session = self.get_current_session()?;
+        let len = session.samples.len();
+        if len < 2 {
+            return None;
+        }
+        let prev = &session.samples[len - 2];
+        let last = &session.samples[len - 1];
+        Some((
+            last.screen_position.x - prev.screen_position.x,
+            last.screen_position.y - prev.screen_position.y,
+        ))
+    }
+
     /// Get the window position that was stored when the current input session
     /// started (i.e. on mouse-down).  Titlebar drag callbacks use this
     /// together with `get_drag_delta_screen()` to compute the new window position.
@@ -1085,17 +1114,11 @@ impl GestureAndDragManager {
         _start_hit_test: Option<HitTest>,
     ) {
         if let Some(detected) = self.detect_drag() {
-            #[cfg(feature = "std")]
-            eprintln!("[GESTURE] activate_window_drag: start={:?} current={:?} win_pos={:?}",
-                detected.start_position, detected.current_position, initial_window_position);
             self.active_drag = Some(DragContext::window_move(
                 detected.start_position,
                 initial_window_position,
                 detected.session_id,
             ));
-        } else {
-            #[cfg(feature = "std")]
-            eprintln!("[GESTURE] activate_window_drag: detect_drag() returned None!");
         }
     }
 
@@ -1108,10 +1131,6 @@ impl GestureAndDragManager {
     /// Update positions for active drag (call on mouse move)
     pub fn update_active_drag_positions(&mut self, position: LogicalPosition) {
         if let Some(ref mut drag) = self.active_drag {
-            #[cfg(feature = "std")]
-            if drag.is_window_move() {
-                eprintln!("[GESTURE] update_active_drag_positions: pos={:?}", position);
-            }
             drag.update_position(position);
         }
     }
@@ -1296,13 +1315,6 @@ impl GestureAndDragManager {
 
         let delta_x = drag.current_position.x - drag.start_position.x;
         let delta_y = drag.current_position.y - drag.start_position.y;
-
-        #[cfg(feature = "std")]
-        eprintln!("[GESTURE] get_window_position_from_drag: delta=({},{}), start=({},{}), current=({},{}), initial_win={:?}",
-            delta_x, delta_y,
-            drag.start_position.x, drag.start_position.y,
-            drag.current_position.x, drag.current_position.y,
-            drag.initial_window_position);
 
         match drag.initial_window_position {
             WindowPosition::Initialized(initial_pos) => {
