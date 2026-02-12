@@ -4056,7 +4056,7 @@ impl MacOSWindow {
                     // NSOpenGLCPSurfaceOpacity = 236
                     if let Some(ref gl_context) = self.gl_context {
                         unsafe {
-                            const NS_OPENGL_CP_SURFACE_OPACITY: i32 = 236;
+                            const NS_OPENGL_CP_SURFACE_OPACITY: i64 = 236;
                             let opacity: i32 = 0; // 0 = transparent, 1 = opaque
                             let _: () = msg_send![
                                 &**gl_context,

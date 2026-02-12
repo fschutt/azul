@@ -1844,15 +1844,75 @@ pub trait PlatformWindowV2 {
             }
         }
 
+        // SYNC DRAG-DROP MANAGER AND SET :dragging PSEUDO-STATE
+        // After auto-activating node drag, sync the DragDropManager and set
+        // the :dragging CSS pseudo-state on the source node for styling.
+        if had_drag_start {
+            if let Some(layout_window) = self.get_layout_window_mut() {
+                // Sync DragDropManager from GestureAndDragManager
+                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
+                    layout_window.drag_drop_manager.active_drag = Some(ctx.clone());
+                }
+
+                // Set :dragging pseudo-state on the source node
+                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
+                    if let Some(node_drag) = ctx.as_node_drag() {
+                        let dom_id = node_drag.dom_id;
+                        let node_id = node_drag.node_id;
+                        if let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) {
+                            let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
+                            if let Some(styled_node) = styled_nodes.get_mut(node_id) {
+                                styled_node.styled_node_state.dragging = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // AUTO-DEACTIVATE DRAG ON DRAG END
         let had_drag_end = pre_filter.user_events.iter().any(|e| {
             matches!(e.event_type, azul_core::events::EventType::DragEnd)
         });
         if had_drag_end {
             if let Some(layout_window) = self.get_layout_window_mut() {
+                // Clear :dragging pseudo-state on the source node BEFORE ending drag
+                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
+                    if let Some(node_drag) = ctx.as_node_drag() {
+                        let dom_id = node_drag.dom_id;
+                        let node_id = node_drag.node_id;
+                        if let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) {
+                            let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
+                            if let Some(styled_node) = styled_nodes.get_mut(node_id) {
+                                styled_node.styled_node_state.dragging = false;
+                            }
+                        }
+                    }
+                }
+
+                // Clear :drag-over pseudo-state on any current drop target
+                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
+                    if let Some(node_drag) = ctx.as_node_drag() {
+                        if let azul_core::dom::OptionDomNodeId::Some(drop_target) = &node_drag.current_drop_target {
+                            let dom_id = drop_target.dom;
+                            if let Some(target_node_id) = drop_target.node.into_crate_internal() {
+                                if let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) {
+                                    let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
+                                    if let Some(styled_node) = styled_nodes.get_mut(target_node_id) {
+                                        styled_node.styled_node_state.drag_over = false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if layout_window.gesture_drag_manager.is_dragging() {
                     layout_window.gesture_drag_manager.end_drag();
                 }
+
+                // Sync: also clear DragDropManager
+                layout_window.drag_drop_manager.active_drag = None;
             }
         }
 

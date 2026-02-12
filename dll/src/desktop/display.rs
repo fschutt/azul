@@ -501,14 +501,14 @@ mod macos {
                 i
             );
             let refresh_rate = unsafe {
-                let fps: f64 = msg_send![&**screen, maximumFramesPerSecond];
+                let fps: i64 = msg_send![&**screen, maximumFramesPerSecond];
                 log_debug!(
                     LogCategory::General,
                     "[get_displays] Screen {} refresh rate: {} Hz",
                     i,
                     fps
                 );
-                if fps > 0.0 {
+                if fps > 0 {
                     fps as u16
                 } else {
                     60
