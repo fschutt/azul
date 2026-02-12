@@ -606,3 +606,102 @@ impl CoordinateSpace {
         }
     }
 }
+
+// =============================================================================
+// Type-safe coordinate newtypes for API clarity
+// =============================================================================
+
+/// Position in screen coordinates (logical pixels, relative to primary monitor origin).
+/// On Wayland: falls back to window-local since global coords are unavailable.
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct ScreenPosition {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl ScreenPosition {
+    #[inline(always)]
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+    #[inline(always)]
+    pub const fn zero() -> Self {
+        Self::new(0.0, 0.0)
+    }
+    /// Convert to a raw LogicalPosition (for interop with existing code).
+    #[inline(always)]
+    pub const fn to_logical(self) -> LogicalPosition {
+        LogicalPosition { x: self.x, y: self.y }
+    }
+    /// Create from a raw LogicalPosition that is known to be in screen space.
+    #[inline(always)]
+    pub const fn from_logical(p: LogicalPosition) -> Self {
+        Self { x: p.x, y: p.y }
+    }
+}
+
+impl_option!(
+    ScreenPosition,
+    OptionScreenPosition,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
+
+/// Position relative to a DOM node's border box origin (logical pixels).
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct CursorNodePosition {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl CursorNodePosition {
+    #[inline(always)]
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+    #[inline(always)]
+    pub const fn zero() -> Self {
+        Self::new(0.0, 0.0)
+    }
+    #[inline(always)]
+    pub const fn to_logical(self) -> LogicalPosition {
+        LogicalPosition { x: self.x, y: self.y }
+    }
+    #[inline(always)]
+    pub const fn from_logical(p: LogicalPosition) -> Self {
+        Self { x: p.x, y: p.y }
+    }
+}
+
+impl_option!(
+    CursorNodePosition,
+    OptionCursorNodePosition,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
+
+/// Drag offset from the cursor position at drag start (logical pixels).
+/// `dx`/`dy` are the delta from drag start to current position.
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct DragDelta {
+    pub dx: f32,
+    pub dy: f32,
+}
+
+impl DragDelta {
+    #[inline(always)]
+    pub const fn new(dx: f32, dy: f32) -> Self {
+        Self { dx, dy }
+    }
+    #[inline(always)]
+    pub const fn zero() -> Self {
+        Self::new(0.0, 0.0)
+    }
+}
+
+impl_option!(
+    DragDelta,
+    OptionDragDelta,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
