@@ -472,6 +472,31 @@ pub fn determine_all_events(
         ));
     }
 
+    // DPI changed (moved to a different-DPI monitor, or system DPI setting changed)
+    if current_state.size.dpi != previous_state.size.dpi {
+        events.push(SyntheticEvent::new(
+            EventType::WindowDpiChanged,
+            EventSource::User,
+            root_node.clone(),
+            timestamp.clone(),
+            EventData::None,
+        ));
+    }
+
+    // Monitor changed (window moved to a different monitor)
+    if current_state.monitor_id != previous_state.monitor_id
+        && current_state.monitor_id != azul_css::corety::OptionU32::None
+        && previous_state.monitor_id != azul_css::corety::OptionU32::None
+    {
+        events.push(SyntheticEvent::new(
+            EventType::WindowMonitorChanged,
+            EventSource::User,
+            root_node.clone(),
+            timestamp.clone(),
+            EventData::None,
+        ));
+    }
+
     // File Drop Events
 
     if let Some(_hovered_file) = file_drop_manager.get_hovered_file() {

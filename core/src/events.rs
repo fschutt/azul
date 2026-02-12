@@ -583,6 +583,16 @@ pub enum EventType {
     WindowFocusOut,
     /// System theme changed
     ThemeChange,
+    /// Window DPI/scale factor changed (moved to different monitor)
+    WindowDpiChanged,
+    /// Window moved to a different monitor
+    WindowMonitorChanged,
+
+    // Application Events
+    /// A monitor/display was connected
+    MonitorConnected,
+    /// A monitor/display was disconnected
+    MonitorDisconnected,
 
     // File Events
     /// File is being hovered
@@ -1859,6 +1869,12 @@ pub enum WindowEventFilter {
     RotateClockwise,
     /// Counter-clockwise rotation gesture anywhere in window
     RotateCounterClockwise,
+    /// The window's DPI scale factor changed (e.g., moved to a monitor with
+    /// different scaling). The new DPI is available via `CallbackInfo::get_hidpi_factor()`.
+    DpiChanged,
+    /// The window moved to a different monitor. The new monitor is available
+    /// via `CallbackInfo::get_current_monitor()`.
+    MonitorChanged,
 }
 
 impl WindowEventFilter {
@@ -1918,6 +1934,9 @@ impl WindowEventFilter {
             WindowEventFilter::RotateCounterClockwise => {
                 Some(HoverEventFilter::RotateCounterClockwise)
             }
+            // Window-specific events with no hover equivalent
+            WindowEventFilter::DpiChanged => None,
+            WindowEventFilter::MonitorChanged => None,
         }
     }
 }
@@ -1965,7 +1984,11 @@ pub enum ApplicationEventFilter {
     DeviceConnected,
     /// Fired when a hardware device is disconnected.
     DeviceDisconnected,
-    // ... TODO: more events
+    /// Fired when a new monitor/display is connected to the system.
+    /// Callback receives updated monitor list via `CallbackInfo::get_monitors()`.
+    MonitorConnected,
+    /// Fired when a monitor/display is disconnected from the system.
+    MonitorDisconnected,
 }
 
 /// Sets the target for what events can reach the callbacks specifically.
@@ -2303,6 +2326,12 @@ fn event_type_to_filters(event_type: EventType) -> Vec<EventFilter> {
         E::WindowFocusIn => vec![EF::Window(W::WindowFocusReceived)],
         E::WindowFocusOut => vec![EF::Window(W::WindowFocusLost)],
         E::ThemeChange => vec![EF::Window(W::ThemeChanged)],
+        E::WindowDpiChanged => vec![EF::Window(W::DpiChanged)],
+        E::WindowMonitorChanged => vec![EF::Window(W::MonitorChanged)],
+
+        // Application events
+        E::MonitorConnected => vec![EF::Application(ApplicationEventFilter::MonitorConnected)],
+        E::MonitorDisconnected => vec![EF::Application(ApplicationEventFilter::MonitorDisconnected)],
 
         // File events
         E::FileHover => vec![EF::Hover(H::HoveredFile)],
