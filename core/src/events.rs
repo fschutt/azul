@@ -2282,9 +2282,9 @@ fn event_type_to_filters(event_type: EventType) -> Vec<EventFilter> {
         E::Scroll | E::ScrollStart | E::ScrollEnd => vec![EF::Hover(H::Scroll)],
 
         // Drag events
-        E::DragStart => vec![EF::Hover(H::DragStart)],
-        E::Drag => vec![EF::Hover(H::Drag)],
-        E::DragEnd => vec![EF::Hover(H::DragEnd)],
+        E::DragStart => vec![EF::Hover(H::DragStart), EF::Window(W::DragStart)],
+        E::Drag => vec![EF::Hover(H::Drag), EF::Window(W::Drag)],
+        E::DragEnd => vec![EF::Hover(H::DragEnd), EF::Window(W::DragEnd)],
         E::DragEnter => vec![EF::Hover(H::MouseEnter)],
         E::DragOver => vec![EF::Hover(H::MouseOver)],
         E::DragLeave => vec![EF::Hover(H::MouseLeave)],
