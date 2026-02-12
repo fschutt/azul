@@ -903,17 +903,15 @@ pub trait PlatformWindowV2 {
                         }
                     }
                 } else {
-                    // For non-hover events (window events, etc.), search only root nodes
+                    // For non-hover events (window events, etc.), search ALL nodes
+                    // Window events are global and can be registered on any node
+                    // (not just node 0, which may be a framework-injected CSD wrapper)
                     for (dom_id, layout_result) in &layout_window.layout_results {
-                        if let Some(root_node) = layout_result
-                            .styled_dom
-                            .node_data
-                            .as_container()
-                            .get(CoreNodeId::ZERO)
-                        {
-                            for callback in root_node.get_callbacks().iter() {
+                        let node_data_container = layout_result.styled_dom.node_data.as_container();
+                        for (node_idx, node_data) in node_data_container.iter().enumerate() {
+                            for callback in node_data.get_callbacks().iter() {
                                 if callback.event == event_filter {
-                                    let node_id = match NodeId::from_usize(0) {
+                                    let node_id = match NodeId::from_usize(node_idx) {
                                         Some(nid) => nid,
                                         None => continue,
                                     };
@@ -1067,6 +1065,30 @@ pub trait PlatformWindowV2 {
         // Capture window position BEFORE borrowing layout_window mutably
         let window_position = self.get_current_window_state().position;
 
+        // Compute screen-absolute cursor position for stable drag delta.
+        //
+        // screen_pos = window_pos + cursor_local_pos
+        //
+        // This is stable during window drags because even though the window
+        // moves (changing cursor_local), the sum always equals the true screen
+        // position. The screen-space delta between first and last sample is
+        // therefore immune to the feedback loop that causes "jiggling".
+        //
+        // Works cross-platform:
+        //   macOS:   window_position is in points (logical), cursor is in points → sum is screen points
+        //   Win32:   window_position is in physical pixels, cursor is in logical → approximate (TODO: use GetCursorPos)
+        //   X11:     window_position is in pixels, cursor is in pixels → sum is screen pixels
+        //   Wayland: window_position is Uninitialized (compositor hides it) → falls back to window-local
+        let screen_position = match window_position {
+            azul_core::window::WindowPosition::Initialized(pos) => {
+                azul_core::geom::LogicalPosition::new(
+                    pos.x as f32 + position.x,
+                    pos.y as f32 + position.y,
+                )
+            }
+            azul_core::window::WindowPosition::Uninitialized => position,
+        };
+
         // Get access to gesture manager
         let layout_window = match self.get_layout_window_mut() {
             Some(lw) => lw,
@@ -1084,15 +1106,26 @@ pub trait PlatformWindowV2 {
 
         // Record based on event type
         if is_button_down {
-            // Start new input session — pass current window position so
-            // titlebar drag callbacks can compute new position from delta
-            manager.start_input_session(position, current_time.clone(), button_state, window_position);
+            // Start new input session — pass current window position and
+            // screen-absolute cursor position for stable drag delta
+            manager.start_input_session(
+                position,
+                current_time.clone(),
+                button_state,
+                window_position,
+                screen_position,
+            );
         } else if is_button_up {
             // End current session
             manager.end_current_session();
         } else {
             // Record ongoing movement
-            manager.record_input_sample(position, current_time.clone(), button_state);
+            manager.record_input_sample(
+                position,
+                current_time.clone(),
+                button_state,
+                screen_position,
+            );
         }
 
         // Periodically clear old samples (every frame is fine)
@@ -1234,9 +1267,6 @@ pub trait PlatformWindowV2 {
             // Fallback: no events if managers not available
             Vec::new()
         };
-
-        for (i, ev) in synthetic_events.iter().enumerate() {
-        }
 
         if synthetic_events.is_empty() {
             return ProcessEventResult::DoNothing;
@@ -1633,27 +1663,11 @@ pub trait PlatformWindowV2 {
 
         // EVENT FILTERING AND CALLBACK DISPATCH
 
-        // DEBUG: Log user events
-        for (i, ev) in pre_filter.user_events.iter().enumerate() {
-        }
-        
-        // DEBUG: Check hit test
-        if let Some(ref ht) = hit_test_for_dispatch {
-            for (dom_id, dom_ht) in &ht.hovered_nodes {
-                for (node_id, _) in dom_ht.regular_hit_test_nodes.iter() {
-                }
-            }
-        } else {
-        }
-
         // Dispatch user events to callbacks (internal events already processed)
         let dispatch_result = azul_core::events::dispatch_synthetic_events(
             &pre_filter.user_events,
             hit_test_for_dispatch.as_ref(),
         );
-
-        for (i, cb) in dispatch_result.callbacks.iter().enumerate() {
-        }
 
         if dispatch_result.is_empty() {
             // Return accumulated result from internal processing, not DoNothing
@@ -1731,6 +1745,96 @@ pub trait PlatformWindowV2 {
                     Update::RefreshDom | Update::RefreshDomAllWindows
                 ) {
                     should_recurse = true;
+                }
+            }
+        }
+
+        // AUTO-ACTIVATE NODE DRAG
+        // If a DragStart event was dispatched and the deepest hit node has draggable=true,
+        // automatically activate the node drag in the gesture manager.
+        // This is needed because activate_node_drag() is not called by user code.
+        let had_drag_start = pre_filter.user_events.iter().any(|e| {
+            matches!(e.event_type, azul_core::events::EventType::DragStart)
+        });
+
+        if had_drag_start {
+            // Find the deepest hit node and check if it (or an ancestor) has draggable=true
+            if let Some(layout_window) = self.get_layout_window_mut() {
+                use azul_layout::managers::hover::InputPointId;
+                let hit_test = layout_window.hover_manager
+                    .get_current(&InputPointId::Mouse)
+                    .cloned();
+
+                if let Some(hit_test) = hit_test {
+                    let mut activated = false;
+                    'outer: for (dom_id, hit_test_data) in &hit_test.hovered_nodes {
+                        if let Some(layout_result) = layout_window.layout_results.get(dom_id) {
+                            let node_data_container = layout_result.styled_dom.node_data.as_container();
+                            let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+
+                            // Find deepest hit node
+                            let deepest_node = hit_test_data
+                                .regular_hit_test_nodes
+                                .iter()
+                                .max_by_key(|(node_id, _)| {
+                                    let mut depth = 0usize;
+                                    let mut current = Some(**node_id);
+                                    while let Some(nid) = current {
+                                        depth += 1;
+                                        current = node_hierarchy.get(nid).and_then(|h| h.parent_id());
+                                    }
+                                    depth
+                                });
+
+                            if let Some((target_node_id, _)) = deepest_node {
+                                // Walk from deepest to root, find first draggable=true
+                                let mut current = Some(*target_node_id);
+                                while let Some(node_id) = current {
+                                    if let Some(node_data) = node_data_container.get(node_id) {
+                                        let is_draggable = node_data.attributes.as_ref().iter().any(|attr| {
+                                            matches!(attr, azul_core::dom::AttributeType::Draggable(true))
+                                        });
+                                        if is_draggable {
+                                            let drag_data = azul_core::drag::DragData::new();
+                                            layout_window.gesture_drag_manager.activate_node_drag(
+                                                *dom_id,
+                                                node_id,
+                                                drag_data,
+                                                None,
+                                            );
+                                            activated = true;
+                                            break 'outer;
+                                        }
+                                    }
+                                    current = node_hierarchy.get(node_id).and_then(|h| h.parent_id());
+                                }
+                            }
+                        }
+                    }
+                    // If no draggable=true node found, activate as window drag
+                    // This enables CSD titlebar drag and other window-move operations
+                    if !activated {
+                        let win_pos = self.get_current_window_state().position.clone();
+                        // Re-borrow after get_current_window_state
+                        if let Some(layout_window) = self.get_layout_window_mut() {
+                            layout_window.gesture_drag_manager.activate_window_drag(
+                                win_pos,
+                                None,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // AUTO-DEACTIVATE DRAG ON DRAG END
+        let had_drag_end = pre_filter.user_events.iter().any(|e| {
+            matches!(e.event_type, azul_core::events::EventType::DragEnd)
+        });
+        if had_drag_end {
+            if let Some(layout_window) = self.get_layout_window_mut() {
+                if layout_window.gesture_drag_manager.is_dragging() {
+                    layout_window.gesture_drag_manager.end_drag();
                 }
             }
         }
