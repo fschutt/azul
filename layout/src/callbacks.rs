@@ -20,7 +20,7 @@ use azul_core::{
     callbacks::{CoreCallback, FocusTarget, FocusTargetPath, HidpiAdjustedBounds, Update},
     dom::{DomId, DomIdVec, DomNodeId, IdOrClass, NodeId, NodeType},
     events::CallbackResultRef,
-    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
+    geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, OptionCursorNodePosition, OptionScreenPosition, OptionDragDelta, CursorNodePosition, ScreenPosition, DragDelta},
     gl::OptionGlContextPtr,
     gpu::GpuValueCache,
     hit_test::ScrollPosition,
@@ -32,7 +32,7 @@ use azul_core::{
     selection::{Selection, SelectionRange, SelectionRangeVec, SelectionState, TextCursor},
     styled_dom::{NodeHierarchyItemId, NodeHierarchyItemIdVec, StyledDom},
     task::{self, GetSystemTimeCallback, Instant, ThreadId, ThreadIdVec, TimerId, TimerIdVec},
-    window::{KeyboardState, MouseState, RawWindowHandle, WindowFlags, WindowSize},
+    window::{KeyboardState, Monitor, MonitorVec, MouseState, OptionMonitor, RawWindowHandle, WindowFlags, WindowSize},
     FastBTreeSet, FastHashMap,
 };
 use azul_css::{
@@ -420,6 +420,12 @@ pub enum CallbackChange {
         /// The text to insert
         text: AzString,
     },
+
+    // Window Move (Compositor-Managed)
+    /// Request the compositor to begin an interactive window move.
+    /// On Wayland: calls xdg_toplevel_move(toplevel, seat, serial).
+    /// On other platforms: this is a no-op (use set_window_position instead).
+    BeginInteractiveMove,
 }
 
 /// Main callback type for UI event handling
@@ -595,6 +601,10 @@ pub struct CallbackInfoRefData<'a> {
     /// Platform-specific system style (colors, spacing, etc.)
     /// Arc allows safe cloning in callbacks without unsafe pointer manipulation
     pub system_style: Arc<SystemStyle>,
+    /// Shared monitor list — initialized once at app start, updated by the platform
+    /// layer on monitor topology changes (e.g. WM_DISPLAYCHANGE, NSScreenParametersChanged).
+    /// Callbacks lock the mutex to read; platform locks to write.
+    pub monitors: Arc<Mutex<MonitorVec>>,
     /// ICU4X localizer cache for internationalized formatting (numbers, dates, lists, plurals)
     /// Caches localizers for multiple locales. Only available when the "icu" feature is enabled.
     #[cfg(feature = "icu")]
@@ -780,6 +790,15 @@ impl CallbackInfo {
     /// Modify the window state (applied after callback returns)
     pub fn modify_window_state(&mut self, state: FullWindowState) {
         self.push_change(CallbackChange::ModifyWindowState { state });
+    }
+
+    /// Request the compositor to begin an interactive window move.
+    ///
+    /// On Wayland: calls `xdg_toplevel_move(toplevel, seat, serial)` which lets
+    /// the compositor handle the move. This is the only way to move windows on Wayland.
+    /// On other platforms: this is a no-op; use `modify_window_state()` to set position.
+    pub fn begin_interactive_move(&mut self) {
+        self.push_change(CallbackChange::BeginInteractiveMove);
     }
 
     /// Queue multiple window state changes to be applied in sequence.
@@ -1944,8 +1963,12 @@ impl CallbackInfo {
 
     // Cursor and Input
 
-    pub fn get_cursor_relative_to_node(&self) -> OptionLogicalPosition {
-        self.cursor_relative_to_item
+    pub fn get_cursor_relative_to_node(&self) -> azul_core::geom::OptionCursorNodePosition {
+        use azul_core::geom::{CursorNodePosition, OptionCursorNodePosition};
+        match self.cursor_relative_to_item {
+            OptionLogicalPosition::Some(p) => OptionCursorNodePosition::Some(CursorNodePosition::from_logical(p)),
+            OptionLogicalPosition::None => OptionCursorNodePosition::None,
+        }
     }
 
     pub fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition {
@@ -1973,24 +1996,78 @@ impl CallbackInfo {
     /// | **Win32**   | Exact when DPI-aware; approximate otherwise |
     /// | **X11**     | Exact (pixels) |
     /// | **Wayland** | Falls back to window-local (compositor hides global position) |
-    pub fn get_cursor_position_screen(&self) -> OptionLogicalPosition {
+    pub fn get_cursor_position_screen(&self) -> azul_core::geom::OptionScreenPosition {
         use azul_core::window::WindowPosition;
-        use azul_core::geom::LogicalPosition;
+        use azul_core::geom::{LogicalPosition, ScreenPosition, OptionScreenPosition};
 
         let ws = self.get_current_window_state();
         let cursor_local = match ws.mouse_state.cursor_position.get_position() {
             Some(p) => p,
-            None => return OptionLogicalPosition::None,
+            None => return OptionScreenPosition::None,
         };
         match ws.position {
             WindowPosition::Initialized(pos) => {
-                OptionLogicalPosition::Some(LogicalPosition::new(
+                OptionScreenPosition::Some(ScreenPosition::new(
                     pos.x as f32 + cursor_local.x,
                     pos.y as f32 + cursor_local.y,
                 ))
             }
             // Wayland: window position unknown, fall back to window-local
-            WindowPosition::Uninitialized => OptionLogicalPosition::Some(cursor_local),
+            WindowPosition::Uninitialized => OptionScreenPosition::Some(
+                ScreenPosition::new(cursor_local.x, cursor_local.y)
+            ),
+        }
+    }
+
+    /// Get the drag delta in window-local coordinates.
+    ///
+    /// Returns the offset from drag start to current cursor position in window-local
+    /// logical pixels. Returns `None` if no drag is active.
+    ///
+    /// **Warning**: This is NOT stable during window moves (titlebar drag).
+    /// Use `get_drag_delta_screen()` for titlebar dragging.
+    pub fn get_drag_delta(&self) -> azul_core::geom::OptionDragDelta {
+        use azul_core::geom::{DragDelta, OptionDragDelta};
+        let gm = self.get_gesture_drag_manager();
+        match gm.get_drag_delta() {
+            Some((dx, dy)) => OptionDragDelta::Some(DragDelta::new(dx, dy)),
+            None => OptionDragDelta::None,
+        }
+    }
+
+    /// Get the drag delta in screen coordinates.
+    ///
+    /// Unlike `get_drag_delta()`, this is stable even when the window moves
+    /// (e.g., during titlebar drag). Returns `None` if no drag is active.
+    /// On Wayland: falls back to window-local delta.
+    pub fn get_drag_delta_screen(&self) -> azul_core::geom::OptionDragDelta {
+        use azul_core::geom::{DragDelta, OptionDragDelta};
+        let gm = self.get_gesture_drag_manager();
+        match gm.get_drag_delta_screen() {
+            Some((dx, dy)) => OptionDragDelta::Some(DragDelta::new(dx, dy)),
+            None => OptionDragDelta::None,
+        }
+    }
+
+    /// Get the **incremental** (frame-to-frame) drag delta in screen coordinates.
+    ///
+    /// Returns the screen-space delta between the current and previous sample
+    /// (not the total delta since drag start). Use this with the current window
+    /// position for robust titlebar drag:
+    ///
+    /// ```text
+    /// new_pos = current_window_pos + incremental_delta
+    /// ```
+    ///
+    /// This handles external position changes (DPI change, OS clamping, compositor
+    /// resize) that would make the initial position stale.
+    /// Returns `None` if no drag is active or fewer than 2 samples exist.
+    pub fn get_drag_delta_screen_incremental(&self) -> azul_core::geom::OptionDragDelta {
+        use azul_core::geom::{DragDelta, OptionDragDelta};
+        let gm = self.get_gesture_drag_manager();
+        match gm.get_drag_delta_screen_incremental() {
+            Some((dx, dy)) => OptionDragDelta::Some(DragDelta::new(dx, dy)),
+            None => OptionDragDelta::None,
         }
     }
 
@@ -2002,6 +2079,40 @@ impl CallbackInfo {
     /// This is useful for creating custom menus or other system-styled UI.
     pub fn get_system_style(&self) -> Arc<SystemStyle> {
         unsafe { (*self.ref_data).system_style.clone() }
+    }
+
+    /// Get a snapshot of all monitors available on the system.
+    ///
+    /// The returned `MonitorVec` is cloned from the shared monitor cache.
+    /// The cache is initialized once at app start and updated by the platform
+    /// layer on monitor topology changes. No OS calls are made here.
+    pub fn get_monitors(&self) -> MonitorVec {
+        let monitors_arc = unsafe { &(*self.ref_data).monitors };
+        monitors_arc.lock().map(|g| g.clone()).unwrap_or_else(|_| MonitorVec::from_const_slice(&[]))
+    }
+
+    /// Get the monitor that the current window is on, if known.
+    ///
+    /// Uses `FullWindowState::monitor_id` (set by the platform layer) to find
+    /// the matching monitor in the cached monitor list. Returns `None` if the
+    /// monitor ID is not set or no matching monitor is found.
+    pub fn get_current_monitor(&self) -> OptionMonitor {
+        let ws = self.get_current_window_state();
+        let monitor_index = match ws.monitor_id {
+            azul_css::corety::OptionU32::Some(idx) => idx as usize,
+            azul_css::corety::OptionU32::None => return OptionMonitor::None,
+        };
+        let monitors_arc = unsafe { &(*self.ref_data).monitors };
+        let guard = match monitors_arc.lock() {
+            Ok(g) => g,
+            Err(_) => return OptionMonitor::None,
+        };
+        for m in guard.as_ref().iter() {
+            if m.monitor_id.index == monitor_index {
+                return OptionMonitor::Some(m.clone());
+            }
+        }
+        OptionMonitor::None
     }
 
     // ==================== ICU4X Internationalization API ====================
@@ -3580,6 +3691,10 @@ pub struct CallCallbacksResult {
     /// These need to be processed by the recursive event loop to invoke user callbacks
     /// Format: Vec<(DomNodeId, Vec<EventFilter>)>
     pub text_input_triggered: Vec<(azul_core::dom::DomNodeId, Vec<azul_core::events::EventFilter>)>,
+    /// Whether begin_interactive_move() was called by a callback.
+    /// On Wayland: triggers xdg_toplevel_move(toplevel, seat, serial).
+    /// On other platforms: ignored.
+    pub begin_interactive_move: bool,
 }
 
 impl Default for CallCallbacksResult {
@@ -3609,6 +3724,7 @@ impl Default for CallCallbacksResult {
             hit_test_update_requested: None,
             queued_window_states: Vec::new(),
             text_input_triggered: Vec::new(),
+            begin_interactive_move: false,
         }
     }
 }

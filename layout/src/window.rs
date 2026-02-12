@@ -44,7 +44,7 @@ use azul_core::{
         Duration, Instant, SystemTickDiff, SystemTimeDiff, TerminateTimer, ThreadId, ThreadIdVec,
         ThreadSendMsg, TimerId, TimerIdVec,
     },
-    window::{CursorPosition, RawWindowHandle, RendererType},
+    window::{CursorPosition, MonitorVec, RawWindowHandle, RendererType},
     FastBTreeSet, FastHashMap,
 };
 use azul_css::{
@@ -332,6 +332,8 @@ pub struct CallbackChangeResult {
     /// Text input events triggered by CreateTextInput
     /// These need to be processed by the recursive event loop to invoke user callbacks
     pub text_input_triggered: Vec<(azul_core::dom::DomNodeId, Vec<azul_core::events::EventFilter>)>,
+    /// Whether begin_interactive_move() was called (for Wayland xdg_toplevel_move)
+    pub begin_interactive_move: bool,
 }
 
 /// A window-level layout manager that encapsulates all layout state and caching.
@@ -422,6 +424,10 @@ pub struct LayoutWindow {
     /// System style (colors, fonts, metrics) for resolving system color keywords
     /// Set via `set_system_style()` from the shell after window creation
     pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
+    /// Shared monitor list — initialized once at app start, updated by the platform
+    /// layer on monitor topology changes. Arc<Mutex> allows zero-cost sharing
+    /// across all CallbackInfoRefData without cloning the Vec each time.
+    pub monitors: std::sync::Arc<std::sync::Mutex<MonitorVec>>,
     /// ICU4X localizer handle for internationalized formatting (numbers, dates, lists, plurals)
     /// Initialized from system language at startup, can be overridden
     #[cfg(feature = "icu")]
@@ -516,6 +522,7 @@ impl LayoutWindow {
             dirty_text_nodes: BTreeMap::new(),
             pending_iframe_updates: BTreeMap::new(),
             system_style: None,
+            monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
         })
@@ -588,6 +595,7 @@ impl LayoutWindow {
             dirty_text_nodes: BTreeMap::new(),
             pending_iframe_updates: BTreeMap::new(),
             system_style: None,
+            monitors: std::sync::Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             #[cfg(feature = "icu")]
             icu_localizer: IcuLocalizerHandle::default(),
         })
@@ -2314,6 +2322,11 @@ impl LayoutWindow {
                         result.text_input_triggered.push((node, events));
                     }
                 }
+                CallbackChange::BeginInteractiveMove => {
+                    // Handled by the platform layer (Wayland: xdg_toplevel_move).
+                    // Set a flag so the platform can pick it up after callback processing.
+                    result.begin_interactive_move = true;
+                }
             }
         }
 
@@ -3348,6 +3361,7 @@ impl LayoutWindow {
             hit_test_update_requested: None,
             queued_window_states: Vec::new(),
             text_input_triggered: Vec::new(),
+            begin_interactive_move: false,
         };
 
         let mut should_terminate = TerminateTimer::Continue;
@@ -3396,6 +3410,7 @@ impl LayoutWindow {
                 current_window_handle,
                 system_callbacks,
                 system_style,
+                monitors: self.monitors.clone(),
                 #[cfg(feature = "icu")]
                 icu_localizer: self.icu_localizer.clone(),
                 ctx: timer_ctx,
@@ -3490,6 +3505,11 @@ impl LayoutWindow {
                 ret.text_input_triggered = change_result.text_input_triggered;
             }
 
+            // Forward begin_interactive_move to shell layer (Wayland xdg_toplevel_move)
+            if change_result.begin_interactive_move {
+                ret.begin_interactive_move = true;
+            }
+
             // Handle focus target outside the timer block so it's available later
             if let Some(ft) = change_result.focus_target {
                 if let Ok(new_focus_node) = crate::managers::focus_cursor::resolve_focus_target(
@@ -3560,6 +3580,7 @@ impl LayoutWindow {
             hit_test_update_requested: None,
             queued_window_states: Vec::new(),
             text_input_triggered: Vec::new(),
+            begin_interactive_move: false,
         };
 
         let mut ret_modified_window_state = current_window_state.clone();
@@ -3644,6 +3665,7 @@ impl LayoutWindow {
                 current_window_handle,
                 system_callbacks,
                 system_style: system_style.clone(),
+                monitors: self.monitors.clone(),
                 #[cfg(feature = "icu")]
                 icu_localizer: self.icu_localizer.clone(),
                 ctx: callback.ctx.clone(),
@@ -3684,6 +3706,7 @@ impl LayoutWindow {
             ret.prevent_default = ret.prevent_default || change_result.prevent_default;
             ret.tooltips_to_show.extend(change_result.tooltips_to_show);
             ret.hide_tooltip = ret.hide_tooltip || change_result.hide_tooltip;
+            ret.begin_interactive_move = ret.begin_interactive_move || change_result.begin_interactive_move;
 
             // Forward hit test update request
             if change_result.hit_test_update_requested.is_some() {
@@ -3836,6 +3859,7 @@ impl LayoutWindow {
             hit_test_update_requested: None,
             queued_window_states: Vec::new(),
             text_input_triggered: Vec::new(),
+            begin_interactive_move: false,
         };
 
         let mut ret_modified_window_state = current_window_state.clone();
@@ -3870,6 +3894,7 @@ impl LayoutWindow {
             current_window_handle,
             system_callbacks,
             system_style,
+            monitors: self.monitors.clone(),
             #[cfg(feature = "icu")]
             icu_localizer: self.icu_localizer.clone(),
             ctx: OptionRefAny::None,
@@ -3906,6 +3931,7 @@ impl LayoutWindow {
         ret.prevent_default = change_result.prevent_default;
         ret.tooltips_to_show = change_result.tooltips_to_show;
         ret.hide_tooltip = change_result.hide_tooltip;
+        ret.begin_interactive_move = ret.begin_interactive_move || change_result.begin_interactive_move;
 
         // Forward hit test update request (invoke_single_callback)
         if change_result.hit_test_update_requested.is_some() {
@@ -4017,6 +4043,7 @@ impl LayoutWindow {
             hit_test_update_requested: None,
             queued_window_states: Vec::new(),
             text_input_triggered: Vec::new(),
+            begin_interactive_move: false,
         };
 
         let mut ret_modified_window_state = current_window_state.clone();
@@ -4051,6 +4078,7 @@ impl LayoutWindow {
             current_window_handle,
             system_callbacks,
             system_style,
+            monitors: self.monitors.clone(),
             #[cfg(feature = "icu")]
             icu_localizer: self.icu_localizer.clone(),
             ctx: OptionRefAny::None,
@@ -4088,6 +4116,7 @@ impl LayoutWindow {
         ret.prevent_default = change_result.prevent_default;
         ret.tooltips_to_show = change_result.tooltips_to_show;
         ret.hide_tooltip = change_result.hide_tooltip;
+        ret.begin_interactive_move = ret.begin_interactive_move || change_result.begin_interactive_move;
 
         // Forward hit test update request (invoke_menu_callback)
         if change_result.hit_test_update_requested.is_some() {

@@ -8,7 +8,7 @@ use core::ffi::c_void;
 use azul_core::{
     callbacks::{TimerCallbackReturn, Update},
     dom::OptionDomNodeId,
-    geom::{LogicalPosition, LogicalSize, OptionLogicalPosition},
+    geom::{LogicalPosition, LogicalSize, OptionLogicalPosition, OptionCursorNodePosition, CursorNodePosition},
     menu::Menu,
     refany::{OptionRefAny, RefAny},
     resources::ImageRef,
@@ -434,7 +434,7 @@ impl TimerCallbackInfo {
     }
 
     /// Get the cursor position relative to the hit node
-    pub fn get_cursor_relative_to_node(&self) -> OptionLogicalPosition {
+    pub fn get_cursor_relative_to_node(&self) -> azul_core::geom::OptionCursorNodePosition {
         self.callback_info.get_cursor_relative_to_node()
     }
 
