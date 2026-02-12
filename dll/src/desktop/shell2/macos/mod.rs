@@ -3441,6 +3441,43 @@ impl MacOSWindow {
             if previous.flags.background_material != current.flags.background_material {
                 self.apply_background_material(current.flags.background_material);
             }
+
+            // Window frame state changed? (Minimize/Maximize/Normal/Fullscreen)
+            if previous.flags.frame != current.flags.frame {
+                use azul_core::window::WindowFrame;
+                unsafe {
+                    match current.flags.frame {
+                        WindowFrame::Minimized => {
+                            self.window.miniaturize(None);
+                        }
+                        WindowFrame::Maximized => {
+                            // On macOS, "zoom" toggles between normal and maximized.
+                            // Only zoom if we are NOT already zoomed (i.e. coming from
+                            // Normal or Minimized).  `isZoomed` tells us the current
+                            // OS-level state.
+                            if !self.window.isZoomed() {
+                                self.window.performZoom(None);
+                            }
+                        }
+                        WindowFrame::Normal => {
+                            // Restore from whatever state we were in.
+                            if previous.flags.frame == WindowFrame::Minimized {
+                                self.window.deminiaturize(None);
+                            } else if previous.flags.frame == WindowFrame::Maximized {
+                                // zoom is a toggle – calling it when zoomed restores.
+                                if self.window.isZoomed() {
+                                    self.window.performZoom(None);
+                                }
+                            } else if previous.flags.frame == WindowFrame::Fullscreen {
+                                self.window.toggleFullScreen(None);
+                            }
+                        }
+                        WindowFrame::Fullscreen => {
+                            self.window.toggleFullScreen(None);
+                        }
+                    }
+                }
+            }
         }
 
         // Visibility changed?
