@@ -85,6 +85,58 @@ enum RenderMode {
 /// This enables background-only transparency where the window background is transparent
 /// (via glClearColor with alpha=0) but rendered content stays opaque.
 ///
+/// Try to load XRandR and subscribe to screen change notifications.
+/// Returns the XRandR event base if successful (screen change events = event_base + 0).
+fn try_subscribe_xrandr(
+    display: *mut Display,
+    root: Window,
+) -> Option<i32> {
+    use crate::desktop::shell2::{
+        common::{dlopen::load_first_available, DynamicLibrary},
+        linux::x11::dlopen::Library,
+    };
+
+    type XRRQueryExtensionFn = unsafe extern "C" fn(
+        *mut Display, *mut std::ffi::c_int, *mut std::ffi::c_int,
+    ) -> std::ffi::c_int;
+    type XRRSelectInputFn = unsafe extern "C" fn(
+        *mut Display, Window, std::ffi::c_int,
+    );
+
+    const RR_SCREEN_CHANGE_NOTIFY_MASK: std::ffi::c_int = 1 << 0;
+
+    unsafe {
+        let xrandr_lib = load_first_available::<Library>(
+            &["libXrandr.so.2", "libXrandr.so"],
+        ).ok()?;
+
+        let query_extension: XRRQueryExtensionFn =
+            xrandr_lib.get_symbol("XRRQueryExtension").ok()?;
+        let select_input: XRRSelectInputFn =
+            xrandr_lib.get_symbol("XRRSelectInput").ok()?;
+
+        let mut event_base: std::ffi::c_int = 0;
+        let mut error_base: std::ffi::c_int = 0;
+        if (query_extension)(display, &mut event_base, &mut error_base) == 0 {
+            return None; // XRandR not available
+        }
+
+        // Subscribe to screen change events on the root window
+        (select_input)(display, root, RR_SCREEN_CHANGE_NOTIFY_MASK);
+
+        log_debug!(
+            LogCategory::Platform,
+            "[X11] XRandR screen change notifications enabled (event_base={})",
+            event_base
+        );
+
+        // Keep the library loaded (leak it intentionally, we need the symbols alive)
+        std::mem::forget(xrandr_lib);
+
+        Some(event_base)
+    }
+}
+
 /// See: https://stackoverflow.com/a/9215724 (inspired by datenwolf/FTB)
 ///
 /// Returns: (window_handle, has_argb_visual, optional_colormap)
@@ -237,6 +289,8 @@ pub struct X11Window {
     pub scrollbar_drag_state: Option<ScrollbarDragState>,
     pub last_hovered_node: Option<event_v2::HitTestNode>,
     pub frame_needs_regeneration: bool,
+    /// XRandR event base (if available). Screen change events have type xrandr_event_base + 0.
+    pub xrandr_event_base: Option<i32>,
 
     // Native timer support via timerfd (Linux-specific)
     // Maps TimerId -> (timerfd file descriptor)
@@ -465,7 +519,24 @@ impl PlatformWindow for X11Window {
                 defines::EnterNotify | defines::LeaveNotify => {
                     self.handle_mouse_crossing(unsafe { &event.crossing })
                 }
-                _ => ProcessEventResult::DoNothing,
+                other => {
+                    // Check for XRandR screen change event (dynamic event type)
+                    if let Some(event_base) = self.xrandr_event_base {
+                        if other == event_base {
+                            // RRScreenChangeNotify — monitor topology changed
+                            log_debug!(
+                                LogCategory::Platform,
+                                "[X11] XRandR screen change detected, refreshing monitor cache"
+                            );
+                            if let Some(ref lw) = self.layout_window {
+                                if let Ok(mut guard) = lw.monitors.lock() {
+                                    *guard = crate::desktop::display::get_monitors();
+                                }
+                            }
+                        }
+                    }
+                    ProcessEventResult::DoNothing
+                }
             };
 
             // Request redraw if needed (but not for Expose which already called render_and_present)
@@ -841,6 +912,7 @@ impl X11Window {
             scrollbar_drag_state: None,
             last_hovered_node: None,
             frame_needs_regeneration: true, // Initial render deferred to first Expose event
+            xrandr_event_base: None,
             timer_fds: std::collections::BTreeMap::new(),
             pending_window_creates: Vec::new(),
             gnome_menu_v2: None, // New dlopen-based implementation
@@ -875,6 +947,9 @@ impl X11Window {
 
         unsafe { (window.xlib.XMapWindow)(display, window.window) };
         unsafe { (window.xlib.XFlush)(display) };
+
+        // Try to subscribe to XRandR screen change notifications (optional)
+        window.xrandr_event_base = try_subscribe_xrandr(display, root);
 
         // Position window on requested monitor (or center on primary)
         // Convert u32 to MonitorId
@@ -1383,7 +1458,23 @@ impl X11Window {
             defines::EnterNotify | defines::LeaveNotify => {
                 self.handle_mouse_crossing(unsafe { &event.crossing })
             }
-            _ => ProcessEventResult::DoNothing,
+            other => {
+                // Check for XRandR screen change event (dynamic event type)
+                if let Some(event_base) = self.xrandr_event_base {
+                    if other == event_base {
+                        log_debug!(
+                            LogCategory::Platform,
+                            "[X11] XRandR screen change detected (handle_event), refreshing monitor cache"
+                        );
+                        if let Some(ref lw) = self.layout_window {
+                            if let Ok(mut guard) = lw.monitors.lock() {
+                                *guard = crate::desktop::display::get_monitors();
+                            }
+                        }
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
         };
 
         // Request redraw if needed

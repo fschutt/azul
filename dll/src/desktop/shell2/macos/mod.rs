@@ -1544,6 +1544,37 @@ define_class!(
             }
         }
 
+        #[unsafe(method(windowDidChangeScreen:))]
+        fn window_did_change_screen(&self, _notification: &NSNotification) {
+            // Window moved to a different screen — refresh cached monitor list
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let window = &mut *(window_ptr as *mut MacOSWindow);
+                    if let Some(ref lw) = window.layout_window {
+                        if let Ok(mut guard) = lw.monitors.lock() {
+                            *guard = crate::desktop::display::get_monitors();
+                        }
+                    }
+                }
+            }
+        }
+
+        #[unsafe(method(windowDidChangeScreenProfile:))]
+        fn window_did_change_screen_profile(&self, _notification: &NSNotification) {
+            // Screen configuration changed (resolution, color profile, monitor added/removed)
+            // Refresh cached monitor list
+            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                unsafe {
+                    let window = &mut *(window_ptr as *mut MacOSWindow);
+                    if let Some(ref lw) = window.layout_window {
+                        if let Ok(mut guard) = lw.monitors.lock() {
+                            *guard = crate::desktop::display::get_monitors();
+                        }
+                    }
+                }
+            }
+        }
+
         #[unsafe(method_id(init))]
         fn init(this: Allocated<Self>) -> Option<Retained<Self>> {
             let this = this.set_ivars(WindowDelegateIvars {

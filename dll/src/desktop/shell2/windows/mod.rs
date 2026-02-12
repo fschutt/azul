@@ -1612,6 +1612,7 @@ unsafe extern "system" fn window_proc(
     const WM_MOUSELEAVE: u32 = 0x02A3;
     const WM_DPICHANGED: u32 = 0x02E0;
     const WM_DROPFILES: u32 = 0x0233;
+    const WM_DISPLAYCHANGE: u32 = 0x007E;
 
     // IME (Input Method Editor) messages
     const WM_IME_SETCONTEXT: u32 = 0x0281;
@@ -2941,6 +2942,17 @@ unsafe extern "system" fn window_proc(
                 }
             }
 
+            0
+        }
+
+        WM_DISPLAYCHANGE => {
+            // Monitor topology changed (monitor added/removed/resolution changed)
+            // Refresh the cached monitor list
+            if let Some(ref lw) = window.layout_window {
+                if let Ok(mut guard) = lw.monitors.lock() {
+                    *guard = crate::desktop::display::get_monitors();
+                }
+            }
             0
         }
 
