@@ -153,7 +153,7 @@ pub type OnNodeAddedCallbackType = extern "C" fn(
     info: CallbackInfo,
     new_node_type: NodeTypeId,
     new_node_id: NodeGraphNodeId,
-    new_node_position: NodePosition,
+    new_node_position: NodeGraphNodePosition,
 ) -> Update;
 impl_widget_callback!(
     OnNodeAdded,
@@ -281,7 +281,7 @@ pub struct NodeGraphNodeId {
 #[repr(C)]
 pub struct Node {
     pub node_type: NodeTypeId,
-    pub position: NodePosition,
+    pub position: NodeGraphNodePosition,
     pub fields: NodeTypeFieldVec,
     pub connect_in: InputConnectionVec,
     pub connect_out: OutputConnectionVec,
@@ -404,7 +404,7 @@ pub struct InputOutputInfo {
 /// - such as x and y position in the node graph, name, etc.
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
-pub struct NodePosition {
+pub struct NodeGraphNodePosition {
     /// X Position of the node
     pub x: f32,
     /// Y Position of the node
@@ -3357,7 +3357,7 @@ extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: Callbac
         _ => LogicalPosition::zero(),
     };
 
-    let new_node_pos = NodePosition {
+    let new_node_pos = NodeGraphNodePosition {
         x: (cursor_in_viewport.x - node_wrapper_offset.0) * (1.0 / backref.node_graph.scale_factor)
             - backref.node_graph.offset.x,
         y: (cursor_in_viewport.y - node_wrapper_offset.1) * (1.0 / backref.node_graph.scale_factor)
