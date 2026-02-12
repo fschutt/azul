@@ -1238,6 +1238,19 @@ pub trait PlatformWindowV2 {
             return ProcessEventResult::DoNothing;
         }
 
+        // Update active drag position with current mouse position.
+        // This must happen BEFORE callbacks so titlebar_drag (and other drag
+        // callbacks) see the updated DragContext.current_position.
+        {
+            let mouse_pos = self.get_current_window_state()
+                .mouse_state.cursor_position.get_position();
+            if let (Some(pos), Some(layout_window)) = (mouse_pos, self.get_layout_window_mut()) {
+                if layout_window.gesture_drag_manager.is_dragging() {
+                    layout_window.gesture_drag_manager.update_active_drag_positions(pos);
+                }
+            }
+        }
+
         // Get mouse hit test if available (clone early to avoid borrow conflicts)
         use azul_layout::managers::hover::InputPointId;
         let hit_test_for_dispatch = self

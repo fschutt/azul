@@ -2263,7 +2263,7 @@ fn event_type_to_filters(event_type: EventType) -> Vec<EventFilter> {
         E::MouseEnter => vec![EF::Hover(H::MouseEnter)],
         E::MouseLeave => vec![EF::Hover(H::MouseLeave)],
         E::Click => vec![EF::Hover(H::MouseDown), EF::Hover(H::LeftMouseDown)],
-        E::DoubleClick => vec![EF::Window(W::DoubleClick)],
+        E::DoubleClick => vec![EF::Hover(H::DoubleClick), EF::Window(W::DoubleClick)],
         E::ContextMenu => vec![EF::Hover(H::RightMouseDown)],
 
         // Keyboard events
@@ -2630,20 +2630,9 @@ fn handle_mouse_over(
     }
 
     let start_position = drag_start_position?;
-    
-    #[cfg(feature = "std")]
-    if let Some(ht) = hit_test {
-        for (dom_id, hit_data) in &ht.hovered_nodes {
-            eprintln!("[DEBUG] handle_mouse_over: dom {:?} has {} regular nodes, {} cursor nodes",
-                dom_id, hit_data.regular_hit_test_nodes.len(), hit_data.cursor_hit_test_nodes.len());
-        }
-    }
-    
+
     let target = get_first_hovered_node(hit_test)?;
     let current_position = get_mouse_position_with_fallback(event, mouse_state);
-
-    #[cfg(feature = "std")]
-    eprintln!("[DEBUG] handle_mouse_over: generating TextDragSelection for target {:?}", target);
 
     Some(InternalEventAction::AddAndPass(
         PreCallbackSystemEvent::TextDragSelection {
