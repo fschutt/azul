@@ -1411,6 +1411,9 @@ impl WaylandWindow {
             }
         }
 
+        // Apply initial window state for fields not set during window creation
+        window.apply_initial_window_state();
+
         Ok(window)
     }
 
@@ -2281,6 +2284,92 @@ impl WaylandWindow {
                 self.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
             }
         }
+    }
+
+    /// Apply initial window state at startup for fields not set during window creation.
+    ///
+    /// During new(), the following are already applied directly:
+    /// - title (via xdg_toplevel_set_title)
+    /// - size (via GL context / CPU buffer)
+    /// - background_material (via apply_background_material)
+    ///
+    /// This method applies the remaining fields and sets previous_window_state
+    /// so that sync_window_state() works correctly for future changes.
+    fn apply_initial_window_state(&mut self) {
+        use azul_core::geom::OptionLogicalSize;
+        use azul_core::window::WindowFrame;
+
+        let mut needs_commit = false;
+
+        // Window frame (Maximized, Minimized, Fullscreen)
+        match self.current_window_state.flags.frame {
+            WindowFrame::Maximized => {
+                unsafe {
+                    (self.wayland.xdg_toplevel_set_maximized)(self.xdg_toplevel);
+                }
+                needs_commit = true;
+            }
+            WindowFrame::Fullscreen => {
+                unsafe {
+                    (self.wayland.xdg_toplevel_set_fullscreen)(
+                        self.xdg_toplevel,
+                        std::ptr::null_mut(), // NULL = current output
+                    );
+                }
+                needs_commit = true;
+            }
+            WindowFrame::Minimized => {
+                unsafe {
+                    (self.wayland.xdg_toplevel_set_minimized)(self.xdg_toplevel);
+                }
+                needs_commit = true;
+            }
+            WindowFrame::Normal => {} // Already in normal state
+        }
+
+        // Min dimensions
+        if let OptionLogicalSize::Some(dims) = self.current_window_state.size.min_dimensions {
+            unsafe {
+                (self.wayland.xdg_toplevel_set_min_size)(
+                    self.xdg_toplevel,
+                    dims.width as i32,
+                    dims.height as i32,
+                );
+            }
+            needs_commit = true;
+        }
+
+        // Max dimensions
+        if let OptionLogicalSize::Some(dims) = self.current_window_state.size.max_dimensions {
+            unsafe {
+                (self.wayland.xdg_toplevel_set_max_size)(
+                    self.xdg_toplevel,
+                    dims.width as i32,
+                    dims.height as i32,
+                );
+            }
+            needs_commit = true;
+        }
+
+        // is_top_level
+        if self.current_window_state.flags.is_top_level {
+            self.set_is_top_level(true);
+        }
+
+        // prevent_system_sleep
+        if self.current_window_state.flags.prevent_system_sleep {
+            self.set_prevent_system_sleep(true);
+        }
+
+        // Commit changes if needed
+        if needs_commit {
+            unsafe {
+                (self.wayland.wl_surface_commit)(self.surface);
+            }
+        }
+
+        // CRITICAL: Set previous_window_state so sync_window_state() works for future changes
+        self.previous_window_state = Some(self.current_window_state.clone());
     }
 
     /// Synchronize window state with Wayland compositor

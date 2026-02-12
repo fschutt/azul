@@ -3059,13 +3059,24 @@ impl MacOSWindow {
             window.apply_background_material(initial_background_material);
         }
 
-        // Show window immediately - drawRect will handle the first frame rendering
-        log_debug!(
-            LogCategory::Window,
-            "[Window Init] Making window visible (first frame will be rendered in drawRect)..."
-        );
-        unsafe {
-            window.window.makeKeyAndOrderFront(None);
+        // Apply initial window state for fields not set during window creation
+        // (title, size, frame, decorations, background_material are set above)
+        window.apply_initial_window_state();
+
+        // Show window - drawRect will handle the first frame rendering
+        if window.current_window_state.flags.is_visible {
+            log_debug!(
+                LogCategory::Window,
+                "[Window Init] Making window visible (first frame will be rendered in drawRect)..."
+            );
+            unsafe {
+                window.window.makeKeyAndOrderFront(None);
+            }
+        } else {
+            log_debug!(
+                LogCategory::Window,
+                "[Window Init] Window created hidden (is_visible=false)"
+            );
         }
 
         // Read back the actual window position from the OS and store it
@@ -3373,6 +3384,75 @@ impl MacOSWindow {
         );
 
         Ok(())
+    }
+
+    /// Apply initial window state at startup for fields not set during window creation.
+    ///
+    /// During new(), the following are already applied directly:
+    /// - title (via NSWindow initWithContentRect)
+    /// - size (via NSWindow initWithContentRect)
+    /// - frame (via toggleFullScreen/performZoom/miniaturize)
+    /// - decorations (via styleMask modifications)
+    /// - background_material (via apply_background_material)
+    ///
+    /// This method applies the remaining fields and sets previous_window_state
+    /// so that sync_window_state() works correctly for future changes.
+    fn apply_initial_window_state(&mut self) {
+        use azul_core::geom::OptionLogicalSize;
+        use azul_core::window::WindowPosition;
+
+        // Min dimensions
+        if let OptionLogicalSize::Some(dims) = self.current_window_state.size.min_dimensions {
+            let min_size = NSSize::new(dims.width as f64, dims.height as f64);
+            unsafe {
+                self.window.setContentMinSize(min_size);
+            }
+        }
+
+        // Max dimensions
+        if let OptionLogicalSize::Some(dims) = self.current_window_state.size.max_dimensions {
+            let max_size = NSSize::new(dims.width as f64, dims.height as f64);
+            unsafe {
+                self.window.setContentMaxSize(max_size);
+            }
+        }
+
+        // Position (if explicitly set — overrides center())
+        if let WindowPosition::Initialized(pos) = self.current_window_state.position {
+            unsafe {
+                if let Some(screen) = self.window.screen() {
+                    let screen_height = screen.frame().size.height;
+                    let macos_y = screen_height - pos.y as f64;
+                    let origin = NSPoint::new(pos.x as f64, macos_y);
+                    self.window.setFrameTopLeftPoint(origin);
+                }
+            }
+        }
+
+        // Always-on-top
+        if self.current_window_state.flags.is_always_on_top {
+            unsafe {
+                self.window.setLevel(objc2_app_kit::NSFloatingWindowLevel);
+            }
+        }
+
+        // Resizable (macOS default has Resizable in styleMask; apply if user wants non-resizable)
+        if !self.current_window_state.flags.is_resizable {
+            self.apply_resizable(false);
+        }
+
+        // is_top_level
+        if self.current_window_state.flags.is_top_level {
+            let _ = self.set_is_top_level(true);
+        }
+
+        // prevent_system_sleep
+        if self.current_window_state.flags.prevent_system_sleep {
+            let _ = self.set_prevent_system_sleep(true);
+        }
+
+        // CRITICAL: Set previous_window_state so sync_window_state() works for future changes
+        self.previous_window_state = Some(self.current_window_state.clone());
     }
 
     fn sync_window_state(&mut self) {

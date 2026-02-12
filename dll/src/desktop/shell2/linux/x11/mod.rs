@@ -1134,6 +1134,9 @@ impl X11Window {
             }
         }
 
+        // Apply initial window state for fields not set during window creation
+        window.apply_initial_window_state();
+
         Ok(window)
     }
 
@@ -1694,6 +1697,152 @@ impl X11Window {
         }
 
         Ok(())
+    }
+
+    /// Apply initial window state at startup for fields not set during window creation.
+    ///
+    /// During new(), the following are already applied directly:
+    /// - size (via XCreateWindow)
+    /// - position (via position_window_on_monitor)
+    /// - decorations (override_redirect for None only)
+    /// - background_material (via apply_background_material)
+    ///
+    /// This method applies the remaining fields and sets previous_window_state
+    /// so that sync_window_state() works correctly for future changes.
+    fn apply_initial_window_state(&mut self) {
+        use azul_core::window::WindowFrame;
+        use std::ffi::CString;
+
+        // Title — XStoreName is NOT called in new(), so we must apply it here
+        {
+            let c_title = CString::new(self.current_window_state.title.as_str()).unwrap();
+            unsafe {
+                (self.xlib.XStoreName)(self.display, self.window, c_title.as_ptr());
+            }
+        }
+
+        // Window frame (Maximized, Minimized, Fullscreen)
+        // Must be done AFTER XMapWindow since _NET_WM_STATE messages go to the root window
+        match self.current_window_state.flags.frame {
+            WindowFrame::Maximized => unsafe {
+                let screen = (self.xlib.XDefaultScreen)(self.display);
+                let root = (self.xlib.XRootWindow)(self.display, screen);
+
+                let mut event: defines::XClientMessageEvent = std::mem::zeroed();
+                event.type_ = defines::ClientMessage;
+                event.window = self.window;
+                event.message_type = (self.xlib.XInternAtom)(
+                    self.display,
+                    b"_NET_WM_STATE\0".as_ptr() as *const i8,
+                    0,
+                );
+                event.format = 32;
+                event.data.l[0] = 1; // _NET_WM_STATE_ADD
+                event.data.l[1] = (self.xlib.XInternAtom)(
+                    self.display,
+                    b"_NET_WM_STATE_MAXIMIZED_VERT\0".as_ptr() as *const i8,
+                    0,
+                ) as i64;
+                event.data.l[2] = (self.xlib.XInternAtom)(
+                    self.display,
+                    b"_NET_WM_STATE_MAXIMIZED_HORZ\0".as_ptr() as *const i8,
+                    0,
+                ) as i64;
+                event.data.l[3] = 1;
+
+                (self.xlib.XSendEvent)(
+                    self.display,
+                    root,
+                    0,
+                    defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
+                    &mut event as *mut _ as *mut defines::XEvent,
+                );
+            },
+            WindowFrame::Fullscreen => unsafe {
+                let screen = (self.xlib.XDefaultScreen)(self.display);
+                let root = (self.xlib.XRootWindow)(self.display, screen);
+
+                let mut event: defines::XClientMessageEvent = std::mem::zeroed();
+                event.type_ = defines::ClientMessage;
+                event.window = self.window;
+                event.message_type = (self.xlib.XInternAtom)(
+                    self.display,
+                    b"_NET_WM_STATE\0".as_ptr() as *const i8,
+                    0,
+                );
+                event.format = 32;
+                event.data.l[0] = 1; // _NET_WM_STATE_ADD
+                event.data.l[1] = (self.xlib.XInternAtom)(
+                    self.display,
+                    b"_NET_WM_STATE_FULLSCREEN\0".as_ptr() as *const i8,
+                    0,
+                ) as i64;
+                event.data.l[3] = 1;
+
+                (self.xlib.XSendEvent)(
+                    self.display,
+                    root,
+                    0,
+                    defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
+                    &mut event as *mut _ as *mut defines::XEvent,
+                );
+            },
+            WindowFrame::Minimized => unsafe {
+                (self.xlib.XUnmapWindow)(self.display, self.window);
+            },
+            WindowFrame::Normal => {} // Already in normal state
+        }
+
+        // Always-on-top
+        if self.current_window_state.flags.is_always_on_top {
+            unsafe {
+                let screen = (self.xlib.XDefaultScreen)(self.display);
+                let root = (self.xlib.XRootWindow)(self.display, screen);
+
+                let mut event: defines::XClientMessageEvent = std::mem::zeroed();
+                event.type_ = defines::ClientMessage;
+                event.window = self.window;
+                event.message_type = (self.xlib.XInternAtom)(
+                    self.display,
+                    b"_NET_WM_STATE\0".as_ptr() as *const i8,
+                    0,
+                );
+                event.format = 32;
+                event.data.l[0] = 1; // _NET_WM_STATE_ADD
+                event.data.l[1] = (self.xlib.XInternAtom)(
+                    self.display,
+                    b"_NET_WM_STATE_ABOVE\0".as_ptr() as *const i8,
+                    0,
+                ) as i64;
+                event.data.l[3] = 1;
+
+                (self.xlib.XSendEvent)(
+                    self.display,
+                    root,
+                    0,
+                    defines::SubstructureNotifyMask | defines::SubstructureRedirectMask,
+                    &mut event as *mut _ as *mut defines::XEvent,
+                );
+            }
+        }
+
+        // is_top_level
+        if self.current_window_state.flags.is_top_level {
+            self.set_is_top_level(true);
+        }
+
+        // prevent_system_sleep
+        if self.current_window_state.flags.prevent_system_sleep {
+            self.set_prevent_system_sleep(true);
+        }
+
+        // Flush all X11 commands
+        unsafe {
+            (self.xlib.XFlush)(self.display);
+        }
+
+        // CRITICAL: Set previous_window_state so sync_window_state() works for future changes
+        self.previous_window_state = Some(self.current_window_state.clone());
     }
 
     /// Synchronize X11 window properties with current_window_state

@@ -663,6 +663,9 @@ impl Win32Window {
         }
         timing_log!("Final setup (callback + debug timer)");
 
+        // Apply initial window state for fields not set during window creation
+        result.apply_initial_window_state();
+
         log_debug!(
             LogCategory::Window,
             "[Win32] ===== TOTAL Win32Window::new() took {:?} =====",
@@ -794,12 +797,21 @@ impl Win32Window {
                         log_trace!(LogCategory::Rendering, "[Win32] DwmFlush completed");
                     }
 
-                    use dlopen::constants::SW_SHOW;
-                    (self.win32.user32.ShowWindow)(self.hwnd, SW_SHOW);
+                    // Use correct show command for initial window frame state
+                    // (e.g. SW_MAXIMIZE if user wants to start maximized)
+                    use azul_core::window::WindowFrame;
+                    use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNORMAL};
+                    let show_cmd = match self.current_window_state.flags.frame {
+                        WindowFrame::Normal => SW_SHOWNORMAL,
+                        WindowFrame::Minimized => SW_MINIMIZE,
+                        WindowFrame::Maximized | WindowFrame::Fullscreen => SW_MAXIMIZE,
+                    };
+                    (self.win32.user32.ShowWindow)(self.hwnd, show_cmd);
                     (self.win32.user32.UpdateWindow)(self.hwnd);
                     log_trace!(
                         LogCategory::Rendering,
-                        "[Win32] Window shown after first real frame"
+                        "[Win32] Window shown after first real frame (frame: {:?})",
+                        self.current_window_state.flags.frame
                     );
                 }
                 self.first_frame_shown = true;
@@ -929,6 +941,59 @@ impl Win32Window {
                 self.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
             }
         }
+    }
+
+    /// Apply initial window state at startup for fields not set during window creation.
+    ///
+    /// During new(), the following are already applied directly:
+    /// - title (via CreateWindowExW)
+    /// - size (via CreateWindowExW)
+    /// - position (via position_window_on_monitor)
+    /// - decorations (via wcreate.rs style flags)
+    /// - background_material (via apply_background_material)
+    /// - is_visible (deferred to first_frame_shown logic)
+    /// - frame (handled by first_frame_shown show command)
+    ///
+    /// This method applies the remaining fields and sets previous_window_state
+    /// so that sync_window_state() works correctly for future changes.
+    fn apply_initial_window_state(&mut self) {
+        // is_always_on_top
+        if self.current_window_state.flags.is_always_on_top {
+            use dlopen::constants::*;
+            unsafe {
+                (self.win32.user32.SetWindowPos)(
+                    self.hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE,
+                );
+            }
+        }
+
+        // is_resizable (default is true via WS_THICKFRAME; apply if user wants non-resizable)
+        if !self.current_window_state.flags.is_resizable {
+            use dlopen::constants::*;
+            unsafe {
+                let style = (self.win32.user32.GetWindowLongPtrW)(self.hwnd, GWL_STYLE);
+                let new_style = style & !((WS_THICKFRAME | WS_MAXIMIZEBOX) as isize);
+                (self.win32.user32.SetWindowLongPtrW)(self.hwnd, GWL_STYLE, new_style);
+                (self.win32.user32.SetWindowPos)(
+                    self.hwnd, std::ptr::null_mut(), 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                );
+            }
+        }
+
+        // is_top_level
+        if self.current_window_state.flags.is_top_level {
+            let _ = self.set_is_top_level(true);
+        }
+
+        // prevent_system_sleep
+        if self.current_window_state.flags.prevent_system_sleep {
+            let _ = self.set_prevent_system_sleep(true);
+        }
+
+        // CRITICAL: Set previous_window_state so sync_window_state() works for future changes
+        self.previous_window_state = Some(self.current_window_state.clone());
     }
 
     /// Synchronize window state with Windows OS
