@@ -690,6 +690,17 @@ pub trait PlatformWindowV2 {
     /// - **Wayland**: Destroy the tooltip surface
     fn hide_tooltip_from_callback(&mut self);
 
+    /// Handle a request to begin an interactive window move.
+    ///
+    /// On Wayland: calls `xdg_toplevel_move(toplevel, seat, serial)` to let the
+    /// compositor manage the window move. This is the only way to move windows on Wayland.
+    /// On other platforms: no-op (use `set_window_position` via `ModifyWindowState` instead).
+    ///
+    /// Default implementation does nothing (appropriate for macOS, Win32, X11).
+    fn handle_begin_interactive_move(&mut self) {
+        // No-op on non-Wayland platforms
+    }
+
     // PROVIDED: Hit Testing (Cross-Platform Implementation)
 
     /// Update hit test at given position and store in hover manager.
@@ -1061,32 +1072,38 @@ pub trait PlatformWindowV2 {
         button_state: u8,
         is_button_down: bool,
         is_button_up: bool,
+        platform_screen_position: Option<azul_core::geom::LogicalPosition>,
     ) {
         // Capture window position BEFORE borrowing layout_window mutably
         let window_position = self.get_current_window_state().position;
 
         // Compute screen-absolute cursor position for stable drag delta.
         //
-        // screen_pos = window_pos + cursor_local_pos
+        // If the platform provides a native screen-absolute position
+        // (e.g. Win32 GetCursorPos, X11 x_root/y_root), use that directly.
+        // Otherwise, compute as window_pos + cursor_local_pos.
         //
         // This is stable during window drags because even though the window
         // moves (changing cursor_local), the sum always equals the true screen
         // position. The screen-space delta between first and last sample is
         // therefore immune to the feedback loop that causes "jiggling".
-        //
-        // Works cross-platform:
-        //   macOS:   window_position is in points (logical), cursor is in points → sum is screen points
-        //   Win32:   window_position is in physical pixels, cursor is in logical → approximate (TODO: use GetCursorPos)
-        //   X11:     window_position is in pixels, cursor is in pixels → sum is screen pixels
-        //   Wayland: window_position is Uninitialized (compositor hides it) → falls back to window-local
-        let screen_position = match window_position {
-            azul_core::window::WindowPosition::Initialized(pos) => {
-                azul_core::geom::LogicalPosition::new(
-                    pos.x as f32 + position.x,
-                    pos.y as f32 + position.y,
-                )
+        let screen_position = if let Some(native_screen_pos) = platform_screen_position {
+            // Platform provided native screen coords (e.g. GetCursorPos on Win32,
+            // x_root/y_root on X11) - these are always correct regardless of DPI.
+            native_screen_pos
+        } else {
+            // Fallback: compute from window position + cursor local position.
+            // Correct on macOS (both are in logical points).
+            // On Wayland: window_position is Uninitialized → falls back to window-local.
+            match window_position {
+                azul_core::window::WindowPosition::Initialized(pos) => {
+                    azul_core::geom::LogicalPosition::new(
+                        pos.x as f32 + position.x,
+                        pos.y as f32 + position.y,
+                    )
+                }
+                azul_core::window::WindowPosition::Uninitialized => position,
             }
-            azul_core::window::WindowPosition::Uninitialized => position,
         };
 
         // Get access to gesture manager
@@ -2956,6 +2973,11 @@ pub trait PlatformWindowV2 {
             self.hide_tooltip_from_callback();
         }
 
+        // Handle begin interactive move (Wayland: xdg_toplevel_move)
+        if result.begin_interactive_move {
+            self.handle_begin_interactive_move();
+        }
+
         // Handle explicit hit test update request (from Debug API)
         // This is separate from mouse_state_changed to allow explicit hit test updates
         // without modifying mouse position
@@ -3509,9 +3531,3 @@ pub trait PlatformWindowV2 {
         ProcessEventResult::ShouldReRenderCurrentWindow
     }
 }
-
-// NOTE: is_hit_on_titlebar was removed.
-// Window drag is now handled entirely by titlebar callbacks in titlebar.rs.
-// The callbacks use gesture_drag_manager.get_drag_delta() and
-// gesture_drag_manager.get_window_position_at_session_start() to compute
-// the new window position.

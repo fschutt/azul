@@ -2749,6 +2749,11 @@ impl MacOSWindow {
         layout_window.current_window_state = current_window_state.clone();
         layout_window.renderer_type = Some(renderer_type);
 
+        // Initialize monitor cache once at window creation
+        if let Ok(mut guard) = layout_window.monitors.lock() {
+            *guard = crate::desktop::display::get_monitors();
+        }
+
         log_debug!(
             LogCategory::Layout,
             "[Window Init] LayoutWindow configured with document_id: {:?}",

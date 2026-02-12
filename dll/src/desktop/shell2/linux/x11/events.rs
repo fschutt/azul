@@ -313,13 +313,15 @@ impl X11Window {
         }
 
         // Record input sample for gesture detection
+        // X11 provides x_root/y_root as native screen-absolute coordinates
         let button_state = match button {
             MouseButton::Left => 0x01,
             MouseButton::Right => 0x02,
             MouseButton::Middle => 0x04,
             _ => 0x00,
         };
-        self.record_input_sample(position, button_state, is_down, !is_down);
+        let screen_pos = LogicalPosition::new(event.x_root as f32, event.y_root as f32);
+        self.record_input_sample(position, button_state, is_down, !is_down, Some(screen_pos));
 
         // Update hit test
         self.update_hit_test(position);
@@ -356,6 +358,7 @@ impl X11Window {
         self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
 
         // Record input sample for gesture detection (movement during button press)
+        // X11 provides x_root/y_root as native screen-absolute coordinates
         let button_state = if self.current_window_state.mouse_state.left_down {
             0x01
         } else {
@@ -369,7 +372,8 @@ impl X11Window {
         } else {
             0x00
         };
-        self.record_input_sample(position, button_state, false, false);
+        let screen_pos = LogicalPosition::new(event.x_root as f32, event.y_root as f32);
+        self.record_input_sample(position, button_state, false, false, Some(screen_pos));
 
         // Update hit test
         self.update_hit_test(position);

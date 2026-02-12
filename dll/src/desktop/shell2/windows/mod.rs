@@ -421,6 +421,11 @@ impl Win32Window {
         layout_window.id_namespace = id_namespace;
         layout_window.current_window_state = current_window_state.clone();
         layout_window.renderer_type = Some(renderer_type);
+
+        // Initialize monitor cache once at window creation
+        if let Ok(mut guard) = layout_window.monitors.lock() {
+            *guard = crate::desktop::display::get_monitors();
+        }
         timing_log!("Create LayoutWindow");
 
         // Set up menu bar if present
@@ -1585,6 +1590,7 @@ unsafe extern "system" fn window_proc(
     const WM_CLOSE: u32 = 0x0010;
     const WM_ERASEBKGND: u32 = 0x0014;
     const WM_SIZE: u32 = 0x0005;
+    const WM_MOVE: u32 = 0x0003;
     const WM_MOUSEMOVE: u32 = 0x0200;
     const WM_LBUTTONDOWN: u32 = 0x0201;
     const WM_LBUTTONUP: u32 = 0x0202;
@@ -1816,6 +1822,74 @@ unsafe extern "system" fn window_proc(
             0
         }
 
+        WM_MOVE => {
+            // Window moved — update current_window_state.position from OS.
+            // This is critical for incremental titlebar drag: the callback reads
+            // current_window_state.position and adds the frame delta, so if the
+            // OS independently moves the window (DPI change, clamping, snap),
+            // the position must reflect the actual OS value.
+            let x = (lparam & 0xFFFF) as i16 as i32;
+            let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
+            let pos = azul_core::window::WindowPosition::Initialized(
+                azul_core::geom::PhysicalPositionI32::new(x, y),
+            );
+            window.current_window_state.position = pos;
+
+            // Detect which monitor the window is on via MonitorFromWindow
+            // This updates monitor_id so that DPI/MonitorChanged events can fire
+            {
+                const MONITOR_DEFAULTTONEAREST: u32 = 2;
+                extern "system" {
+                    fn MonitorFromWindow(hwnd: *mut core::ffi::c_void, flags: u32) -> *mut core::ffi::c_void;
+                    fn GetMonitorInfoW(hmonitor: *mut core::ffi::c_void, lpmi: *mut MonitorInfoExW) -> i32;
+                }
+                #[repr(C)]
+                #[allow(non_snake_case)]
+                struct Rect { left: i32, top: i32, right: i32, bottom: i32 }
+                #[repr(C)]
+                #[allow(non_snake_case)]
+                struct MonitorInfoExW {
+                    cbSize: u32,
+                    rcMonitor: Rect,
+                    rcWork: Rect,
+                    dwFlags: u32,
+                    szDevice: [u16; 32],
+                }
+                let hmonitor = unsafe { MonitorFromWindow(hwnd as _, MONITOR_DEFAULTTONEAREST as u32) };
+                if !hmonitor.is_null() {
+                    let mut mi = MonitorInfoExW {
+                        cbSize: core::mem::size_of::<MonitorInfoExW>() as u32,
+                        rcMonitor: Rect { left: 0, top: 0, right: 0, bottom: 0 },
+                        rcWork: Rect { left: 0, top: 0, right: 0, bottom: 0 },
+                        dwFlags: 0,
+                        szDevice: [0u16; 32],
+                    };
+                    if unsafe { GetMonitorInfoW(hmonitor, &mut mi) } != 0 {
+                        // Find matching monitor in cache by position
+                        if let Some(ref lw) = window.layout_window {
+                            if let Ok(guard) = lw.monitors.lock() {
+                                for m in guard.as_ref().iter() {
+                                    if m.position.x == mi.rcMonitor.left as isize
+                                        && m.position.y == mi.rcMonitor.top as isize
+                                    {
+                                        window.current_window_state.monitor_id =
+                                            azul_css::corety::OptionU32::Some(m.monitor_id.index as u32);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Some(ref mut lw) = window.layout_window {
+                lw.current_window_state.position = pos;
+                lw.current_window_state.monitor_id = window.current_window_state.monitor_id;
+            }
+            0
+        }
+
         WM_MOUSEMOVE => {
             // Mouse moved - similar to macOS handle_mouse_move
             let x = (lparam & 0xFFFF) as i16 as i32;
@@ -1848,7 +1922,15 @@ unsafe extern "system" fn window_proc(
             } else {
                 0x00
             };
-            window.record_input_sample(logical_pos, button_state, false, false);
+
+            // Use GetCursorPos for accurate screen-absolute position (physical pixels → logical)
+            let screen_pos = {
+                let mut pt = super::dlopen::POINT { x: 0, y: 0 };
+                unsafe { (window.win32.user32.GetCursorPos)(&mut pt); }
+                let hf = hidpi_factor.inner.get();
+                azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)
+            };
+            window.record_input_sample(logical_pos, button_state, false, false, Some(screen_pos));
 
             // Update hit test
             if let Some(ref mut layout_window) = window.layout_window {
@@ -1966,7 +2048,14 @@ unsafe extern "system" fn window_proc(
             window.current_window_state.mouse_state.left_down = true;
 
             // Record input sample for gesture detection (button down starts new session)
-            window.record_input_sample(logical_pos, 0x01, true, false);
+            // Use GetCursorPos for accurate screen-absolute position (physical pixels → logical)
+            let screen_pos = {
+                let mut pt = super::dlopen::POINT { x: 0, y: 0 };
+                unsafe { (window.win32.user32.GetCursorPos)(&mut pt); }
+                let hf = hidpi_factor.inner.get();
+                azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)
+            };
+            window.record_input_sample(logical_pos, 0x01, true, false, Some(screen_pos));
 
             // Update hit test
             if let Some(ref mut layout_window) = window.layout_window {
@@ -2032,7 +2121,14 @@ unsafe extern "system" fn window_proc(
             window.current_window_state.mouse_state.left_down = false;
 
             // Record input sample for gesture detection (button up ends session)
-            window.record_input_sample(logical_pos, 0x00, false, true);
+            // Use GetCursorPos for accurate screen-absolute position (physical pixels → logical)
+            let screen_pos = {
+                let mut pt = super::dlopen::POINT { x: 0, y: 0 };
+                unsafe { (window.win32.user32.GetCursorPos)(&mut pt); }
+                let hf = hidpi_factor.inner.get();
+                azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)
+            };
+            window.record_input_sample(logical_pos, 0x00, false, true, Some(screen_pos));
 
             // Update hit test
             if let Some(ref mut layout_window) = window.layout_window {

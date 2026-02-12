@@ -137,7 +137,7 @@ impl MacOSWindow {
             MouseButton::Middle => 0x04,
             _ => 0x00,
         };
-        self.record_input_sample(position, button_state, true, false);
+        self.record_input_sample(position, button_state, true, false, None);
 
         // Perform hit testing and update last_hit_test
         self.update_hit_test(position);
@@ -182,7 +182,7 @@ impl MacOSWindow {
             MouseButton::Middle => 0x04,
             _ => 0x00,
         };
-        self.record_input_sample(position, button_state, false, true);
+        self.record_input_sample(position, button_state, false, true, None);
 
         // Perform hit testing and update last_hit_test
         self.update_hit_test(position);
@@ -237,7 +237,7 @@ impl MacOSWindow {
         } else {
             0x00
         };
-        self.record_input_sample(position, button_state, false, false);
+        self.record_input_sample(position, button_state, false, false, None);
 
         // Update hit test
         self.update_hit_test(position);

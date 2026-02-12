@@ -963,6 +963,10 @@ impl X11Window {
                 }
                 layout_window.current_window_state = window.current_window_state.clone();
                 layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
+                // Initialize monitor cache once at window creation
+                if let Ok(mut guard) = layout_window.monitors.lock() {
+                    *guard = crate::desktop::display::get_monitors();
+                }
                 window.layout_window = Some(layout_window);
             }
 
@@ -1016,6 +1020,10 @@ impl X11Window {
             }
             layout_window.current_window_state = window.current_window_state.clone();
             layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
+            // Initialize monitor cache once at window creation
+            if let Ok(mut guard) = layout_window.monitors.lock() {
+                *guard = crate::desktop::display::get_monitors();
+            }
             window.layout_window = Some(layout_window);
         }
 

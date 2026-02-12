@@ -241,16 +241,7 @@ impl AppInternal {
 
     /// Returns a list of monitors available on the system
     pub fn get_monitors(&self) -> MonitorVec {
-        #[cfg(target_os = "linux")]
-        {
-            crate::desktop::shell2::linux::get_monitors()
-        }
-
-        #[cfg(not(target_os = "linux"))]
-        {
-            // TODO: Implement for Windows and macOS
-            MonitorVec::from_const_slice(&[])
-        }
+        crate::desktop::display::get_monitors()
     }
 
     /// Start the rendering loop for the currently added windows. The run() function

@@ -90,6 +90,7 @@ pub struct Wayland {
     pub xdg_toplevel_set_minimized: unsafe extern "C" fn(*mut xdg_toplevel),
     pub xdg_toplevel_set_maximized: unsafe extern "C" fn(*mut xdg_toplevel),
     pub xdg_toplevel_unset_maximized: unsafe extern "C" fn(*mut xdg_toplevel),
+    pub xdg_toplevel_move: unsafe extern "C" fn(*mut xdg_toplevel, *mut wl_seat, u32),
     pub xdg_wm_base_add_listener:
         unsafe extern "C" fn(*mut xdg_wm_base, *const xdg_wm_base_listener, *mut c_void) -> i32,
     pub xdg_surface_add_listener:
@@ -293,6 +294,7 @@ impl Wayland {
             xdg_toplevel_set_minimized: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_toplevel_set_maximized: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_toplevel_unset_maximized: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
+            xdg_toplevel_move: unsafe { std::mem::transmute(wl_proxy_marshal_ptr) },
             xdg_wm_base_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             xdg_surface_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             xdg_toplevel_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },

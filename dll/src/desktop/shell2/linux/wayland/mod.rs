@@ -921,6 +921,19 @@ impl PlatformWindowV2 for WaylandWindow {
     fn hide_tooltip_from_callback(&mut self) {
         self.hide_tooltip();
     }
+
+    fn handle_begin_interactive_move(&mut self) {
+        // Wayland: use xdg_toplevel_move to let the compositor manage the window move.
+        // This requires the toplevel handle, seat, and the serial from the last pointer event.
+        let toplevel = self.xdg_toplevel;
+        let seat = self.seat;
+        let serial = self.pointer_state.serial;
+        if !toplevel.is_null() && !seat.is_null() && serial != 0 {
+            unsafe {
+                (self.wayland.xdg_toplevel_move)(toplevel, seat, serial);
+            }
+        }
+    }
 }
 
 impl WaylandWindow {
@@ -1115,6 +1128,13 @@ impl WaylandWindow {
             },
         };
 
+        // Initialize monitor cache once at window creation
+        if let Some(ref lw) = window.layout_window {
+            if let Ok(mut guard) = lw.monitors.lock() {
+                *guard = crate::desktop::display::get_monitors();
+            }
+        }
+
         let listener = defines::wl_registry_listener {
             global: events::registry_global_handler,
             global_remove: events::registry_global_remove_handler,
@@ -1301,6 +1321,10 @@ impl WaylandWindow {
                 }
                 layout_window.current_window_state = window.current_window_state.clone();
                 layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
+                // Initialize monitor cache once at window creation
+                if let Ok(mut guard) = layout_window.monitors.lock() {
+                    *guard = crate::desktop::display::get_monitors();
+                }
                 window.layout_window = Some(layout_window);
             }
 
@@ -1350,6 +1374,10 @@ impl WaylandWindow {
                     }
                     layout_window.current_window_state = window.current_window_state.clone();
                     layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
+                    // Initialize monitor cache once at window creation
+                    if let Ok(mut guard) = layout_window.monitors.lock() {
+                        *guard = crate::desktop::display::get_monitors();
+                    }
                     window.layout_window = Some(layout_window);
                 }
             }
@@ -1813,7 +1841,7 @@ impl WaylandWindow {
         } else {
             0x00
         };
-        self.record_input_sample(logical_pos, button_state, false, false);
+        self.record_input_sample(logical_pos, button_state, false, false, None);
 
         // Update hit test for hover effects
         self.update_hit_test(logical_pos);
@@ -1931,7 +1959,7 @@ impl WaylandWindow {
             MouseButton::Middle => 0x04,
             _ => 0x00,
         };
-        self.record_input_sample(position, button_state, is_down, !is_down);
+        self.record_input_sample(position, button_state, is_down, !is_down, None);
 
         // V2: Process events through state-diffing system
         let result = self.process_window_events_recursive_v2(0);
