@@ -524,41 +524,49 @@ pub(crate) mod callbacks {
     use azul_core::refany::RefAny;
     use crate::callbacks::CallbackInfo;
 
-    /// DragStart — just acknowledge, actual movement happens in titlebar_drag.
+    /// DragStart — on Wayland, initiate compositor-managed move immediately.
+    /// On other platforms, just acknowledge (movement happens in titlebar_drag).
     pub extern "C" fn titlebar_drag_start(
-        _data: RefAny, _info: CallbackInfo,
+        _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
+        // On Wayland, window position is Uninitialized (compositor hides it).
+        // We must use xdg_toplevel_move via begin_interactive_move().
+        let ws = info.get_current_window_state();
+        if matches!(ws.position, azul_core::window::WindowPosition::Uninitialized) {
+            info.begin_interactive_move();
+        }
         Update::DoNothing
     }
 
-    /// Drag — compute new window position from gesture manager's screen-absolute
-    /// drag delta and the window position that was captured at mouse-down.
+    /// Drag — apply incremental screen-space delta to the CURRENT window position.
     ///
-    /// Uses `get_drag_delta_screen()` instead of `get_drag_delta()` because
-    /// screen-absolute coordinates are stable during window movement.
-    /// Window-local coordinates oscillate ("jiggle") because moving the window
-    /// shifts the cursor's position relative to the window.
+    /// Uses `get_drag_delta_screen_incremental()` (frame-to-frame delta) instead of
+    /// `get_drag_delta_screen()` (total delta since drag start). Combined with
+    /// the current window position from the OS, this approach is robust against
+    /// external position changes during the drag (DPI change, OS clamping,
+    /// compositor resize).
+    ///
+    /// On Wayland: this is a no-op because the compositor manages the move
+    /// (initiated by `begin_interactive_move()` in `titlebar_drag_start`).
     pub extern "C" fn titlebar_drag(
         _data: RefAny, mut info: CallbackInfo,
     ) -> Update {
         use azul_core::window::WindowPosition;
         use azul_core::geom::PhysicalPositionI32;
 
-        let gm = info.get_gesture_drag_manager();
-        let delta = gm.get_drag_delta_screen();
-        let initial_pos = gm.get_window_position_at_session_start();
+        let delta = info.get_drag_delta_screen_incremental();
+        let current_pos = info.get_current_window_state().position;
 
-        if let (Some((dx, dy)), Some(WindowPosition::Initialized(pos))) = (delta, initial_pos) {
-            // Window position is stored with Y=0 at top of screen (Y increases downward).
-            // Screen delta dY is positive when moving down. So new_y = pos.y + dy.
+        if let (azul_core::geom::OptionDragDelta::Some(d), WindowPosition::Initialized(pos)) = (delta, current_pos) {
             let new_pos = WindowPosition::Initialized(PhysicalPositionI32::new(
-                pos.x + dx as i32,
-                pos.y + dy as i32,
+                pos.x + d.dx as i32,
+                pos.y + d.dy as i32,
             ));
             let mut ws = info.get_current_window_state().clone();
             ws.position = new_pos;
             info.modify_window_state(ws);
         }
+        // On Wayland: current_pos is Uninitialized, so the if-let doesn't match → no-op.
         Update::DoNothing
     }
 
