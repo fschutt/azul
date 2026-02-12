@@ -3373,9 +3373,16 @@ impl MacOSWindow {
         if previous.position != current.position {
             match current.position {
                 WindowPosition::Initialized(pos) => {
-                    let origin = NSPoint::new(pos.x as f64, pos.y as f64);
+                    // Our position stores top-left with y=0 at top of screen.
+                    // setFrameTopLeftPoint expects y in macOS screen coords (y=0 at bottom).
+                    // Convert: macos_y = screen_height - our_y
                     unsafe {
-                        self.window.setFrameTopLeftPoint(origin);
+                        if let Some(screen) = self.window.screen() {
+                            let screen_height = screen.frame().size.height;
+                            let macos_y = screen_height - pos.y as f64;
+                            let origin = NSPoint::new(pos.x as f64, macos_y);
+                            self.window.setFrameTopLeftPoint(origin);
+                        }
                     }
                 }
                 WindowPosition::Uninitialized => {}
