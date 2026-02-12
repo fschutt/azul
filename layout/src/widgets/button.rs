@@ -915,6 +915,7 @@ fn build_button_label_style() -> Vec<CssPropertyWithConditions> {
         CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(font_family)),
+        CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
     ]
 }
 

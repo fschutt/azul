@@ -255,6 +255,13 @@ impl Titlebar {
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_height(LayoutHeight::const_px(self.height as isize)),
         ));
+        // Titlebar should show grab cursor and prevent text selection
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::const_cursor(StyleCursor::Grab),
+        ));
+        props.push(CssPropertyWithConditions::simple(
+            CssProperty::user_select(StyleUserSelect::None),
+        ));
         if self.padding_left > 0.0 {
             props.push(CssPropertyWithConditions::simple(
                 CssProperty::const_padding_left(LayoutPaddingLeft::const_px(

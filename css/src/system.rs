@@ -1665,14 +1665,16 @@ r#"{{
         css.push_str(&format!(
             ".csd-titlebar {{ width: 100%; height: 32px; background: rgb({}, {}, {}); \
              border-bottom: 1px solid rgb({}, {}, {}); display: flex; flex-direction: row; \
-             align-items: center; justify-content: space-between; padding: 0 8px; }} ",
+             align-items: center; justify-content: space-between; padding: 0 8px; \
+             cursor: grab; user-select: none; }} ",
             bg_color.r, bg_color.g, bg_color.b, border_color.r, border_color.g, border_color.b,
         ));
 
         // Title text
         css.push_str(&format!(
             ".csd-title {{ color: rgb({}, {}, {}); font-size: 13px; flex-grow: 1; text-align: \
-             center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }} ",
+             center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \
+             user-select: none; }} ",
             text_color.r, text_color.g, text_color.b,
         ));
 
