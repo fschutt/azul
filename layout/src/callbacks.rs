@@ -1952,6 +1952,48 @@ impl CallbackInfo {
         self.cursor_in_viewport
     }
 
+    /// Get cursor position in virtual screen coordinates (all monitors combined).
+    ///
+    /// Computed as: `window_position + cursor_position_in_window`.
+    /// All coordinates are in logical pixels (HiDPI-independent on macOS; on Win32
+    /// this depends on DPI-awareness mode).
+    ///
+    /// The origin (0, 0) is at the **top-left of the primary monitor**.
+    /// Y increases downward.  On multi-monitor setups, coordinates may be negative
+    /// for monitors to the left of or above the primary monitor.
+    ///
+    /// Returns `None` if the cursor is outside the window or the window position
+    /// is unknown.
+    ///
+    /// ## Platform notes
+    ///
+    /// | Platform | Accuracy |
+    /// |----------|----------|
+    /// | **macOS**   | Exact (points = logical pixels) |
+    /// | **Win32**   | Exact when DPI-aware; approximate otherwise |
+    /// | **X11**     | Exact (pixels) |
+    /// | **Wayland** | Falls back to window-local (compositor hides global position) |
+    pub fn get_cursor_position_screen(&self) -> OptionLogicalPosition {
+        use azul_core::window::WindowPosition;
+        use azul_core::geom::LogicalPosition;
+
+        let ws = self.get_current_window_state();
+        let cursor_local = match ws.mouse_state.cursor_position.get_position() {
+            Some(p) => p,
+            None => return OptionLogicalPosition::None,
+        };
+        match ws.position {
+            WindowPosition::Initialized(pos) => {
+                OptionLogicalPosition::Some(LogicalPosition::new(
+                    pos.x as f32 + cursor_local.x,
+                    pos.y as f32 + cursor_local.y,
+                ))
+            }
+            // Wayland: window position unknown, fall back to window-local
+            WindowPosition::Uninitialized => OptionLogicalPosition::Some(cursor_local),
+        }
+    }
+
     pub fn get_current_window_handle(&self) -> RawWindowHandle {
         unsafe { (*self.ref_data).current_window_handle.clone() }
     }
