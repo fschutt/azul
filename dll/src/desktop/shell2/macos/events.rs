@@ -68,16 +68,6 @@ pub enum EventProcessResult {
     CloseWindow,
 }
 
-/// Target for callback dispatch - either a specific node or all root nodes.
-#[derive(Debug, Clone, Copy)]
-pub enum CallbackTarget {
-    /// Dispatch to callbacks on a specific node (e.g., mouse events, hover)
-    Node(HitTestNode),
-    /// Dispatch to callbacks on root nodes (NodeId::ZERO) across all DOMs (e.g., window events,
-    /// keys)
-    RootNodes,
-}
-
 impl MacOSWindow {
     /// Convert ProcessEventResult to platform-specific EventProcessResult
     #[inline]
@@ -419,7 +409,6 @@ impl MacOSWindow {
     /// This is the proper way to handle text input on macOS, as it respects
     /// the IME composition system for non-ASCII characters (accents, CJK, etc.)
     pub fn handle_text_input(&mut self, text: &str) {
-        use crate::desktop::shell2::common::event_v2::{CallbackTarget, HitTestNode};
         use azul_core::events::ProcessEventResult;
         
         // Save previous state BEFORE making changes
@@ -441,26 +430,33 @@ impl MacOSWindow {
         // We do NOT call process_window_events_recursive_v2() here, because that function
         // is for discovering events from state diffs. Here, we already know the exact event.
         let mut overall_result = ProcessEventResult::DoNothing;
-        
-        for (dom_node_id, (event_filters, _needs_relayout)) in affected_nodes {
-            // Convert DomNodeId to CallbackTarget
-            if let Some(node_id) = dom_node_id.node.into_crate_internal() {
-                let callback_target = CallbackTarget::Node(HitTestNode {
-                    dom_id: dom_node_id.dom.inner as u64,
-                    node_id: node_id.index() as u64,
-                });
-                
-                // Invoke callbacks for each event filter (typically OnTextInput)
-                for event_filter in &event_filters {
-                    println!("[handle_text_input] Invoking callback for {:?}", event_filter);
-                    let callback_results = self.invoke_callbacks_v2(callback_target.clone(), event_filter.clone());
-                    
-                    // Process each callback result
-                    for callback_result in &callback_results {
-                        let process_result = self.process_callback_result_v2(callback_result);
-                        overall_result = overall_result.max(process_result);
-                    }
-                }
+
+        // Build synthetic events for each affected node
+        let now = {
+            #[cfg(feature = "std")]
+            { azul_core::task::Instant::from(std::time::Instant::now()) }
+            #[cfg(not(feature = "std"))]
+            { azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0)) }
+        };
+
+        let text_events: Vec<azul_core::events::SyntheticEvent> = affected_nodes
+            .iter()
+            .map(|(dom_node_id, _)| {
+                azul_core::events::SyntheticEvent::new(
+                    azul_core::events::EventType::Input,
+                    azul_core::events::EventSource::User,
+                    *dom_node_id,
+                    now.clone(),
+                    azul_core::events::EventData::None,
+                )
+            })
+            .collect();
+
+        if !text_events.is_empty() {
+            let (text_results, _) = self.dispatch_events_propagated(&text_events);
+            for callback_result in &text_results {
+                let process_result = self.process_callback_result_v2(callback_result);
+                overall_result = overall_result.max(process_result);
             }
         }
 
@@ -1184,7 +1180,7 @@ impl MacOSWindow {
     // PlatformWindowV2 trait in common/event_v2.rs. The trait provides:
     // - process_window_events_v2() - Entry point (public API)
     // - process_window_events_recursive_v2() - Recursive processing
-    // - invoke_callbacks_v2() - Required method (implemented in mod.rs)
+    // - dispatch_events_propagated() - W3C Capture→Target→Bubble dispatch
     // - process_callback_result_v2() - Result handling
     // This eliminates ~336 lines of platform-specific duplicated code.
 }

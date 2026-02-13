@@ -273,16 +273,6 @@ pub struct WaylandPopup {
 
 // Event Handler Types
 
-/// Target for callback dispatch - either a specific node or all root nodes.
-#[derive(Debug, Clone, Copy)]
-enum CallbackTarget {
-    /// Dispatch to callbacks on a specific node (e.g., mouse events, hover)
-    Node(HitTestNode),
-    /// Dispatch to callbacks on root nodes (NodeId::ZERO) across all DOMs (e.g., window events,
-    /// keys)
-    RootNodes,
-}
-
 /// Hit test node structure for event routing.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 struct HitTestNode {

@@ -183,8 +183,13 @@ pub enum CallbackChange {
     SetFocusTarget { target: FocusTarget },
 
     // Event Propagation Control
-    /// Stop event from propagating to parent nodes
+    /// Stop event from propagating to parent nodes (W3C stopPropagation).
+    /// Remaining handlers on the *current* node still fire, but no handlers
+    /// on ancestor / descendant nodes in subsequent phases.
     StopPropagation,
+    /// Stop event propagation immediately (W3C stopImmediatePropagation).
+    /// No further handlers fire — not even remaining handlers on the same node.
+    StopImmediatePropagation,
     /// Prevent default browser behavior (e.g., block text input from being applied)
     PreventDefault,
 
@@ -426,6 +431,21 @@ pub enum CallbackChange {
     /// On Wayland: calls xdg_toplevel_move(toplevel, seat, serial).
     /// On other platforms: this is a no-op (use set_window_position instead).
     BeginInteractiveMove,
+
+    // Drag-and-Drop Data Transfer
+    /// Set drag data for a MIME type (W3C: dataTransfer.setData)
+    /// Should be called in a DragStart callback to populate the drag data.
+    SetDragData {
+        mime_type: AzString,
+        data: Vec<u8>,
+    },
+    /// Accept the current drop on this target (W3C: event.preventDefault() in DragOver)
+    /// Must be called from a DragOver or DragEnter callback for the Drop event to fire.
+    AcceptDrop,
+    /// Set the drop effect (W3C: dataTransfer.dropEffect)
+    SetDropEffect {
+        effect: azul_core::drag::DropEffect,
+    },
 }
 
 /// Main callback type for UI event handling
@@ -768,8 +788,19 @@ impl CallbackInfo {
     }
 
     /// Stop event propagation (applied after callback returns)
+    ///
+    /// W3C `stopPropagation()`: remaining handlers on the *current* node
+    /// still fire, but no handlers on ancestor/descendant nodes are called.
     pub fn stop_propagation(&mut self) {
         self.push_change(CallbackChange::StopPropagation);
+    }
+
+    /// Stop event propagation immediately (applied after callback returns)
+    ///
+    /// W3C `stopImmediatePropagation()`: no further handlers fire,
+    /// not even remaining handlers registered on the same node.
+    pub fn stop_immediate_propagation(&mut self) {
+        self.push_change(CallbackChange::StopImmediatePropagation);
     }
 
     /// Set keyboard focus target (applied after callback returns)
@@ -2925,6 +2956,72 @@ impl CallbackInfo {
             })
     }
 
+    /// Get the MIME types available in the current drag data.
+    ///
+    /// W3C equivalent: `dataTransfer.types`
+    /// Returns an empty vec if no drag is active or no data is set.
+    pub fn get_drag_types(&self) -> Vec<AzString> {
+        let lw = self.get_layout_window();
+        // Try gesture manager first
+        if let Some(ctx) = lw.gesture_drag_manager.get_drag_context() {
+            if let Some(node_drag) = ctx.as_node_drag() {
+                return node_drag.drag_data.data.keys().cloned().collect();
+            }
+        }
+        // Fallback to drag_drop_manager
+        if let Some(ctx) = lw.drag_drop_manager.get_drag_context() {
+            if let Some(node_drag) = ctx.as_node_drag() {
+                return node_drag.drag_data.data.keys().cloned().collect();
+            }
+        }
+        Vec::new()
+    }
+
+    /// Get drag data for a specific MIME type.
+    ///
+    /// W3C equivalent: `dataTransfer.getData(type)`
+    /// Returns None if no drag is active or the MIME type is not set.
+    pub fn get_drag_data(&self, mime_type: &str) -> Option<Vec<u8>> {
+        let lw = self.get_layout_window();
+        if let Some(ctx) = lw.gesture_drag_manager.get_drag_context() {
+            if let Some(node_drag) = ctx.as_node_drag() {
+                return node_drag.drag_data.get_data(mime_type).map(|s| s.to_vec());
+            }
+        }
+        if let Some(ctx) = lw.drag_drop_manager.get_drag_context() {
+            if let Some(node_drag) = ctx.as_node_drag() {
+                return node_drag.drag_data.get_data(mime_type).map(|s| s.to_vec());
+            }
+        }
+        None
+    }
+
+    /// Set drag data for a MIME type on the active drag operation.
+    ///
+    /// W3C equivalent: `dataTransfer.setData(type, data)`
+    /// Should be called from a DragStart callback to populate the drag data.
+    pub fn set_drag_data(&mut self, mime_type: AzString, data: Vec<u8>) {
+        self.push_change(CallbackChange::SetDragData { mime_type, data });
+    }
+
+    /// Accept the current drop operation on this node.
+    ///
+    /// W3C equivalent: calling `event.preventDefault()` in a DragOver handler.
+    /// This signals that the current drop target can accept the dragged data.
+    /// Must be called from a DragOver or DragEnter callback for the Drop event
+    /// to fire on this node.
+    pub fn accept_drop(&mut self) {
+        self.push_change(CallbackChange::AcceptDrop);
+    }
+
+    /// Set the drop effect for the current drag operation.
+    ///
+    /// W3C equivalent: `dataTransfer.dropEffect = "move"|"copy"|"link"`
+    /// Should be called from a DragOver or DragEnter callback.
+    pub fn set_drop_effect(&mut self, effect: azul_core::drag::DropEffect) {
+        self.push_change(CallbackChange::SetDropEffect { effect });
+    }
+
     // Scroll Manager Query Methods
 
     /// Get the current scroll offset for the hit node (if it's scrollable)
@@ -3684,8 +3781,12 @@ pub struct CallCallbacksResult {
     pub hide_tooltip: bool,
     /// Whether the cursor changed
     pub cursor_changed: bool,
-    /// Whether stopPropagation() was called (prevents bubbling up in DOM-style event propagation)
+    /// Whether stopPropagation() was called (prevents propagation to other nodes,
+    /// but remaining handlers on the same node still fire)
     pub stop_propagation: bool,
+    /// Whether stopImmediatePropagation() was called (prevents ALL remaining handlers,
+    /// even on the same node)
+    pub stop_immediate_propagation: bool,
     /// Whether preventDefault() was called (prevents default browser behavior)
     pub prevent_default: bool,
     /// Hit test update requested at this position (for Debug API)
@@ -3727,6 +3828,7 @@ impl Default for CallCallbacksResult {
             hide_tooltip: false,
             cursor_changed: false,
             stop_propagation: false,
+            stop_immediate_propagation: false,
             prevent_default: false,
             hit_test_update_requested: None,
             queued_window_states: Vec::new(),
@@ -3749,6 +3851,10 @@ impl CallCallbacksResult {
 impl azul_core::events::CallbackResultRef for CallCallbacksResult {
     fn stop_propagation(&self) -> bool {
         self.stop_propagation
+    }
+
+    fn stop_immediate_propagation(&self) -> bool {
+        self.stop_immediate_propagation
     }
 
     fn prevent_default(&self) -> bool {

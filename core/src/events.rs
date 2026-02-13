@@ -443,6 +443,8 @@ pub enum EventType {
     MouseEnter,
     /// Mouse cursor left the element
     MouseLeave,
+    /// Mouse left the element OR moved to a child element (W3C `mouseout`, bubbles)
+    MouseOut,
     /// Mouse button pressed
     MouseDown,
     /// Mouse button released
@@ -461,6 +463,14 @@ pub enum EventType {
     KeyUp,
     /// Character input (respects locale/keyboard layout)
     KeyPress,
+
+    // IME Composition Events
+    /// IME composition started
+    CompositionStart,
+    /// IME composition updated (intermediate text changed)
+    CompositionUpdate,
+    /// IME composition ended (final text committed)
+    CompositionEnd,
 
     // Focus Events
     /// Element received focus
@@ -1638,6 +1648,24 @@ pub enum HoverEventFilter {
     /// Counter-clockwise rotation gesture on the hovered element
     RotateCounterClockwise,
 
+    // W3C MouseOut event (bubbling version of MouseLeave)
+    /// Mouse left the element OR moved to a child element (W3C `mouseout`, bubbles)
+    MouseOut,
+
+    // W3C Focus events (bubbling versions)
+    /// Focus is about to move INTO this element or a descendant (W3C `focusin`, bubbles)
+    FocusIn,
+    /// Focus is about to move OUT of this element or a descendant (W3C `focusout`, bubbles)
+    FocusOut,
+
+    // IME Composition events
+    /// IME composition started (W3C `compositionstart`)
+    CompositionStart,
+    /// IME composition updated (W3C `compositionupdate`)
+    CompositionUpdate,
+    /// IME composition ended (W3C `compositionend`)
+    CompositionEnd,
+
     // Internal System Events (not exposed to user callbacks)
     #[doc(hidden)]
     /// Internal: Single click for text cursor placement
@@ -1711,6 +1739,12 @@ impl HoverEventFilter {
             HoverEventFilter::RotateCounterClockwise => {
                 Some(FocusEventFilter::RotateCounterClockwise)
             }
+            HoverEventFilter::MouseOut => Some(FocusEventFilter::MouseLeave), // mouseout → closest focus equivalent
+            HoverEventFilter::FocusIn => Some(FocusEventFilter::FocusIn),
+            HoverEventFilter::FocusOut => Some(FocusEventFilter::FocusOut),
+            HoverEventFilter::CompositionStart => Some(FocusEventFilter::CompositionStart),
+            HoverEventFilter::CompositionUpdate => Some(FocusEventFilter::CompositionUpdate),
+            HoverEventFilter::CompositionEnd => Some(FocusEventFilter::CompositionEnd),
             // System internal events - don't convert to focus events
             HoverEventFilter::SystemTextSingleClick => None,
             HoverEventFilter::SystemTextDoubleClick => None,
@@ -1804,6 +1838,20 @@ pub enum FocusEventFilter {
     RotateClockwise,
     /// Counter-clockwise rotation gesture on the focused element
     RotateCounterClockwise,
+
+    // W3C Focus events (bubbling versions, fires on focused element when focus changes)
+    /// Focus moved into this element or a descendant (W3C `focusin`)
+    FocusIn,
+    /// Focus moved out of this element or a descendant (W3C `focusout`)
+    FocusOut,
+
+    // IME Composition events
+    /// IME composition started (W3C `compositionstart`)
+    CompositionStart,
+    /// IME composition updated (W3C `compositionupdate`)
+    CompositionUpdate,
+    /// IME composition ended (W3C `compositionend`)
+    CompositionEnd,
 }
 
 /// Event filter that fires when any action fires on the entire window
@@ -2159,48 +2207,9 @@ impl From<On> for EventFilter {
 }
 
 // Cross-Platform Event Dispatch System
-
-/// Target for event dispatch - either a specific node or all root nodes
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CallbackTarget {
-    /// Specific node that was hit-tested
-    Node { dom_id: DomId, node_id: NodeId },
-    /// All root nodes (for window-level events)
-    RootNodes,
-}
-
-/// A callback that should be invoked, with all necessary context
-#[derive(Debug, Clone, PartialEq)]
-pub struct CallbackToInvoke {
-    /// Which node/window to invoke the callback on
-    pub target: CallbackTarget,
-    /// The event filter that triggered this callback
-    pub event_filter: EventFilter,
-    /// Hit test item (for node-level events with spatial info)
-    pub hit_test_item: Option<HitTestItem>,
-}
-
-/// Result of dispatching events - contains all callbacks that should be invoked
-#[derive(Debug, Clone, PartialEq)]
-pub struct EventDispatchResult {
-    /// Callbacks to invoke, in order
-    pub callbacks: Vec<CallbackToInvoke>,
-    /// Whether any event had stop_propagation set
-    pub propagation_stopped: bool,
-}
-
-impl EventDispatchResult {
-    pub fn empty() -> Self {
-        Self {
-            callbacks: Vec::new(),
-            propagation_stopped: false,
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.callbacks.is_empty()
-    }
-}
+// NOTE: The old dispatch_synthetic_events / CallbackTarget / CallbackToInvoke / EventDispatchResult
+// pipeline has been removed. Event dispatch now goes through dispatch_events_propagated() in
+// event_v2.rs which uses propagate_event() for W3C Capture→Target→Bubble propagation.
 
 /// Process callback results and potentially generate new synthetic events.
 ///
@@ -2239,6 +2248,7 @@ pub fn should_recurse_callbacks<T: CallbackResultRef>(
 /// This allows the core event system to work with results without depending on layout layer.
 pub trait CallbackResultRef {
     fn stop_propagation(&self) -> bool;
+    fn stop_immediate_propagation(&self) -> bool;
     fn prevent_default(&self) -> bool;
     fn should_regenerate_dom(&self) -> bool;
 }
@@ -2299,47 +2309,66 @@ pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<Synt
     result
 }
 
-/// Dispatch synthetic events to determine which callbacks should be invoked.
-///
-/// Converts SyntheticEvents to EventFilters and routes them to the correct nodes.
-/// For mouse events, dispatches both generic (MouseUp) and specific (LeftMouseUp) filters.
-pub fn dispatch_synthetic_events(
-    events: &[SyntheticEvent],
-    hit_test: Option<&FullHitTest>,
-) -> EventDispatchResult {
-    let callbacks = events
-        .iter()
-        .flat_map(|event| dispatch_single_event(event, hit_test))
-        .collect();
 
-    EventDispatchResult {
-        callbacks,
-        propagation_stopped: false,
-    }
-}
 
 /// Convert EventType to EventFilters (returns multiple filters for generic + specific events)
 ///
-/// For mouse button events, returns both generic (MouseUp) AND specific (LeftMouseUp).
-/// This allows callbacks registered for either filter to be triggered.
-fn event_type_to_filters(event_type: EventType) -> Vec<EventFilter> {
+/// For mouse button events, returns both generic (MouseUp) AND button-specific (LeftMouseUp/RightMouseUp).
+/// The button-specific filter is derived from the EventData::Mouse payload.
+pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter> {
     use EventFilter as EF;
     use EventType as E;
     use FocusEventFilter as F;
     use HoverEventFilter as H;
     use WindowEventFilter as W;
 
+    // Helper: get the button-specific MouseDown filter from EventData
+    let button_specific_down = || -> Option<EventFilter> {
+        match event_data {
+            EventData::Mouse(m) => match m.button {
+                MouseButton::Left => Some(EF::Hover(H::LeftMouseDown)),
+                MouseButton::Right => Some(EF::Hover(H::RightMouseDown)),
+                MouseButton::Middle => Some(EF::Hover(H::MiddleMouseDown)),
+                MouseButton::Other(_) => None, // no specific filter for other buttons
+            },
+            _ => Some(EF::Hover(H::LeftMouseDown)), // fallback
+        }
+    };
+
+    let button_specific_up = || -> Option<EventFilter> {
+        match event_data {
+            EventData::Mouse(m) => match m.button {
+                MouseButton::Left => Some(EF::Hover(H::LeftMouseUp)),
+                MouseButton::Right => Some(EF::Hover(H::RightMouseUp)),
+                MouseButton::Middle => Some(EF::Hover(H::MiddleMouseUp)),
+                MouseButton::Other(_) => None, // no specific filter for other buttons
+            },
+            _ => Some(EF::Hover(H::LeftMouseUp)), // fallback
+        }
+    };
+
     match event_type {
-        // Mouse button events - return BOTH generic and specific
-        // Generic first, then specific (bubbling order)
-        E::MouseDown => vec![EF::Hover(H::MouseDown), EF::Hover(H::LeftMouseDown)],
-        E::MouseUp => vec![EF::Hover(H::MouseUp), EF::Hover(H::LeftMouseUp)],
+        // Mouse button events - return BOTH generic and button-specific
+        E::MouseDown => {
+            let mut v = vec![EF::Hover(H::MouseDown)];
+            if let Some(f) = button_specific_down() { v.push(f); }
+            v
+        }
+        E::MouseUp => {
+            let mut v = vec![EF::Hover(H::MouseUp)];
+            if let Some(f) = button_specific_up() { v.push(f); }
+            v
+        }
+
+        // Click uses LeftMouseDown (W3C: click is left-button only)
+        E::Click => vec![EF::Hover(H::LeftMouseDown)],
 
         // Other mouse events
         E::MouseOver => vec![EF::Hover(H::MouseOver)],
         E::MouseEnter => vec![EF::Hover(H::MouseEnter)],
         E::MouseLeave => vec![EF::Hover(H::MouseLeave)],
-        E::Click => vec![EF::Hover(H::MouseDown), EF::Hover(H::LeftMouseDown)],
+        E::MouseOut => vec![EF::Hover(H::MouseOut)],
+
         E::DoubleClick => vec![EF::Hover(H::DoubleClick), EF::Window(W::DoubleClick)],
         E::ContextMenu => vec![EF::Hover(H::RightMouseDown)],
 
@@ -2348,9 +2377,16 @@ fn event_type_to_filters(event_type: EventType) -> Vec<EventFilter> {
         E::KeyUp => vec![EF::Focus(F::VirtualKeyUp)],
         E::KeyPress => vec![EF::Focus(F::TextInput)],
 
+        // IME Composition events
+        E::CompositionStart => vec![EF::Hover(H::CompositionStart), EF::Focus(F::CompositionStart)],
+        E::CompositionUpdate => vec![EF::Hover(H::CompositionUpdate), EF::Focus(F::CompositionUpdate)],
+        E::CompositionEnd => vec![EF::Hover(H::CompositionEnd), EF::Focus(F::CompositionEnd)],
+
         // Focus events
-        E::Focus | E::FocusIn => vec![EF::Focus(F::FocusReceived)],
-        E::Blur | E::FocusOut => vec![EF::Focus(F::FocusLost)],
+        E::Focus => vec![EF::Focus(F::FocusReceived)],
+        E::Blur => vec![EF::Focus(F::FocusLost)],
+        E::FocusIn => vec![EF::Hover(H::FocusIn), EF::Focus(F::FocusIn)],
+        E::FocusOut => vec![EF::Hover(H::FocusOut), EF::Focus(F::FocusOut)],
 
         // Input events
         E::Input | E::Change => vec![EF::Focus(F::TextInput)],
@@ -2397,62 +2433,7 @@ fn event_type_to_filters(event_type: EventType) -> Vec<EventFilter> {
     }
 }
 
-/// Determine callback target from event target node
-fn get_callback_target(event: &SyntheticEvent) -> Option<CallbackTarget> {
-    let root_node = NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO));
 
-    if event.target.node == root_node {
-        return Some(CallbackTarget::RootNodes);
-    }
-
-    event
-        .target
-        .node
-        .into_crate_internal()
-        .map(|node_id| CallbackTarget::Node {
-            dom_id: event.target.dom,
-            node_id,
-        })
-}
-
-/// Get hit test item for a node target
-fn get_hit_test_item(
-    target: &CallbackTarget,
-    hit_test: Option<&FullHitTest>,
-) -> Option<HitTestItem> {
-    let CallbackTarget::Node { dom_id, node_id } = target else {
-        return None;
-    };
-
-    hit_test?
-        .hovered_nodes
-        .get(dom_id)?
-        .regular_hit_test_nodes
-        .get(node_id)
-        .cloned()
-}
-
-/// Dispatch a single event to callbacks (may return multiple for generic + specific filters)
-fn dispatch_single_event(
-    event: &SyntheticEvent,
-    hit_test: Option<&FullHitTest>,
-) -> Vec<CallbackToInvoke> {
-    let event_filters = event_type_to_filters(event.event_type);
-    let target = match get_callback_target(event) {
-        Some(t) => t,
-        None => return Vec::new(),
-    };
-    let hit_test_item = get_hit_test_item(&target, hit_test);
-
-    event_filters
-        .into_iter()
-        .map(|event_filter| CallbackToInvoke {
-            target: target.clone(),
-            event_filter,
-            hit_test_item: hit_test_item.clone(),
-        })
-        .collect()
-}
 
 // Internal System Event Processing
 

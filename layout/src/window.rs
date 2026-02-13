@@ -301,6 +301,8 @@ pub struct CallbackChangeResult {
     pub hide_tooltip: bool,
     /// Whether stopPropagation() was called
     pub stop_propagation: bool,
+    /// Whether stopImmediatePropagation() was called
+    pub stop_immediate_propagation: bool,
     /// Whether preventDefault() was called
     pub prevent_default: bool,
     /// Focus target change
@@ -1867,6 +1869,10 @@ impl LayoutWindow {
                 CallbackChange::StopPropagation => {
                     result.stop_propagation = true;
                 }
+                CallbackChange::StopImmediatePropagation => {
+                    result.stop_immediate_propagation = true;
+                    result.stop_propagation = true; // implies stop_propagation
+                }
                 CallbackChange::PreventDefault => {
                     result.prevent_default = true;
                 }
@@ -2326,6 +2332,30 @@ impl LayoutWindow {
                     // Handled by the platform layer (Wayland: xdg_toplevel_move).
                     // Set a flag so the platform can pick it up after callback processing.
                     result.begin_interactive_move = true;
+                }
+                CallbackChange::SetDragData { mime_type, data } => {
+                    // Set drag data for a MIME type on the active drag
+                    if let Some(ctx) = self.gesture_drag_manager.get_drag_context_mut() {
+                        if let Some(node_drag) = ctx.as_node_drag_mut() {
+                            node_drag.drag_data.set_data(mime_type, data);
+                        }
+                    }
+                }
+                CallbackChange::AcceptDrop => {
+                    // Mark the current drop as accepted
+                    if let Some(ctx) = self.gesture_drag_manager.get_drag_context_mut() {
+                        if let Some(node_drag) = ctx.as_node_drag_mut() {
+                            node_drag.drop_accepted = true;
+                        }
+                    }
+                }
+                CallbackChange::SetDropEffect { effect } => {
+                    // Set the drop effect on the active drag
+                    if let Some(ctx) = self.gesture_drag_manager.get_drag_context_mut() {
+                        if let Some(node_drag) = ctx.as_node_drag_mut() {
+                            node_drag.drop_effect = effect;
+                        }
+                    }
                 }
             }
         }
@@ -3357,6 +3387,7 @@ impl LayoutWindow {
             hide_tooltip: false,
             cursor_changed: false,
             stop_propagation: false,
+            stop_immediate_propagation: false,
             prevent_default: false,
             hit_test_update_requested: None,
             queued_window_states: Vec::new(),
@@ -3576,6 +3607,7 @@ impl LayoutWindow {
             hide_tooltip: false,
             cursor_changed: false,
             stop_propagation: false,
+            stop_immediate_propagation: false,
             prevent_default: false,
             hit_test_update_requested: None,
             queued_window_states: Vec::new(),
@@ -3855,6 +3887,7 @@ impl LayoutWindow {
             hide_tooltip: false,
             cursor_changed: false,
             stop_propagation: false,
+            stop_immediate_propagation: false,
             prevent_default: false,
             hit_test_update_requested: None,
             queued_window_states: Vec::new(),
@@ -3878,7 +3911,10 @@ impl LayoutWindow {
         let current_scroll_states = self.get_nested_scroll_states(DomId::ROOT_ID);
 
         let cursor_relative_to_item = OptionLogicalPosition::None;
-        let cursor_in_viewport = OptionLogicalPosition::None;
+        let cursor_in_viewport = match current_window_state.mouse_state.cursor_position.get_position() {
+            Some(pos) => OptionLogicalPosition::Some(pos),
+            None => OptionLogicalPosition::None,
+        };
 
         // Create changes container for callback transaction system
         let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -4039,6 +4075,7 @@ impl LayoutWindow {
             hide_tooltip: false,
             cursor_changed: false,
             stop_propagation: false,
+            stop_immediate_propagation: false,
             prevent_default: false,
             hit_test_update_requested: None,
             queued_window_states: Vec::new(),
@@ -4062,7 +4099,10 @@ impl LayoutWindow {
         let current_scroll_states = self.get_nested_scroll_states(DomId::ROOT_ID);
 
         let cursor_relative_to_item = OptionLogicalPosition::None;
-        let cursor_in_viewport = OptionLogicalPosition::None;
+        let cursor_in_viewport = match current_window_state.mouse_state.cursor_position.get_position() {
+            Some(pos) => OptionLogicalPosition::Some(pos),
+            None => OptionLogicalPosition::None,
+        };
 
         // Create changes container for callback transaction system
         let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));

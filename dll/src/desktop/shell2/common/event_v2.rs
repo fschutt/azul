@@ -8,7 +8,7 @@
 //!
 //! The `PlatformWindowV2` trait provides **default implementations** for all complex logic:
 //! - Event processing (state diffing via `process_window_events()`)
-//! - Callback invocation (`invoke_callbacks_v2()`)
+//! - Callback invocation (`dispatch_events_propagated()`)
 //! - Callback result handling (`process_callback_result_v2()`)
 //! - Hit testing (`perform_scrollbar_hit_test()`)
 //! - Scrollbar interaction (`handle_scrollbar_click()`, `handle_scrollbar_drag()`)
@@ -35,7 +35,7 @@
 //! =
 //!                          4. State diffing (window_state::create_events_from_states)
 //!                          5. Event filtering (dispatch_events)
-//!                          6. Callback invocation (invoke_callbacks_v2)
+//!                          6. Callback invocation (dispatch_events_propagated)
 //!                          ↓
 //!                          POST-CALLBACK PROCESSING
 //! =
@@ -143,7 +143,7 @@ use azul_core::{
     callbacks::LayoutCallbackInfo,
     dom::{DomId, NodeId},
     events::{
-        CallbackTarget as CoreCallbackTarget, EventFilter, FocusEventFilter, PreCallbackFilterResult,
+        EventFilter, FocusEventFilter, PreCallbackFilterResult,
         ProcessEventResult, SyntheticEvent,
     },
     geom::LogicalPosition,
@@ -360,16 +360,6 @@ pub struct HitTestNode {
     pub node_id: u64,
 }
 
-/// Target for callback dispatch - either a specific node or all root nodes.
-#[derive(Debug, Clone, Copy)]
-pub enum CallbackTarget {
-    /// Dispatch to callbacks on a specific node (e.g., mouse events, hover)
-    Node(HitTestNode),
-    /// Dispatch to callbacks on root nodes (NodeId::ZERO) across all DOMs (e.g., window events,
-    /// keys)
-    RootNodes,
-}
-
 /// Borrowed resources needed for `invoke_single_callback`.
 ///
 /// This struct borrows individual fields from the window, allowing the borrow checker
@@ -416,8 +406,8 @@ pub struct InvokeSingleCallbackBorrows<'a> {
 /// ## Provided Methods (Complete Logic - All Cross-Platform!)
 ///
 /// These methods have default implementations with the full cross-platform logic:
-/// - `invoke_callbacks_v2()` - **FULLY CROSS-PLATFORM!** Callback dispatch using
-///   `prepare_callback_invocation()`
+/// - `dispatch_events_propagated()` - **FULLY CROSS-PLATFORM!** W3C event dispatch using
+///   `propagate_event()` + `prepare_callback_invocation()`
 /// - `process_window_events_recursive_v2()` - Main event processing with recursion
 /// - `process_callback_result_v2()` - Handle callback results
 /// - `perform_scrollbar_hit_test()` - Scrollbar interaction
@@ -767,200 +757,247 @@ pub trait PlatformWindowV2 {
     /// 2. Filter callbacks by event type
     /// 3. Build an event chain from target node up to root (JS-style bubbling)
     /// 4. Invoke callbacks in bubbling order, stopping if stopPropagation() is called
-    /// 5. Return all callback results
+    /// Dispatch events using W3C Capture→Target→Bubble propagation model.
     ///
-    /// ## Event Bubbling
-    /// For hover events (clicks, mouse moves, etc.), this implements JavaScript-style
-    /// event bubbling:
-    /// 1. Find the deepest (target) node that was hit
-    /// 2. Build a chain: target → parent → grandparent → ... → root
-    /// 3. Invoke callbacks at each level in order
-    /// 4. Stop propagation if a callback calls `stop_propagation()`
+    /// This replaces the old `invoke_callbacks_v2()` method with proper W3C event propagation:
+    /// - **HoverEventFilter**: Capture→Target→Bubble through DOM tree via `propagate_event()`
+    /// - **FocusEventFilter**: Fires on focused node only (no propagation)
+    /// - **WindowEventFilter**: Fires on ALL nodes with matching callback (brute-force)
+    ///
+    /// ## Arguments
+    /// * `events` - SyntheticEvents to dispatch (already filtered to user events)
     ///
     /// ## Returns
     /// * `Vec<CallCallbacksResult>` - Results from all invoked callbacks
-    fn invoke_callbacks_v2(
+    /// * `bool` - Whether any callback called preventDefault()
+    fn dispatch_events_propagated(
         &mut self,
-        target: CallbackTarget,
-        event_filter: EventFilter,
-    ) -> Vec<CallCallbacksResult> {
+        events: &[azul_core::events::SyntheticEvent],
+    ) -> (Vec<CallCallbacksResult>, bool) {
         use azul_core::{
             callbacks::CoreCallbackData,
-            dom::{DomId, NodeId},
-            id::NodeId as CoreNodeId,
+            dom::{DomId, NodeId as CoreNodeId},
+            events::{EventFilter, EventPhase, SyntheticEvent},
+            id::NodeId,
+            styled_dom::NodeHierarchyItem,
         };
 
-        // Internal struct to track callback with its source node for bubbling
+        // Internal struct to track a planned callback invocation
         #[derive(Clone)]
-        struct NodeCallback {
+        struct PlannedInvocation {
             dom_id: DomId,
             node_id: NodeId,
-            depth: usize, // 0 = target (deepest), higher = closer to root
-            callback: CoreCallbackData,
+            callback_data: CoreCallbackData,
         }
 
-        // Collect callbacks based on target, now with node info for bubbling
-        let node_callbacks: Vec<NodeCallback> = match target {
-            CallbackTarget::Node(node) => {
-                let layout_window = match self.get_layout_window() {
-                    Some(lw) => lw,
-                    None => return Vec::new(),
-                };
+        // ===================================================================
+        // Phase 1: Build dispatch plan (read-only access to layout_window)
+        // ===================================================================
+        let planned_callbacks: Vec<PlannedInvocation> = {
+            let layout_window = match self.get_layout_window() {
+                Some(lw) => lw,
+                None => return (Vec::new(), false),
+            };
 
-                let dom_id = DomId {
-                    inner: node.dom_id as usize,
-                };
-                // Note: node.node_id is 0-based, use NodeId::new() directly instead of from_usize
-                // from_usize expects 1-based encoding (0=None, n=NodeId(n-1))
-                let node_id = NodeId::new(node.node_id as usize);
+            let focused_node = layout_window.focus_manager.get_focused_node().cloned();
+            let mut planned = Vec::new();
 
-                let layout_result = match layout_window.layout_results.get(&dom_id) {
-                    Some(lr) => lr,
-                    None => return Vec::new(),
-                };
+            for event in events {
+                let event_filters = azul_core::events::event_type_to_filters(
+                    event.event_type,
+                    &event.data,
+                );
 
-                let binding = layout_result.styled_dom.node_data.as_container();
-                let node_data = match binding.get(node_id) {
-                    Some(nd) => nd,
-                    None => return Vec::new(),
-                };
+                for filter in &event_filters {
+                    match filter {
+                        EventFilter::Hover(_) => {
+                            // W3C propagation: Capture → Target → Bubble
+                            let dom_id = event.target.dom;
+                            let layout_result = match layout_window.layout_results.get(&dom_id) {
+                                Some(lr) => lr,
+                                None => continue,
+                            };
 
-                // For targeted node, just collect its callbacks (no bubbling for explicit target)
-                node_data
-                    .get_callbacks()
-                    .as_container()
-                    .iter()
-                    .filter(|cd| cd.event == event_filter)
-                    .map(|cb| NodeCallback {
-                        dom_id,
-                        node_id,
-                        depth: 0,
-                        callback: cb.clone(),
-                    })
-                    .collect()
-            }
-            CallbackTarget::RootNodes => {
-                let layout_window = match self.get_layout_window() {
-                    Some(lw) => lw,
-                    None => return Vec::new(),
-                };
-
-                let mut node_callbacks = Vec::new();
-
-                // Check if this is a HoverEventFilter - if so, implement event bubbling
-                let is_hover_event = matches!(event_filter, EventFilter::Hover(_));
-
-                if is_hover_event {
-                    // For hover events, implement JS-style event bubbling:
-                    // Find deepest hit node, then bubble up to root
-                    use azul_layout::managers::hover::InputPointId;
-
-                    if let Some(hit_test) = layout_window
-                        .hover_manager
-                        .get_current(&InputPointId::Mouse)
-                    {
-                        for (dom_id, hit_test_data) in &hit_test.hovered_nodes {
-                            if let Some(layout_result) = layout_window.layout_results.get(dom_id) {
-                                let node_data_container =
-                                    layout_result.styled_dom.node_data.as_container();
-                                let node_hierarchy =
-                                    layout_result.styled_dom.node_hierarchy.as_container();
-
-                                // Find the deepest hit node (target)
-                                // In regular_hit_test_nodes, the last node is typically the deepest
-                                // but we should find the one with the maximum depth
-                                let deepest_node = hit_test_data
-                                    .regular_hit_test_nodes
-                                    .iter()
-                                    .max_by_key(|(node_id, _)| {
-                                        // Count depth by traversing to root
-                                        let mut depth = 0usize;
-                                        let mut current = Some(**node_id);
-                                        while let Some(nid) = current {
-                                            depth += 1;
-                                            current =
-                                                node_hierarchy.get(nid).and_then(|h| h.parent_id());
+                            // Build NodeHierarchy from NodeHierarchyItemVec for propagation
+                            let node_hierarchy = {
+                                let items = layout_result.styled_dom.node_hierarchy.as_container();
+                                let nodes: Vec<azul_core::id::Node> = (0..items.len())
+                                    .map(|i| {
+                                        let item = &items.internal[i];
+                                        azul_core::id::Node {
+                                            parent: NodeId::from_usize(item.parent),
+                                            previous_sibling: NodeId::from_usize(
+                                                item.previous_sibling,
+                                            ),
+                                            next_sibling: NodeId::from_usize(item.next_sibling),
+                                            last_child: NodeId::from_usize(item.last_child),
                                         }
-                                        depth
-                                    });
+                                    })
+                                    .collect();
+                                azul_core::id::NodeHierarchy::new(nodes)
+                            };
 
-                                if let Some((target_node_id, _)) = deepest_node {
-                                    // Build event chain: target → parent → ... → root
-                                    let mut current_node = Some(*target_node_id);
-                                    let mut depth = 0usize;
+                            // Build callback map: NodeId → Vec<EventFilter>
+                            let node_data_container =
+                                layout_result.styled_dom.node_data.as_container();
+                            let mut callback_map: std::collections::BTreeMap<
+                                NodeId,
+                                Vec<EventFilter>,
+                            > = std::collections::BTreeMap::new();
 
-                                    while let Some(node_id) = current_node {
-                                        // Collect callbacks from this node
-                                        if let Some(node_data) = node_data_container.get(node_id) {
-                                            for callback in node_data.get_callbacks().iter() {
-                                                if callback.event == event_filter {
-                                                    node_callbacks.push(NodeCallback {
-                                                        dom_id: *dom_id,
-                                                        node_id,
-                                                        depth,
-                                                        callback: callback.clone(),
-                                                    });
-                                                }
-                                            }
+                            for node_idx in 0..node_data_container.len() {
+                                let node_id = match NodeId::from_usize(node_idx + 1) {
+                                    // +1 for 1-based encoding
+                                    Some(nid) => nid,
+                                    None => NodeId::new(node_idx),
+                                };
+                                // NodeId::new(idx) creates 0-based NodeId directly
+                                let node_id = NodeId::new(node_idx);
+                                if let Some(nd) = node_data_container.get(node_id) {
+                                    let matching_filters: Vec<EventFilter> = nd
+                                        .get_callbacks()
+                                        .as_ref()
+                                        .iter()
+                                        .filter(|cb| cb.event == *filter)
+                                        .map(|cb| cb.event)
+                                        .collect();
+                                    if !matching_filters.is_empty() {
+                                        callback_map.insert(node_id, matching_filters);
+                                    }
+                                }
+                            }
+
+                            if callback_map.is_empty() {
+                                continue;
+                            }
+
+                            // Run W3C event propagation
+                            let mut event_clone = event.clone();
+                            let prop_result = azul_core::events::propagate_event(
+                                &mut event_clone,
+                                &node_hierarchy,
+                                &callback_map,
+                            );
+
+                            // Collect actual CoreCallbackData for each matched node+filter
+                            for (node_id, matched_filter) in &prop_result.callbacks_to_invoke {
+                                if let Some(nd) = node_data_container.get(*node_id) {
+                                    for cb in nd.get_callbacks().as_ref().iter() {
+                                        if cb.event == *matched_filter {
+                                            planned.push(PlannedInvocation {
+                                                dom_id,
+                                                node_id: *node_id,
+                                                callback_data: cb.clone(),
+                                            });
                                         }
-
-                                        // Move to parent
-                                        current_node =
-                                            node_hierarchy.get(node_id).and_then(|h| h.parent_id());
-                                        depth += 1;
                                     }
                                 }
                             }
                         }
-                    }
-                } else {
-                    // For non-hover events (window events, etc.), search ALL nodes
-                    // Window events are global and can be registered on any node
-                    // (not just node 0, which may be a framework-injected CSD wrapper)
-                    for (dom_id, layout_result) in &layout_window.layout_results {
-                        let node_data_container = layout_result.styled_dom.node_data.as_container();
-                        for (node_idx, node_data) in node_data_container.iter().enumerate() {
-                            for callback in node_data.get_callbacks().iter() {
-                                if callback.event == event_filter {
-                                    let node_id = match NodeId::from_usize(node_idx) {
-                                        Some(nid) => nid,
-                                        None => continue,
-                                    };
-                                    node_callbacks.push(NodeCallback {
-                                        dom_id: *dom_id,
-                                        node_id,
-                                        depth: 0,
-                                        callback: callback.clone(),
-                                    });
+                        EventFilter::Focus(_) => {
+                            // Focus events fire on the focused node only
+                            if let Some(ref focused) = focused_node {
+                                let dom_id = focused.dom;
+                                if let Some(node_id) = focused.node.into_crate_internal() {
+                                    if let Some(lr) =
+                                        layout_window.layout_results.get(&dom_id)
+                                    {
+                                        let ndc = lr.styled_dom.node_data.as_container();
+                                        if let Some(nd) = ndc.get(node_id) {
+                                            for cb in nd.get_callbacks().as_ref().iter() {
+                                                if cb.event == *filter {
+                                                    planned.push(PlannedInvocation {
+                                                        dom_id,
+                                                        node_id,
+                                                        callback_data: cb.clone(),
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
+                        EventFilter::Window(_) => {
+                            // Window events fire on ALL nodes with matching callback
+                            for (dom_id, lr) in &layout_window.layout_results {
+                                let ndc = lr.styled_dom.node_data.as_container();
+                                for node_idx in 0..ndc.len() {
+                                    let node_id = NodeId::new(node_idx);
+                                    if let Some(nd) = ndc.get(node_id) {
+                                        for cb in nd.get_callbacks().as_ref().iter() {
+                                            if cb.event == *filter {
+                                                planned.push(PlannedInvocation {
+                                                    dom_id: *dom_id,
+                                                    node_id,
+                                                    callback_data: cb.clone(),
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        EventFilter::Application(_) => {
+                            // Application events: same as window (fire on all matching nodes)
+                            for (dom_id, lr) in &layout_window.layout_results {
+                                let ndc = lr.styled_dom.node_data.as_container();
+                                for node_idx in 0..ndc.len() {
+                                    let node_id = NodeId::new(node_idx);
+                                    if let Some(nd) = ndc.get(node_id) {
+                                        for cb in nd.get_callbacks().as_ref().iter() {
+                                            if cb.event == *filter {
+                                                planned.push(PlannedInvocation {
+                                                    dom_id: *dom_id,
+                                                    node_id,
+                                                    callback_data: cb.clone(),
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // Not/Component filters: not used in event dispatch
+                        EventFilter::Not(_) | EventFilter::Component(_) => {}
                     }
                 }
-                node_callbacks
             }
+
+            planned
         };
 
-        if node_callbacks.is_empty() {
-            return Vec::new();
+        // ===================================================================
+        // Phase 2: Invoke planned callbacks (mutable access)
+        // ===================================================================
+        if planned_callbacks.is_empty() {
+            return (Vec::new(), false);
         }
 
-        // Sort by depth (0 = target first, then parents)
-        // This ensures JS-style bubbling order: target → parent → grandparent → root
-        let mut sorted_callbacks = node_callbacks;
-        sorted_callbacks.sort_by_key(|nc| nc.depth);
-
-        // Prepare all borrows in one call - avoids multiple &mut self borrows
         let mut borrows = self.prepare_callback_invocation();
-
         let mut results = Vec::new();
+        let mut any_prevent_default = false;
 
-        for node_callback in sorted_callbacks {
-            let mut callback = LayoutCallback::from_core(node_callback.callback.callback);
+        // Track propagation control flags (W3C semantics):
+        //  - stop_propagation: remaining handlers on the *same* node still fire,
+        //    but handlers on different nodes are skipped.
+        //  - stop_immediate_propagation: no further handlers fire at all.
+        let mut propagation_stopped = false;
+        let mut propagation_stopped_node: Option<(DomId, NodeId)> = None;
 
+        for planned in planned_callbacks {
+            // W3C stopImmediatePropagation: break immediately
+            if propagation_stopped && propagation_stopped_node.map_or(true, |(dom, nid)| {
+                dom != planned.dom_id || nid != planned.node_id
+            }) {
+                // We crossed to a different node and stop_propagation was called → skip
+                break;
+            }
+
+            let mut callback = LayoutCallback::from_core(planned.callback_data.callback);
             let callback_result = borrows.layout_window.invoke_single_callback(
                 &mut callback,
-                &mut node_callback.callback.refany.clone(),
+                &mut planned.callback_data.refany.clone(),
                 &borrows.window_handle,
                 borrows.gl_context_ptr,
                 borrows.image_cache,
@@ -972,18 +1009,26 @@ pub trait PlatformWindowV2 {
                 borrows.renderer_resources,
             );
 
-            // Check if stopPropagation() was called - if so, stop bubbling
-            let should_stop = callback_result.stop_propagation;
+            if callback_result.prevent_default {
+                any_prevent_default = true;
+            }
 
-            results.push(callback_result);
-
-            if should_stop {
-                // Stop event propagation - don't invoke callbacks on parent nodes
+            // stopImmediatePropagation: break immediately, don't even run remaining same-node handlers
+            if callback_result.stop_immediate_propagation {
+                results.push(callback_result);
                 break;
             }
+
+            // stopPropagation: record that we should stop after remaining same-node handlers
+            if callback_result.stop_propagation && !propagation_stopped {
+                propagation_stopped = true;
+                propagation_stopped_node = Some((planned.dom_id, planned.node_id));
+            }
+
+            results.push(callback_result);
         }
 
-        results
+        (results, any_prevent_default)
     }
 
     // PROVIDED: Complete Logic (Default Implementations)
@@ -1458,7 +1503,12 @@ pub trait PlatformWindowV2 {
                     is_dragging,
                     ..
                 } => {
-                    if *is_dragging {
+                    // Suppress text selection if a node drag is active
+                    let node_dragging = self.get_layout_window()
+                        .map(|lw| lw.gesture_drag_manager.is_node_dragging_any())
+                        .unwrap_or(false);
+
+                    if *is_dragging && !node_dragging {
                         // Extend selection from start to current position
                         if let Some(layout_window) = self.get_layout_window_mut() {
                             if let Some(affected_nodes) = layout_window
@@ -1678,91 +1728,32 @@ pub trait PlatformWindowV2 {
             result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
 
-        // EVENT FILTERING AND CALLBACK DISPATCH
-
-        // Dispatch user events to callbacks (internal events already processed)
-        let dispatch_result = azul_core::events::dispatch_synthetic_events(
-            &pre_filter.user_events,
-            hit_test_for_dispatch.as_ref(),
-        );
-
-        if dispatch_result.is_empty() {
-            // Return accumulated result from internal processing, not DoNothing
-            // Internal events (text selection, keyboard shortcuts) may have set
-            // result to ShouldReRenderCurrentWindow even if no user callbacks exist.
-            return result;
-        }
-
-        // Filter out system internal events as a safety check
-        // (They shouldn't appear since user events shouldn't contain them,
-        //  but we filter anyway to be safe)
-        let user_callbacks: Vec<_> = dispatch_result
-            .callbacks
-            .iter()
-            .filter(|cb| {
-                if let azul_core::events::EventFilter::Hover(hover_filter) = cb.event_filter {
-                    !hover_filter.is_system_internal()
-                } else {
-                    true
-                }
-            })
-            .collect();
-
-
-        // USER CALLBACK INVOCATION
+        // EVENT FILTERING AND CALLBACK DISPATCH (W3C Propagation Model)
 
         // Capture focus state before callbacks for post-callback filtering
         let old_focus = self
             .get_layout_window()
             .and_then(|lw| lw.focus_manager.get_focused_node().copied());
 
-        // Invoke all user callbacks and collect results
-        let mut should_stop_propagation = false;
+        // Dispatch user events using W3C Capture→Target→Bubble propagation
+        let (callback_results, prevent_default) =
+            self.dispatch_events_propagated(&pre_filter.user_events);
+
+        // Process all callback results
         let mut should_recurse = false;
         let mut focus_changed = false;
-        let mut prevent_default = false; // Track if any callback prevented default
 
-        for callback_to_invoke in user_callbacks {
-            if should_stop_propagation {
-                break;
-            }
+        for callback_result in &callback_results {
+            let event_result = self.process_callback_result_v2(callback_result);
+            result = result.max(event_result);
 
-            // Convert core CallbackTarget to shell CallbackTarget
-            let target = match &callback_to_invoke.target {
-                CoreCallbackTarget::Node { dom_id, node_id } => CallbackTarget::Node(HitTestNode {
-                    dom_id: dom_id.inner as u64,
-                    node_id: node_id.index() as u64,
-                }),
-                CoreCallbackTarget::RootNodes => CallbackTarget::RootNodes,
-            };
-
-            // Invoke callbacks and collect results
-            let callback_results =
-                self.invoke_callbacks_v2(target, callback_to_invoke.event_filter);
-
-            for callback_result in callback_results {
-                let event_result = self.process_callback_result_v2(&callback_result);
-                result = result.max(event_result);
-
-                // Check if callback prevented default
-                if callback_result.prevent_default {
-                    prevent_default = true;
-                }
-
-                // Check if we should stop propagation
-                if callback_result.stop_propagation {
-                    should_stop_propagation = true;
-                    break;
-                }
-
-                // Check if we need to recurse (DOM was regenerated)
-                use azul_core::callbacks::Update;
-                if matches!(
-                    callback_result.callbacks_update_screen,
-                    Update::RefreshDom | Update::RefreshDomAllWindows
-                ) {
-                    should_recurse = true;
-                }
+            // Check if we need to recurse (DOM was regenerated)
+            use azul_core::callbacks::Update;
+            if matches!(
+                callback_result.callbacks_update_screen,
+                Update::RefreshDom | Update::RefreshDomAllWindows
+            ) {
+                should_recurse = true;
             }
         }
 
@@ -1865,8 +1856,99 @@ pub trait PlatformWindowV2 {
                                 styled_node.styled_node_state.dragging = true;
                             }
                         }
+
+                        // Add GPU transform key for the dragged node so it can be
+                        // visually moved via GPU-accelerated transform during drag.
+                        // The display list will include a PushReferenceFrame for this node.
+                        let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(dom_id);
+                        if !gpu_cache.transform_keys.contains_key(&node_id) {
+                            let transform_key = azul_core::resources::TransformKey::unique();
+                            let identity = azul_core::transform::ComputedTransform3D::IDENTITY;
+                            gpu_cache.transform_keys.insert(node_id, transform_key);
+                            gpu_cache.current_transform_values.insert(node_id, identity);
+                        }
                     }
                 }
+            }
+            // DragStart should trigger re-render to show :dragging pseudo-state
+            result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        }
+
+        // SET :drag-over PSEUDO-STATE ON DragEnter / DragLeave TARGETS
+        // When a dragged item enters a new node, set :drag-over on it;
+        // when it leaves, clear :drag-over. These events are synthesized
+        // by event_determination.rs with the correct target nodes.
+        {
+            let mut had_drag_over_change = false;
+
+            for event in &pre_filter.user_events {
+                match event.event_type {
+                    azul_core::events::EventType::DragEnter => {
+                        let target = &event.target;
+                        if let Some(target_node_id) = target.node.into_crate_internal() {
+                            if let Some(layout_window) = self.get_layout_window_mut() {
+                                if let Some(layout_result) = layout_window.layout_results.get_mut(&target.dom) {
+                                    let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
+                                    if let Some(styled_node) = styled_nodes.get_mut(target_node_id) {
+                                        styled_node.styled_node_state.drag_over = true;
+                                        had_drag_over_change = true;
+                                    }
+                                }
+
+                                // Update current_drop_target in the drag context
+                                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context_mut() {
+                                    if let Some(node_drag) = ctx.as_node_drag_mut() {
+                                        node_drag.previous_drop_target = node_drag.current_drop_target.clone();
+                                        node_drag.current_drop_target = azul_core::dom::OptionDomNodeId::Some(target.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    azul_core::events::EventType::DragLeave => {
+                        let target = &event.target;
+                        if let Some(target_node_id) = target.node.into_crate_internal() {
+                            if let Some(layout_window) = self.get_layout_window_mut() {
+                                if let Some(layout_result) = layout_window.layout_results.get_mut(&target.dom) {
+                                    let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
+                                    if let Some(styled_node) = styled_nodes.get_mut(target_node_id) {
+                                        styled_node.styled_node_state.drag_over = false;
+                                        had_drag_over_change = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if had_drag_over_change {
+                // :drag-over change requires re-render to update visual appearance
+                result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+            }
+        }
+
+        // FORCE RE-RENDER DURING ACTIVE DRAG
+        // When dragging is active, every mouse move must trigger a re-render so the
+        // dragged node's visual position is updated via GPU transform.
+        if let Some(layout_window) = self.get_layout_window_mut() {
+            if layout_window.gesture_drag_manager.is_node_dragging_any() {
+                // Update the GPU transform value for the dragged node
+                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
+                    if let Some(node_drag) = ctx.as_node_drag() {
+                        let dom_id = node_drag.dom_id;
+                        let node_id = node_drag.node_id;
+                        let delta_x = ctx.current_position().x - ctx.start_position().x;
+                        let delta_y = ctx.current_position().y - ctx.start_position().y;
+                        let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(dom_id);
+                        let new_transform = azul_core::transform::ComputedTransform3D::new_translation(
+                            delta_x, delta_y, 0.0
+                        );
+                        gpu_cache.current_transform_values.insert(node_id, new_transform);
+                    }
+                }
+                result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
             }
         }
 
@@ -1904,6 +1986,17 @@ pub trait PlatformWindowV2 {
                                 }
                             }
                         }
+                    }
+                }
+
+                // Remove GPU transform key for the dragged node on drag end
+                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
+                    if let Some(node_drag) = ctx.as_node_drag() {
+                        let dom_id = node_drag.dom_id;
+                        let node_id = node_drag.node_id;
+                        let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(dom_id);
+                        gpu_cache.transform_keys.remove(&node_id);
+                        gpu_cache.current_transform_values.remove(&node_id);
                     }
                 }
 
@@ -2492,31 +2585,32 @@ pub trait PlatformWindowV2 {
         // Process synthetic clicks from keyboard activation
         if let Some(click_target) = synthetic_click_target {
             if depth + 1 < MAX_EVENT_RECURSION_DEPTH {
-                // Dispatch the synthetic click event directly to callbacks
-                if let Some(internal_node_id) = click_target.node.into_crate_internal() {
-                    let target = CallbackTarget::Node(HitTestNode {
-                        dom_id: click_target.dom.inner as u64,
-                        node_id: internal_node_id.index() as u64,
-                    });
+                // Create a SyntheticEvent for the click and dispatch through propagation
+                let click_event = azul_core::events::SyntheticEvent::new(
+                    azul_core::events::EventType::Click,
+                    azul_core::events::EventSource::User,
+                    click_target,
+                    {
+                        #[cfg(feature = "std")]
+                        { azul_core::task::Instant::from(std::time::Instant::now()) }
+                        #[cfg(not(feature = "std"))]
+                        { azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0)) }
+                    },
+                    azul_core::events::EventData::None,
+                );
 
-                    // Invoke click callbacks on the target
-                    // Note: In Azul, "click" is typically LeftMouseUp
-                    let click_results = self.invoke_callbacks_v2(target, EventFilter::Hover(
-                        azul_core::events::HoverEventFilter::LeftMouseUp
-                    ));
+                let (click_results, _) = self.dispatch_events_propagated(&[click_event]);
 
-                    for callback_result in click_results {
-                        let event_result = self.process_callback_result_v2(&callback_result);
-                        result = result.max(event_result);
+                for callback_result in &click_results {
+                    let event_result = self.process_callback_result_v2(callback_result);
+                    result = result.max(event_result);
 
-                        // Check if we need to recurse (DOM was regenerated)
-                        use azul_core::callbacks::Update;
-                        if matches!(
-                            callback_result.callbacks_update_screen,
-                            Update::RefreshDom | Update::RefreshDomAllWindows
-                        ) {
-                            should_recurse = true;
-                        }
+                    use azul_core::callbacks::Update;
+                    if matches!(
+                        callback_result.callbacks_update_screen,
+                        Update::RefreshDom | Update::RefreshDomAllWindows
+                    ) {
+                        should_recurse = true;
                     }
                 }
 
@@ -2558,55 +2652,53 @@ pub trait PlatformWindowV2 {
             }
             
             // DISPATCH FOCUS CALLBACKS: FocusLost on old node, FocusReceived on new node
-            // This is where we actually invoke the user-registered FocusReceived/FocusLost callbacks
-            
-            // Dispatch FocusLost to old node (if any)
-            if let Some(old_node) = old_focus {
-                if let Some(internal_node_id) = old_node.node.into_crate_internal() {
-                    let target = CallbackTarget::Node(HitTestNode {
-                        dom_id: old_node.dom.inner as u64,
-                        node_id: internal_node_id.index() as u64,
-                    });
-                    
+            // Create synthetic focus events and dispatch through propagation
+            {
+                let now = {
+                    #[cfg(feature = "std")]
+                    { azul_core::task::Instant::from(std::time::Instant::now()) }
+                    #[cfg(not(feature = "std"))]
+                    { azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0)) }
+                };
+
+                let mut focus_events = Vec::new();
+
+                // FocusLost (Blur) on old node
+                if let Some(old_node) = old_focus {
                     log_debug!(
                         super::debug_server::LogCategory::Input,
                         "[Event V2] Dispatching FocusLost to node {:?}",
                         old_node
                     );
-                    
-                    let focus_lost_results = self.invoke_callbacks_v2(
-                        target,
-                        EventFilter::Focus(FocusEventFilter::FocusLost)
-                    );
-                    
-                    for callback_result in focus_lost_results {
-                        let event_result = self.process_callback_result_v2(&callback_result);
-                        result = result.max(event_result);
-                    }
+                    focus_events.push(azul_core::events::SyntheticEvent::new(
+                        azul_core::events::EventType::Blur,
+                        azul_core::events::EventSource::User,
+                        old_node,
+                        now.clone(),
+                        azul_core::events::EventData::None,
+                    ));
                 }
-            }
-            
-            // Dispatch FocusReceived to new node (if any)
-            if let Some(new_node) = new_focus {
-                if let Some(internal_node_id) = new_node.node.into_crate_internal() {
-                    let target = CallbackTarget::Node(HitTestNode {
-                        dom_id: new_node.dom.inner as u64,
-                        node_id: internal_node_id.index() as u64,
-                    });
-                    
+
+                // FocusReceived on new node
+                if let Some(new_node) = new_focus {
                     log_debug!(
                         super::debug_server::LogCategory::Input,
                         "[Event V2] Dispatching FocusReceived to node {:?}",
                         new_node
                     );
-                    
-                    let focus_received_results = self.invoke_callbacks_v2(
-                        target,
-                        EventFilter::Focus(FocusEventFilter::FocusReceived)
-                    );
-                    
-                    for callback_result in focus_received_results {
-                        let event_result = self.process_callback_result_v2(&callback_result);
+                    focus_events.push(azul_core::events::SyntheticEvent::new(
+                        azul_core::events::EventType::Focus,
+                        azul_core::events::EventSource::User,
+                        new_node,
+                        now.clone(),
+                        azul_core::events::EventData::None,
+                    ));
+                }
+
+                if !focus_events.is_empty() {
+                    let (focus_results, _) = self.dispatch_events_propagated(&focus_events);
+                    for callback_result in &focus_results {
+                        let event_result = self.process_callback_result_v2(callback_result);
                         result = result.max(event_result);
                     }
                 }
@@ -3057,38 +3149,38 @@ pub trait PlatformWindowV2 {
             log(LogLevel::Debug, LogCategory::EventLoop, 
                 format!("[process_callback_result_v2] Processing {} text_input_triggered events", result.text_input_triggered.len()), None);
             
-            // For each affected node, invoke OnTextInput callbacks
-            // User callbacks can intercept via preventDefault
-            for (dom_node_id, event_filters) in &result.text_input_triggered {
+            // Build synthetic events for text input callbacks
+            let now = {
+                #[cfg(feature = "std")]
+                { azul_core::task::Instant::from(std::time::Instant::now()) }
+                #[cfg(not(feature = "std"))]
+                { azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0)) }
+            };
+
+            // Convert text_input_triggered to SyntheticEvents for dispatch
+            let mut text_events = Vec::new();
+            for (dom_node_id, _event_filters) in &result.text_input_triggered {
                 log(LogLevel::Debug, LogCategory::EventLoop, 
-                    format!("[process_callback_result_v2] Node {:?} triggered {} event filters", dom_node_id, event_filters.len()), None);
+                    format!("[process_callback_result_v2] Node {:?} triggered text input", dom_node_id), None);
                 
-                // Convert DomNodeId to CallbackTarget
-                if let Some(node_id) = dom_node_id.node.into_crate_internal() {
-                    let callback_target = CallbackTarget::Node(HitTestNode {
-                        dom_id: dom_node_id.dom.inner as u64,
-                        node_id: node_id.index() as u64,
-                    });
-                    
-                    // Invoke callbacks for each event filter (typically OnTextInput)
-                    for event_filter in event_filters {
+                text_events.push(azul_core::events::SyntheticEvent::new(
+                    azul_core::events::EventType::Input,
+                    azul_core::events::EventSource::User,
+                    *dom_node_id,
+                    now.clone(),
+                    azul_core::events::EventData::None,
+                ));
+            }
+
+            if !text_events.is_empty() {
+                let (text_results, text_prevented) = self.dispatch_events_propagated(&text_events);
+                for callback_result in &text_results {
+                    if callback_result.prevent_default {
                         log(LogLevel::Debug, LogCategory::EventLoop, 
-                            format!("[process_callback_result_v2] Invoking callback for {:?}", event_filter), None);
-                        let callback_results = self.invoke_callbacks_v2(callback_target.clone(), event_filter.clone());
-                        
-                        // Process callback results
-                        for callback_result in &callback_results {
-                            if callback_result.prevent_default {
-                                log(LogLevel::Debug, LogCategory::EventLoop, 
-                                    "[process_callback_result_v2] preventDefault called - text input will be rejected".to_string(), None);
-                                // TODO: Clear the pending changeset if rejected
-                            }
-                            
-                            // Check if we need to update the screen
-                            if matches!(callback_result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
-                                event_result = event_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-                            }
-                        }
+                            "[process_callback_result_v2] preventDefault called - text input will be rejected".to_string(), None);
+                    }
+                    if matches!(callback_result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                        event_result = event_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                     }
                 }
             }

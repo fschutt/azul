@@ -18,7 +18,7 @@ use std::{
 use azul_core::{
     callbacks::Update,
     dom::{DomId, NodeId},
-    events::{CallbackTarget as CoreCallbackTarget, EventFilter, MouseButton, ProcessEventResult},
+    events::{EventFilter, MouseButton, ProcessEventResult},
     geom::{LogicalPosition, PhysicalPosition},
     hit_test::FullHitTest,
     window::{CursorPosition, VirtualKeyCode},
@@ -148,16 +148,6 @@ impl Drop for ImeManager {
 }
 
 // Event Handler - Main Implementation
-
-/// Target for callback dispatch - either a specific node or all root nodes.
-#[derive(Debug, Clone, Copy)]
-pub enum CallbackTarget {
-    /// Dispatch to callbacks on a specific node (e.g., mouse events, hover)
-    Node(HitTestNode),
-    /// Dispatch to callbacks on root nodes (NodeId::ZERO) across all DOMs (e.g., window events,
-    /// keys)
-    RootNodes,
-}
 
 /// Hit test node structure for event routing.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
