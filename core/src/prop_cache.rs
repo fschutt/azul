@@ -442,12 +442,16 @@ pub struct CssPropertyCache {
     pub cascaded_hover_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
     pub cascaded_active_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
     pub cascaded_focus_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub cascaded_dragging_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub cascaded_drag_over_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
 
     // non-default CSS properties that were set via a CSS file
     pub css_normal_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
     pub css_hover_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
     pub css_active_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
     pub css_focus_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub css_dragging_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub css_drag_over_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
 
     // NEW: Computed values cache - pre-resolved inherited properties
     // This cache contains the final computed values after inheritance resolution.
@@ -567,6 +571,26 @@ impl CssPropertyCache {
                     }
                 });
 
+            let css_dragging_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
+                .transform_nodeid_multithreaded_optional(|node_id| {
+                    let r = filter_rules!(Some(Dragging), node_id);
+                    if r.is_empty() {
+                        None
+                    } else {
+                        Some((node_id, r))
+                    }
+                });
+
+            let css_drag_over_rules: NodeDataContainer<(NodeId, Vec<CssProperty>)> = node_data
+                .transform_nodeid_multithreaded_optional(|node_id| {
+                    let r = filter_rules!(Some(DragOver), node_id);
+                    if r.is_empty() {
+                        None
+                    } else {
+                        Some((node_id, r))
+                    }
+                });
+
             self.css_normal_props = css_normal_rules
                 .internal
                 .into_iter()
@@ -607,6 +631,32 @@ impl CssPropertyCache {
                 .collect();
 
             self.css_focus_props = css_focus_rules
+                .internal
+                .into_iter()
+                .map(|(n, map)| {
+                    (
+                        n,
+                        map.into_iter()
+                            .map(|prop| (prop.get_type(), prop))
+                            .collect(),
+                    )
+                })
+                .collect();
+
+            self.css_dragging_props = css_dragging_rules
+                .internal
+                .into_iter()
+                .map(|(n, map)| {
+                    (
+                        n,
+                        map.into_iter()
+                            .map(|prop| (prop.get_type(), prop))
+                            .collect(),
+                    )
+                })
+                .collect();
+
+            self.css_drag_over_props = css_drag_over_rules
                 .internal
                 .into_iter()
                 .map(|(n, map)| {
@@ -716,6 +766,8 @@ impl CssPropertyCache {
             inherit_inline_css_props!(PseudoStateType::Hover, self.cascaded_hover_props);
             inherit_inline_css_props!(PseudoStateType::Active, self.cascaded_active_props);
             inherit_inline_css_props!(PseudoStateType::Focus, self.cascaded_focus_props);
+            inherit_inline_css_props!(PseudoStateType::Dragging, self.cascaded_dragging_props);
+            inherit_inline_css_props!(PseudoStateType::DragOver, self.cascaded_drag_over_props);
 
             // Inherit the CSS properties from the CSS file
             if !css_is_empty {
@@ -723,6 +775,8 @@ impl CssPropertyCache {
                 inherit_props!(self.css_hover_props, self.cascaded_hover_props);
                 inherit_props!(self.css_active_props, self.cascaded_active_props);
                 inherit_props!(self.css_focus_props, self.cascaded_focus_props);
+                inherit_props!(self.css_dragging_props, self.cascaded_dragging_props);
+                inherit_props!(self.css_drag_over_props, self.cascaded_drag_over_props);
             }
 
             // Inherit properties that were inherited in a previous iteration of the loop
@@ -730,6 +784,8 @@ impl CssPropertyCache {
             inherit_props!(self.cascaded_hover_props, self.cascaded_hover_props);
             inherit_props!(self.cascaded_active_props, self.cascaded_active_props);
             inherit_props!(self.cascaded_focus_props, self.cascaded_focus_props);
+            inherit_props!(self.cascaded_dragging_props, self.cascaded_dragging_props);
+            inherit_props!(self.cascaded_drag_over_props, self.cascaded_drag_over_props);
         }
 
         // When restyling, the tag / node ID mappings may change, regenerate them
@@ -847,6 +903,38 @@ impl CssPropertyCache {
                         || self.cascaded_focus_props.get(&node_id).is_some();
 
                     if node_has_focus_props {
+                        node_should_have_tag = true;
+                        break;
+                    }
+
+                    // check for :dragging
+                    let node_has_dragging_props = {
+                        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+                        node_data.css_props.as_ref().iter().any(|p| {
+                            p.apply_if.as_slice().iter().any(|c| {
+                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::Dragging))
+                            })
+                        })
+                    } || self.css_dragging_props.get(&node_id).is_some()
+                        || self.cascaded_dragging_props.get(&node_id).is_some();
+
+                    if node_has_dragging_props {
+                        node_should_have_tag = true;
+                        break;
+                    }
+
+                    // check for :drag-over
+                    let node_has_drag_over_props = {
+                        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+                        node_data.css_props.as_ref().iter().any(|p| {
+                            p.apply_if.as_slice().iter().any(|c| {
+                                matches!(c, DynamicSelector::PseudoState(PseudoStateType::DragOver))
+                            })
+                        })
+                    } || self.css_drag_over_props.get(&node_id).is_some()
+                        || self.cascaded_drag_over_props.get(&node_id).is_some();
+
+                    if node_has_drag_over_props {
                         node_should_have_tag = true;
                         break;
                     }
@@ -1245,11 +1333,15 @@ impl CssPropertyCache {
             cascaded_hover_props: BTreeMap::new(),
             cascaded_active_props: BTreeMap::new(),
             cascaded_focus_props: BTreeMap::new(),
+            cascaded_dragging_props: BTreeMap::new(),
+            cascaded_drag_over_props: BTreeMap::new(),
 
             css_normal_props: BTreeMap::new(),
             css_hover_props: BTreeMap::new(),
             css_active_props: BTreeMap::new(),
             css_focus_props: BTreeMap::new(),
+            css_dragging_props: BTreeMap::new(),
+            css_drag_over_props: BTreeMap::new(),
 
             computed_values: BTreeMap::new(),
             dependency_chains: BTreeMap::new(),
@@ -1273,10 +1365,14 @@ impl CssPropertyCache {
         append_css_property_vec!(cascaded_hover_props);
         append_css_property_vec!(cascaded_active_props);
         append_css_property_vec!(cascaded_focus_props);
+        append_css_property_vec!(cascaded_dragging_props);
+        append_css_property_vec!(cascaded_drag_over_props);
         append_css_property_vec!(css_normal_props);
         append_css_property_vec!(css_hover_props);
         append_css_property_vec!(css_active_props);
         append_css_property_vec!(css_focus_props);
+        append_css_property_vec!(css_dragging_props);
+        append_css_property_vec!(css_drag_over_props);
         append_css_property_vec!(computed_values);
 
         // Special handling for dependency_chains: need to adjust source_node IDs
@@ -1533,6 +1629,68 @@ impl CssPropertyCache {
             // PRIORITY 3: Cascaded/inherited properties
             if let Some(p) = self
                 .cascaded_active_props
+                .get(node_id)
+                .and_then(|map| map.get(css_property_type))
+            {
+                return Some(p);
+            }
+        }
+
+        // :dragging pseudo-state (higher priority than :hover)
+        if node_state.dragging {
+            if let Some(p) = node_data.css_props.as_ref().iter().find_map(|css_prop| {
+                if matches_pseudo_state(css_prop, PseudoStateType::Dragging)
+                    && css_prop.property.get_type() == *css_property_type
+                {
+                    Some(&css_prop.property)
+                } else {
+                    None
+                }
+            }) {
+                return Some(p);
+            }
+
+            if let Some(p) = self
+                .css_dragging_props
+                .get(node_id)
+                .and_then(|map| map.get(css_property_type))
+            {
+                return Some(p);
+            }
+
+            if let Some(p) = self
+                .cascaded_dragging_props
+                .get(node_id)
+                .and_then(|map| map.get(css_property_type))
+            {
+                return Some(p);
+            }
+        }
+
+        // :drag-over pseudo-state (higher priority than :hover)
+        if node_state.drag_over {
+            if let Some(p) = node_data.css_props.as_ref().iter().find_map(|css_prop| {
+                if matches_pseudo_state(css_prop, PseudoStateType::DragOver)
+                    && css_prop.property.get_type() == *css_property_type
+                {
+                    Some(&css_prop.property)
+                } else {
+                    None
+                }
+            }) {
+                return Some(p);
+            }
+
+            if let Some(p) = self
+                .css_drag_over_props
+                .get(node_id)
+                .and_then(|map| map.get(css_property_type))
+            {
+                return Some(p);
+            }
+
+            if let Some(p) = self
+                .cascaded_drag_over_props
                 .get(node_id)
                 .and_then(|map| map.get(css_property_type))
             {

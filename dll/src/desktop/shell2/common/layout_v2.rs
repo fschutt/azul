@@ -427,7 +427,43 @@ fn apply_runtime_states_before_layout(
             }
         }
     }
-    
+
+    // 4. Apply :dragging pseudo-state from gesture_drag_manager
+    // When the layout callback returns RefreshDom, the DOM is rebuilt from scratch
+    // and the :dragging state that was set in event_v2.rs on DragStart is lost.
+    // Re-apply it here from the authoritative drag manager state.
+    if let Some(drag_ctx) = layout_window.gesture_drag_manager.get_drag_context() {
+        if let Some(node_drag) = drag_ctx.as_node_drag() {
+            if node_drag.dom_id == dom_id {
+                let mut styled_nodes = styled_dom.styled_nodes.as_container_mut();
+                if let Some(styled_node) = styled_nodes.get_mut(node_drag.node_id) {
+                    styled_node.styled_node_state.dragging = true;
+                    log_debug!(
+                        LogCategory::Layout,
+                        "[apply_runtime_states_before_layout] Set dragging=true for node {:?}",
+                        node_drag.node_id
+                    );
+                }
+
+                // 5. Apply :drag-over pseudo-state on current drop target
+                if let Some(drop_target) = node_drag.current_drop_target.into_option() {
+                    if drop_target.dom == dom_id {
+                        if let Some(target_node_id) = drop_target.node.into_crate_internal() {
+                            if let Some(styled_node) = styled_nodes.get_mut(target_node_id) {
+                                styled_node.styled_node_state.drag_over = true;
+                                log_debug!(
+                                    LogCategory::Layout,
+                                    "[apply_runtime_states_before_layout] Set drag_over=true for node {:?}",
+                                    target_node_id
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     styled_dom
 }
 

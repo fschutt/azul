@@ -369,6 +369,8 @@ pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> 
                 | CssPathPseudoSelector::Active
                 | CssPathPseudoSelector::Focus
                 | CssPathPseudoSelector::Backdrop
+                | CssPathPseudoSelector::Dragging
+                | CssPathPseudoSelector::DragOver
         )
     }
 
