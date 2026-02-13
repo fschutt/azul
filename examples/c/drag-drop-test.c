@@ -98,6 +98,14 @@ AzUpdate on_drag_start(AzRefAny data, AzCallbackInfo info) {
 
     fprintf(stderr, "[DRAG-TEST] %s\n", d.ptr->status);
 
+    // Set drag data with MIME type (W3C: dataTransfer.setData)
+    AzString mime = AZ_STR("text/plain");
+    AzString payload_str = AZ_STR("Hello from Drag Me box!");
+    AzU8Vec payload = AzU8Vec_copyFromBytes(
+        (const uint8_t*)payload_str.vec.ptr, 0, payload_str.vec.len);
+    AzCallbackInfo_setDragData(&info, mime, payload);
+    fprintf(stderr, "[DRAG-TEST]   Set drag data: text/plain = 'Hello from Drag Me box!'\n");
+
     // Also try to get drag state
     AzOptionDragState drag_state_opt = AzCallbackInfo_getDragState(&info);
     if (!AzOptionDragState_isNone(&drag_state_opt)) {
@@ -179,7 +187,7 @@ AzUpdate on_drag_end(AzRefAny data, AzCallbackInfo info) {
     return AzUpdate_RefreshDom;
 }
 
-// Called when mouse enters Drop Zone A
+// Called when a dragged item enters Drop Zone A (DragEnter event)
 AzUpdate on_zone_a_enter(AzRefAny data, AzCallbackInfo info) {
     DragDropModelRefMut d = DragDropModelRefMut_create(&data);
     if (!DragDropModel_downcastMut(&data, &d)) return AzUpdate_DoNothing;
@@ -187,16 +195,27 @@ AzUpdate on_zone_a_enter(AzRefAny data, AzCallbackInfo info) {
     d.ptr->zone_a_enter_count += 1;
     bool is_dragging = AzCallbackInfo_isDragging(&info);
 
+    // Check available MIME types
+    AzStringVec drag_types = AzCallbackInfo_getDragTypes(&info);
+    fprintf(stderr, "[DRAG-TEST] Zone A DragEnter #%d | isDragging=%d | types=%zu\n",
+        d.ptr->zone_a_enter_count, is_dragging, drag_types.len);
+    for (size_t i = 0; i < drag_types.len; i++) {
+        fprintf(stderr, "[DRAG-TEST]   type[%zu]: %.*s\n", i,
+            (int)drag_types.ptr[i].vec.len, (const char*)drag_types.ptr[i].vec.ptr);
+    }
+
+    // Zone A accepts text/plain - call accept_drop
+    AzCallbackInfo_acceptDrop(&info);
+
     snprintf(d.ptr->status, sizeof(d.ptr->status),
-        "Zone A: MouseEnter #%d | isDragging=%d",
+        "Zone A: DragEnter #%d | isDragging=%d | accepted (text/plain)",
         d.ptr->zone_a_enter_count, is_dragging);
 
-    fprintf(stderr, "[DRAG-TEST] %s\n", d.ptr->status);
     DragDropModelRefMut_delete(&d);
     return AzUpdate_RefreshDom;
 }
 
-// Called when mouse leaves Drop Zone A
+// Called when a dragged item leaves Drop Zone A (DragLeave event)
 AzUpdate on_zone_a_leave(AzRefAny data, AzCallbackInfo info) {
     DragDropModelRefMut d = DragDropModelRefMut_create(&data);
     if (!DragDropModel_downcastMut(&data, &d)) return AzUpdate_DoNothing;
@@ -205,7 +224,7 @@ AzUpdate on_zone_a_leave(AzRefAny data, AzCallbackInfo info) {
     bool is_dragging = AzCallbackInfo_isDragging(&info);
 
     snprintf(d.ptr->status, sizeof(d.ptr->status),
-        "Zone A: MouseLeave #%d | isDragging=%d",
+        "Zone A: DragLeave #%d | isDragging=%d",
         d.ptr->zone_a_leave_count, is_dragging);
 
     fprintf(stderr, "[DRAG-TEST] %s\n", d.ptr->status);
@@ -213,7 +232,7 @@ AzUpdate on_zone_a_leave(AzRefAny data, AzCallbackInfo info) {
     return AzUpdate_RefreshDom;
 }
 
-// Called when mouse enters Drop Zone B
+// Called when a dragged item enters Drop Zone B (DragEnter event)
 AzUpdate on_zone_b_enter(AzRefAny data, AzCallbackInfo info) {
     DragDropModelRefMut d = DragDropModelRefMut_create(&data);
     if (!DragDropModel_downcastMut(&data, &d)) return AzUpdate_DoNothing;
@@ -221,16 +240,33 @@ AzUpdate on_zone_b_enter(AzRefAny data, AzCallbackInfo info) {
     d.ptr->zone_b_enter_count += 1;
     bool is_dragging = AzCallbackInfo_isDragging(&info);
 
-    snprintf(d.ptr->status, sizeof(d.ptr->status),
-        "Zone B: MouseEnter #%d | isDragging=%d",
-        d.ptr->zone_b_enter_count, is_dragging);
+    // Zone B accepts text/html - check MIME types
+    AzStringVec drag_types = AzCallbackInfo_getDragTypes(&info);
+    bool has_html = false;
+    for (size_t i = 0; i < drag_types.len; i++) {
+        if (drag_types.ptr[i].vec.len == 9 &&
+            memcmp(drag_types.ptr[i].vec.ptr, "text/html", 9) == 0) {
+            has_html = true;
+        }
+    }
+
+    if (has_html) {
+        AzCallbackInfo_acceptDrop(&info);
+        snprintf(d.ptr->status, sizeof(d.ptr->status),
+            "Zone B: DragEnter #%d | isDragging=%d | accepted (text/html found)",
+            d.ptr->zone_b_enter_count, is_dragging);
+    } else {
+        snprintf(d.ptr->status, sizeof(d.ptr->status),
+            "Zone B: DragEnter #%d | isDragging=%d | REJECTED (no text/html)",
+            d.ptr->zone_b_enter_count, is_dragging);
+    }
 
     fprintf(stderr, "[DRAG-TEST] %s\n", d.ptr->status);
     DragDropModelRefMut_delete(&d);
     return AzUpdate_RefreshDom;
 }
 
-// Called when mouse leaves Drop Zone B
+// Called when a dragged item leaves Drop Zone B (DragLeave event)
 AzUpdate on_zone_b_leave(AzRefAny data, AzCallbackInfo info) {
     DragDropModelRefMut d = DragDropModelRefMut_create(&data);
     if (!DragDropModel_downcastMut(&data, &d)) return AzUpdate_DoNothing;
@@ -239,7 +275,7 @@ AzUpdate on_zone_b_leave(AzRefAny data, AzCallbackInfo info) {
     bool is_dragging = AzCallbackInfo_isDragging(&info);
 
     snprintf(d.ptr->status, sizeof(d.ptr->status),
-        "Zone B: MouseLeave #%d | isDragging=%d",
+        "Zone B: DragLeave #%d | isDragging=%d",
         d.ptr->zone_b_leave_count, is_dragging);
 
     fprintf(stderr, "[DRAG-TEST] %s\n", d.ptr->status);
@@ -356,6 +392,7 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
                "justify-content: center; border-radius: 8px; cursor: grab; "
                "margin-bottom: 20px;")
     );
+    drag_box = AzDom_withClass(drag_box, AZ_STR("drag-box"));
     drag_box = AzDom_withAttribute(drag_box, AzAttributeType_draggable(true));
     drag_box = AzDom_withChild(drag_box, AzDom_createText(AZ_STR("Drag Me")));
     drag_box = AzDom_withCallback(drag_box,
@@ -382,8 +419,10 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AZ_STR("width: 200px; height: 150px; background: #1e3a5f; "
                "border: 2px dashed #60a5fa; border-radius: 8px; "
                "display: flex; flex-direction: column; align-items: center; "
-               "justify-content: center; color: #93c5fd;")
+               "justify-content: center; color: #93c5fd; "
+               "transition: background 0.2s, border-color 0.2s;")
     );
+    zone_a = AzDom_withClass(zone_a, AZ_STR("drop-zone"));
     zone_a = AzDom_withChild(zone_a, AzDom_withInlineStyle(
         AzDom_createText(AZ_STR("Drop Zone A")),
         AZ_STR("font-size: 16px; font-weight: bold;")
@@ -393,10 +432,10 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AZ_STR("font-size: 12px; margin-top: 5px; color: #60a5fa;")
     ));
     zone_a = AzDom_withCallback(zone_a,
-        AzEventFilter_hover(AzHoverEventFilter_mouseEnter()),
+        AzEventFilter_hover(AzHoverEventFilter_dragEnter()),
         data4, on_zone_a_enter);
     zone_a = AzDom_withCallback(zone_a,
-        AzEventFilter_hover(AzHoverEventFilter_mouseLeave()),
+        AzEventFilter_hover(AzHoverEventFilter_dragLeave()),
         data5, on_zone_a_leave);
 
     // ── Drop Zone B ──
@@ -407,8 +446,10 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AZ_STR("width: 200px; height: 150px; background: #3b1e0f; "
                "border: 2px dashed #fb923c; border-radius: 8px; "
                "display: flex; flex-direction: column; align-items: center; "
-               "justify-content: center; color: #fdba74;")
+               "justify-content: center; color: #fdba74; "
+               "transition: background 0.2s, border-color 0.2s;")
     );
+    zone_b = AzDom_withClass(zone_b, AZ_STR("drop-zone"));
     zone_b = AzDom_withChild(zone_b, AzDom_withInlineStyle(
         AzDom_createText(AZ_STR("Drop Zone B")),
         AZ_STR("font-size: 16px; font-weight: bold;")
@@ -418,10 +459,10 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AZ_STR("font-size: 12px; margin-top: 5px; color: #fb923c;")
     ));
     zone_b = AzDom_withCallback(zone_b,
-        AzEventFilter_hover(AzHoverEventFilter_mouseEnter()),
+        AzEventFilter_hover(AzHoverEventFilter_dragEnter()),
         data6, on_zone_b_enter);
     zone_b = AzDom_withCallback(zone_b,
-        AzEventFilter_hover(AzHoverEventFilter_mouseLeave()),
+        AzEventFilter_hover(AzHoverEventFilter_dragLeave()),
         data7, on_zone_b_leave);
 
     AzDom_addChild(&zones_container, zone_a);
@@ -473,7 +514,23 @@ AzStyledDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&body, status_text);
     AzDom_addChild(&body, stats_text);
 
-    return AzDom_style(&body, AzCss_empty());
+    // CSS stylesheet with :dragging and :drag-over pseudo-class selectors.
+    // These verify that the CSS parser handles drag pseudo-classes and that
+    // the StyledNodeState.dragging / .drag_over flags drive CSS property resolution.
+    AzCss css = AzCss_fromString(AZ_STR(
+        ".drag-box:dragging { "
+        "  background: #2563eb; "
+        "  opacity: 0.75; "
+        "  border: 2px solid #93c5fd; "
+        "} "
+        ".drop-zone:drag-over { "
+        "  background: #064e3b; "
+        "  border-color: #34d399; "
+        "  color: #6ee7b7; "
+        "} "
+    ));
+
+    return AzDom_style(&body, css);
 }
 
 // ── Main ────────────────────────────────────────────────────────────────
