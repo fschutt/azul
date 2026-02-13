@@ -3689,7 +3689,11 @@
               },
               "stop_propagation": {
                 "doc": [
-                  "Stop event propagation (applied after callback returns)"
+                  "Stop event propagation to other nodes (W3C stopPropagation).",
+                  "",
+                  "Remaining handlers on the current node still fire,",
+                  "but handlers on parent/child nodes in subsequent phases are skipped.",
+                  "Applied after the callback returns."
                 ],
                 "fn_args": [
                   {
@@ -3697,6 +3701,20 @@
                   }
                 ],
                 "fn_body": "object.stop_propagation()"
+              },
+              "stop_immediate_propagation": {
+                "doc": [
+                  "Stop event propagation immediately (W3C stopImmediatePropagation).",
+                  "",
+                  "No further handlers fire, not even remaining handlers",
+                  "registered on the same node. Applied after the callback returns."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  }
+                ],
+                "fn_body": "object.stop_immediate_propagation()"
               },
               "create_window": {
                 "doc": [
@@ -27088,6 +27106,12 @@
                 "PinchOut": {},
                 "RotateClockwise": {},
                 "RotateCounterClockwise": {},
+                "MouseOut": {},
+                "FocusIn": {},
+                "FocusOut": {},
+                "CompositionStart": {},
+                "CompositionUpdate": {},
+                "CompositionEnd": {},
                 "SystemTextSingleClick": {},
                 "SystemTextDoubleClick": {},
                 "SystemTextTripleClick": {}
@@ -27391,7 +27415,12 @@
                 "PinchIn": {},
                 "PinchOut": {},
                 "RotateClockwise": {},
-                "RotateCounterClockwise": {}
+                "RotateCounterClockwise": {},
+                "FocusIn": {},
+                "FocusOut": {},
+                "CompositionStart": {},
+                "CompositionUpdate": {},
+                "CompositionEnd": {}
               }
             ],
             "repr": "C"

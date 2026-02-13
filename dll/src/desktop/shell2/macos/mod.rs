@@ -4846,6 +4846,7 @@ impl MacOSWindow {
             LogCategory::Rendering,
             "[build_atomic_txn] Building transaction"
         );
+
         // Build everything into this transaction using helper functions
         crate::desktop::wr_translate2::build_webrender_transaction(
             &mut txn,
