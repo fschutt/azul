@@ -584,6 +584,10 @@ fn render_display_list(
                 // TODO: Implement opacity layers for CPU rendering
             }
             DisplayListItem::PopOpacity => {}
+            DisplayListItem::PushReferenceFrame { .. } => {
+                // TODO: Apply transform for CPU rendering
+            }
+            DisplayListItem::PopReferenceFrame => {}
         }
     }
 

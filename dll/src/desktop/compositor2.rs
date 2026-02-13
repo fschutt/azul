@@ -170,6 +170,7 @@ pub fn translate_displaylist_to_wr(
     }
 
     // Translate display list items to WebRender
+    let mut in_reference_frame = false;
     for item in &display_list.items {
         match item {
             DisplayListItem::Rect {
@@ -1232,6 +1233,74 @@ pub fn translate_displaylist_to_wr(
                     LogCategory::DisplayList,
                     "[compositor2] >>>>> pop_stacking_context RETURNED <<<<<"
                 );
+            }
+
+            DisplayListItem::PushReferenceFrame {
+                transform_key,
+                initial_transform,
+                bounds,
+            } => {
+                // GPU-accelerated transform reference frame.
+                // This creates a new spatial node with a PropertyBinding for the transform,
+                // allowing WebRender to animate the transform via append_dynamic_properties
+                // without rebuilding the display list.
+
+                let parent_spatial_id = current_spatial!();
+
+                // Convert ComputedTransform3D (row-major [[f32;4];4]) to WR LayoutTransform.
+                // IMPORTANT: Scale the translation components (m[3][0], m[3][1], m[3][2]) by DPI
+                // because the transform operates in the same coordinate space as display list
+                // items, which are all scaled from CSS (logical) pixels to physical pixels.
+                let wr_transform = LayoutTransform::new(
+                    initial_transform.m[0][0], initial_transform.m[0][1],
+                    initial_transform.m[0][2], initial_transform.m[0][3],
+                    initial_transform.m[1][0], initial_transform.m[1][1],
+                    initial_transform.m[1][2], initial_transform.m[1][3],
+                    initial_transform.m[2][0], initial_transform.m[2][1],
+                    initial_transform.m[2][2], initial_transform.m[2][3],
+                    initial_transform.m[3][0] * dpi_scale, initial_transform.m[3][1] * dpi_scale,
+                    initial_transform.m[3][2] * dpi_scale, initial_transform.m[3][3],
+                );
+
+                // Use PropertyBinding::Binding so we can update this transform
+                // dynamically via append_dynamic_properties
+                let binding = PropertyBinding::Binding(
+                    webrender::api::PropertyBindingKey::new(transform_key.id as u64),
+                    wr_transform,
+                );
+
+                // Use the transform_key.id as the spatial tree item key
+                let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, 0);
+
+                // Push reference frame at ZERO origin.
+                // The reference frame is purely for the dynamic transform (drag delta / CSS transform).
+                // Items inside keep their absolute (DPI-scaled) coordinates.
+                // We do NOT shift the coordinate origin - the transform handles all movement.
+                let new_spatial_id = builder.push_reference_frame(
+                    LayoutPoint::zero(),
+                    parent_spatial_id,
+                    TransformStyle::Flat,
+                    binding,
+                    ReferenceFrameKind::Transform {
+                        is_2d_scale_translation: false,
+                        should_snap: false,
+                        paired_with_perspective: false,
+                    },
+                    spatial_key,
+                );
+
+                // Push the new spatial ID so all children use this transform space.
+                // NO offset push - origin is (0,0), items keep absolute coordinates.
+                spatial_stack.push(new_spatial_id);
+
+                in_reference_frame = true;
+            }
+
+            DisplayListItem::PopReferenceFrame => {
+                in_reference_frame = false;
+                builder.pop_reference_frame();
+                spatial_stack.pop();
+                // NO offset_stack.pop() - we didn't push one
             }
 
             DisplayListItem::IFrame {

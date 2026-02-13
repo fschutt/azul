@@ -1749,6 +1749,11 @@ pub fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
 pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
     use webrender::api::{DynamicProperties, PropertyBinding, PropertyValue};
 
+    // Get DPI scale factor to match display list coordinate space.
+    // Display list items are in logical CSS pixels scaled by DPI in compositor2.
+    // Transform values must use the same scaling.
+    let dpi_scale = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
+
     // Collect all dynamic properties to update
     let mut properties = DynamicProperties {
         transforms: Vec::new(),
@@ -1814,16 +1819,42 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
             }
         }
 
-        // TODO: Synchronize transform values
-        // This would work similarly:
-        // for ((cache_dom_id, node_id), &transform) in &gpu_cache.transform_values {
-        //     if let Some(&transform_key) = gpu_cache.transform_keys.get(&(*dom_id, *node_id)) {
-        //         properties.transforms.push(PropertyValue {
-        //             key: transform_key,
-        //             value: wr_translate_transform(transform),
-        //         });
-        //     }
-        // }
+        // Synchronize transform values from GPU cache
+        // Transform keys map NodeId -> TransformKey, values map NodeId -> ComputedTransform3D
+        for (node_id, transform) in &gpu_cache.current_transform_values {
+            if let Some(&transform_key) = gpu_cache.transform_keys.get(node_id) {
+                // Convert ComputedTransform3D to WR LayoutTransform.
+                // IMPORTANT: Scale translation components (m[3][0..2]) by DPI to match
+                // compositor2's coordinate space where all positions are logical × dpi_scale.
+                use webrender::api::units::LayoutTransform;
+                let wr_transform = LayoutTransform::new(
+                    transform.m[0][0], transform.m[0][1],
+                    transform.m[0][2], transform.m[0][3],
+                    transform.m[1][0], transform.m[1][1],
+                    transform.m[1][2], transform.m[1][3],
+                    transform.m[2][0], transform.m[2][1],
+                    transform.m[2][2], transform.m[2][3],
+                    transform.m[3][0] * dpi_scale, transform.m[3][1] * dpi_scale,
+                    transform.m[3][2] * dpi_scale, transform.m[3][3],
+                );
+
+                properties.transforms.push(PropertyValue {
+                    key: webrender::api::PropertyBindingKey::new(transform_key.id as u64),
+                    value: wr_transform,
+                });
+
+                log_debug!(
+                    LogCategory::Rendering,
+                    "[synchronize_gpu_values] Set transform for {:?}:{:?} (key={}), \
+                     translate=({:.1}, {:.1})",
+                    dom_id,
+                    node_id,
+                    transform_key.id,
+                    transform.m[3][0],
+                    transform.m[3][1]
+                );
+            }
+        }
     }
 
     // Apply all property updates to the transaction

@@ -10,8 +10,9 @@ use azul_core::{
     hit_test::ScrollPosition,
     hit_test_tag::{CursorType, TAG_TYPE_CURSOR},
     resources::{
-        IdNamespace, ImageRef, OpacityKey, RendererResources,
+        IdNamespace, ImageRef, OpacityKey, RendererResources, TransformKey,
     },
+    transform::ComputedTransform3D,
     selection::{Selection, SelectionRange, SelectionState, TextSelection},
     styled_dom::StyledDom,
     ui_solver::GlyphInstance,
@@ -567,6 +568,20 @@ pub enum DisplayListItem {
     /// Pops the current stacking context.
     PopStackingContext,
 
+    /// Pushes a reference frame with a GPU-accelerated transform.
+    /// Used for CSS transforms and drag visual offsets.
+    /// Creates a new spatial coordinate system for all children.
+    PushReferenceFrame {
+        /// The transform key for GPU-animated property binding
+        transform_key: TransformKey,
+        /// The initial transform value (identity for drag, computed for CSS transform)
+        initial_transform: ComputedTransform3D,
+        /// The bounds of the reference frame (origin = transform origin)
+        bounds: LogicalRect,
+    },
+    /// Pops the current reference frame.
+    PopReferenceFrame,
+
     /// Defines a region for hit-testing.
     HitTestArea {
         bounds: LogicalRect,
@@ -1061,6 +1076,23 @@ impl DisplayListBuilder {
 
     pub fn pop_stacking_context(&mut self) {
         self.push_item(DisplayListItem::PopStackingContext);
+    }
+
+    pub fn push_reference_frame(
+        &mut self,
+        transform_key: TransformKey,
+        initial_transform: ComputedTransform3D,
+        bounds: LogicalRect,
+    ) {
+        self.push_item(DisplayListItem::PushReferenceFrame {
+            transform_key,
+            initial_transform,
+            bounds,
+        });
+    }
+
+    pub fn pop_reference_frame(&mut self) {
+        self.push_item(DisplayListItem::PopReferenceFrame);
     }
 
     pub fn push_text_run(
@@ -1639,6 +1671,21 @@ where
             );
         }
 
+        // Set current node BEFORE pushing stacking context so that
+        // the PushStackingContext item gets the correct node_mapping entry.
+        // This is critical for drag visual offset matching.
+        builder.set_current_node(node.dom_node_id);
+
+        // Check if this node has a GPU-accelerated transform (CSS transform or drag).
+        // If so, wrap in a reference frame so WebRender can animate it on the GPU.
+        let has_reference_frame = node.dom_node_id.and_then(|dom_id| {
+            self.gpu_value_cache.and_then(|cache| {
+                let key = cache.transform_keys.get(&dom_id)?;
+                let transform = cache.current_transform_values.get(&dom_id)?;
+                Some((*key, *transform))
+            })
+        });
+
         // Push a stacking context for WebRender
         // Get the node's bounds for the stacking context
         let node_pos = self
@@ -1655,6 +1702,12 @@ where
             origin: node_pos,
             size: node_size,
         };
+
+        // Push reference frame BEFORE stacking context if node has a transform
+        if let Some((transform_key, initial_transform)) = has_reference_frame {
+            builder.push_reference_frame(transform_key, initial_transform, node_bounds);
+        }
+
         builder.push_stacking_context(context.z_index, node_bounds);
 
         // 1. Paint background and borders for the context's root element.
@@ -1715,6 +1768,11 @@ where
         // Pop the stacking context for WebRender
         builder.pop_stacking_context();
 
+        // Pop reference frame if we pushed one
+        if has_reference_frame.is_some() {
+            builder.pop_reference_frame();
+        }
+
         // After painting the node and all its descendants, pop any contexts it pushed.
         if did_push_clip_or_scroll {
             self.pop_node_clips(builder, node)?;
@@ -1745,14 +1803,14 @@ where
         self.paint_node_content(builder, node_index)?;
 
         // 4. Recursively paint the in-flow children in correct CSS painting order:
-        //    - First: Non-float block-level children
-        //    - Then: Float children (so they appear on top)
-        //    - Finally: Inline-level children (though typically handled above in
-        //      paint_node_content)
+        //    - First: Non-float, non-dragging block-level children
+        //    - Then: Float, non-dragging children (so they appear on top)
+        //    - Finally: Dragging children (so they appear on top of everything per W3C spec)
 
-        // Separate children into floats and non-floats
+        // Separate children into floats, non-floats, and dragging
         let mut non_float_children = Vec::new();
         let mut float_children = Vec::new();
+        let mut dragging_children = Vec::new();
 
         for &child_index in children_indices {
             let child_node = self
@@ -1760,6 +1818,19 @@ where
                 .tree
                 .get(child_index)
                 .ok_or(LayoutError::InvalidTree)?;
+
+            // Check if this child is being dragged (paint last for z-order)
+            let is_dragging = if let Some(dom_id) = child_node.dom_node_id {
+                let styled_node_state = self.get_styled_node_state(dom_id);
+                styled_node_state.dragging
+            } else {
+                false
+            };
+
+            if is_dragging {
+                dragging_children.push(child_index);
+                continue;
+            }
 
             // Check if this child is a float
             let is_float = if let Some(dom_id) = child_node.dom_node_id {
@@ -1789,6 +1860,35 @@ where
                 .get(child_index)
                 .ok_or(LayoutError::InvalidTree)?;
 
+            // Check if this child has a GPU transform (CSS transform or drag)
+            let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
+                self.gpu_value_cache.and_then(|cache| {
+                    let key = cache.transform_keys.get(&dom_id)?;
+                    let transform = cache.current_transform_values.get(&dom_id)?;
+                    Some((*key, *transform))
+                })
+            });
+
+            // Push reference frame if child has a transform
+            if let Some((transform_key, initial_transform)) = child_ref_frame {
+                let child_pos = self
+                    .positioned_tree
+                    .calculated_positions
+                    .get(&child_index)
+                    .copied()
+                    .unwrap_or_default();
+                let child_size = child_node.used_size.unwrap_or(LogicalSize {
+                    width: 0.0,
+                    height: 0.0,
+                });
+                let child_bounds = LogicalRect {
+                    origin: child_pos,
+                    size: child_size,
+                };
+                builder.set_current_node(child_node.dom_node_id);
+                builder.push_reference_frame(transform_key, initial_transform, child_bounds);
+            }
+
             // IMPORTANT: Paint background and border BEFORE pushing clips!
             // This ensures the container's background is in parent space (stationary),
             // not in scroll space. Same logic as generate_for_stacking_context.
@@ -1807,6 +1907,11 @@ where
 
             // Paint scrollbars AFTER popping clips so they appear on top of content
             self.paint_scrollbars(builder, child_index)?;
+
+            // Pop reference frame if we pushed one
+            if child_ref_frame.is_some() {
+                builder.pop_reference_frame();
+            }
         }
 
         // Paint float children AFTER non-floats (so they appear on top)
@@ -1816,6 +1921,35 @@ where
                 .tree
                 .get(child_index)
                 .ok_or(LayoutError::InvalidTree)?;
+
+            // Check if this child has a GPU transform (CSS transform or drag)
+            let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
+                self.gpu_value_cache.and_then(|cache| {
+                    let key = cache.transform_keys.get(&dom_id)?;
+                    let transform = cache.current_transform_values.get(&dom_id)?;
+                    Some((*key, *transform))
+                })
+            });
+
+            // Push reference frame if child has a transform
+            if let Some((transform_key, initial_transform)) = child_ref_frame {
+                let child_pos = self
+                    .positioned_tree
+                    .calculated_positions
+                    .get(&child_index)
+                    .copied()
+                    .unwrap_or_default();
+                let child_size = child_node.used_size.unwrap_or(LogicalSize {
+                    width: 0.0,
+                    height: 0.0,
+                });
+                let child_bounds = LogicalRect {
+                    origin: child_pos,
+                    size: child_size,
+                };
+                builder.set_current_node(child_node.dom_node_id);
+                builder.push_reference_frame(transform_key, initial_transform, child_bounds);
+            }
 
             // Same as above: paint background BEFORE clips
             self.paint_node_background_and_border(builder, child_index)?;
@@ -1828,6 +1962,66 @@ where
 
             // Paint scrollbars AFTER popping clips so they appear on top of content
             self.paint_scrollbars(builder, child_index)?;
+
+            // Pop reference frame if we pushed one
+            if child_ref_frame.is_some() {
+                builder.pop_reference_frame();
+            }
+        }
+
+        // Paint dragging children LAST so they appear on top of everything (W3C spec)
+        for child_index in dragging_children {
+            let child_node = self
+                .positioned_tree
+                .tree
+                .get(child_index)
+                .ok_or(LayoutError::InvalidTree)?;
+
+            // Check if this child has a GPU transform (CSS transform or drag)
+            let child_ref_frame = child_node.dom_node_id.and_then(|dom_id| {
+                self.gpu_value_cache.and_then(|cache| {
+                    let key = cache.transform_keys.get(&dom_id)?;
+                    let transform = cache.current_transform_values.get(&dom_id)?;
+                    Some((*key, *transform))
+                })
+            });
+
+            // Push reference frame if child has a transform
+            if let Some((transform_key, initial_transform)) = child_ref_frame {
+                let child_pos = self
+                    .positioned_tree
+                    .calculated_positions
+                    .get(&child_index)
+                    .copied()
+                    .unwrap_or_default();
+                let child_size = child_node.used_size.unwrap_or(LogicalSize {
+                    width: 0.0,
+                    height: 0.0,
+                });
+                let child_bounds = LogicalRect {
+                    origin: child_pos,
+                    size: child_size,
+                };
+                builder.set_current_node(child_node.dom_node_id);
+                builder.push_reference_frame(transform_key, initial_transform, child_bounds);
+            }
+
+            // Same as above: paint background BEFORE clips
+            self.paint_node_background_and_border(builder, child_index)?;
+            let did_push_clip = self.push_node_clips(builder, child_index, child_node)?;
+            self.paint_in_flow_descendants(builder, child_index, &child_node.children)?;
+
+            if did_push_clip {
+                self.pop_node_clips(builder, child_node)?;
+            }
+
+            // Paint scrollbars AFTER popping clips so they appear on top of content
+            self.paint_scrollbars(builder, child_index)?;
+
+            // Pop reference frame if we pushed one
+            if child_ref_frame.is_some() {
+                builder.pop_reference_frame();
+            }
         }
 
         Ok(())
@@ -3516,7 +3710,9 @@ fn clip_and_offset_display_item(
         | DisplayListItem::PushBackdropFilter { .. }
         | DisplayListItem::PopBackdropFilter
         | DisplayListItem::PushOpacity { .. }
-        | DisplayListItem::PopOpacity => None,
+        | DisplayListItem::PopOpacity
+        | DisplayListItem::PushReferenceFrame { .. }
+        | DisplayListItem::PopReferenceFrame => None,
     }
 }
 
@@ -4548,6 +4744,18 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
                 info: Box::new(offset_info),
             }
         }
+
+        // Reference frames - offset the bounds
+        DisplayListItem::PushReferenceFrame {
+            transform_key,
+            initial_transform,
+            bounds,
+        } => DisplayListItem::PushReferenceFrame {
+            transform_key: *transform_key,
+            initial_transform: *initial_transform,
+            bounds: offset_rect_y(*bounds, y_offset),
+        },
+        DisplayListItem::PopReferenceFrame => DisplayListItem::PopReferenceFrame,
     }
 }
 
