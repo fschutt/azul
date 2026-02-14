@@ -1474,9 +1474,6 @@ pub fn translate_displaylist_to_wr(
                     })
                     .collect();
 
-                // Push stops first
-                builder.push_stops(&wr_stops);
-
                 // Create WebRender gradient
                 let wr_gradient = WrGradient {
                     start_point,
@@ -1515,6 +1512,8 @@ pub fn translate_displaylist_to_wr(
                         spatial_id: current_spatial!(),
                         flags: Default::default(),
                     };
+                    // Push stops immediately before gradient to avoid clip items interleaving
+                    builder.push_stops(&wr_stops);
                     builder.push_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
                 } else {
                     let info = CommonItemProperties {
@@ -1523,6 +1522,7 @@ pub fn translate_displaylist_to_wr(
                         spatial_id: current_spatial!(),
                         flags: Default::default(),
                     };
+                    builder.push_stops(&wr_stops);
                     builder.push_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
                 }
             }
@@ -1662,8 +1662,6 @@ pub fn translate_displaylist_to_wr(
                     })
                     .collect();
 
-                builder.push_stops(&wr_stops);
-
                 let wr_gradient = WrRadialGradient {
                     center,
                     radius,
@@ -1703,6 +1701,8 @@ pub fn translate_displaylist_to_wr(
                         spatial_id: current_spatial!(),
                         flags: Default::default(),
                     };
+                    // Push stops immediately before gradient to avoid clip items interleaving
+                    builder.push_stops(&wr_stops);
                     builder.push_radial_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
                 } else {
                     let info = CommonItemProperties {
@@ -1711,6 +1711,7 @@ pub fn translate_displaylist_to_wr(
                         spatial_id: current_spatial!(),
                         flags: Default::default(),
                     };
+                    builder.push_stops(&wr_stops);
                     builder.push_radial_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
                 }
             }
@@ -1781,8 +1782,6 @@ pub fn translate_displaylist_to_wr(
                     })
                     .collect();
 
-                builder.push_stops(&wr_stops);
-
                 let wr_gradient = WrConicGradient {
                     center,
                     angle,
@@ -1822,6 +1821,8 @@ pub fn translate_displaylist_to_wr(
                         spatial_id: current_spatial!(),
                         flags: Default::default(),
                     };
+                    // Push stops immediately before gradient to avoid clip items interleaving
+                    builder.push_stops(&wr_stops);
                     builder.push_conic_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
                 } else {
                     let info = CommonItemProperties {
@@ -1830,6 +1831,7 @@ pub fn translate_displaylist_to_wr(
                         spatial_id: current_spatial!(),
                         flags: Default::default(),
                     };
+                    builder.push_stops(&wr_stops);
                     builder.push_conic_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
                 }
             }
