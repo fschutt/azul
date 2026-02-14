@@ -467,10 +467,20 @@ impl ScrollManager {
     }
 
     /// Check if a node is scrollable (has overflow:scroll/auto and overflowing content)
+    ///
+    /// Uses `virtual_scroll_size` (when set) instead of `content_rect` for the
+    /// overflow check, so IFrame nodes with large virtual content are correctly
+    /// identified as scrollable even when only a small subset is rendered.
     fn is_node_scrollable(&self, dom_id: DomId, node_id: NodeId) -> bool {
         self.states.get(&(dom_id, node_id)).map_or(false, |state| {
-            let has_horizontal = state.content_rect.size.width > state.container_rect.size.width;
-            let has_vertical = state.content_rect.size.height > state.container_rect.size.height;
+            let effective_width = state.virtual_scroll_size
+                .map(|s| s.width)
+                .unwrap_or(state.content_rect.size.width);
+            let effective_height = state.virtual_scroll_size
+                .map(|s| s.height)
+                .unwrap_or(state.content_rect.size.height);
+            let has_horizontal = effective_width > state.container_rect.size.width;
+            let has_vertical = effective_height > state.container_rect.size.height;
             has_horizontal || has_vertical
         })
     }
@@ -748,10 +758,17 @@ impl ScrollManager {
         self.scrollbar_states.clear();
 
         // Collect vertical scrollbar states
+        // Uses virtual_scroll_size (when set) for the overflow check and thumb ratio,
+        // so IFrame nodes with large virtual content show correct scrollbar geometry.
         let vertical_states: Vec<_> = self
             .states
             .iter()
-            .filter(|(_, s)| s.content_rect.size.height > s.container_rect.size.height)
+            .filter(|(_, s)| {
+                let effective_height = s.virtual_scroll_size
+                    .map(|vs| vs.height)
+                    .unwrap_or(s.content_rect.size.height);
+                effective_height > s.container_rect.size.height
+            })
             .map(|((dom_id, node_id), scroll_state)| {
                 let v_state = Self::calculate_vertical_scrollbar_static(scroll_state);
                 ((*dom_id, *node_id, ScrollbarOrientation::Vertical), v_state)
@@ -762,7 +779,12 @@ impl ScrollManager {
         let horizontal_states: Vec<_> = self
             .states
             .iter()
-            .filter(|(_, s)| s.content_rect.size.width > s.container_rect.size.width)
+            .filter(|(_, s)| {
+                let effective_width = s.virtual_scroll_size
+                    .map(|vs| vs.width)
+                    .unwrap_or(s.content_rect.size.width);
+                effective_width > s.container_rect.size.width
+            })
             .map(|((dom_id, node_id), scroll_state)| {
                 let h_state = Self::calculate_horizontal_scrollbar_static(scroll_state);
                 (
@@ -784,7 +806,9 @@ impl ScrollManager {
         const SCROLLBAR_WIDTH: f32 = 16.0;
 
         let container_height = scroll_state.container_rect.size.height;
-        let content_height = scroll_state.content_rect.size.height;
+        let content_height = scroll_state.virtual_scroll_size
+            .map(|s| s.height)
+            .unwrap_or(scroll_state.content_rect.size.height);
 
         // Thumb size ratio = visible_height / total_height
         let thumb_size_ratio = (container_height / content_height).min(1.0);
@@ -827,7 +851,9 @@ impl ScrollManager {
         const SCROLLBAR_HEIGHT: f32 = 16.0;
 
         let container_width = scroll_state.container_rect.size.width;
-        let content_width = scroll_state.content_rect.size.width;
+        let content_width = scroll_state.virtual_scroll_size
+            .map(|s| s.width)
+            .unwrap_or(scroll_state.content_rect.size.width);
 
         let thumb_size_ratio = (container_width / content_width).min(1.0);
 
