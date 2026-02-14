@@ -3620,7 +3620,7 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleFilterVecValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::Filter)
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::BackdropFilter)
             .and_then(|p| p.as_backdrop_filter())
     }
     pub fn get_text_shadow<'a>(
