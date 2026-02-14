@@ -4803,6 +4803,27 @@ impl Dom {
         self.root.add_css_property(prop);
     }
     #[inline(always)]
+    pub fn add_class(&mut self, class: AzString) {
+        self.root.add_class(class);
+    }
+    #[inline(always)]
+    pub fn add_callback<C: Into<CoreCallback>>(
+        &mut self,
+        event: EventFilter,
+        data: RefAny,
+        callback: C,
+    ) {
+        self.root.add_callback(event, data, callback);
+    }
+    #[inline(always)]
+    pub fn set_tab_index(&mut self, tab_index: TabIndex) {
+        self.root.set_tab_index(tab_index);
+    }
+    #[inline(always)]
+    pub fn set_contenteditable(&mut self, contenteditable: bool) {
+        self.root.set_contenteditable(contenteditable);
+    }
+    #[inline(always)]
     pub fn with_tab_index(mut self, tab_index: TabIndex) -> Self {
         self.root.set_tab_index(tab_index);
         self
