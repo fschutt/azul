@@ -67,7 +67,7 @@ void demo_locale(const char* locale_name, const char* locale_code) {
     AzString locale = az_str(locale_code);
     
     // Create a shared cache for all ICU operations
-    AzIcuLocalizerHandle cache = AzIcuLocalizerHandle_new(AzString_clone(&locale));
+    AzIcuLocalizerHandle cache = AzIcuLocalizerHandle_create(AzString_clone(&locale));
     
     // === Number Formatting ===
     printf("\n--- Number Formatting ---\n");
@@ -172,7 +172,7 @@ void demo_multi_locale() {
     
     // Create a single cache that can handle multiple locales
     AzString default_locale = az_str("en-US");
-    AzIcuLocalizerHandle cache = AzIcuLocalizerHandle_new(default_locale);
+    AzIcuLocalizerHandle cache = AzIcuLocalizerHandle_create(default_locale);
     // default_locale consumed by new()
     
     int64_t number = 1234567;

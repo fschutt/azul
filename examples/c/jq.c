@@ -87,7 +87,7 @@ void demo_pretty_print(void) {
     AzJson json = parse_result.Ok.payload;
     
     // Pretty-print the JSON (like jq '.')
-    CStr pretty = cstr_new(AzJson_toJsonStringPretty(&json));
+    CStr pretty = cstr_new(AzJson_toStringPretty(&json));
     const char* json_str = cstr_ptr(&pretty);
     size_t len = strlen(json_str);
     
@@ -143,7 +143,7 @@ void demo_first_element(void) {
         return;
     }
     
-    CStr pretty = cstr_new(AzJson_toJsonStringPretty(&first));
+    CStr pretty = cstr_new(AzJson_toStringPretty(&first));
     const char* json_str = cstr_ptr(&pretty);
     size_t len = strlen(json_str);
     
@@ -197,14 +197,14 @@ void demo_extract_fields(void) {
     printf("First commit:\n");
     
     if (!AzJson_isNull(&msg)) {
-        CStr msg_str = cstr_new(AzJson_toJsonString(&msg));
+        CStr msg_str = cstr_new(AzJson_toString(&msg));
         printf("  message: %s\n", cstr_ptr(&msg_str));
         cstr_free(&msg_str);
     }
     AzJson_delete(&msg);
     
     if (!AzJson_isNull(&name)) {
-        CStr name_str = cstr_new(AzJson_toJsonString(&name));
+        CStr name_str = cstr_new(AzJson_toString(&name));
         printf("  name: %s\n", cstr_ptr(&name_str));
         cstr_free(&name_str);
     }
@@ -252,7 +252,7 @@ void demo_wildcard_iterate(void) {
     
     for (size_t i = 0; i < messages.len; i++) {
         AzJson* msg = &((AzJson*)messages.ptr)[i];
-        CStr msg_str = cstr_new(AzJson_toJsonString(msg));
+        CStr msg_str = cstr_new(AzJson_toString(msg));
         const char* s = cstr_ptr(&msg_str);
         
         // Truncate long messages
@@ -309,7 +309,7 @@ void demo_nested_wildcard(void) {
     
     for (size_t i = 0; i < parent_urls.len; i++) {
         AzJson* url = &((AzJson*)parent_urls.ptr)[i];
-        CStr url_str = cstr_new(AzJson_toJsonString(url));
+        CStr url_str = cstr_new(AzJson_toString(url));
         printf("  - %s\n", cstr_ptr(&url_str));
         cstr_free(&url_str);
     }
@@ -340,7 +340,7 @@ int main(int argc, char** argv) {
     print_separator("Demo Complete!");
     printf("The Azul JSON query functions provide jq-like querying:\n\n");
     printf("Single value queries (jq):\n");
-    printf("  jq '.'           -> AzJson_toJsonStringPretty(&json)\n");
+    printf("  jq '.'           -> AzJson_toStringPretty(&json)\n");
     printf("  jq '.[0]'        -> AzJson_jq(&json, \"/0\")\n");
     printf("  jq '.foo.bar'    -> AzJson_jq(&json, \"/foo/bar\")\n");
     printf("\nWildcard queries (jq_all):\n");

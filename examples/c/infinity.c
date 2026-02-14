@@ -89,12 +89,12 @@ AzIFrameCallbackReturn render_iframe(AzRefAny data, AzIFrameCallbackInfo info) {
     
     // Calculate actual rendered size
     size_t rows_rendered = ((end - visible_start) + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
-    AzLogicalSize scroll_size = AzLogicalSize_new(800.0f, (float)rows_rendered * ITEM_HEIGHT);
-    AzLogicalPosition scroll_offset = AzLogicalPosition_new(0.0f, (float)first_row * ITEM_HEIGHT);
+    AzLogicalSize scroll_size = AzLogicalSize_create(800.0f, (float)rows_rendered * ITEM_HEIGHT);
+    AzLogicalPosition scroll_offset = AzLogicalPosition_create(0.0f, (float)first_row * ITEM_HEIGHT);
     
     // Calculate virtual (total) size
     size_t total_rows = (file_count + ITEMS_PER_ROW - 1) / ITEMS_PER_ROW;
-    AzLogicalSize virtual_scroll_size = AzLogicalSize_new(800.0f, (float)total_rows * ITEM_HEIGHT);
+    AzLogicalSize virtual_scroll_size = AzLogicalSize_create(800.0f, (float)total_rows * ITEM_HEIGHT);
     AzLogicalPosition virtual_scroll_offset = AzLogicalPosition_zero();
     
     return AzIFrameCallbackReturn_withDom(dom, scroll_size, scroll_offset, virtual_scroll_size, virtual_scroll_offset);

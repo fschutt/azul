@@ -1,6 +1,6 @@
 // Effects Showcase - C
 // Demonstrates gradients, box shadows, text shadows, filters, opacity, backdrop-filter
-// Uses CSS grid layout. Requires overflow-y:scroll on body for scrolling.
+// Uses CSS grid layout. 
 // cc -o effects-showcase effects-showcase.c -lazul -L../../target/release
 #include "azul.h"
 #include <stdio.h>

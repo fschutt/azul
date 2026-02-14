@@ -24,3 +24,4 @@ azul.h
 *.dSYM
 *.xhtml
 *.dylib
+*.bin

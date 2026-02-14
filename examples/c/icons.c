@@ -85,7 +85,7 @@ int main() {
     printf("=====================\n\n");
     
     // Load favicon.ico from assets folder
-    AzFilePath favicon_path = AzFilePath_new(az_str("../assets/images/favicon.ico"));
+    AzFilePath favicon_path = AzFilePath_create(az_str("../assets/images/favicon.ico"));
     printf("Loading favicon from: %s\n", "../assets/images/favicon.ico");
     
     // Read the file

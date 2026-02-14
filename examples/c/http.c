@@ -186,7 +186,7 @@ void demo_http_with_config(void) {
     printf("============================================================\n\n");
     
     // Create custom configuration using builder pattern (by-value)
-    AzHttpRequestConfig config = AzHttpRequestConfig_new();
+    AzHttpRequestConfig config = AzHttpRequestConfig_create();
     config = AzHttpRequestConfig_withTimeout(config, 10);
     config = AzHttpRequestConfig_withMaxSize(config, 1024 * 1024);
     config = AzHttpRequestConfig_withUserAgent(config, az_str("AzulApp/1.0 (C Example)"));

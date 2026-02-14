@@ -23,7 +23,7 @@ AzString az_str(const char* s) {
 
 // Helper to create AzFilePath from C string
 AzFilePath az_path(const char* s) {
-    return AzFilePath_new(az_str(s));
+    return AzFilePath_create(az_str(s));
 }
 
 // Helper struct for managing null-terminated C strings from AzString
