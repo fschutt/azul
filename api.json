@@ -10384,6 +10384,56 @@
                   }
                 ],
                 "fn_body": "object.set_css(style.as_str())"
+              },
+              "add_class": {
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "class": "String"
+                  }
+                ],
+                "fn_body": "object.add_class(class)"
+              },
+              "add_callback": {
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "event": "EventFilter"
+                  },
+                  {
+                    "data": "RefAny"
+                  },
+                  {
+                    "callback": "CallbackType"
+                  }
+                ],
+                "fn_body": "object.add_callback(event, data, azul_layout::callbacks::Callback::create(callback).to_core())"
+              },
+              "set_tab_index": {
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "tab_index": "TabIndex"
+                  }
+                ],
+                "fn_body": "object.set_tab_index(tab_index)"
+              },
+              "set_contenteditable": {
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "contenteditable": "bool"
+                  }
+                ],
+                "fn_body": "object.set_contenteditable(contenteditable)"
               }
             },
             "repr": "C"
@@ -15992,6 +16042,9 @@
                 "GridRow": {
                   "type": "LayoutGridRowValue"
                 },
+                "GridTemplateAreas": {
+                  "type": "LayoutGridTemplateAreasValue"
+                },
                 "WritingMode": {
                   "type": "LayoutWritingModeValue"
                 },
@@ -20549,7 +20602,6 @@
               "Default"
             ],
             "derive": [
-              "Copy",
               "Clone",
               "Eq",
               "Ord",
@@ -20560,18 +20612,15 @@
             ],
             "enum_fields": [
               {
-                "Auto": {}
-              },
-              {
+                "Auto": {},
                 "Px": {
                   "type": "PixelValue"
+                },
+                "MinContent": {},
+                "MaxContent": {},
+                "Calc": {
+                  "type": "CalcAstItemVec"
                 }
-              },
-              {
-                "MinContent": {}
-              },
-              {
-                "MaxContent": {}
               }
             ],
             "repr": "C, u8"
@@ -21025,7 +21074,6 @@
               "Default"
             ],
             "derive": [
-              "Copy",
               "Eq",
               "Ord",
               "PartialOrd",
@@ -21036,18 +21084,15 @@
             ],
             "enum_fields": [
               {
-                "Auto": {}
-              },
-              {
+                "Auto": {},
                 "Px": {
                   "type": "PixelValue"
+                },
+                "MinContent": {},
+                "MaxContent": {},
+                "Calc": {
+                  "type": "CalcAstItemVec"
                 }
-              },
-              {
-                "MinContent": {}
-              },
-              {
-                "MaxContent": {}
               }
             ],
             "repr": "C, u8"
@@ -28644,6 +28689,7 @@
                 "GridAutoRows": {},
                 "GridColumn": {},
                 "GridRow": {},
+                "GridTemplateAreas": {},
                 "GridAutoFlow": {},
                 "JustifySelf": {},
                 "JustifyItems": {},
@@ -30738,6 +30784,97 @@
                 },
                 "focus_indicator_behavior": {
                   "type": "FocusBehavior"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "GridAreaDefinition": {
+            "external": "azul_css::props::layout::grid::GridAreaDefinition",
+            "derive": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "name": {
+                  "type": "String"
+                },
+                "row_start": {
+                  "type": "u16"
+                },
+                "row_end": {
+                  "type": "u16"
+                },
+                "column_start": {
+                  "type": "u16"
+                },
+                "column_end": {
+                  "type": "u16"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "LayoutGridTemplateAreasValue": {
+            "external": "azul_css::props::property::LayoutGridTemplateAreasValue",
+            "repr": "C",
+            "type_alias": {
+              "target": "CssPropertyValue",
+              "generic_args": [
+                "GridTemplateAreas"
+              ]
+            }
+          },
+          "GridTemplateAreas": {
+            "external": "azul_css::props::layout::grid::GridTemplateAreas",
+            "custom_impls": [
+              "Default"
+            ],
+            "derive": [
+              "Clone",
+              "Debug",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "struct_fields": [
+              {
+                "areas": {
+                  "type": "GridAreaDefinitionVec"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "GridAreaDefinitionVecSlice": {
+            "external": "azul_css::props::layout::grid::GridAreaDefinitionVecSlice",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "GridAreaDefinition",
+                  "ref_kind": "constptr",
+                  "doc": [
+                    "Pointer to the slice data"
+                  ]
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": [
+                    "Number of elements in the slice"
+                  ]
                 }
               }
             ],
@@ -67396,6 +67533,436 @@
               }
             },
             "repr": "C"
+          },
+          "CalcAstItemVec": {
+            "external": "azul_css::props::layout::dimensions::CalcAstItemVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "CalcAstItem",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "CalcAstItemVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `CalcAstItemVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "CalcAstItemVec"
+                },
+                "fn_body": "Self::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `CalcAstItemVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CalcAstItemVec"
+                },
+                "fn_body": "Self::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "calc_ast_item_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "calc_ast_item_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "calc_ast_item_vec.is_empty()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `CalcAstItemVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "CalcAstItem"
+                  }
+                ],
+                "returns": {
+                  "type": "CalcAstItemVec"
+                },
+                "fn_body": "Self::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `CalcAstItemVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const CalcAstItem"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CalcAstItemVec"
+                },
+                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+              },
+              "c_get": {
+                "doc": [
+                  "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionCalcAstItem"
+                },
+                "fn_body": "calc_ast_item_vec.c_get(index).into()"
+              },
+              "as_c_slice": {
+                "doc": [
+                  "Returns a C-compatible slice of the entire Vec as a `CalcAstItemVecSlice`."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "CalcAstItemVecSlice"
+                },
+                "fn_body": "calc_ast_item_vec.as_c_slice()"
+              },
+              "as_c_slice_range": {
+                "doc": [
+                  "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "start": "usize"
+                  },
+                  {
+                    "end": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "CalcAstItemVecSlice"
+                },
+                "fn_body": "calc_ast_item_vec.as_c_slice_range(start, end)"
+              }
+            },
+            "repr": "C"
+          },
+          "CalcAstItemVecDestructorType": {
+            "external": "azul_css::props::layout::dimensions::CalcAstItemVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "CalcAstItemVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
+          },
+          "CalcAstItemVecDestructor": {
+            "external": "azul_css::props::layout::dimensions::CalcAstItemVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "CalcAstItemVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "GridAreaDefinitionVec": {
+            "external": "azul_css::props::layout::grid::GridAreaDefinitionVec",
+            "custom_impls": [
+              "Clone",
+              "Debug",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "derive": [
+              "Debug"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "GridAreaDefinition",
+                  "ref_kind": "constptr"
+                },
+                "len": {
+                  "type": "usize"
+                },
+                "cap": {
+                  "type": "usize"
+                },
+                "destructor": {
+                  "type": "GridAreaDefinitionVecDestructor"
+                },
+                "run_destructor": {
+                  "type": "bool"
+                }
+              }
+            ],
+            "functions": {
+              "create": {
+                "doc": [
+                  "Creates an empty `GridAreaDefinitionVec`"
+                ],
+                "fn_args": [],
+                "returns": {
+                  "type": "GridAreaDefinitionVec"
+                },
+                "fn_body": "Self::new()"
+              },
+              "with_capacity": {
+                "doc": [
+                  "Creates a `GridAreaDefinitionVec` with a given capacity"
+                ],
+                "fn_args": [
+                  {
+                    "cap": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "GridAreaDefinitionVec"
+                },
+                "fn_body": "Self::with_capacity(cap)"
+              },
+              "len": {
+                "doc": [
+                  "Returns the number of elements in the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "grid_area_definition_vec.len()"
+              },
+              "capacity": {
+                "doc": [
+                  "Returns the capacity of the Vec"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "usize"
+                },
+                "fn_body": "grid_area_definition_vec.capacity()"
+              },
+              "is_empty": {
+                "doc": [
+                  "Returns whether the Vec is empty"
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "bool"
+                },
+                "fn_body": "grid_area_definition_vec.is_empty()"
+              },
+              "from_item": {
+                "doc": [
+                  "Creates a `GridAreaDefinitionVec` containing a single element"
+                ],
+                "fn_args": [
+                  {
+                    "item": "GridAreaDefinition"
+                  }
+                ],
+                "returns": {
+                  "type": "GridAreaDefinitionVec"
+                },
+                "fn_body": "Self::from_item(item)"
+              },
+              "copy_from_ptr": {
+                "doc": [
+                  "Copies elements from a C array into a `GridAreaDefinitionVec`. The array must be valid for `len` elements."
+                ],
+                "fn_args": [
+                  {
+                    "ptr": "*const GridAreaDefinition"
+                  },
+                  {
+                    "len": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "GridAreaDefinitionVec"
+                },
+                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+              },
+              "c_get": {
+                "doc": [
+                  "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "index": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "OptionGridAreaDefinition"
+                },
+                "fn_body": "grid_area_definition_vec.c_get(index).into()"
+              },
+              "as_c_slice": {
+                "doc": [
+                  "Returns a C-compatible slice of the entire Vec as a `GridAreaDefinitionVecSlice`."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "GridAreaDefinitionVecSlice"
+                },
+                "fn_body": "grid_area_definition_vec.as_c_slice()"
+              },
+              "as_c_slice_range": {
+                "doc": [
+                  "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  },
+                  {
+                    "start": "usize"
+                  },
+                  {
+                    "end": "usize"
+                  }
+                ],
+                "returns": {
+                  "type": "GridAreaDefinitionVecSlice"
+                },
+                "fn_body": "grid_area_definition_vec.as_c_slice_range(start, end)"
+              }
+            },
+            "repr": "C"
+          },
+          "GridAreaDefinitionVecDestructor": {
+            "external": "azul_css::props::layout::grid::GridAreaDefinitionVecDestructor",
+            "derive": [
+              "Debug"
+            ],
+            "enum_fields": [
+              {
+                "DefaultRust": {},
+                "NoDestructor": {},
+                "External": {
+                  "type": "GridAreaDefinitionVecDestructorType"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "GridAreaDefinitionVecDestructorType": {
+            "external": "azul_css::props::layout::grid::GridAreaDefinitionVecDestructorType",
+            "callback_typedef": {
+              "fn_args": [
+                {
+                  "type": "GridAreaDefinitionVec",
+                  "ref_kind": "mutptr"
+                }
+              ],
+              "returns": null
+            },
+            "repr": "C"
           }
         }
       },
@@ -70936,6 +71503,61 @@
                 "None": {},
                 "Some": {
                   "type": "ThemeCondition"
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "OptionCalcAstItem": {
+            "external": "azul_css::props::layout::dimensions::OptionCalcAstItem",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "enum_fields": [
+              {
+                "None": {
+                  "doc": [
+                    "No value"
+                  ]
+                },
+                "Some": {
+                  "type": "CalcAstItem",
+                  "doc": [
+                    "Some value of type CalcAstItem"
+                  ]
+                }
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "OptionGridAreaDefinition": {
+            "external": "azul_css::props::layout::grid::OptionGridAreaDefinition",
+            "derive": [
+              "Clone",
+              "Eq",
+              "Hash",
+              "Ord",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "enum_fields": [
+              {
+                "None": {
+                  "doc": [
+                    "No value"
+                  ]
+                },
+                "Some": {
+                  "type": "GridAreaDefinition",
+                  "doc": [
+                    "Some value of type GridAreaDefinition"
+                  ]
                 }
               }
             ],
@@ -75296,6 +75918,58 @@
                 },
                 "input_feedback_sounds_enabled": {
                   "type": "bool"
+                }
+              }
+            ],
+            "repr": "C"
+          },
+          "CalcAstItem": {
+            "external": "azul_css::props::layout::dimensions::CalcAstItem",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash"
+            ],
+            "enum_fields": [
+              {
+                "Value": {
+                  "type": "PixelValue"
+                },
+                "Add": {},
+                "Sub": {},
+                "Mul": {},
+                "Div": {},
+                "BraceOpen": {},
+                "BraceClose": {}
+              }
+            ],
+            "repr": "C, u8"
+          },
+          "CalcAstItemVecSlice": {
+            "external": "azul_css::props::layout::dimensions::CalcAstItemVecSlice",
+            "derive": [
+              "Debug",
+              "Clone",
+              "Copy"
+            ],
+            "struct_fields": [
+              {
+                "ptr": {
+                  "type": "CalcAstItem",
+                  "ref_kind": "constptr",
+                  "doc": [
+                    "Pointer to the slice data"
+                  ]
+                },
+                "len": {
+                  "type": "usize",
+                  "doc": [
+                    "Number of elements in the slice"
+                  ]
                 }
               }
             ],
