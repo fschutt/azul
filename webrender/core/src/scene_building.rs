@@ -1736,11 +1736,11 @@ impl<'a> SceneBuilder<'a> {
             }
 
             // Do nothing; these are dummy items for the display list parser
-            DisplayItem::SetGradientStops
-            | DisplayItem::SetFilterOps
+            DisplayItem::SetGradientStops { .. }
+            | DisplayItem::SetFilterOps { .. }
             | DisplayItem::SetFilterData
-            | DisplayItem::SetFilterPrimitives
-            | DisplayItem::SetPoints => {}
+            | DisplayItem::SetFilterPrimitives { .. }
+            | DisplayItem::SetPoints { .. } => {}
 
             // Special items that are handled in the parent method
             DisplayItem::PushStackingContext(..)

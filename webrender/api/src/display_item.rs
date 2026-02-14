@@ -190,12 +190,13 @@ pub enum DisplayItem {
     PushStackingContext(PushStackingContextDisplayItem),
 
     // These marker items indicate an array of data follows, to be used for the
-    // next non-marker item.
-    SetGradientStops,
-    SetFilterOps,
+    // next non-marker item. The count field tracks how many items belong to this
+    // marker so the iterator doesn't greedily consume all remaining items.
+    SetGradientStops { stop_count: usize },
+    SetFilterOps { filter_count: usize },
     SetFilterData,
-    SetFilterPrimitives,
-    SetPoints,
+    SetFilterPrimitives { primitive_count: usize },
+    SetPoints { point_count: usize },
 
     // These marker items terminate a scope introduced by a previous item.
     PopReferenceFrame,
@@ -2367,13 +2368,13 @@ impl DisplayItem {
             DisplayItem::PushShadow(..) => "push_shadow",
             DisplayItem::PushReferenceFrame(..) => "push_reference_frame",
             DisplayItem::PushStackingContext(..) => "push_stacking_context",
-            DisplayItem::SetFilterOps => "set_filter_ops",
+            DisplayItem::SetFilterOps { .. } => "set_filter_ops",
             DisplayItem::SetFilterData => "set_filter_data",
-            DisplayItem::SetFilterPrimitives => "set_filter_primitives",
-            DisplayItem::SetPoints => "set_points",
+            DisplayItem::SetFilterPrimitives { .. } => "set_filter_primitives",
+            DisplayItem::SetPoints { .. } => "set_points",
             DisplayItem::RadialGradient(..) => "radial_gradient",
             DisplayItem::Rectangle(..) => "rectangle",
-            DisplayItem::SetGradientStops => "set_gradient_stops",
+            DisplayItem::SetGradientStops { .. } => "set_gradient_stops",
             DisplayItem::ReuseItems(..) => "reuse_item",
             DisplayItem::RetainedItems(..) => "retained_items",
             DisplayItem::Text(..) => "text",
