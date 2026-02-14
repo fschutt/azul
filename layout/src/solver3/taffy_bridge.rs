@@ -1257,6 +1257,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         // Check if this node has overflow: auto/scroll and might need a vertical scrollbar.
         // If so, reduce available width for children to reserve space for the scrollbar.
         // This prevents the "children overlap scrollbar" layout issue.
+        // Uses per-node CSS `scrollbar-width` + OS overlay preference.
         let scrollbar_reservation = self
             .tree
             .get(node_idx)
@@ -1272,14 +1273,13 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     .unwrap_or_default();
                 let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
                 use azul_css::props::layout::LayoutOverflow;
-                let needs_scrollbar_space = matches!(
-                    overflow_y.unwrap_or_default(),
-                    LayoutOverflow::Scroll | LayoutOverflow::Auto
-                );
-                if needs_scrollbar_space {
-                    crate::solver3::fc::SCROLLBAR_WIDTH_PX
-                } else {
-                    0.0
+                match overflow_y.unwrap_or_default() {
+                    LayoutOverflow::Scroll | LayoutOverflow::Auto => {
+                        crate::solver3::getters::get_layout_scrollbar_width_px(
+                            self.ctx, dom_id, &styled_node_state,
+                        )
+                    }
+                    _ => 0.0,
                 }
             })
             .unwrap_or(0.0);
@@ -1541,11 +1541,18 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                             let container_size =
                                 LogicalSize::new(css_container_width, css_container_height);
 
+                            // Use per-node CSS scrollbar-width + OS overlay preference
+                            let scrollbar_width_px =
+                                crate::solver3::getters::get_layout_scrollbar_width_px(
+                                    self.ctx, dom_id, &styled_node_state,
+                                );
+
                             let scrollbar_result = crate::solver3::fc::check_scrollbar_necessity(
                                 content_size,
                                 container_size,
                                 crate::solver3::cache::to_overflow_behavior(overflow_x),
                                 crate::solver3::cache::to_overflow_behavior(overflow_y),
+                                scrollbar_width_px,
                             );
 
                             scrollbar_result

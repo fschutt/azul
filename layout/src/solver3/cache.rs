@@ -1090,9 +1090,15 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     };
 
     // Proactively reserve space for scrollbars based on overflow properties.
-    // Use pre-computed overflow_y from computed_style
+    // Use per-node CSS `scrollbar-width` + OS overlay preference.
     let scrollbar_reservation = match overflow_y {
-        LayoutOverflow::Scroll | LayoutOverflow::Auto => fc::SCROLLBAR_WIDTH_PX,
+        LayoutOverflow::Scroll | LayoutOverflow::Auto => {
+            dom_id.map(|id| {
+                let styled_node_state = ctx.styled_dom.styled_nodes.as_container()
+                    .get(id).map(|s| s.styled_node_state.clone()).unwrap_or_default();
+                crate::solver3::getters::get_layout_scrollbar_width_px(ctx, id, &styled_node_state)
+            }).unwrap_or(fc::DEFAULT_SCROLLBAR_WIDTH_PX)
+        }
         _ => 0.0,
     };
 
@@ -1140,12 +1146,7 @@ fn compute_scrollbar_info<T: ParsedFontTrait>(
 ) -> ScrollbarRequirements {
     // Skip scrollbar handling for paged media (PDF)
     if ctx.fragmentation_context.is_some() {
-        return ScrollbarRequirements {
-            needs_horizontal: false,
-            needs_vertical: false,
-            scrollbar_width: 0.0,
-            scrollbar_height: 0.0,
-        };
+        return ScrollbarRequirements::default();
     }
 
     let overflow_x = get_overflow_x(ctx.styled_dom, dom_id, styled_node_state);
@@ -1153,11 +1154,16 @@ fn compute_scrollbar_info<T: ParsedFontTrait>(
 
     let container_size = box_props.inner_size(final_used_size, writing_mode);
 
+    // Resolve per-node scrollbar width from CSS + OS overlay preference
+    let scrollbar_width_px =
+        crate::solver3::getters::get_layout_scrollbar_width_px(ctx, dom_id, styled_node_state);
+
     fc::check_scrollbar_necessity(
         content_size,
         container_size,
         to_overflow_behavior(overflow_x),
         to_overflow_behavior(overflow_y),
+        scrollbar_width_px,
     )
 }
 
@@ -1208,20 +1214,35 @@ fn merge_scrollbar_info(
     };
 
     match &current_node.scrollbar_info {
-        Some(old) => ScrollbarRequirements {
-            needs_horizontal: old.needs_horizontal || new_info.needs_horizontal,
-            needs_vertical: old.needs_vertical || new_info.needs_vertical,
-            scrollbar_width: if old.needs_vertical || new_info.needs_vertical {
-                16.0
+        Some(old) => {
+            // Use whichever width is non-zero (prefer new_info since it has the
+            // most up-to-date per-node CSS resolution)
+            let effective_width = if new_info.scrollbar_width > 0.0 {
+                new_info.scrollbar_width
             } else {
-                0.0
-            },
-            scrollbar_height: if old.needs_horizontal || new_info.needs_horizontal {
-                16.0
+                old.scrollbar_width
+            };
+            let effective_height = if new_info.scrollbar_height > 0.0 {
+                new_info.scrollbar_height
             } else {
-                0.0
-            },
-        },
+                old.scrollbar_height
+            };
+
+            ScrollbarRequirements {
+                needs_horizontal: old.needs_horizontal || new_info.needs_horizontal,
+                needs_vertical: old.needs_vertical || new_info.needs_vertical,
+                scrollbar_width: if old.needs_vertical || new_info.needs_vertical {
+                    effective_width
+                } else {
+                    0.0
+                },
+                scrollbar_height: if old.needs_horizontal || new_info.needs_horizontal {
+                    effective_height
+                } else {
+                    0.0
+                },
+            }
+        }
         None => new_info.clone(),
     }
 }

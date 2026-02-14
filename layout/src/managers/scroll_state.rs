@@ -636,7 +636,9 @@ impl ScrollManager {
 
     /// Calculate vertical scrollbar geometry
     fn calculate_vertical_scrollbar_static(scroll_state: &AnimatedScrollState) -> ScrollbarState {
-        const SCROLLBAR_WIDTH: f32 = 12.0; // Base size (1:1 square)
+        // Default scrollbar base size. This is the *rendering* size, not the layout
+        // reservation (which uses per-node CSS via get_layout_scrollbar_width_px).
+        const SCROLLBAR_WIDTH: f32 = 16.0;
 
         let container_height = scroll_state.container_rect.size.height;
         let content_height = scroll_state.content_rect.size.height;
@@ -677,7 +679,9 @@ impl ScrollManager {
 
     /// Calculate horizontal scrollbar geometry
     fn calculate_horizontal_scrollbar_static(scroll_state: &AnimatedScrollState) -> ScrollbarState {
-        const SCROLLBAR_HEIGHT: f32 = 12.0; // Base size (1:1 square)
+        // Default scrollbar base size. This is the *rendering* size, not the layout
+        // reservation (which uses per-node CSS via get_layout_scrollbar_width_px).
+        const SCROLLBAR_HEIGHT: f32 = 16.0;
 
         let container_width = scroll_state.container_rect.size.width;
         let content_width = scroll_state.content_rect.size.width;

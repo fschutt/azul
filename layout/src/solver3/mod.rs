@@ -151,7 +151,7 @@ use crate::{
     solver3::{
         cache::LayoutCache,
         display_list::DisplayList,
-        fc::{check_scrollbar_necessity, LayoutConstraints, LayoutResult},
+        fc::{LayoutConstraints, LayoutResult},
         layout_tree::DirtyFlag,
     },
 };

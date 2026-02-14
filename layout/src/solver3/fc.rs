@@ -89,9 +89,10 @@ use crate::{
     text3::cache::{AvailableSpace as Text3AvailableSpace, TextAlign as Text3TextAlign},
 };
 
-/// Default scrollbar width in pixels (CSS Overflow Module Level 3).
-/// Used when `overflow: scroll` or `overflow: auto` triggers scrollbar display.
-pub const SCROLLBAR_WIDTH_PX: f32 = 16.0;
+/// Default scrollbar width in pixels (CSS `scrollbar-width: auto`).
+/// This is only used as a fallback when per-node CSS cannot be queried.
+/// Prefer `getters::get_layout_scrollbar_width_px()` for per-node resolution.
+pub const DEFAULT_SCROLLBAR_WIDTH_PX: f32 = 16.0;
 
 // Note: DEFAULT_FONT_SIZE and PT_TO_PX are imported from pixel
 
@@ -772,6 +773,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     // Proactively reserve space for vertical scrollbar if overflow-y is auto/scroll.
     // This ensures children are laid out with the correct available width from the start,
     // preventing the "children overlap scrollbar" layout issue.
+    // Uses per-node CSS `scrollbar-width` + OS overlay preference.
     let scrollbar_reservation = node
         .dom_node_id
         .map(|dom_id| {
@@ -786,7 +788,9 @@ fn layout_bfc<T: ParsedFontTrait>(
                 crate::solver3::getters::get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
             use azul_css::props::layout::LayoutOverflow;
             match overflow_y.unwrap_or_default() {
-                LayoutOverflow::Scroll | LayoutOverflow::Auto => SCROLLBAR_WIDTH_PX,
+                LayoutOverflow::Scroll | LayoutOverflow::Auto => {
+                    crate::solver3::getters::get_layout_scrollbar_width_px(ctx, dom_id, &styled_node_state)
+                }
                 _ => 0.0,
             }
         })
@@ -6084,12 +6088,18 @@ pub fn check_scrollbar_necessity(
     container_size: LogicalSize,
     overflow_x: OverflowBehavior,
     overflow_y: OverflowBehavior,
+    scrollbar_width_px: f32,
 ) -> ScrollbarRequirements {
     // Use epsilon for float comparisons to avoid showing scrollbars due to 
     // floating-point rounding errors. Without this, content that exactly fits
     // may show scrollbars due to sub-pixel differences (e.g., 299.9999 vs 300.0).
     const EPSILON: f32 = 1.0;
-    
+
+    // scrollbar-width: none → scrollbars are never shown
+    if scrollbar_width_px <= 0.0 {
+        return ScrollbarRequirements::default();
+    }
+
     let mut needs_horizontal = match overflow_x {
         OverflowBehavior::Visible | OverflowBehavior::Hidden | OverflowBehavior::Clip => false,
         OverflowBehavior::Scroll => true,
@@ -6106,12 +6116,12 @@ pub fn check_scrollbar_necessity(
     // causing a horizontal scrollbar to appear, which can reduce vertical space...
     // A full solution involves a loop, but this two-pass check handles most cases.
     if needs_vertical && !needs_horizontal && overflow_x == OverflowBehavior::Auto {
-        if content_size.width > (container_size.width - SCROLLBAR_WIDTH_PX) + EPSILON {
+        if content_size.width > (container_size.width - scrollbar_width_px) + EPSILON {
             needs_horizontal = true;
         }
     }
     if needs_horizontal && !needs_vertical && overflow_y == OverflowBehavior::Auto {
-        if content_size.height > (container_size.height - SCROLLBAR_WIDTH_PX) + EPSILON {
+        if content_size.height > (container_size.height - scrollbar_width_px) + EPSILON {
             needs_vertical = true;
         }
     }
@@ -6120,12 +6130,12 @@ pub fn check_scrollbar_necessity(
         needs_horizontal,
         needs_vertical,
         scrollbar_width: if needs_vertical {
-            SCROLLBAR_WIDTH_PX
+            scrollbar_width_px
         } else {
             0.0
         },
         scrollbar_height: if needs_horizontal {
-            SCROLLBAR_WIDTH_PX
+            scrollbar_width_px
         } else {
             0.0
         },

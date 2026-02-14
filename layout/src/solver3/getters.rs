@@ -1360,69 +1360,52 @@ pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> Caret
 
 // Scrollbar Information
 
-/// Get scrollbar information from a layout node
+/// Get scrollbar information from a layout node.
+///
+/// Scrollbar requirements are computed during the layout phase in two paths:
+/// - BFC layout: `compute_scrollbar_info()` + `merge_scrollbar_info()` in cache.rs
+/// - Taffy layout: set in the measure callback in taffy_bridge.rs
+///
+/// If neither path set `scrollbar_info`, the node genuinely does not need
+/// scrollbars. The previous heuristic (>3 children = force overflow) caused
+/// false-positive scrollbars on normal containers.
 pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirements {
-    // Use cached scrollbar_info if available (calculated during layout)
-    if let Some(ref info) = node.scrollbar_info {
-        return info.clone();
-    }
+    node.scrollbar_info
+        .clone()
+        .unwrap_or_default()
+}
 
-    // Fallback: Calculate based on content vs container size
-    let container_size = node.used_size.unwrap_or_default();
+/// Resolve the **layout-effective** scrollbar width for a node, in pixels.
+///
+/// This combines three inputs:
+/// 1. CSS `scrollbar-width` property on the node (`auto` → 16, `thin` → 8, `none` → 0)
+/// 2. OS-level `ScrollbarPreferences.visibility` (overlay scrollbars → 0 layout reservation)
+/// 3. Custom `-azul-scrollbar-style` width override
+///
+/// For **overlay** scrollbars (macOS `WhenScrolling`, or equivalent), this returns `0.0`
+/// because overlay scrollbars are painted on top of content and do not consume layout space.
+/// The scrollbar is still *rendered*, but no space is reserved during layout.
+///
+/// During display-list generation, use `get_scrollbar_style()` instead — that returns
+/// the full visual style including the *paint* width (which may be non-zero for overlay).
+pub fn get_layout_scrollbar_width_px<T: crate::font_traits::ParsedFontTrait>(
+    ctx: &crate::solver3::LayoutContext<'_, T>,
+    dom_id: NodeId,
+    styled_node_state: &StyledNodeState,
+) -> f32 {
+    use azul_css::props::style::scrollbar::LayoutScrollbarWidth;
 
-    // Get content size - check both inline layout and block children
-    let content_size = if let Some(ref inline_layout) = node.inline_layout_result {
-        // Has inline layout - use its bounds
-        let bounds = inline_layout.layout.bounds();
-        LogicalSize::new(bounds.width, bounds.height)
-    } else if !node.children.is_empty() {
-        // Has block children - calculate total content height from children
-        // This is a rough estimate: sum of all children heights + margins
-        // For a proper implementation, we'd need the actual positioned children
-        let mut max_bottom: f32 = 0.0;
-        let mut max_right: f32 = 0.0;
-
-        // Note: This is a simplified calculation. In reality we'd need the
-        // calculated positions of children, but we don't have access to the
-        // positioned_tree here. For now, estimate based on number of children
-        // and typical item sizes.
-        // TODO: Pass content bounds through from layout phase
-
-        // For overflow: auto/scroll containers, we know content overflows if
-        // scrollbar_info was supposed to be set during layout. Since it wasn't,
-        // check if we have many children as a heuristic.
-        let num_children = node.children.len();
-        if num_children > 3 {
-            // Likely overflows - assume we need scrollbars
-            LogicalSize::new(
-                container_size.width,
-                container_size.height * 2.0, // Force overflow detection
-            )
-        } else {
-            container_size
+    // Check OS-level preference: overlay scrollbars reserve no layout space.
+    if let Some(ref sys) = ctx.system_style {
+        use azul_css::system::ScrollbarVisibility;
+        match sys.scrollbar_preferences.visibility {
+            ScrollbarVisibility::WhenScrolling => return 0.0, // overlay
+            ScrollbarVisibility::Always | ScrollbarVisibility::Automatic => {}
         }
-    } else {
-        // No children - no scrollbar needed
-        container_size
-    };
-
-    // Standard scrollbar width (Chrome-like)
-    const SCROLLBAR_SIZE: f32 = 12.0;
-
-    // Check if content overflows container
-    let needs_vertical = content_size.height > container_size.height + 1.0;
-    let needs_horizontal = content_size.width > container_size.width + 1.0;
-
-    ScrollbarRequirements {
-        needs_vertical,
-        needs_horizontal,
-        scrollbar_width: if needs_vertical { SCROLLBAR_SIZE } else { 0.0 },
-        scrollbar_height: if needs_horizontal {
-            SCROLLBAR_SIZE
-        } else {
-            0.0
-        },
     }
+
+    // Per-node CSS resolution
+    get_scrollbar_width_px(ctx.styled_dom, dom_id, styled_node_state)
 }
 
 get_css_property!(
