@@ -723,8 +723,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             })
             .map(layout_flex_wrap_to_taffy)
             .unwrap_or(taffy::FlexWrap::NoWrap);
-        taffy_style.align_items = Some(
-            cache
+        taffy_style.align_items = cache
                 .get_property(node_data, &id, node_state, &CssPropertyType::AlignItems)
                 .and_then(|p| {
                     if let CssProperty::AlignItems(v) = p {
@@ -733,16 +732,10 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                         None
                     }
                 })
-                .map(layout_align_items_to_taffy)
-                .unwrap_or_else(|| {
-                    // CSS spec: default depends on display type
-                    match taffy_style.display {
-                        taffy::Display::Flex => taffy::AlignItems::Stretch, // Flexbox default
-                        taffy::Display::Grid => taffy::AlignItems::Start,   // Grid default
-                        _ => taffy::AlignItems::Stretch,
-                    }
-                }),
-        );
+                .map(layout_align_items_to_taffy);
+                // CSS spec: default align-items is "normal" which acts like "stretch"
+                // for non-replaced grid/flex items. Taffy handles this internally when
+                // align_items is None, so we should NOT force a default here.
         taffy_style.justify_items = cache
             .get_property(node_data, &id, node_state, &CssPropertyType::JustifyItems)
             .and_then(|p| {
@@ -753,8 +746,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 }
             })
             .map(|v| layout_justify_items_to_taffy(v));
-        taffy_style.justify_content = Some(
-            cache
+        taffy_style.justify_content = cache
                 .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
                 .and_then(|p| {
                     if let CssProperty::JustifyContent(v) = p {
@@ -763,16 +755,9 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                         None
                     }
                 })
-                .map(layout_justify_content_to_taffy)
-                .unwrap_or_else(|| {
-                    // CSS spec: default depends on display type
-                    match taffy_style.display {
-                        taffy::Display::Flex => taffy::JustifyContent::FlexStart, // Flexbox default
-                        taffy::Display::Grid => taffy::JustifyContent::Start,     // Grid default
-                        _ => taffy::JustifyContent::FlexStart,
-                    }
-                }),
-        );
+                .map(layout_justify_content_to_taffy);
+                // CSS spec: default justify-content is "normal". Taffy handles
+                // this internally when justify_content is None.
         taffy_style.flex_grow = cache
             .get_property(node_data, &id, node_state, &CssPropertyType::FlexGrow)
             .and_then(|p| {
@@ -845,8 +830,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     None
                 }
             });
-        taffy_style.align_content = Some(
-            cache
+        taffy_style.align_content = cache
                 .get_property(node_data, &id, node_state, &CssPropertyType::AlignContent)
                 .and_then(|p| {
                     if let CssProperty::AlignContent(v) = p {
@@ -855,16 +839,9 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                         None
                     }
                 })
-                .map(layout_align_content_to_taffy)
-                .unwrap_or_else(|| {
-                    // CSS spec: default depends on display type
-                    match taffy_style.display {
-                        taffy::Display::Flex => taffy::AlignContent::Stretch, // Flexbox default
-                        taffy::Display::Grid => taffy::AlignContent::Start,   // Grid default
-                        _ => taffy::AlignContent::Stretch,
-                    }
-                }),
-        );
+                .map(layout_align_content_to_taffy);
+                // CSS spec: default align-content is "normal". Taffy handles
+                // this internally when align_content is None.
 
         taffy_style
     }
