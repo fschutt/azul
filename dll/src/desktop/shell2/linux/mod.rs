@@ -138,6 +138,7 @@ impl LinuxWindow {
             app_data,
             config: resources.config.clone(),
             fc_cache: resources.fc_cache.clone(),
+            font_registry: resources.font_registry.clone(),
             system_style: resources.system_style.clone(),
             icon_provider: resources.icon_provider.clone(),
         });
@@ -213,7 +214,7 @@ pub fn run(
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     // Create shared resources for all windows
-    let resources = Arc::new(AppResources::new(config, fc_cache));
+    let resources = Arc::new(AppResources::new(config, fc_cache, None));
 
     // Extract app_data from resources for the constructor
     let app_data = resources.app_data.clone();

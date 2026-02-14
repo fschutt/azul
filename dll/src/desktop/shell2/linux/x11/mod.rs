@@ -338,9 +338,10 @@ impl PlatformWindow for X11Window {
         let resources = Arc::new(super::AppResources {
             config,
             fc_cache: Arc::new(rust_fontconfig::FcFontCache::default()),
+            font_registry: None,
             app_data: app_data_arc,
             system_style,
-            icon_provider: azul_core::icon::IconProviderHandle::new(),
+            icon_provider: azul_core::icon::SharedIconProvider::from_handle(azul_core::icon::IconProviderHandle::new()),
         });
         Self::new_with_resources(options, resources)
     }
@@ -1126,7 +1127,7 @@ impl X11Window {
             let initial_material = window.current_window_state.flags.background_material;
             if !matches!(initial_material, WindowBackgroundMaterial::Opaque) {
                 log_trace!(
-                    crate::log::LogCategory::Window,
+                    LogCategory::Window,
                     "[X11] Applying initial background material: {:?}",
                     initial_material
                 );

@@ -770,6 +770,7 @@ impl X11Window {
                 layout_window,
                 render_api,
                 false, // Display list not rebuilt
+                &self.gl_context_ptr,
             );
 
             // Send transaction

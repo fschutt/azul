@@ -83,7 +83,7 @@ pub fn create_hwnd(
 
         // Window style - based on decorations option
         use azul_core::window::WindowDecorations;
-        use dlopen::constants::{
+        use super::dlopen::constants::{
             WS_CAPTION, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPED, WS_POPUP, WS_SYSMENU,
             WS_THICKFRAME,
         };

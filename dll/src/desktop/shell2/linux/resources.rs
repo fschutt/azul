@@ -7,7 +7,7 @@ use std::{cell::RefCell, sync::Arc};
 
 use azul_core::{refany::RefAny, resources::AppConfig};
 use azul_css::system::SystemStyle;
-use azul_core::icon::IconProviderHandle;
+use azul_core::icon::SharedIconProvider;
 use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
 
@@ -39,7 +39,7 @@ pub struct AppResources {
     pub system_style: Arc<SystemStyle>,
 
     /// Icon provider for resolving icon names to renderable content
-    pub icon_provider: IconProviderHandle,
+    pub icon_provider: SharedIconProvider,
 }
 
 impl AppResources {
@@ -53,8 +53,8 @@ impl AppResources {
         // Use system style from AppConfig (detected once at AppConfig::create())
         let system_style = Arc::new(config.system_style.clone());
 
-        // Clone icon provider from AppConfig (Arc-based, cheap)
-        let icon_provider = config.icon_provider.clone();
+        // Convert icon provider from handle to shared (Arc-based, cheap)
+        let icon_provider = SharedIconProvider::from_handle(config.icon_provider.clone());
 
         log_debug!(
             LogCategory::Resources,

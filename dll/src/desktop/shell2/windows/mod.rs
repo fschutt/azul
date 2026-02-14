@@ -170,7 +170,7 @@ pub struct Win32Window {
     /// (viewport size, OS, theme, etc.) - updated on resize and theme change
     pub dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
     /// Icon provider for resolving icon names to renderable content
-    pub icon_provider: azul_core::icon::IconProviderHandle,
+    pub icon_provider: azul_core::icon::SharedIconProvider,
 
     // Multi-window support
     /// Pending window creation requests (for popup menus, dialogs, etc.)
@@ -533,7 +533,7 @@ impl Win32Window {
             font_registry,
             system_style,
             dynamic_selector_context,
-            icon_provider: config.icon_provider.clone(),
+            icon_provider: azul_core::icon::SharedIconProvider::from_handle(config.icon_provider.clone()),
             pending_window_creates: Vec::new(),
             tooltip: None, // Created lazily when first needed
             #[cfg(feature = "a11y")]
@@ -2085,7 +2085,7 @@ unsafe extern "system" fn window_proc(
 
             // Use GetCursorPos for accurate screen-absolute position (physical pixels → logical)
             let screen_pos = {
-                let mut pt = super::dlopen::POINT { x: 0, y: 0 };
+                let mut pt = dlopen::POINT { x: 0, y: 0 };
                 unsafe { (window.win32.user32.GetCursorPos)(&mut pt); }
                 let hf = hidpi_factor.inner.get();
                 azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)
@@ -2210,7 +2210,7 @@ unsafe extern "system" fn window_proc(
             // Record input sample for gesture detection (button down starts new session)
             // Use GetCursorPos for accurate screen-absolute position (physical pixels → logical)
             let screen_pos = {
-                let mut pt = super::dlopen::POINT { x: 0, y: 0 };
+                let mut pt = dlopen::POINT { x: 0, y: 0 };
                 unsafe { (window.win32.user32.GetCursorPos)(&mut pt); }
                 let hf = hidpi_factor.inner.get();
                 azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)
@@ -2283,7 +2283,7 @@ unsafe extern "system" fn window_proc(
             // Record input sample for gesture detection (button up ends session)
             // Use GetCursorPos for accurate screen-absolute position (physical pixels → logical)
             let screen_pos = {
-                let mut pt = super::dlopen::POINT { x: 0, y: 0 };
+                let mut pt = dlopen::POINT { x: 0, y: 0 };
                 unsafe { (window.win32.user32.GetCursorPos)(&mut pt); }
                 let hf = hidpi_factor.inner.get();
                 azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)

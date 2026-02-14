@@ -484,6 +484,7 @@ impl PlatformWindow for WaylandWindow {
             app_data: app_data_arc,
             config: resources.config.clone(),
             fc_cache: resources.fc_cache.clone(),
+            font_registry: resources.font_registry.clone(),
             system_style: resources.system_style.clone(),
             icon_provider: resources.icon_provider.clone(),
         });
@@ -1393,7 +1394,7 @@ impl WaylandWindow {
             let initial_material = window.current_window_state.flags.background_material;
             if !matches!(initial_material, WindowBackgroundMaterial::Opaque) {
                 log_trace!(
-                    crate::log::LogCategory::Window,
+                    LogCategory::Window,
                     "[Wayland] Applying initial background material: {:?}",
                     initial_material
                 );
