@@ -1484,3 +1484,74 @@ impl CssPropertyWithConditionsVec {
         Self::parse(&wrapped)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inline_overflow_parse() {
+        let style = "overflow: scroll;";
+        let parsed = CssPropertyWithConditionsVec::parse(style);
+        let props = parsed.into_library_owned_vec();
+        eprintln!("Parsed {} properties from '{}'", props.len(), style);
+        for prop in &props {
+            eprintln!("  {:?}", prop.property);
+        }
+        assert!(props.len() > 0, "Expected overflow to parse into at least 1 property");
+    }
+
+    #[test]
+    fn test_inline_overflow_y_parse() {
+        let style = "overflow-y: scroll;";
+        let parsed = CssPropertyWithConditionsVec::parse(style);
+        let props = parsed.into_library_owned_vec();
+        eprintln!("Parsed {} properties from '{}'", props.len(), style);
+        for prop in &props {
+            eprintln!("  {:?}", prop.property);
+        }
+        assert!(props.len() > 0, "Expected overflow-y to parse into at least 1 property");
+    }
+
+    #[test]
+    fn test_inline_combined_style_with_overflow() {
+        let style = "padding: 20px; background-color: #f0f0f0; font-size: 14px; color: #222;overflow: scroll;";
+        let parsed = CssPropertyWithConditionsVec::parse(style);
+        let props = parsed.into_library_owned_vec();
+        eprintln!("Parsed {} properties from combined style", props.len());
+        for prop in &props {
+            eprintln!("  {:?}", prop.property);
+        }
+        // padding:20px expands to 4, background:1, font-size:1, color:1, overflow:2 = 10
+        assert!(props.len() >= 9, "Expected at least 9 properties, got {}", props.len());
+    }
+
+    #[test]
+    fn test_inline_grid_template_columns_parse() {
+        use crate::props::layout::grid::GridTrackSizing;
+        let style = "display: grid; grid-template-columns: repeat(4, 160px); gap: 16px; padding: 10px;";
+        let parsed = CssPropertyWithConditionsVec::parse(style);
+        let props = parsed.into_library_owned_vec();
+        eprintln!("Parsed {} properties from grid style", props.len());
+        for prop in &props {
+            eprintln!("  {:?}", prop.property);
+        }
+        // Find grid-template-columns property
+        let grid_cols = props.iter().find(|p| {
+            matches!(p.property, CssProperty::GridTemplateColumns(_))
+        }).expect("Expected GridTemplateColumns property");
+        
+        if let CssProperty::GridTemplateColumns(ref value) = grid_cols.property {
+            let template = value.get_property().expect("Expected Exact value");
+            let tracks = template.tracks.as_ref();
+            assert_eq!(tracks.len(), 4, "Expected 4 tracks");
+            for (i, track) in tracks.iter().enumerate() {
+                eprintln!("  Track {}: {:?} (is_fixed={})", i, track, matches!(track, GridTrackSizing::Fixed(_)));
+                assert!(matches!(track, GridTrackSizing::Fixed(_)), 
+                    "Track {} should be Fixed(160px), got {:?}", i, track);
+            }
+        } else {
+            panic!("Expected CssProperty::GridTemplateColumns");
+        }
+    }
+}

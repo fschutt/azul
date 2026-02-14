@@ -742,11 +742,18 @@ pub fn get_ua_property(
         (NT::Menu, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Dir, PT::Display) => Some(&DISPLAY_BLOCK),
 
-        // Generic Container
-        // NOTE: Html element has height: auto by default (shrinks to content)
-        // The Initial Containing Block provides the viewport dimensions,
-        // but the HTML element itself does not have height: 100% in browser UA stylesheets
+        // Html (root) Element
+        //
+        // In browsers, the viewport itself provides scrolling when <html> overflows.
+        // Since Azul has no separate viewport scroll mechanism, we set `height: 100%`
+        // on the <html> element so it fills the Initial Containing Block (the viewport).
+        // This constrains child elements like <body> to the viewport height, enabling
+        // overflow:scroll on <body> to create scrollable content areas.
+        //
+        // Without this, <html> has height:auto and grows to fit all content,
+        // making container_size == content_size, which results in a useless 100% scrollbar.
         (NT::Html, PT::Display) => Some(&DISPLAY_BLOCK),
+        (NT::Html, PT::Height) => Some(&HEIGHT_100_PERCENT),
 
         // Universal fallback for display property
         // Per CSS spec, unknown/custom elements should default to inline

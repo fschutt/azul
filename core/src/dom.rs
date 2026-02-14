@@ -2871,10 +2871,11 @@ impl NodeData {
     /// Deprecated: Use `set_css()` for full selector support
     pub fn set_inline_style(&mut self, style: &str) {
         let parsed = CssPropertyWithConditionsVec::parse(style);
+        let parsed_vec = parsed.into_library_owned_vec();
         let mut current = Vec::new().into();
         mem::swap(&mut current, &mut self.css_props);
         let mut v = current.into_library_owned_vec();
-        v.extend(parsed.into_library_owned_vec());
+        v.extend(parsed_vec);
         self.css_props = v.into();
     }
 
