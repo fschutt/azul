@@ -1,7 +1,38 @@
-//! Pure scroll state management
+//! Pure scroll state management — the single source of truth for scroll offsets.
+//!
+//! # Architecture
+//!
+//! `ScrollManager` is the exclusive owner of all scroll state. Other modules
+//! interact with scrolling only through its public API:
+//!
+//! - **Platform shell** (macos/events.rs, etc.): Calls `record_sample()` for
+//!   trackpad/mouse wheel input. Calls `scroll_by()` / `scroll_to()` for
+//!   programmatic scrolling (keyboard page-up, scrollbar click).
+//! - **Gesture manager** (gesture.rs): Tracks drag state and emits
+//!   `AutoScrollDirection` — does NOT modify scroll offsets directly.
+//! - **Render loop** (mod.rs render_and_present): Calls `physics_tick()` and
+//!   `tick()` every frame to advance momentum and easing animations.
+//! - **WebRender sync** (wr_translate2.rs): Reads offsets via
+//!   `get_scroll_states_for_dom()` to synchronize scroll frames.
+//! - **Layout** (cache.rs): Registers scroll nodes via
+//!   `register_or_update_scroll_node()` after layout completes.
+//!
+//! # Scroll Flow
+//!
+//! ```text
+//! Input Event → record_sample() ──┐
+//! Keyboard    → scroll_by()    ───┤
+//! Programmatic→ scroll_to()    ───┤
+//!                                 ├→ ScrollManager.states (offset + velocity)
+//! Per-frame   → physics_tick() ───┤   ↓
+//!             → tick()         ───┘   scroll_all_nodes() → WebRender
+//! ```
 //!
 //! This module provides:
 //! - Smooth scroll animations with easing
+//! - Velocity-based momentum scrolling (physics)
+//! - Overscroll / rubber-band spring effect
+//! - Drag-select auto-scrolling
 //! - Event source classification for scroll events
 //! - Scrollbar geometry and hit-testing
 //! - ExternalScrollId mapping for WebRender integration
@@ -278,6 +309,32 @@ impl ScrollManager {
             had_programmatic_scroll: self.had_programmatic_scroll,
             had_new_doms: self.had_new_doms,
         }
+    }
+
+    /// Returns `true` if the scroll manager has active animations or physics
+    /// that require continuous frame updates (i.e., the render loop should
+    /// keep requesting new frames).
+    pub fn needs_animation_frame(&self) -> bool {
+        for state in self.states.values() {
+            // Active easing animation
+            if state.animation.is_some() {
+                return true;
+            }
+            // Active velocity (momentum)
+            if state.physics.velocity.x.abs() > 0.1 || state.physics.velocity.y.abs() > 0.1 {
+                return true;
+            }
+            // Overscroll that needs to spring back
+            let max_x = (state.content_rect.size.width - state.container_rect.size.width).max(0.0);
+            let max_y = (state.content_rect.size.height - state.container_rect.size.height).max(0.0);
+            if state.current_offset.x < -0.5 || state.current_offset.x > max_x + 0.5 {
+                return true;
+            }
+            if state.current_offset.y < -0.5 || state.current_offset.y > max_y + 0.5 {
+                return true;
+            }
+        }
+        false
     }
 
     /// Advances scroll animations by one tick, returns repaint info
