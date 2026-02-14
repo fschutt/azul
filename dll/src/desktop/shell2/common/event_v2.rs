@@ -2988,9 +2988,10 @@ pub trait PlatformWindowV2 {
                 let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
                 let now = (external.get_system_time_fn.cb)();
 
-                if let Some(layout_window) = self.get_layout_window_mut() {
-                    let mut needs_iframe_reinvoke = false;
+                // Phase 1: Set scroll positions and detect IFrames needing re-invocation
+                let mut iframes_to_reinvoke: Vec<(DomId, NodeId, azul_core::geom::LogicalRect)> = Vec::new();
 
+                if let Some(layout_window) = self.get_layout_window_mut() {
                     for (dom_id, node_map) in nodes_scrolled {
                         for (hierarchy_id, target_position) in node_map {
                             // Convert NodeHierarchyItemId to NodeId
@@ -3021,21 +3022,41 @@ pub trait PlatformWindowV2 {
                                     &layout_window.scroll_manager,
                                     layout_bounds,
                                 ) {
-                                    needs_iframe_reinvoke = true;
+                                    iframes_to_reinvoke.push((*dom_id, node_id, layout_bounds));
                                 }
                             }
                         }
                     }
 
-                    if needs_iframe_reinvoke {
-                        // IFrame needs re-invocation — trigger layout regeneration
-                        event_result =
-                            event_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-                    } else {
-                        // Normal scrolling — just re-render
-                        event_result =
-                            event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                    // Normal scrolling always needs a re-render
+                    event_result =
+                        event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                }
+                // layout_window borrow is released here
+
+                // Phase 2: Re-invoke IFrame callbacks (needs split borrows via prepare_callback_invocation)
+                if !iframes_to_reinvoke.is_empty() {
+                    let borrows = self.prepare_callback_invocation();
+                    let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+
+                    for (dom_id, node_id, bounds) in &iframes_to_reinvoke {
+                        // invoke_iframe_callback calls the IFrame's RefAny callback,
+                        // swaps the child Dom, and re-layouts only the IFrame sub-tree.
+                        // It does NOT call the main layout() callback.
+                        let _ = borrows.layout_window.invoke_iframe_callback(
+                            *dom_id,
+                            *node_id,
+                            *bounds,
+                            borrows.current_window_state,
+                            borrows.renderer_resources,
+                            &system_callbacks,
+                            &mut None,
+                        );
                     }
+
+                    // IFrame Doms were swapped — rebuild display list (but NOT the main DOM)
+                    event_result =
+                        event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
                 }
             }
         }

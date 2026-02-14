@@ -117,6 +117,11 @@ pub struct ScrollPhysics {
     /// Bounce-back duration when releasing overscroll (milliseconds)
     /// Default: 400
     pub bounce_back_duration_ms: u32,
+
+    /// Timer tick interval in milliseconds for the scroll physics timer.
+    /// Should match the monitor refresh rate (e.g. 16ms for 60Hz, 8ms for 120Hz).
+    /// Default: 16 (60 Hz)
+    pub timer_interval_ms: u32,
 }
 
 impl Default for ScrollPhysics {
@@ -131,6 +136,7 @@ impl Default for ScrollPhysics {
             overscroll_elasticity: 0.0, // No bounce by default (Windows-like)
             max_overscroll_distance: 100.0,
             bounce_back_duration_ms: 400,
+            timer_interval_ms: 16,
         }
     }
 }
@@ -148,6 +154,7 @@ impl ScrollPhysics {
             overscroll_elasticity: 0.5,
             max_overscroll_distance: 120.0,
             bounce_back_duration_ms: 500,
+            timer_interval_ms: 16,
         }
     }
 
@@ -163,6 +170,7 @@ impl ScrollPhysics {
             overscroll_elasticity: 0.3,
             max_overscroll_distance: 80.0,
             bounce_back_duration_ms: 400,
+            timer_interval_ms: 16,
         }
     }
 
@@ -178,6 +186,7 @@ impl ScrollPhysics {
             overscroll_elasticity: 0.0,
             max_overscroll_distance: 0.0,
             bounce_back_duration_ms: 200,
+            timer_interval_ms: 16,
         }
     }
 
@@ -193,6 +202,7 @@ impl ScrollPhysics {
             overscroll_elasticity: 0.2, // Subtle glow effect
             max_overscroll_distance: 60.0,
             bounce_back_duration_ms: 300,
+            timer_interval_ms: 16,
         }
     }
 }

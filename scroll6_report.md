@@ -28,10 +28,10 @@ pushes it into the `Arc<Mutex<Vec<ScrollInput>>>` queue. If this is the first
 input (queue was empty), the handler starts `SCROLL_MOMENTUM_TIMER_ID`.
 
 **Phase 2: Physics + Application (timer callback)**
-- `scroll_physics_timer_callback()` fires every 16ms
-- Drains `queue.take_all()`
+- `scroll_physics_timer_callback()` fires every `timer_interval_ms` (from `ScrollPhysics`, default 16ms)
+- Consumes up to 100 most recent inputs via `queue.take_recent(100)`
 - For each input: TrackpadContinuous → direct position, WheelDiscrete → velocity impulse
-- Integrates velocity decay, clamping
+- Integrates velocity decay, rubber-banding (spring-back + diminishing overshoot), clamping
 - Pushes `CallbackChange::ScrollTo { dom_id, node_id, position }` via `timer_info.scroll_to()`
 
 **Phase 3: Processing (event_v2.rs)**
@@ -39,7 +39,9 @@ input (queue was empty), the handler starts `SCROLL_MOMENTUM_TIMER_ID`.
 - For each `(dom_id, node_id, position)`:
   - Calls `scroll_manager.scroll_to()` (instant, duration=0)
   - Calls `iframe_manager.check_reinvoke()` (transparent IFrame support)
-  - If IFrame needs re-invocation → `ShouldRegenerateDomCurrentWindow`
+  - If IFrame needs re-invocation → calls `invoke_iframe_callback()` directly
+    (only the IFrame's RefAny callback, NOT the main layout() callback)
+  - IFrame re-invocation → `ShouldUpdateDisplayListCurrentWindow`
   - Otherwise → `ShouldReRenderCurrentWindow`
 
 **What was removed:**
@@ -162,23 +164,32 @@ to content height, so the scrollbar sees `container < content` and works.
 
 Smooth scroll with velocity decay for mouse wheel, direct passthrough for trackpad.
 
-### Current Implementation: ✅ IMPLEMENTED (basic physics, no rubber-banding)
+### Current Implementation: ✅ IMPLEMENTED (full physics + rubber-banding)
 
 **Velocity-based physics** (for `WheelDiscrete`):
-- Impulse: `velocity += delta * WHEEL_IMPULSE_MULTIPLIER * 60.0`
-- Decay: `velocity *= exp(-FRICTION_DECAY_RATE * dt * 60.0)` where `FRICTION_DECAY_RATE = 0.05`
-- Threshold: snaps to zero when `|velocity| < 0.5 px/s`
-- Edge kill: velocity zeroed when clamped at boundary
+- All constants from `ScrollPhysics` config (no hardcoded values)
+- Impulse: `velocity += delta * wheel_multiplier * 60.0`
+- Decay: `velocity *= exp(-friction_rate * dt * 60.0)` where `friction_rate = friction_from_deceleration(deceleration_rate)`
+- Threshold: snaps to zero when `|velocity| < min_velocity_threshold`
+- Max velocity: clamped to `max_velocity`
+- Edge kill: velocity zeroed at boundary (when rubber-banding is off)
 
 **Direct passthrough** (for `TrackpadContinuous`):
 - Position = current + delta (OS handles momentum)
 - Kills any existing velocity for the node
 
-**Rubber-banding**: ❌ NOT IMPLEMENTED
-- Scroll position is hard-clamped to `[0, max_scroll]`
-- No overscroll bounce effect
-- This is acceptable for V1 — rubber-banding can be added later by allowing
-  temporary overshoot in `clamp()` and adding a spring-back animation
+**Rubber-banding**: ✅ IMPLEMENTED
+- Per-node CSS control via `-azul-overflow-scrolling: auto | touch`
+- Per-axis CSS control via `overscroll-behavior-x/y: auto | contain | none`
+- Global config via `ScrollPhysics.overscroll_elasticity` / `max_overscroll_distance`
+- Diminishing returns overshoot: `max_overscroll * (1 - e^(-elasticity * x / max_overscroll))`
+- Spring-back force: `k = (2π / bounce_back_duration)²`
+- Platform defaults: macOS/iOS have elasticity 0.3/0.5, Windows/Android have 0.0
+
+**Timer interval**: ✅ CONFIGURABLE
+- `ScrollPhysics.timer_interval_ms` (default 16ms = 60Hz)
+- Used for both timer interval AND physics dt calculation
+- Can be set to 8ms for 120Hz monitors
 
 ---
 
@@ -264,16 +275,19 @@ self.scroll_manager.update_virtual_scroll_bounds(
 | Virtual scroll size | Optional, from IFrame callback | ✅ Stored + used in clamp/get_info |
 | Scrollbar uses virtual size | thumb_ratio = clip / virtual_total | ⚠️ BUG: still uses content_rect |
 | is_node_scrollable checks virtual | Should be scrollable if virtual > container | ⚠️ BUG: still uses content_rect |
-| Physics (velocity decay) | Mouse wheel momentum | ✅ Exponential decay |
-| Rubber-banding (overscroll bounce) | Bounce at edges | ❌ Not implemented (hard clamp) |
+| Physics (velocity decay) | Mouse wheel momentum | ✅ All constants from ScrollPhysics |
+| Rubber-banding (overscroll bounce) | Bounce at edges | ✅ Implemented (per-node CSS + global config) |
 | Timer: one per window | Single SCROLL_MOMENTUM_TIMER_ID | ✅ Correct |
 | Timer: self-terminating | Terminates when all velocities zero + no inputs | ✅ Correct |
+| Timer: configurable interval | Uses ScrollPhysics.timer_interval_ms | ✅ Correct (default 16ms) |
 | Timer: restart on new input | Only starts when queue was empty | ✅ Correct |
-| IFrame re-invocation | Transparent in ScrollTo processing | ✅ Wired up |
+| IFrame re-invocation | Calls IFrame callback directly (not main layout) | ✅ Fixed (ShouldUpdateDisplayList) |
+| Queue limiting | take_recent(100) per tick | ✅ Correct |
 | Auto-scroll timer | Separate DRAG_AUTOSCROLL_TIMER_ID | ✅ Correct |
+| Programmatic scrolling | onclick → scroll_to → CallbackChange::ScrollTo | ✅ Via CallbackInfo.scroll_to() |
 | CPU renderer scroll support | Not implemented (TODO in SCROLL_ARCHITECTURE §5) | ❌ Known gap |
 
-### Remaining Work (2 bugs + 1 future enhancement)
+### Remaining Work (2 bugs)
 
 1. **BUG: `calculate_scrollbar_states()` ignores `virtual_scroll_size`** — scrollbar
    thumb ratio and visibility check use `content_rect` instead of virtual bounds.
@@ -282,6 +296,3 @@ self.scroll_manager.update_virtual_scroll_bounds(
 
 2. **BUG: `is_node_scrollable()` ignores `virtual_scroll_size`** — same issue.
    Fix: check `virtual_scroll_size.unwrap_or(content_rect.size)` for comparison.
-
-3. **Enhancement: Rubber-banding** — Currently hard-clamped. Add overscroll bounce
-   by allowing temporary overshoot in `clamp()` + spring-back animation. Low priority.

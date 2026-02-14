@@ -471,6 +471,7 @@ impl X11Window {
                     use azul_core::task::Duration;
 
                     let physics_state = ScrollPhysicsState::new(queue, self.resources.system_style.scroll_physics.clone());
+                    let interval_ms = self.resources.system_style.scroll_physics.timer_interval_ms;
                     let data = RefAny::new(physics_state);
                     let timer = Timer::create(
                         data,
@@ -479,7 +480,7 @@ impl X11Window {
                             .get_system_time_fn,
                     )
                     .with_interval(Duration::System(
-                        azul_core::task::SystemTimeDiff::from_millis(16),
+                        azul_core::task::SystemTimeDiff::from_millis(interval_ms as u64),
                     ));
 
                     self.start_timer(SCROLL_MOMENTUM_TIMER_ID.id, timer);

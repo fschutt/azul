@@ -74245,6 +74245,9 @@
                 },
                 "bounce_back_duration_ms": {
                   "type": "u32"
+                },
+                "timer_interval_ms": {
+                  "type": "u32"
                 }
               }
             ],

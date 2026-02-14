@@ -1021,7 +1021,12 @@ impl LayoutWindow {
     ///
     /// This is the entry point that looks up the necessary `IFrameNode` data before
     /// delegating to the core implementation logic.
-    fn invoke_iframe_callback(
+    /// Invoke an IFrame callback for a node. Returns the child DomId if the
+    /// callback was invoked and the child DOM was laid out.
+    ///
+    /// This calls the IFrame's own RefAny callback (NOT the main layout() callback),
+    /// swaps the child StyledDom, and re-layouts only the IFrame sub-tree.
+    pub fn invoke_iframe_callback(
         &mut self,
         parent_dom_id: DomId,
         node_id: NodeId,

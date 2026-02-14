@@ -12,8 +12,8 @@
 //!   → ScrollManager.record_scroll_input(ScrollInput)
 //!   → starts SCROLL_MOMENTUM_TIMER if not running
 //!
-//! Timer fires (every ~16ms):
-//!   1. queue.take_all() — consume pending inputs
+//! Timer fires (every timer_interval_ms from ScrollPhysics):
+//!   1. queue.take_recent(100) — consume up to 100 most recent inputs
 //!   2. For each input:
 //!      - TrackpadContinuous → set offset directly (OS handles momentum)
 //!      - WheelDiscrete → add impulse to velocity
@@ -51,8 +51,10 @@ use crate::{
 
 use azul_css::props::style::scrollbar::{ScrollPhysics, OverflowScrolling, OverscrollBehavior};
 
-/// Fallback velocity threshold when ScrollPhysics is not configured
-const DEFAULT_VELOCITY_STOP_THRESHOLD: f32 = 0.5;
+/// Maximum number of scroll events processed per timer tick.
+/// Older events beyond this limit are discarded to keep the physics
+/// simulation bounded and testable.
+const MAX_SCROLL_EVENTS_PER_TICK: usize = 100;
 
 /// State stored in the timer's RefAny data.
 ///
@@ -95,7 +97,7 @@ impl ScrollPhysicsState {
 
     /// Returns true if any node has non-zero velocity or there are pending inputs
     pub fn is_active(&self) -> bool {
-        let threshold = self.scroll_physics.min_velocity_threshold.max(DEFAULT_VELOCITY_STOP_THRESHOLD);
+        let threshold = self.scroll_physics.min_velocity_threshold;
         self.input_queue.has_pending()
             || self.node_velocities.values().any(|v| {
                 v.velocity.x.abs() > threshold
@@ -135,21 +137,19 @@ pub extern "C" fn scroll_physics_timer_callback(
         None => return TimerCallbackReturn::terminate_unchanged(),
     };
 
-    // Calculate dt from frame timing
-    let dt = 1.0 / 60.0_f32;
-
     // Extract physics config values
     let sp = &physics.scroll_physics;
+    let dt = sp.timer_interval_ms.max(1) as f32 / 1000.0;
     let friction_rate = friction_from_deceleration(sp.deceleration_rate);
-    let velocity_threshold = sp.min_velocity_threshold.max(DEFAULT_VELOCITY_STOP_THRESHOLD);
+    let velocity_threshold = sp.min_velocity_threshold;
     let wheel_multiplier = sp.wheel_multiplier;
     let max_velocity = sp.max_velocity;
     let overscroll_elasticity = sp.overscroll_elasticity;
     let max_overscroll_distance = sp.max_overscroll_distance;
     let bounce_back_duration_ms = sp.bounce_back_duration_ms;
 
-    // 1. Drain pending scroll inputs from the shared queue
-    let inputs = physics.input_queue.take_all();
+    // 1. Take at most MAX_SCROLL_EVENTS_PER_TICK recent inputs from the shared queue
+    let inputs = physics.input_queue.take_recent(MAX_SCROLL_EVENTS_PER_TICK);
 
     for input in inputs {
         let key = (input.dom_id, input.node_id);

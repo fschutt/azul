@@ -138,6 +138,23 @@ impl ScrollInputQueue {
         }
     }
 
+    /// Take at most `max_events` recent inputs, sorted by timestamp (newest last).
+    /// Any older events beyond `max_events` are discarded.
+    /// This prevents the physics timer from processing an unbounded backlog.
+    pub fn take_recent(&self, max_events: usize) -> Vec<ScrollInput> {
+        if let Ok(mut queue) = self.inner.lock() {
+            let mut events = core::mem::take(&mut *queue);
+            if events.len() > max_events {
+                // Sort by timestamp ascending (oldest first), keep last N
+                events.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+                events.drain(..events.len() - max_events);
+            }
+            events
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Check if there are pending inputs without consuming them
     pub fn has_pending(&self) -> bool {
         self.inner
