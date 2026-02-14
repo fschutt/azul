@@ -26,7 +26,7 @@ image                   = { version = "0.25", default-features = false, optional
 # Explicit override to disable SIMD features that are broken on some Rust versions
 # See: https://github.com/image-rs/image/issues/2705
 zune-jpeg               = { version = "0.4", default-features = false, features = ["std"], optional = true }
-rust-fontconfig         = { path = "../../rust-fontconfig", default-features = false, optional = true }
+rust-fontconfig         = { version = "2.0.0", default-features = false, optional = true }
 serde                   = { version = "1.0", features = ["derive"] }
 accesskit               = { version = "0.21.1", default-features = false, optional = true }
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }

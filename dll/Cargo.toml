@@ -33,7 +33,7 @@ pyo3-log = { version = "0.13.2", default-features = false, optional = true }
 
 # Desktop windowing dependencies
 tfd = { version = "0.1.0", default-features = false, optional = true }
-rust-fontconfig = { path = "../../rust-fontconfig", default-features = false, features = ["std", "parsing", "async-registry", "cache"], optional = true }
+rust-fontconfig = { version = "2.0.0", default-features = false, features = ["std", "parsing", "async-registry", "cache"], optional = true }
 gl-context-loader = { version ="0.1.8", default-features = false, optional = true }
 webrender = { path = "../webrender/core", default-features = false, optional = true }
 once_cell = { version = "1.17.1", optional = true }
