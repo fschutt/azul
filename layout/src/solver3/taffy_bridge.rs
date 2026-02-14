@@ -183,6 +183,40 @@ pub fn grid_auto_flow_to_taffy(val: LayoutGridAutoFlowValue) -> taffy::GridAutoF
     }
 }
 
+/// Convert an azul `GridLine` (single start or end) to a Taffy `GridPlacement`.
+fn grid_line_to_taffy(
+    line: &azul_css::props::layout::grid::GridLine,
+) -> taffy::style::GridPlacement<String> {
+    use azul_css::props::layout::grid::GridLine as AzGridLine;
+    use taffy::style_helpers::{TaffyGridLine, TaffyGridSpan};
+    match line {
+        AzGridLine::Auto => taffy::style::GridPlacement::Auto,
+        AzGridLine::Line(n) => {
+            taffy::style::GridPlacement::<String>::from_line_index(*n as i16)
+        }
+        AzGridLine::Span(n) => taffy::style::GridPlacement::<String>::from_span(*n as u16),
+        AzGridLine::Named(named) => {
+            // Named lines: use the name with optional span
+            let name = named.grid_line_name.as_str().to_string();
+            if named.span_count > 0 {
+                taffy::style::GridPlacement::NamedSpan(name, named.span_count as u16)
+            } else {
+                taffy::style::GridPlacement::NamedLine(name, 0)
+            }
+        }
+    }
+}
+
+/// Convert an azul `GridPlacement` (grid-column / grid-row) to a Taffy `Line<GridPlacement>`.
+fn grid_placement_to_taffy(
+    placement: &azul_css::props::layout::grid::GridPlacement,
+) -> taffy::Line<taffy::style::GridPlacement<String>> {
+    taffy::Line {
+        start: grid_line_to_taffy(&placement.grid_start),
+        end: grid_line_to_taffy(&placement.grid_end),
+    }
+}
+
 pub fn layout_flex_direction_to_taffy(val: LayoutFlexDirectionValue) -> taffy::FlexDirection {
     match val.get_property_or_default().unwrap_or_default() {
         LayoutFlexDirection::Row => taffy::FlexDirection::Row,
@@ -586,6 +620,33 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             })
             .map(|v| grid_auto_flow_to_taffy(v))
             .unwrap_or_default();
+
+        // Grid item placement (grid-column, grid-row)
+        if let Some(grid_col) = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::GridColumn)
+            .and_then(|p| {
+                if let CssProperty::GridColumn(v) = p {
+                    v.get_property().cloned()
+                } else {
+                    None
+                }
+            })
+        {
+            taffy_style.grid_column = grid_placement_to_taffy(&grid_col);
+        }
+
+        if let Some(grid_row) = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::GridRow)
+            .and_then(|p| {
+                if let CssProperty::GridRow(v) = p {
+                    v.get_property().cloned()
+                } else {
+                    None
+                }
+            })
+        {
+            taffy_style.grid_row = grid_placement_to_taffy(&grid_row);
+        }
 
         // Flexbox
         taffy_style.flex_direction = cache
