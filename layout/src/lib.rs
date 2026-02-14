@@ -154,6 +154,8 @@ pub mod thread;
 #[cfg(feature = "text_layout")]
 pub mod timer;
 #[cfg(feature = "text_layout")]
+pub mod scroll_timer;
+#[cfg(feature = "text_layout")]
 pub mod window;
 #[cfg(feature = "text_layout")]
 pub mod window_state;
