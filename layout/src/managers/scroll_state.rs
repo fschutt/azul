@@ -162,6 +162,24 @@ pub struct ScrollManager {
     had_new_doms: bool,
 }
 
+/// Physics state for velocity-based (momentum) scrolling
+#[derive(Debug, Clone)]
+pub struct ScrollPhysicsState {
+    /// Current velocity in logical pixels per second (x, y)
+    pub velocity: LogicalPosition,
+    /// Whether the user is actively interacting (finger down / mouse dragging)
+    pub is_user_interacting: bool,
+}
+
+impl Default for ScrollPhysicsState {
+    fn default() -> Self {
+        Self {
+            velocity: LogicalPosition::zero(),
+            is_user_interacting: false,
+        }
+    }
+}
+
 /// The complete scroll state for a single node (with animation support)
 #[derive(Debug, Clone)]
 pub struct AnimatedScrollState {
@@ -171,6 +189,8 @@ pub struct AnimatedScrollState {
     pub previous_offset: LogicalPosition,
     /// Ongoing smooth scroll animation, if any
     pub animation: Option<ScrollAnimation>,
+    /// Physics-based momentum scrolling state
+    pub physics: ScrollPhysicsState,
     /// Last time scroll activity occurred (for fading scrollbars)
     pub last_activity: Instant,
     /// Bounds of the scrollable container
@@ -282,6 +302,88 @@ impl ScrollManager {
             }
         }
         result
+    }
+
+    /// Advances physics-based momentum scrolling for all nodes.
+    ///
+    /// `dt_secs` is the time elapsed since the last frame in seconds.
+    /// Returns `true` if any node's scroll position changed (needs repaint).
+    ///
+    /// Physics model:
+    /// - Exponential velocity decay (friction): v *= 0.95^(dt*60)
+    /// - Stop threshold: |v| < 0.1 px/s → v = 0
+    /// - Clamping to valid scroll bounds after integration
+    pub fn physics_tick(&mut self, dt_secs: f32) -> bool {
+        const FRICTION_BASE: f32 = 0.95;
+        const STOP_THRESHOLD: f32 = 0.1; // px/s
+
+        let mut needs_repaint = false;
+
+        for state in self.states.values_mut() {
+            // Skip if user is actively interacting (trackpad finger down, etc.)
+            if state.physics.is_user_interacting {
+                continue;
+            }
+
+            // Skip if no animation-based scroll is active AND velocity is zero
+            let vx = state.physics.velocity.x;
+            let vy = state.physics.velocity.y;
+            if vx.abs() < STOP_THRESHOLD && vy.abs() < STOP_THRESHOLD {
+                state.physics.velocity = LogicalPosition::zero();
+                continue;
+            }
+
+            // Integrate velocity into position
+            state.current_offset.x += vx * dt_secs;
+            state.current_offset.y += vy * dt_secs;
+
+            // Exponential decay (friction)
+            // 0.95^(dt*60) normalizes so that at 60fps, friction = 0.95 per frame
+            let decay = FRICTION_BASE.powf(dt_secs * 60.0);
+            state.physics.velocity.x *= decay;
+            state.physics.velocity.y *= decay;
+
+            // Stop threshold
+            if state.physics.velocity.x.abs() < STOP_THRESHOLD {
+                state.physics.velocity.x = 0.0;
+            }
+            if state.physics.velocity.y.abs() < STOP_THRESHOLD {
+                state.physics.velocity.y = 0.0;
+            }
+
+            // Clamp to valid scroll bounds
+            state.current_offset = state.clamp(state.current_offset);
+
+            needs_repaint = true;
+        }
+
+        needs_repaint
+    }
+
+    /// Add a scroll impulse (velocity) to a node.
+    ///
+    /// Use this for discrete scroll events (mouse wheel steps) where the OS
+    /// does not provide momentum. The delta is converted to velocity
+    /// (pixels/second) by multiplying by a scale factor.
+    ///
+    /// For continuous trackpad input (where the OS provides momentum),
+    /// use `record_sample` instead which sets position directly.
+    pub fn add_scroll_impulse(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        delta: LogicalPosition,
+        now: Instant,
+    ) {
+        if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
+            // Convert delta to velocity: multiply by 60 to get px/s
+            // (assuming delta is roughly what you'd want to scroll in 1/60s)
+            state.physics.velocity.x += delta.x * 60.0;
+            state.physics.velocity.y += delta.y * 60.0;
+            state.physics.is_user_interacting = false;
+            state.last_activity = now;
+            self.had_scroll_activity = true;
+        }
     }
 
     /// Processes a scroll event, applying immediate or animated scroll
@@ -548,6 +650,7 @@ impl ScrollManager {
                     current_offset: LogicalPosition::zero(),
                     previous_offset: LogicalPosition::zero(),
                     animation: None,
+                    physics: ScrollPhysicsState::default(),
                     last_activity: now,
                     container_rect,
                     content_rect,
@@ -834,6 +937,7 @@ impl AnimatedScrollState {
             current_offset: LogicalPosition::zero(),
             previous_offset: LogicalPosition::zero(),
             animation: None,
+            physics: ScrollPhysicsState::default(),
             last_activity: now,
             container_rect: LogicalRect::zero(),
             content_rect: LogicalRect::zero(),
