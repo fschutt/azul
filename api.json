@@ -6696,6 +6696,59 @@
                   "type": "OptionPendingTextEdit"
                 },
                 "fn_body": "object.get_text_changeset().into()"
+              },
+              "accept_drop": {
+                "doc": [
+                  "Accept the current drop operation on this node.",
+                  "",
+                  "W3C equivalent: calling `event.preventDefault()` in a DragOver handler.",
+                  "This signals that the current drop target can accept the dragged data.",
+                  "Must be called from a DragOver or DragEnter callback for the Drop event",
+                  "to fire on this node."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  }
+                ],
+                "fn_body": "object.accept_drop()"
+              },
+              "get_drag_types": {
+                "doc": [
+                  "Get the list of MIME types available on the current drag operation.",
+                  "",
+                  "W3C equivalent: `dataTransfer.types`",
+                  "Returns an empty vec if no drag is active or no data is set."
+                ],
+                "fn_args": [
+                  {
+                    "self": "ref"
+                  }
+                ],
+                "returns": {
+                  "type": "StringVec"
+                },
+                "fn_body": "object.get_drag_types().into()"
+              },
+              "set_drag_data": {
+                "doc": [
+                  "Set drag data for a MIME type on the active drag operation.",
+                  "",
+                  "W3C equivalent: `dataTransfer.setData(type, data)`",
+                  "Should be called from a DragStart callback to populate the drag data."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "mime_type": "String"
+                  },
+                  {
+                    "data": "U8Vec"
+                  }
+                ],
+                "fn_body": "object.set_drag_data(mime_type, data.into())"
               }
             },
             "repr": "C"
