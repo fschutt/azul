@@ -725,8 +725,17 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
 
     // CRITICAL: Also check DOM children for text nodes!
     // Text nodes are often not represented as separate layout nodes.
+    // However, we must SKIP children that already have a layout tree entry,
+    // because those will be handled by process_layout_children() below.
+    // Without this guard, text nodes present in both DOM and layout tree
+    // get collected twice, causing inline-block containers to be ~2x too wide.
     let node_hierarchy = &ctx.styled_dom.node_hierarchy.as_container();
     for child_id in dom_id.az_children(node_hierarchy) {
+        // Skip DOM children that have layout tree nodes - they will be
+        // processed via process_layout_children -> collect_inline_content_recursive
+        if tree.dom_to_layout.contains_key(&child_id) {
+            continue;
+        }
         // Check if this DOM child is a text node
         let child_dom_node = &ctx.styled_dom.node_data.as_container()[child_id];
         if let NodeType::Text(text_data) = child_dom_node.get_node_type() {
