@@ -27,13 +27,16 @@ use webrender::{
             LayoutVector2D,
         },
         APZScrollGeneration, AlphaType as WrAlphaType, BorderRadius as WrBorderRadius,
+        BoxShadowClipMode as WrBoxShadowClipMode,
         BuiltDisplayList as WrBuiltDisplayList, ClipChainId as WrClipChainId,
         ClipMode as WrClipMode, ColorF, CommonItemProperties,
         ComplexClipRegion as WrComplexClipRegion, ConicGradient as WrConicGradient,
         DisplayListBuilder as WrDisplayListBuilder, DocumentId, Epoch, ExtendMode as WrExtendMode,
-        ExternalScrollId, Gradient as WrGradient, GradientStop as WrGradientStop,
+        ExternalScrollId, FilterOp as WrFilterOp, Gradient as WrGradient,
+        GradientStop as WrGradientStop,
         HasScrollLinkedEffect, ItemTag, PipelineId, PrimitiveFlags as WrPrimitiveFlags,
-        PropertyBinding, RadialGradient as WrRadialGradient, ReferenceFrameKind, SpaceAndClipInfo,
+        PropertyBinding, RadialGradient as WrRadialGradient, ReferenceFrameKind,
+        Shadow as WrShadow, SpaceAndClipInfo,
         SpatialId, SpatialTreeItemKey, TransformStyle,
     },
     render_api::ResourceUpdate as WrResourceUpdate,
@@ -1426,7 +1429,9 @@ pub fn translate_displaylist_to_wr(
                 );
 
                 // Convert CSS gradient to WebRender gradient
-                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let raw_rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let current_offset = current_offset!();
+                let rect = apply_offset(raw_rect, current_offset);
 
                 // Create layout rect for computing gradient points (use scaled size)
                 use azul_css::props::basic::{
@@ -1479,17 +1484,47 @@ pub fn translate_displaylist_to_wr(
                     extend_mode,
                 };
 
-                let info = CommonItemProperties {
-                    clip_rect: rect,
-                    clip_chain_id: current_clip!(),
-                    spatial_id: current_spatial!(),
-                    flags: Default::default(),
-                };
+                // Handle border-radius clipping
+                let style_border_radius = convert_border_radius_to_style(border_radius);
+                let wr_border_radius = wr_translate_border_radius(
+                    style_border_radius,
+                    azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
+                );
 
-                // Push gradient (tile_size = bounds size, tile_spacing = 0 for no tiling)
                 let tile_size = LayoutSize::new(scaled_width, scaled_height);
                 let tile_spacing = LayoutSize::zero();
-                builder.push_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+
+                if !wr_border_radius.is_zero() {
+                    let logical_rect = LogicalRect::new(
+                        azul_core::geom::LogicalPosition::new(
+                            scale_px(bounds.origin.x, dpi_scale),
+                            scale_px(bounds.origin.y, dpi_scale),
+                        ),
+                        azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
+                    );
+                    let new_clip_id = define_border_radius_clip(
+                        &mut builder,
+                        logical_rect,
+                        wr_border_radius,
+                        current_spatial!(),
+                        current_clip!(),
+                    );
+                    let info = CommonItemProperties {
+                        clip_rect: rect,
+                        clip_chain_id: new_clip_id,
+                        spatial_id: current_spatial!(),
+                        flags: Default::default(),
+                    };
+                    builder.push_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+                } else {
+                    let info = CommonItemProperties {
+                        clip_rect: rect,
+                        clip_chain_id: current_clip!(),
+                        spatial_id: current_spatial!(),
+                        flags: Default::default(),
+                    };
+                    builder.push_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+                }
             }
 
             DisplayListItem::RadialGradient {
@@ -1503,33 +1538,35 @@ pub fn translate_displaylist_to_wr(
                     bounds
                 );
 
-                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let raw_rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let current_offset = current_offset!();
+                let rect = apply_offset(raw_rect, current_offset);
                 let scaled_width = scale_px(bounds.size.width, dpi_scale);
                 let scaled_height = scale_px(bounds.size.height, dpi_scale);
 
-                // Compute center based on background position
+                // Compute center based on background position (in DPI-scaled coordinates)
                 use azul_css::props::style::background::{
                     BackgroundPositionHorizontal, BackgroundPositionVertical,
                 };
                 let center_x = match &gradient.position.horizontal {
                     BackgroundPositionHorizontal::Left => 0.0,
-                    BackgroundPositionHorizontal::Center => bounds.size.width / 2.0,
-                    BackgroundPositionHorizontal::Right => bounds.size.width,
+                    BackgroundPositionHorizontal::Center => scaled_width / 2.0,
+                    BackgroundPositionHorizontal::Right => scaled_width,
                     BackgroundPositionHorizontal::Exact(px) => {
-                        px.to_pixels_internal(bounds.size.width, 16.0)
+                        scale_px(px.to_pixels_internal(bounds.size.width, 16.0), dpi_scale)
                     }
                 };
                 let center_y = match &gradient.position.vertical {
                     BackgroundPositionVertical::Top => 0.0,
-                    BackgroundPositionVertical::Center => bounds.size.height / 2.0,
-                    BackgroundPositionVertical::Bottom => bounds.size.height,
+                    BackgroundPositionVertical::Center => scaled_height / 2.0,
+                    BackgroundPositionVertical::Bottom => scaled_height,
                     BackgroundPositionVertical::Exact(px) => {
-                        px.to_pixels_internal(bounds.size.height, 16.0)
+                        scale_px(px.to_pixels_internal(bounds.size.height, 16.0), dpi_scale)
                     }
                 };
                 let center = LayoutPoint::new(center_x, center_y);
 
-                // Compute radius based on shape and size keyword
+                // Compute radius based on shape and size keyword (in DPI-scaled coordinates)
                 use azul_css::props::style::background::RadialGradientSize;
                 let radius = match (&gradient.shape, &gradient.size) {
                     // Circle: same radius in both directions
@@ -1539,8 +1576,8 @@ pub fn translate_displaylist_to_wr(
                     ) => {
                         let r = center_x
                             .min(center_y)
-                            .min(bounds.size.width - center_x)
-                            .min(bounds.size.height - center_y);
+                            .min(scaled_width - center_x)
+                            .min(scaled_height - center_y);
                         LayoutSize::new(r, r)
                     }
                     (
@@ -1549,16 +1586,16 @@ pub fn translate_displaylist_to_wr(
                     ) => {
                         let r = center_x
                             .max(center_y)
-                            .max(bounds.size.width - center_x)
-                            .max(bounds.size.height - center_y);
+                            .max(scaled_width - center_x)
+                            .max(scaled_height - center_y);
                         LayoutSize::new(r, r)
                     }
                     (
                         azul_css::props::style::background::Shape::Circle,
                         RadialGradientSize::ClosestCorner,
                     ) => {
-                        let dx = center_x.min(bounds.size.width - center_x);
-                        let dy = center_y.min(bounds.size.height - center_y);
+                        let dx = center_x.min(scaled_width - center_x);
+                        let dy = center_y.min(scaled_height - center_y);
                         let r = (dx * dx + dy * dy).sqrt();
                         LayoutSize::new(r, r)
                     }
@@ -1566,8 +1603,8 @@ pub fn translate_displaylist_to_wr(
                         azul_css::props::style::background::Shape::Circle,
                         RadialGradientSize::FarthestCorner,
                     ) => {
-                        let dx = center_x.max(bounds.size.width - center_x);
-                        let dy = center_y.max(bounds.size.height - center_y);
+                        let dx = center_x.max(scaled_width - center_x);
+                        let dy = center_y.max(scaled_height - center_y);
                         let r = (dx * dx + dy * dy).sqrt();
                         LayoutSize::new(r, r)
                     }
@@ -1576,33 +1613,32 @@ pub fn translate_displaylist_to_wr(
                         azul_css::props::style::background::Shape::Ellipse,
                         RadialGradientSize::ClosestSide,
                     ) => {
-                        let rx = center_x.min(bounds.size.width - center_x);
-                        let ry = center_y.min(bounds.size.height - center_y);
+                        let rx = center_x.min(scaled_width - center_x);
+                        let ry = center_y.min(scaled_height - center_y);
                         LayoutSize::new(rx, ry)
                     }
                     (
                         azul_css::props::style::background::Shape::Ellipse,
                         RadialGradientSize::FarthestSide,
                     ) => {
-                        let rx = center_x.max(bounds.size.width - center_x);
-                        let ry = center_y.max(bounds.size.height - center_y);
+                        let rx = center_x.max(scaled_width - center_x);
+                        let ry = center_y.max(scaled_height - center_y);
                         LayoutSize::new(rx, ry)
                     }
                     (
                         azul_css::props::style::background::Shape::Ellipse,
                         RadialGradientSize::ClosestCorner,
                     ) => {
-                        // For ellipse, scale to reach corner while maintaining aspect ratio
-                        let dx = center_x.min(bounds.size.width - center_x);
-                        let dy = center_y.min(bounds.size.height - center_y);
+                        let dx = center_x.min(scaled_width - center_x);
+                        let dy = center_y.min(scaled_height - center_y);
                         LayoutSize::new(dx, dy)
                     }
                     (
                         azul_css::props::style::background::Shape::Ellipse,
                         RadialGradientSize::FarthestCorner,
                     ) => {
-                        let dx = center_x.max(bounds.size.width - center_x);
-                        let dy = center_y.max(bounds.size.height - center_y);
+                        let dx = center_x.max(scaled_width - center_x);
+                        let dy = center_y.max(scaled_height - center_y);
                         LayoutSize::new(dx, dy)
                     }
                 };
@@ -1636,16 +1672,47 @@ pub fn translate_displaylist_to_wr(
                     extend_mode,
                 };
 
-                let info = CommonItemProperties {
-                    clip_rect: rect,
-                    clip_chain_id: current_clip!(),
-                    spatial_id: current_spatial!(),
-                    flags: Default::default(),
-                };
+                // Handle border-radius clipping
+                let style_border_radius = convert_border_radius_to_style(border_radius);
+                let wr_border_radius = wr_translate_border_radius(
+                    style_border_radius,
+                    azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
+                );
 
                 let tile_size = LayoutSize::new(scaled_width, scaled_height);
                 let tile_spacing = LayoutSize::zero();
-                builder.push_radial_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+
+                if !wr_border_radius.is_zero() {
+                    let logical_rect = LogicalRect::new(
+                        azul_core::geom::LogicalPosition::new(
+                            scale_px(bounds.origin.x, dpi_scale),
+                            scale_px(bounds.origin.y, dpi_scale),
+                        ),
+                        azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
+                    );
+                    let new_clip_id = define_border_radius_clip(
+                        &mut builder,
+                        logical_rect,
+                        wr_border_radius,
+                        current_spatial!(),
+                        current_clip!(),
+                    );
+                    let info = CommonItemProperties {
+                        clip_rect: rect,
+                        clip_chain_id: new_clip_id,
+                        spatial_id: current_spatial!(),
+                        flags: Default::default(),
+                    };
+                    builder.push_radial_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+                } else {
+                    let info = CommonItemProperties {
+                        clip_rect: rect,
+                        clip_chain_id: current_clip!(),
+                        spatial_id: current_spatial!(),
+                        flags: Default::default(),
+                    };
+                    builder.push_radial_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+                }
             }
 
             DisplayListItem::ConicGradient {
@@ -1659,28 +1726,30 @@ pub fn translate_displaylist_to_wr(
                     bounds
                 );
 
-                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let raw_rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let current_offset = current_offset!();
+                let rect = apply_offset(raw_rect, current_offset);
                 let scaled_width = scale_px(bounds.size.width, dpi_scale);
                 let scaled_height = scale_px(bounds.size.height, dpi_scale);
 
-                // Compute center based on CSS position (default is center)
+                // Compute center based on CSS position (in DPI-scaled coordinates)
                 use azul_css::props::style::background::{
                     BackgroundPositionHorizontal, BackgroundPositionVertical,
                 };
                 let center_x = match &gradient.center.horizontal {
                     BackgroundPositionHorizontal::Left => 0.0,
-                    BackgroundPositionHorizontal::Center => bounds.size.width / 2.0,
-                    BackgroundPositionHorizontal::Right => bounds.size.width,
+                    BackgroundPositionHorizontal::Center => scaled_width / 2.0,
+                    BackgroundPositionHorizontal::Right => scaled_width,
                     BackgroundPositionHorizontal::Exact(px) => {
-                        px.to_pixels_internal(bounds.size.width, 16.0)
+                        scale_px(px.to_pixels_internal(bounds.size.width, 16.0), dpi_scale)
                     }
                 };
                 let center_y = match &gradient.center.vertical {
                     BackgroundPositionVertical::Top => 0.0,
-                    BackgroundPositionVertical::Center => bounds.size.height / 2.0,
-                    BackgroundPositionVertical::Bottom => bounds.size.height,
+                    BackgroundPositionVertical::Center => scaled_height / 2.0,
+                    BackgroundPositionVertical::Bottom => scaled_height,
                     BackgroundPositionVertical::Exact(px) => {
-                        px.to_pixels_internal(bounds.size.height, 16.0)
+                        scale_px(px.to_pixels_internal(bounds.size.height, 16.0), dpi_scale)
                     }
                 };
                 let center = LayoutPoint::new(center_x, center_y);
@@ -1722,16 +1791,47 @@ pub fn translate_displaylist_to_wr(
                     extend_mode,
                 };
 
-                let info = CommonItemProperties {
-                    clip_rect: rect,
-                    clip_chain_id: current_clip!(),
-                    spatial_id: current_spatial!(),
-                    flags: Default::default(),
-                };
+                // Handle border-radius clipping
+                let style_border_radius = convert_border_radius_to_style(border_radius);
+                let wr_border_radius = wr_translate_border_radius(
+                    style_border_radius,
+                    azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
+                );
 
                 let tile_size = LayoutSize::new(scaled_width, scaled_height);
                 let tile_spacing = LayoutSize::zero();
-                builder.push_conic_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+
+                if !wr_border_radius.is_zero() {
+                    let logical_rect = LogicalRect::new(
+                        azul_core::geom::LogicalPosition::new(
+                            scale_px(bounds.origin.x, dpi_scale),
+                            scale_px(bounds.origin.y, dpi_scale),
+                        ),
+                        azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
+                    );
+                    let new_clip_id = define_border_radius_clip(
+                        &mut builder,
+                        logical_rect,
+                        wr_border_radius,
+                        current_spatial!(),
+                        current_clip!(),
+                    );
+                    let info = CommonItemProperties {
+                        clip_rect: rect,
+                        clip_chain_id: new_clip_id,
+                        spatial_id: current_spatial!(),
+                        flags: Default::default(),
+                    };
+                    builder.push_conic_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+                } else {
+                    let info = CommonItemProperties {
+                        clip_rect: rect,
+                        clip_chain_id: current_clip!(),
+                        spatial_id: current_spatial!(),
+                        flags: Default::default(),
+                    };
+                    builder.push_conic_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+                }
             }
 
             // box shadow
@@ -1746,35 +1846,59 @@ pub fn translate_displaylist_to_wr(
                     bounds,
                     shadow
                 );
-                // TODO: Implement proper WebRender box shadow using builder.push_box_shadow()
-                // For now, render a simplified shadow as an offset rectangle
-                let offset_x = scale_px(
-                    shadow.offset_x.inner.to_pixels_internal(0.0, 16.0),
-                    dpi_scale,
-                );
-                let offset_y = scale_px(
-                    shadow.offset_y.inner.to_pixels_internal(0.0, 16.0),
-                    dpi_scale,
-                );
-                let rect = LayoutRect::from_origin_and_size(
-                    LayoutPoint::new(
-                        scale_px(bounds.origin.x, dpi_scale) + offset_x,
-                        scale_px(bounds.origin.y, dpi_scale) + offset_y,
-                    ),
-                    LayoutSize::new(
-                        scale_px(bounds.size.width, dpi_scale),
-                        scale_px(bounds.size.height, dpi_scale),
-                    ),
+
+                let raw_rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let current_offset = current_offset!();
+                let rect = apply_offset(raw_rect, current_offset);
+                let scaled_width = scale_px(bounds.size.width, dpi_scale);
+                let scaled_height = scale_px(bounds.size.height, dpi_scale);
+
+                let offset = LayoutVector2D::new(
+                    scale_px(shadow.offset_x.inner.to_pixels_internal(0.0, 16.0), dpi_scale),
+                    scale_px(shadow.offset_y.inner.to_pixels_internal(0.0, 16.0), dpi_scale),
                 );
                 let color_f =
                     wr_translate_color_f(azul_css::props::basic::color::ColorF::from(shadow.color));
+                let blur_radius = scale_px(
+                    shadow.blur_radius.inner.to_pixels_internal(0.0, 16.0),
+                    dpi_scale,
+                );
+                let spread_radius = scale_px(
+                    shadow.spread_radius.inner.to_pixels_internal(0.0, 16.0),
+                    dpi_scale,
+                );
+
+                let style_border_radius = convert_border_radius_to_style(border_radius);
+                let wr_border_radius = wr_translate_border_radius(
+                    style_border_radius,
+                    azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
+                );
+
+                let clip_mode = match shadow.clip_mode {
+                    azul_css::props::style::box_shadow::BoxShadowClipMode::Outset => {
+                        WrBoxShadowClipMode::Outset
+                    }
+                    azul_css::props::style::box_shadow::BoxShadowClipMode::Inset => {
+                        WrBoxShadowClipMode::Inset
+                    }
+                };
+
                 let info = CommonItemProperties {
                     clip_rect: rect,
                     clip_chain_id: current_clip!(),
                     spatial_id: current_spatial!(),
                     flags: Default::default(),
                 };
-                builder.push_rect(&info, rect, color_f);
+                builder.push_box_shadow(
+                    &info,
+                    rect,
+                    offset,
+                    color_f,
+                    blur_radius,
+                    spread_radius,
+                    wr_border_radius,
+                    clip_mode,
+                );
             }
 
             // filter effects
@@ -1785,16 +1909,18 @@ pub fn translate_displaylist_to_wr(
                     bounds,
                     filters.len()
                 );
-                // TODO: Implement proper WebRender filter stacking context
-                // For now, just push a simple stacking context
+                let wr_filters = translate_style_filters_to_wr(filters, dpi_scale);
                 let current_spatial_id = current_spatial!();
-                builder.push_simple_stacking_context(
+                builder.push_simple_stacking_context_with_filters(
                     LayoutPoint::new(
                         scale_px(bounds.origin.x, dpi_scale),
                         scale_px(bounds.origin.y, dpi_scale),
                     ),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
+                    &wr_filters,
+                    &[],
+                    &[],
                 );
             }
             DisplayListItem::PopFilter => {
@@ -1809,21 +1935,19 @@ pub fn translate_displaylist_to_wr(
                     bounds,
                     filters.len()
                 );
-                // TODO: Implement proper WebRender backdrop filter
-                // Backdrop filters require special handling in WebRender
-                let current_spatial_id = current_spatial!();
-                builder.push_simple_stacking_context(
-                    LayoutPoint::new(
-                        scale_px(bounds.origin.x, dpi_scale),
-                        scale_px(bounds.origin.y, dpi_scale),
-                    ),
-                    current_spatial_id,
-                    WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
-                );
+                let wr_filters = translate_style_filters_to_wr(filters, dpi_scale);
+                let rect = scale_bounds_to_layout_rect(bounds, dpi_scale);
+                let info = CommonItemProperties {
+                    clip_rect: rect,
+                    clip_chain_id: current_clip!(),
+                    spatial_id: current_spatial!(),
+                    flags: Default::default(),
+                };
+                builder.push_backdrop_filter(&info, &wr_filters, &[], &[]);
             }
             DisplayListItem::PopBackdropFilter => {
                 log_debug!(LogCategory::DisplayList, "[compositor2] PopBackdropFilter");
-                builder.pop_stacking_context();
+                // backdrop_filter doesn't push a stacking context, no pop needed
             }
 
             DisplayListItem::PushOpacity { bounds, opacity } => {
@@ -1833,20 +1957,53 @@ pub fn translate_displaylist_to_wr(
                     bounds,
                     opacity
                 );
-                // TODO: Implement proper WebRender opacity stacking context
                 let current_spatial_id = current_spatial!();
-                builder.push_simple_stacking_context(
+                let opacity_filter = WrFilterOp::Opacity(
+                    PropertyBinding::Value(*opacity),
+                    *opacity,
+                );
+                builder.push_simple_stacking_context_with_filters(
                     LayoutPoint::new(
                         scale_px(bounds.origin.x, dpi_scale),
                         scale_px(bounds.origin.y, dpi_scale),
                     ),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
+                    &[opacity_filter],
+                    &[],
+                    &[],
                 );
             }
             DisplayListItem::PopOpacity => {
                 log_debug!(LogCategory::DisplayList, "[compositor2] PopOpacity");
                 builder.pop_stacking_context();
+            }
+            DisplayListItem::PushTextShadow { shadow } => {
+                log_debug!(LogCategory::DisplayList, "[compositor2] PushTextShadow: {:?}", shadow);
+                let current_spatial_id = current_spatial!();
+                let current_clip_chain = current_clip!();
+                let offset_x = shadow.offset_x.inner.to_pixels_internal(0.0, 16.0) * dpi_scale;
+                let offset_y = shadow.offset_y.inner.to_pixels_internal(0.0, 16.0) * dpi_scale;
+                let blur_radius = shadow.blur_radius.inner.to_pixels_internal(0.0, 16.0) * dpi_scale;
+                let wr_shadow = WrShadow {
+                    offset: LayoutVector2D::new(offset_x, offset_y),
+                    color: ColorF::new(
+                        shadow.color.r as f32 / 255.0,
+                        shadow.color.g as f32 / 255.0,
+                        shadow.color.b as f32 / 255.0,
+                        shadow.color.a as f32 / 255.0,
+                    ),
+                    blur_radius,
+                };
+                let space_and_clip = SpaceAndClipInfo {
+                    spatial_id: current_spatial_id,
+                    clip_chain_id: current_clip_chain,
+                };
+                builder.push_shadow(&space_and_clip, wr_shadow, true);
+            }
+            DisplayListItem::PopTextShadow => {
+                log_debug!(LogCategory::DisplayList, "[compositor2] PopTextShadow");
+                builder.pop_all_shadows();
             }
         }
     }
@@ -1937,6 +2094,73 @@ fn define_border_radius_clip(
         Some(parent_clip_chain_id)
     };
     builder.define_clip_chain(parent, vec![clip_id])
+}
+
+/// Convert azul StyleFilter list to WebRender FilterOp list
+fn translate_style_filters_to_wr(
+    filters: &[azul_css::props::style::filter::StyleFilter],
+    dpi_scale: f32,
+) -> Vec<WrFilterOp> {
+    use azul_css::props::style::filter::StyleFilter;
+
+    filters
+        .iter()
+        .filter_map(|f| match f {
+            StyleFilter::Blur(blur) => {
+                let w = scale_px(blur.width.to_pixels_internal(0.0, 16.0), dpi_scale);
+                let h = scale_px(blur.height.to_pixels_internal(0.0, 16.0), dpi_scale);
+                Some(WrFilterOp::Blur(w, h))
+            }
+            StyleFilter::Opacity(o) => {
+                let v = o.normalized();
+                Some(WrFilterOp::Opacity(PropertyBinding::Value(v), v))
+            }
+            StyleFilter::Brightness(v) => Some(WrFilterOp::Brightness(v.normalized())),
+            StyleFilter::Contrast(v) => Some(WrFilterOp::Contrast(v.normalized())),
+            StyleFilter::Grayscale(v) => Some(WrFilterOp::Grayscale(v.normalized())),
+            StyleFilter::HueRotate(a) => Some(WrFilterOp::HueRotate(a.to_degrees())),
+            StyleFilter::Invert(v) => Some(WrFilterOp::Invert(v.normalized())),
+            StyleFilter::Saturate(v) => Some(WrFilterOp::Saturate(v.normalized())),
+            StyleFilter::Sepia(v) => Some(WrFilterOp::Sepia(v.normalized())),
+            StyleFilter::ColorMatrix(m) => {
+                let vals = m.as_slice();
+                let mut arr = [0.0f32; 20];
+                for (i, v) in vals.iter().enumerate() {
+                    arr[i] = v.get();
+                }
+                Some(WrFilterOp::ColorMatrix(arr))
+            }
+            StyleFilter::DropShadow(s) => {
+                let offset = LayoutVector2D::new(
+                    scale_px(s.offset_x.inner.to_pixels_internal(0.0, 16.0), dpi_scale),
+                    scale_px(s.offset_y.inner.to_pixels_internal(0.0, 16.0), dpi_scale),
+                );
+                let color = wr_translate_color_f(
+                    azul_css::props::basic::color::ColorF::from(s.color),
+                );
+                let blur_radius = scale_px(
+                    s.blur_radius.inner.to_pixels_internal(0.0, 16.0),
+                    dpi_scale,
+                );
+                Some(WrFilterOp::DropShadow(WrShadow {
+                    offset,
+                    color,
+                    blur_radius,
+                }))
+            }
+            StyleFilter::Flood(color) => {
+                let c = wr_translate_color_f(
+                    azul_css::props::basic::color::ColorF::from(*color),
+                );
+                Some(WrFilterOp::Flood(c))
+            }
+            StyleFilter::Blend(_) | StyleFilter::ComponentTransfer
+            | StyleFilter::Offset(_) | StyleFilter::Composite(_) => {
+                // These SVG-specific filters don't map directly to WR FilterOp
+                None
+            }
+        })
+        .collect()
 }
 
 /// Push text to display list
