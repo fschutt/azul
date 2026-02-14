@@ -1709,8 +1709,8 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     let is_scroll_container = dom_id.map_or(false, |id| {
         let ov_x = get_overflow_x(ctx.styled_dom, id, &styled_node_state);
         let ov_y = get_overflow_y(ctx.styled_dom, id, &styled_node_state);
-        matches!(ov_x, LayoutOverflow::Scroll | LayoutOverflow::Auto)
-            || matches!(ov_y, LayoutOverflow::Scroll | LayoutOverflow::Auto)
+        matches!(ov_x, MultiValue::Exact(LayoutOverflow::Scroll) | MultiValue::Exact(LayoutOverflow::Auto))
+            || matches!(ov_y, MultiValue::Exact(LayoutOverflow::Scroll) | MultiValue::Exact(LayoutOverflow::Auto))
     });
 
     if should_use_content_height(&css_height) {

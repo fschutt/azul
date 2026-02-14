@@ -859,13 +859,15 @@ impl LayoutWindow {
             .update_scrollbar_transforms(dom_id, &self.scroll_manager, &tree);
 
         // Scan for IFrames *after* the initial layout pass
-        let iframes = self.scan_for_iframes(dom_id, &tree, &self.layout_cache.calculated_positions);
+        // Pass styled_dom directly — layout_results isn't populated yet at this point
+        let iframes = self.scan_for_iframes(&styled_dom_clone, &tree, &self.layout_cache.calculated_positions);
 
         for (node_id, bounds) in iframes {
-            if let Some(child_dom_id) = self.invoke_iframe_callback(
+            if let Some(child_dom_id) = self.invoke_iframe_callback_with_dom(
                 dom_id,
                 node_id,
                 bounds,
+                Some(&styled_dom_clone),
                 window_state,
                 renderer_resources,
                 system_callbacks,
@@ -901,18 +903,18 @@ impl LayoutWindow {
 
     fn scan_for_iframes(
         &self,
-        dom_id: DomId,
+        styled_dom: &StyledDom,
         layout_tree: &LayoutTree,
         calculated_positions: &BTreeMap<usize, LogicalPosition>,
     ) -> Vec<(NodeId, LogicalRect)> {
+        let node_data_container = styled_dom.node_data.as_container();
         layout_tree
             .nodes
             .iter()
             .enumerate()
             .filter_map(|(idx, node)| {
                 let node_dom_id = node.dom_node_id?;
-                let layout_result = self.layout_results.get(&dom_id)?;
-                let node_data = &layout_result.styled_dom.node_data.as_container()[node_dom_id];
+                let node_data = node_data_container.get(node_dom_id)?;
                 if matches!(node_data.get_node_type(), NodeType::IFrame(_)) {
                     let pos = calculated_positions.get(&idx).copied().unwrap_or_default();
                     let size = node.used_size.unwrap_or_default();
@@ -1029,6 +1031,26 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Option<DomId> {
+        self.invoke_iframe_callback_with_dom(
+            parent_dom_id, node_id, bounds, None,
+            window_state, renderer_resources, system_callbacks, debug_messages,
+        )
+    }
+
+    /// Invoke an IFrame callback. If `styled_dom_override` is provided, use it
+    /// instead of reading from `self.layout_results` (needed during initial
+    /// layout when layout_results isn't populated yet).
+    fn invoke_iframe_callback_with_dom(
+        &mut self,
+        parent_dom_id: DomId,
+        node_id: NodeId,
+        bounds: LogicalRect,
+        styled_dom_override: Option<&StyledDom>,
+        window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Option<DomId> {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
                 "invoke_iframe_callback called for node {:?}",
@@ -1036,43 +1058,41 @@ impl LayoutWindow {
             )));
         }
 
-        // Get the layout result for the parent DOM to access its styled_dom
-        let layout_result = self.layout_results.get(&parent_dom_id)?;
-        if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info(format!(
-                "Got layout result for parent DOM {:?}",
-                parent_dom_id
-            )));
-        }
-
-        // Get the node data for the IFrame element
-        let node_data_container = layout_result.styled_dom.node_data.as_container();
-        let node_data = node_data_container.get(node_id)?;
-        if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info(format!(
-                "Got node data at index {}",
-                node_id.index()
-            )));
-        }
-
-        // Extract the IFrame node, cloning it to avoid borrow checker issues
-        let iframe_node = match node_data.get_node_type() {
-            NodeType::IFrame(iframe) => {
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info("Node is IFrame type".to_string()));
-                }
-                iframe.clone()
+        // Use the override styled_dom if provided, otherwise read from layout_results
+        let iframe_node = if let Some(styled_dom) = styled_dom_override {
+            let node_data_container = styled_dom.node_data.as_container();
+            let node_data = node_data_container.get(node_id)?;
+            match node_data.get_node_type() {
+                NodeType::IFrame(iframe) => iframe.clone(),
+                _ => return None,
             }
-            other => {
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "Node is NOT IFrame, type = {:?}",
-                        other
-                    )));
+        } else {
+            let layout_result = self.layout_results.get(&parent_dom_id)?;
+            if let Some(msgs) = debug_messages {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "Got layout result for parent DOM {:?}",
+                    parent_dom_id
+                )));
+            }
+            let node_data_container = layout_result.styled_dom.node_data.as_container();
+            let node_data = node_data_container.get(node_id)?;
+            match node_data.get_node_type() {
+                NodeType::IFrame(iframe) => iframe.clone(),
+                other => {
+                    if let Some(msgs) = debug_messages {
+                        msgs.push(LayoutDebugMessage::info(format!(
+                            "Node is NOT IFrame, type = {:?}",
+                            other
+                        )));
+                    }
+                    return None;
                 }
-                return None;
             }
         };
+
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::info("Node is IFrame type".to_string()));
+        }
 
         // Call the actual implementation with all necessary data
         self.invoke_iframe_callback_impl(
