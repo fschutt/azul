@@ -312,10 +312,14 @@ impl ScrollManager {
     /// Physics model:
     /// - Exponential velocity decay (friction): v *= 0.95^(dt*60)
     /// - Stop threshold: |v| < 0.1 px/s → v = 0
-    /// - Clamping to valid scroll bounds after integration
+    /// - Overscroll: position can exceed bounds, spring force pulls back
+    /// - Spring force: F = -k * overshoot, with damping on velocity
     pub fn physics_tick(&mut self, dt_secs: f32) -> bool {
         const FRICTION_BASE: f32 = 0.95;
         const STOP_THRESHOLD: f32 = 0.1; // px/s
+        const SPRING_STIFFNESS: f32 = 150.0; // spring constant k
+        const SPRING_DAMPING: f32 = 0.85; // velocity damping when out of bounds
+        const SNAP_THRESHOLD: f32 = 0.5; // snap to bound if within this many px
 
         let mut needs_repaint = false;
 
@@ -325,34 +329,79 @@ impl ScrollManager {
                 continue;
             }
 
-            // Skip if no animation-based scroll is active AND velocity is zero
             let vx = state.physics.velocity.x;
             let vy = state.physics.velocity.y;
-            if vx.abs() < STOP_THRESHOLD && vy.abs() < STOP_THRESHOLD {
+
+            // Calculate overscroll (how far beyond valid bounds)
+            let max_x = (state.content_rect.size.width - state.container_rect.size.width).max(0.0);
+            let max_y = (state.content_rect.size.height - state.container_rect.size.height).max(0.0);
+
+            let overshoot_x = if state.current_offset.x < 0.0 {
+                -state.current_offset.x
+            } else if state.current_offset.x > max_x {
+                max_x - state.current_offset.x
+            } else {
+                0.0
+            };
+
+            let overshoot_y = if state.current_offset.y < 0.0 {
+                -state.current_offset.y
+            } else if state.current_offset.y > max_y {
+                max_y - state.current_offset.y
+            } else {
+                0.0
+            };
+
+            let has_overshoot = overshoot_x.abs() > 0.001 || overshoot_y.abs() > 0.001;
+            let has_velocity = vx.abs() >= STOP_THRESHOLD || vy.abs() >= STOP_THRESHOLD;
+
+            if !has_velocity && !has_overshoot {
                 state.physics.velocity = LogicalPosition::zero();
                 continue;
             }
 
+            // Apply spring force if overshooting (rubber-band)
+            if has_overshoot {
+                // F = -k * overshoot → accelerate velocity back towards bounds
+                // overshoot is already signed: positive = towards bound
+                state.physics.velocity.x += overshoot_x * SPRING_STIFFNESS * dt_secs;
+                state.physics.velocity.y += overshoot_y * SPRING_STIFFNESS * dt_secs;
+
+                // Extra damping when out of bounds to prevent oscillation
+                state.physics.velocity.x *= SPRING_DAMPING;
+                state.physics.velocity.y *= SPRING_DAMPING;
+
+                // Snap to bounds if close enough and velocity is low
+                if overshoot_x.abs() < SNAP_THRESHOLD
+                    && state.physics.velocity.x.abs() < STOP_THRESHOLD
+                {
+                    state.current_offset.x = state.current_offset.x.max(0.0).min(max_x);
+                    state.physics.velocity.x = 0.0;
+                }
+                if overshoot_y.abs() < SNAP_THRESHOLD
+                    && state.physics.velocity.y.abs() < STOP_THRESHOLD
+                {
+                    state.current_offset.y = state.current_offset.y.max(0.0).min(max_y);
+                    state.physics.velocity.y = 0.0;
+                }
+            } else {
+                // Normal friction decay (only when within bounds)
+                let decay = FRICTION_BASE.powf(dt_secs * 60.0);
+                state.physics.velocity.x *= decay;
+                state.physics.velocity.y *= decay;
+            }
+
             // Integrate velocity into position
-            state.current_offset.x += vx * dt_secs;
-            state.current_offset.y += vy * dt_secs;
+            state.current_offset.x += state.physics.velocity.x * dt_secs;
+            state.current_offset.y += state.physics.velocity.y * dt_secs;
 
-            // Exponential decay (friction)
-            // 0.95^(dt*60) normalizes so that at 60fps, friction = 0.95 per frame
-            let decay = FRICTION_BASE.powf(dt_secs * 60.0);
-            state.physics.velocity.x *= decay;
-            state.physics.velocity.y *= decay;
-
-            // Stop threshold
+            // Stop threshold for velocity
             if state.physics.velocity.x.abs() < STOP_THRESHOLD {
                 state.physics.velocity.x = 0.0;
             }
             if state.physics.velocity.y.abs() < STOP_THRESHOLD {
                 state.physics.velocity.y = 0.0;
             }
-
-            // Clamp to valid scroll bounds
-            state.current_offset = state.clamp(state.current_offset);
 
             needs_repaint = true;
         }
