@@ -1061,6 +1061,7 @@ pub fn calculate_used_size_for_node(
         }
         LayoutWidth::MinContent => intrinsic.min_content_width,
         LayoutWidth::MaxContent => intrinsic.max_content_width,
+        LayoutWidth::Calc(_) => intrinsic.max_content_width, // TODO: resolve calc
     };
 
     // Step 2: Resolve the CSS `height` property into a concrete pixel value.
@@ -1108,6 +1109,7 @@ pub fn calculate_used_size_for_node(
         }
         LayoutHeight::MinContent => intrinsic.min_content_height,
         LayoutHeight::MaxContent => intrinsic.max_content_height,
+        LayoutHeight::Calc(_) => intrinsic.max_content_height, // TODO: resolve calc
     };
 
     // Step 3: Apply min/max constraints (CSS 2.2 § 10.4 and § 10.7)

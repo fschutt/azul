@@ -2869,7 +2869,7 @@ pub mod defaults {
     /// Helper to convert a detailed `ScrollbarInfo` into the simplified `ComputedScrollbarStyle`.
     fn scrollbar_info_to_computed(info: &ScrollbarInfo) -> ComputedScrollbarStyle {
         ComputedScrollbarStyle {
-            width: Some(info.width),
+            width: Some(info.width.clone()),
             thumb_color: match info.thumb {
                 StyleBackgroundContent::Color(c) => Some(c),
                 _ => None,

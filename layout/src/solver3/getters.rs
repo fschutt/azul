@@ -366,7 +366,7 @@ macro_rules! get_css_property {
                 .ptr
                 .$cache_method(node_data, &node_id, node_state);
 
-            if let Some(val) = author_css.and_then(|v| v.get_property().copied()) {
+            if let Some(val) = author_css.and_then(|v| v.get_property().cloned()) {
                 return MultiValue::Exact(val);
             }
 
@@ -402,7 +402,7 @@ where
 impl ExtractPropertyValue<LayoutWidth> for azul_css::props::property::CssProperty {
     fn extract(&self) -> Option<LayoutWidth> {
         match self {
-            Self::Width(CssPropertyValue::Exact(v)) => Some(*v),
+            Self::Width(CssPropertyValue::Exact(v)) => Some(v.clone()),
             _ => None,
         }
     }
@@ -411,7 +411,7 @@ impl ExtractPropertyValue<LayoutWidth> for azul_css::props::property::CssPropert
 impl ExtractPropertyValue<LayoutHeight> for azul_css::props::property::CssProperty {
     fn extract(&self) -> Option<LayoutHeight> {
         match self {
-            Self::Height(CssPropertyValue::Exact(v)) => Some(*v),
+            Self::Height(CssPropertyValue::Exact(v)) => Some(v.clone()),
             _ => None,
         }
     }

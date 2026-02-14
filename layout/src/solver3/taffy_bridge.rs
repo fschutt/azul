@@ -1,3 +1,4 @@
+use crate::solver3::calc::CalcResolveContext;
 use crate::solver3::getters::{get_overflow_x, get_overflow_y};
 use azul_core::dom::FormattingContext;
 use azul_css::{
@@ -8,6 +9,7 @@ use azul_css::{
             PixelValue, SizeMetric,
         },
         layout::{
+            dimensions::CalcAstItemVec,
             flex::LayoutFlexBasis,
             grid::{GridAutoTracks, GridTemplate, GridTrackSizing},
             LayoutAlignContent, LayoutAlignItems, LayoutAlignSelf, LayoutDisplay,
@@ -404,6 +406,10 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     /// SAFETY: This pointer is only valid for the lifetime of the TaffyBridge
     /// and must only be used within compute_child_layout callbacks
     text_cache: *mut crate::font_traits::TextLayoutCache,
+    /// Heap-pinned `CalcResolveContext`s whose addresses are passed into taffy
+    /// `Dimension::calc(ptr)`. Kept alive for the duration of the layout pass.
+    /// Uses `RefCell` because `get_core_container_style` takes `&self`.
+    calc_storage: std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
 }
 
 impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
@@ -416,6 +422,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             ctx,
             tree,
             text_cache,
+            calc_storage: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -451,8 +458,16 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let width = get_css_width(self.ctx.styled_dom, id, node_state);
         let height = get_css_height(self.ctx.styled_dom, id, node_state);
 
-        let taffy_width = from_layout_width(width.unwrap_or_default());
-        let taffy_height = from_layout_height(height.unwrap_or_default());
+        // Resolve node-local font sizes for calc() em/rem resolution
+        let em_size = crate::solver3::getters::get_element_font_size(styled_dom, id, node_state);
+        let rem_size = {
+            let root_id = NodeId::new(0);
+            let root_state = &styled_dom.styled_nodes.as_container()[root_id].styled_node_state;
+            crate::solver3::getters::get_element_font_size(styled_dom, root_id, root_state)
+        };
+
+        let taffy_width = from_layout_width(width.unwrap_or_default(), &self.calc_storage, em_size, rem_size);
+        let taffy_height = from_layout_height(height.unwrap_or_default(), &self.calc_storage, em_size, rem_size);
 
         taffy_style.size = taffy::Size {
             width: taffy_width,
@@ -1184,6 +1199,14 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'a, 'b, T> {
         }
     }
 
+    fn resolve_calc_value(&self, val: *const (), basis: f32) -> f32 {
+        // SAFETY: `val` came from `store_calc_and_make_dimension` which stored
+        // a `Box<CalcResolveContext>` in `self.calc_storage`. The Box is alive for
+        // the lifetime of this TaffyBridge, and taffy only clears the low 3 bits.
+        let ctx = unsafe { &*(val as *const CalcResolveContext) };
+        crate::solver3::calc::evaluate_calc(ctx, basis)
+    }
+
     fn compute_child_layout(
         &mut self,
         node_id: taffy::NodeId,
@@ -1732,40 +1755,66 @@ impl<'a, 'b, T: ParsedFontTrait> LayoutGridContainer for TaffyBridge<'a, 'b, T> 
 
 // --- Conversion Functions ---
 
-fn from_layout_width(val: LayoutWidth) -> Dimension {
+fn from_layout_width(
+    val: LayoutWidth,
+    calc_storage: &std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
+    em_size: f32,
+    rem_size: f32,
+) -> Dimension {
     match val {
-        LayoutWidth::Auto => Dimension::auto(), // NEW: Handle Auto variant
+        LayoutWidth::Auto => Dimension::auto(),
         LayoutWidth::Px(px) => {
-            // Try to extract pixel or percent value
             match pixel_value_to_pixels_fallback(&px) {
                 Some(pixels) => Dimension::length(pixels),
                 None => match px.to_percent() {
-                    // p is already normalized (0.0-1.0)
                     Some(p) => Dimension::percent(p.get()),
                     None => Dimension::auto(),
                 },
             }
         }
         LayoutWidth::MinContent | LayoutWidth::MaxContent => Dimension::auto(),
+        LayoutWidth::Calc(items) => store_calc_and_make_dimension(items, calc_storage, em_size, rem_size),
     }
 }
 
-fn from_layout_height(val: LayoutHeight) -> Dimension {
+fn from_layout_height(
+    val: LayoutHeight,
+    calc_storage: &std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
+    em_size: f32,
+    rem_size: f32,
+) -> Dimension {
     match val {
-        LayoutHeight::Auto => Dimension::auto(), // NEW: Handle Auto variant
+        LayoutHeight::Auto => Dimension::auto(),
         LayoutHeight::Px(px) => {
-            // Try to extract pixel or percent value
             match pixel_value_to_pixels_fallback(&px) {
                 Some(pixels) => Dimension::length(pixels),
                 None => match px.to_percent() {
-                    // p is already normalized (0.0-1.0)
                     Some(p) => Dimension::percent(p.get()),
                     None => Dimension::auto(),
                 },
             }
         }
         LayoutHeight::MinContent | LayoutHeight::MaxContent => Dimension::auto(),
+        LayoutHeight::Calc(items) => store_calc_and_make_dimension(items, calc_storage, em_size, rem_size),
     }
+}
+
+/// Stores the calc AST + font-size context in heap-pinned storage and returns
+/// a `Dimension::calc(ptr)` with a stable pointer to the `CalcResolveContext`.
+///
+/// The `Box` ensures the address doesn't move when the outer `Vec` reallocates.
+/// The `RefCell<Vec<…>>` keeps all boxes alive for the layout pass duration.
+fn store_calc_and_make_dimension(
+    items: CalcAstItemVec,
+    storage: &std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
+    em_size: f32,
+    rem_size: f32,
+) -> Dimension {
+    let boxed = Box::new(CalcResolveContext { items, em_size, rem_size });
+    let ptr: *const CalcResolveContext = &*boxed;
+    storage.borrow_mut().push(boxed);
+    // SAFETY: Box gives ≥8-byte-aligned heap pointer; taffy masks low 3 bits.
+    Dimension::calc(ptr as *const ())
 }
 
 fn from_pixel_value_lp(val: PixelValue) -> LengthPercentage {

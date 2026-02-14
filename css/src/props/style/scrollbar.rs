@@ -897,7 +897,7 @@ pub fn resolve_scrollbar_style(
             // If auto, fall back to -webkit- width or the UA default
             LayoutScrollbarWidth::Auto => Some(
                 webkit_scrollbar_style
-                    .map_or_else(|| ScrollbarInfo::default().width, |s| s.vertical.width),
+                    .map_or_else(|| ScrollbarInfo::default().width, |s| s.vertical.width.clone()),
             ),
         };
 
@@ -907,7 +907,7 @@ pub fn resolve_scrollbar_style(
         };
 
         return ComputedScrollbarStyle {
-            width,
+            width: width.clone(),
             thumb_color,
             track_color,
         };
@@ -945,7 +945,7 @@ pub fn resolve_scrollbar_style(
         };
 
         return ComputedScrollbarStyle {
-            width: Some(info.width),
+            width: Some(info.width.clone()),
             thumb_color: thumb,
             track_color: track,
         };

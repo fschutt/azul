@@ -3769,22 +3769,22 @@ impl CssProperty {
                 let start =
                     start
                         .get_property()
-                        .copied()
+                        .cloned()
                         .unwrap_or(LayoutWidth::Px(PixelValue::px(
                             interpolate_resolver.current_rect_width,
                         )));
-                let end = end.get_property().copied().unwrap_or_default();
+                let end = end.get_property().cloned().unwrap_or_default();
                 CssProperty::Width(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
             (CssProperty::Height(start), CssProperty::Height(end)) => {
                 let start =
                     start
                         .get_property()
-                        .copied()
+                        .cloned()
                         .unwrap_or(LayoutHeight::Px(PixelValue::px(
                             interpolate_resolver.current_rect_height,
                         )));
-                let end = end.get_property().copied().unwrap_or_default();
+                let end = end.get_property().cloned().unwrap_or_default();
                 CssProperty::Height(CssPropertyValue::Exact(start.interpolate(&end, t)))
             }
             (CssProperty::MinWidth(start), CssProperty::MinWidth(end)) => {

@@ -1,12 +1,188 @@
 //! CSS properties related to dimensions and sizing.
 
-use alloc::string::{String, ToString};
-
-use crate::props::{
-    basic::pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
-    formatter::PrintAsCssValue,
-    macros::PixelValueTaker,
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
 };
+
+use crate::{
+    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_eq,
+    impl_vec_hash, impl_vec_mut, impl_vec_ord, impl_vec_partialeq, impl_vec_partialord,
+    props::{
+        basic::pixel::{CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue},
+        formatter::PrintAsCssValue,
+        macros::PixelValueTaker,
+    },
+};
+
+// -- Calc AST --
+
+/// A single item in a `calc()` expression, stored as a flat stack-machine representation.
+///
+/// The expression `calc(33.333% - 10px)` is stored as:
+/// ```text
+/// [Value(33.333%), Sub, Value(10px)]
+/// ```
+///
+/// For nested expressions like `calc(100% - (20px + 5%))`:
+/// ```text
+/// [Value(100%), Sub, BraceOpen, Value(20px), Add, Value(5%), BraceClose]
+/// ```
+///
+/// **Resolution**: Walk left to right. When `BraceClose` is hit, resolve everything
+/// back to the matching `BraceOpen`, replace that span with a single `Value`, and continue.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum CalcAstItem {
+    /// A literal value (e.g. `10px`, `33.333%`, `2em`)
+    Value(PixelValue),
+    /// `+` operator
+    Add,
+    /// `-` operator
+    Sub,
+    /// `*` operator
+    Mul,
+    /// `/` operator
+    Div,
+    /// `(` — opens a sub-expression
+    BraceOpen,
+    /// `)` — closes a sub-expression; triggers resolution of the inner span
+    BraceClose,
+}
+
+// C-compatible Vec for CalcAstItem
+impl_vec!(
+    CalcAstItem,
+    CalcAstItemVec,
+    CalcAstItemVecDestructor,
+    CalcAstItemVecDestructorType,
+    CalcAstItemVecSlice,
+    OptionCalcAstItem
+);
+impl_vec_clone!(CalcAstItem, CalcAstItemVec, CalcAstItemVecDestructor);
+impl_vec_debug!(CalcAstItem, CalcAstItemVec);
+impl_vec_partialeq!(CalcAstItem, CalcAstItemVec);
+impl_vec_eq!(CalcAstItem, CalcAstItemVec);
+impl_vec_partialord!(CalcAstItem, CalcAstItemVec);
+impl_vec_ord!(CalcAstItem, CalcAstItemVec);
+impl_vec_hash!(CalcAstItem, CalcAstItemVec);
+impl_vec_mut!(CalcAstItem, CalcAstItemVec);
+
+impl_option!(
+    CalcAstItem,
+    OptionCalcAstItem,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+/// Parse a calc() inner expression (the part between the parentheses) into
+/// a flat `CalcAstItemVec` suitable for stack-machine evaluation.
+///
+/// Examples:
+/// - `"100% - 20px"` → `[Value(100%), Sub, Value(20px)]`
+/// - `"(100% - 20px) / 3"` → `[BraceOpen, Value(100%), Sub, Value(20px), BraceClose, Div, Value(3)]`
+///
+/// **Tokenisation rules**:
+///  - Whitespace is skipped between tokens.
+///  - `+`, `-`, `*`, `/` are operators (but `-` at the start of a number is
+///    part of the number literal, e.g. `-10px`).
+///  - `(` / `)` produce `BraceOpen` / `BraceClose`.
+///  - Anything else is parsed as a `PixelValue` via `parse_pixel_value`.
+#[cfg(feature = "parser")]
+fn parse_calc_expression(input: &str) -> Result<CalcAstItemVec, ()> {
+    use crate::props::basic::pixel::parse_pixel_value;
+
+    let mut items: Vec<CalcAstItem> = Vec::new();
+    let input = input.trim();
+    let bytes = input.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // Skip whitespace
+        if bytes[i].is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+
+        match bytes[i] {
+            b'+' => { items.push(CalcAstItem::Add); i += 1; }
+            b'*' => { items.push(CalcAstItem::Mul); i += 1; }
+            b'/' => { items.push(CalcAstItem::Div); i += 1; }
+            b'(' => { items.push(CalcAstItem::BraceOpen); i += 1; }
+            b')' => { items.push(CalcAstItem::BraceClose); i += 1; }
+            b'-' => {
+                // Decide: is this a subtraction operator or a negative number?
+                // It's a negative number if:
+                //   - it's the first token, OR
+                //   - the previous token is an operator or BraceOpen
+                let is_negative_number = items.is_empty()
+                    || matches!(
+                        items.last(),
+                        Some(CalcAstItem::Add)
+                            | Some(CalcAstItem::Sub)
+                            | Some(CalcAstItem::Mul)
+                            | Some(CalcAstItem::Div)
+                            | Some(CalcAstItem::BraceOpen)
+                    );
+
+                if is_negative_number {
+                    // Parse as negative number value
+                    let rest = &input[i..];
+                    let end = find_value_end(rest);
+                    if end == 0 { return Err(()); }
+                    let val_str = &rest[..end];
+                    let pv = parse_pixel_value(val_str).map_err(|_| ())?;
+                    items.push(CalcAstItem::Value(pv));
+                    i += end;
+                } else {
+                    items.push(CalcAstItem::Sub);
+                    i += 1;
+                }
+            }
+            _ => {
+                // Must be a numeric value (e.g. 100%, 20px, 3, 1.5em)
+                let rest = &input[i..];
+                let end = find_value_end(rest);
+                if end == 0 { return Err(()); }
+                let val_str = &rest[..end];
+                let pv = parse_pixel_value(val_str).map_err(|_| ())?;
+                items.push(CalcAstItem::Value(pv));
+                i += end;
+            }
+        }
+    }
+
+    if items.is_empty() {
+        return Err(());
+    }
+
+    Ok(CalcAstItemVec::from(items))
+}
+
+/// Find the end of a numeric value token in a calc() expression.
+/// Returns the byte offset where the value ends.
+#[cfg(feature = "parser")]
+fn find_value_end(s: &str) -> usize {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+
+    // Optional leading sign
+    if i < bytes.len() && (bytes[i] == b'-' || bytes[i] == b'+') {
+        i += 1;
+    }
+
+    // Digits and decimal point
+    while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+        i += 1;
+    }
+
+    // Unit suffix (alphabetic characters like px, %, em, rem, vw, vh, etc.)
+    while i < bytes.len() && (bytes[i].is_ascii_alphabetic() || bytes[i] == b'%') {
+        i += 1;
+    }
+
+    i
+}
 
 // -- Type Definitions --
 
@@ -40,19 +216,21 @@ macro_rules! define_dimension_property {
     };
 }
 
-// Custom implementation for LayoutWidth to support min-content and max-content
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// Custom implementation for LayoutWidth to support min-content, max-content, and calc()
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum LayoutWidth {
-    Auto, // NEW: Represents CSS 'auto' or unset value
+    Auto,
     Px(PixelValue),
     MinContent,
     MaxContent,
+    /// `calc()` expression stored as a flat stack-machine AST
+    Calc(CalcAstItemVec),
 }
 
 impl Default for LayoutWidth {
     fn default() -> Self {
-        LayoutWidth::Auto // FIXED: Auto is now the default, not Px(0)
+        LayoutWidth::Auto
     }
 }
 
@@ -69,6 +247,18 @@ impl PrintAsCssValue for LayoutWidth {
             LayoutWidth::Px(v) => v.to_string(),
             LayoutWidth::MinContent => "min-content".to_string(),
             LayoutWidth::MaxContent => "max-content".to_string(),
+            LayoutWidth::Calc(items) => {
+                let inner: Vec<String> = items.iter().map(|i| match i {
+                    CalcAstItem::Value(v) => v.to_string(),
+                    CalcAstItem::Add => "+".to_string(),
+                    CalcAstItem::Sub => "-".to_string(),
+                    CalcAstItem::Mul => "*".to_string(),
+                    CalcAstItem::Div => "/".to_string(),
+                    CalcAstItem::BraceOpen => "(".to_string(),
+                    CalcAstItem::BraceClose => ")".to_string(),
+                }).collect();
+                alloc::format!("calc({})", inner.join(" "))
+            }
         }
     }
 }
@@ -85,31 +275,30 @@ impl LayoutWidth {
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         match (self, other) {
             (LayoutWidth::Px(a), LayoutWidth::Px(b)) => LayoutWidth::Px(a.interpolate(b, t)),
-            // Can't interpolate between keywords, so just return start value at t < 0.5, end value
-            // otherwise
             (_, LayoutWidth::Px(b)) if t >= 0.5 => LayoutWidth::Px(*b),
             (LayoutWidth::Px(a), _) if t < 0.5 => LayoutWidth::Px(*a),
-            // Handle Auto variant
             (LayoutWidth::Auto, LayoutWidth::Auto) => LayoutWidth::Auto,
-            (a, _) if t < 0.5 => *a,
-            (_, b) => *b,
+            (a, _) if t < 0.5 => a.clone(),
+            (_, b) => b.clone(),
         }
     }
 }
 
-// Custom implementation for LayoutHeight to support min-content and max-content
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// Custom implementation for LayoutHeight to support min-content, max-content, and calc()
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum LayoutHeight {
-    Auto, // NEW: Represents CSS 'auto' or unset value
+    Auto,
     Px(PixelValue),
     MinContent,
     MaxContent,
+    /// `calc()` expression stored as a flat stack-machine AST
+    Calc(CalcAstItemVec),
 }
 
 impl Default for LayoutHeight {
     fn default() -> Self {
-        LayoutHeight::Auto // FIXED: Auto is now the default, not Px(0)
+        LayoutHeight::Auto
     }
 }
 
@@ -126,6 +315,18 @@ impl PrintAsCssValue for LayoutHeight {
             LayoutHeight::Px(v) => v.to_string(),
             LayoutHeight::MinContent => "min-content".to_string(),
             LayoutHeight::MaxContent => "max-content".to_string(),
+            LayoutHeight::Calc(items) => {
+                let inner: Vec<String> = items.iter().map(|i| match i {
+                    CalcAstItem::Value(v) => v.to_string(),
+                    CalcAstItem::Add => "+".to_string(),
+                    CalcAstItem::Sub => "-".to_string(),
+                    CalcAstItem::Mul => "*".to_string(),
+                    CalcAstItem::Div => "/".to_string(),
+                    CalcAstItem::BraceOpen => "(".to_string(),
+                    CalcAstItem::BraceClose => ")".to_string(),
+                }).collect();
+                alloc::format!("calc({})", inner.join(" "))
+            }
         }
     }
 }
@@ -142,14 +343,11 @@ impl LayoutHeight {
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         match (self, other) {
             (LayoutHeight::Px(a), LayoutHeight::Px(b)) => LayoutHeight::Px(a.interpolate(b, t)),
-            // Can't interpolate between keywords, so just return start value at t < 0.5, end value
-            // otherwise
             (_, LayoutHeight::Px(b)) if t >= 0.5 => LayoutHeight::Px(*b),
             (LayoutHeight::Px(a), _) if t < 0.5 => LayoutHeight::Px(*a),
-            // Handle Auto variant
             (LayoutHeight::Auto, LayoutHeight::Auto) => LayoutHeight::Auto,
-            (a, _) if t < 0.5 => *a,
-            (_, b) => *b,
+            (a, _) if t < 0.5 => a.clone(),
+            (_, b) => b.clone(),
         }
     }
 }
@@ -301,6 +499,12 @@ mod parser {
             "auto" => Ok(LayoutWidth::Auto),
             "min-content" => Ok(LayoutWidth::MinContent),
             "max-content" => Ok(LayoutWidth::MaxContent),
+            s if s.starts_with("calc(") && s.ends_with(')') => {
+                let inner = &s[5..s.len() - 1];
+                parse_calc_expression(inner)
+                    .map(LayoutWidth::Calc)
+                    .map_err(|_| LayoutWidthParseError::InvalidKeyword(input))
+            }
             _ => parse_pixel_value(trimmed)
                 .map(LayoutWidth::Px)
                 .map_err(LayoutWidthParseError::PixelValue),
@@ -361,6 +565,12 @@ mod parser {
             "auto" => Ok(LayoutHeight::Auto),
             "min-content" => Ok(LayoutHeight::MinContent),
             "max-content" => Ok(LayoutHeight::MaxContent),
+            s if s.starts_with("calc(") && s.ends_with(')') => {
+                let inner = &s[5..s.len() - 1];
+                parse_calc_expression(inner)
+                    .map(LayoutHeight::Calc)
+                    .map_err(|_| LayoutHeightParseError::InvalidKeyword(input))
+            }
             _ => parse_pixel_value(trimmed)
                 .map(LayoutHeight::Px)
                 .map_err(LayoutHeightParseError::PixelValue),

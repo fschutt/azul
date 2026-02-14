@@ -2021,6 +2021,10 @@ fn should_use_content_height(css_height: &MultiValue<LayoutHeight>) -> bool {
                 // These are content-based, so they should use the content size
                 true
             }
+            LayoutHeight::Calc(_) => {
+                // Calc expressions are not auto, they compute to a specific value
+                false
+            }
         },
     }
 }

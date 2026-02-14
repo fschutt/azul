@@ -570,6 +570,7 @@ fn resolve_explicit_dimension_width<T: ParsedFontTrait>(
                     (Some(pixels), true)
                 }
                 LayoutWidth::MinContent | LayoutWidth::MaxContent => (None, false),
+                LayoutWidth::Calc(_) => (None, false), // TODO: resolve calc
             }
         })
         .unwrap_or((None, false))
@@ -600,6 +601,7 @@ fn resolve_explicit_dimension_height<T: ParsedFontTrait>(
                     (Some(pixels), true)
                 }
                 LayoutHeight::MinContent | LayoutHeight::MaxContent => (None, false),
+                LayoutHeight::Calc(_) => (None, false), // TODO: resolve calc
             }
         })
         .unwrap_or((None, false))
@@ -5571,7 +5573,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
 
             // Determine final border-box height
-            let final_height = match css_height.unwrap_or_default() {
+            let final_height = match css_height.clone().unwrap_or_default() {
                 LayoutHeight::Auto => {
                     // For auto height, add padding and border to the content height
                     let content_height = layout_result.output.overflow_size.height;
