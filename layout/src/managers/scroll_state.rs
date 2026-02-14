@@ -435,6 +435,92 @@ impl ScrollManager {
         }
     }
 
+    /// Auto-scroll a container when the mouse is dragged beyond its bounds.
+    ///
+    /// Used during text selection drags: when the user drags past the top/bottom
+    /// edge of a scroll container, this scrolls the container in that direction
+    /// at a speed proportional to how far past the edge the cursor is.
+    ///
+    /// `mouse_pos` is the current cursor position in logical window coordinates.
+    /// `scroll_speed` is the base speed in px/s (e.g. 200.0).
+    /// Returns `true` if scrolling was applied (needs repaint).
+    pub fn auto_scroll_for_drag(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        mouse_pos: LogicalPosition,
+        scroll_speed: f32,
+        dt_secs: f32,
+        now: Instant,
+    ) -> bool {
+        let state = match self.states.get_mut(&(dom_id, node_id)) {
+            Some(s) => s,
+            None => return false,
+        };
+
+        let rect = &state.container_rect;
+        let mut delta_x: f32 = 0.0;
+        let mut delta_y: f32 = 0.0;
+
+        // Check if mouse is above the container
+        if mouse_pos.y < rect.origin.y {
+            let distance = rect.origin.y - mouse_pos.y;
+            delta_y = -(scroll_speed + distance * 2.0) * dt_secs;
+        }
+        // Check if mouse is below the container
+        else if mouse_pos.y > rect.origin.y + rect.size.height {
+            let distance = mouse_pos.y - (rect.origin.y + rect.size.height);
+            delta_y = (scroll_speed + distance * 2.0) * dt_secs;
+        }
+
+        // Check if mouse is left of the container
+        if mouse_pos.x < rect.origin.x {
+            let distance = rect.origin.x - mouse_pos.x;
+            delta_x = -(scroll_speed + distance * 2.0) * dt_secs;
+        }
+        // Check if mouse is right of the container
+        else if mouse_pos.x > rect.origin.x + rect.size.width {
+            let distance = mouse_pos.x - (rect.origin.x + rect.size.width);
+            delta_x = (scroll_speed + distance * 2.0) * dt_secs;
+        }
+
+        if delta_x.abs() < 0.001 && delta_y.abs() < 0.001 {
+            return false;
+        }
+
+        let new_pos = state.clamp(LogicalPosition {
+            x: state.current_offset.x + delta_x,
+            y: state.current_offset.y + delta_y,
+        });
+        state.current_offset = new_pos;
+        state.last_activity = now;
+        self.had_scroll_activity = true;
+        true
+    }
+
+    /// Finds the closest scroll-container ancestor for a given node.
+    ///
+    /// Walks up the node hierarchy to find a node that is registered as a
+    /// scrollable node in this ScrollManager. Returns `None` if no scrollable
+    /// ancestor is found.
+    pub fn find_scroll_parent(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        node_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem],
+    ) -> Option<NodeId> {
+        let mut current = Some(node_id);
+        while let Some(nid) = current {
+            if self.states.contains_key(&(dom_id, nid)) && nid != node_id {
+                return Some(nid);
+            }
+            current = node_hierarchy
+                .get(nid.index())
+                .and_then(|item| item.parent_id());
+        }
+        None
+    }
+
     /// Processes a scroll event, applying immediate or animated scroll
     pub fn process_scroll_event(&mut self, event: ScrollEvent, now: Instant) -> bool {
         self.had_scroll_activity = true;
