@@ -885,7 +885,7 @@ impl FormatAsRustCode for GridAutoTracks {
 
 impl FormatAsRustCode for GridTemplateAreas {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("GridTemplateAreas {{ areas: vec!{:?} }}", self.areas)
+        format!("GridTemplateAreas {{ areas: GridAreaDefinitionVec::from_vec(vec!{:?}) }}", self.areas.as_ref())
     }
 }
 
@@ -1176,14 +1176,36 @@ mod tests {
 
 /// A single named grid area with its row/column bounds (1-based grid line numbers).
 /// This matches taffy's `GridTemplateArea<String>`.
+#[repr(C)]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GridAreaDefinition {
-    pub name: String,
+    pub name: AzString,
     pub row_start: u16,
     pub row_end: u16,
     pub column_start: u16,
     pub column_end: u16,
 }
+
+impl_option!(
+    GridAreaDefinition,
+    OptionGridAreaDefinition,
+    copy = false,
+    [Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+
+impl_vec!(GridAreaDefinition, GridAreaDefinitionVec, GridAreaDefinitionVecDestructor, GridAreaDefinitionVecDestructorType, GridAreaDefinitionVecSlice, OptionGridAreaDefinition);
+impl_vec_clone!(
+    GridAreaDefinition,
+    GridAreaDefinitionVec,
+    GridAreaDefinitionVecDestructor
+);
+impl_vec_debug!(GridAreaDefinition, GridAreaDefinitionVec);
+impl_vec_partialeq!(GridAreaDefinition, GridAreaDefinitionVec);
+impl_vec_eq!(GridAreaDefinition, GridAreaDefinitionVec);
+impl_vec_partialord!(GridAreaDefinition, GridAreaDefinitionVec);
+impl_vec_ord!(GridAreaDefinition, GridAreaDefinitionVec);
+impl_vec_hash!(GridAreaDefinition, GridAreaDefinitionVec);
+impl_vec_mut!(GridAreaDefinition, GridAreaDefinitionVec);
 
 /// Represents the parsed value of `grid-template-areas`.
 ///
@@ -1194,33 +1216,35 @@ pub struct GridAreaDefinition {
 ///     "sidebar main aside"
 ///     "footer footer footer";
 /// ```
+#[repr(C)]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GridTemplateAreas {
-    pub areas: Vec<GridAreaDefinition>,
+    pub areas: GridAreaDefinitionVec,
 }
 
 impl Default for GridTemplateAreas {
     fn default() -> Self {
-        GridTemplateAreas { areas: Vec::new() }
+        GridTemplateAreas { areas: GridAreaDefinitionVec::from_vec(Vec::new()) }
     }
 }
 
 impl PrintAsCssValue for GridTemplateAreas {
     fn print_as_css_value(&self) -> String {
-        if self.areas.is_empty() {
+        let areas_slice = self.areas.as_ref();
+        if areas_slice.is_empty() {
             return "none".to_string();
         }
         // Reconstruct the row strings from the area definitions
-        let max_row = self.areas.iter().map(|a| a.row_end).max().unwrap_or(1);
-        let max_col = self.areas.iter().map(|a| a.column_end).max().unwrap_or(1);
+        let max_row = areas_slice.iter().map(|a| a.row_end).max().unwrap_or(1);
+        let max_col = areas_slice.iter().map(|a| a.column_end).max().unwrap_or(1);
         let num_rows = (max_row - 1) as usize;
         let num_cols = (max_col - 1) as usize;
         let mut grid: Vec<Vec<String>> = vec![vec![".".to_string(); num_cols]; num_rows];
-        for area in &self.areas {
+        for area in areas_slice {
             for r in (area.row_start as usize - 1)..(area.row_end as usize - 1) {
                 for c in (area.column_start as usize - 1)..(area.column_end as usize - 1) {
                     if r < num_rows && c < num_cols {
-                        grid[r][c] = area.name.clone();
+                        grid[r][c] = area.name.as_str().to_string();
                     }
                 }
             }
@@ -1305,7 +1329,7 @@ pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
     let mut areas = Vec::new();
     for (name, (min_row, max_row, min_col, max_col)) in area_map {
         areas.push(GridAreaDefinition {
-            name,
+            name: name.into(),
             row_start: (min_row + 1) as u16,
             row_end: (max_row + 2) as u16,   // end line is one past the last cell
             column_start: (min_col + 1) as u16,
@@ -1313,5 +1337,5 @@ pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
         });
     }
 
-    Ok(GridTemplateAreas { areas })
+    Ok(GridTemplateAreas { areas: GridAreaDefinitionVec::from_vec(areas) })
 }

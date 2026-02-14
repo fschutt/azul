@@ -619,9 +619,10 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             .map(|areas| {
                 areas
                     .areas
+                    .as_ref()
                     .iter()
                     .map(|a| taffy::GridTemplateArea {
-                        name: a.name.clone(),
+                        name: a.name.as_str().to_string(),
                         row_start: a.row_start,
                         row_end: a.row_end,
                         column_start: a.column_start,
