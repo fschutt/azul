@@ -16,6 +16,7 @@ use crate::{
     format_rust_code::GetHash,
     props::{
         basic::{
+            angle::{AngleValue, parse_angle_value, CssAngleValueParseError, CssAngleValueParseErrorOwned},
             color::{parse_css_color, ColorU, CssColorParseError, CssColorParseErrorOwned},
             length::{FloatValue, PercentageParseError, PercentageValue},
             pixel::{
@@ -48,6 +49,14 @@ pub enum StyleFilter {
     ComponentTransfer,
     Offset(StyleFilterOffset),
     Composite(StyleCompositeFilter),
+    // Standard CSS filter functions
+    Brightness(PercentageValue),
+    Contrast(PercentageValue),
+    Grayscale(PercentageValue),
+    HueRotate(AngleValue),
+    Invert(PercentageValue),
+    Saturate(PercentageValue),
+    Sepia(PercentageValue),
 }
 
 impl_option!(
@@ -190,6 +199,13 @@ impl PrintAsCssValue for StyleFilter {
             StyleFilter::ComponentTransfer => "component-transfer".to_string(),
             StyleFilter::Offset(o) => format!("offset({} {})", o.x, o.y),
             StyleFilter::Composite(c) => format!("composite({})", c.print_as_css_value()),
+            StyleFilter::Brightness(v) => format!("brightness({})", v),
+            StyleFilter::Contrast(v) => format!("contrast({})", v),
+            StyleFilter::Grayscale(v) => format!("grayscale({})", v),
+            StyleFilter::HueRotate(a) => format!("hue-rotate({})", a),
+            StyleFilter::Invert(v) => format!("invert({})", v),
+            StyleFilter::Saturate(v) => format!("saturate({})", v),
+            StyleFilter::Sepia(v) => format!("sepia({})", v),
         }
     }
 }
@@ -231,6 +247,7 @@ mod parser {
         ColorMatrix(CssStyleColorMatrixParseError<'a>),
         Offset(CssStyleFilterOffsetParseError<'a>),
         Composite(CssStyleCompositeFilterParseError<'a>),
+        Angle(CssAngleValueParseError<'a>),
     }
 
     impl_debug_as_display!(CssStyleFilterParseError<'a>);
@@ -245,6 +262,7 @@ mod parser {
         ColorMatrix(e) => format!("Error parsing color-matrix(): {}", e),
         Offset(e) => format!("Error parsing offset(): {}", e),
         Composite(e) => format!("Error parsing composite(): {}", e),
+        Angle(e) => format!("Error parsing hue-rotate(): {}", e),
     }}
 
     impl_from!(
@@ -267,6 +285,7 @@ mod parser {
         CssStyleFilterParseError::Composite
     );
     impl_from!(CssShadowParseError<'a>, CssStyleFilterParseError::Shadow);
+    impl_from!(CssAngleValueParseError<'a>, CssStyleFilterParseError::Angle);
 
     impl<'a> From<PercentageParseError> for CssStyleFilterParseError<'a> {
         fn from(p: PercentageParseError) -> Self {
@@ -295,6 +314,7 @@ mod parser {
         ColorMatrix(CssStyleColorMatrixParseErrorOwned),
         Offset(CssStyleFilterOffsetParseErrorOwned),
         Composite(CssStyleCompositeFilterParseErrorOwned),
+        Angle(CssAngleValueParseErrorOwned),
     }
 
     impl<'a> CssStyleFilterParseError<'a> {
@@ -316,6 +336,7 @@ mod parser {
                 }
                 Self::Offset(e) => CssStyleFilterParseErrorOwned::Offset(e.to_contained()),
                 Self::Composite(e) => CssStyleFilterParseErrorOwned::Composite(e.to_contained()),
+                Self::Angle(e) => CssStyleFilterParseErrorOwned::Angle(e.to_contained()),
             }
         }
     }
@@ -335,6 +356,7 @@ mod parser {
                 Self::ColorMatrix(e) => CssStyleFilterParseError::ColorMatrix(e.to_shared()),
                 Self::Offset(e) => CssStyleFilterParseError::Offset(e.to_shared()),
                 Self::Composite(e) => CssStyleFilterParseError::Composite(e.to_shared()),
+                Self::Angle(e) => CssStyleFilterParseError::Angle(e.to_shared()),
             }
         }
     }
@@ -652,6 +674,13 @@ mod parser {
                 "component-transfer",
                 "offset",
                 "composite",
+                "brightness",
+                "contrast",
+                "grayscale",
+                "hue-rotate",
+                "invert",
+                "saturate",
+                "sepia",
             ],
         )?;
 
@@ -681,6 +710,13 @@ mod parser {
             "composite" => Ok(StyleFilter::Composite(parse_filter_composite(
                 filter_values,
             )?)),
+            "brightness" => Ok(StyleFilter::Brightness(parse_percentage_value(filter_values)?)),
+            "contrast" => Ok(StyleFilter::Contrast(parse_percentage_value(filter_values)?)),
+            "grayscale" => Ok(StyleFilter::Grayscale(parse_percentage_value(filter_values)?)),
+            "hue-rotate" => Ok(StyleFilter::HueRotate(parse_angle_value(filter_values)?)),
+            "invert" => Ok(StyleFilter::Invert(parse_percentage_value(filter_values)?)),
+            "saturate" => Ok(StyleFilter::Saturate(parse_percentage_value(filter_values)?)),
+            "sepia" => Ok(StyleFilter::Sepia(parse_percentage_value(filter_values)?)),
             _ => unreachable!(),
         }
     }

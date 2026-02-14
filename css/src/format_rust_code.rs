@@ -909,6 +909,13 @@ fn format_style_filter(st: &StyleFilter, tabs: usize) -> String {
             format_float_value(&fv.k3),
             format_float_value(&fv.k4)
         ),
+        StyleFilter::Brightness(v) => format!("StyleFilter::Brightness({})", format_percentage_value(v)),
+        StyleFilter::Contrast(v) => format!("StyleFilter::Contrast({})", format_percentage_value(v)),
+        StyleFilter::Grayscale(v) => format!("StyleFilter::Grayscale({})", format_percentage_value(v)),
+        StyleFilter::HueRotate(a) => format!("StyleFilter::HueRotate({})", format_angle_value(a)),
+        StyleFilter::Invert(v) => format!("StyleFilter::Invert({})", format_percentage_value(v)),
+        StyleFilter::Saturate(v) => format!("StyleFilter::Saturate({})", format_percentage_value(v)),
+        StyleFilter::Sepia(v) => format!("StyleFilter::Sepia({})", format_percentage_value(v)),
     }
 }
 
