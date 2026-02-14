@@ -1,7 +1,7 @@
 use azul_core::{
     app_resources::{IdNamespace, RendererResources},
     callbacks::{DocumentId, IFrameCallbackInfo, IFrameCallbackReturn, PipelineId, RefAny},
-    dom::{Dom, NodeData, NodeDataInlineCssProperty},
+    dom::{Dom, NodeData},
     id_tree::{Node, NodeDataContainer, NodeHierarchy, NodeId},
     styled_dom::{
         DomId, NodeHierarchyItem, OptionNodeId, ParentWithNodeDepth, StyledDom, StyledNode,
@@ -9,7 +9,7 @@ use azul_core::{
     ui_solver::{WhConstraint, WidthSolvedResult},
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
-use azul_css::{css::Css, *};
+use azul_css::{css::Css, dynamic_selector::CssPropertyWithConditions, *};
 
 /// Returns a DOM for testing so we don't have to construct it every time.
 /// The DOM structure looks like this:
@@ -122,19 +122,19 @@ fn test_full_dom_2() {
     // tag_ids_to_node_ids gets generated?
 
     let styled_dom = Dom::create_iframe(RefAny::new(A {}), render_iframe)
-        .with_inline_css_props(
+        .with_css_props(
             vec![
-                NodeDataInlineCssProperty::Normal(CssProperty::display(LayoutDisplay::Flex)),
-                NodeDataInlineCssProperty::Normal(CssProperty::flex_grow(LayoutFlexGrow {
+                CssPropertyWithConditions::simple(CssProperty::display(LayoutDisplay::Flex)),
+                CssPropertyWithConditions::simple(CssProperty::flex_grow(LayoutFlexGrow {
                     inner: FloatValue::const_new(1),
                 })),
-                NodeDataInlineCssProperty::Normal(CssProperty::width(LayoutWidth {
+                CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth {
                     inner: PixelValue::const_percent(100),
                 })),
-                NodeDataInlineCssProperty::Normal(CssProperty::height(LayoutHeight {
+                CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight {
                     inner: PixelValue::const_percent(100),
                 })),
-                NodeDataInlineCssProperty::Normal(CssProperty::box_sizing(
+                CssPropertyWithConditions::simple(CssProperty::box_sizing(
                     LayoutBoxSizing::BorderBox,
                 )),
             ]

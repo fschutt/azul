@@ -17,6 +17,7 @@ use azul_core::{
 };
 use azul_css::{
     css::{Css, CssPropertyValue},
+    dynamic_selector::CssPropertyWithConditions,
     props::{
         basic::ColorU,
         layout::LayoutWidth,
@@ -46,25 +47,25 @@ fn create_test_dom_with_pseudo_states() -> StyledDom {
         let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(ColorU {
             r: 231, g: 76, b: 60, a: 255, // #e74c3c
         })].into();
-        child.root.add_css_property(CssProperty::BackgroundContent(CssPropertyValue::Exact(bg)));
-        
+        child.root.add_css_property(CssPropertyWithConditions::simple(CssProperty::BackgroundContent(CssPropertyValue::Exact(bg))));
+
         // Focus state: light red background
         let focus_bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(ColorU {
             r: 255, g: 107, b: 107, a: 255, // #ff6b6b
         })].into();
-        child.root.add_focus_css_property(CssProperty::BackgroundContent(CssPropertyValue::Exact(focus_bg)));
-        
+        child.root.add_css_property(CssPropertyWithConditions::on_focus(CssProperty::BackgroundContent(CssPropertyValue::Exact(focus_bg))));
+
         // Hover state: blue background
         let hover_bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(ColorU {
             r: 52, g: 152, b: 219, a: 255, // #3498db
         })].into();
-        child.root.add_hover_css_property(CssProperty::BackgroundContent(CssPropertyValue::Exact(hover_bg)));
-        
+        child.root.add_css_property(CssPropertyWithConditions::on_hover(CssProperty::BackgroundContent(CssPropertyValue::Exact(hover_bg))));
+
         // Active state: green background
         let active_bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(ColorU {
             r: 46, g: 204, b: 113, a: 255, // #2ecc71
         })].into();
-        child.root.add_active_css_property(CssProperty::BackgroundContent(CssPropertyValue::Exact(active_bg)));
+        child.root.add_css_property(CssPropertyWithConditions::on_active(CssProperty::BackgroundContent(CssPropertyValue::Exact(active_bg))));
         
         dom.add_child(child);
     }
@@ -79,10 +80,10 @@ fn create_test_dom_with_layout_pseudo_states() -> StyledDom {
     let mut child = Dom::create_div();
     
     // Normal state: 100px width
-    child.root.add_css_property(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::const_px(100))));
-    
+    child.root.add_css_property(CssPropertyWithConditions::simple(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::const_px(100)))));
+
     // Focus state: 200px width (layout-affecting!)
-    child.root.add_focus_css_property(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::const_px(200))));
+    child.root.add_css_property(CssPropertyWithConditions::on_focus(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::const_px(200)))));
     
     dom.add_child(child);
     dom.style(empty_css())
@@ -95,10 +96,10 @@ fn create_test_dom_with_gpu_only_pseudo_states() -> StyledDom {
     let mut child = Dom::create_div();
     
     // Normal state: opacity 1.0
-    child.root.add_css_property(CssProperty::Opacity(CssPropertyValue::Exact(StyleOpacity::const_new(100))));
-    
+    child.root.add_css_property(CssPropertyWithConditions::simple(CssProperty::Opacity(CssPropertyValue::Exact(StyleOpacity::const_new(100)))));
+
     // Focus state: opacity 0.5 (GPU-only!)
-    child.root.add_focus_css_property(CssProperty::Opacity(CssPropertyValue::Exact(StyleOpacity::const_new(50))));
+    child.root.add_css_property(CssPropertyWithConditions::on_focus(CssProperty::Opacity(CssPropertyValue::Exact(StyleOpacity::const_new(50)))));
     
     dom.add_child(child);
     dom.style(empty_css())

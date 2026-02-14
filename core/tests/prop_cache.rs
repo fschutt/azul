@@ -3,10 +3,11 @@
 //! Tests for the CSS property cache, dependency chains, and inheritance system.
 
 use azul_core::{
-    dom::{Dom, NodeDataInlineCssProperty, NodeType},
+    dom::{Dom, NodeType},
     prop_cache::CssPropertyOrigin,
     styled_dom::StyledDom,
 };
+use azul_css::dynamic_selector::CssPropertyWithConditions;
 use azul_css::{
     css::Css,
     css::CssPropertyValue,
@@ -62,8 +63,8 @@ fn test_computed_values_exist_for_all_nodes() {
 
 #[test]
 fn test_inline_css_takes_precedence() {
-    let dom = Dom::create_div().with_inline_css_props(
-        vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+    let dom = Dom::create_div().with_css_props(
+        vec![CssPropertyWithConditions::simple(CssProperty::font_size(
             StyleFontSize::px(24.0),
         ))]
         .into(),
@@ -119,8 +120,8 @@ fn test_css_stylesheet_applies() {
 #[test]
 fn test_inherited_property_has_correct_origin() {
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                 StyleFontSize::px(20.0),
             ))]
             .into(),
@@ -159,16 +160,16 @@ fn test_inherited_property_has_correct_origin() {
 #[test]
 fn test_own_property_overrides_inherited() {
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                 StyleFontSize::px(20.0),
             ))]
             .into(),
         )
         .with_child(
             Dom::create_node(NodeType::P)
-                .with_inline_css_props(
-                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                .with_css_props(
+                    vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                         StyleFontSize::px(16.0),
                     ))]
                     .into(),
@@ -204,16 +205,16 @@ fn test_own_property_overrides_inherited() {
 #[test]
 fn test_em_resolved_to_px_in_computed() {
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                 StyleFontSize::px(20.0),
             ))]
             .into(),
         )
         .with_child(
             Dom::create_node(NodeType::P)
-                .with_inline_css_props(
-                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                .with_css_props(
+                    vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                         StyleFontSize::em(1.5),
                     ))]
                     .into(),
@@ -256,8 +257,8 @@ fn test_em_resolved_to_px_in_computed() {
 #[test]
 fn test_deeply_nested_inheritance() {
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                 StyleFontSize::px(20.0),
             ))]
             .into(),
@@ -351,8 +352,8 @@ fn test_no_computed_values_for_nonexistent_node() {
 fn test_font_weight_inheritance() {
     // Use inline CSS to ensure div has bold font-weight
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::FontWeight(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::FontWeight(
                 azul_css::css::CssPropertyValue::Exact(
                     azul_css::props::basic::font::StyleFontWeight::Bold,
                 ),
@@ -388,8 +389,8 @@ fn test_font_weight_inheritance() {
 fn test_color_inheritance() {
     // Use inline CSS to ensure div has red text color
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::TextColor(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::TextColor(
                 azul_css::css::CssPropertyValue::Exact(azul_css::props::style::StyleTextColor {
                     inner: azul_css::props::basic::color::ColorU {
                         r: 255,
@@ -481,8 +482,8 @@ fn test_empty_css_produces_only_ua_styles() {
 #[test]
 fn test_text_node_inherits_from_parent() {
     let dom = Dom::create_node(NodeType::P)
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                 StyleFontSize::px(18.0),
             ))]
             .into(),

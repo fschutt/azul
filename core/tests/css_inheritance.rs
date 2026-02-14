@@ -9,17 +9,17 @@
 //! 5. User-agent styles integrate properly with inheritance
 
 use azul_core::{
-    dom::{Dom, NodeData, NodeDataInlineCssProperty, NodeType},
+    dom::{Dom, NodeType},
     prop_cache::CssPropertyOrigin,
     styled_dom::StyledDom,
 };
 use azul_css::{
     css::Css,
+    dynamic_selector::CssPropertyWithConditions,
     props::{
-        basic::font::{StyleFontSize, StyleFontStyle, StyleFontWeight},
+        basic::font::{StyleFontSize, StyleFontWeight},
         property::{CssProperty, CssPropertyType},
     },
-    AzString,
 };
 
 // Helper macro to create a StyledDom and get the necessary references
@@ -42,8 +42,8 @@ fn test_font_size_inheritance_single_level() {
     // </div>
 
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                 StyleFontSize::px(24.0),
             ))]
             .into(),
@@ -96,16 +96,16 @@ fn test_font_size_override_not_inherited() {
     // </div>
 
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                 StyleFontSize::px(24.0),
             ))]
             .into(),
         )
         .with_child(
             Dom::create_node(NodeType::P)
-                .with_inline_css_props(
-                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                .with_css_props(
+                    vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                         StyleFontSize::px(12.0),
                     ))]
                     .into(),
@@ -156,8 +156,8 @@ fn test_font_weight_inheritance_multi_level() {
     // </div>
 
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_weight(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_weight(
                 StyleFontWeight::Bold,
             ))]
             .into(),
@@ -218,17 +218,17 @@ fn test_mixed_inherited_and_explicit_properties() {
     // </div>
 
     let dom = Dom::create_div()
-        .with_inline_css_props(
+        .with_css_props(
             vec![
-                NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(20.0))),
-                NodeDataInlineCssProperty::Normal(CssProperty::font_weight(StyleFontWeight::Bold)),
+                CssPropertyWithConditions::simple(CssProperty::font_size(StyleFontSize::px(20.0))),
+                CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::Bold)),
             ]
             .into(),
         )
         .with_child(
             Dom::create_node(NodeType::P)
-                .with_inline_css_props(
-                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                .with_css_props(
+                    vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                         StyleFontSize::px(16.0),
                     ))]
                     .into(),
@@ -290,8 +290,8 @@ fn test_non_inheritable_property_not_inherited() {
     };
 
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::Width(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::Width(
                 CssPropertyValue::Exact(LayoutWidth::Px(PixelValue::px(200.0))),
             ))]
             .into(),
@@ -330,8 +330,8 @@ fn test_update_invalidation() {
     // </div>
 
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                 StyleFontSize::px(20.0),
             ))]
             .into(),
@@ -388,8 +388,8 @@ fn test_deeply_nested_inheritance() {
     // </div>
 
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_weight(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_weight(
                 StyleFontWeight::Bold,
             ))]
             .into(),
@@ -444,19 +444,17 @@ fn test_em_unit_inheritance_basic() {
     //   </p>
     // </div>
 
-    use azul_css::props::basic::pixel::PixelValue;
-
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                 StyleFontSize::px(16.0),
             ))]
             .into(),
         )
         .with_child(
             Dom::create_node(NodeType::P)
-                .with_inline_css_props(
-                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                .with_css_props(
+                    vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                         StyleFontSize::em(2.0),
                     ))]
                     .into(),
@@ -508,24 +506,24 @@ fn test_em_unit_cascading_multiplication() {
     // </div>
 
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                 StyleFontSize::px(10.0),
             ))]
             .into(),
         )
         .with_child(
             Dom::create_node(NodeType::P)
-                .with_inline_css_props(
-                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                .with_css_props(
+                    vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                         StyleFontSize::em(2.0),
                     ))]
                     .into(),
                 )
                 .with_child(
                     Dom::create_node(NodeType::Span)
-                        .with_inline_css_props(
-                            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                        .with_css_props(
+                            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                                 StyleFontSize::em(1.5),
                             ))]
                             .into(),
@@ -605,24 +603,24 @@ fn test_em_on_font_size_refers_to_parent() {
     };
 
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                 StyleFontSize::px(20.0),
             ))]
             .into(),
         )
         .with_child(
             Dom::create_node(NodeType::P)
-                .with_inline_css_props(
-                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                .with_css_props(
+                    vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                         StyleFontSize::em(1.5),
                     ))]
                     .into(),
                 )
                 .with_child(
                     Dom::create_node(NodeType::Span)
-                        .with_inline_css_props(
-                            vec![NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(
+                        .with_css_props(
+                            vec![CssPropertyWithConditions::simple(CssProperty::PaddingLeft(
                                 CssPropertyValue::Exact(LayoutPaddingLeft {
                                     inner: PixelValue::em(2.0),
                                 }),
@@ -745,8 +743,8 @@ fn test_em_without_ancestor_absolute_unit() {
     use azul_css::props::basic::length::SizeMetric;
 
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                 StyleFontSize::em(2.0),
             ))]
             .into(),
@@ -826,27 +824,25 @@ fn test_percentage_font_size_inheritance() {
     //   </p>
     // </div>
 
-    use azul_css::props::basic::pixel::PixelValue;
-
     let dom = Dom::create_div()
-        .with_inline_css_props(
-            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+        .with_css_props(
+            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                 StyleFontSize::px(20.0),
             ))]
             .into(),
         )
         .with_child(
             Dom::create_node(NodeType::P)
-                .with_inline_css_props(
-                    vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                .with_css_props(
+                    vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                         StyleFontSize::percent(150.0),
                     ))]
                     .into(),
                 )
                 .with_child(
                     Dom::create_node(NodeType::Span)
-                        .with_inline_css_props(
-                            vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+                        .with_css_props(
+                            vec![CssPropertyWithConditions::simple(CssProperty::font_size(
                                 StyleFontSize::percent(80.0),
                             ))]
                             .into(),

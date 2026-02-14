@@ -2,7 +2,8 @@
 //!
 //! Tests for DOM tree construction, node management, and related operations.
 
-use azul_core::dom::{Dom, NodeDataInlineCssProperty, NodeType};
+use azul_core::dom::{Dom, NodeType};
+use azul_css::dynamic_selector::CssPropertyWithConditions;
 use azul_css::props::{basic::font::StyleFontSize, property::CssProperty};
 
 #[test]
@@ -83,25 +84,25 @@ fn test_dom_node_types() {
 
 #[test]
 fn test_dom_with_inline_css() {
-    let dom = Dom::create_div().with_inline_css_props(
-        vec![NodeDataInlineCssProperty::Normal(CssProperty::font_size(
+    let dom = Dom::create_div().with_css_props(
+        vec![CssPropertyWithConditions::simple(CssProperty::font_size(
             StyleFontSize::px(16.0),
         ))]
         .into(),
     );
-    assert_eq!(dom.root.inline_css_props.len(), 1);
+    assert_eq!(dom.root.css_props.len(), 1);
 }
 
 #[test]
 fn test_dom_with_multiple_inline_css() {
-    let dom = Dom::create_div().with_inline_css_props(
+    let dom = Dom::create_div().with_css_props(
         vec![
-            NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(16.0))),
-            NodeDataInlineCssProperty::Normal(CssProperty::font_size(StyleFontSize::px(18.0))),
+            CssPropertyWithConditions::simple(CssProperty::font_size(StyleFontSize::px(16.0))),
+            CssPropertyWithConditions::simple(CssProperty::font_size(StyleFontSize::px(18.0))),
         ]
         .into(),
     );
-    assert_eq!(dom.root.inline_css_props.len(), 2);
+    assert_eq!(dom.root.css_props.len(), 2);
 }
 
 #[test]

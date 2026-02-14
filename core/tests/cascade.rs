@@ -3,9 +3,8 @@
 use azul_css::{
     css::CssPropertyValue,
     props::{
-        basic::{pixel::PixelValue, ColorU, StyleFontSize},
+        basic::{pixel::PixelValue, StyleFontSize},
         property::{CssProperty, CssPropertyType},
-        style::StyleTextColor,
     },
 };
 
@@ -147,7 +146,7 @@ fn test_cascade_keyword_semantics_inherit() {
     // Test: inherit should use parent's computed value
 
     // Parent has font-size: 20px
-    let parent_value = CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+    let _parent_value = CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
         inner: PixelValue::px(20.0),
     }));
 
@@ -226,15 +225,15 @@ fn test_cascade_chain_example() {
     // Parent: font-size: 150% = 1.5 × 16px = 24px
     // Child: font-size: 2em = 2 × 24px = 48px
 
-    let root = CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+    let _root = CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
         inner: PixelValue::px(16.0),
     }));
 
-    let parent = CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+    let _parent = CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
         inner: PixelValue::percent(150.0),
     }));
 
-    let child = CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+    let _child = CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
         inner: PixelValue::em(2.0),
     }));
 

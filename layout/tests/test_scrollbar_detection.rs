@@ -85,6 +85,7 @@ fn test_scrollbar_necessity_no_overflow_visible() {
         LogicalSize::new(200.0, 200.0), // container
         OverflowBehavior::Visible,
         OverflowBehavior::Visible,
+        16.0,
     );
 
     assert!(
@@ -102,6 +103,7 @@ fn test_scrollbar_necessity_overflow_hidden() {
         LogicalSize::new(200.0, 200.0), // container
         OverflowBehavior::Hidden,
         OverflowBehavior::Hidden,
+        16.0,
     );
 
     assert!(
@@ -122,6 +124,7 @@ fn test_scrollbar_necessity_overflow_scroll() {
         LogicalSize::new(200.0, 200.0), // container
         OverflowBehavior::Scroll,
         OverflowBehavior::Scroll,
+        16.0,
     );
 
     assert!(
@@ -150,6 +153,7 @@ fn test_scrollbar_necessity_overflow_auto_no_overflow() {
         LogicalSize::new(200.0, 200.0), // container
         OverflowBehavior::Auto,
         OverflowBehavior::Auto,
+        16.0,
     );
 
     assert!(
@@ -170,6 +174,7 @@ fn test_scrollbar_necessity_overflow_auto_vertical_overflow() {
         LogicalSize::new(200.0, 200.0), // container
         OverflowBehavior::Auto,
         OverflowBehavior::Auto,
+        16.0,
     );
 
     assert!(
@@ -194,6 +199,7 @@ fn test_scrollbar_necessity_overflow_auto_horizontal_overflow() {
         LogicalSize::new(200.0, 200.0), // container
         OverflowBehavior::Auto,
         OverflowBehavior::Auto,
+        16.0,
     );
 
     assert!(
@@ -215,6 +221,7 @@ fn test_scrollbar_necessity_both_overflow() {
         LogicalSize::new(200.0, 200.0), // container
         OverflowBehavior::Auto,
         OverflowBehavior::Auto,
+        16.0,
     );
 
     assert!(result.needs_horizontal, "Should need horizontal scrollbar");

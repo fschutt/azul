@@ -1,12 +1,13 @@
 #[test]
 fn test_fixed_element_static_position() {
     use azul_core::{
-        dom::{Dom, NodeData, NodeDataInlineCssProperty},
+        dom::{Dom, NodeData},
         styled_dom::DomId,
     };
     use azul_css::{
         CssProperty, CssPropertyValue, LayoutHeight, LayoutPosition, LayoutWidth,
         StyleBackgroundColor, ColorU,
+        dynamic_selector::CssPropertyWithConditions,
     };
 
     // Create a styled DOM with a fixed element
@@ -14,30 +15,30 @@ fn test_fixed_element_static_position() {
 
     // Add a fixed positioned div inside a parent div
     let parent_div = Dom::from_data(NodeData::create_div())
-        .with_inline_css_props(
+        .with_css_props(
             vec![
-                NodeDataInlineCssProperty::Normal(CssProperty::Position(
+                CssPropertyWithConditions::simple(CssProperty::Position(
                     CssPropertyValue::Exact(LayoutPosition::Absolute),
                 )),
-                NodeDataInlineCssProperty::Normal(CssProperty::Top(
+                CssPropertyWithConditions::simple(CssProperty::Top(
                     CssPropertyValue::Exact(LayoutTop::const_px(100)),
                 )),
             ]
             .into(),
         )
         .with_child(
-            Dom::from_data(NodeData::create_div()).with_inline_css_props(
+            Dom::from_data(NodeData::create_div()).with_css_props(
                 vec![
-                    NodeDataInlineCssProperty::Normal(CssProperty::Position(
+                    CssPropertyWithConditions::simple(CssProperty::Position(
                         CssPropertyValue::Exact(LayoutPosition::Fixed),
                     )),
-                    NodeDataInlineCssProperty::Normal(CssProperty::Width(
+                    CssPropertyWithConditions::simple(CssProperty::Width(
                         CssPropertyValue::Exact(LayoutWidth::const_px(100)),
                     )),
-                    NodeDataInlineCssProperty::Normal(CssProperty::Height(
+                    CssPropertyWithConditions::simple(CssProperty::Height(
                         CssPropertyValue::Exact(LayoutHeight::const_px(100)),
                     )),
-                    NodeDataInlineCssProperty::Normal(CssProperty::BackgroundColor(
+                    CssPropertyWithConditions::simple(CssProperty::BackgroundColor(
                         CssPropertyValue::Exact(StyleBackgroundColor::Color(ColorU::BLUE)),
                     )),
                 ]
@@ -1276,7 +1277,7 @@ mod context {
 
     use azul_core::{
         app_resources::ImageRef,
-        dom::{Node, NodeData, NodeDataInlineCssProperty, NodeId},
+        dom::{Node, NodeData, NodeId},
         styled_dom::{
             CssPropertyCache, CssPropertyCachePtr, NodeHierarchyItem, StyledDom, StyledNode,
             StyledNodeState,
@@ -1286,6 +1287,7 @@ mod context {
     use azul_css::{
         CssPropertyType, CssPropertyValue, LayoutDisplay, LayoutFloat, LayoutOverflow,
         LayoutPosition,
+        dynamic_selector::CssPropertyWithConditions,
     };
 
     use super::*;
@@ -1764,14 +1766,14 @@ mod context {
             .with_children(
                 vec![
                     // Make text display as block
-                    Dom::from_data(NodeData::text("Hello world")).with_inline_css_props(
-                        vec![NodeDataInlineCssProperty::Normal(CssProperty::Display(
+                    Dom::from_data(NodeData::text("Hello world")).with_css_props(
+                        vec![CssPropertyWithConditions::simple(CssProperty::Display(
                             CssPropertyValue::Exact(LayoutDisplay::Block),
                         ))]
                         .into(),
                     ),
-                    Dom::from_data(NodeData::create_div()).with_inline_css_props(
-                        vec![NodeDataInlineCssProperty::Normal(CssProperty::Display(
+                    Dom::from_data(NodeData::create_div()).with_css_props(
+                        vec![CssPropertyWithConditions::simple(CssProperty::Display(
                             CssPropertyValue::Exact(LayoutDisplay::Inline),
                         ))]
                         .into(),
