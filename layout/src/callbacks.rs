@@ -3061,6 +3061,31 @@ impl CallbackInfo {
         self.get_scroll_manager().get_scroll_state(dom_id, node_id)
     }
 
+    /// Get a read-only snapshot of a scroll node's bounds and position.
+    ///
+    /// This is the recommended API for timer callbacks that need to compute
+    /// scroll physics. Returns container/content rects and max scroll bounds.
+    pub fn get_scroll_node_info(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<crate::managers::scroll_state::ScrollNodeInfo> {
+        self.get_scroll_manager()
+            .get_scroll_node_info(dom_id, node_id)
+    }
+
+    /// Get a clone of the scroll input queue for consuming pending inputs.
+    ///
+    /// Timer callbacks use this to drain pending scroll inputs recorded by
+    /// platform event handlers. The queue is thread-safe (Arc<Mutex>), so
+    /// the timer can call `take_all()` with only `&self`.
+    #[cfg(feature = "std")]
+    pub fn get_scroll_input_queue(
+        &self,
+    ) -> crate::managers::scroll_state::ScrollInputQueue {
+        self.get_scroll_manager().scroll_input_queue.clone()
+    }
+
     // Gpu State Manager Access
 
     /// Get immutable reference to the GPU state manager

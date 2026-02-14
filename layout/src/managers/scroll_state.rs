@@ -33,6 +33,8 @@
 //! - ExternalScrollId mapping for WebRender integration
 
 use alloc::collections::BTreeMap;
+#[cfg(feature = "std")]
+use alloc::vec::Vec;
 
 use azul_core::{
     dom::{DomId, NodeId, ScrollbarOrientation},
@@ -46,7 +48,96 @@ use azul_core::{
     task::{Duration, Instant},
 };
 
+#[cfg(feature = "std")]
+use std::sync::{Arc, Mutex};
+
 use crate::managers::hover::InputPointId;
+
+// ============================================================================
+// Scroll Input Types (for timer-based physics architecture)
+// ============================================================================
+
+/// Classifies the source of a scroll input event.
+///
+/// This determines how the scroll physics timer processes the input:
+/// - `TrackpadContinuous`: The OS already applies momentum — set position directly
+/// - `WheelDiscrete`: Mouse wheel clicks — apply as impulse with momentum decay
+/// - `Programmatic`: API-driven scroll — apply with optional easing animation
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ScrollInputSource {
+    /// Continuous trackpad gesture (macOS precise scrolling).
+    /// Position is set directly — the OS handles momentum/physics.
+    TrackpadContinuous,
+    /// Discrete mouse wheel steps (Windows/Linux mouse wheel).
+    /// Applied as velocity impulse with momentum decay.
+    WheelDiscrete,
+    /// Programmatic scroll (scrollTo API, keyboard Page Up/Down).
+    /// Applied with optional easing animation.
+    Programmatic,
+}
+
+/// A single scroll input event to be processed by the physics timer.
+///
+/// Scroll inputs are recorded by the platform event handler and consumed
+/// by the scroll physics timer callback. This decouples input recording
+/// from physics simulation.
+#[derive(Debug, Clone)]
+pub struct ScrollInput {
+    /// DOM containing the scrollable node
+    pub dom_id: DomId,
+    /// Target scroll node
+    pub node_id: NodeId,
+    /// Scroll delta (positive = scroll down/right)
+    pub delta: LogicalPosition,
+    /// When this input was recorded
+    pub timestamp: Instant,
+    /// How this input should be processed
+    pub source: ScrollInputSource,
+}
+
+/// Thread-safe queue for scroll inputs, shared between event handlers and timer callbacks.
+///
+/// Event handlers push inputs, the physics timer pops them. Protected by a Mutex
+/// so that the timer callback (which only has `&CallbackInfo` / `*const LayoutWindow`)
+/// can still consume pending inputs without needing `&mut`.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Default)]
+pub struct ScrollInputQueue {
+    inner: Arc<Mutex<Vec<ScrollInput>>>,
+}
+
+#[cfg(feature = "std")]
+impl ScrollInputQueue {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Push a new scroll input (called from platform event handler)
+    pub fn push(&self, input: ScrollInput) {
+        if let Ok(mut queue) = self.inner.lock() {
+            queue.push(input);
+        }
+    }
+
+    /// Take all pending inputs (called from timer callback)
+    pub fn take_all(&self) -> Vec<ScrollInput> {
+        if let Ok(mut queue) = self.inner.lock() {
+            core::mem::take(&mut *queue)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Check if there are pending inputs without consuming them
+    pub fn has_pending(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|q| !q.is_empty())
+            .unwrap_or(false)
+    }
+}
 
 // Scrollbar Component Types
 
@@ -186,6 +277,9 @@ pub struct ScrollManager {
     had_programmatic_scroll: bool,
     /// Track if any new DOMs were added this frame
     had_new_doms: bool,
+    /// Thread-safe queue for scroll inputs (shared with timer callbacks)
+    #[cfg(feature = "std")]
+    pub scroll_input_queue: ScrollInputQueue,
 }
 
 /// The complete scroll state for a single node (with animation support)
@@ -218,6 +312,24 @@ struct ScrollAnimation {
     target_offset: LogicalPosition,
     /// Easing function for interpolation
     easing: EasingFunction,
+}
+
+/// Read-only snapshot of a scroll node's state, returned by CallbackInfo queries.
+///
+/// Provides all the information a timer callback needs to compute scroll physics
+/// without requiring mutable access to the ScrollManager.
+#[derive(Debug, Clone)]
+pub struct ScrollNodeInfo {
+    /// Current scroll offset
+    pub current_offset: LogicalPosition,
+    /// Container (viewport) bounds
+    pub container_rect: LogicalRect,
+    /// Content bounds (total scrollable area)
+    pub content_rect: LogicalRect,
+    /// Maximum scroll in X direction
+    pub max_scroll_x: f32,
+    /// Maximum scroll in Y direction
+    pub max_scroll_y: f32,
 }
 
 /// Summary of scroll-related events that occurred during a frame
@@ -263,6 +375,35 @@ impl ScrollManager {
     /// Creates a new empty ScrollManager
     pub fn new() -> Self {
         Self::default()
+    }
+
+    // ========================================================================
+    // Input Recording API (timer-based architecture)
+    // ========================================================================
+
+    /// Records a scroll input event into the shared queue.
+    ///
+    /// This is the primary entry point for platform event handlers. Instead of
+    /// directly modifying scroll positions, the input is queued for the scroll
+    /// physics timer to process. This decouples input from physics simulation.
+    ///
+    /// Returns `true` if the physics timer should be started (i.e., there are
+    /// now pending inputs and no timer is running yet).
+    #[cfg(feature = "std")]
+    pub fn record_scroll_input(&mut self, input: ScrollInput) -> bool {
+        self.had_scroll_activity = true;
+        let was_empty = !self.scroll_input_queue.has_pending();
+        self.scroll_input_queue.push(input);
+        was_empty // caller should start timer if this returns true
+    }
+
+    /// Get a clone of the scroll input queue (for sharing with timer callbacks).
+    ///
+    /// The timer callback stores this in its RefAny data and calls `take_all()`
+    /// each tick to consume pending inputs.
+    #[cfg(feature = "std")]
+    pub fn get_input_queue(&self) -> ScrollInputQueue {
+        self.scroll_input_queue.clone()
     }
 
     /// Prepares state for a new frame by saving current offsets as previous
@@ -540,6 +681,27 @@ impl ScrollManager {
     /// Returns the internal scroll state for a node
     pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&AnimatedScrollState> {
         self.states.get(&(dom_id, node_id))
+    }
+
+    /// Returns a read-only snapshot of a scroll node's state.
+    ///
+    /// This is the preferred way for timer callbacks to query scroll state,
+    /// since they only have `&CallbackInfo` (read-only access).
+    pub fn get_scroll_node_info(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<ScrollNodeInfo> {
+        let state = self.states.get(&(dom_id, node_id))?;
+        let max_x = (state.content_rect.size.width - state.container_rect.size.width).max(0.0);
+        let max_y = (state.content_rect.size.height - state.container_rect.size.height).max(0.0);
+        Some(ScrollNodeInfo {
+            current_offset: state.current_offset,
+            container_rect: state.container_rect,
+            content_rect: state.content_rect,
+            max_scroll_x: max_x,
+            max_scroll_y: max_y,
+        })
     }
 
     /// Returns all scroll positions for nodes in a specific DOM

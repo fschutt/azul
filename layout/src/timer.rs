@@ -498,7 +498,44 @@ impl TimerCallbackInfo {
     pub fn has_sufficient_history_for_gestures(&self) -> bool {
         false // Timers don't track gesture history
     }
-    
+
+    // ==================== Scroll Management (timer architecture) ====================
+
+    /// Get a read-only snapshot of a scroll node's bounds and position.
+    ///
+    /// Timer callbacks use this to read current scroll state for physics calculation.
+    pub fn get_scroll_node_info(
+        &self,
+        dom_id: azul_core::dom::DomId,
+        node_id: azul_core::id::NodeId,
+    ) -> Option<crate::managers::scroll_state::ScrollNodeInfo> {
+        self.callback_info.get_scroll_node_info(dom_id, node_id)
+    }
+
+    /// Get the scroll input queue for consuming pending scroll inputs.
+    ///
+    /// The physics timer calls `take_all()` each tick to drain inputs
+    /// recorded by platform event handlers.
+    #[cfg(feature = "std")]
+    pub fn get_scroll_input_queue(
+        &self,
+    ) -> crate::managers::scroll_state::ScrollInputQueue {
+        self.callback_info.get_scroll_input_queue()
+    }
+
+    /// Scroll a node to a specific position (via transactional CallbackChange).
+    ///
+    /// This is the primary way for timer callbacks to update scroll positions.
+    /// The change is applied after the callback returns.
+    pub fn scroll_to(
+        &mut self,
+        dom_id: azul_core::dom::DomId,
+        node_id: azul_core::styled_dom::NodeHierarchyItemId,
+        position: azul_core::geom::LogicalPosition,
+    ) {
+        self.callback_info.scroll_to(dom_id, node_id, position);
+    }
+
     // Cursor blink timer methods
     
     /// Set cursor visibility state (for cursor blink timer)
