@@ -1699,14 +1699,34 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         Some(id) => get_css_height(ctx.styled_dom, id, &styled_node_state),
         None => MultiValue::Auto, // Anonymous boxes have auto height
     };
+
+    // Check if this node is a scroll container (overflow: scroll/auto).
+    // Scroll containers must NOT expand to fit content — their height is
+    // determined by the containing block, and overflow is scrollable.
+    //
+    // Exception: if the containing block height is infinite (unconstrained),
+    // we must still grow, since you can't scroll inside an infinitely tall box.
+    let is_scroll_container = dom_id.map_or(false, |id| {
+        let ov_x = get_overflow_x(ctx.styled_dom, id, &styled_node_state);
+        let ov_y = get_overflow_y(ctx.styled_dom, id, &styled_node_state);
+        matches!(ov_x, LayoutOverflow::Scroll | LayoutOverflow::Auto)
+            || matches!(ov_y, LayoutOverflow::Scroll | LayoutOverflow::Auto)
+    });
+
     if should_use_content_height(&css_height) {
-        final_used_size = apply_content_based_height(
-            final_used_size,
-            content_size,
-            tree,
-            node_index,
-            writing_mode,
-        );
+        let skip_expansion = is_scroll_container
+            && containing_block_size.height.is_finite()
+            && containing_block_size.height > 0.0;
+
+        if !skip_expansion {
+            final_used_size = apply_content_based_height(
+                final_used_size,
+                content_size,
+                tree,
+                node_index,
+                writing_mode,
+            );
+        }
     }
 
     // Phase 3: Scrollbar handling
