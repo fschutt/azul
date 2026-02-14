@@ -5875,6 +5875,106 @@ impl LayoutWindow {
         } else {
             println!("[update_text_cache_after_edit] ERROR: Layout result not found for update");
         }
+
+        // CRITICAL: Regenerate the display list after updating the inline layout.
+        // Without this, the old display list (with old text glyphs) is sent to WebRender,
+        // so the screen still shows the old text even though the layout tree is updated.
+        println!("[update_text_cache_after_edit] Regenerating display list for DOM {:?}", dom_id);
+        self.regenerate_display_list_for_dom(dom_id);
+        println!("[update_text_cache_after_edit] Display list regenerated");
+    }
+
+    /// Regenerate the display list for a specific DOM from the current layout tree.
+    ///
+    /// This is the critical missing piece for text input: after `update_text_cache_after_edit`
+    /// updates the `inline_layout_result` on layout tree nodes, the `DomLayoutResult.display_list`
+    /// must be regenerated. Otherwise, `generate_frame()` sends the OLD display list to WebRender
+    /// and the screen shows stale text.
+    ///
+    /// This method creates a temporary `LayoutContext` from the existing `LayoutWindow` state
+    /// and calls `generate_display_list` on the already-computed layout tree and positions.
+    fn regenerate_display_list_for_dom(&mut self, dom_id: DomId) {
+        use crate::solver3::{
+            display_list::generate_display_list,
+            LayoutContext,
+        };
+
+        // Get all the data we need from the layout result
+        let layout_result = match self.layout_results.get(&dom_id) {
+            Some(lr) => lr,
+            None => {
+                println!("[regenerate_display_list_for_dom] ERROR: No layout result for DOM {:?}", dom_id);
+                return;
+            }
+        };
+
+        let tree = &layout_result.layout_tree;
+        let calculated_positions = &layout_result.calculated_positions;
+        let scroll_ids = &layout_result.scroll_ids;
+        let styled_dom = &layout_result.styled_dom;
+        let viewport = layout_result.viewport;
+
+        // Get scroll offsets from scroll manager
+        let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
+
+        // Get GPU cache for this DOM
+        let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
+
+        // Get cursor state for display list generation
+        let cursor_is_visible = self.cursor_manager.should_draw_cursor();
+        let cursor_location = self.cursor_manager.get_cursor_location().and_then(|loc| {
+            self.cursor_manager.get_cursor().map(|cursor| {
+                (loc.dom_id, loc.node_id, cursor.clone())
+            })
+        });
+
+        // Build a temporary LayoutContext with all the state we need
+        let mut counter_values = BTreeMap::new();
+        let mut debug_messages: Option<Vec<LayoutDebugMessage>> = None;
+        let cache_map = std::mem::take(&mut self.layout_cache.cache_map);
+
+        let mut ctx = LayoutContext {
+            styled_dom,
+            font_manager: &self.font_manager,
+            selections: &self.selection_manager.selections,
+            text_selections: &self.selection_manager.text_selections,
+            debug_messages: &mut debug_messages,
+            counters: &mut counter_values,
+            viewport_size: viewport.size,
+            fragmentation_context: None,
+            cursor_is_visible,
+            cursor_location,
+            cache_map,
+            system_style: self.system_style.clone(),
+        };
+
+        // Generate the new display list from the existing layout tree
+        let new_display_list = generate_display_list(
+            &mut ctx,
+            tree,
+            calculated_positions,
+            &scroll_offsets,
+            scroll_ids,
+            Some(&gpu_cache),
+            &self.renderer_resources,
+            self.id_namespace,
+            dom_id,
+        );
+
+        // Restore the cache_map back to layout_cache
+        self.layout_cache.cache_map = std::mem::take(&mut ctx.cache_map);
+
+        match new_display_list {
+            Ok(display_list) => {
+                println!("[regenerate_display_list_for_dom] Generated {} display items", display_list.items.len());
+                if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
+                    layout_result.display_list = display_list;
+                }
+            }
+            Err(e) => {
+                println!("[regenerate_display_list_for_dom] ERROR: {:?}", e);
+            }
+        }
     }
 
     /// Internal helper to re-run the text3 layout pipeline on new content
