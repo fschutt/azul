@@ -6097,11 +6097,10 @@ pub fn check_scrollbar_necessity(
     // may show scrollbars due to sub-pixel differences (e.g., 299.9999 vs 300.0).
     const EPSILON: f32 = 1.0;
 
-    // scrollbar-width: none → scrollbars are never shown
-    if scrollbar_width_px <= 0.0 {
-        return ScrollbarRequirements::default();
-    }
-
+    // Determine if scrolling is needed based on overflow properties.
+    // Note: scrollbar_width_px can be 0 for overlay scrollbars (e.g. macOS),
+    // but we still need to register scroll nodes so that scrolling works —
+    // overlay scrollbars just don't reserve any layout space.
     let mut needs_horizontal = match overflow_x {
         OverflowBehavior::Visible | OverflowBehavior::Hidden | OverflowBehavior::Clip => false,
         OverflowBehavior::Scroll => true,
@@ -6117,14 +6116,17 @@ pub fn check_scrollbar_necessity(
     // A classic layout problem: a vertical scrollbar can reduce horizontal space,
     // causing a horizontal scrollbar to appear, which can reduce vertical space...
     // A full solution involves a loop, but this two-pass check handles most cases.
-    if needs_vertical && !needs_horizontal && overflow_x == OverflowBehavior::Auto {
-        if content_size.width > (container_size.width - scrollbar_width_px) + EPSILON {
-            needs_horizontal = true;
+    // Only relevant when scrollbars reserve layout space (non-overlay).
+    if scrollbar_width_px > 0.0 {
+        if needs_vertical && !needs_horizontal && overflow_x == OverflowBehavior::Auto {
+            if content_size.width > (container_size.width - scrollbar_width_px) + EPSILON {
+                needs_horizontal = true;
+            }
         }
-    }
-    if needs_horizontal && !needs_vertical && overflow_y == OverflowBehavior::Auto {
-        if content_size.height > (container_size.height - scrollbar_width_px) + EPSILON {
-            needs_vertical = true;
+        if needs_horizontal && !needs_vertical && overflow_y == OverflowBehavior::Auto {
+            if content_size.height > (container_size.height - scrollbar_width_px) + EPSILON {
+                needs_vertical = true;
+            }
         }
     }
 
