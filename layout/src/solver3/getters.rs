@@ -764,14 +764,32 @@ pub fn get_border_radius(
     }
 }
 
-/// Get z-index for stacking context ordering
+/// Get z-index for stacking context ordering.
 ///
-/// NOTE: z-index CSS property exists but is not yet hooked up to the CSS cache API.
-/// This would require adding get_z_index() to CssPropertyCache.
+/// Returns the resolved integer z-index value:
+/// - `z-index: auto` → 0 (participates in parent's stacking context)
+/// - `z-index: <integer>` → that integer value
 pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
-    // TODO: Add get_z_index() method to CSS cache, then query it here
-    let _ = (styled_dom, node_id);
-    0
+    use azul_css::props::layout::position::LayoutZIndex;
+
+    let node_id = match node_id {
+        Some(id) => id,
+        None => return 0,
+    };
+
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
+
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_z_index(node_data, &node_id, &node_state)
+        .and_then(|v| v.get_property())
+        .map(|z| match z {
+            LayoutZIndex::Auto => 0,
+            LayoutZIndex::Integer(i) => *i,
+        })
+        .unwrap_or(0)
 }
 
 // Rendering Property Getters
