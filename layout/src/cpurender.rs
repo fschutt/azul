@@ -588,6 +588,10 @@ fn render_display_list(
                 // TODO: Apply transform for CPU rendering
             }
             DisplayListItem::PopReferenceFrame => {}
+            DisplayListItem::PushTextShadow { .. } => {
+                // TODO: Text shadow not yet implemented in CPU renderer
+            }
+            DisplayListItem::PopTextShadow => {}
         }
     }
 

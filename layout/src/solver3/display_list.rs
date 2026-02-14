@@ -640,6 +640,13 @@ pub enum DisplayListItem {
     },
     /// Pop an opacity layer.
     PopOpacity,
+
+    /// Push a text shadow that applies to subsequent text content.
+    PushTextShadow {
+        shadow: azul_css::props::style::box_shadow::StyleBoxShadow,
+    },
+    /// Pop all text shadows.
+    PopTextShadow,
 }
 
 // Helper structs for the DisplayList
@@ -1710,6 +1717,63 @@ where
 
         builder.push_stacking_context(context.z_index, node_bounds);
 
+        // Push opacity/filter effects if the node has them
+        let mut pushed_opacity = false;
+        let mut pushed_filter = false;
+        let mut pushed_backdrop_filter = false;
+
+        if let Some(dom_id) = node.dom_node_id {
+            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+            let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+
+            // Opacity
+            let opacity = self.ctx.styled_dom.css_property_cache.ptr
+                .get_opacity(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property())
+                .map(|v| v.inner.normalized())
+                .unwrap_or(1.0);
+
+            if opacity < 1.0 {
+                builder.push_item(DisplayListItem::PushOpacity {
+                    bounds: node_bounds,
+                    opacity,
+                });
+                pushed_opacity = true;
+            }
+
+            // Filter
+            if let Some(filter_vec_value) = self.ctx.styled_dom.css_property_cache.ptr
+                .get_filter(node_data, &dom_id, node_state)
+            {
+                if let Some(filter_vec) = filter_vec_value.get_property() {
+                    let filters: Vec<_> = filter_vec.as_ref().to_vec();
+                    if !filters.is_empty() {
+                        builder.push_item(DisplayListItem::PushFilter {
+                            bounds: node_bounds,
+                            filters,
+                        });
+                        pushed_filter = true;
+                    }
+                }
+            }
+
+            // Backdrop filter
+            if let Some(backdrop_filter_value) = self.ctx.styled_dom.css_property_cache.ptr
+                .get_backdrop_filter(node_data, &dom_id, node_state)
+            {
+                if let Some(filter_vec) = backdrop_filter_value.get_property() {
+                    let filters: Vec<_> = filter_vec.as_ref().to_vec();
+                    if !filters.is_empty() {
+                        builder.push_item(DisplayListItem::PushBackdropFilter {
+                            bounds: node_bounds,
+                            filters,
+                        });
+                        pushed_backdrop_filter = true;
+                    }
+                }
+            }
+        }
+
         // 1. Paint background and borders for the context's root element.
         // This must be BEFORE push_node_clips so the container background
         // is rendered in parent space (stationary), not scroll space.
@@ -1763,6 +1827,17 @@ where
 
         for child in positive_z_children {
             self.generate_for_stacking_context(builder, child)?;
+        }
+
+        // Pop filter/opacity effects (in reverse order of push)
+        if pushed_backdrop_filter {
+            builder.push_item(DisplayListItem::PopBackdropFilter);
+        }
+        if pushed_filter {
+            builder.push_item(DisplayListItem::PopFilter);
+        }
+        if pushed_opacity {
+            builder.push_item(DisplayListItem::PopOpacity);
         }
 
         // Pop the stacking context for WebRender
@@ -2332,6 +2407,33 @@ where
             let style_border_radius =
                 get_style_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
+            // Paint box shadows before backgrounds (CSS spec: shadows render behind the element)
+            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+            let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+
+            // Check all four sides for box-shadow (azul stores them per-side)
+            for get_shadow_fn in [
+                azul_core::prop_cache::CssPropertyCache::get_box_shadow_left,
+                azul_core::prop_cache::CssPropertyCache::get_box_shadow_right,
+                azul_core::prop_cache::CssPropertyCache::get_box_shadow_top,
+                azul_core::prop_cache::CssPropertyCache::get_box_shadow_bottom,
+            ] {
+                if let Some(shadow_value) = get_shadow_fn(
+                    &self.ctx.styled_dom.css_property_cache.ptr,
+                    node_data,
+                    &dom_id,
+                    &node_state,
+                ) {
+                    if let Some(shadow) = shadow_value.get_property() {
+                        builder.push_item(DisplayListItem::BoxShadow {
+                            bounds: paint_rect,
+                            shadow: shadow.clone(),
+                            border_radius: simple_border_radius,
+                        });
+                    }
+                }
+            }
+
             // Use unified background/border painting
             builder.push_backgrounds_and_border(
                 paint_rect,
@@ -2609,7 +2711,28 @@ where
                 content_box_rect.size.width = content_size.width;
             }
 
+            // Check for text-shadow and wrap inline content with push/pop shadow
+            let mut pushed_text_shadow = false;
+            if let Some(dom_id) = node.dom_node_id {
+                let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+                let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+                if let Some(shadow_val) = self.ctx.styled_dom.css_property_cache.ptr
+                    .get_text_shadow(node_data, &dom_id, node_state)
+                {
+                    if let Some(shadow) = shadow_val.get_property() {
+                        builder.push_item(DisplayListItem::PushTextShadow {
+                            shadow: shadow.clone(),
+                        });
+                        pushed_text_shadow = true;
+                    }
+                }
+            }
+
             self.paint_inline_content(builder, content_box_rect, inline_layout)?;
+
+            if pushed_text_shadow {
+                builder.push_item(DisplayListItem::PopTextShadow);
+            }
         } else if let Some(dom_id) = node.dom_node_id {
             // This node might be a simple replaced element, like an <img> tag.
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
@@ -3712,7 +3835,9 @@ fn clip_and_offset_display_item(
         | DisplayListItem::PushOpacity { .. }
         | DisplayListItem::PopOpacity
         | DisplayListItem::PushReferenceFrame { .. }
-        | DisplayListItem::PopReferenceFrame => None,
+        | DisplayListItem::PopReferenceFrame
+        | DisplayListItem::PushTextShadow { .. }
+        | DisplayListItem::PopTextShadow => None,
     }
 }
 
@@ -4756,6 +4881,10 @@ fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> DisplayListIt
             bounds: offset_rect_y(*bounds, y_offset),
         },
         DisplayListItem::PopReferenceFrame => DisplayListItem::PopReferenceFrame,
+        DisplayListItem::PushTextShadow { shadow } => DisplayListItem::PushTextShadow {
+            shadow: shadow.clone(),
+        },
+        DisplayListItem::PopTextShadow => DisplayListItem::PopTextShadow,
     }
 }
 
