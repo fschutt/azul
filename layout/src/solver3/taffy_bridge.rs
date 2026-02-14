@@ -318,7 +318,7 @@ use crate::{
         },
         getters::{
             get_css_border_bottom_width, get_css_border_left_width, get_css_border_right_width,
-            get_css_border_top_width, get_css_bottom, get_css_height, get_css_left,
+            get_css_border_top_width, get_css_box_sizing, get_css_bottom, get_css_height, get_css_left,
             get_css_margin_bottom, get_css_margin_left, get_css_margin_right, get_css_margin_top,
             get_css_max_height, get_css_max_width, get_css_min_height, get_css_min_width,
             get_css_padding_bottom, get_css_padding_left, get_css_padding_right,
@@ -437,6 +437,12 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
         let cache = &styled_dom.css_property_cache.ptr;
         let mut taffy_style = Style::default();
+
+        // Box Sizing — CSS default is content-box, but Taffy defaults to border-box
+        taffy_style.box_sizing = match get_css_box_sizing(styled_dom, id, node_state).unwrap_or_default() {
+            azul_css::props::layout::LayoutBoxSizing::BorderBox => taffy::BoxSizing::BorderBox,
+            azul_css::props::layout::LayoutBoxSizing::ContentBox => taffy::BoxSizing::ContentBox,
+        };
 
         // Display Mode
         taffy_style.display =
