@@ -17,6 +17,8 @@ hello-world
 test_simple
 browser
 opengl_simple
+drag-drop-test
+image.png
 azul.h
 *.dSYM
 *.xhtml

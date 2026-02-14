@@ -47,7 +47,7 @@ thiserror = { version = "2.0.17", default-features = false }
 hyphenation             = { version = "0.8.4", default-features = false, features = ["embed_all"], optional = true }
 unicode-segmentation    = { version = "1.12.0", default-features = false, optional = true }
 unicode-normalization   = { version = "0.1.24",  default-features = false, optional = true }
-allsorts = { version = "0.16.1", default-features = false, features = ["flate2_rust"], optional = true }
+allsorts = { path = "../../allsorts", default-features = false, features = ["flate2_rust"], optional = true }
 lru = { version = "0.16.1", default-features = false }
 taffy = { version = "0.9.1", default-features = false, features = ["std", "flexbox", "grid", "alloc", "taffy_tree", "block_layout", "calc", "content_size", "detailed_layout_info"] }
 base64 = "0.22.1"

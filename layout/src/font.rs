@@ -121,12 +121,14 @@ pub mod parsed {
         binary::read::ReadScope,
         font_data::FontData,
         layout::{GDEFTable, LayoutCache, LayoutCacheData, GPOS, GSUB},
+        outline::{OutlineBuilder, OutlineSink},
+        pathfinder_geometry::{line_segment::LineSegment2F, vector::Vector2F},
         subset::{subset as allsorts_subset, whole_font, CmapTarget, SubsetProfile},
         tables::{
             cmap::owned::CmapSubtable as OwnedCmapSubtable,
             glyf::{
-                ComponentOffsets, CompositeGlyph, CompositeGlyphArgument, CompositeGlyphComponent,
-                CompositeGlyphScale, EmptyGlyph, Glyph, Point, SimpleGlyph,
+                Glyph, GlyfVisitorContext, LocaGlyf, Point,
+                VariableGlyfContext, VariableGlyfContextStore,
             },
             kern::owned::KernTable,
             FontTableProvider, HheaTable, MaxpTable,
@@ -147,8 +149,86 @@ pub mod parsed {
     pub type GsubCache = Arc<LayoutCacheData<GSUB>>;
     /// Cached GPOS table for glyph positioning operations.
     pub type GposCache = Arc<LayoutCacheData<GPOS>>;
-    /// Glyph outline contours: outer Vec = contours, inner Vec = operations per contour.
-    pub type GlyphOutlineContours = Vec<Vec<GlyphOutlineOperation>>;
+
+    /// Adapter that collects allsorts outline commands into our `GlyphOutline` format.
+    ///
+    /// Implements `OutlineSink` so it can be passed to `GlyfVisitorContext::visit()`.
+    /// This handles composite glyph resolution, transforms, and variable font
+    /// deltas automatically via allsorts internals.
+    struct GlyphOutlineCollector {
+        contours: Vec<GlyphOutline>,
+        current_contour: Vec<GlyphOutlineOperation>,
+    }
+
+    impl GlyphOutlineCollector {
+        fn new() -> Self {
+            Self {
+                contours: Vec::new(),
+                current_contour: Vec::new(),
+            }
+        }
+
+        fn into_outlines(mut self) -> Vec<GlyphOutline> {
+            if !self.current_contour.is_empty() {
+                self.contours.push(GlyphOutline {
+                    operations: std::mem::take(&mut self.current_contour).into(),
+                });
+            }
+            self.contours
+        }
+    }
+
+    impl OutlineSink for GlyphOutlineCollector {
+        fn move_to(&mut self, to: Vector2F) {
+            if !self.current_contour.is_empty() {
+                self.contours.push(GlyphOutline {
+                    operations: std::mem::take(&mut self.current_contour).into(),
+                });
+            }
+            self.current_contour.push(GlyphOutlineOperation::MoveTo(OutlineMoveTo {
+                x: to.x() as i16,
+                y: to.y() as i16,
+            }));
+        }
+
+        fn line_to(&mut self, to: Vector2F) {
+            self.current_contour.push(GlyphOutlineOperation::LineTo(OutlineLineTo {
+                x: to.x() as i16,
+                y: to.y() as i16,
+            }));
+        }
+
+        fn quadratic_curve_to(&mut self, ctrl: Vector2F, to: Vector2F) {
+            self.current_contour.push(GlyphOutlineOperation::QuadraticCurveTo(
+                OutlineQuadTo {
+                    ctrl_1_x: ctrl.x() as i16,
+                    ctrl_1_y: ctrl.y() as i16,
+                    end_x: to.x() as i16,
+                    end_y: to.y() as i16,
+                },
+            ));
+        }
+
+        fn cubic_curve_to(&mut self, ctrl: LineSegment2F, to: Vector2F) {
+            self.current_contour.push(GlyphOutlineOperation::CubicCurveTo(
+                OutlineCubicTo {
+                    ctrl_1_x: ctrl.from_x() as i16,
+                    ctrl_1_y: ctrl.from_y() as i16,
+                    ctrl_2_x: ctrl.to_x() as i16,
+                    ctrl_2_y: ctrl.to_y() as i16,
+                    end_x: to.x() as i16,
+                    end_y: to.y() as i16,
+                },
+            ));
+        }
+
+        fn close(&mut self) {
+            self.current_contour.push(GlyphOutlineOperation::ClosePath);
+            self.contours.push(GlyphOutline {
+                operations: std::mem::take(&mut self.current_contour).into(),
+            });
+        }
+    }
 
     /// Parsed font data with all required tables for text layout and PDF generation.
     ///
@@ -463,8 +543,6 @@ pub mod parsed {
                 font_data::FontData,
                 tables::{
                     cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable},
-                    glyf::{GlyfRecord, GlyfTable},
-                    loca::{LocaOffsets, LocaTable},
                     FontTableProvider, HeadTable, HheaTable, MaxpTable,
                 },
                 tag,
@@ -527,33 +605,7 @@ pub mod parsed {
                     version1_sub_table: None,
                 });
 
-            let index_to_loc = head_table.index_to_loc_format;
             let num_glyphs = maxp_table.num_glyphs as usize;
-
-            let loca_table = provider.table_data(tag::LOCA).ok();
-            let loca_table = loca_table
-                .as_ref()
-                .and_then(|loca_data| {
-                    ReadScope::new(&loca_data.as_ref()?)
-                        .read_dep::<LocaTable<'_>>((
-                            num_glyphs.min(u16::MAX as usize) as u16,
-                            index_to_loc,
-                        ))
-                        .ok()
-                })
-                .unwrap_or(LocaTable {
-                    offsets: LocaOffsets::Long(allsorts::binary::read::ReadArray::empty()),
-                });
-
-            let glyf_table = provider.table_data(tag::GLYF).ok();
-            let mut glyf_table = glyf_table
-                .as_ref()
-                .and_then(|glyf_data| {
-                    ReadScope::new(&glyf_data.as_ref()?)
-                        .read_dep::<GlyfTable<'_>>(&loca_table)
-                        .ok()
-                })
-                .unwrap_or(GlyfTable::new(Vec::new()).unwrap());
 
             let hmtx_data = provider
                 .table_data(tag::HMTX)
@@ -589,155 +641,109 @@ pub mod parsed {
             let pdf_font_metrics =
                 Self::parse_pdf_font_metrics(font_bytes, font_index, &head_table, &hhea_table);
 
-            // Parse glyph outlines and metrics (always enabled for PDF generation)
-            // For CFF fonts (no glyf table), we fall back to hmtx-only metrics
-            let glyf_records_count = glyf_table.records().len();
-            let use_glyf_parsing = glyf_records_count > 0;
+            // Use allsorts LocaGlyf + GlyfVisitorContext for outline extraction.
+            // This correctly handles composite glyphs (recursive resolution, transforms)
+            // and variable font deltas (gvar) automatically via allsorts internals.
+            let has_glyf = provider.has_table(tag::GLYF) && provider.has_table(tag::LOCA);
 
-            warnings.push(FontParseWarning::info(format!(
-                "Font has {} glyf records, {} total glyphs, use_glyf_parsing={}",
-                glyf_records_count, num_glyphs, use_glyf_parsing
-            )));
-
-            let glyph_records_decoded = if use_glyf_parsing {
+            let glyph_records_decoded: BTreeMap<u16, OwnedGlyph> = if has_glyf {
                 warnings.push(FontParseWarning::info(
-                    "Parsing glyph outlines from glyf table".to_string(),
+                    "Parsing glyph outlines via allsorts OutlineBuilder (composite-safe)".to_string(),
                 ));
-                // Full parsing: outlines + metrics from TrueType glyf table
-                // CRITICAL: Always call .parse() first to convert Present -> Parsed!
-                glyf_table
-                    .records_mut()
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(glyph_index, glyph_record)| {
-                        if glyph_index > (u16::MAX as usize) {
-                            return None;
-                        }
 
-                        // ALWAYS parse the glyph record first!
-                        if let Err(_e) = glyph_record.parse() {
-                            // If parsing fails, we can still try to get the advance width
-                            let glyph_index = glyph_index as u16;
+                // Load LocaGlyf for the visitor
+                match LocaGlyf::load(&provider) {
+                    Ok(mut loca_glyf) => {
+                        // Optionally set up variable font context for gvar deltas
+                        let var_store = VariableGlyfContextStore::read(&provider).ok();
+                        let var_context = var_store.as_ref()
+                            .and_then(|store| VariableGlyfContext::new(store).ok());
+
+                        let mut visitor = GlyfVisitorContext::new(
+                            &mut loca_glyf,
+                            var_context,
+                        );
+
+                        let mut map = BTreeMap::new();
+                        for glyph_index in 0..num_glyphs.min(u16::MAX as usize) {
+                            let gid = glyph_index as u16;
                             let horz_advance = allsorts::glyph_info::advance(
-                                &maxp_table,
-                                &hhea_table,
-                                &hmtx_data,
-                                glyph_index,
-                            )
-                            .unwrap_or_default();
+                                &maxp_table, &hhea_table, &hmtx_data, gid,
+                            ).unwrap_or_default();
 
-                            // Return minimal glyph with just advance
-                            return Some((
-                                glyph_index,
-                                OwnedGlyph {
+                            // Visit the glyph outline via allsorts (handles composites + transforms)
+                            let mut collector = GlyphOutlineCollector::new();
+                            // Use default variation instance (no user tuple)
+                            let visit_result = visitor.visit(gid, None, &mut collector);
+
+                            let outlines = match visit_result {
+                                Ok(()) => collector.into_outlines(),
+                                Err(_) => Vec::new(),
+                            };
+
+                            // Get bounding box from the collected outlines
+                            let (min_x, min_y, max_x, max_y) = compute_outline_bbox(&outlines);
+
+                            map.insert(gid, OwnedGlyph {
+                                horz_advance,
+                                bounding_box: OwnedGlyphBoundingBox {
+                                    min_x, min_y, max_x, max_y,
+                                },
+                                outline: outlines,
+                                phantom_points: None,
+                            });
+                        }
+                        map
+                    }
+                    Err(e) => {
+                        warnings.push(FontParseWarning::warning(format!(
+                            "Failed to load LocaGlyf: {} — falling back to hmtx-only", e
+                        )));
+                        // Fall back to hmtx-only metrics
+                        (0..num_glyphs.min(u16::MAX as usize))
+                            .map(|glyph_index| {
+                                let gid = glyph_index as u16;
+                                let horz_advance = allsorts::glyph_info::advance(
+                                    &maxp_table, &hhea_table, &hmtx_data, gid,
+                                ).unwrap_or_default();
+                                (gid, OwnedGlyph {
                                     horz_advance,
                                     bounding_box: OwnedGlyphBoundingBox {
-                                        min_x: 0,
-                                        min_y: 0,
-                                        max_x: horz_advance as i16,
-                                        max_y: 0,
+                                        min_x: 0, min_y: 0,
+                                        max_x: horz_advance as i16, max_y: 0,
                                     },
                                     outline: Vec::new(),
-                                    unresolved_composite: Vec::new(),
                                     phantom_points: None,
-                                },
-                            ));
-                        }
-
-                        let glyph_index = glyph_index as u16;
-                        let horz_advance = allsorts::glyph_info::advance(
-                            &maxp_table,
-                            &hhea_table,
-                            &hmtx_data,
-                            glyph_index,
-                        )
-                        .unwrap_or_default();
-
-                        // After parse(), record should be Parsed, not Present
-                        match glyph_record {
-                            GlyfRecord::Present { .. } => {
-                                // This shouldn't happen after parse(), but handle it anyway
-                                Some((
-                                    glyph_index,
-                                    OwnedGlyph {
-                                        horz_advance,
-                                        bounding_box: OwnedGlyphBoundingBox {
-                                            min_x: 0,
-                                            min_y: 0,
-                                            max_x: horz_advance as i16,
-                                            max_y: 0,
-                                        },
-                                        outline: Vec::new(),
-                                        unresolved_composite: Vec::new(),
-                                        phantom_points: None,
-                                    },
-                                ))
-                            }
-                            GlyfRecord::Parsed(g) => OwnedGlyph::from_glyph_data(g, horz_advance)
-                                .map(|g| (glyph_index, g)),
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .collect::<BTreeMap<_, _>>()
+                                })
+                            })
+                            .collect()
+                    }
+                }
             } else {
                 // CFF fonts or fonts without glyf table: Parse metrics only from hmtx
-                // This creates OwnedGlyph records with advance width but no outlines
                 warnings.push(FontParseWarning::info(format!(
                     "Using hmtx-only fallback for {} glyphs (CFF font or no glyf table)",
                     num_glyphs
                 )));
-                (0..num_glyphs as usize)
-                    .filter_map(|glyph_index| {
-                        if glyph_index > u16::MAX as usize {
-                            return None;
-                        }
-                        let glyph_index_u16 = glyph_index as u16;
+                (0..num_glyphs.min(u16::MAX as usize))
+                    .map(|glyph_index| {
+                        let gid = glyph_index as u16;
                         let horz_advance = allsorts::glyph_info::advance(
-                            &maxp_table,
-                            &hhea_table,
-                            &hmtx_data,
-                            glyph_index_u16,
-                        )
-                        .unwrap_or_default();
+                            &maxp_table, &hhea_table, &hmtx_data, gid,
+                        ).unwrap_or_default();
 
-                        Some((
-                            glyph_index_u16,
-                            OwnedGlyph {
-                                horz_advance,
-                                bounding_box: OwnedGlyphBoundingBox {
-                                    min_x: 0,
-                                    min_y: 0,
-                                    max_x: horz_advance as i16,
-                                    max_y: 0,
-                                },
-                                outline: Vec::new(), // No outline data
-                                unresolved_composite: Vec::new(),
-                                phantom_points: None,
+                        (gid, OwnedGlyph {
+                            horz_advance,
+                            bounding_box: OwnedGlyphBoundingBox {
+                                min_x: 0, min_y: 0,
+                                max_x: horz_advance as i16, max_y: 0,
                             },
-                        ))
+                            outline: Vec::new(),
+                            phantom_points: None,
+                        })
                     })
                     .collect::<BTreeMap<_, _>>()
             };
-
-            // Resolve composite glyphs in multiple passes
-            let mut glyph_records_decoded = glyph_records_decoded;
-            for _ in 0..6 {
-                let composite_glyphs_to_resolve = glyph_records_decoded
-                    .iter()
-                    .filter(|s| !s.1.unresolved_composite.is_empty())
-                    .map(|(k, v)| (*k, v.clone()))
-                    .collect::<Vec<_>>();
-
-                if composite_glyphs_to_resolve.is_empty() {
-                    break;
-                }
-
-                for (k, mut v) in composite_glyphs_to_resolve {
-                    resolved_glyph_components(&mut v, &glyph_records_decoded);
-                    glyph_records_decoded.insert(k, v);
-                }
-            }
 
             let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
 
@@ -810,7 +816,6 @@ pub mod parsed {
                     },
                     horz_advance: space_width_val as u16,
                     outline: Vec::new(),
-                    unresolved_composite: Vec::new(),
                     phantom_points: None,
                 };
                 font.glyph_records_decoded.insert(space_gid, space_record);
@@ -1080,16 +1085,52 @@ pub mod parsed {
         }
     }
 
-    #[derive(Debug, Clone, PartialEq, PartialOrd)]
-    struct GlyphOutlineBuilder {
-        operations: Vec<GlyphOutlineOperation>,
-    }
+    /// Compute the bounding box from collected glyph outlines.
+    fn compute_outline_bbox(outlines: &[GlyphOutline]) -> (i16, i16, i16, i16) {
+        let mut min_x = i16::MAX;
+        let mut min_y = i16::MAX;
+        let mut max_x = i16::MIN;
+        let mut max_y = i16::MIN;
+        let mut has_points = false;
 
-    impl Default for GlyphOutlineBuilder {
-        fn default() -> Self {
-            GlyphOutlineBuilder {
-                operations: Vec::new(),
+        for outline in outlines {
+            for op in outline.operations.as_slice() {
+                let points: &[(i16, i16)] = match op {
+                    GlyphOutlineOperation::MoveTo(m) => &[(m.x, m.y)],
+                    GlyphOutlineOperation::LineTo(l) => &[(l.x, l.y)],
+                    GlyphOutlineOperation::QuadraticCurveTo(q) => {
+                        // Check both control and end point for bbox
+                        min_x = min_x.min(q.ctrl_1_x).min(q.end_x);
+                        min_y = min_y.min(q.ctrl_1_y).min(q.end_y);
+                        max_x = max_x.max(q.ctrl_1_x).max(q.end_x);
+                        max_y = max_y.max(q.ctrl_1_y).max(q.end_y);
+                        has_points = true;
+                        continue;
+                    }
+                    GlyphOutlineOperation::CubicCurveTo(c) => {
+                        min_x = min_x.min(c.ctrl_1_x).min(c.ctrl_2_x).min(c.end_x);
+                        min_y = min_y.min(c.ctrl_1_y).min(c.ctrl_2_y).min(c.end_y);
+                        max_x = max_x.max(c.ctrl_1_x).max(c.ctrl_2_x).max(c.end_x);
+                        max_y = max_y.max(c.ctrl_1_y).max(c.ctrl_2_y).max(c.end_y);
+                        has_points = true;
+                        continue;
+                    }
+                    GlyphOutlineOperation::ClosePath => continue,
+                };
+                for &(x, y) in points {
+                    min_x = min_x.min(x);
+                    min_y = min_y.min(y);
+                    max_x = max_x.max(x);
+                    max_y = max_y.max(y);
+                    has_points = true;
+                }
             }
+        }
+
+        if has_points {
+            (min_x, min_y, max_x, max_y)
+        } else {
+            (0, 0, 0, 0)
         }
     }
 
@@ -1098,489 +1139,7 @@ pub mod parsed {
         pub bounding_box: OwnedGlyphBoundingBox,
         pub horz_advance: u16,
         pub outline: Vec<GlyphOutline>,
-        // unresolved outlines, later to be added
-        pub unresolved_composite: Vec<CompositeGlyphComponent>,
         pub phantom_points: Option<[Point; 4]>,
-    }
-
-    impl OwnedGlyph {
-        pub fn from_glyph_data(glyph: &Glyph, horz_advance: u16) -> Option<Self> {
-            let bbox = glyph.bounding_box()?;
-            Some(Self {
-                bounding_box: OwnedGlyphBoundingBox {
-                    max_x: bbox.x_max,
-                    max_y: bbox.y_max,
-                    min_x: bbox.x_min,
-                    min_y: bbox.y_min,
-                },
-                horz_advance,
-                phantom_points: glyph.phantom_points(),
-                unresolved_composite: match glyph {
-                    Glyph::Empty(_) => Vec::new(),
-                    Glyph::Composite(c) => c.glyphs.clone(),
-                    Glyph::Simple(s) => Vec::new(),
-                },
-                outline: translate_glyph_outline(glyph)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|ol| GlyphOutline {
-                        operations: ol.into(),
-                    })
-                    .collect(),
-            })
-        }
-    }
-
-    /// Converts a glyph to its outline contours.
-    fn translate_glyph_outline(glyph: &Glyph) -> Option<GlyphOutlineContours> {
-        match glyph {
-            Glyph::Empty(e) => translate_empty_glyph(e),
-            Glyph::Simple(sg) => translate_simple_glyph(sg),
-            Glyph::Composite(cg) => translate_composite_glyph(cg),
-        }
-    }
-
-    /// Translates an empty glyph (uses phantom points for bounds).
-    fn translate_empty_glyph(glyph: &EmptyGlyph) -> Option<GlyphOutlineContours> {
-        let f = glyph.phantom_points?;
-        Some(vec![vec![
-            GlyphOutlineOperation::MoveTo(OutlineMoveTo {
-                x: f[0].0,
-                y: f[0].1,
-            }),
-            GlyphOutlineOperation::LineTo(OutlineLineTo {
-                x: f[1].0,
-                y: f[1].1,
-            }),
-            GlyphOutlineOperation::LineTo(OutlineLineTo {
-                x: f[2].0,
-                y: f[2].1,
-            }),
-            GlyphOutlineOperation::LineTo(OutlineLineTo {
-                x: f[3].0,
-                y: f[3].1,
-            }),
-            GlyphOutlineOperation::ClosePath,
-        ]])
-    }
-
-    /// Translates a simple glyph (TrueType outlines with quadratic curves).
-    fn translate_simple_glyph(glyph: &SimpleGlyph) -> Option<GlyphOutlineContours> {
-        let mut outlines = Vec::new();
-
-        // Process each contour
-        for contour in glyph.contours() {
-            let mut operations = Vec::new();
-            let contour_len = contour.len();
-
-            if contour_len == 0 {
-                continue;
-            }
-
-            // Find first on-curve point (or use first point if none exist)
-            let first_on_curve_idx = contour
-                .iter()
-                .position(|(flag, _)| flag.is_on_curve())
-                .unwrap_or(0);
-
-            let (first_flag, first_point) = contour[first_on_curve_idx];
-
-            // Handle special case: all points are off-curve
-            if !first_flag.is_on_curve() {
-                // Create an implicit on-curve point between last and first
-                let last_idx = contour_len - 1;
-                let (_, last_point) = contour[last_idx];
-                let implicit_x = (last_point.0 + first_point.0) / 2;
-                let implicit_y = (last_point.1 + first_point.1) / 2;
-                operations.push(GlyphOutlineOperation::MoveTo(OutlineMoveTo {
-                    x: implicit_x,
-                    y: implicit_y,
-                }));
-            } else {
-                operations.push(GlyphOutlineOperation::MoveTo(OutlineMoveTo {
-                    x: first_point.0,
-                    y: first_point.1,
-                }));
-            }
-
-            // Process remaining points
-            let mut i = 0;
-            while i < contour_len {
-                let curr_idx = (first_on_curve_idx + 1 + i) % contour_len;
-                let (curr_flag, curr_point) = contour[curr_idx];
-                let next_idx = (curr_idx + 1) % contour_len;
-                let (next_flag, next_point) = contour[next_idx];
-
-                if curr_flag.is_on_curve() {
-                    // Current point is on-curve, add LineTo
-                    operations.push(GlyphOutlineOperation::LineTo(OutlineLineTo {
-                        x: curr_point.0,
-                        y: curr_point.1,
-                    }));
-                    i += 1;
-                } else if next_flag.is_on_curve() {
-                    // Current off-curve, next on-curve: QuadraticCurveTo
-                    operations.push(GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo {
-                        ctrl_1_x: curr_point.0,
-                        ctrl_1_y: curr_point.1,
-                        end_x: next_point.0,
-                        end_y: next_point.1,
-                    }));
-                    i += 2; // Skip both points
-                } else {
-                    // Both off-curve, create implicit on-curve point
-                    let implicit_x = (curr_point.0 + next_point.0) / 2;
-                    let implicit_y = (curr_point.1 + next_point.1) / 2;
-
-                    operations.push(GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo {
-                        ctrl_1_x: curr_point.0,
-                        ctrl_1_y: curr_point.1,
-                        end_x: implicit_x,
-                        end_y: implicit_y,
-                    }));
-                    i += 1; // Only advance by one point
-                }
-            }
-
-            // Close the path
-            operations.push(GlyphOutlineOperation::ClosePath);
-            outlines.push(operations);
-        }
-
-        Some(outlines)
-    }
-
-    /// Translates a composite glyph (placeholder, resolved in second pass).
-    fn translate_composite_glyph(glyph: &CompositeGlyph) -> Option<GlyphOutlineContours> {
-        // Composite glyphs will be resolved in a second pass
-        // Return a placeholder based on bounding box for now
-        let bbox = glyph.bounding_box;
-        Some(vec![vec![
-            GlyphOutlineOperation::MoveTo(OutlineMoveTo {
-                x: bbox.x_min,
-                y: bbox.y_min,
-            }),
-            GlyphOutlineOperation::LineTo(OutlineLineTo {
-                x: bbox.x_max,
-                y: bbox.y_min,
-            }),
-            GlyphOutlineOperation::LineTo(OutlineLineTo {
-                x: bbox.x_max,
-                y: bbox.y_max,
-            }),
-            GlyphOutlineOperation::LineTo(OutlineLineTo {
-                x: bbox.x_min,
-                y: bbox.y_max,
-            }),
-            GlyphOutlineOperation::ClosePath,
-        ]])
-    }
-
-    // Additional function to resolve composite glyphs in a second pass
-    pub fn resolved_glyph_components(og: &mut OwnedGlyph, all_glyphs: &BTreeMap<u16, OwnedGlyph>) {
-        // TODO: does not respect attachment points or anything like this
-        // only checks whether we can resolve the glyph from the map
-        let mut unresolved_composites = Vec::new();
-        for i in og.unresolved_composite.iter() {
-            let owned_glyph = match all_glyphs.get(&i.glyph_index) {
-                Some(s) => s,
-                None => {
-                    unresolved_composites.push(i.clone());
-                    continue;
-                }
-            };
-            og.outline.extend_from_slice(&owned_glyph.outline);
-        }
-
-        og.unresolved_composite = unresolved_composites;
-    }
-
-    fn transform_component_outlines(
-        outlines: &mut Vec<Vec<GlyphOutlineOperation>>,
-        scale: Option<CompositeGlyphScale>,
-        arg1: CompositeGlyphArgument,
-        arg2: CompositeGlyphArgument,
-        offset_type: ComponentOffsets,
-    ) {
-        // Extract offset values
-        let (offset_x, offset_y) = match (arg1, arg2) {
-            (CompositeGlyphArgument::I16(x), CompositeGlyphArgument::I16(y)) => (x, y),
-            (CompositeGlyphArgument::U16(x), CompositeGlyphArgument::U16(y)) => {
-                (x as i16, y as i16)
-            }
-            (CompositeGlyphArgument::I8(x), CompositeGlyphArgument::I8(y)) => {
-                (i16::from(x), i16::from(y))
-            }
-            (CompositeGlyphArgument::U8(x), CompositeGlyphArgument::U8(y)) => {
-                (i16::from(x), i16::from(y))
-            }
-            _ => (0, 0), // Mismatched types, use default
-        };
-
-        // Apply transformation to each outline
-        for outline in outlines {
-            for op in outline.as_mut_slice() {
-                match op {
-                    GlyphOutlineOperation::MoveTo(point) => {
-                        transform_point(point, offset_x, offset_y, scale, offset_type);
-                    }
-                    GlyphOutlineOperation::LineTo(point) => {
-                        transform_point_lineto(point, offset_x, offset_y, scale, offset_type);
-                    }
-                    GlyphOutlineOperation::QuadraticCurveTo(curve) => {
-                        transform_quad_point(curve, offset_x, offset_y, scale, offset_type);
-                    }
-                    GlyphOutlineOperation::CubicCurveTo(curve) => {
-                        transform_cubic_point(curve, offset_x, offset_y, scale, offset_type);
-                    }
-                    GlyphOutlineOperation::ClosePath => {}
-                }
-            }
-        }
-    }
-
-    fn transform_point(
-        point: &mut OutlineMoveTo,
-        offset_x: i16,
-        offset_y: i16,
-        scale: Option<CompositeGlyphScale>,
-        offset_type: ComponentOffsets,
-    ) {
-        // Apply scale if present
-        if let Some(scale_factor) = scale {
-            match scale_factor {
-                CompositeGlyphScale::Scale(s) => {
-                    let scale = f32::from(s);
-                    point.x = (point.x as f32 * scale) as i16;
-                    point.y = (point.y as f32 * scale) as i16;
-                }
-                CompositeGlyphScale::XY { x_scale, y_scale } => {
-                    point.x = (point.x as f32 * f32::from(x_scale)) as i16;
-                    point.y = (point.y as f32 * f32::from(y_scale)) as i16;
-                }
-                CompositeGlyphScale::Matrix(matrix) => {
-                    let new_x = (point.x as f32 * f32::from(matrix[0][0])
-                        + point.y as f32 * f32::from(matrix[0][1]))
-                        as i16;
-                    let new_y = (point.x as f32 * f32::from(matrix[1][0])
-                        + point.y as f32 * f32::from(matrix[1][1]))
-                        as i16;
-                    point.x = new_x;
-                    point.y = new_y;
-                }
-            }
-        }
-
-        // Apply offset based on offset type
-        match offset_type {
-            ComponentOffsets::Scaled => {
-                // Offset is already scaled by the transform
-                point.x += offset_x;
-                point.y += offset_y;
-            }
-            ComponentOffsets::Unscaled => {
-                // Offset should be applied after scaling
-                point.x += offset_x;
-                point.y += offset_y;
-            }
-        }
-    }
-
-    // Implement the same transform_point function for LineTo
-    fn transform_point_lineto(
-        point: &mut OutlineLineTo,
-        offset_x: i16,
-        offset_y: i16,
-        scale: Option<CompositeGlyphScale>,
-        offset_type: ComponentOffsets,
-    ) {
-        // Same implementation as above, just with OutlineLineTo
-        // Apply scale if present
-        if let Some(scale_factor) = scale {
-            match scale_factor {
-                CompositeGlyphScale::Scale(s) => {
-                    let scale = f32::from(s);
-                    point.x = (point.x as f32 * scale) as i16;
-                    point.y = (point.y as f32 * scale) as i16;
-                }
-                CompositeGlyphScale::XY { x_scale, y_scale } => {
-                    point.x = (point.x as f32 * f32::from(x_scale)) as i16;
-                    point.y = (point.y as f32 * f32::from(y_scale)) as i16;
-                }
-                CompositeGlyphScale::Matrix(matrix) => {
-                    let new_x = (point.x as f32 * f32::from(matrix[0][0])
-                        + point.y as f32 * f32::from(matrix[0][1]))
-                        as i16;
-                    let new_y = (point.x as f32 * f32::from(matrix[1][0])
-                        + point.y as f32 * f32::from(matrix[1][1]))
-                        as i16;
-                    point.x = new_x;
-                    point.y = new_y;
-                }
-            }
-        }
-
-        // Apply offset based on offset type
-        match offset_type {
-            ComponentOffsets::Scaled => {
-                // Offset is already scaled by the transform
-                point.x += offset_x;
-                point.y += offset_y;
-            }
-            ComponentOffsets::Unscaled => {
-                // Offset should be applied after scaling
-                point.x += offset_x;
-                point.y += offset_y;
-            }
-        }
-    }
-
-    fn transform_quad_point(
-        point: &mut OutlineQuadTo,
-        offset_x: i16,
-        offset_y: i16,
-        scale: Option<CompositeGlyphScale>,
-        offset_type: ComponentOffsets,
-    ) {
-        // Apply scale if present
-        if let Some(scale_factor) = scale {
-            match scale_factor {
-                CompositeGlyphScale::Scale(s) => {
-                    let scale = f32::from(s);
-                    point.ctrl_1_x = (point.ctrl_1_x as f32 * scale) as i16;
-                    point.ctrl_1_y = (point.ctrl_1_y as f32 * scale) as i16;
-                    point.end_x = (point.end_x as f32 * scale) as i16;
-                    point.end_y = (point.end_y as f32 * scale) as i16;
-                }
-                CompositeGlyphScale::XY { x_scale, y_scale } => {
-                    point.ctrl_1_x = (point.ctrl_1_x as f32 * f32::from(x_scale)) as i16;
-                    point.ctrl_1_y = (point.ctrl_1_y as f32 * f32::from(y_scale)) as i16;
-                    point.end_x = (point.end_x as f32 * f32::from(x_scale)) as i16;
-                    point.end_y = (point.end_y as f32 * f32::from(y_scale)) as i16;
-                }
-                CompositeGlyphScale::Matrix(matrix) => {
-                    // Transform control point
-                    let new_ctrl_x = (point.ctrl_1_x as f32 * f32::from(matrix[0][0])
-                        + point.ctrl_1_y as f32 * f32::from(matrix[0][1]))
-                        as i16;
-                    let new_ctrl_y = (point.ctrl_1_x as f32 * f32::from(matrix[1][0])
-                        + point.ctrl_1_y as f32 * f32::from(matrix[1][1]))
-                        as i16;
-
-                    // Transform end point
-                    let new_end_x = (point.end_x as f32 * f32::from(matrix[0][0])
-                        + point.end_y as f32 * f32::from(matrix[0][1]))
-                        as i16;
-                    let new_end_y = (point.end_x as f32 * f32::from(matrix[1][0])
-                        + point.end_y as f32 * f32::from(matrix[1][1]))
-                        as i16;
-
-                    point.ctrl_1_x = new_ctrl_x;
-                    point.ctrl_1_y = new_ctrl_y;
-                    point.end_x = new_end_x;
-                    point.end_y = new_end_y;
-                }
-            }
-        }
-
-        // Apply offset based on offset type
-        match offset_type {
-            ComponentOffsets::Scaled => {
-                point.ctrl_1_x += offset_x;
-                point.ctrl_1_y += offset_y;
-                point.end_x += offset_x;
-                point.end_y += offset_y;
-            }
-            ComponentOffsets::Unscaled => {
-                point.ctrl_1_x += offset_x;
-                point.ctrl_1_y += offset_y;
-                point.end_x += offset_x;
-                point.end_y += offset_y;
-            }
-        }
-    }
-
-    fn transform_cubic_point(
-        point: &mut OutlineCubicTo,
-        offset_x: i16,
-        offset_y: i16,
-        scale: Option<CompositeGlyphScale>,
-        offset_type: ComponentOffsets,
-    ) {
-        // Apply scale if present
-        if let Some(scale_factor) = scale {
-            match scale_factor {
-                CompositeGlyphScale::Scale(s) => {
-                    let scale = f32::from(s);
-                    point.ctrl_1_x = (point.ctrl_1_x as f32 * scale) as i16;
-                    point.ctrl_1_y = (point.ctrl_1_y as f32 * scale) as i16;
-                    point.ctrl_2_x = (point.ctrl_2_x as f32 * scale) as i16;
-                    point.ctrl_2_y = (point.ctrl_2_y as f32 * scale) as i16;
-                    point.end_x = (point.end_x as f32 * scale) as i16;
-                    point.end_y = (point.end_y as f32 * scale) as i16;
-                }
-                CompositeGlyphScale::XY { x_scale, y_scale } => {
-                    point.ctrl_1_x = (point.ctrl_1_x as f32 * f32::from(x_scale)) as i16;
-                    point.ctrl_1_y = (point.ctrl_1_y as f32 * f32::from(y_scale)) as i16;
-                    point.ctrl_2_x = (point.ctrl_2_x as f32 * f32::from(x_scale)) as i16;
-                    point.ctrl_2_y = (point.ctrl_2_y as f32 * f32::from(y_scale)) as i16;
-                    point.end_x = (point.end_x as f32 * f32::from(x_scale)) as i16;
-                    point.end_y = (point.end_y as f32 * f32::from(y_scale)) as i16;
-                }
-                CompositeGlyphScale::Matrix(matrix) => {
-                    // Transform first control point
-                    let new_ctrl1_x = (point.ctrl_1_x as f32 * f32::from(matrix[0][0])
-                        + point.ctrl_1_y as f32 * f32::from(matrix[0][1]))
-                        as i16;
-                    let new_ctrl1_y = (point.ctrl_1_x as f32 * f32::from(matrix[1][0])
-                        + point.ctrl_1_y as f32 * f32::from(matrix[1][1]))
-                        as i16;
-
-                    // Transform second control point
-                    let new_ctrl2_x = (point.ctrl_2_x as f32 * f32::from(matrix[0][0])
-                        + point.ctrl_2_y as f32 * f32::from(matrix[0][1]))
-                        as i16;
-                    let new_ctrl2_y = (point.ctrl_2_x as f32 * f32::from(matrix[1][0])
-                        + point.ctrl_2_y as f32 * f32::from(matrix[1][1]))
-                        as i16;
-
-                    // Transform end point
-                    let new_end_x = (point.end_x as f32 * f32::from(matrix[0][0])
-                        + point.end_y as f32 * f32::from(matrix[0][1]))
-                        as i16;
-                    let new_end_y = (point.end_x as f32 * f32::from(matrix[1][0])
-                        + point.end_y as f32 * f32::from(matrix[1][1]))
-                        as i16;
-
-                    point.ctrl_1_x = new_ctrl1_x;
-                    point.ctrl_1_y = new_ctrl1_y;
-                    point.ctrl_2_x = new_ctrl2_x;
-                    point.ctrl_2_y = new_ctrl2_y;
-                    point.end_x = new_end_x;
-                    point.end_y = new_end_y;
-                }
-            }
-        }
-
-        // Apply offset based on offset type
-        match offset_type {
-            ComponentOffsets::Scaled => {
-                point.ctrl_1_x += offset_x;
-                point.ctrl_1_y += offset_y;
-                point.ctrl_2_x += offset_x;
-                point.ctrl_2_y += offset_y;
-                point.end_x += offset_x;
-                point.end_y += offset_y;
-            }
-            ComponentOffsets::Unscaled => {
-                point.ctrl_1_x += offset_x;
-                point.ctrl_1_y += offset_y;
-                point.ctrl_2_x += offset_x;
-                point.ctrl_2_y += offset_y;
-                point.end_x += offset_x;
-                point.end_y += offset_y;
-            }
-        }
     }
 
     // --- ParsedFontTrait Implementation for ParsedFont ---
