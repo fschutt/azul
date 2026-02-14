@@ -45,7 +45,7 @@ use crate::{
     },
 };
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 23] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str); 24] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
     (CombinedCssPropertyType::Padding, "padding"),
@@ -68,10 +68,11 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
     (CombinedCssPropertyType::GridGap, "grid-gap"),
     (CombinedCssPropertyType::Font, "font"),
     (CombinedCssPropertyType::Columns, "columns"),
+    (CombinedCssPropertyType::GridArea, "grid-area"),
     (CombinedCssPropertyType::ColumnRule, "column-rule"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 149] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 150] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -134,6 +135,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str); 149] = [
     (CssPropertyType::GridAutoRows, "grid-auto-rows"),
     (CssPropertyType::GridColumn, "grid-column"),
     (CssPropertyType::GridRow, "grid-row"),
+    (CssPropertyType::GridTemplateAreas, "grid-template-areas"),
     (CssPropertyType::WritingMode, "writing-mode"),
     (CssPropertyType::Clear, "clear"),
     (CssPropertyType::OverflowX, "overflow-x"),
@@ -357,6 +359,7 @@ pub type LayoutGridAutoColumnsValue = CssPropertyValue<GridAutoTracks>;
 pub type LayoutGridAutoRowsValue = CssPropertyValue<GridAutoTracks>;
 pub type LayoutGridColumnValue = CssPropertyValue<GridPlacement>;
 pub type LayoutGridRowValue = CssPropertyValue<GridPlacement>;
+pub type LayoutGridTemplateAreasValue = CssPropertyValue<crate::props::layout::grid::GridTemplateAreas>;
 pub type LayoutWritingModeValue = CssPropertyValue<LayoutWritingMode>;
 pub type LayoutClearValue = CssPropertyValue<LayoutClear>;
 pub type LayoutGridAutoFlowValue = CssPropertyValue<LayoutGridAutoFlow>;
@@ -446,6 +449,7 @@ pub enum CombinedCssPropertyType {
     Font,
     Columns,
     ColumnRule,
+    GridArea,
 }
 
 impl fmt::Display for CombinedCssPropertyType {
@@ -554,6 +558,7 @@ pub enum CssProperty {
     GridAutoRows(LayoutGridAutoRowsValue),
     GridColumn(LayoutGridColumnValue),
     GridRow(LayoutGridRowValue),
+    GridTemplateAreas(LayoutGridTemplateAreasValue),
     WritingMode(LayoutWritingModeValue),
     Clear(LayoutClearValue),
     BackgroundContent(StyleBackgroundContentVecValue),
@@ -775,6 +780,7 @@ pub enum CssPropertyType {
     GridAutoRows,
     GridColumn,
     GridRow,
+    GridTemplateAreas,
     GridAutoFlow,
     JustifySelf,
     JustifyItems,
@@ -968,6 +974,7 @@ impl CssPropertyType {
             CssPropertyType::GridAutoRows => "grid-auto-rows",
             CssPropertyType::GridColumn => "grid-column",
             CssPropertyType::GridRow => "grid-row",
+            CssPropertyType::GridTemplateAreas => "grid-template-areas",
             CssPropertyType::WritingMode => "writing-mode",
             CssPropertyType::Clear => "clear",
             CssPropertyType::BackgroundContent => "background",
@@ -2464,6 +2471,12 @@ pub fn parse_css_property<'a>(
                 CssProperty::GridColumn(parse_grid_placement(value)?.into())
             }
             CssPropertyType::GridRow => CssProperty::GridRow(parse_grid_placement(value)?.into()),
+            CssPropertyType::GridTemplateAreas => {
+                use crate::props::layout::grid::parse_grid_template_areas;
+                let areas = parse_grid_template_areas(value)
+                    .map_err(|_| CssParsingError::InvalidValue(InvalidValueErr(value)))?;
+                CssProperty::GridTemplateAreas(CssPropertyValue::Exact(areas))
+            }
             CssPropertyType::WritingMode => parse_layout_writing_mode(value)?.into(),
             CssPropertyType::Clear => parse_layout_clear(value)?.into(),
 
@@ -2863,6 +2876,9 @@ pub fn parse_combined_css_property<'a>(
         }
         Columns => {
             vec![CssPropertyType::ColumnWidth, CssPropertyType::ColumnCount]
+        }
+        GridArea => {
+            vec![CssPropertyType::GridRow, CssPropertyType::GridColumn]
         }
         ColumnRule => {
             vec![
@@ -3324,6 +3340,35 @@ pub fn parse_combined_css_property<'a>(
             }
             Ok(props)
         }
+        GridArea => {
+            // CSS grid-area shorthand: grid-area: <name>
+            // Expands to grid-row: <name> / <name> and grid-column: <name> / <name>
+            // This tells taffy to resolve the named area via NamedLineResolver.
+            //
+            // Full syntax: grid-area: row-start / column-start / row-end / column-end
+            // But for named areas, typically just: grid-area: <name>
+            let parts: Vec<&str> = value.split('/').map(|s| s.trim()).collect();
+            let (row_start, col_start, row_end, col_end) = match parts.len() {
+                1 => (parts[0], parts[0], parts[0], parts[0]),
+                2 => (parts[0], parts[1], parts[0], parts[1]),
+                3 => (parts[0], parts[1], parts[2], parts[1]),
+                4 => (parts[0], parts[1], parts[2], parts[3]),
+                _ => return Err(CssParsingError::InvalidValue(InvalidValueErr(value))),
+            };
+            let parse_line = |s: &str| -> Result<GridLine, CssParsingError<'_>> {
+                parse_grid_line_owned(s.trim()).map_err(|_| CssParsingError::InvalidValue(InvalidValueErr(value)))
+            };
+            Ok(vec![
+                CssProperty::GridRow(CssPropertyValue::Exact(GridPlacement {
+                    grid_start: parse_line(row_start)?,
+                    grid_end: parse_line(row_end)?,
+                })),
+                CssProperty::GridColumn(CssPropertyValue::Exact(GridPlacement {
+                    grid_start: parse_line(col_start)?,
+                    grid_end: parse_line(col_end)?,
+                })),
+            ])
+        }
         ColumnRule => {
             let border = parse_style_border(value)?;
             Ok(vec![
@@ -3569,6 +3614,7 @@ impl CssProperty {
             CssProperty::GridAutoRows(v) => v.get_css_value_fmt(),
             CssProperty::GridColumn(v) => v.get_css_value_fmt(),
             CssProperty::GridRow(v) => v.get_css_value_fmt(),
+            CssProperty::GridTemplateAreas(v) => v.get_css_value_fmt(),
             CssProperty::WritingMode(v) => v.get_css_value_fmt(),
             CssProperty::Clear(v) => v.get_css_value_fmt(),
             CssProperty::BackgroundContent(v) => v.get_css_value_fmt(),
@@ -4016,6 +4062,7 @@ impl CssProperty {
             CssProperty::AlignSelf(_) => CssPropertyType::AlignSelf,
             CssProperty::Font(_) => CssPropertyType::Font,
             CssProperty::GridRow(_) => CssPropertyType::GridRow,
+            CssProperty::GridTemplateAreas(_) => CssPropertyType::GridTemplateAreas,
             CssProperty::WritingMode(_) => CssPropertyType::WritingMode,
             CssProperty::Clear(_) => CssPropertyType::Clear,
             CssProperty::BackgroundContent(_) => CssPropertyType::BackgroundContent,
@@ -5474,6 +5521,7 @@ impl CssProperty {
             GridAutoRows(c) => c.is_initial(),
             GridColumn(c) => c.is_initial(),
             GridRow(c) => c.is_initial(),
+            GridTemplateAreas(c) => c.is_initial(),
             WritingMode(c) => c.is_initial(),
             Clear(c) => c.is_initial(),
             BackgroundContent(c) => c.is_initial(),
@@ -6357,6 +6405,10 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::GridColumn(p) => format!(
             "CssProperty::GridColumn({})",
             print_css_property_value(p, tabs, "LayoutGridColumn")
+        ),
+        CssProperty::GridTemplateAreas(p) => format!(
+            "CssProperty::GridTemplateAreas({})",
+            print_css_property_value(p, tabs, "GridTemplateAreas")
         ),
         CssProperty::WritingMode(p) => format!(
             "CssProperty::WritingMode({})",

@@ -387,6 +387,9 @@ macro_rules! css_property_from_type {
             }
             CssPropertyType::GridColumn => CssProperty::GridColumn(CssPropertyValue::$content_type),
             CssPropertyType::GridRow => CssProperty::GridRow(CssPropertyValue::$content_type),
+            CssPropertyType::GridTemplateAreas => {
+                CssProperty::GridTemplateAreas(CssPropertyValue::$content_type)
+            }
             CssPropertyType::WritingMode => {
                 CssProperty::WritingMode(CssPropertyValue::$content_type)
             }

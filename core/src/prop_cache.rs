@@ -360,6 +360,7 @@ macro_rules! match_property_value {
             CssProperty::GridAutoFlow($value) => $expr,
             CssProperty::GridColumn($value) => $expr,
             CssProperty::GridRow($value) => $expr,
+            CssProperty::GridTemplateAreas($value) => $expr,
             CssProperty::Gap($value) => $expr,
             CssProperty::ColumnGap($value) => $expr,
             CssProperty::RowGap($value) => $expr,

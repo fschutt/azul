@@ -883,6 +883,12 @@ impl FormatAsRustCode for GridAutoTracks {
     }
 }
 
+impl FormatAsRustCode for GridTemplateAreas {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("GridTemplateAreas {{ areas: vec!{:?} }}", self.areas)
+    }
+}
+
 #[cfg(feature = "parser")]
 pub fn parse_layout_gap<'a>(
     input: &'a str,
@@ -891,7 +897,7 @@ pub fn parse_layout_gap<'a>(
 }
 
 #[cfg(feature = "parser")]
-fn parse_grid_line_owned(input: &str) -> Result<GridLine, ()> {
+pub fn parse_grid_line_owned(input: &str) -> Result<GridLine, ()> {
     let input = input.trim();
 
     if input == "auto" {
@@ -1164,4 +1170,148 @@ mod tests {
         assert!(matches!(result.tracks.as_ref()[1], GridTrackSizing::MinMax(_)));
         assert!(matches!(result.tracks.as_ref()[2], GridTrackSizing::MinMax(_)));
     }
+}
+
+// --- grid-template-areas ---
+
+/// A single named grid area with its row/column bounds (1-based grid line numbers).
+/// This matches taffy's `GridTemplateArea<String>`.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GridAreaDefinition {
+    pub name: String,
+    pub row_start: u16,
+    pub row_end: u16,
+    pub column_start: u16,
+    pub column_end: u16,
+}
+
+/// Represents the parsed value of `grid-template-areas`.
+///
+/// Example CSS:
+/// ```css
+/// grid-template-areas:
+///     "header header header"
+///     "sidebar main aside"
+///     "footer footer footer";
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GridTemplateAreas {
+    pub areas: Vec<GridAreaDefinition>,
+}
+
+impl Default for GridTemplateAreas {
+    fn default() -> Self {
+        GridTemplateAreas { areas: Vec::new() }
+    }
+}
+
+impl PrintAsCssValue for GridTemplateAreas {
+    fn print_as_css_value(&self) -> String {
+        if self.areas.is_empty() {
+            return "none".to_string();
+        }
+        // Reconstruct the row strings from the area definitions
+        let max_row = self.areas.iter().map(|a| a.row_end).max().unwrap_or(1);
+        let max_col = self.areas.iter().map(|a| a.column_end).max().unwrap_or(1);
+        let num_rows = (max_row - 1) as usize;
+        let num_cols = (max_col - 1) as usize;
+        let mut grid: Vec<Vec<String>> = vec![vec![".".to_string(); num_cols]; num_rows];
+        for area in &self.areas {
+            for r in (area.row_start as usize - 1)..(area.row_end as usize - 1) {
+                for c in (area.column_start as usize - 1)..(area.column_end as usize - 1) {
+                    if r < num_rows && c < num_cols {
+                        grid[r][c] = area.name.clone();
+                    }
+                }
+            }
+        }
+        grid.iter()
+            .map(|row| format!("\"{}\"", row.join(" ")))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+/// Parse `grid-template-areas` CSS value.
+///
+/// Accepts quoted row strings like:
+///   `"header header header" "sidebar main aside" "footer footer footer"`
+///
+/// Returns a `GridTemplateAreas` with deduplicated named areas and their
+/// computed row/column line boundaries (1-based, as taffy expects).
+pub fn parse_grid_template_areas(input: &str) -> Result<GridTemplateAreas, ()> {
+    let input = input.trim();
+    if input == "none" {
+        return Ok(GridTemplateAreas::default());
+    }
+
+    // Extract quoted strings: each one is a row
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut i = 0;
+    let bytes = input.as_bytes();
+    while i < bytes.len() {
+        if bytes[i] == b'"' || bytes[i] == b'\'' {
+            let quote = bytes[i];
+            i += 1;
+            let start = i;
+            while i < bytes.len() && bytes[i] != quote {
+                i += 1;
+            }
+            if i >= bytes.len() {
+                return Err(());
+            }
+            let row_str = &input[start..i];
+            let cells: Vec<String> = row_str.split_whitespace().map(|s| s.to_string()).collect();
+            if cells.is_empty() {
+                return Err(());
+            }
+            rows.push(cells);
+            i += 1; // skip closing quote
+        } else {
+            i += 1;
+        }
+    }
+
+    if rows.is_empty() {
+        return Err(());
+    }
+
+    // Validate: all rows must have the same number of columns
+    let num_cols = rows[0].len();
+    for row in &rows {
+        if row.len() != num_cols {
+            return Err(());
+        }
+    }
+
+    // Build area map: name -> (min_row, max_row, min_col, max_col) in 0-based indices
+    use alloc::collections::BTreeMap;
+    let mut area_map: BTreeMap<String, (usize, usize, usize, usize)> = BTreeMap::new();
+
+    for (row_idx, row) in rows.iter().enumerate() {
+        for (col_idx, cell) in row.iter().enumerate() {
+            if cell == "." {
+                continue; // skip null cell tokens
+            }
+            let entry = area_map.entry(cell.clone()).or_insert((row_idx, row_idx, col_idx, col_idx));
+            entry.0 = entry.0.min(row_idx);
+            entry.1 = entry.1.max(row_idx);
+            entry.2 = entry.2.min(col_idx);
+            entry.3 = entry.3.max(col_idx);
+        }
+    }
+
+    // Convert to 1-based grid line numbers (taffy convention)
+    let mut areas = Vec::new();
+    for (name, (min_row, max_row, min_col, max_col)) in area_map {
+        areas.push(GridAreaDefinition {
+            name,
+            row_start: (min_row + 1) as u16,
+            row_end: (max_row + 2) as u16,   // end line is one past the last cell
+            column_start: (min_col + 1) as u16,
+            column_end: (max_col + 2) as u16,
+        });
+    }
+
+    Ok(GridTemplateAreas { areas })
 }

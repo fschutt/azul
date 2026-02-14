@@ -580,6 +580,37 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             .map(|v| grid_template_columns_to_taffy(v).into())
             .unwrap_or_default();
 
+        // Grid template areas - convert GridTemplateAreas to Vec<taffy::GridTemplateArea<String>>
+        taffy_style.grid_template_areas = cache
+            .get_property(
+                node_data,
+                &id,
+                node_state,
+                &CssPropertyType::GridTemplateAreas,
+            )
+            .and_then(|p| {
+                if let CssProperty::GridTemplateAreas(v) = p {
+                    v.get_property().cloned()
+                } else {
+                    None
+                }
+            })
+            .map(|areas| {
+                areas
+                    .areas
+                    .iter()
+                    .map(|a| taffy::GridTemplateArea {
+                        name: a.name.clone(),
+                        row_start: a.row_start,
+                        row_end: a.row_end,
+                        column_start: a.column_start,
+                        column_end: a.column_end,
+                    })
+                    .collect::<Vec<_>>()
+                    .into()
+            })
+            .unwrap_or_default();
+
         taffy_style.grid_auto_rows = cache
             .get_property(node_data, &id, node_state, &CssPropertyType::GridAutoRows)
             .and_then(|p| {
