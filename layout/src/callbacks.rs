@@ -2489,7 +2489,7 @@ impl CallbackInfo {
         use crate::cpurender::{render, RenderOptions};
 
         let layout_window = self.get_layout_window();
-        let renderer_resources = self.get_renderer_resources();
+        let renderer_resources = &layout_window.renderer_resources;
 
         // Get the layout result for this DOM
         let layout_result = layout_window
