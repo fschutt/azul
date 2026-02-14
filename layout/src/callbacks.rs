@@ -3045,17 +3045,6 @@ impl CallbackInfo {
             .get_current_offset(dom_id, node_id)
     }
 
-    /// Get the scroll delta for a node in the current frame (for scroll event detection)
-    pub fn get_scroll_delta(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
-        self.get_scroll_manager().get_scroll_delta(dom_id, node_id)
-    }
-
-    /// Check if a node had scroll activity this frame
-    pub fn had_scroll_activity(&self, dom_id: DomId, node_id: NodeId) -> bool {
-        self.get_scroll_manager()
-            .had_scroll_activity_for_node(dom_id, node_id)
-    }
-
     /// Get the scroll state (container rect, content rect, current offset) for a node
     pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&AnimatedScrollState> {
         self.get_scroll_manager().get_scroll_state(dom_id, node_id)
@@ -3072,6 +3061,44 @@ impl CallbackInfo {
     ) -> Option<crate::managers::scroll_state::ScrollNodeInfo> {
         self.get_scroll_manager()
             .get_scroll_node_info(dom_id, node_id)
+    }
+
+    /// Deprecated: Returns None. Scroll deltas are no longer tracked per-frame.
+    /// Kept for FFI backward compatibility.
+    pub fn get_scroll_delta(
+        &self,
+        _dom_id: DomId,
+        _node_id: NodeId,
+    ) -> Option<LogicalPosition> {
+        None
+    }
+
+    /// Deprecated: Returns false. Scroll activity flags were removed.
+    /// Kept for FFI backward compatibility.
+    pub fn had_scroll_activity(
+        &self,
+        _dom_id: DomId,
+        _node_id: NodeId,
+    ) -> bool {
+        false
+    }
+
+    /// Find the closest scrollable ancestor of a node.
+    ///
+    /// Walks up the node hierarchy to find a node registered in the ScrollManager.
+    /// Used by auto-scroll timer to find which container to scroll.
+    pub fn find_scroll_parent(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> Option<NodeId> {
+        let layout_window = self.get_layout_window();
+        let layout_results = &layout_window.layout_results;
+        let lr = layout_results.get(&dom_id)?;
+        let node_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem] =
+            lr.styled_dom.node_hierarchy.as_ref();
+        self.get_scroll_manager()
+            .find_scroll_parent(dom_id, node_id, node_hierarchy)
     }
 
     /// Get a clone of the scroll input queue for consuming pending inputs.

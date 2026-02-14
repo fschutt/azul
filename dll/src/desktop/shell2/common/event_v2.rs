@@ -27,7 +27,7 @@
 //!                                      ↓
 //!                          PRE-EVENT-DISPATCH PROCESSING
 //! =
-//!                          1. Scroll: record_sample() on ScrollManager
+//!                          1. Scroll: record_scroll_from_hit_test() → physics timer → ScrollTo
 //!                          2. Text: process_text_input() on LayoutWindow
 //!                          3. A11y: record_state_changes() on A11yManager
 //!                          ↓
@@ -55,7 +55,7 @@
 //!   - `handle_mouse_up()` - After clearing mouse button state
 //!   - `handle_mouse_moved()` - After updating cursor position and hit test
 //!   - `handle_key_down()` - After updating keyboard state
-//!   - `handle_scroll()` - After calling scroll_manager.record_sample()
+//!   - `handle_scroll()` - After calling scroll_manager.record_scroll_from_hit_test()
 //!   - `handle_text_input()` - Platform should provide text_input: &str to process_text_input()
 //!   - `handle_window_resize()` - After updating size in window state
 //!
@@ -66,9 +66,10 @@
 //!
 //! **Scroll Integration:**
 //! - Get scroll delta from NSEvent
-//! - Call `scroll_manager.record_sample(delta_x, delta_y, hover_manager, input_id, now)`
-//! - ScrollManager finds scrollable node via hit test and applies scroll
-//! - Then call `process_window_events()` which will generate scroll events
+//! - Call `scroll_manager.record_scroll_from_hit_test(delta_x, delta_y, source, ...)`
+//! - ScrollManager queues input for physics timer
+//! - Timer pushes `CallbackChange::ScrollTo`, event processing applies offsets
+//! - Then call `process_window_events()` which will process the scroll changes
 //!
 //! **Text Input Integration:**
 //! - Get composed text from NSTextInputClient (insertText/setMarkedText)
@@ -177,12 +178,6 @@ use crate::{log_debug, log_warn};
 /// This limit prevents infinite loops.
 const MAX_EVENT_RECURSION_DEPTH: usize = 7;
 
-/// Unique timer ID for auto-scroll during drag selection.
-///
-/// This ID is reserved for the framework's auto-scroll timer and should not
-/// be used by user code. Value chosen to avoid conflicts with typical timer IDs.
-const AUTO_SCROLL_TIMER_ID: usize = 0xABCD_1234;
-
 // Platform-specific Clipboard Helpers
 
 /// Get clipboard text content (platform-specific)
@@ -239,31 +234,27 @@ fn set_system_clipboard(text: String) -> bool {
 /// Timer callback for auto-scroll during drag selection.
 ///
 /// This callback fires at the monitor's refresh rate during drag-to-scroll operations.
-/// It checks if dragging is still active, calculates scroll delta based on mouse distance
-/// from container edges, and applies accelerated scrolling.
+/// It checks if dragging is still active, finds the scrollable container ancestor,
+/// calculates scroll delta based on mouse distance from container edges, and
+/// pushes `CallbackChange::ScrollTo` to move the scroll position.
 ///
 /// The callback terminates automatically when:
 /// - Mouse button is released (no longer dragging)
 /// - Mouse returns to within container bounds (no scroll needed)
 extern "C" fn auto_scroll_timer_callback(
     _data: azul_core::refany::RefAny,
-    timer_info: azul_layout::timer::TimerCallbackInfo,
+    mut timer_info: azul_layout::timer::TimerCallbackInfo,
 ) -> azul_core::callbacks::TimerCallbackReturn {
     use azul_core::task::TerminateTimer;
-    use azul_layout::window::SelectionScrollType;
 
     // Access window state through callback_info
     let callback_info = &timer_info.callback_info;
 
-    // Access window state through callback_info
-    let callback_info = &timer_info.callback_info;
-
-    // Get current mouse position from window state (safe access via public getter)
+    // Get current mouse position from window state
     let full_window_state = callback_info.get_current_window_state();
 
     // Check if still dragging (left mouse button is down)
     if !full_window_state.mouse_state.left_down {
-        // Mouse released - stop timer
         return azul_core::callbacks::TimerCallbackReturn::terminate_unchanged();
     }
 
@@ -271,30 +262,89 @@ extern "C" fn auto_scroll_timer_callback(
     let mouse_position = match full_window_state.mouse_state.cursor_position.get_position() {
         Some(pos) => pos,
         None => {
-            // Mouse outside window - stop auto-scroll
             return azul_core::callbacks::TimerCallbackReturn::terminate_unchanged();
         }
     };
 
-    // TODO: Scroll based on mouse distance from container edge
-    // The issue is that scroll_selection_into_view requires &mut LayoutWindow,
-    // but we only have &CallbackInfo which has *const LayoutWindow.
-    // We need to either:
-    // 1. Make scroll_selection_into_view work via CallbackChange transaction
-    // 2. Provide a different API for timer callbacks to access mutable state
-    // For now, just continue the timer without scrolling
-    //
-    // let layout_window = timer_info.callback_info.get_layout_window();
-    // if layout_window.scroll_selection_into_view(
-    //     SelectionScrollType::DragSelection { mouse_position },
-    //     ScrollMode::Accelerated,
-    // ) {
-    //     return azul_core::callbacks::TimerCallbackReturn::continue_and_update();
-    // }
+    // Get the focused node (the node being drag-selected in)
+    let focused_node = match callback_info.get_focused_node() {
+        Some(node) => node,
+        None => {
+            return azul_core::callbacks::TimerCallbackReturn::continue_unchanged();
+        }
+    };
 
-    // No scroll needed (mouse within container or no scrollable ancestor)
-    // Continue timer in case mouse moves outside again
-    azul_core::callbacks::TimerCallbackReturn::continue_unchanged()
+    let dom_id = focused_node.dom;
+    let node_id = match focused_node.node.into_crate_internal() {
+        Some(id) => id,
+        None => {
+            return azul_core::callbacks::TimerCallbackReturn::continue_unchanged();
+        }
+    };
+
+    // Find the scrollable ancestor of the focused node
+    let scroll_parent = match callback_info.find_scroll_parent(dom_id, node_id) {
+        Some(parent_id) => parent_id,
+        None => {
+            // No scrollable ancestor — continue timer but nothing to do
+            return azul_core::callbacks::TimerCallbackReturn::continue_unchanged();
+        }
+    };
+
+    // Get scroll node info for the scrollable ancestor
+    let scroll_info = match callback_info.get_scroll_node_info(dom_id, scroll_parent) {
+        Some(info) => info,
+        None => {
+            return azul_core::callbacks::TimerCallbackReturn::continue_unchanged();
+        }
+    };
+
+    // Calculate scroll delta based on mouse distance from container edges
+    let container = scroll_info.container_rect;
+    let edge_threshold = 30.0_f32; // pixels from edge before auto-scroll starts
+    let max_speed = 15.0_f32; // max pixels per tick
+
+    let mut delta_x = 0.0_f32;
+    let mut delta_y = 0.0_f32;
+
+    // Check vertical edges
+    if mouse_position.y < container.origin.y + edge_threshold {
+        // Mouse above container — scroll up
+        let distance = (container.origin.y + edge_threshold) - mouse_position.y;
+        delta_y = -(distance / edge_threshold * max_speed).min(max_speed);
+    } else if mouse_position.y > container.origin.y + container.size.height - edge_threshold {
+        // Mouse below container — scroll down
+        let distance = mouse_position.y - (container.origin.y + container.size.height - edge_threshold);
+        delta_y = (distance / edge_threshold * max_speed).min(max_speed);
+    }
+
+    // Check horizontal edges
+    if mouse_position.x < container.origin.x + edge_threshold {
+        let distance = (container.origin.x + edge_threshold) - mouse_position.x;
+        delta_x = -(distance / edge_threshold * max_speed).min(max_speed);
+    } else if mouse_position.x > container.origin.x + container.size.width - edge_threshold {
+        let distance = mouse_position.x - (container.origin.x + container.size.width - edge_threshold);
+        delta_x = (distance / edge_threshold * max_speed).min(max_speed);
+    }
+
+    if delta_x.abs() < 0.01 && delta_y.abs() < 0.01 {
+        // Mouse within container bounds — no scroll needed but keep timer running
+        return azul_core::callbacks::TimerCallbackReturn::continue_unchanged();
+    }
+
+    // Calculate new scroll position and push ScrollTo
+    let new_pos = azul_core::geom::LogicalPosition {
+        x: (scroll_info.current_offset.x + delta_x).max(0.0).min(scroll_info.max_scroll_x),
+        y: (scroll_info.current_offset.y + delta_y).max(0.0).min(scroll_info.max_scroll_y),
+    };
+
+    let hierarchy_id = azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(scroll_parent));
+    timer_info.scroll_to(dom_id, hierarchy_id, new_pos);
+
+    azul_core::callbacks::TimerCallbackReturn {
+        should_update: azul_core::callbacks::Update::RefreshDom,
+        should_terminate: TerminateTimer::Continue,
+    }
 }
 
 // Focus Restyle Helper
@@ -1055,36 +1105,23 @@ pub trait PlatformWindowV2 {
         delta_y: f32,
     ) -> Result<(), String> {
         use azul_core::{
-            events::{EasingFunction, EventSource},
+            events::EasingFunction,
             geom::LogicalPosition,
         };
-        use azul_layout::managers::scroll_state::ScrollEvent;
 
         let layout_window = self.get_layout_window_mut().ok_or("No layout window")?;
-
-        // Create scroll event
-        let scroll_event = ScrollEvent {
-            dom_id,
-            node_id,
-            delta: LogicalPosition::new(delta_x, delta_y),
-            source: EventSource::User,
-            duration: None, // Instant scroll
-            easing: EasingFunction::Linear,
-        };
 
         let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
 
         // Apply scroll
         layout_window.scroll_manager.scroll_by(
-            scroll_event.dom_id,
-            scroll_event.node_id,
-            scroll_event.delta,
-            scroll_event
-                .duration
-                .unwrap_or(azul_core::task::Duration::System(
-                    azul_core::task::SystemTimeDiff { secs: 0, nanos: 0 },
-                )),
-            scroll_event.easing,
+            dom_id,
+            node_id,
+            LogicalPosition::new(delta_x, delta_y),
+            azul_core::task::Duration::System(
+                azul_core::task::SystemTimeDiff { secs: 0, nanos: 0 },
+            ),
+            EasingFunction::Linear,
             (external.get_system_time_fn.cb)(),
         );
 
@@ -1292,15 +1329,11 @@ pub trait PlatformWindowV2 {
         let file_drop_manager = self.get_layout_window().map(|w| &w.file_drop_manager);
         let hover_manager = self.get_layout_window().map(|w| &w.hover_manager);
 
-        // Get EventProvider managers (scroll, text input, etc.)
-        let scroll_manager_ref = self.get_layout_window().map(|w| &w.scroll_manager);
+        // Get EventProvider managers (text input, etc.)
         let text_manager_ref = self.get_layout_window().map(|w| &w.text_input_manager);
 
         // Build list of EventProvider managers
         let mut event_providers: Vec<&dyn azul_core::events::EventProvider> = Vec::new();
-        if let Some(sm) = scroll_manager_ref.as_ref() {
-            event_providers.push(*sm as &dyn azul_core::events::EventProvider);
-        }
         if let Some(tm) = text_manager_ref.as_ref() {
             event_providers.push(*tm as &dyn azul_core::events::EventProvider);
         }
@@ -1440,18 +1473,9 @@ pub trait PlatformWindowV2 {
         // Track overall processing result
         let mut result = ProcessEventResult::DoNothing;
 
-        // IFrame Integration: Check if any Scroll events occurred
-        // If scrolling happened, we need to regenerate layout so IFrameManager can check
-        // for edge detection and trigger re-invocation if needed
-        let has_scroll_events = synthetic_events
-            .iter()
-            .any(|e| matches!(e.event_type, azul_core::events::EventType::Scroll));
-
-        if has_scroll_events {
-            // Mark frame for regeneration to enable IFrame edge detection
-            self.mark_frame_needs_regeneration();
-            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-        }
+        // NOTE: IFrame re-invocation for scroll edge detection is now handled
+        // transparently in the ScrollTo processing path (process_callback_result_v2),
+        // not here via synthetic Scroll events.
 
         // Get external callbacks for system time
         let external = ExternalSystemCallbacks::rust_internal();
@@ -2067,13 +2091,11 @@ pub trait PlatformWindowV2 {
                     }
                 }
                 azul_core::events::PostCallbackSystemEvent::StartAutoScrollTimer => {
-                    // Start auto-scroll timer for drag-to-scroll (Phase 5)
+                    // Start auto-scroll timer for drag-to-scroll
                     // Timer frequency matches monitor refresh rate for smooth scrolling
 
                     if let Some(layout_window) = self.get_layout_window() {
-                        let timer_id = azul_core::task::TimerId {
-                            id: AUTO_SCROLL_TIMER_ID,
-                        };
+                        let timer_id = azul_core::task::DRAG_AUTOSCROLL_TIMER_ID;
 
                         // Check if timer already running (avoid duplicate timers)
                         if !layout_window.timers.contains_key(&timer_id) {
@@ -2083,20 +2105,11 @@ pub trait PlatformWindowV2 {
                             };
                             use azul_layout::timer::{Timer, TimerCallbackType};
 
-                            // TODO: Get actual monitor refresh rate from platform
-                            // For now, default to 60Hz (16.67ms per frame)
-                            // Platform implementations should query:
-                            // - macOS: [[NSScreen mainScreen] maximumFramesPerSecond]
-                            // - Windows: DwmGetCompositionTimingInfo
-                            // - X11: XRRGetScreenInfo
-                            // - Wayland: wl_output refresh field
                             const DEFAULT_REFRESH_RATE_HZ: u32 = 60;
                             let frame_time_nanos = 1_000_000_000 / DEFAULT_REFRESH_RATE_HZ;
 
-                            // Get system time function for timer creation
                             let external = ExternalSystemCallbacks::rust_internal();
 
-                            // Create timer with monitor refresh rate interval
                             let timer = Timer::create(
                                 RefAny::new(()), // Empty data
                                 auto_scroll_timer_callback as TimerCallbackType,
@@ -2107,14 +2120,9 @@ pub trait PlatformWindowV2 {
                                 nanos: frame_time_nanos,
                             }));
 
-                            // Add timer to layout window
                             if let Some(layout_window) = self.get_layout_window_mut() {
                                 layout_window.add_timer(timer_id, timer.clone());
-
-                                // Start platform-specific native timer
-                                // This will create NSTimer/SetTimer/timerfd depending on platform
-                                self.start_timer(AUTO_SCROLL_TIMER_ID, timer);
-
+                                self.start_timer(azul_core::task::DRAG_AUTOSCROLL_TIMER_ID.id, timer);
                                 result =
                                     result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
                             }
@@ -2122,25 +2130,13 @@ pub trait PlatformWindowV2 {
                     }
                 }
                 azul_core::events::PostCallbackSystemEvent::CancelAutoScrollTimer => {
-                    // Cancel auto-scroll timer (Phase 5)
-                    // This stops both the framework timer and the native platform timer
-
-                    let timer_id = azul_core::task::TimerId {
-                        id: AUTO_SCROLL_TIMER_ID,
-                    };
+                    // Cancel auto-scroll timer
+                    let timer_id = azul_core::task::DRAG_AUTOSCROLL_TIMER_ID;
 
                     if let Some(layout_window) = self.get_layout_window_mut() {
                         if layout_window.timers.contains_key(&timer_id) {
-                            // Remove from layout window timer map
                             layout_window.remove_timer(&timer_id);
-
-                            // Stop native platform timer (NSTimer/SetTimer/timerfd)
-                            // Platform implementations handle cleanup:
-                            // - macOS: [timer invalidate]
-                            // - Windows: KillTimer(hwnd, timer_id)
-                            // - X11: Remove from internal timer manager
-                            // - Wayland: close(timerfd)
-                            self.stop_timer(AUTO_SCROLL_TIMER_ID);
+                            self.stop_timer(azul_core::task::DRAG_AUTOSCROLL_TIMER_ID.id);
                         }
                     }
                 }
@@ -2985,7 +2981,7 @@ pub trait PlatformWindowV2 {
             }
         }
 
-        // Handle scroll position changes from callbacks (e.g., scroll_node_by API)
+        // Handle scroll position changes from callbacks (e.g., scroll_node_by API, physics timer ScrollTo)
         if let Some(ref nodes_scrolled) = result.nodes_scrolled_in_callbacks {
             if !nodes_scrolled.is_empty() {
                 // Get current time for scroll animation
@@ -2993,6 +2989,8 @@ pub trait PlatformWindowV2 {
                 let now = (external.get_system_time_fn.cb)();
 
                 if let Some(layout_window) = self.get_layout_window_mut() {
+                    let mut needs_iframe_reinvoke = false;
+
                     for (dom_id, node_map) in nodes_scrolled {
                         for (hierarchy_id, target_position) in node_map {
                             // Convert NodeHierarchyItemId to NodeId
@@ -3006,12 +3004,38 @@ pub trait PlatformWindowV2 {
                                     azul_core::events::EasingFunction::Linear,
                                     now.clone().into(),
                                 );
+
+                                // IFrame re-invocation check: after setting new scroll position,
+                                // check if this node hosts an IFrame that needs re-invocation
+                                // (e.g., user scrolled near an edge for lazy loading).
+                                // This is transparent — the timer doesn't know about IFrames.
+                                let scroll_state = layout_window.scroll_manager
+                                    .get_scroll_state(*dom_id, node_id);
+                                let layout_bounds = scroll_state
+                                    .map(|s| s.container_rect)
+                                    .unwrap_or_default();
+
+                                if let Some(_reason) = layout_window.iframe_manager.check_reinvoke(
+                                    *dom_id,
+                                    node_id,
+                                    &layout_window.scroll_manager,
+                                    layout_bounds,
+                                ) {
+                                    needs_iframe_reinvoke = true;
+                                }
                             }
                         }
                     }
-                    // Scrolling changes require re-render
-                    event_result =
-                        event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+
+                    if needs_iframe_reinvoke {
+                        // IFrame needs re-invocation — trigger layout regeneration
+                        event_result =
+                            event_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                    } else {
+                        // Normal scrolling — just re-render
+                        event_result =
+                            event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                    }
                 }
             }
         }

@@ -3317,39 +3317,24 @@ impl MacOSWindow {
         delta_x: f32,
         delta_y: f32,
     ) -> Result<(), String> {
-        use std::time::Duration;
-
         use azul_core::{
-            events::{EasingFunction, EventSource},
+            events::EasingFunction,
             geom::LogicalPosition,
         };
-        use azul_layout::managers::scroll_state::ScrollEvent;
 
         let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
 
-        // 1. Create scroll event and process it
-        let scroll_event = ScrollEvent {
-            dom_id,
-            node_id,
-            delta: LogicalPosition::new(delta_x, delta_y),
-            source: EventSource::User,
-            duration: None, // Instant scroll
-            easing: EasingFunction::Linear,
-        };
-
         let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
 
-        // Apply scroll using scroll_by instead of apply_scroll_event
+        // Apply scroll using scroll_by
         layout_window.scroll_manager.scroll_by(
-            scroll_event.dom_id,
-            scroll_event.node_id,
-            scroll_event.delta,
-            scroll_event
-                .duration
-                .unwrap_or(azul_core::task::Duration::System(
-                    azul_core::task::SystemTimeDiff { secs: 0, nanos: 0 },
-                )),
-            scroll_event.easing,
+            dom_id,
+            node_id,
+            LogicalPosition::new(delta_x, delta_y),
+            azul_core::task::Duration::System(
+                azul_core::task::SystemTimeDiff { secs: 0, nanos: 0 },
+            ),
+            EasingFunction::Linear,
             (external.get_system_time_fn.cb)(),
         );
 

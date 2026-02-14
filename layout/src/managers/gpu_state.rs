@@ -17,7 +17,7 @@ use azul_core::{
 };
 
 use crate::{
-    managers::scroll_state::{FrameScrollInfo, ScrollManager},
+    managers::scroll_state::ScrollManager,
     solver3::{layout_tree::LayoutTree, scrollbar::ScrollbarRequirements},
     text3::cache::ParsedFontTrait,
 };

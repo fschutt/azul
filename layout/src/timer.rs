@@ -512,6 +512,18 @@ impl TimerCallbackInfo {
         self.callback_info.get_scroll_node_info(dom_id, node_id)
     }
 
+    /// Find the closest scrollable ancestor of a node.
+    ///
+    /// Used by auto-scroll timer to find which container to scroll when
+    /// the user drags beyond the container edge.
+    pub fn find_scroll_parent(
+        &self,
+        dom_id: azul_core::dom::DomId,
+        node_id: azul_core::id::NodeId,
+    ) -> Option<azul_core::id::NodeId> {
+        self.callback_info.find_scroll_parent(dom_id, node_id)
+    }
+
     /// Get the scroll input queue for consuming pending scroll inputs.
     ///
     /// The physics timer calls `take_all()` each tick to drain inputs

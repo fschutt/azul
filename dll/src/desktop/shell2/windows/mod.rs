@@ -2509,33 +2509,62 @@ unsafe extern "system" fn window_proc(
             // Save previous state
             window.previous_window_state = Some(window.current_window_state.clone());
 
-            // Record scroll sample using ScrollManager (if delta is significant)
-            // The ScrollManager will update its internal state, and during the next render,
-            // scroll_all_nodes() will synchronize the offsets to WebRender automatically.
-            let hovered_node_for_scroll = if delta.abs() > 0 {
+            // Queue scroll input for the physics timer instead of directly setting offsets.
+            // The timer will consume these via ScrollInputQueue and push CallbackChange::ScrollTo.
+            if delta.abs() > 0 {
+                let mut should_start_timer = false;
+                let mut input_queue_clone = None;
+
                 if let Some(ref mut layout_window) = window.layout_window {
                     use azul_core::task::Instant;
+                    use azul_layout::managers::scroll_state::ScrollInputSource;
 
                     let now = Instant::from(std::time::Instant::now());
-                    let _scroll_node = layout_window.scroll_manager.record_sample(
-                        0.0,                  // No horizontal scroll from mousewheel
-                        scroll_amount * 20.0, // Scale for pixel scrolling
-                        &layout_window.hover_manager,
-                        &InputPointId::Mouse,
-                        now,
-                    );
 
-                    // Note: We do NOT call gpu_scroll() here - it would cause double-scrolling!
-                    // The scroll state will be automatically synchronized to WebRender during
-                    // the next render_and_present() call via scroll_all_nodes().
-
-                    _scroll_node
-                } else {
-                    None
+                    if let Some((_dom_id, _node_id, start_timer)) =
+                        layout_window.scroll_manager.record_scroll_from_hit_test(
+                            0.0,                  // No horizontal scroll from mousewheel
+                            scroll_amount * 20.0, // Scale for pixel scrolling
+                            ScrollInputSource::WheelDiscrete,
+                            &layout_window.hover_manager,
+                            &InputPointId::Mouse,
+                            now,
+                        )
+                    {
+                        should_start_timer = start_timer;
+                        if start_timer {
+                            input_queue_clone = Some(
+                                layout_window.scroll_manager.get_input_queue()
+                            );
+                        }
+                    }
                 }
-            } else {
-                None
-            };
+
+                // Start the scroll momentum timer if this is the first input
+                if should_start_timer {
+                    if let Some(queue) = input_queue_clone {
+                        use azul_core::task::{SCROLL_MOMENTUM_TIMER_ID};
+                        use azul_layout::scroll_timer::{ScrollPhysicsState, scroll_physics_timer_callback};
+                        use azul_layout::timer::{Timer, TimerCallbackType};
+                        use azul_core::refany::RefAny;
+                        use azul_core::task::Duration;
+
+                        let physics_state = ScrollPhysicsState::new(queue);
+                        let data = RefAny::new(physics_state);
+                        let timer = Timer::create(
+                            data,
+                            scroll_physics_timer_callback as TimerCallbackType,
+                            azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
+                                .get_system_time_fn,
+                        )
+                        .with_interval(Duration::System(
+                            azul_core::task::SystemTimeDiff::from_millis(16),
+                        ));
+
+                        window.start_timer(SCROLL_MOMENTUM_TIMER_ID.id, timer);
+                    }
+                }
+            }
 
             // Update hit test
             if let Some(ref mut layout_window) = window.layout_window {

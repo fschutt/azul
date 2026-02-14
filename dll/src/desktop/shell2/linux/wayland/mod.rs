@@ -1994,27 +1994,61 @@ impl WaylandWindow {
             _ => (0.0, 0.0),
         };
 
-        // Record scroll sample using ScrollManager
-        let hovered_node_for_scroll = if let Some(ref mut layout_window) = self.layout_window {
-            use azul_core::task::Instant;
+        // Queue scroll input for the physics timer instead of directly setting offsets.
+        {
+            let mut should_start_timer = false;
+            let mut input_queue_clone = None;
 
-            let now = Instant::from(std::time::Instant::now());
-            let scroll_node = layout_window.scroll_manager.record_sample(
-                -delta_x,
-                -delta_y,
-                &layout_window.hover_manager,
-                &InputPointId::Mouse,
-                now,
-            );
+            if let Some(ref mut layout_window) = self.layout_window {
+                use azul_core::task::Instant;
+                use azul_layout::managers::scroll_state::ScrollInputSource;
 
-            if let Some((dom_id, node_id)) = scroll_node {
-                let _ = self.gpu_scroll(dom_id, node_id, -delta_x, -delta_y);
+                let now = Instant::from(std::time::Instant::now());
+
+                if let Some((_dom_id, _node_id, start_timer)) =
+                    layout_window.scroll_manager.record_scroll_from_hit_test(
+                        -delta_x,
+                        -delta_y,
+                        ScrollInputSource::WheelDiscrete,
+                        &layout_window.hover_manager,
+                        &InputPointId::Mouse,
+                        now,
+                    )
+                {
+                    should_start_timer = start_timer;
+                    if start_timer {
+                        input_queue_clone = Some(
+                            layout_window.scroll_manager.get_input_queue()
+                        );
+                    }
+                }
             }
 
-            scroll_node
-        } else {
-            None
-        };
+            // Start the scroll momentum timer if this is the first input
+            if should_start_timer {
+                if let Some(queue) = input_queue_clone {
+                    use azul_core::task::SCROLL_MOMENTUM_TIMER_ID;
+                    use azul_layout::scroll_timer::{ScrollPhysicsState, scroll_physics_timer_callback};
+                    use azul_layout::timer::{Timer, TimerCallbackType};
+                    use azul_core::refany::RefAny;
+                    use azul_core::task::Duration;
+
+                    let physics_state = ScrollPhysicsState::new(queue);
+                    let data = RefAny::new(physics_state);
+                    let timer = Timer::create(
+                        data,
+                        scroll_physics_timer_callback as TimerCallbackType,
+                        azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
+                            .get_system_time_fn,
+                    )
+                    .with_interval(Duration::System(
+                        azul_core::task::SystemTimeDiff::from_millis(16),
+                    ));
+
+                    self.start_timer(SCROLL_MOMENTUM_TIMER_ID.id, timer);
+                }
+            }
+        }
 
         // V2: Process events through state-diffing system
         let result = self.process_window_events_recursive_v2(0);

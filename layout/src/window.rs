@@ -1216,6 +1216,13 @@ impl LayoutWindow {
                         callback_return.scroll_size,
                         callback_return.virtual_scroll_size,
                     );
+                    // Propagate virtual scroll bounds to ScrollManager
+                    self.scroll_manager.update_virtual_scroll_bounds(
+                        parent_dom_id,
+                        node_id,
+                        callback_return.virtual_scroll_size,
+                        Some(callback_return.scroll_offset),
+                    );
                     return self
                         .iframe_manager
                         .get_nested_dom_id(parent_dom_id, node_id);
@@ -1235,6 +1242,13 @@ impl LayoutWindow {
             node_id,
             callback_return.scroll_size,
             callback_return.virtual_scroll_size,
+        );
+        // Propagate virtual scroll bounds to ScrollManager
+        self.scroll_manager.update_virtual_scroll_bounds(
+            parent_dom_id,
+            node_id,
+            callback_return.virtual_scroll_size,
+            Some(callback_return.scroll_offset),
         );
 
         // **RECURSIVE LAYOUT STEP**

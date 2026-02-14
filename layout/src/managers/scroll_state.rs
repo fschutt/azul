@@ -5,9 +5,12 @@
 //! `ScrollManager` is the exclusive owner of all scroll state. Other modules
 //! interact with scrolling only through its public API:
 //!
-//! - **Platform shell** (macos/events.rs, etc.): Calls `record_sample()` for
-//!   trackpad/mouse wheel input. Calls `scroll_by()` / `scroll_to()` for
-//!   programmatic scrolling (keyboard page-up, scrollbar click).
+//! - **Platform shell** (macos/events.rs, etc.): Calls `record_scroll_from_hit_test()`
+//!   to queue trackpad/mouse wheel input for the physics timer.
+//! - **Scroll physics timer** (scroll_timer.rs): Consumes inputs via `ScrollInputQueue`,
+//!   applies physics, and pushes `CallbackChange::ScrollTo` for each updated node.
+//! - **Event processing** (event_v2.rs): Processes `ScrollTo` changes, sets scroll
+//!   positions, and checks IFrame re-invocation transparently.
 //! - **Gesture manager** (gesture.rs): Tracks drag state and emits
 //!   `AutoScrollDirection` — does NOT modify scroll offsets directly.
 //! - **Render loop**: Calls `tick()` every frame to advance easing animations.
@@ -19,11 +22,18 @@
 //! # Scroll Flow
 //!
 //! ```text
-//! Input Event → record_sample() ──┐
-//! Keyboard    → scroll_by()    ───┤
-//! Programmatic→ scroll_to()    ───┤
-//!                                 ├→ ScrollManager.states (offset)
-//!             → tick()         ───┘   ↓ scroll_all_nodes() → WebRender
+//! Platform Event Handler
+//!   → record_scroll_from_hit_test() → ScrollInputQueue
+//!   → starts SCROLL_MOMENTUM_TIMER_ID if not running
+//!
+//! Timer fires (every ~16ms):
+//!   → queue.take_all() → physics integration
+//!   → push_change(CallbackChange::ScrollTo)
+//!
+//! ScrollTo processing (event_v2.rs):
+//!   → scroll_manager.set_scroll_position()
+//!   → iframe_manager.check_reinvoke() (transparent IFrame support)
+//!   → repaint
 //! ```
 //!
 //! This module provides:
@@ -31,6 +41,7 @@
 //! - Event source classification for scroll events
 //! - Scrollbar geometry and hit-testing
 //! - ExternalScrollId mapping for WebRender integration
+//! - Virtual scroll bounds for IFrame nodes
 
 use alloc::collections::BTreeMap;
 #[cfg(feature = "std")]
@@ -38,10 +49,7 @@ use alloc::vec::Vec;
 
 use azul_core::{
     dom::{DomId, NodeId, ScrollbarOrientation},
-    events::{
-        EasingFunction, EventData, EventProvider, EventSource, EventType, ScrollDeltaMode,
-        ScrollEventData, SyntheticEvent,
-    },
+    events::EasingFunction,
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::{ExternalScrollId, ScrollPosition},
     styled_dom::NodeHierarchyItemId,
@@ -271,12 +279,6 @@ pub struct ScrollManager {
     next_external_scroll_id: u64,
     /// Scrollbar geometry states (calculated per frame)
     scrollbar_states: BTreeMap<(DomId, NodeId, ScrollbarOrientation), ScrollbarState>,
-    /// Track if we had any scroll activity this frame
-    had_scroll_activity: bool,
-    /// Track if we had any programmatic scroll this frame
-    had_programmatic_scroll: bool,
-    /// Track if any new DOMs were added this frame
-    had_new_doms: bool,
     /// Thread-safe queue for scroll inputs (shared with timer callbacks)
     #[cfg(feature = "std")]
     pub scroll_input_queue: ScrollInputQueue,
@@ -287,8 +289,6 @@ pub struct ScrollManager {
 pub struct AnimatedScrollState {
     /// Current scroll offset (live, may be animating)
     pub current_offset: LogicalPosition,
-    /// Previous frame's scroll offset (for delta calculation)
-    pub previous_offset: LogicalPosition,
     /// Ongoing smooth scroll animation, if any
     pub animation: Option<ScrollAnimation>,
     /// Last time scroll activity occurred (for fading scrollbars)
@@ -297,6 +297,11 @@ pub struct AnimatedScrollState {
     pub container_rect: LogicalRect,
     /// Bounds of the total content (for calculating scroll limits)
     pub content_rect: LogicalRect,
+    /// Virtual scroll size from IFrame callback (if this node hosts an IFrame).
+    /// When set, clamp logic uses this instead of content_rect for max scroll bounds.
+    pub virtual_scroll_size: Option<LogicalSize>,
+    /// Virtual scroll offset from IFrame callback
+    pub virtual_scroll_offset: Option<LogicalPosition>,
 }
 
 /// Details of an in-progress smooth scroll animation
@@ -332,34 +337,6 @@ pub struct ScrollNodeInfo {
     pub max_scroll_y: f32,
 }
 
-/// Summary of scroll-related events that occurred during a frame
-#[derive(Debug, Clone, Copy, Default)]
-pub struct FrameScrollInfo {
-    /// Whether any scroll input occurred this frame
-    pub had_scroll_activity: bool,
-    /// Whether programmatic scroll (scrollTo) occurred
-    pub had_programmatic_scroll: bool,
-    /// Whether new scrollable DOMs were added
-    pub had_new_doms: bool,
-}
-
-/// Scroll event to be processed with source tracking
-#[derive(Debug, Clone)]
-pub struct ScrollEvent {
-    /// DOM containing the scrollable node
-    pub dom_id: DomId,
-    /// Target scroll node
-    pub node_id: NodeId,
-    /// Scroll delta (positive = scroll down/right)
-    pub delta: LogicalPosition,
-    /// Event source (User, Programmatic, etc.)
-    pub source: EventSource,
-    /// Animation duration (None = instant)
-    pub duration: Option<Duration>,
-    /// Easing function for smooth scrolling
-    pub easing: EasingFunction,
-}
-
 /// Result of a scroll tick, indicating what actions are needed
 #[derive(Debug, Default)]
 pub struct ScrollTickResult {
@@ -391,10 +368,46 @@ impl ScrollManager {
     /// now pending inputs and no timer is running yet).
     #[cfg(feature = "std")]
     pub fn record_scroll_input(&mut self, input: ScrollInput) -> bool {
-        self.had_scroll_activity = true;
         let was_empty = !self.scroll_input_queue.has_pending();
         self.scroll_input_queue.push(input);
         was_empty // caller should start timer if this returns true
+    }
+
+    /// High-level entry point for platform event handlers: performs hit-test lookup
+    /// and queues the input for the physics timer, instead of directly modifying offsets.
+    ///
+    /// Returns `Some((dom_id, node_id, should_start_timer))` if a scrollable node was found.
+    /// The caller should start `SCROLL_MOMENTUM_TIMER_ID` when `should_start_timer` is true.
+    #[cfg(feature = "std")]
+    pub fn record_scroll_from_hit_test(
+        &mut self,
+        delta_x: f32,
+        delta_y: f32,
+        source: ScrollInputSource,
+        hover_manager: &crate::managers::hover::HoverManager,
+        input_point_id: &InputPointId,
+        now: Instant,
+    ) -> Option<(DomId, NodeId, bool)> {
+        let hit_test = hover_manager.get_current(input_point_id)?;
+
+        for (dom_id, hit_node) in &hit_test.hovered_nodes {
+            for (node_id, _scroll_item) in &hit_node.scroll_hit_test_nodes {
+                if !self.is_node_scrollable(*dom_id, *node_id) {
+                    continue;
+                }
+                let input = ScrollInput {
+                    dom_id: *dom_id,
+                    node_id: *node_id,
+                    delta: LogicalPosition { x: delta_x, y: delta_y },
+                    timestamp: now,
+                    source,
+                };
+                let should_start_timer = self.record_scroll_input(input);
+                return Some((*dom_id, *node_id, should_start_timer));
+            }
+        }
+
+        None
     }
 
     /// Get a clone of the scroll input queue (for sharing with timer callbacks).
@@ -404,27 +417,6 @@ impl ScrollManager {
     #[cfg(feature = "std")]
     pub fn get_input_queue(&self) -> ScrollInputQueue {
         self.scroll_input_queue.clone()
-    }
-
-    /// Prepares state for a new frame by saving current offsets as previous
-    pub fn begin_frame(&mut self) {
-        self.had_scroll_activity = false;
-        self.had_programmatic_scroll = false;
-        self.had_new_doms = false;
-
-        // Save current offsets as previous for delta calculation
-        for state in self.states.values_mut() {
-            state.previous_offset = state.current_offset;
-        }
-    }
-
-    /// Returns scroll activity summary for the completed frame
-    pub fn end_frame(&self) -> FrameScrollInfo {
-        FrameScrollInfo {
-            had_scroll_activity: self.had_scroll_activity,
-            had_programmatic_scroll: self.had_programmatic_scroll,
-            had_new_doms: self.had_new_doms,
-        }
     }
 
     /// Advances scroll animations by one tick, returns repaint info
@@ -474,78 +466,6 @@ impl ScrollManager {
         None
     }
 
-    /// Processes a scroll event, applying immediate or animated scroll
-    pub fn process_scroll_event(&mut self, event: ScrollEvent, now: Instant) -> bool {
-        self.had_scroll_activity = true;
-        if event.source == EventSource::Programmatic || event.source == EventSource::User {
-            self.had_programmatic_scroll = true;
-        }
-
-        if let Some(duration) = event.duration {
-            self.scroll_by(
-                event.dom_id,
-                event.node_id,
-                event.delta,
-                duration,
-                event.easing,
-                now,
-            );
-        } else {
-            let current = self
-                .get_current_offset(event.dom_id, event.node_id)
-                .unwrap_or_default();
-            let new_position = LogicalPosition {
-                x: current.x + event.delta.x,
-                y: current.y + event.delta.y,
-            };
-            self.set_scroll_position(event.dom_id, event.node_id, new_position, now);
-        }
-        true
-    }
-
-    /// Records a scroll input sample and applies it to the first scrollable node under the cursor
-    ///
-    /// Finds the first scrollable node in the hit test hierarchy and applies
-    /// the scroll delta. Returns the scrolled node if successful.
-    pub fn record_sample(
-        &mut self,
-        delta_x: f32,
-        delta_y: f32,
-        hover_manager: &crate::managers::hover::HoverManager,
-        input_point_id: &InputPointId,
-        now: Instant,
-    ) -> Option<(DomId, NodeId)> {
-        let hit_test = hover_manager.get_current(input_point_id)?;
-        
-        // Find first scrollable node in hit test hierarchy
-        for (dom_id, hit_node) in &hit_test.hovered_nodes {
-            for (node_id, _scroll_item) in &hit_node.scroll_hit_test_nodes {
-                let is_scrollable = self.is_node_scrollable(*dom_id, *node_id);
-                if is_scrollable {
-                    let delta = LogicalPosition {
-                        x: delta_x,
-                        y: delta_y,
-                    };
-
-                    let current = self
-                        .get_current_offset(*dom_id, *node_id)
-                        .unwrap_or_default();
-                    let new_position = LogicalPosition {
-                        x: current.x + delta.x,
-                        y: current.y + delta.y,
-                    };
-
-                    self.set_scroll_position(*dom_id, *node_id, new_position, now);
-                    self.had_scroll_activity = true;
-
-                    return Some((*dom_id, *node_id));
-                }
-            }
-        }
-
-        None
-    }
-
     /// Check if a node is scrollable (has overflow:scroll/auto and overflowing content)
     fn is_node_scrollable(&self, dom_id: DomId, node_id: NodeId) -> bool {
         self.states.get(&(dom_id, node_id)).map_or(false, |state| {
@@ -553,21 +473,6 @@ impl ScrollManager {
             let has_vertical = state.content_rect.size.height > state.container_rect.size.height;
             has_horizontal || has_vertical
         })
-    }
-
-    /// Returns the scroll delta applied this frame, if non-zero
-    pub fn get_scroll_delta(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
-        let state = self.states.get(&(dom_id, node_id))?;
-        let delta = LogicalPosition {
-            x: state.current_offset.x - state.previous_offset.x,
-            y: state.current_offset.y - state.previous_offset.y,
-        };
-        (delta.x.abs() > 0.001 || delta.y.abs() > 0.001).then_some(delta)
-    }
-
-    /// Returns true if the node had scroll activity this frame
-    pub fn had_scroll_activity_for_node(&self, dom_id: DomId, node_id: NodeId) -> bool {
-        self.get_scroll_delta(dom_id, node_id).is_some()
     }
 
     /// Sets scroll position immediately (no animation)
@@ -652,9 +557,6 @@ impl ScrollManager {
         content_rect: LogicalRect,
         now: Instant,
     ) {
-        if !self.states.contains_key(&(dom_id, node_id)) {
-            self.had_new_doms = true;
-        }
         let state = self
             .states
             .entry((dom_id, node_id))
@@ -662,6 +564,26 @@ impl ScrollManager {
         state.container_rect = container_rect;
         state.content_rect = content_rect;
         state.current_offset = state.clamp(state.current_offset);
+    }
+
+    /// Updates virtual scroll bounds for an IFrame node.
+    ///
+    /// Called after IFrame callback returns to propagate the virtual content size
+    /// to the ScrollManager. Clamp logic then uses `virtual_scroll_size` (when set)
+    /// instead of `content_rect` for max scroll bounds.
+    pub fn update_virtual_scroll_bounds(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        virtual_scroll_size: LogicalSize,
+        virtual_scroll_offset: Option<LogicalPosition>,
+    ) {
+        if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
+            state.virtual_scroll_size = Some(virtual_scroll_size);
+            state.virtual_scroll_offset = virtual_scroll_offset;
+            // Re-clamp with new virtual bounds
+            state.current_offset = state.clamp(state.current_offset);
+        }
     }
 
     /// Returns the current scroll offset for a node
@@ -687,14 +609,23 @@ impl ScrollManager {
     ///
     /// This is the preferred way for timer callbacks to query scroll state,
     /// since they only have `&CallbackInfo` (read-only access).
+    ///
+    /// When `virtual_scroll_size` is set (for IFrame nodes), the max scroll
+    /// bounds are computed from the virtual size instead of `content_rect`.
     pub fn get_scroll_node_info(
         &self,
         dom_id: DomId,
         node_id: NodeId,
     ) -> Option<ScrollNodeInfo> {
         let state = self.states.get(&(dom_id, node_id))?;
-        let max_x = (state.content_rect.size.width - state.container_rect.size.width).max(0.0);
-        let max_y = (state.content_rect.size.height - state.container_rect.size.height).max(0.0);
+        let effective_content_width = state.virtual_scroll_size
+            .map(|s| s.width)
+            .unwrap_or(state.content_rect.size.width);
+        let effective_content_height = state.virtual_scroll_size
+            .map(|s| s.height)
+            .unwrap_or(state.content_rect.size.height);
+        let max_x = (effective_content_width - state.container_rect.size.width).max(0.0);
+        let max_y = (effective_content_height - state.container_rect.size.height).max(0.0);
         Some(ScrollNodeInfo {
             current_offset: state.current_offset,
             container_rect: state.container_rect,
@@ -757,12 +688,12 @@ impl ScrollManager {
                 key,
                 AnimatedScrollState {
                     current_offset: LogicalPosition::zero(),
-                    previous_offset: LogicalPosition::zero(),
                     animation: None,
-
                     last_activity: now,
                     container_rect,
                     content_rect,
+                    virtual_scroll_size: None,
+                    virtual_scroll_offset: None,
                 },
             );
         }
@@ -1044,18 +975,28 @@ impl AnimatedScrollState {
     pub fn new(now: Instant) -> Self {
         Self {
             current_offset: LogicalPosition::zero(),
-            previous_offset: LogicalPosition::zero(),
             animation: None,
             last_activity: now,
             container_rect: LogicalRect::zero(),
             content_rect: LogicalRect::zero(),
+            virtual_scroll_size: None,
+            virtual_scroll_offset: None,
         }
     }
 
     /// Clamp a scroll position to valid bounds (0 to max_scroll).
+    ///
+    /// When `virtual_scroll_size` is set (for IFrame nodes), the max bounds
+    /// are computed from the virtual size instead of content_rect.
     pub fn clamp(&self, position: LogicalPosition) -> LogicalPosition {
-        let max_x = (self.content_rect.size.width - self.container_rect.size.width).max(0.0);
-        let max_y = (self.content_rect.size.height - self.container_rect.size.height).max(0.0);
+        let effective_width = self.virtual_scroll_size
+            .map(|s| s.width)
+            .unwrap_or(self.content_rect.size.width);
+        let effective_height = self.virtual_scroll_size
+            .map(|s| s.height)
+            .unwrap_or(self.content_rect.size.height);
+        let max_x = (effective_width - self.container_rect.size.width).max(0.0);
+        let max_y = (effective_height - self.container_rect.size.height).max(0.0);
         LogicalPosition {
             x: position.x.max(0.0).min(max_x),
             y: position.y.max(0.0).min(max_y),
@@ -1083,58 +1024,6 @@ pub fn apply_easing(t: f32, easing: EasingFunction) -> f32 {
 
 // Legacy type alias
 pub type ScrollStates = ScrollManager;
-
-// EventProvider Implementation
-
-impl EventProvider for ScrollManager {
-    /// Get pending scroll events.
-    ///
-    /// Returns Scroll/ScrollStart/ScrollEnd events for nodes whose scroll
-    /// position changed this frame.
-    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
-        let mut events = Vec::new();
-
-        // Generate events for all nodes that scrolled this frame
-        for ((dom_id, node_id), state) in &self.states {
-            // Check if scroll offset changed (delta != 0)
-            let delta = LogicalPosition {
-                x: state.current_offset.x - state.previous_offset.x,
-                y: state.current_offset.y - state.previous_offset.y,
-            };
-
-            if delta.x.abs() > 0.001 || delta.y.abs() > 0.001 {
-                let target = azul_core::dom::DomNodeId {
-                    dom: *dom_id,
-                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-                };
-
-                // Determine event source
-                let event_source = if self.had_programmatic_scroll {
-                    EventSource::Programmatic
-                } else {
-                    EventSource::User
-                };
-
-                // Generate Scroll event
-                events.push(SyntheticEvent::new(
-                    EventType::Scroll,
-                    event_source,
-                    target,
-                    timestamp.clone(),
-                    EventData::Scroll(ScrollEventData {
-                        delta,
-                        delta_mode: ScrollDeltaMode::Pixel,
-                    }),
-                ));
-
-                // TODO: Generate ScrollStart/ScrollEnd events
-                // Need to track when scroll starts/stops (first/last frame with delta)
-            }
-        }
-
-        events
-    }
-}
 
 impl ScrollManager {
     /// Remap NodeIds after DOM reconciliation
