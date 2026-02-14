@@ -10,8 +10,7 @@
 //!   programmatic scrolling (keyboard page-up, scrollbar click).
 //! - **Gesture manager** (gesture.rs): Tracks drag state and emits
 //!   `AutoScrollDirection` — does NOT modify scroll offsets directly.
-//! - **Render loop** (mod.rs render_and_present): Calls `physics_tick()` and
-//!   `tick()` every frame to advance momentum and easing animations.
+//! - **Render loop**: Calls `tick()` every frame to advance easing animations.
 //! - **WebRender sync** (wr_translate2.rs): Reads offsets via
 //!   `get_scroll_states_for_dom()` to synchronize scroll frames.
 //! - **Layout** (cache.rs): Registers scroll nodes via
@@ -23,16 +22,12 @@
 //! Input Event → record_sample() ──┐
 //! Keyboard    → scroll_by()    ───┤
 //! Programmatic→ scroll_to()    ───┤
-//!                                 ├→ ScrollManager.states (offset + velocity)
-//! Per-frame   → physics_tick() ───┤   ↓
-//!             → tick()         ───┘   scroll_all_nodes() → WebRender
+//!                                 ├→ ScrollManager.states (offset)
+//!             → tick()         ───┘   ↓ scroll_all_nodes() → WebRender
 //! ```
 //!
 //! This module provides:
 //! - Smooth scroll animations with easing
-//! - Velocity-based momentum scrolling (physics)
-//! - Overscroll / rubber-band spring effect
-//! - Drag-select auto-scrolling
 //! - Event source classification for scroll events
 //! - Scrollbar geometry and hit-testing
 //! - ExternalScrollId mapping for WebRender integration
@@ -193,24 +188,6 @@ pub struct ScrollManager {
     had_new_doms: bool,
 }
 
-/// Physics state for velocity-based (momentum) scrolling
-#[derive(Debug, Clone)]
-pub struct ScrollPhysicsState {
-    /// Current velocity in logical pixels per second (x, y)
-    pub velocity: LogicalPosition,
-    /// Whether the user is actively interacting (finger down / mouse dragging)
-    pub is_user_interacting: bool,
-}
-
-impl Default for ScrollPhysicsState {
-    fn default() -> Self {
-        Self {
-            velocity: LogicalPosition::zero(),
-            is_user_interacting: false,
-        }
-    }
-}
-
 /// The complete scroll state for a single node (with animation support)
 #[derive(Debug, Clone)]
 pub struct AnimatedScrollState {
@@ -220,8 +197,6 @@ pub struct AnimatedScrollState {
     pub previous_offset: LogicalPosition,
     /// Ongoing smooth scroll animation, if any
     pub animation: Option<ScrollAnimation>,
-    /// Physics-based momentum scrolling state
-    pub physics: ScrollPhysicsState,
     /// Last time scroll activity occurred (for fading scrollbars)
     pub last_activity: Instant,
     /// Bounds of the scrollable container
@@ -311,32 +286,6 @@ impl ScrollManager {
         }
     }
 
-    /// Returns `true` if the scroll manager has active animations or physics
-    /// that require continuous frame updates (i.e., the render loop should
-    /// keep requesting new frames).
-    pub fn needs_animation_frame(&self) -> bool {
-        for state in self.states.values() {
-            // Active easing animation
-            if state.animation.is_some() {
-                return true;
-            }
-            // Active velocity (momentum)
-            if state.physics.velocity.x.abs() > 0.1 || state.physics.velocity.y.abs() > 0.1 {
-                return true;
-            }
-            // Overscroll that needs to spring back
-            let max_x = (state.content_rect.size.width - state.container_rect.size.width).max(0.0);
-            let max_y = (state.content_rect.size.height - state.container_rect.size.height).max(0.0);
-            if state.current_offset.x < -0.5 || state.current_offset.x > max_x + 0.5 {
-                return true;
-            }
-            if state.current_offset.y < -0.5 || state.current_offset.y > max_y + 0.5 {
-                return true;
-            }
-        }
-        false
-    }
-
     /// Advances scroll animations by one tick, returns repaint info
     pub fn tick(&mut self, now: Instant) -> ScrollTickResult {
         let mut result = ScrollTickResult::default();
@@ -359,200 +308,6 @@ impl ScrollManager {
             }
         }
         result
-    }
-
-    /// Advances physics-based momentum scrolling for all nodes.
-    ///
-    /// `dt_secs` is the time elapsed since the last frame in seconds.
-    /// Returns `true` if any node's scroll position changed (needs repaint).
-    ///
-    /// Physics model:
-    /// - Exponential velocity decay (friction): v *= 0.95^(dt*60)
-    /// - Stop threshold: |v| < 0.1 px/s → v = 0
-    /// - Overscroll: position can exceed bounds, spring force pulls back
-    /// - Spring force: F = -k * overshoot, with damping on velocity
-    pub fn physics_tick(&mut self, dt_secs: f32) -> bool {
-        const FRICTION_BASE: f32 = 0.95;
-        const STOP_THRESHOLD: f32 = 0.1; // px/s
-        const SPRING_STIFFNESS: f32 = 150.0; // spring constant k
-        const SPRING_DAMPING: f32 = 0.85; // velocity damping when out of bounds
-        const SNAP_THRESHOLD: f32 = 0.5; // snap to bound if within this many px
-
-        let mut needs_repaint = false;
-
-        for state in self.states.values_mut() {
-            // Skip if user is actively interacting (trackpad finger down, etc.)
-            if state.physics.is_user_interacting {
-                continue;
-            }
-
-            let vx = state.physics.velocity.x;
-            let vy = state.physics.velocity.y;
-
-            // Calculate overscroll (how far beyond valid bounds)
-            let max_x = (state.content_rect.size.width - state.container_rect.size.width).max(0.0);
-            let max_y = (state.content_rect.size.height - state.container_rect.size.height).max(0.0);
-
-            let overshoot_x = if state.current_offset.x < 0.0 {
-                -state.current_offset.x
-            } else if state.current_offset.x > max_x {
-                max_x - state.current_offset.x
-            } else {
-                0.0
-            };
-
-            let overshoot_y = if state.current_offset.y < 0.0 {
-                -state.current_offset.y
-            } else if state.current_offset.y > max_y {
-                max_y - state.current_offset.y
-            } else {
-                0.0
-            };
-
-            let has_overshoot = overshoot_x.abs() > 0.001 || overshoot_y.abs() > 0.001;
-            let has_velocity = vx.abs() >= STOP_THRESHOLD || vy.abs() >= STOP_THRESHOLD;
-
-            if !has_velocity && !has_overshoot {
-                state.physics.velocity = LogicalPosition::zero();
-                continue;
-            }
-
-            // Apply spring force if overshooting (rubber-band)
-            if has_overshoot {
-                // F = -k * overshoot → accelerate velocity back towards bounds
-                // overshoot is already signed: positive = towards bound
-                state.physics.velocity.x += overshoot_x * SPRING_STIFFNESS * dt_secs;
-                state.physics.velocity.y += overshoot_y * SPRING_STIFFNESS * dt_secs;
-
-                // Extra damping when out of bounds to prevent oscillation
-                state.physics.velocity.x *= SPRING_DAMPING;
-                state.physics.velocity.y *= SPRING_DAMPING;
-
-                // Snap to bounds if close enough and velocity is low
-                if overshoot_x.abs() < SNAP_THRESHOLD
-                    && state.physics.velocity.x.abs() < STOP_THRESHOLD
-                {
-                    state.current_offset.x = state.current_offset.x.max(0.0).min(max_x);
-                    state.physics.velocity.x = 0.0;
-                }
-                if overshoot_y.abs() < SNAP_THRESHOLD
-                    && state.physics.velocity.y.abs() < STOP_THRESHOLD
-                {
-                    state.current_offset.y = state.current_offset.y.max(0.0).min(max_y);
-                    state.physics.velocity.y = 0.0;
-                }
-            } else {
-                // Normal friction decay (only when within bounds)
-                let decay = FRICTION_BASE.powf(dt_secs * 60.0);
-                state.physics.velocity.x *= decay;
-                state.physics.velocity.y *= decay;
-            }
-
-            // Integrate velocity into position
-            state.current_offset.x += state.physics.velocity.x * dt_secs;
-            state.current_offset.y += state.physics.velocity.y * dt_secs;
-
-            // Stop threshold for velocity
-            if state.physics.velocity.x.abs() < STOP_THRESHOLD {
-                state.physics.velocity.x = 0.0;
-            }
-            if state.physics.velocity.y.abs() < STOP_THRESHOLD {
-                state.physics.velocity.y = 0.0;
-            }
-
-            needs_repaint = true;
-        }
-
-        needs_repaint
-    }
-
-    /// Add a scroll impulse (velocity) to a node.
-    ///
-    /// Use this for discrete scroll events (mouse wheel steps) where the OS
-    /// does not provide momentum. The delta is converted to velocity
-    /// (pixels/second) by multiplying by a scale factor.
-    ///
-    /// For continuous trackpad input (where the OS provides momentum),
-    /// use `record_sample` instead which sets position directly.
-    pub fn add_scroll_impulse(
-        &mut self,
-        dom_id: DomId,
-        node_id: NodeId,
-        delta: LogicalPosition,
-        now: Instant,
-    ) {
-        if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
-            // Convert delta to velocity: multiply by 60 to get px/s
-            // (assuming delta is roughly what you'd want to scroll in 1/60s)
-            state.physics.velocity.x += delta.x * 60.0;
-            state.physics.velocity.y += delta.y * 60.0;
-            state.physics.is_user_interacting = false;
-            state.last_activity = now;
-            self.had_scroll_activity = true;
-        }
-    }
-
-    /// Auto-scroll a container when the mouse is dragged beyond its bounds.
-    ///
-    /// Used during text selection drags: when the user drags past the top/bottom
-    /// edge of a scroll container, this scrolls the container in that direction
-    /// at a speed proportional to how far past the edge the cursor is.
-    ///
-    /// `mouse_pos` is the current cursor position in logical window coordinates.
-    /// `scroll_speed` is the base speed in px/s (e.g. 200.0).
-    /// Returns `true` if scrolling was applied (needs repaint).
-    pub fn auto_scroll_for_drag(
-        &mut self,
-        dom_id: DomId,
-        node_id: NodeId,
-        mouse_pos: LogicalPosition,
-        scroll_speed: f32,
-        dt_secs: f32,
-        now: Instant,
-    ) -> bool {
-        let state = match self.states.get_mut(&(dom_id, node_id)) {
-            Some(s) => s,
-            None => return false,
-        };
-
-        let rect = &state.container_rect;
-        let mut delta_x: f32 = 0.0;
-        let mut delta_y: f32 = 0.0;
-
-        // Check if mouse is above the container
-        if mouse_pos.y < rect.origin.y {
-            let distance = rect.origin.y - mouse_pos.y;
-            delta_y = -(scroll_speed + distance * 2.0) * dt_secs;
-        }
-        // Check if mouse is below the container
-        else if mouse_pos.y > rect.origin.y + rect.size.height {
-            let distance = mouse_pos.y - (rect.origin.y + rect.size.height);
-            delta_y = (scroll_speed + distance * 2.0) * dt_secs;
-        }
-
-        // Check if mouse is left of the container
-        if mouse_pos.x < rect.origin.x {
-            let distance = rect.origin.x - mouse_pos.x;
-            delta_x = -(scroll_speed + distance * 2.0) * dt_secs;
-        }
-        // Check if mouse is right of the container
-        else if mouse_pos.x > rect.origin.x + rect.size.width {
-            let distance = mouse_pos.x - (rect.origin.x + rect.size.width);
-            delta_x = (scroll_speed + distance * 2.0) * dt_secs;
-        }
-
-        if delta_x.abs() < 0.001 && delta_y.abs() < 0.001 {
-            return false;
-        }
-
-        let new_pos = state.clamp(LogicalPosition {
-            x: state.current_offset.x + delta_x,
-            y: state.current_offset.y + delta_y,
-        });
-        state.current_offset = new_pos;
-        state.last_activity = now;
-        self.had_scroll_activity = true;
-        true
     }
 
     /// Finds the closest scroll-container ancestor for a given node.
@@ -842,7 +597,7 @@ impl ScrollManager {
                     current_offset: LogicalPosition::zero(),
                     previous_offset: LogicalPosition::zero(),
                     animation: None,
-                    physics: ScrollPhysicsState::default(),
+
                     last_activity: now,
                     container_rect,
                     content_rect,
@@ -1129,7 +884,6 @@ impl AnimatedScrollState {
             current_offset: LogicalPosition::zero(),
             previous_offset: LogicalPosition::zero(),
             animation: None,
-            physics: ScrollPhysicsState::default(),
             last_activity: now,
             container_rect: LogicalRect::zero(),
             content_rect: LogicalRect::zero(),

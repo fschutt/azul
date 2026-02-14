@@ -4842,23 +4842,17 @@ impl MacOSWindow {
         // This ensures WebRender gets the current window size after resize
         layout_window.current_window_state = self.current_window_state.clone();
 
-        // Advance physics-based momentum scrolling (velocity decay)
-        // Assume ~16ms per frame (60fps). A more accurate dt would use
-        // the actual elapsed time between frames, but 1/60 is a safe default.
-        let dt_secs: f32 = 1.0 / 60.0;
-        let physics_needs_repaint = layout_window.scroll_manager.physics_tick(dt_secs);
-
-        // Also advance easing-based scroll animations
+        // Advance easing-based scroll animations
         {
             #[cfg(feature = "std")]
             let now = azul_core::task::Instant::System(std::time::Instant::now().into());
             #[cfg(not(feature = "std"))]
             let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
             let tick_result = layout_window.scroll_manager.tick(now);
-            if tick_result.needs_repaint || physics_needs_repaint {
+            if tick_result.needs_repaint {
                 log_trace!(
                     LogCategory::Rendering,
-                    "[build_atomic_txn] Scroll animation/physics active, repaint needed"
+                    "[build_atomic_txn] Scroll animation active, repaint needed"
                 );
             }
         }
