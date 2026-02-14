@@ -49,20 +49,15 @@ use crate::{
     timer::TimerCallbackInfo,
 };
 
-/// Velocity below this threshold is snapped to zero (pixels/second)
-const VELOCITY_STOP_THRESHOLD: f32 = 0.5;
+use azul_css::props::style::scrollbar::{ScrollPhysics, OverflowScrolling, OverscrollBehavior};
 
-/// Friction coefficient for velocity decay (per-second multiplier).
-/// At 60fps: effective per-frame = 0.95^1 ≈ 0.95. Lower = more friction.
-const FRICTION_DECAY_RATE: f32 = 0.05; // velocity *= e^(-FRICTION_DECAY_RATE * dt * 60)
-
-/// Multiplier for converting wheel deltas to velocity impulses
-/// macOS delivers deltas in "points" which are already reasonable pixel values
-const WHEEL_IMPULSE_MULTIPLIER: f32 = 1.0;
+/// Fallback velocity threshold when ScrollPhysics is not configured
+const DEFAULT_VELOCITY_STOP_THRESHOLD: f32 = 0.5;
 
 /// State stored in the timer's RefAny data.
 ///
-/// Contains the shared input queue and per-node velocity state.
+/// Contains the shared input queue, per-node velocity state, and the global
+/// scroll physics configuration from `SystemStyle`.
 #[derive(Debug)]
 pub struct ScrollPhysicsState {
     /// Shared input queue — same Arc as ScrollManager.scroll_input_queue
@@ -71,6 +66,8 @@ pub struct ScrollPhysicsState {
     pub node_velocities: BTreeMap<(DomId, NodeId), NodeScrollPhysics>,
     /// Per-node "forced position" from trackpad or programmatic scroll
     pub pending_positions: BTreeMap<(DomId, NodeId), LogicalPosition>,
+    /// Global scroll physics configuration (from SystemStyle)
+    pub scroll_physics: ScrollPhysics,
 }
 
 /// For convenience, re-export NodeId
@@ -81,24 +78,29 @@ use azul_core::id::NodeId;
 pub struct NodeScrollPhysics {
     /// Current velocity in pixels/second
     pub velocity: LogicalPosition,
+    /// Whether this node is currently in a rubber-band overshoot state
+    pub is_rubber_banding: bool,
 }
 
 impl ScrollPhysicsState {
-    /// Create a new physics state with the shared input queue
-    pub fn new(input_queue: ScrollInputQueue) -> Self {
+    /// Create a new physics state with the shared input queue and global config
+    pub fn new(input_queue: ScrollInputQueue, scroll_physics: ScrollPhysics) -> Self {
         Self {
             input_queue,
             node_velocities: BTreeMap::new(),
             pending_positions: BTreeMap::new(),
+            scroll_physics,
         }
     }
 
     /// Returns true if any node has non-zero velocity or there are pending inputs
     pub fn is_active(&self) -> bool {
+        let threshold = self.scroll_physics.min_velocity_threshold.max(DEFAULT_VELOCITY_STOP_THRESHOLD);
         self.input_queue.has_pending()
             || self.node_velocities.values().any(|v| {
-                v.velocity.x.abs() > VELOCITY_STOP_THRESHOLD
-                    || v.velocity.y.abs() > VELOCITY_STOP_THRESHOLD
+                v.velocity.x.abs() > threshold
+                    || v.velocity.y.abs() > threshold
+                    || v.is_rubber_banding
             })
             || !self.pending_positions.is_empty()
     }
@@ -115,6 +117,11 @@ fn scroll_physics_state_destructor(data: &mut RefAny) {
 /// This is a normal timer callback registered with `SCROLL_MOMENTUM_TIMER_ID`.
 /// It consumes pending scroll inputs, applies physics, and pushes ScrollTo changes.
 ///
+/// Uses the `ScrollPhysics` configuration from `SystemStyle` for friction,
+/// velocity thresholds, wheel multiplier, and rubber-banding parameters.
+/// Per-node `OverflowScrolling` and `OverscrollBehavior` CSS properties are
+/// respected to decide whether each node gets rubber-banding.
+///
 /// # C API
 ///
 /// This function has `extern "C"` ABI so it can be used as a `TimerCallbackType`.
@@ -129,9 +136,17 @@ pub extern "C" fn scroll_physics_timer_callback(
     };
 
     // Calculate dt from frame timing
-    // TimerCallbackInfo has frame_start and call_count
-    // Use a fixed 16ms dt (matching our 60Hz timer interval) for stability
     let dt = 1.0 / 60.0_f32;
+
+    // Extract physics config values
+    let sp = &physics.scroll_physics;
+    let friction_rate = friction_from_deceleration(sp.deceleration_rate);
+    let velocity_threshold = sp.min_velocity_threshold.max(DEFAULT_VELOCITY_STOP_THRESHOLD);
+    let wheel_multiplier = sp.wheel_multiplier;
+    let max_velocity = sp.max_velocity;
+    let overscroll_elasticity = sp.overscroll_elasticity;
+    let max_overscroll_distance = sp.max_overscroll_distance;
+    let bounce_back_duration_ms = sp.bounce_back_duration_ms;
 
     // 1. Drain pending scroll inputs from the shared queue
     let inputs = physics.input_queue.take_all();
@@ -141,7 +156,6 @@ pub extern "C" fn scroll_physics_timer_callback(
         match input.source {
             ScrollInputSource::TrackpadContinuous => {
                 // Trackpad: OS handles momentum. Apply delta directly as position change.
-                // We read current offset from CallbackInfo (read-only) and compute new position.
                 let current = timer_info
                     .get_scroll_node_info(input.dom_id, input.node_id)
                     .map(|info| info.current_offset)
@@ -164,12 +178,15 @@ pub extern "C" fn scroll_physics_timer_callback(
                     .or_insert_with(NodeScrollPhysics::default);
 
                 // Add impulse (delta is in pixels, convert to pixels/second at ~60fps)
-                node_physics.velocity.x += input.delta.x * WHEEL_IMPULSE_MULTIPLIER * 60.0;
-                node_physics.velocity.y += input.delta.y * WHEEL_IMPULSE_MULTIPLIER * 60.0;
+                node_physics.velocity.x += input.delta.x * wheel_multiplier * 60.0;
+                node_physics.velocity.y += input.delta.y * wheel_multiplier * 60.0;
+
+                // Clamp to max velocity
+                node_physics.velocity.x = node_physics.velocity.x.clamp(-max_velocity, max_velocity);
+                node_physics.velocity.y = node_physics.velocity.y.clamp(-max_velocity, max_velocity);
             }
             ScrollInputSource::Programmatic => {
-                // Programmatic: Set position directly (already handled by scroll_to API)
-                // This path is for ScrollManager.record_scroll_input() with Programmatic source
+                // Programmatic: Set position directly
                 let current = timer_info
                     .get_scroll_node_info(input.dom_id, input.node_id)
                     .map(|info| info.current_offset)
@@ -188,19 +205,46 @@ pub extern "C" fn scroll_physics_timer_callback(
     let mut velocity_updates: Vec<((DomId, NodeId), LogicalPosition)> = Vec::new();
 
     for ((dom_id, node_id), node_physics) in physics.node_velocities.iter_mut() {
-        // Skip if velocity is negligible
-        if node_physics.velocity.x.abs() < VELOCITY_STOP_THRESHOLD
-            && node_physics.velocity.y.abs() < VELOCITY_STOP_THRESHOLD
-        {
-            node_physics.velocity = LogicalPosition::zero();
-            continue;
-        }
-
-        // Get current scroll info for clamping
+        // Get current scroll info for clamping and per-node CSS config
         let info = match timer_info.get_scroll_node_info(*dom_id, *node_id) {
             Some(i) => i,
             None => continue,
         };
+
+        // Determine if this node allows rubber-banding
+        let rubber_band_x = node_allows_rubber_band_x(&info, overscroll_elasticity);
+        let rubber_band_y = node_allows_rubber_band_y(&info, overscroll_elasticity);
+
+        // Calculate current overshoot amounts
+        let overshoot_x = calculate_overshoot(info.current_offset.x, 0.0, info.max_scroll_x);
+        let overshoot_y = calculate_overshoot(info.current_offset.y, 0.0, info.max_scroll_y);
+
+        let is_overshooting_x = overshoot_x.abs() > 0.01;
+        let is_overshooting_y = overshoot_y.abs() > 0.01;
+
+        // If we're in a rubber-band overshoot, apply spring-back force
+        if is_overshooting_x && rubber_band_x {
+            // Spring-back: accelerate towards the boundary
+            let spring_k = spring_constant_from_bounce_duration(bounce_back_duration_ms);
+            let spring_force_x = -spring_k * overshoot_x;
+            node_physics.velocity.x += spring_force_x * dt;
+            node_physics.is_rubber_banding = true;
+        }
+        if is_overshooting_y && rubber_band_y {
+            let spring_k = spring_constant_from_bounce_duration(bounce_back_duration_ms);
+            let spring_force_y = -spring_k * overshoot_y;
+            node_physics.velocity.y += spring_force_y * dt;
+            node_physics.is_rubber_banding = true;
+        }
+
+        // Skip if velocity is negligible and not rubber-banding
+        if !node_physics.is_rubber_banding
+            && node_physics.velocity.x.abs() < velocity_threshold
+            && node_physics.velocity.y.abs() < velocity_threshold
+        {
+            node_physics.velocity = LogicalPosition::zero();
+            continue;
+        }
 
         // Apply velocity to position
         let displacement = LogicalPosition {
@@ -208,43 +252,64 @@ pub extern "C" fn scroll_physics_timer_callback(
             y: node_physics.velocity.y * dt,
         };
 
-        let new_pos = LogicalPosition {
-            x: (info.current_offset.x + displacement.x)
-                .max(0.0)
-                .min(info.max_scroll_x),
-            y: (info.current_offset.y + displacement.y)
-                .max(0.0)
-                .min(info.max_scroll_y),
+        let raw_new_x = info.current_offset.x + displacement.x;
+        let raw_new_y = info.current_offset.y + displacement.y;
+
+        // Clamp with or without rubber-banding
+        let new_x = if rubber_band_x && max_overscroll_distance > 0.0 {
+            // Allow overshoot with diminishing returns (elasticity)
+            rubber_band_clamp(raw_new_x, 0.0, info.max_scroll_x, max_overscroll_distance, overscroll_elasticity)
+        } else {
+            raw_new_x.max(0.0).min(info.max_scroll_x)
         };
 
+        let new_y = if rubber_band_y && max_overscroll_distance > 0.0 {
+            rubber_band_clamp(raw_new_y, 0.0, info.max_scroll_y, max_overscroll_distance, overscroll_elasticity)
+        } else {
+            raw_new_y.max(0.0).min(info.max_scroll_y)
+        };
+
+        let new_pos = LogicalPosition { x: new_x, y: new_y };
+
         // Apply exponential friction decay
-        let decay = (-FRICTION_DECAY_RATE * dt * 60.0).exp();
+        let decay = (-friction_rate * dt * 60.0).exp();
         node_physics.velocity.x *= decay;
         node_physics.velocity.y *= decay;
 
-        // Stop at edges (kill velocity if clamped)
-        if new_pos.x <= 0.0 || new_pos.x >= info.max_scroll_x {
-            node_physics.velocity.x = 0.0;
+        // At edges without rubber-banding: kill velocity
+        if !rubber_band_x {
+            if new_pos.x <= 0.0 || new_pos.x >= info.max_scroll_x {
+                node_physics.velocity.x = 0.0;
+            }
         }
-        if new_pos.y <= 0.0 || new_pos.y >= info.max_scroll_y {
-            node_physics.velocity.y = 0.0;
+        if !rubber_band_y {
+            if new_pos.y <= 0.0 || new_pos.y >= info.max_scroll_y {
+                node_physics.velocity.y = 0.0;
+            }
+        }
+
+        // Check if rubber-banding spring-back is almost complete
+        let new_overshoot_x = calculate_overshoot(new_pos.x, 0.0, info.max_scroll_x);
+        let new_overshoot_y = calculate_overshoot(new_pos.y, 0.0, info.max_scroll_y);
+        if new_overshoot_x.abs() < 0.5 && new_overshoot_y.abs() < 0.5 {
+            node_physics.is_rubber_banding = false;
         }
 
         // Snap to zero if below threshold after decay
-        if node_physics.velocity.x.abs() < VELOCITY_STOP_THRESHOLD {
+        if node_physics.velocity.x.abs() < velocity_threshold {
             node_physics.velocity.x = 0.0;
         }
-        if node_physics.velocity.y.abs() < VELOCITY_STOP_THRESHOLD {
+        if node_physics.velocity.y.abs() < velocity_threshold {
             node_physics.velocity.y = 0.0;
         }
 
         velocity_updates.push(((*dom_id, *node_id), new_pos));
     }
 
-    // Clean up nodes with zero velocity
+    // Clean up nodes with zero velocity and not rubber-banding
     physics
         .node_velocities
-        .retain(|_, v| v.velocity.x.abs() > 0.0 || v.velocity.y.abs() > 0.0);
+        .retain(|_, v| v.velocity.x.abs() > 0.0 || v.velocity.y.abs() > 0.0 || v.is_rubber_banding);
 
     // 3. Push ScrollTo changes for all updated positions
     let mut any_changes = false;
@@ -253,7 +318,7 @@ pub extern "C" fn scroll_physics_timer_callback(
     let direct_positions: Vec<_> = physics.pending_positions.iter().map(|(k, v)| (*k, *v)).collect();
     physics.pending_positions.clear();
     for ((dom_id, node_id), position) in direct_positions {
-        // Clamp to valid bounds
+        // Clamp to valid bounds (no rubber-band for direct positioning)
         let clamped = match timer_info.get_scroll_node_info(dom_id, node_id) {
             Some(info) => LogicalPosition {
                 x: position.x.max(0.0).min(info.max_scroll_x),
@@ -287,4 +352,100 @@ pub extern "C" fn scroll_physics_timer_callback(
         // No more velocity, no pending inputs → terminate the timer
         TimerCallbackReturn::terminate_unchanged()
     }
+}
+
+// ============================================================================
+// Rubber-banding Helper Functions
+// ============================================================================
+
+/// Determines if a node allows rubber-banding on the X axis based on:
+/// 1. Per-node `overflow_scrolling` CSS property (-azul-overflow-scrolling)
+/// 2. Per-node `overscroll_behavior_x` CSS property (overscroll-behavior-x)
+/// 3. Global `overscroll_elasticity` from ScrollPhysics
+fn node_allows_rubber_band_x(info: &ScrollNodeInfo, global_elasticity: f32) -> bool {
+    // If overscroll-behavior-x is None, no rubber-band regardless
+    if info.overscroll_behavior_x == OverscrollBehavior::None {
+        return false;
+    }
+    // If -azul-overflow-scrolling: touch, force rubber-banding on
+    if info.overflow_scrolling == OverflowScrolling::Touch {
+        return true;
+    }
+    // Otherwise (Auto): use global config
+    global_elasticity > 0.0
+}
+
+/// Determines if a node allows rubber-banding on the Y axis
+fn node_allows_rubber_band_y(info: &ScrollNodeInfo, global_elasticity: f32) -> bool {
+    if info.overscroll_behavior_y == OverscrollBehavior::None {
+        return false;
+    }
+    if info.overflow_scrolling == OverflowScrolling::Touch {
+        return true;
+    }
+    global_elasticity > 0.0
+}
+
+/// Calculate how far a position has overshot the valid scroll range.
+/// Returns positive for overshoot past max, negative for overshoot past min, 0 if in range.
+fn calculate_overshoot(pos: f32, min: f32, max: f32) -> f32 {
+    if pos < min {
+        pos - min // negative
+    } else if pos > max {
+        pos - max // positive
+    } else {
+        0.0
+    }
+}
+
+/// Rubber-band clamping: allows overshoot up to `max_overscroll`, with
+/// diminishing returns (elasticity) so it feels "springy".
+///
+/// The further you overshoot, the harder it becomes to scroll further.
+fn rubber_band_clamp(
+    raw_pos: f32,
+    min: f32,
+    max: f32,
+    max_overscroll: f32,
+    elasticity: f32,
+) -> f32 {
+    if raw_pos >= min && raw_pos <= max {
+        return raw_pos;
+    }
+
+    let (boundary, overshoot) = if raw_pos < min {
+        (min, min - raw_pos) // overshoot is positive distance past boundary
+    } else {
+        (max, raw_pos - max)
+    };
+
+    // Diminishing returns: as overshoot increases, actual displacement decreases
+    // Formula: actual = max_overscroll * (1 - e^(-elasticity * overshoot / max_overscroll))
+    let clamped_overscroll = if max_overscroll > 0.0 {
+        max_overscroll * (1.0 - (-elasticity * overshoot / max_overscroll).exp())
+    } else {
+        0.0
+    };
+
+    if raw_pos < min {
+        boundary - clamped_overscroll
+    } else {
+        boundary + clamped_overscroll
+    }
+}
+
+/// Convert deceleration_rate (0.0 - 1.0) to a friction constant for exponential decay.
+/// Higher deceleration_rate = less friction (slower deceleration).
+fn friction_from_deceleration(deceleration_rate: f32) -> f32 {
+    // deceleration_rate ~0.95 (fast) → friction ~0.05
+    // deceleration_rate ~0.998 (iOS-like) → friction ~0.002
+    (1.0 - deceleration_rate.clamp(0.0, 0.999)).max(0.001)
+}
+
+/// Calculate spring constant from bounce-back duration.
+/// Higher k = faster spring back. Approximate: k ≈ (2π / duration)²
+fn spring_constant_from_bounce_duration(duration_ms: u32) -> f32 {
+    let duration_s = duration_ms.max(50) as f32 / 1000.0;
+    let omega = core::f32::consts::TAU / duration_s;
+    omega * omega
 }

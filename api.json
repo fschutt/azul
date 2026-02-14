@@ -22343,6 +22343,9 @@
                 },
                 "overscroll_behavior_y": {
                   "type": "OverscrollBehavior"
+                },
+                "overflow_scrolling": {
+                  "type": "OverflowScrolling"
                 }
               }
             ],
@@ -29653,6 +29656,9 @@
                 },
                 "audio": {
                   "type": "AudioMetrics"
+                },
+                "scroll_physics": {
+                  "type": "ScrollPhysics"
                 }
               }
             ],
@@ -74167,6 +74173,79 @@
                 "Auto": {},
                 "Contain": {},
                 "None": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "OverflowScrolling": {
+            "doc": [
+              "Per-node overflow scrolling mode (`-azul-overflow-scrolling: auto | touch`).",
+              "Controls whether rubber-banding / momentum scrolling is forced on a node."
+            ],
+            "external": "azul_css::props::style::scrollbar::OverflowScrolling",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash",
+              "Default"
+            ],
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Touch": {}
+              }
+            ],
+            "repr": "C"
+          },
+          "ScrollPhysics": {
+            "doc": [
+              "Scroll physics configuration for momentum scrolling.",
+              "Controls how scrolling feels - the 'weight' and 'friction' of the scroll."
+            ],
+            "external": "azul_css::props::style::scrollbar::ScrollPhysics",
+            "derive": [
+              "Debug",
+              "Clone",
+              "PartialEq",
+              "PartialOrd"
+            ],
+            "custom_impls": [
+              "Default"
+            ],
+            "struct_fields": [
+              {
+                "smooth_scroll_duration_ms": {
+                  "type": "u32"
+                },
+                "deceleration_rate": {
+                  "type": "f32"
+                },
+                "min_velocity_threshold": {
+                  "type": "f32"
+                },
+                "max_velocity": {
+                  "type": "f32"
+                },
+                "wheel_multiplier": {
+                  "type": "f32"
+                },
+                "invert_direction": {
+                  "type": "bool"
+                },
+                "overscroll_elasticity": {
+                  "type": "f32"
+                },
+                "max_overscroll_distance": {
+                  "type": "f32"
+                },
+                "bounce_back_duration_ms": {
+                  "type": "u32"
+                }
               }
             ],
             "repr": "C"

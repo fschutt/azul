@@ -302,6 +302,12 @@ pub struct AnimatedScrollState {
     pub virtual_scroll_size: Option<LogicalSize>,
     /// Virtual scroll offset from IFrame callback
     pub virtual_scroll_offset: Option<LogicalPosition>,
+    /// Per-node overscroll behavior for X axis (from CSS `overscroll-behavior-x`)
+    pub overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior,
+    /// Per-node overscroll behavior for Y axis (from CSS `overscroll-behavior-y`)
+    pub overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior,
+    /// Per-node overflow scrolling mode (from CSS `-azul-overflow-scrolling`)
+    pub overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling,
 }
 
 /// Details of an in-progress smooth scroll animation
@@ -335,6 +341,12 @@ pub struct ScrollNodeInfo {
     pub max_scroll_x: f32,
     /// Maximum scroll in Y direction
     pub max_scroll_y: f32,
+    /// Per-node overscroll behavior for X axis
+    pub overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior,
+    /// Per-node overscroll behavior for Y axis
+    pub overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior,
+    /// Per-node overflow scrolling mode (auto vs touch)
+    pub overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling,
 }
 
 /// Result of a scroll tick, indicating what actions are needed
@@ -642,6 +654,9 @@ impl ScrollManager {
             content_rect: state.content_rect,
             max_scroll_x: max_x,
             max_scroll_y: max_y,
+            overscroll_behavior_x: state.overscroll_behavior_x,
+            overscroll_behavior_y: state.overscroll_behavior_y,
+            overflow_scrolling: state.overflow_scrolling,
         })
     }
 
@@ -704,6 +719,9 @@ impl ScrollManager {
                     content_rect,
                     virtual_scroll_size: None,
                     virtual_scroll_offset: None,
+                    overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
+                    overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
+                    overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
                 },
             );
         }
@@ -1007,6 +1025,9 @@ impl AnimatedScrollState {
             content_rect: LogicalRect::zero(),
             virtual_scroll_size: None,
             virtual_scroll_offset: None,
+            overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
+            overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
+            overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
         }
     }
 

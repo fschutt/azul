@@ -470,7 +470,7 @@ impl X11Window {
                     use azul_core::refany::RefAny;
                     use azul_core::task::Duration;
 
-                    let physics_state = ScrollPhysicsState::new(queue);
+                    let physics_state = ScrollPhysicsState::new(queue, self.resources.system_style.scroll_physics.clone());
                     let data = RefAny::new(physics_state);
                     let timer = Timer::create(
                         data,

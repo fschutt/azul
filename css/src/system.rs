@@ -34,7 +34,7 @@ use crate::{
             color::{parse_css_color, ColorU, OptionColorU},
             pixel::{PixelValue, OptionPixelValue},
         },
-        style::scrollbar::{ComputedScrollbarStyle, OverscrollBehavior, ScrollBehavior},
+        style::scrollbar::{ComputedScrollbarStyle, OverscrollBehavior, ScrollBehavior, ScrollPhysics},
     },
 };
 
@@ -149,6 +149,10 @@ pub struct SystemStyle {
     pub animation: AnimationMetrics,
     /// Audio feedback preferences (event sounds, input sounds)
     pub audio: AudioMetrics,
+    /// Global scroll physics configuration (momentum, friction, rubber-banding).
+    /// Platform-specific defaults are applied during system style discovery.
+    /// Applications can override this to change the "feel" of scrolling globally.
+    pub scroll_physics: ScrollPhysics,
 }
 
 /// Icon-specific styling options for accessibility and theming.
@@ -2740,7 +2744,8 @@ pub mod defaults {
             style::{
                 background::StyleBackgroundContent,
                 scrollbar::{
-                    ComputedScrollbarStyle, OverscrollBehavior, ScrollBehavior, ScrollbarInfo,
+                    ComputedScrollbarStyle, OverflowScrolling, OverscrollBehavior, ScrollBehavior,
+                    ScrollPhysics, ScrollbarInfo,
                     SCROLLBAR_ANDROID_DARK, SCROLLBAR_ANDROID_LIGHT, SCROLLBAR_CLASSIC_DARK,
                     SCROLLBAR_CLASSIC_LIGHT, SCROLLBAR_IOS_DARK, SCROLLBAR_IOS_LIGHT,
                     SCROLLBAR_MACOS_DARK, SCROLLBAR_MACOS_LIGHT, SCROLLBAR_WINDOWS_DARK,
@@ -2794,6 +2799,7 @@ pub mod defaults {
         scroll_behavior: ScrollBehavior::Auto,
         overscroll_behavior_x: OverscrollBehavior::None,
         overscroll_behavior_y: OverscrollBehavior::None,
+        overflow_scrolling: OverflowScrolling::Auto,
     };
 
     /// A scrollbar style mimicking the macOS "Aqua" theme from the early 2000s.
@@ -2829,6 +2835,7 @@ pub mod defaults {
         scroll_behavior: ScrollBehavior::Smooth,
         overscroll_behavior_x: OverscrollBehavior::Auto,
         overscroll_behavior_y: OverscrollBehavior::Auto,
+        overflow_scrolling: OverflowScrolling::Auto,
     };
 
     /// A scrollbar style mimicking the KDE Oxygen theme.
@@ -2864,6 +2871,7 @@ pub mod defaults {
         scroll_behavior: ScrollBehavior::Auto,
         overscroll_behavior_x: OverscrollBehavior::Auto,
         overscroll_behavior_y: OverscrollBehavior::Auto,
+        overflow_scrolling: OverflowScrolling::Auto,
     };
 
     /// Helper to convert a detailed `ScrollbarInfo` into the simplified `ComputedScrollbarStyle`.
@@ -2916,6 +2924,7 @@ pub mod defaults {
             os_version: OsVersion::WIN_11,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            scroll_physics: ScrollPhysics::windows(),
             ..Default::default()
         }
     }
@@ -2953,6 +2962,7 @@ pub mod defaults {
             os_version: OsVersion::WIN_11,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            scroll_physics: ScrollPhysics::windows(),
             ..Default::default()
         }
     }
@@ -2990,6 +3000,7 @@ pub mod defaults {
             os_version: OsVersion::WIN_7,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            scroll_physics: ScrollPhysics::windows(),
             ..Default::default()
         }
     }
@@ -3027,6 +3038,7 @@ pub mod defaults {
             os_version: OsVersion::WIN_XP,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            scroll_physics: ScrollPhysics::windows(),
             ..Default::default()
         }
     }
@@ -3067,6 +3079,7 @@ pub mod defaults {
             os_version: OsVersion::MACOS_SONOMA,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            scroll_physics: ScrollPhysics::macos(),
             ..Default::default()
         }
     }
@@ -3112,6 +3125,7 @@ pub mod defaults {
             os_version: OsVersion::MACOS_SONOMA,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            scroll_physics: ScrollPhysics::macos(),
             ..Default::default()
         }
     }
@@ -3148,6 +3162,7 @@ pub mod defaults {
             os_version: OsVersion::MACOS_TIGER,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            scroll_physics: ScrollPhysics::macos(),
             ..Default::default()
         }
     }
@@ -3324,6 +3339,7 @@ pub mod defaults {
             os_version: OsVersion::ANDROID_14,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            scroll_physics: ScrollPhysics::android(),
             ..Default::default()
         }
     }
@@ -3358,6 +3374,7 @@ pub mod defaults {
             os_version: OsVersion::ANDROID_ICE_CREAM_SANDWICH,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            scroll_physics: ScrollPhysics::android(),
             ..Default::default()
         }
     }
@@ -3392,6 +3409,7 @@ pub mod defaults {
             os_version: OsVersion::IOS_17,
             prefers_reduced_motion: BoolCondition::False,
             prefers_high_contrast: BoolCondition::False,
+            scroll_physics: ScrollPhysics::ios(),
             ..Default::default()
         }
     }

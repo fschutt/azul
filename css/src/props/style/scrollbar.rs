@@ -198,6 +198,38 @@ impl ScrollPhysics {
 }
 
 // ============================================================================
+// Per-node Overflow Scrolling Mode (CSS: -azul-overflow-scrolling)
+// ============================================================================
+
+/// Controls per-node rubber-banding / momentum scrolling behavior.
+///
+/// Analogous to `-webkit-overflow-scrolling` on iOS Safari.
+///
+/// - `Auto`: Use the global `ScrollPhysics` from `SystemStyle`. On platforms
+///   with `overscroll_elasticity == 0.0` (e.g. Windows), this means no rubber-banding.
+/// - `Touch`: Force momentum scrolling with rubber-banding on this node,
+///   regardless of the global `ScrollPhysics` setting. Uses iOS-like elasticity
+///   if the global elasticity is zero.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum OverflowScrolling {
+    /// Use the global scroll physics (platform default). No rubber-banding on Windows.
+    #[default]
+    Auto,
+    /// Force rubber-banding / momentum scrolling on this node (like iOS/macOS).
+    Touch,
+}
+
+impl PrintAsCssValue for OverflowScrolling {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            Self::Auto => "auto".to_string(),
+            Self::Touch => "touch".to_string(),
+        }
+    }
+}
+
+// ============================================================================
 // Standard Properties
 // ============================================================================
 
@@ -295,6 +327,9 @@ pub struct ScrollbarInfo {
     pub overscroll_behavior_x: OverscrollBehavior,
     /// Overscroll behavior for the Y axis  
     pub overscroll_behavior_y: OverscrollBehavior,
+    /// Per-node overflow scrolling mode (`-azul-overflow-scrolling: auto | touch`)
+    /// `Touch` forces rubber-banding on this node even when the global physics has no bounce.
+    pub overflow_scrolling: OverflowScrolling,
 }
 
 impl Default for ScrollbarInfo {
@@ -457,6 +492,7 @@ pub const SCROLLBAR_CLASSIC_LIGHT: ScrollbarInfo = ScrollbarInfo {
     scroll_behavior: ScrollBehavior::Auto,
     overscroll_behavior_x: OverscrollBehavior::Auto,
     overscroll_behavior_y: OverscrollBehavior::Auto,
+    overflow_scrolling: OverflowScrolling::Auto,
 };
 
 /// A classic dark-themed scrollbar.
@@ -502,6 +538,7 @@ pub const SCROLLBAR_CLASSIC_DARK: ScrollbarInfo = ScrollbarInfo {
     scroll_behavior: ScrollBehavior::Auto,
     overscroll_behavior_x: OverscrollBehavior::Auto,
     overscroll_behavior_y: OverscrollBehavior::Auto,
+    overflow_scrolling: OverflowScrolling::Auto,
 };
 
 /// A modern, thin, overlay scrollbar inspired by macOS (Light Theme).
@@ -527,6 +564,7 @@ pub const SCROLLBAR_MACOS_LIGHT: ScrollbarInfo = ScrollbarInfo {
     scroll_behavior: ScrollBehavior::Smooth,
     overscroll_behavior_x: OverscrollBehavior::Auto,
     overscroll_behavior_y: OverscrollBehavior::Auto,
+    overflow_scrolling: OverflowScrolling::Auto,
 };
 
 /// A modern, thin, overlay scrollbar inspired by macOS (Dark Theme).
@@ -552,6 +590,7 @@ pub const SCROLLBAR_MACOS_DARK: ScrollbarInfo = ScrollbarInfo {
     scroll_behavior: ScrollBehavior::Smooth,
     overscroll_behavior_x: OverscrollBehavior::Auto,
     overscroll_behavior_y: OverscrollBehavior::Auto,
+    overflow_scrolling: OverflowScrolling::Auto,
 };
 
 /// A modern scrollbar inspired by Windows 11 (Light Theme).
@@ -582,6 +621,7 @@ pub const SCROLLBAR_WINDOWS_LIGHT: ScrollbarInfo = ScrollbarInfo {
     scroll_behavior: ScrollBehavior::Auto,
     overscroll_behavior_x: OverscrollBehavior::None,
     overscroll_behavior_y: OverscrollBehavior::None,
+    overflow_scrolling: OverflowScrolling::Auto,
 };
 
 /// A modern scrollbar inspired by Windows 11 (Dark Theme).
@@ -612,6 +652,7 @@ pub const SCROLLBAR_WINDOWS_DARK: ScrollbarInfo = ScrollbarInfo {
     scroll_behavior: ScrollBehavior::Auto,
     overscroll_behavior_x: OverscrollBehavior::None,
     overscroll_behavior_y: OverscrollBehavior::None,
+    overflow_scrolling: OverflowScrolling::Auto,
 };
 
 /// A modern, thin, overlay scrollbar inspired by iOS (Light Theme).
@@ -637,6 +678,7 @@ pub const SCROLLBAR_IOS_LIGHT: ScrollbarInfo = ScrollbarInfo {
     scroll_behavior: ScrollBehavior::Smooth,
     overscroll_behavior_x: OverscrollBehavior::Auto,
     overscroll_behavior_y: OverscrollBehavior::Auto,
+    overflow_scrolling: OverflowScrolling::Auto,
 };
 
 /// A modern, thin, overlay scrollbar inspired by iOS (Dark Theme).
@@ -662,6 +704,7 @@ pub const SCROLLBAR_IOS_DARK: ScrollbarInfo = ScrollbarInfo {
     scroll_behavior: ScrollBehavior::Smooth,
     overscroll_behavior_x: OverscrollBehavior::Auto,
     overscroll_behavior_y: OverscrollBehavior::Auto,
+    overflow_scrolling: OverflowScrolling::Auto,
 };
 
 /// A modern, thin, overlay scrollbar inspired by Android (Light Theme).
@@ -687,6 +730,7 @@ pub const SCROLLBAR_ANDROID_LIGHT: ScrollbarInfo = ScrollbarInfo {
     scroll_behavior: ScrollBehavior::Smooth,
     overscroll_behavior_x: OverscrollBehavior::Contain,
     overscroll_behavior_y: OverscrollBehavior::Auto,
+    overflow_scrolling: OverflowScrolling::Auto,
 };
 
 /// A modern, thin, overlay scrollbar inspired by Android (Dark Theme).
@@ -712,6 +756,7 @@ pub const SCROLLBAR_ANDROID_DARK: ScrollbarInfo = ScrollbarInfo {
     scroll_behavior: ScrollBehavior::Smooth,
     overscroll_behavior_x: OverscrollBehavior::Contain,
     overscroll_behavior_y: OverscrollBehavior::Auto,
+    overflow_scrolling: OverflowScrolling::Auto,
 };
 
 // --- PARSERS ---

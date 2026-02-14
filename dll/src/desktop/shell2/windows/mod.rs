@@ -2549,7 +2549,7 @@ unsafe extern "system" fn window_proc(
                         use azul_core::refany::RefAny;
                         use azul_core::task::Duration;
 
-                        let physics_state = ScrollPhysicsState::new(queue);
+                        let physics_state = ScrollPhysicsState::new(queue, window.system_style.scroll_physics.clone());
                         let data = RefAny::new(physics_state);
                         let timer = Timer::create(
                             data,
