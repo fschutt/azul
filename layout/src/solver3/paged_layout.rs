@@ -408,11 +408,26 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         get_system_time_fn,
     };
 
-    // --- Step 1: Reconciliation & Invalidation ---
+    // --- Step 1: Tree Building & Invalidation ---
     let _frag_t0 = std::time::Instant::now();
-    let (mut new_tree, mut recon_result) =
-        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?;
-    eprintln!("      [fragmentation] reconcile_and_invalidate: {:?} ({} nodes, {} dirty)", _frag_t0.elapsed(), new_tree.nodes.len(), recon_result.intrinsic_dirty.len());
+    let is_fresh_dom = cache.tree.is_none();
+    let (mut new_tree, mut recon_result) = if is_fresh_dom {
+        // Fast path: no old tree to diff against — build tree directly.
+        // This avoids the per-node hash comparison in reconcile_and_invalidate().
+        use crate::solver3::layout_tree::generate_layout_tree;
+        let new_tree = generate_layout_tree(&mut ctx_temp)?;
+        let n = new_tree.nodes.len();
+        let mut result = cache::ReconciliationResult::default();
+        result.layout_roots.insert(new_tree.root);
+        result.intrinsic_dirty = (0..n).collect::<std::collections::BTreeSet<_>>();
+        (new_tree, result)
+    } else {
+        // Incremental path: diff old tree vs new DOM
+        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?
+    };
+    eprintln!("      [fragmentation] {} tree build: {:?} ({} nodes, {} dirty)",
+        if is_fresh_dom { "fresh" } else { "reconcile" },
+        _frag_t0.elapsed(), new_tree.nodes.len(), recon_result.intrinsic_dirty.len());
 
     // Step 1.2: Clear Taffy Caches for Dirty Nodes
     for &node_idx in &recon_result.intrinsic_dirty {
