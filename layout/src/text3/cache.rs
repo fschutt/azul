@@ -4456,6 +4456,7 @@ impl LayoutCache {
         // --- Stages 1-3: Preparation ---
         // These stages are independent of the final geometry. We perform them once
         // on the entire content block before flowing. Caching is used at each stage.
+        let _layout_flow_start = std::time::Instant::now();
 
         // Stage 1: Logical Analysis (InlineContent -> LogicalItem)
         let logical_items_id = calculate_id(&content);
@@ -4502,10 +4503,17 @@ impl LayoutCache {
             .clone();
 
         // Stage 3: Shaping (VisualItem -> ShapedItem)
+        let _stage3_start = std::time::Instant::now();
         let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
         let shaped_items_id = calculate_id(&shaped_key);
         let shaped_items = match self.shaped_items.get(&shaped_items_id) {
-            Some(cached) => cached.clone(),
+            Some(cached) => {
+                let _s3 = _stage3_start.elapsed();
+                if content.len() > 10 && _s3.as_micros() > 50 {
+                    eprintln!("      [layout_flow] stage3 shaping CACHED ({} items): {:?}", visual_items.len(), _s3);
+                }
+                cached.clone()
+            }
             None => {
                 let items = Arc::new(shape_visual_items(
                     &visual_items,
@@ -4514,6 +4522,10 @@ impl LayoutCache {
                     loaded_fonts,
                     debug_messages,
                 )?);
+                let _s3 = _stage3_start.elapsed();
+                if content.len() > 10 || _s3.as_micros() > 100 {
+                    eprintln!("      [layout_flow] stage3 shaping NEW ({} items): {:?}", visual_items.len(), _s3);
+                }
                 self.shaped_items.insert(shaped_items_id, items.clone());
                 items
             }
@@ -4528,7 +4540,7 @@ impl LayoutCache {
         let oriented_items = apply_text_orientation(shaped_items, first_constraints)?;
 
         // --- Stage 5: The Flow Loop ---
-
+        let _stage5_start = std::time::Instant::now();
         let mut fragment_layouts = HashMap::new();
         // The cursor now manages the stream of items for the entire flow.
         let mut cursor = BreakCursor::new(&oriented_items);
@@ -4547,6 +4559,12 @@ impl LayoutCache {
             if cursor.is_done() {
                 break; // All content has been laid out.
             }
+        }
+
+        let _total_flow = _layout_flow_start.elapsed();
+        let _stage5_time = _stage5_start.elapsed();
+        if content.len() > 10 || _total_flow.as_micros() > 200 {
+            eprintln!("    [layout_flow] {} content items -> stage5={:?} total={:?}", content.len(), _stage5_time, _total_flow);
         }
 
         Ok(FlowLayout {
@@ -4956,6 +4974,16 @@ pub fn reorder_logical_items(
 ///
 /// This function does NOT load any fonts - all fonts must be pre-loaded and passed in.
 /// If a required font is not in `loaded_fonts`, the text will be skipped with a warning.
+///
+/// **Optimization: Inline Run Coalescing**
+///
+/// When consecutive text `VisualItem`s share the same layout-affecting properties
+/// (font, size, spacing, etc.) but differ only in rendering properties (color,
+/// background), they are coalesced into a single shaping call. This dramatically
+/// reduces the number of `font.shape_text()` invocations for syntax-highlighted
+/// code where hundreds of `<span>` elements use the same monospace font but
+/// different colors. After shaping, the original per-span styles are restored
+/// to each `ShapedCluster` based on byte-range mapping.
 pub fn shape_visual_items<T: ParsedFontTrait>(
     visual_items: &[VisualItem],
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
@@ -4963,9 +4991,27 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
     loaded_fonts: &LoadedFonts<T>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<Vec<ShapedItem>, LayoutError> {
+    let _shape_start = std::time::Instant::now();
     let mut shaped = Vec::new();
+    let mut idx = 0;
+    let mut _coalesced_runs = 0usize;
+    let mut _total_runs = 0usize;
+    let mut _shape_calls = 0usize;
 
-    for item in visual_items {
+    // Log count of visual items for debugging coalescing
+    if visual_items.len() > 100 {
+        let text_count = visual_items.iter().filter(|v| matches!(&v.logical_source, LogicalItem::Text { .. })).count();
+        let break_count = visual_items.iter().filter(|v| matches!(&v.logical_source, LogicalItem::Break { .. })).count();
+        let tab_count = visual_items.iter().filter(|v| matches!(&v.logical_source, LogicalItem::Tab { .. })).count();
+        let obj_count = visual_items.iter().filter(|v| matches!(&v.logical_source, LogicalItem::Object { .. })).count();
+        let combined_count = visual_items.iter().filter(|v| matches!(&v.logical_source, LogicalItem::CombinedText { .. })).count();
+        let ruby_count = visual_items.iter().filter(|v| matches!(&v.logical_source, LogicalItem::Ruby { .. })).count();
+        eprintln!("    [shape_visual_items] {} visual items: {} text, {} breaks, {} tab, {} obj, {} combined, {} ruby",
+            visual_items.len(), text_count, break_count, tab_count, obj_count, combined_count, ruby_count);
+    }
+
+    while idx < visual_items.len() {
+        let item = &visual_items[idx];
         match &item.logical_source {
             LogicalItem::Text {
                 style,
@@ -4974,6 +5020,148 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 source_node_id,
                 ..
             } => {
+                let layout_hash = style.layout_hash();
+                let bidi_level = item.bidi_level;
+                let script = item.script;
+
+                // Look ahead: find consecutive text items with the same layout-affecting
+                // properties (font, size, spacing) that can be shaped as one merged run.
+                let mut coalesce_end = idx + 1;
+                while coalesce_end < visual_items.len() {
+                    let next = &visual_items[coalesce_end];
+                    if let LogicalItem::Text { style: next_style, .. } = &next.logical_source {
+                        if next_style.layout_hash() == layout_hash
+                            && next.bidi_level == bidi_level
+                            && next.script == script
+                        {
+                            coalesce_end += 1;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                let coalesce_count = coalesce_end - idx;
+
+                if coalesce_count > 1 {
+                    _coalesced_runs += coalesce_count;
+                    _shape_calls += 1;
+                    // ── COALESCED PATH ──
+                    // Merge N text items into one shaping call, then split results
+                    // back per original run to preserve per-span rendering styles.
+
+                    // Build merged text and record byte ranges → original style
+                    let total_text_len: usize = visual_items[idx..coalesce_end]
+                        .iter()
+                        .map(|v| v.text.len())
+                        .sum();
+                    let mut merged_text = String::with_capacity(total_text_len);
+                    // (byte_start, byte_end, style, source, source_node_id, marker_outside)
+                    let mut byte_ranges: Vec<(
+                        usize, usize,
+                        Arc<StyleProperties>,
+                        ContentIndex,
+                        Option<NodeId>,
+                        Option<bool>,
+                    )> = Vec::with_capacity(coalesce_count);
+
+                    for j in idx..coalesce_end {
+                        let start = merged_text.len();
+                        merged_text.push_str(&visual_items[j].text);
+                        let end = merged_text.len();
+                        if let LogicalItem::Text {
+                            style: s, source: src, source_node_id: nid,
+                            marker_position_outside: mpo, ..
+                        } = &visual_items[j].logical_source {
+                            byte_ranges.push((start, end, s.clone(), *src, *nid, *mpo));
+                        }
+                    }
+
+                    if let Some(msgs) = debug_messages {
+                        msgs.push(LayoutDebugMessage::info(format!(
+                            "[TextLayout] Coalescing {} text runs ({} bytes) into single shaping call",
+                            coalesce_count, merged_text.len()
+                        )));
+                    }
+
+                    let direction = if bidi_level.is_rtl() {
+                        BidiDirection::Rtl
+                    } else {
+                        BidiDirection::Ltr
+                    };
+                    let language = script_to_language(script, &merged_text);
+
+                    // Shape the merged text using the first item's font (layout is identical
+                    // for all coalesced items since layout_hash matches).
+                    let shaped_clusters_result: Result<Vec<ShapedCluster>, LayoutError> = match &style.font_stack {
+                        FontStack::Ref(font_ref) => {
+                            shape_text_correctly(
+                                &merged_text, script, language, direction,
+                                font_ref, style, *source, *source_node_id,
+                            )
+                        }
+                        FontStack::Stack(selectors) => {
+                            let cache_key = FontChainKey::from_selectors(selectors);
+                            let font_chain = match font_chain_cache.get(&cache_key) {
+                                Some(chain) => chain,
+                                None => { idx = coalesce_end; continue; }
+                            };
+                            let first_char = merged_text.chars().next().unwrap_or('A');
+                            let font_id = match font_chain.resolve_char(fc_cache, first_char) {
+                                Some((id, _)) => id,
+                                None => { idx = coalesce_end; continue; }
+                            };
+                            match loaded_fonts.get(&font_id) {
+                                Some(font) => shape_text_correctly(
+                                    &merged_text, script, language, direction,
+                                    font, style, *source, *source_node_id,
+                                ),
+                                None => { idx = coalesce_end; continue; }
+                            }
+                        }
+                    };
+
+                    let shaped_clusters = shaped_clusters_result?;
+
+                    // Restore original per-span styles to each cluster based on byte position.
+                    // Each ShapedCluster's source_cluster_id.start_byte_in_run is the byte
+                    // offset within the merged text — we use byte_ranges to find which
+                    // original run it belongs to and reassign its style, source info, etc.
+                    for cluster in shaped_clusters {
+                        let byte_pos = cluster.source_cluster_id.start_byte_in_run as usize;
+                        // Find the original run this cluster's first byte falls into
+                        let orig = byte_ranges.iter().find(|(start, end, ..)| {
+                            byte_pos >= *start && byte_pos < *end
+                        });
+                        let mut cluster = cluster;
+                        if let Some((range_start, _, orig_style, orig_source, orig_nid, orig_mpo)) = orig {
+                            // Reassign rendering-affecting style (color, background, etc.)
+                            cluster.style = orig_style.clone();
+                            cluster.source_content_index = *orig_source;
+                            cluster.source_node_id = *orig_nid;
+                            // Fix the byte offset to be relative to the original run
+                            cluster.source_cluster_id.source_run = orig_source.run_index;
+                            cluster.source_cluster_id.start_byte_in_run = (byte_pos - range_start) as u32;
+                            // Update glyph styles
+                            for glyph in &mut cluster.glyphs {
+                                glyph.style = orig_style.clone();
+                            }
+                            if let Some(is_outside) = orig_mpo {
+                                cluster.marker_position_outside = Some(*is_outside);
+                            }
+                        }
+                        shaped.push(ShapedItem::Cluster(cluster));
+                    }
+
+                    idx = coalesce_end;
+                    continue;
+                }
+
+                // ── SINGLE ITEM PATH (no coalescing) ──
+                _total_runs += 1;
+                _shape_calls += 1;
                 let direction = if item.bidi_level.is_rtl() {
                     BidiDirection::Rtl
                 } else {
@@ -5018,6 +5206,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                         cache_key.font_families
                                     )));
                                 }
+                                idx += 1;
                                 continue;
                             }
                         };
@@ -5034,6 +5223,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                         first_char, first_char as u32
                                     )));
                                 }
+                                idx += 1;
                                 continue;
                             }
                         };
@@ -5066,6 +5256,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                         font_id, display_text
                                     )));
                                 }
+                                idx += 1;
                                 continue;
                             }
                         }
@@ -5105,15 +5296,6 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 ruby_text,
                 style,
             } => {
-                // TODO: Implement Ruby layout. This is a major feature.
-                // 1. Recursively call layout for the `base_text` to get its size.
-                // 2. Recursively call layout for the `ruby_text` (with a smaller font from
-                //    `style`).
-                // 3. Position the ruby text bounds above/beside the base text bounds.
-                // 4. Create a single `ShapedItem::Object` or `ShapedItem::CombinedBlock` that
-                //    represents the combined metric bounds of the group, which will be used for
-                //    line breaking and positioning on the main line.
-                // For now, create a placeholder object.
                 let placeholder_width = base_text.chars().count() as f32 * style.font_size_px * 0.6;
                 shaped.push(ShapedItem::Object {
                     source: *source,
@@ -5128,7 +5310,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         text: base_text.clone(),
                         style: style.clone(),
                         logical_start_byte: 0,
-                        source_node_id: None, // Ruby text is generated, not from DOM
+                        source_node_id: None,
                     }),
                 });
             }
@@ -5170,6 +5352,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                         cache_key.font_families
                                     )));
                                 }
+                                idx += 1;
                                 continue;
                             }
                         };
@@ -5184,6 +5367,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                         first_char
                                     )));
                                 }
+                                idx += 1;
                                 continue;
                             }
                         };
@@ -5205,6 +5389,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                                         font_id
                                     )));
                                 }
+                                idx += 1;
                                 continue;
                             }
                         }
@@ -5262,7 +5447,17 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 });
             }
         }
+        idx += 1;
     }
+
+    let _shape_time = _shape_start.elapsed();
+    if visual_items.len() > 10 || _shape_time.as_micros() > 100 {
+        eprintln!("    [shape_visual_items] {} items -> {} shaped in {:?} ({} calls, {} runs coalesced into {} calls, saved {})",
+            visual_items.len(), shaped.len(), _shape_time,
+            _shape_calls + _total_runs, _coalesced_runs, _shape_calls,
+            if _coalesced_runs > _shape_calls { _coalesced_runs - _shape_calls } else { 0 });
+    }
+
     Ok(shaped)
 }
 
