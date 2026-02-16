@@ -40,7 +40,7 @@ use crate::{
             get_css_box_sizing, get_css_height, get_css_width, get_display_property,
             get_style_properties, get_writing_mode, MultiValue,
         },
-        layout_tree::{AnonymousBoxType, LayoutNode, LayoutTree},
+        layout_tree::{AnonymousBoxType, LayoutNode, LayoutTree, get_display_type},
         positioning::get_position_type,
         LayoutContext, LayoutError, Result,
     },
@@ -222,20 +222,73 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         match node.formatting_context {
             FormattingContext::Block { .. } => {
                 // Check if this block establishes an Inline Formatting Context (IFC).
-                // An IFC root is a block that has at least one inline-level child.
-                let is_ifc_root = node.children.iter().any(|&child_idx| {
+                // Per CSS 2.2 §9.2.1.1: A block container with mixed block-level and
+                // inline-level children creates anonymous block boxes to wrap the inline
+                // content. So we only treat as IFC root if there are NO block-level children.
+                //
+                // We check the actual CSS display property, NOT formatting_context,
+                // because a display:block element with only inline children gets
+                // FormattingContext::Inline (meaning "establishes IFC for its children"),
+                // which is different from being an inline element itself.
+                let has_block_child = node.children.iter().any(|&child_idx| {
                     tree.get(child_idx)
-                        .map(|c| matches!(c.formatting_context, FormattingContext::Inline | FormattingContext::InlineBlock))
+                        .and_then(|c| c.dom_node_id)
+                        .map(|dom_id| {
+                            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+                            // Text nodes are inline-level
+                            if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+                                return false;
+                            }
+                            let display = get_display_type(self.ctx.styled_dom, dom_id);
+                            // Block-level display values
+                            matches!(display,
+                                LayoutDisplay::Block
+                                | LayoutDisplay::Flex
+                                | LayoutDisplay::Grid
+                                | LayoutDisplay::Table
+                                | LayoutDisplay::ListItem
+                                | LayoutDisplay::FlowRoot
+                            )
+                        })
                         .unwrap_or(false)
                 });
+
+                let has_inline_child = node.children.iter().any(|&child_idx| {
+                    tree.get(child_idx)
+                        .and_then(|c| c.dom_node_id)
+                        .map(|dom_id| {
+                            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+                            if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+                                return true;
+                            }
+                            let display = get_display_type(self.ctx.styled_dom, dom_id);
+                            matches!(display,
+                                LayoutDisplay::Inline
+                                | LayoutDisplay::InlineBlock
+                                | LayoutDisplay::InlineFlex
+                                | LayoutDisplay::InlineGrid
+                                | LayoutDisplay::InlineTable
+                            )
+                        })
+                        .unwrap_or(false)
+                });
+
+                // IFC root only if there are inline children and NO block children.
+                // If there are block children, text nodes get anonymous block wrappers.
+                let is_ifc_root = has_inline_child && !has_block_child;
                 
                 // Also check if this block has direct text content (text nodes in DOM)
-                let has_direct_text = if let Some(dom_id) = node.dom_node_id {
-                    let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
-                    dom_id.az_children(node_hierarchy).any(|child_id| {
-                        let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
-                        matches!(child_node_data.get_node_type(), NodeType::Text(_))
-                    })
+                // but ONLY if there are no block-level layout children
+                let has_direct_text = if !has_block_child {
+                    if let Some(dom_id) = node.dom_node_id {
+                        let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
+                        dom_id.az_children(node_hierarchy).any(|child_id| {
+                            let child_node_data = &self.ctx.styled_dom.node_data.as_container()[child_id];
+                            matches!(child_node_data.get_node_type(), NodeType::Text(_))
+                        })
+                    } else {
+                        false
+                    }
                 } else {
                     false
                 };
@@ -334,7 +387,15 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         node_index: usize,
     ) -> Result<IntrinsicSizes> {
         // Collect all inline content from this IFC root and its inline descendants
+        let _sizing_start = std::time::Instant::now();
         let inline_content = collect_inline_content(&mut self.ctx, tree, node_index)?;
+        let _collect_time = _sizing_start.elapsed();
+
+        if inline_content.len() > 10 {
+            let text_count = inline_content.iter().filter(|i| matches!(i, InlineContent::Text(_))).count();
+            let shape_count = inline_content.iter().filter(|i| matches!(i, InlineContent::Shape(_))).count();
+            eprintln!("  [sizing_ifc] node={} content: {} items ({} text, {} shapes) collect={:?}", node_index, inline_content.len(), text_count, shape_count, _collect_time);
+        }
 
         if inline_content.is_empty() {
             return Ok(IntrinsicSizes::default());
@@ -508,11 +569,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         tree: &LayoutTree,
         node_index: usize,
     ) -> Result<IntrinsicSizes> {
-        static INLINE_CALC_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let call_count = INLINE_CALC_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if call_count % 100 == 0 {
-            eprintln!("[DEBUG sizing] calculate_inline_intrinsic_sizes called {} times", call_count);
-        }
+
         
         self.ctx.debug_log(&format!(
             "Calculating inline intrinsic sizes for node {}",
