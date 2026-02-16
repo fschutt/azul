@@ -2559,7 +2559,7 @@ fn process_debug_event(
                             if let Some(layout_node) = layout_result.layout_tree.get(layout_idx) {
                                 let node_pos = layout_result
                                     .calculated_positions
-                                    .get(&layout_idx)
+                    .get(layout_idx)
                                     .copied()
                                     .unwrap_or_default();
                                 let node_size = layout_node.used_size.unwrap_or_default();

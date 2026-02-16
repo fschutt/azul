@@ -504,7 +504,7 @@ fn get_node_rect(
     // Get position
     let layout_indices = layout_result.layout_tree.dom_to_layout.get(&nid)?;
     let layout_index = *layout_indices.first()?;
-    let position = *layout_result.calculated_positions.get(&layout_index)?;
+    let position = *layout_result.calculated_positions.get(layout_index)?;
     
     // Get size
     let layout_node = layout_result.layout_tree.get(layout_index)?;

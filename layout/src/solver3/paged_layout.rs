@@ -542,13 +542,13 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
             // For root nodes, the position should be at (margin.left, margin.top) relative
             // to the viewport origin, because the margin creates space between the viewport
             // edge and the element's border-box.
-            if !calculated_positions.contains_key(&root_idx) {
+            if !super::pos_contains(&calculated_positions, root_idx) {
                 let root_position = if is_root_with_margin {
                     adjusted_cb_pos
                 } else {
                     cb_pos
                 };
-                calculated_positions.insert(root_idx, root_position);
+                super::pos_set(&mut calculated_positions, root_idx, root_position);
             }
         }
 
@@ -615,7 +615,7 @@ fn get_containing_block_for_node(
     tree: &crate::solver3::layout_tree::LayoutTree,
     styled_dom: &StyledDom,
     node_idx: usize,
-    calculated_positions: &BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &super::PositionVec,
     viewport: LogicalRect,
 ) -> (LogicalPosition, LogicalSize) {
     use crate::solver3::getters::get_writing_mode;
@@ -623,7 +623,7 @@ fn get_containing_block_for_node(
     if let Some(parent_idx) = tree.get(node_idx).and_then(|n| n.parent) {
         if let Some(parent_node) = tree.get(parent_idx) {
             let pos = calculated_positions
-                .get(&parent_idx)
+                .get(parent_idx)
                 .copied()
                 .unwrap_or_default();
             let size = parent_node.used_size.unwrap_or_default();

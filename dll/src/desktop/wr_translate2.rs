@@ -613,7 +613,7 @@ pub fn fullhittest_new_webrender(
                 };
                 let node_pos = layout_result
                     .calculated_positions
-                    .get(&layout_idx)
+                    .get(layout_idx)
                     .copied()
                     .unwrap_or_default();
                 let node_size = layout_node.used_size.unwrap_or_default();
@@ -799,7 +799,7 @@ pub fn fullhittest_new_webrender(
                 // Get node's calculated layout position and size
                 let node_pos = layout_result
                     .calculated_positions
-                    .get(&layout_idx)
+                    .get(layout_idx)
                     .copied()
                     .unwrap_or_default();
 
@@ -2596,7 +2596,7 @@ fn process_image_callback_updates(
             let layout_index = layout_indices[0];
 
             // Get position and size
-            let position = match layout_result.calculated_positions.get(&layout_index) {
+            let position = match layout_result.calculated_positions.get(layout_index) {
                 Some(pos) => *pos,
                 None => continue,
             };

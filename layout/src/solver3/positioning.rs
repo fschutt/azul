@@ -157,7 +157,7 @@ fn resolve_position_offsets(
 pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
-    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut super::PositionVec,
     viewport: LogicalRect,
 ) -> Result<()> {
     for node_index in 0..tree.nodes.len() {
@@ -180,7 +180,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     if parent_position == LayoutPosition::Absolute
                         || parent_position == LayoutPosition::Fixed
                     {
-                        calculated_positions.get(&parent_idx).map(|parent_pos| {
+                        calculated_positions.get(parent_idx).map(|parent_pos| {
                             (
                                 parent_idx,
                                 *parent_pos,
@@ -241,7 +241,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 resolve_position_offsets(ctx.styled_dom, Some(dom_id), containing_block_rect.size);
 
             let mut static_pos = calculated_positions
-                .get(&node_index)
+                .get(node_index)
                 .copied()
                 .unwrap_or_default();
 
@@ -299,7 +299,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 pub fn adjust_relative_positions<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
-    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut super::PositionVec,
     viewport: LogicalRect, // The viewport is needed if the root element is relative.
 ) -> Result<()> {
     // Iterate through all nodes. We need the index to modify the position map.
@@ -335,7 +335,7 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
             resolve_position_offsets(ctx.styled_dom, node.dom_node_id, containing_block_size);
 
         // Get a mutable reference to the position and apply the offsets.
-        let Some(current_pos) = calculated_positions.get_mut(&node_index) else {
+        let Some(current_pos) = calculated_positions.get_mut(node_index) else {
             continue;
         };
 
@@ -412,7 +412,7 @@ fn find_absolute_containing_block_rect(
     tree: &LayoutTree,
     node_index: usize,
     styled_dom: &StyledDom,
-    calculated_positions: &BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &super::PositionVec,
     viewport: LogicalRect,
 ) -> Result<LogicalRect> {
     let mut current_parent_idx = tree.get(node_index).and_then(|n| n.parent);
@@ -423,7 +423,7 @@ fn find_absolute_containing_block_rect(
         if get_position_type(styled_dom, parent_node.dom_node_id) != LayoutPosition::Static {
             // calculated_positions stores margin-box positions
             let margin_box_pos = calculated_positions
-                .get(&parent_index)
+                .get(parent_index)
                 .copied()
                 .unwrap_or_default();
             // used_size is the border-box size

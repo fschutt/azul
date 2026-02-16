@@ -821,7 +821,7 @@ fn layout_bfc<T: ParsedFontTrait>(
     //
     // Performance: O(n) for the tree. No double-computation thanks to caching.
     {
-        let mut temp_positions = BTreeMap::new();
+        let mut temp_positions: super::PositionVec = Vec::new();
         let mut temp_scrollbar_reflow = false;
 
         for &child_index in &node.children {
@@ -4017,7 +4017,7 @@ fn measure_cell_min_content_width<T: ParsedFontTrait>(
         available_width_type: Text3AvailableSpace::MinContent,
     };
 
-    let mut temp_positions = BTreeMap::new();
+    let mut temp_positions: super::PositionVec = Vec::new();
     let mut temp_scrollbar_reflow = false;
     let mut temp_float_cache = std::collections::BTreeMap::new();
 
@@ -4080,7 +4080,7 @@ fn measure_cell_max_content_width<T: ParsedFontTrait>(
         available_width_type: Text3AvailableSpace::MaxContent,
     };
 
-    let mut temp_positions = BTreeMap::new();
+    let mut temp_positions: super::PositionVec = Vec::new();
     let mut temp_scrollbar_reflow = false;
     let mut temp_float_cache = std::collections::BTreeMap::new();
 
@@ -4478,7 +4478,7 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             available_width_type: Text3AvailableSpace::Definite(content_width),
         };
 
-        let mut temp_positions = BTreeMap::new();
+        let mut temp_positions: super::PositionVec = Vec::new();
         let mut temp_scrollbar_reflow = false;
         let mut temp_float_cache = std::collections::BTreeMap::new();
 

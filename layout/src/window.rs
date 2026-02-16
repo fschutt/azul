@@ -223,7 +223,7 @@ pub struct DomLayoutResult {
     /// The layout tree with computed sizes and positions
     pub layout_tree: LayoutTree,
     /// Absolute positions of all nodes
-    pub calculated_positions: BTreeMap<usize, LogicalPosition>,
+    pub calculated_positions: crate::solver3::PositionVec,
     /// The viewport used for this layout
     pub viewport: LogicalRect,
     /// The generated display list for this DOM.
@@ -478,7 +478,7 @@ impl LayoutWindow {
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
             layout_cache: Solver3LayoutCache {
                 tree: None,
-                calculated_positions: BTreeMap::new(),
+                calculated_positions: Vec::new(),
                 viewport: None,
                 scroll_ids: BTreeMap::new(),
                 scroll_id_to_node_id: BTreeMap::new(),
@@ -551,7 +551,7 @@ impl LayoutWindow {
             fragmentation_context: crate::paged::FragmentationContext::new_paged(page_size),
             layout_cache: Solver3LayoutCache {
                 tree: None,
-                calculated_positions: BTreeMap::new(),
+                calculated_positions: Vec::new(),
                 viewport: None,
                 scroll_ids: BTreeMap::new(),
                 scroll_id_to_node_id: BTreeMap::new(),
@@ -906,7 +906,7 @@ impl LayoutWindow {
         &self,
         styled_dom: &StyledDom,
         layout_tree: &LayoutTree,
-        calculated_positions: &BTreeMap<usize, LogicalPosition>,
+        calculated_positions: &crate::solver3::PositionVec,
     ) -> Vec<(NodeId, LogicalRect)> {
         let node_data_container = styled_dom.node_data.as_container();
         layout_tree
@@ -917,7 +917,7 @@ impl LayoutWindow {
                 let node_dom_id = node.dom_node_id?;
                 let node_data = node_data_container.get(node_dom_id)?;
                 if matches!(node_data.get_node_type(), NodeType::IFrame(_)) {
-                    let pos = calculated_positions.get(&idx).copied().unwrap_or_default();
+                    let pos = calculated_positions.get(idx).copied().unwrap_or_default();
                     let size = node.used_size.unwrap_or_default();
                     Some((node_dom_id, LogicalRect::new(pos, size)))
                 } else {
@@ -969,7 +969,7 @@ impl LayoutWindow {
     pub fn clear_caches(&mut self) {
         self.layout_cache = Solver3LayoutCache {
             tree: None,
-            calculated_positions: BTreeMap::new(),
+            calculated_positions: Vec::new(),
             viewport: None,
             scroll_ids: BTreeMap::new(),
             scroll_id_to_node_id: BTreeMap::new(),
@@ -1292,7 +1292,7 @@ impl LayoutWindow {
         // Use dom_to_layout mapping since layout tree indices differ from DOM indices
         let layout_indices = layout_result.layout_tree.dom_to_layout.get(&nid)?;
         let layout_index = *layout_indices.first()?;
-        let position = layout_result.calculated_positions.get(&layout_index)?;
+        let position = layout_result.calculated_positions.get(layout_index)?;
         Some(*position)
     }
 
@@ -2839,7 +2839,7 @@ impl LayoutWindow {
             .position(|node| node.dom_node_id == target_node_id)?;
 
         // Get the calculated layout position from cache (already in logical units)
-        let calc_pos = self.layout_cache.calculated_positions.get(&layout_idx)?;
+        let calc_pos = self.layout_cache.calculated_positions.get(layout_idx)?;
 
         // Get the layout node for size information
         let layout_node = layout_tree.nodes.get(layout_idx)?;
@@ -2906,7 +2906,7 @@ impl LayoutWindow {
         let mut cursor_rect = inline_layout.get_cursor_rect(cursor)?;
 
         // Get the calculated layout position from cache (already in logical units)
-        let calc_pos = self.layout_cache.calculated_positions.get(&layout_idx)?;
+        let calc_pos = self.layout_cache.calculated_positions.get(layout_idx)?;
 
         // Add layout position to cursor rect (both already in logical units)
         cursor_rect.origin.x += calc_pos.x as f32;
@@ -3143,7 +3143,7 @@ impl LayoutWindow {
         let container_pos = self
             .layout_cache
             .calculated_positions
-            .get(&layout_idx)
+            .get(layout_idx)
             .copied()
             .unwrap_or_default();
 
@@ -6090,7 +6090,7 @@ impl LayoutWindow {
         let size = node.used_size?;
 
         // Get position from calculated_positions map
-        let position = layout_result.calculated_positions.get(&node_id.index())?;
+        let position = layout_result.calculated_positions.get(node_id.index())?;
 
         Some(LayoutRect {
             origin: azul_css::props::basic::LayoutPoint {
@@ -6606,7 +6606,7 @@ impl LayoutWindow {
                     // Get the node's absolute position
                     // Use layout_result.calculated_positions for the correct DOM
                     let node_pos = layout_result.calculated_positions
-                        .get(&node_idx)
+            .get(node_idx)
                         .copied()
                         .unwrap_or_default();
                     
@@ -7221,7 +7221,7 @@ impl LayoutWindow {
                 let layout_index = layout_indices[0];
 
                 // Get the position from calculated_positions
-                let position = match layout_result.calculated_positions.get(&layout_index) {
+                let position = match layout_result.calculated_positions.get(layout_index) {
                     Some(pos) => *pos,
                     None => continue,
                 };
@@ -7435,7 +7435,7 @@ impl LayoutWindow {
         let layout_index = layout_indices[0];
 
         // Get position
-        let position = *layout_result.calculated_positions.get(&layout_index)?;
+        let position = *layout_result.calculated_positions.get(layout_index)?;
 
         // Get size
         let layout_node = layout_result.layout_tree.get(layout_index)?;

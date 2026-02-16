@@ -1196,7 +1196,7 @@ impl DisplayListBuilder {
 pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
     ctx: &mut LayoutContext<T>,
     tree: &LayoutTree,
-    calculated_positions: &BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &super::PositionVec,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     scroll_ids: &BTreeMap<usize, u64>,
     gpu_value_cache: Option<&GpuValueCache>,
@@ -1432,7 +1432,7 @@ where
         let node_pos = self
             .positioned_tree
             .calculated_positions
-            .get(&node_index)
+            .get(node_index)
             .copied()
             .unwrap_or_default();
 
@@ -1576,7 +1576,7 @@ where
         let node_pos = self
             .positioned_tree
             .calculated_positions
-            .get(&node_index)
+            .get(node_index)
             .copied()
             .unwrap_or_default();
 
@@ -1698,7 +1698,7 @@ where
         let node_pos = self
             .positioned_tree
             .calculated_positions
-            .get(&context.node_index)
+            .get(context.node_index)
             .copied()
             .unwrap_or_default();
         let node_size = node.used_size.unwrap_or(LogicalSize {
@@ -1949,7 +1949,7 @@ where
                 let child_pos = self
                     .positioned_tree
                     .calculated_positions
-                    .get(&child_index)
+            .get(child_index)
                     .copied()
                     .unwrap_or_default();
                 let child_size = child_node.used_size.unwrap_or(LogicalSize {
@@ -2011,7 +2011,7 @@ where
                 let child_pos = self
                     .positioned_tree
                     .calculated_positions
-                    .get(&child_index)
+            .get(child_index)
                     .copied()
                     .unwrap_or_default();
                 let child_size = child_node.used_size.unwrap_or(LogicalSize {
@@ -2066,7 +2066,7 @@ where
                 let child_pos = self
                     .positioned_tree
                     .calculated_positions
-                    .get(&child_index)
+            .get(child_index)
                     .copied()
                     .unwrap_or_default();
                 let child_size = child_node.used_size.unwrap_or(LogicalSize {
@@ -2254,7 +2254,7 @@ where
         let pos = self
             .positioned_tree
             .calculated_positions
-            .get(&node_index)
+            .get(node_index)
             .copied()
             .unwrap_or_default();
         let size = node.used_size.unwrap_or_default();
@@ -3460,7 +3460,7 @@ pub struct PositionedTree<'a> {
     /// The layout tree containing all nodes with their computed sizes
     pub tree: &'a LayoutTree,
     /// Map from node index to its absolute position in the document
-    pub calculated_positions: &'a BTreeMap<usize, LogicalPosition>,
+    pub calculated_positions: &'a super::PositionVec,
 }
 
 /// Describes how overflow content should be handled for an element.

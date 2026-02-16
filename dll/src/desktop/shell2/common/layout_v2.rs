@@ -309,7 +309,7 @@ pub fn regenerate_layout(
                         // in logical pixels.
                         let container_origin = layout_result
                             .calculated_positions
-                            .get(&node_idx)
+                    .get(node_idx)
                             .copied()
                             .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
                         

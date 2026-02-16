@@ -133,6 +133,40 @@ use azul_core::{
     selection::{SelectionState, TextCursor, TextSelection},
     styled_dom::StyledDom,
 };
+
+/// Sentinel value for "position not yet computed". No real position is ever f32::MIN.
+pub const POSITION_UNSET: LogicalPosition = LogicalPosition { x: f32::MIN, y: f32::MIN };
+
+/// Vec-based position storage indexed by layout-tree node index.
+/// Replaces `BTreeMap<usize, LogicalPosition>` for O(1) access and cache-friendly iteration.
+pub type PositionVec = Vec<LogicalPosition>;
+
+/// Create a new PositionVec pre-sized for the given number of nodes.
+#[inline]
+pub fn new_position_vec(num_nodes: usize) -> PositionVec {
+    vec![POSITION_UNSET; num_nodes]
+}
+
+/// Get position for node index, returning None if unset.
+#[inline(always)]
+pub fn pos_get(positions: &PositionVec, idx: usize) -> Option<LogicalPosition> {
+    positions.get(idx).copied().filter(|p| p.x != f32::MIN)
+}
+
+/// Set position for node index. Grows the vec if needed.
+#[inline(always)]
+pub fn pos_set(positions: &mut PositionVec, idx: usize, pos: LogicalPosition) {
+    if idx >= positions.len() {
+        positions.resize(idx + 1, POSITION_UNSET);
+    }
+    positions[idx] = pos;
+}
+
+/// Check if position has been set for node index.
+#[inline(always)]
+pub fn pos_contains(positions: &PositionVec, idx: usize) -> bool {
+    positions.get(idx).map_or(false, |p| p.x != f32::MIN)
+}
 use azul_css::{
     props::property::{CssProperty, CssPropertyCategory},
     LayoutDebugMessage, LayoutDebugMessageType,
@@ -583,7 +617,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // For root nodes, the position should be at (margin.left, margin.top) relative
             // to the viewport origin, because the margin creates space between the viewport
             // edge and the element's border-box.
-            if !calculated_positions.contains_key(&root_idx) {
+            if !pos_contains(&calculated_positions, root_idx) {
                 let root_node = &new_tree.nodes[root_idx];
 
                 // Calculate the root's border-box position by adding margins to viewport origin
@@ -619,7 +653,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     ));
                 }
 
-                calculated_positions.insert(root_idx, root_position);
+                pos_set(&mut calculated_positions, root_idx, root_position);
             }
         }
 
@@ -706,13 +740,13 @@ fn get_containing_block_for_node(
     tree: &LayoutTree,
     styled_dom: &StyledDom,
     node_idx: usize,
-    calculated_positions: &BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &PositionVec,
     viewport: LogicalRect,
 ) -> (LogicalPosition, LogicalSize) {
     if let Some(parent_idx) = tree.get(node_idx).and_then(|n| n.parent) {
         if let Some(parent_node) = tree.get(parent_idx) {
             let pos = calculated_positions
-                .get(&parent_idx)
+                .get(parent_idx)
                 .copied()
                 .unwrap_or_default();
             let size = parent_node.used_size.unwrap_or_default();

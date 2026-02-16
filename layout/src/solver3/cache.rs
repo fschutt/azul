@@ -340,7 +340,7 @@ pub struct LayoutCache {
     /// The fully laid-out tree from the previous frame. This is our primary cache.
     pub tree: Option<LayoutTree>,
     /// The final, absolute positions of all nodes from the previous frame.
-    pub calculated_positions: BTreeMap<usize, LogicalPosition>,
+    pub calculated_positions: super::PositionVec,
     /// The viewport size from the last layout pass, used to detect resizes.
     pub viewport: Option<LogicalRect>,
     /// Stable scroll IDs computed from node_data_hash (layout index -> scroll ID)
@@ -390,7 +390,7 @@ pub fn reposition_clean_subtrees(
     styled_dom: &StyledDom,
     tree: &LayoutTree,
     layout_roots: &BTreeSet<usize>,
-    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut super::PositionVec,
 ) {
     // Find the unique parents of all dirty layout roots. These are the containers
     // where sibling positions need to be adjusted.
@@ -536,7 +536,7 @@ pub fn reposition_block_flow_siblings(
     parent_node: &LayoutNode,
     tree: &LayoutTree,
     layout_roots: &BTreeSet<usize>,
-    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut super::PositionVec,
 ) {
     let dom_id = parent_node.dom_node_id.unwrap_or(NodeId::ZERO);
     let styled_node_state = styled_dom
@@ -549,7 +549,7 @@ pub fn reposition_block_flow_siblings(
     let writing_mode = get_writing_mode(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
 
     let parent_pos = calculated_positions
-        .get(&parent_idx)
+        .get(parent_idx)
         .copied()
         .unwrap_or_default();
 
@@ -573,7 +573,7 @@ pub fn reposition_block_flow_siblings(
         if layout_roots.contains(&child_idx) {
             // This child was DIRTY and has been correctly repositioned.
             // Update the pen to the position immediately after this child.
-            let new_pos = match calculated_positions.get(&child_idx) {
+            let new_pos = match calculated_positions.get(child_idx) {
                 Some(p) => *p,
                 None => continue,
             };
@@ -590,7 +590,7 @@ pub fn reposition_block_flow_siblings(
         } else {
             // This child is *clean*. Calculate its new position and shift its
             // entire subtree.
-            let old_pos = match calculated_positions.get(&child_idx) {
+            let old_pos = match calculated_positions.get(child_idx) {
                 Some(p) => *p,
                 None => continue,
             };
@@ -629,9 +629,9 @@ pub fn shift_subtree_position(
     node_idx: usize,
     delta: LogicalPosition,
     tree: &LayoutTree,
-    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut super::PositionVec,
 ) {
-    if let Some(pos) = calculated_positions.get_mut(&node_idx) {
+    if let Some(pos) = calculated_positions.get_mut(node_idx) {
         pos.x += delta.x;
         pos.y += delta.y;
     }
@@ -1365,7 +1365,7 @@ fn process_inflow_child<T: ParsedFontTrait>(
     inner_size_after_scrollbars: LogicalSize,
     writing_mode: LayoutWritingMode,
     is_flex_or_grid: bool,
-    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut super::PositionVec,
     reflow_needed_for_scrollbars: &mut bool,
     float_cache: &mut BTreeMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
@@ -1396,7 +1396,7 @@ fn process_inflow_child<T: ParsedFontTrait>(
     }
 
     // calculated_positions stores [CoordinateSpace::Window] - absolute positions
-    calculated_positions.insert(child_index, child_absolute_pos);
+    super::pos_set(calculated_positions, child_index, child_absolute_pos);
 
     // Get child's properties for recursion
     let child_node = tree.get(child_index).ok_or(LayoutError::InvalidTree)?;
@@ -1448,7 +1448,7 @@ fn position_bfc_child_descendants(
     tree: &LayoutTree,
     node_index: usize,
     content_box_pos: LogicalPosition,
-    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut super::PositionVec,
 ) {
     let Some(node) = tree.get(node_index) else { return };
     
@@ -1462,7 +1462,7 @@ fn position_bfc_child_descendants(
             content_box_pos.y + child_rel_pos.y,
         );
         
-        calculated_positions.insert(child_index, child_abs_pos);
+        super::pos_set(calculated_positions, child_index, child_abs_pos);
         
         // Calculate child's content-box position for recursion
         let child_content_box_pos = LogicalPosition::new(
@@ -1486,7 +1486,7 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
     text_cache: &mut TextLayoutCache,
     node_index: usize,
     self_content_box_pos: LogicalPosition,
-    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut super::PositionVec,
 ) -> Result<()> {
     // Collect out-of-flow children (those not already positioned)
     let out_of_flow_children: Vec<(usize, Option<NodeId>)> = {
@@ -1495,7 +1495,7 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
             .children
             .iter()
             .filter_map(|&child_index| {
-                if calculated_positions.contains_key(&child_index) {
+                if super::pos_contains(calculated_positions, child_index) {
                     return None;
                 }
                 let child = tree.get(child_index)?;
@@ -1515,7 +1515,7 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
         }
 
         // Set static position to parent's content-box origin
-        calculated_positions.insert(child_index, self_content_box_pos);
+        super::pos_set(calculated_positions, child_index, self_content_box_pos);
 
         // Recursively set static positions for nested out-of-flow descendants
         set_static_positions_recursive(
@@ -1565,7 +1565,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     node_index: usize,
     containing_block_pos: LogicalPosition,
     containing_block_size: LogicalSize,
-    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut super::PositionVec,
     reflow_needed_for_scrollbars: &mut bool,
     float_cache: &mut BTreeMap<usize, fc::FloatingContext>,
     compute_mode: ComputeMode,
@@ -1643,7 +1643,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                             self_content_box_pos.x + child_relative_pos.x,
                             self_content_box_pos.y + child_relative_pos.y,
                         );
-                        calculated_positions.insert(*child_index, child_abs_pos);
+                        super::pos_set(calculated_positions, *child_index, child_abs_pos);
 
                         let child_available_size = box_props.inner_size(
                             result_size,
@@ -1872,7 +1872,7 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
     node_index: usize,
     content_box_pos: LogicalPosition,
     available_size: LogicalSize,
-    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut super::PositionVec,
     reflow_needed_for_scrollbars: &mut bool,
     float_cache: &mut BTreeMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
@@ -1892,7 +1892,7 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
             );
 
             // Insert position
-            calculated_positions.insert(child_index, child_abs_pos);
+            super::pos_set(calculated_positions, child_index, child_abs_pos);
 
             // Get child's content box for recursion
             let child_content_box = LogicalPosition::new(
@@ -1936,7 +1936,7 @@ fn position_flex_child_descendants<T: ParsedFontTrait>(
             );
 
             // Insert position
-            calculated_positions.insert(child_index, child_abs_pos);
+            super::pos_set(calculated_positions, child_index, child_abs_pos);
 
             // Get child's content box for recursion
             let child_content_box = LogicalPosition::new(
@@ -1976,14 +1976,14 @@ fn set_static_positions_recursive<T: ParsedFontTrait>(
     _text_cache: &mut TextLayoutCache,
     node_index: usize,
     parent_content_box_pos: LogicalPosition,
-    calculated_positions: &mut BTreeMap<usize, LogicalPosition>,
+    calculated_positions: &mut super::PositionVec,
 ) -> Result<()> {
     let out_of_flow_children: Vec<(usize, Option<NodeId>)> = {
         let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
         node.children
             .iter()
             .filter_map(|&child_index| {
-                if calculated_positions.contains_key(&child_index) {
+                if super::pos_contains(calculated_positions, child_index) {
                     None
                 } else {
                     let child = tree.get(child_index)?;
@@ -1997,7 +1997,7 @@ fn set_static_positions_recursive<T: ParsedFontTrait>(
         if let Some(child_dom_id) = child_dom_id_opt {
             let position_type = get_position_type(ctx.styled_dom, Some(child_dom_id));
             if position_type == LayoutPosition::Absolute || position_type == LayoutPosition::Fixed {
-                calculated_positions.insert(child_index, parent_content_box_pos);
+                super::pos_set(calculated_positions, child_index, parent_content_box_pos);
 
                 // Continue recursively
                 set_static_positions_recursive(
