@@ -2084,6 +2084,11 @@ fn layout_ifc<T: ParsedFontTrait>(
         inline_content.len(),
         node_index
     );
+    if inline_content.len() > 10 {
+        let text_count = inline_content.iter().filter(|i| matches!(i, InlineContent::Text(_))).count();
+        let shape_count = inline_content.iter().filter(|i| matches!(i, InlineContent::Shape(_))).count();
+        eprintln!("  [layout_ifc] node={} content: {} items ({} text, {} shapes) collect={:?}", node_index, inline_content.len(), text_count, shape_count, _phase1_time);
+    }
     for (i, item) in inline_content.iter().enumerate() {
         match item {
             InlineContent::Text(run) => debug_info!(ctx, "  [{}] Text: '{}'", i, run.text),
@@ -2184,6 +2189,9 @@ fn layout_ifc<T: ParsedFontTrait>(
     };
     let _phase3_time = (ctx.get_system_time_fn.cb)().duration_since(&phase3_start);
     let _total_ifc_time = (ctx.get_system_time_fn.cb)().duration_since(&ifc_start);
+    if inline_content.len() > 10 {
+        eprintln!("  [layout_ifc] node={} layout_flow={:?} total={:?}", node_index, _phase3_time, _total_ifc_time);
+    }
 
     // Phase 4: Integrate results back into the solver3 layout tree.
     let mut output = LayoutOutput::default();
@@ -4971,6 +4979,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 ) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
     use crate::solver3::layout_tree::{IfcId, IfcMembership};
 
+    let _collect_ifc_start = std::time::Instant::now();
+
     debug_ifc_layout!(
         ctx,
         "collect_and_measure_inline_content: node_index={}",
@@ -5099,6 +5109,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
             // Non-text inline child - add as shape for inline-block
             let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
+
             if display != LayoutDisplay::Inline {
                 // This is an atomic inline-level box (e.g., inline-block, image).
                 // We must determine its size and baseline before passing it to text3.
@@ -5498,7 +5509,6 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         let dom_id = child_node.dom_node_id.unwrap();
 
         let display = get_display_property(ctx.styled_dom, Some(dom_id)).unwrap_or_default();
-
         if display != LayoutDisplay::Inline {
             // This is an atomic inline-level box (e.g., inline-block, image).
             // We must determine its size and baseline before passing it to text3.
