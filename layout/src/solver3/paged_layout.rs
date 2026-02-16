@@ -35,6 +35,13 @@ use crate::{
     },
 };
 
+/// Result of `compute_layout_with_fragmentation`: contains the data
+/// needed to generate a display list afterwards. The tree and
+/// calculated_positions are stored in the `LayoutCache` that was passed in.
+pub struct FragmentationLayoutResult {
+    pub scroll_ids: BTreeMap<usize, u64>,
+}
+
 /// Layout a document with integrated pagination, returning one DisplayList per page.
 ///
 /// This function performs CSS Paged Media layout with fragmentation integrated
@@ -176,44 +183,67 @@ where
 
     // Handle continuous media (no pagination)
     if !fragmentation_context.is_paged() {
-        let display_list = layout_document_with_fragmentation(
+        let _result = compute_layout_with_fragmentation(
             cache,
             text_cache,
             &mut fragmentation_context,
             new_dom,
             viewport,
             font_manager,
-            scroll_offsets,
             selections,
             debug_messages,
+            get_system_time_fn,
+        )?;
+
+        // Generate display list from cached tree/positions
+        let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
+        let mut counter_values = cache.counters.clone();
+        let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
+        let mut ctx = LayoutContext {
+            styled_dom: new_dom,
+            font_manager: &*font_manager,
+            selections,
+            text_selections: &empty_text_selections,
+            debug_messages,
+            counters: &mut counter_values,
+            viewport_size: viewport.size,
+            fragmentation_context: Some(&mut fragmentation_context),
+            cursor_is_visible: true,
+            cursor_location: None,
+            cache_map: std::mem::take(&mut cache.cache_map),
+            system_style: None,
+            get_system_time_fn,
+        };
+
+        use crate::solver3::display_list::generate_display_list;
+        let display_list = generate_display_list(
+            &mut ctx,
+            tree,
+            &cache.calculated_positions,
+            scroll_offsets,
+            &cache.scroll_ids,
             gpu_value_cache,
             renderer_resources,
             id_namespace,
             dom_id,
-            get_system_time_fn,
         )?;
+        cache.cache_map = std::mem::take(&mut ctx.cache_map);
         return Ok(vec![display_list]);
     }
 
     // Paged Layout
 
-    // Perform layout with fragmentation context
-    // This will assign page_index to nodes based on their Y position
+    // Perform layout with fragmentation context (layout only, no display list)
     let _paged_t1 = std::time::Instant::now();
-    let _display_list = layout_document_with_fragmentation(
+    let _result = compute_layout_with_fragmentation(
         cache,
         text_cache,
         &mut fragmentation_context,
         new_dom,
         viewport,
         font_manager,
-        scroll_offsets,
         selections,
         debug_messages,
-        gpu_value_cache,
-        renderer_resources,
-        id_namespace,
-        dom_id,
         get_system_time_fn,
     )?;
     eprintln!("    [paged_layout] layout_with_fragmentation: {:?}", _paged_t1.elapsed());
@@ -230,9 +260,8 @@ where
         )));
     }
 
-    // Compute scroll IDs (needed for display list generation)
-    use crate::window::LayoutWindow;
-    let (scroll_ids, _scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(tree, new_dom);
+    // Use scroll IDs computed by compute_layout_with_fragmentation (stored in cache)
+    let scroll_ids = &cache.scroll_ids;
 
     // Create temporary context for display list generation
     let mut counter_values = cache.counters.clone();
@@ -248,7 +277,7 @@ where
         fragmentation_context: Some(&mut fragmentation_context),
         cursor_is_visible: true, // Paged layout: cursor always visible
         cursor_location: None,   // Paged layout: no cursor
-        cache_map: crate::solver3::cache::LayoutCacheMap::default(),
+        cache_map: std::mem::take(&mut cache.cache_map),
         system_style: None,
         get_system_time_fn,
     };
@@ -281,7 +310,7 @@ where
         tree,
         calculated_positions,
         scroll_offsets,
-        &scroll_ids,
+        scroll_ids,
         gpu_value_cache,
         renderer_resources,
         id_namespace,
@@ -333,29 +362,30 @@ where
         )));
     }
 
+    cache.cache_map = std::mem::take(&mut ctx.cache_map);
+
     Ok(pages)
 }
 
-/// Internal helper: Perform layout with a fragmentation context
+/// Internal helper: Perform layout with a fragmentation context (layout only, no display list)
+///
+/// Returns a `FragmentationLayoutResult` containing the computed scroll IDs.
+/// The tree & positions are stored in `cache`. To generate a display list,
+/// call `generate_display_list` separately using the tree/positions from the cache.
 #[cfg(feature = "text_layout")]
-fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
+fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
     fragmentation_context: &mut FragmentationContext,
     new_dom: &StyledDom,
     viewport: LogicalRect,
     font_manager: &crate::font_traits::FontManager<T>,
-    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     selections: &BTreeMap<DomId, SelectionState>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-    gpu_value_cache: Option<&azul_core::gpu::GpuValueCache>,
-    renderer_resources: &RendererResources,
-    id_namespace: azul_core::resources::IdNamespace,
-    dom_id: DomId,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
-) -> Result<DisplayList> {
+) -> Result<FragmentationLayoutResult> {
     use crate::solver3::{
-        cache, display_list::generate_display_list, getters::get_writing_mode,
+        cache, getters::get_writing_mode,
         layout_tree::DirtyFlag,
     };
 
@@ -424,7 +454,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
     // --- Step 1.5: Early Exit Optimization ---
     if recon_result.is_clean() {
-        ctx.debug_log("No changes, returning existing display list");
+        ctx.debug_log("No changes, layout cache is clean");
         let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
 
         use crate::window::LayoutWindow;
@@ -432,17 +462,9 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cache.scroll_ids = scroll_ids.clone();
         cache.scroll_id_to_node_id = scroll_id_to_node_id;
 
-        return generate_display_list(
-            &mut ctx,
-            tree,
-            &cache.calculated_positions,
-            scroll_offsets,
-            &scroll_ids,
-            gpu_value_cache,
-            renderer_resources,
-            id_namespace,
-            dom_id,
-        );
+        return Ok(FragmentationLayoutResult {
+            scroll_ids,
+        });
     }
 
     // --- Step 2: Incremental Layout Loop ---
@@ -557,34 +579,20 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     use crate::window::LayoutWindow;
     let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(&new_tree, new_dom);
 
-    // --- Step 4: Generate Display List & Update Cache ---
-    let _frag_t3 = std::time::Instant::now();
-    let display_list = generate_display_list(
-        &mut ctx,
-        &new_tree,
-        &calculated_positions,
-        scroll_offsets,
-        &scroll_ids,
-        gpu_value_cache,
-        renderer_resources,
-        id_namespace,
-        dom_id,
-    )?;
-
-    // Move cache_map back into LayoutCache before dropping ctx
-    eprintln!("      [fragmentation] generate_display_list: {:?}", _frag_t3.elapsed());
-
+    // --- Step 4: Update Cache ---
     let cache_map_back = std::mem::take(&mut ctx.cache_map);
 
     cache.tree = Some(new_tree);
     cache.calculated_positions = calculated_positions;
     cache.viewport = Some(viewport);
-    cache.scroll_ids = scroll_ids;
+    cache.scroll_ids = scroll_ids.clone();
     cache.scroll_id_to_node_id = scroll_id_to_node_id;
     cache.counters = counter_values;
     cache.cache_map = cache_map_back;
 
-    Ok(display_list)
+    Ok(FragmentationLayoutResult {
+        scroll_ids,
+    })
 }
 
 // Helper function (copy from mod.rs)
