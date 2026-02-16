@@ -192,6 +192,10 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// System style containing colors, fonts, metrics, and theme information.
     /// Used for selection colors, caret styling, and other system-themed elements.
     pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
+    /// Callback to get the current system time. Used for profiling inside layout.
+    /// On WASM targets (where `std::time::Instant::now()` panics), callers should
+    /// supply a no-op or platform-specific implementation.
+    pub get_system_time_fn: azul_core::task::GetSystemTimeCallback,
 }
 
 impl<'a, T: ParsedFontTrait> LayoutContext<'a, T> {
@@ -378,6 +382,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     cursor_is_visible: bool,
     cursor_location: Option<(DomId, NodeId, TextCursor)>,
     system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
+    get_system_time_fn: azul_core::task::GetSystemTimeCallback,
 ) -> Result<DisplayList> {
     // Reset IFC ID counter at the start of each layout pass
     // This ensures IFCs get consistent IDs across frames when the DOM structure is stable
@@ -409,6 +414,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cursor_location: cursor_location.clone(),
         cache_map: cache::LayoutCacheMap::default(), // temp context doesn't need real cache
         system_style: system_style.clone(),
+        get_system_time_fn,
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
@@ -453,6 +459,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cursor_location,
         cache_map, // Moved from LayoutCache; will be moved back after layout
         system_style,
+        get_system_time_fn,
     };
 
     // --- Step 1.5: Early Exit Optimization ---

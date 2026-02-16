@@ -94,6 +94,7 @@ impl TestEnv {
             DomId::ROOT_ID,
             font_loader,
             page_config,
+            azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         )
         .expect("layout should succeed");
 
@@ -143,6 +144,7 @@ impl TestEnv {
             DomId::ROOT_ID,
             font_loader,
             page_config,
+            azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         )
         .expect("relayout should succeed");
 

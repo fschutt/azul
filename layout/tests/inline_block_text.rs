@@ -85,6 +85,7 @@ fn test_inline_block_text_generates_text_items() {
         DomId::ROOT_ID,
         font_loader,
         page_config,
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
     )
     .expect("Layout should succeed");
 
@@ -300,6 +301,7 @@ fn test_text_wraps_at_constrained_width() {
         DomId::ROOT_ID,
         font_loader,
         page_config,
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
     )
     .expect("Layout should succeed");
 
@@ -468,6 +470,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
         DomId::ROOT_ID,
         font_loader,
         page_config,
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
     )
     .expect("Layout should succeed");
 
@@ -681,6 +684,7 @@ fn test_body_as_root_inline_block_positioning() {
         DomId::ROOT_ID,
         font_loader,
         page_config,
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
     )
     .expect("Layout should succeed");
 

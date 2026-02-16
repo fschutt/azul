@@ -70,6 +70,7 @@ pub fn layout_document_paged<T, F>(
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: DomId,
     font_loader: F,
+    get_system_time_fn: azul_core::task::GetSystemTimeCallback,
 ) -> Result<Vec<DisplayList>>
 where
     T: ParsedFontTrait + Sync + 'static,
@@ -94,6 +95,7 @@ where
         dom_id,
         font_loader,
         page_config,
+        get_system_time_fn,
     )
 }
 
@@ -122,6 +124,7 @@ pub fn layout_document_paged_with_config<T, F>(
     dom_id: DomId,
     font_loader: F,
     page_config: FakePageConfig,
+    get_system_time_fn: azul_core::task::GetSystemTimeCallback,
 ) -> Result<Vec<DisplayList>>
 where
     T: ParsedFontTrait + Sync + 'static,
@@ -180,6 +183,7 @@ where
             renderer_resources,
             id_namespace,
             dom_id,
+            get_system_time_fn,
         )?;
         return Ok(vec![display_list]);
     }
@@ -202,6 +206,7 @@ where
         renderer_resources,
         id_namespace,
         dom_id,
+        get_system_time_fn,
     )?;
 
     // Get the layout tree and positions
@@ -236,6 +241,7 @@ where
         cursor_location: None,   // Paged layout: no cursor
         cache_map: crate::solver3::cache::LayoutCacheMap::default(),
         system_style: None,
+        get_system_time_fn,
     };
 
     // NEW: Use the commitment-based pagination approach with CSS break properties
@@ -333,6 +339,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     renderer_resources: &RendererResources,
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: DomId,
+    get_system_time_fn: azul_core::task::GetSystemTimeCallback,
 ) -> Result<DisplayList> {
     use crate::solver3::{
         cache, display_list::generate_display_list, getters::get_writing_mode,
@@ -355,6 +362,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cursor_location: None,   // Paged layout: no cursor
         cache_map: cache::LayoutCacheMap::default(),
         system_style: None,
+        get_system_time_fn,
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
@@ -396,6 +404,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         cursor_location: None,   // Paged layout: no cursor
         cache_map,
         system_style: None,
+        get_system_time_fn,
     };
 
     // --- Step 1.5: Early Exit Optimization ---

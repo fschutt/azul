@@ -846,14 +846,17 @@ pub struct GetSystemTimeCallback {
 }
 impl_callback_simple!(GetSystemTimeCallback);
 
-/// Default implementation that gets the current system time
-#[cfg(feature = "std")]
+/// Default implementation that gets the current system time.
+///
+/// On WASM targets `std::time::Instant::now()` panics, so we fall back to
+/// a zero-tick instant instead.
+#[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 pub extern "C" fn get_system_time_libstd() -> Instant {
     StdInstant::now().into()
 }
 
-/// Default implementation for systems without a clock
-#[cfg(not(feature = "std"))]
+/// Fallback for WASM (where `Instant::now()` panics) and no-std targets.
+#[cfg(any(not(feature = "std"), target_arch = "wasm32"))]
 pub extern "C" fn get_system_time_libstd() -> Instant {
     Instant::Tick(SystemTick::new(0))
 }

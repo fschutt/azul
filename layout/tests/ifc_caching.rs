@@ -390,6 +390,7 @@ fn layout_html_and_get_tree(html: &str) -> azul_layout::Solver3LayoutCache {
         DomId::ROOT_ID,
         font_loader,
         page_config,
+        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
     )
     .expect("Layout should succeed");
 

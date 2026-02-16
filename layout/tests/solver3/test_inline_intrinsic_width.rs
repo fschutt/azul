@@ -204,6 +204,7 @@ mod inline_intrinsic_width_tests {
             true,  // cursor_is_visible
             None,  // cursor_location
             None,  // system_style
+            azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
         );
 
         assert!(result.is_ok(), "Layout should succeed");

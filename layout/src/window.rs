@@ -842,6 +842,7 @@ impl LayoutWindow {
             cursor_is_visible,
             cursor_location,
             self.system_style.clone(),
+            system_callbacks.get_system_time_fn,
         )?;
 
         let tree = self
@@ -5985,6 +5986,9 @@ impl LayoutWindow {
             cursor_location,
             cache_map,
             system_style: self.system_style.clone(),
+            get_system_time_fn: azul_core::task::GetSystemTimeCallback {
+                cb: azul_core::task::get_system_time_libstd,
+            },
         };
 
         // Generate the new display list from the existing layout tree

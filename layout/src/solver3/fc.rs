@@ -2027,9 +2027,9 @@ fn layout_ifc<T: ParsedFontTrait>(
     node_index: usize,
     constraints: &LayoutConstraints,
 ) -> Result<LayoutOutput> {
-    let ifc_start = std::time::Instant::now();
-    
-    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;
+    let ifc_start = (ctx.get_system_time_fn.cb)();
+
+    let node = tree.get(node_index).ok_or(LayoutError::InvalidTree)?;;
     let float_count = constraints
         .bfc_state
         .as_ref()
@@ -2073,10 +2073,10 @@ fn layout_ifc<T: ParsedFontTrait>(
     debug_ifc_layout!(ctx, "ifc_root_dom_id={:?}", ifc_root_dom_id);
 
     // Phase 1: Collect and measure all inline-level children.
-    let phase1_start = std::time::Instant::now();
+    let phase1_start = (ctx.get_system_time_fn.cb)();
     let (inline_content, child_map) =
         collect_and_measure_inline_content(ctx, text_cache, tree, node_index, constraints)?;
-    let phase1_time = phase1_start.elapsed();
+    let _phase1_time = (ctx.get_system_time_fn.cb)().duration_since(&phase1_start);
 
     debug_info!(
         ctx,
@@ -2155,7 +2155,7 @@ fn layout_ifc<T: ParsedFontTrait>(
 
     // Phase 3: Invoke the text layout engine.
     // Get pre-loaded fonts from font manager (fonts should be loaded before layout)
-    let phase3_start = std::time::Instant::now();
+    let phase3_start = (ctx.get_system_time_fn.cb)();
     let loaded_fonts = ctx.font_manager.get_loaded_fonts();
     let text_layout_result = match text_cache.layout_flow(
         &inline_content,
@@ -2182,10 +2182,8 @@ fn layout_ifc<T: ParsedFontTrait>(
             return Ok(output);
         }
     };
-    let _phase3_time = phase3_start.elapsed();
-    
-    // Log timing if slow (disabled for production)
-    let _total_ifc_time = ifc_start.elapsed();
+    let _phase3_time = (ctx.get_system_time_fn.cb)().duration_since(&phase3_start);
+    let _total_ifc_time = (ctx.get_system_time_fn.cb)().duration_since(&ifc_start);
 
     // Phase 4: Integrate results back into the solver3 layout tree.
     let mut output = LayoutOutput::default();
