@@ -414,10 +414,12 @@ impl<T: ParsedFontTrait> ParsedFontTrait for FontOrRef<T> {
 
 #[derive(Debug)]
 pub struct FontManager<T> {
-    ///  Cache that holds the **file paths** of the fonts (not any font data itself)
+    /// Cache that holds the **file paths** of the fonts (not any font data itself)
     pub fc_cache: Arc<FcFontCache>,
-    /// Holds the actual parsed font (usually with the font bytes attached)
-    pub parsed_fonts: Mutex<HashMap<FontId, T>>,
+    /// Holds the actual parsed font (usually with the font bytes attached).
+    /// Wrapped in Arc so multiple FontManager instances can share the same
+    /// pool of already-parsed fonts (avoids re-reading from disk).
+    pub parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>,
     // Cache for font chains - populated by resolve_all_font_chains() before layout
     // This is read-only during layout - no locking needed for reads
     pub font_chain_cache: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
@@ -430,7 +432,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     pub fn new(fc_cache: FcFontCache) -> Result<Self, LayoutError> {
         Ok(Self {
             fc_cache: Arc::new(fc_cache),
-            parsed_fonts: Mutex::new(HashMap::new()),
+            parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
             font_chain_cache: HashMap::new(), // Populated via set_font_chain_cache()
             embedded_fonts: Mutex::new(HashMap::new()),
         })
@@ -438,16 +440,42 @@ impl<T: ParsedFontTrait> FontManager<T> {
 
     /// Create a FontManager from a pre-built shared font cache.
     ///
-    /// Use this when you have an `Arc<FcFontCache>` that you want to share
-    /// across multiple FontManager instances (e.g. when rendering multiple
-    /// HTML documents in parallel).
+    /// The parsed_fonts pool starts empty. Fonts loaded during the first
+    /// layout pass are cached and will be available on subsequent calls
+    /// if you clone the `parsed_fonts` Arc before creating the next instance.
+    /// For full sharing, prefer `from_arc_shared()`.
     pub fn from_arc(fc_cache: Arc<FcFontCache>) -> Result<Self, LayoutError> {
         Ok(Self {
             fc_cache,
-            parsed_fonts: Mutex::new(HashMap::new()),
+            parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
             font_chain_cache: HashMap::new(),
             embedded_fonts: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Create a FontManager sharing both the font-path cache and the
+    /// already-parsed font data with another FontManager.
+    ///
+    /// This avoids re-reading and re-parsing font files from disk when
+    /// rendering multiple documents that use the same fonts.
+    pub fn from_arc_shared(
+        fc_cache: Arc<FcFontCache>,
+        parsed_fonts: Arc<Mutex<HashMap<FontId, T>>>,
+    ) -> Result<Self, LayoutError> {
+        Ok(Self {
+            fc_cache,
+            parsed_fonts,
+            font_chain_cache: HashMap::new(),
+            embedded_fonts: Mutex::new(HashMap::new()),
+        })
+    }
+
+    /// Get a shareable handle to the parsed-font pool.
+    ///
+    /// Pass this to `from_arc_shared()` to create a new FontManager that
+    /// reuses already-parsed fonts.
+    pub fn shared_parsed_fonts(&self) -> Arc<Mutex<HashMap<FontId, T>>> {
+        Arc::clone(&self.parsed_fonts)
     }
 
     /// Set the font chain cache from externally resolved chains
