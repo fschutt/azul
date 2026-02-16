@@ -59,7 +59,7 @@ pub fn layout_document_paged<T, F>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
     fragmentation_context: FragmentationContext,
-    new_dom: StyledDom,
+    new_dom: &StyledDom,
     viewport: LogicalRect,
     font_manager: &mut crate::font_traits::FontManager<T>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
@@ -112,7 +112,7 @@ pub fn layout_document_paged_with_config<T, F>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
     mut fragmentation_context: FragmentationContext,
-    new_dom: StyledDom,
+    new_dom: &StyledDom,
     viewport: LogicalRect,
     font_manager: &mut crate::font_traits::FontManager<T>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
@@ -131,6 +131,7 @@ where
     F: Fn(&[u8], usize) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
     // Font Resolution And Loading
+    let _paged_t0 = std::time::Instant::now();
     {
         use crate::solver3::getters::{
             collect_and_resolve_font_chains, collect_font_ids_from_chains, compute_fonts_to_load,
@@ -141,16 +142,21 @@ where
         let platform = azul_css::system::Platform::current();
 
         // Register embedded FontRefs (e.g. Material Icons) before resolving chains
-        register_embedded_fonts_from_styled_dom(&new_dom, font_manager, &platform);
+        register_embedded_fonts_from_styled_dom(new_dom, font_manager, &platform);
 
-        let chains = collect_and_resolve_font_chains(&new_dom, &font_manager.fc_cache, &platform);
+        let _fc0 = std::time::Instant::now();
+        let chains = collect_and_resolve_font_chains(new_dom, &font_manager.fc_cache, &platform);
+        eprintln!("      [font_resolution] collect_and_resolve_font_chains: {:?}", _fc0.elapsed());
         let required_fonts = collect_font_ids_from_chains(&chains);
         let already_loaded = font_manager.get_loaded_font_ids();
         let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
+        eprintln!("      [font_resolution] {} required, {} already loaded, {} to load", required_fonts.len(), already_loaded.len(), fonts_to_load.len());
 
         if !fonts_to_load.is_empty() {
+            let _fc1 = std::time::Instant::now();
             let load_result =
                 load_fonts_from_disk(&fonts_to_load, &font_manager.fc_cache, &font_loader);
+            eprintln!("      [font_resolution] load_fonts_from_disk: {:?} ({} loaded, {} failed)", _fc1.elapsed(), load_result.loaded.len(), load_result.failed.len());
             font_manager.insert_fonts(load_result.loaded);
             for (font_id, error) in &load_result.failed {
                 if let Some(msgs) = debug_messages {
@@ -163,6 +169,7 @@ where
         }
         font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
     }
+    eprintln!("    [paged_layout] font resolution: {:?}", _paged_t0.elapsed());
 
     // Get page dimensions from fragmentation context
     let page_content_height = fragmentation_context.page_content_height();
@@ -192,11 +199,12 @@ where
 
     // Perform layout with fragmentation context
     // This will assign page_index to nodes based on their Y position
+    let _paged_t1 = std::time::Instant::now();
     let _display_list = layout_document_with_fragmentation(
         cache,
         text_cache,
         &mut fragmentation_context,
-        new_dom.clone(),
+        new_dom,
         viewport,
         font_manager,
         scroll_offsets,
@@ -208,6 +216,7 @@ where
         dom_id,
         get_system_time_fn,
     )?;
+    eprintln!("    [paged_layout] layout_with_fragmentation: {:?}", _paged_t1.elapsed());
 
     // Get the layout tree and positions
     let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
@@ -223,13 +232,13 @@ where
 
     // Compute scroll IDs (needed for display list generation)
     use crate::window::LayoutWindow;
-    let (scroll_ids, _scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(tree, &new_dom);
+    let (scroll_ids, _scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(tree, new_dom);
 
     // Create temporary context for display list generation
     let mut counter_values = cache.counters.clone();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx = LayoutContext {
-        styled_dom: &new_dom,
+        styled_dom: new_dom,
         font_manager: &*font_manager,
         selections,
         text_selections: &empty_text_selections,
@@ -266,6 +275,7 @@ where
     };
 
     // Step 1: Generate ONE complete display list (infinite canvas)
+    let _paged_t2 = std::time::Instant::now();
     let full_display_list = generate_display_list(
         &mut ctx,
         tree,
@@ -278,6 +288,7 @@ where
         dom_id,
     )?;
 
+    eprintln!("    [paged_layout] generate_display_list: {:?} ({} items)", _paged_t2.elapsed(), full_display_list.items.len());
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "[PagedLayout] Generated master display list with {} items",
@@ -308,10 +319,12 @@ where
     // Step 3: Paginate with CSS break property support
     // Break properties (break-before, break-after) are now collected during display list
     // generation and stored in DisplayList::forced_page_breaks
+    let _paged_t3 = std::time::Instant::now();
     let pages = paginate_display_list_with_slicer_and_breaks(
         full_display_list,
         &slicer_config,
     )?;
+    eprintln!("    [paged_layout] paginate: {:?} ({} pages)", _paged_t3.elapsed(), pages.len());
 
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -329,7 +342,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     cache: &mut LayoutCache,
     text_cache: &mut TextLayoutCache,
     fragmentation_context: &mut FragmentationContext,
-    new_dom: StyledDom,
+    new_dom: &StyledDom,
     viewport: LogicalRect,
     font_manager: &crate::font_traits::FontManager<T>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
@@ -350,7 +363,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     let mut counter_values = BTreeMap::new();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx_temp = LayoutContext {
-        styled_dom: &new_dom,
+        styled_dom: new_dom,
         font_manager,
         selections,
         text_selections: &empty_text_selections,
@@ -366,8 +379,10 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     };
 
     // --- Step 1: Reconciliation & Invalidation ---
+    let _frag_t0 = std::time::Instant::now();
     let (mut new_tree, mut recon_result) =
         cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?;
+    eprintln!("      [fragmentation] reconcile_and_invalidate: {:?} ({} nodes, {} dirty)", _frag_t0.elapsed(), new_tree.nodes.len(), recon_result.intrinsic_dirty.len());
 
     // Step 1.2: Clear Taffy Caches for Dirty Nodes
     for &node_idx in &recon_result.intrinsic_dirty {
@@ -377,7 +392,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     }
 
     // Step 1.3: Compute CSS Counters
-    cache::compute_counters(&new_dom, &new_tree, &mut counter_values);
+    cache::compute_counters(new_dom, &new_tree, &mut counter_values);
 
     // Step 1.4: Resize and invalidate per-node cache (Taffy-inspired 9+1 slot cache)
     // Move cache_map out of LayoutCache for the duration of layout.
@@ -392,7 +407,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
     // Now create the real context with computed counters and fragmentation
     let mut ctx = LayoutContext {
-        styled_dom: &new_dom,
+        styled_dom: new_dom,
         font_manager,
         selections,
         text_selections: &empty_text_selections,
@@ -413,7 +428,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
 
         use crate::window::LayoutWindow;
-        let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(tree, &new_dom);
+        let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(tree, new_dom);
         cache.scroll_ids = scroll_ids.clone();
         cache.scroll_id_to_node_id = scroll_id_to_node_id;
 
@@ -431,6 +446,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     }
 
     // --- Step 2: Incremental Layout Loop ---
+    let _frag_t1 = std::time::Instant::now();
     let mut calculated_positions = cache.calculated_positions.clone();
     let mut loop_count = 0;
     loop {
@@ -451,7 +467,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         for &root_idx in &recon_result.layout_roots {
             let (cb_pos, cb_size) = get_containing_block_for_node(
                 &new_tree,
-                &new_dom,
+                new_dom,
                 root_idx,
                 &calculated_positions,
                 viewport,
@@ -500,7 +516,7 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         }
 
         cache::reposition_clean_subtrees(
-            &new_dom,
+            new_dom,
             &new_tree,
             &recon_result.layout_roots,
             &mut calculated_positions,
@@ -517,7 +533,10 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         break;
     }
 
+    eprintln!("      [fragmentation] layout loop: {:?} ({} iterations)", _frag_t1.elapsed(), loop_count);
+
     // --- Step 3: Adjust Positions ---
+    let _frag_t2 = std::time::Instant::now();
     crate::solver3::positioning::adjust_relative_positions(
         &mut ctx,
         &new_tree,
@@ -532,11 +551,14 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         viewport,
     )?;
 
+    eprintln!("      [fragmentation] position adjustments: {:?}", _frag_t2.elapsed());
+
     // --- Step 3.75: Compute Stable Scroll IDs ---
     use crate::window::LayoutWindow;
-    let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(&new_tree, &new_dom);
+    let (scroll_ids, scroll_id_to_node_id) = LayoutWindow::compute_scroll_ids(&new_tree, new_dom);
 
     // --- Step 4: Generate Display List & Update Cache ---
+    let _frag_t3 = std::time::Instant::now();
     let display_list = generate_display_list(
         &mut ctx,
         &new_tree,
@@ -550,6 +572,8 @@ fn layout_document_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     )?;
 
     // Move cache_map back into LayoutCache before dropping ctx
+    eprintln!("      [fragmentation] generate_display_list: {:?}", _frag_t3.elapsed());
+
     let cache_map_back = std::mem::take(&mut ctx.cache_map);
 
     cache.tree = Some(new_tree);

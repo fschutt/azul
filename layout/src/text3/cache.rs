@@ -436,6 +436,20 @@ impl<T: ParsedFontTrait> FontManager<T> {
         })
     }
 
+    /// Create a FontManager from a pre-built shared font cache.
+    ///
+    /// Use this when you have an `Arc<FcFontCache>` that you want to share
+    /// across multiple FontManager instances (e.g. when rendering multiple
+    /// HTML documents in parallel).
+    pub fn from_arc(fc_cache: Arc<FcFontCache>) -> Result<Self, LayoutError> {
+        Ok(Self {
+            fc_cache,
+            parsed_fonts: Mutex::new(HashMap::new()),
+            font_chain_cache: HashMap::new(),
+            embedded_fonts: Mutex::new(HashMap::new()),
+        })
+    }
+
     /// Set the font chain cache from externally resolved chains
     ///
     /// This should be called with the result of `resolve_font_chains()` or
