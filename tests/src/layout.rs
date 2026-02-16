@@ -272,17 +272,14 @@ mod text2 {
         node_data.set_node_type(NodeType::Text(AzString::from(text)));
 
         // Apply CSS properties
-        let mut property_cache = CssPropertyCache::default();
-        property_cache.node_count = 1;
+        let mut property_cache = CssPropertyCache::empty(1);
 
         let mut props_map = BTreeMap::new();
         for (property_type, property_value) in properties {
             props_map.insert(property_type, property_value);
         }
 
-        property_cache
-            .css_normal_props
-            .insert(NodeId::new(0), props_map);
+        property_cache.css_normal_props[0] = props_map;
 
         // Create styled node
         let styled_node = StyledNode::default();
@@ -1347,15 +1344,11 @@ mod context {
         styled_dom.node_hierarchy = node_hierarchy.into();
 
         // Apply the CSS properties
-        let mut property_cache = CssPropertyCache::default();
-        property_cache.node_count = properties.len() + 1;
+        let mut property_cache = CssPropertyCache::empty(properties.len() + 1);
 
         for (node_id, property_type, property_value) in properties {
             // Insert properties directly into the normal properties map
-            property_cache
-                .css_normal_props
-                .entry(node_id)
-                .or_insert_with(|| BTreeMap::new())
+            property_cache.css_normal_props[node_id.index()]
                 .insert(property_type, property_value);
         }
 

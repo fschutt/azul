@@ -901,6 +901,17 @@ impl StyledDom {
             compact_dom.node_data.as_ref().internal,
         );
 
+        // Build pre-resolved property cache for O(1) layout lookups.
+        // Must be called after restyle() + apply_ua_css() + compute_inherited_values()
+        // so that all cascade sources are populated.
+        // NOTE: Currently disabled — the build cost (~70ms for 12K nodes) roughly equals
+        // the layout savings (~20ms), so net benefit is negligible. The Vec-based source
+        // maps already give O(1) outer lookup. Uncomment if build cost is reduced further.
+        // css_property_cache.resolved_cache = css_property_cache.build_resolved_cache(
+        //     compact_dom.node_data.as_ref().internal,
+        //     &styled_nodes,
+        // );
+
         // Pre-filter all EventFilter::Window and EventFilter::Not nodes
         // since we need them in the CallbacksOfHitTest::new function
         let nodes_with_window_callbacks = compact_dom
@@ -1396,13 +1407,13 @@ impl StyledDom {
             .filter_map(|(node_id, old_node_state)| {
                 let mut keys_normal: Vec<_> = css_property_cache
                     .css_hover_props
-                    .get(node_id)
+                    .get(node_id.index())
                     .unwrap_or(&default_map)
                     .keys()
                     .collect();
                 let mut keys_inherited: Vec<_> = css_property_cache
                     .cascaded_hover_props
-                    .get(node_id)
+                    .get(node_id.index())
                     .unwrap_or(&default_map)
                     .keys()
                     .collect();
@@ -1519,14 +1530,14 @@ impl StyledDom {
             .filter_map(|(node_id, old_node_state)| {
                 let mut keys_normal: Vec<_> = css_property_cache
                     .css_active_props
-                    .get(node_id)
+                    .get(node_id.index())
                     .unwrap_or(&default_map)
                     .keys()
                     .collect();
 
                 let mut keys_inherited: Vec<_> = css_property_cache
                     .cascaded_active_props
-                    .get(node_id)
+                    .get(node_id.index())
                     .unwrap_or(&default_map)
                     .keys()
                     .collect();
@@ -1646,7 +1657,7 @@ impl StyledDom {
             .filter_map(|(node_id, old_node_state)| {
                 let mut keys_normal: Vec<_> = css_property_cache
                     .css_focus_props
-                    .get(node_id)
+                    .get(node_id.index())
                     .unwrap_or(&default_map)
                     .keys()
                     .collect();
@@ -1654,7 +1665,7 @@ impl StyledDom {
 
                 let mut keys_inherited: Vec<_> = css_property_cache
                     .cascaded_focus_props
-                    .get(node_id)
+                    .get(node_id.index())
                     .unwrap_or(&default_map)
                     .keys()
                     .collect();
@@ -1908,25 +1919,13 @@ impl StyledDom {
 
         for new_prop in new_properties.iter() {
             if new_prop.is_initial() {
-                let mut should_remove_map = false;
-                if let Some(map) = css_property_cache_mut
-                    .user_overridden_properties
-                    .get_mut(node_id)
-                {
-                    // CssProperty::Initial = remove overridden property
-                    map.remove(&new_prop.get_type());
-                    should_remove_map = map.is_empty();
-                }
-                if should_remove_map {
-                    css_property_cache_mut
-                        .user_overridden_properties
-                        .remove(node_id);
-                }
+                let map = &mut css_property_cache_mut
+                    .user_overridden_properties[node_id.index()];
+                // CssProperty::Initial = remove overridden property
+                map.remove(&new_prop.get_type());
             } else {
                 css_property_cache_mut
-                    .user_overridden_properties
-                    .entry(*node_id)
-                    .or_insert_with(|| BTreeMap::new())
+                    .user_overridden_properties[node_id.index()]
                     .insert(new_prop.get_type(), new_prop.clone());
             }
         }

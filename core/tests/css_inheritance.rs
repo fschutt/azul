@@ -66,7 +66,7 @@ fn test_font_size_inheritance_single_level() {
     let child_id = azul_core::dom::NodeId::new(1); // p
 
     // Check computed values for child
-    if let Some(child_computed) = cache.computed_values.get(&child_id) {
+    if let Some(child_computed) = cache.computed_values.get(child_id.index()) {
         let Some(prop_with_origin) = child_computed.get(&CssPropertyType::FontSize) else {
             panic!("Child should have FontSize");
         };
@@ -124,7 +124,7 @@ fn test_font_size_override_not_inherited() {
     let child_id = azul_core::dom::NodeId::new(1); // p
 
     // Verify that child has its own explicit value, not the inherited one
-    if let Some(child_computed) = cache.computed_values.get(&child_id) {
+    if let Some(child_computed) = cache.computed_values.get(child_id.index()) {
         let Some(prop_with_origin) = child_computed.get(&CssPropertyType::FontSize) else {
             panic!("Child should have FontSize");
         };
@@ -181,7 +181,7 @@ fn test_font_weight_inheritance_multi_level() {
 
     // Verify that both <p> and <span> inherited font-weight: bold
     for (node_id, node_name) in &[(p_id, "p"), (span_id, "span")] {
-        if let Some(computed) = cache.computed_values.get(node_id) {
+        if let Some(computed) = cache.computed_values.get(node_id.index()) {
             let Some(prop_with_origin) = computed.get(&CssPropertyType::FontWeight) else {
                 panic!("{} should have FontWeight", node_name);
             };
@@ -243,7 +243,7 @@ fn test_mixed_inherited_and_explicit_properties() {
 
     let p_id = azul_core::dom::NodeId::new(1); // p
 
-    if let Some(p_computed) = cache.computed_values.get(&p_id) {
+    if let Some(p_computed) = cache.computed_values.get(p_id.index()) {
         // Check font-size (explicit)
         let Some(prop_with_origin) = p_computed.get(&CssPropertyType::FontSize) else {
             panic!("p should have computed FontSize");
@@ -305,7 +305,7 @@ fn test_non_inheritable_property_not_inherited() {
 
     let p_id = azul_core::dom::NodeId::new(1); // p
 
-    if let Some(p_computed) = cache.computed_values.get(&p_id) {
+    if let Some(p_computed) = cache.computed_values.get(p_id.index()) {
         // Width should NOT be inherited from parent (200px)
         // Test the ORIGIN of the property, not just its value
         if let Some(prop_with_origin) = p_computed.get(&CssPropertyType::Width) {
@@ -349,8 +349,8 @@ fn test_update_invalidation() {
     let node_data = &styled_dom.node_data.as_container().internal[..];
 
     // Clear the cache to test first computation (StyledDom::new already computed once)
-    cache.computed_values.clear();
-    cache.dependency_chains.clear();
+    cache.computed_values.iter_mut().for_each(|m| m.clear());
+    cache.dependency_chains.iter_mut().for_each(|m| m.clear());
 
     // First computation
     let changed_nodes_1 = cache.compute_inherited_values(node_hierarchy, node_data);
@@ -413,7 +413,7 @@ fn test_deeply_nested_inheritance() {
     // Verify all descendants inherited font-weight: bold
     let span_id = azul_core::dom::NodeId::new(4); // The deepest span
 
-    let Some(span_computed) = cache.computed_values.get(&span_id) else {
+    let Some(span_computed) = cache.computed_values.get(span_id.index()) else {
         panic!("Deeply nested span should have computed values");
     };
 
@@ -470,7 +470,7 @@ fn test_em_unit_inheritance_basic() {
 
     let p_id = azul_core::dom::NodeId::new(1); // p
 
-    let Some(p_computed) = cache.computed_values.get(&p_id) else {
+    let Some(p_computed) = cache.computed_values.get(p_id.index()) else {
         panic!("p should have computed values");
     };
 
@@ -542,7 +542,7 @@ fn test_em_unit_cascading_multiplication() {
     let span_id = azul_core::dom::NodeId::new(2); // span
 
     // Check p: 2em * 10px = 20px
-    let Some(p_computed) = cache.computed_values.get(&p_id) else {
+    let Some(p_computed) = cache.computed_values.get(p_id.index()) else {
         panic!("p should have computed values");
     };
 
@@ -561,7 +561,7 @@ fn test_em_unit_cascading_multiplication() {
     assert_eq!(p_size, 20.0, "p should be 20px (2em * 10px)");
 
     // Check span: 1.5em * 20px = 30px
-    let Some(span_computed) = cache.computed_values.get(&span_id) else {
+    let Some(span_computed) = cache.computed_values.get(span_id.index()) else {
         panic!("span should have computed values");
     };
 
@@ -642,7 +642,7 @@ fn test_em_on_font_size_refers_to_parent() {
     // Check div's font-size: should be 20px (Px metric)
     let div_computed = cache
         .computed_values
-        .get(&div_id)
+        .get(div_id.index())
         .expect("div should have computed values");
     let div_font_prop = div_computed
         .get(&CssPropertyType::FontSize)
@@ -667,7 +667,7 @@ fn test_em_on_font_size_refers_to_parent() {
     // Check p's font-size: should be resolved to 30px (1.5 * 20px parent)
     let p_computed = cache
         .computed_values
-        .get(&p_id)
+        .get(p_id.index())
         .expect("p should have computed values");
     let p_font_prop = p_computed
         .get(&CssPropertyType::FontSize)
@@ -695,7 +695,7 @@ fn test_em_on_font_size_refers_to_parent() {
     // Check span's inherited font-size: should inherit 30px from p
     let span_computed = cache
         .computed_values
-        .get(&span_id)
+        .get(span_id.index())
         .expect("span should have computed values");
     let span_font_prop = span_computed
         .get(&CssPropertyType::FontSize)
@@ -760,7 +760,7 @@ fn test_em_without_ancestor_absolute_unit() {
     // div should resolve to 2 * 16px (default) = 32px
     let div_computed = cache
         .computed_values
-        .get(&div_id)
+        .get(div_id.index())
         .expect("div should have computed values");
     let div_font_prop = div_computed
         .get(&CssPropertyType::FontSize)
@@ -788,7 +788,7 @@ fn test_em_without_ancestor_absolute_unit() {
     // p should inherit 32px from div
     let p_computed = cache
         .computed_values
-        .get(&p_id)
+        .get(p_id.index())
         .expect("p should have computed values");
     let p_font_prop = p_computed
         .get(&CssPropertyType::FontSize)
@@ -861,7 +861,7 @@ fn test_percentage_font_size_inheritance() {
     let span_id = azul_core::dom::NodeId::new(2); // span
 
     // p: 150% of 20px = 30px
-    let Some(p_computed) = cache.computed_values.get(&p_id) else {
+    let Some(p_computed) = cache.computed_values.get(p_id.index()) else {
         panic!("p should have computed values");
     };
 
@@ -881,7 +881,7 @@ fn test_percentage_font_size_inheritance() {
     assert_eq!(p_size, 30.0, "p with 150% should be 30px (1.5 * 20px)");
 
     // span: 80% of 30px = 24px
-    let Some(span_computed) = cache.computed_values.get(&span_id) else {
+    let Some(span_computed) = cache.computed_values.get(span_id.index()) else {
         panic!("span should have computed values");
     };
 

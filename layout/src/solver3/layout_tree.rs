@@ -1484,7 +1484,7 @@ fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
     let cache = &styled_dom.css_property_cache.ptr;
 
     // Try to get from dependency chain first (proper resolution)
-    if let Some(node_chains) = cache.dependency_chains.get(&dom_id) {
+    if let Some(node_chains) = cache.dependency_chains.get(dom_id.index()) {
         if let Some(chain) = node_chains.get(&CssPropertyType::FontSize) {
             if let Some(cached) = chain.cached_pixels {
                 return cached;

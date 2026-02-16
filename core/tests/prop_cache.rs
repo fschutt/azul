@@ -48,15 +48,15 @@ fn test_computed_values_exist_for_all_nodes() {
     let node_2 = azul_core::dom::NodeId::new(2);
 
     assert!(
-        cache.computed_values.get(&node_0).is_some(),
+        cache.computed_values.get(node_0.index()).is_some(),
         "Node 0 should have computed values"
     );
     assert!(
-        cache.computed_values.get(&node_1).is_some(),
+        cache.computed_values.get(node_1.index()).is_some(),
         "Node 1 should have computed values"
     );
     assert!(
-        cache.computed_values.get(&node_2).is_some(),
+        cache.computed_values.get(node_2.index()).is_some(),
         "Node 2 should have computed values"
     );
 }
@@ -75,7 +75,7 @@ fn test_inline_css_takes_precedence() {
     let node_0 = azul_core::dom::NodeId::new(0);
     let computed = cache
         .computed_values
-        .get(&node_0)
+        .get(node_0.index())
         .expect("should have computed values");
     let font_size_prop = computed
         .get(&CssPropertyType::FontSize)
@@ -105,7 +105,7 @@ fn test_css_stylesheet_applies() {
     let p_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(&p_id)
+        .get(p_id.index())
         .expect("p should have computed values");
 
     if let Some(font_size_prop) = computed.get(&CssPropertyType::FontSize) {
@@ -135,7 +135,7 @@ fn test_inherited_property_has_correct_origin() {
     let p_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(&p_id)
+        .get(p_id.index())
         .expect("p should have computed values");
     let font_size_prop = computed
         .get(&CssPropertyType::FontSize)
@@ -183,7 +183,7 @@ fn test_own_property_overrides_inherited() {
     let p_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(&p_id)
+        .get(p_id.index())
         .expect("p should have computed values");
     let font_size_prop = computed
         .get(&CssPropertyType::FontSize)
@@ -228,7 +228,7 @@ fn test_em_resolved_to_px_in_computed() {
     let p_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(&p_id)
+        .get(p_id.index())
         .expect("p should have computed values");
     let font_size_prop = computed
         .get(&CssPropertyType::FontSize)
@@ -273,7 +273,7 @@ fn test_deeply_nested_inheritance() {
     let deep_id = azul_core::dom::NodeId::new(3);
     let computed = cache
         .computed_values
-        .get(&deep_id)
+        .get(deep_id.index())
         .expect("deep node should have computed values");
     let font_size_prop = computed
         .get(&CssPropertyType::FontSize)
@@ -296,7 +296,7 @@ fn test_ua_css_for_headings() {
     let h1_id = azul_core::dom::NodeId::new(0);
     let computed = cache
         .computed_values
-        .get(&h1_id)
+        .get(h1_id.index())
         .expect("h1 should have computed values");
 
     if let Some(font_size_prop) = computed.get(&CssPropertyType::FontSize) {
@@ -329,7 +329,7 @@ fn test_multiple_properties_computed() {
     let div_id = azul_core::dom::NodeId::new(0);
     let computed = cache
         .computed_values
-        .get(&div_id)
+        .get(div_id.index())
         .expect("div should have computed values");
 
     // Check that multiple properties exist
@@ -345,7 +345,7 @@ fn test_no_computed_values_for_nonexistent_node() {
 
     // Node 100 doesn't exist
     let nonexistent_id = azul_core::dom::NodeId::new(100);
-    assert!(cache.computed_values.get(&nonexistent_id).is_none());
+    assert!(cache.computed_values.get(nonexistent_id.index()).is_none());
 }
 
 #[test]
@@ -368,7 +368,7 @@ fn test_font_weight_inheritance() {
     let span_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(&span_id)
+        .get(span_id.index())
         .expect("span should have computed values");
 
     if let Some(font_weight_prop) = computed.get(&CssPropertyType::FontWeight) {
@@ -410,7 +410,7 @@ fn test_color_inheritance() {
     let p_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(&p_id)
+        .get(p_id.index())
         .expect("p should have computed values");
 
     if let Some(color_prop) = computed.get(&CssPropertyType::TextColor) {
@@ -441,7 +441,7 @@ fn test_non_inheritable_property_not_inherited() {
     let p_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(&p_id)
+        .get(p_id.index())
         .expect("p should have computed values");
 
     if let Some(display_prop) = computed.get(&CssPropertyType::Display) {
@@ -468,7 +468,7 @@ fn test_empty_css_produces_only_ua_styles() {
     let p_id = azul_core::dom::NodeId::new(0);
     let computed = cache
         .computed_values
-        .get(&p_id)
+        .get(p_id.index())
         .expect("p should have computed values");
 
     // P has UA CSS margin-top and margin-bottom
@@ -496,7 +496,7 @@ fn test_text_node_inherits_from_parent() {
     let text_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(&text_id)
+        .get(text_id.index())
         .expect("text should have computed values");
 
     if let Some(font_size_prop) = computed.get(&CssPropertyType::FontSize) {

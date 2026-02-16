@@ -436,43 +436,32 @@ pub struct CssPropertyCache {
     pub node_count: usize,
 
     // properties that were overridden in callbacks (not specific to any node state)
-    pub user_overridden_properties: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub user_overridden_properties: Vec<BTreeMap<CssPropertyType, CssProperty>>,
 
     // non-default CSS properties that were cascaded from the parent
-    pub cascaded_normal_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub cascaded_hover_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub cascaded_active_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub cascaded_focus_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub cascaded_dragging_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub cascaded_drag_over_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub cascaded_normal_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
+    pub cascaded_hover_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
+    pub cascaded_active_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
+    pub cascaded_focus_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
+    pub cascaded_dragging_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
+    pub cascaded_drag_over_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
 
     // non-default CSS properties that were set via a CSS file
-    pub css_normal_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub css_hover_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub css_active_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub css_focus_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub css_dragging_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
-    pub css_drag_over_props: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssProperty>>,
+    pub css_normal_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
+    pub css_hover_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
+    pub css_active_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
+    pub css_focus_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
+    pub css_dragging_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
+    pub css_drag_over_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
 
     // NEW: Computed values cache - pre-resolved inherited properties
-    // This cache contains the final computed values after inheritance resolution.
-    // Updated whenever a property changes or the DOM structure changes.
-    // Properties are stored in contiguous memory per node for efficient access.
-    // Each property is tagged with its origin (Inherited vs Own) to correctly handle
-    // the CSS cascade when properties are updated.
-    pub computed_values: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssPropertyWithOrigin>>,
+    pub computed_values: Vec<BTreeMap<CssPropertyType, CssPropertyWithOrigin>>,
 
     // NEW: Dependency chains for relative values (em, %, rem, etc.)
-    // Maps NodeId → PropertyType → DependencyChain
-    // This allows efficient updates when a property changes:
-    // 1. Find all chains that depend on the changed node
-    // 2. Invalidate their cached values
-    // 3. Resolve chains during layout when needed
-    //
-    // Example: If node 5's font-size changes from 16px to 20px:
-    // - All child nodes with font-size: 1.5em need recalculation
-    // - All nodes with padding: 2em that depend on node 5 need updates
-    pub dependency_chains: BTreeMap<NodeId, BTreeMap<CssPropertyType, CssDependencyChain>>,
+    pub dependency_chains: Vec<BTreeMap<CssPropertyType, CssDependencyChain>>,
+
+    // Pre-resolved property cache: Vec indexed by node ID, inner Vec sorted by CssPropertyType.
+    pub resolved_cache: Vec<Vec<(CssPropertyType, CssProperty)>>,
 }
 
 impl CssPropertyCache {
@@ -592,83 +581,24 @@ impl CssPropertyCache {
                     }
                 });
 
-            self.css_normal_props = css_normal_rules
-                .internal
-                .into_iter()
-                .map(|(n, map)| {
-                    (
-                        n,
-                        map.into_iter()
+            // Assign CSS rules to Vec-based storage (indexed by NodeId)
+            macro_rules! assign_css_rules {
+                ($field:expr, $rules:expr) => {{
+                    for entry in $field.iter_mut() { entry.clear(); }
+                    for (n, map) in $rules.internal.into_iter() {
+                        $field[n.index()] = map.into_iter()
                             .map(|prop| (prop.get_type(), prop))
-                            .collect(),
-                    )
-                })
-                .collect();
+                            .collect();
+                    }
+                }};
+            }
 
-            self.css_hover_props = css_hover_rules
-                .internal
-                .into_iter()
-                .map(|(n, map)| {
-                    (
-                        n,
-                        map.into_iter()
-                            .map(|prop| (prop.get_type(), prop))
-                            .collect(),
-                    )
-                })
-                .collect();
-
-            self.css_active_props = css_active_rules
-                .internal
-                .into_iter()
-                .map(|(n, map)| {
-                    (
-                        n,
-                        map.into_iter()
-                            .map(|prop| (prop.get_type(), prop))
-                            .collect(),
-                    )
-                })
-                .collect();
-
-            self.css_focus_props = css_focus_rules
-                .internal
-                .into_iter()
-                .map(|(n, map)| {
-                    (
-                        n,
-                        map.into_iter()
-                            .map(|prop| (prop.get_type(), prop))
-                            .collect(),
-                    )
-                })
-                .collect();
-
-            self.css_dragging_props = css_dragging_rules
-                .internal
-                .into_iter()
-                .map(|(n, map)| {
-                    (
-                        n,
-                        map.into_iter()
-                            .map(|prop| (prop.get_type(), prop))
-                            .collect(),
-                    )
-                })
-                .collect();
-
-            self.css_drag_over_props = css_drag_over_rules
-                .internal
-                .into_iter()
-                .map(|(n, map)| {
-                    (
-                        n,
-                        map.into_iter()
-                            .map(|prop| (prop.get_type(), prop))
-                            .collect(),
-                    )
-                })
-                .collect();
+            assign_css_rules!(self.css_normal_props, css_normal_rules);
+            assign_css_rules!(self.css_hover_props, css_hover_rules);
+            assign_css_rules!(self.css_active_props, css_active_rules);
+            assign_css_rules!(self.css_focus_props, css_focus_rules);
+            assign_css_rules!(self.css_dragging_props, css_dragging_rules);
+            assign_css_rules!(self.css_drag_over_props, css_drag_over_rules);
         }
 
         // Inheritance: Inherit all values of the parent to the children, but
@@ -683,37 +613,27 @@ impl CssPropertyCache {
             // map B will be populated with all inherited CSS properties
             macro_rules! inherit_props {
                 ($from_inherit_map:expr, $to_inherit_map:expr) => {
-                    let parent_inheritable_css_props =
-                        $from_inherit_map.get(&parent_id).and_then(|map| {
-                            let parent_inherit_props = map
-                                .iter()
-                                .filter(|(css_prop_type, _)| css_prop_type.is_inheritable())
-                                .map(|(css_prop_type, css_prop)| (*css_prop_type, css_prop.clone()))
-                                .collect::<Vec<(CssPropertyType, CssProperty)>>();
-                            if parent_inherit_props.is_empty() {
-                                None
-                            } else {
-                                Some(parent_inherit_props)
-                            }
-                        });
+                    let parent_map = &$from_inherit_map[parent_id.index()];
+                    if !parent_map.is_empty() {
+                        let parent_inherit_props: Vec<(CssPropertyType, CssProperty)> = parent_map
+                            .iter()
+                            .filter(|(css_prop_type, _)| css_prop_type.is_inheritable())
+                            .map(|(css_prop_type, css_prop)| (*css_prop_type, css_prop.clone()))
+                            .collect();
 
-                    match parent_inheritable_css_props {
-                        Some(pi) => {
+                        if !parent_inherit_props.is_empty() {
                             // only override the rule if the child does not already have an
                             // inherited rule
                             for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
-                                let child_map = $to_inherit_map
-                                    .entry(child_id)
-                                    .or_insert_with(|| BTreeMap::new());
+                                let child_map = &mut $to_inherit_map[child_id.index()];
 
-                                for (inherited_rule_type, inherited_rule_value) in pi.iter() {
+                                for (inherited_rule_type, inherited_rule_value) in parent_inherit_props.iter() {
                                     let _ = child_map
                                         .entry(*inherited_rule_type)
                                         .or_insert_with(|| inherited_rule_value.clone());
                                 }
                             }
                         }
-                        None => {}
                     }
                 };
             }
@@ -748,7 +668,7 @@ impl CssPropertyCache {
                 if !parent_inheritable_css_props.is_empty() {
                     // only override the rule if the child does not already have an inherited rule
                     for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
-                        let child_map = $to_inherit_map.entry(child_id).or_insert_with(|| BTreeMap::new());
+                        let child_map = &mut $to_inherit_map[child_id.index()];
                         for inherited_rule in parent_inheritable_css_props.iter() {
                             let _ = child_map
                             .entry(inherited_rule.get_type())
@@ -868,8 +788,8 @@ impl CssPropertyCache {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover))
                             })
                         })
-                    } || self.css_hover_props.get(&node_id).is_some()
-                        || self.cascaded_hover_props.get(&node_id).is_some();
+                    } || self.css_hover_props.get(node_id.index()).map_or(false, |m| !m.is_empty())
+                        || self.cascaded_hover_props.get(node_id.index()).map_or(false, |m| !m.is_empty());
 
                     if node_has_hover_props {
                         node_should_have_tag = true;
@@ -884,8 +804,8 @@ impl CssPropertyCache {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::Active))
                             })
                         })
-                    } || self.css_active_props.get(&node_id).is_some()
-                        || self.cascaded_active_props.get(&node_id).is_some();
+                    } || self.css_active_props.get(node_id.index()).map_or(false, |m| !m.is_empty())
+                        || self.cascaded_active_props.get(node_id.index()).map_or(false, |m| !m.is_empty());
 
                     if node_has_active_props {
                         node_should_have_tag = true;
@@ -900,8 +820,8 @@ impl CssPropertyCache {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::Focus))
                             })
                         })
-                    } || self.css_focus_props.get(&node_id).is_some()
-                        || self.cascaded_focus_props.get(&node_id).is_some();
+                    } || self.css_focus_props.get(node_id.index()).map_or(false, |m| !m.is_empty())
+                        || self.cascaded_focus_props.get(node_id.index()).map_or(false, |m| !m.is_empty());
 
                     if node_has_focus_props {
                         node_should_have_tag = true;
@@ -916,8 +836,8 @@ impl CssPropertyCache {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::Dragging))
                             })
                         })
-                    } || self.css_dragging_props.get(&node_id).is_some()
-                        || self.cascaded_dragging_props.get(&node_id).is_some();
+                    } || self.css_dragging_props.get(node_id.index()).map_or(false, |m| !m.is_empty())
+                        || self.cascaded_dragging_props.get(node_id.index()).map_or(false, |m| !m.is_empty());
 
                     if node_has_dragging_props {
                         node_should_have_tag = true;
@@ -932,8 +852,8 @@ impl CssPropertyCache {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::DragOver))
                             })
                         })
-                    } || self.css_drag_over_props.get(&node_id).is_some()
-                        || self.cascaded_drag_over_props.get(&node_id).is_some();
+                    } || self.css_drag_over_props.get(node_id.index()).map_or(false, |m| !m.is_empty())
+                        || self.cascaded_drag_over_props.get(node_id.index()).map_or(false, |m| !m.is_empty());
 
                     if node_has_drag_over_props {
                         node_should_have_tag = true;
@@ -1328,36 +1248,32 @@ impl CssPropertyCache {
     pub fn empty(node_count: usize) -> Self {
         Self {
             node_count,
-            user_overridden_properties: BTreeMap::new(),
+            user_overridden_properties: vec![BTreeMap::new(); node_count],
 
-            cascaded_normal_props: BTreeMap::new(),
-            cascaded_hover_props: BTreeMap::new(),
-            cascaded_active_props: BTreeMap::new(),
-            cascaded_focus_props: BTreeMap::new(),
-            cascaded_dragging_props: BTreeMap::new(),
-            cascaded_drag_over_props: BTreeMap::new(),
+            cascaded_normal_props: vec![BTreeMap::new(); node_count],
+            cascaded_hover_props: vec![BTreeMap::new(); node_count],
+            cascaded_active_props: vec![BTreeMap::new(); node_count],
+            cascaded_focus_props: vec![BTreeMap::new(); node_count],
+            cascaded_dragging_props: vec![BTreeMap::new(); node_count],
+            cascaded_drag_over_props: vec![BTreeMap::new(); node_count],
 
-            css_normal_props: BTreeMap::new(),
-            css_hover_props: BTreeMap::new(),
-            css_active_props: BTreeMap::new(),
-            css_focus_props: BTreeMap::new(),
-            css_dragging_props: BTreeMap::new(),
-            css_drag_over_props: BTreeMap::new(),
+            css_normal_props: vec![BTreeMap::new(); node_count],
+            css_hover_props: vec![BTreeMap::new(); node_count],
+            css_active_props: vec![BTreeMap::new(); node_count],
+            css_focus_props: vec![BTreeMap::new(); node_count],
+            css_dragging_props: vec![BTreeMap::new(); node_count],
+            css_drag_over_props: vec![BTreeMap::new(); node_count],
 
-            computed_values: BTreeMap::new(),
-            dependency_chains: BTreeMap::new(),
+            computed_values: vec![BTreeMap::new(); node_count],
+            dependency_chains: vec![BTreeMap::new(); node_count],
+            resolved_cache: Vec::new(),
         }
     }
 
     pub fn append(&mut self, other: &mut Self) {
         macro_rules! append_css_property_vec {
             ($field_name:ident) => {{
-                let mut s = BTreeMap::new();
-                core::mem::swap(&mut s, &mut other.$field_name);
-                for (node_id, property_map) in s.into_iter() {
-                    self.$field_name
-                        .insert(node_id + self.node_count, property_map);
-                }
+                self.$field_name.extend(other.$field_name.drain(..));
             }};
         }
 
@@ -1377,30 +1293,27 @@ impl CssPropertyCache {
         append_css_property_vec!(computed_values);
 
         // Special handling for dependency_chains: need to adjust source_node IDs
-        {
-            let mut s = BTreeMap::new();
-            core::mem::swap(&mut s, &mut other.dependency_chains);
-            for (node_id, mut chains_map) in s.into_iter() {
-                // Adjust the source_node IDs in each chain's steps
-                for (_prop_type, chain) in chains_map.iter_mut() {
-                    for step in chain.steps.iter_mut() {
-                        match step {
-                            CssDependencyChainStep::Em { source_node, .. } => {
-                                *source_node = NodeId::new(source_node.index() + self.node_count);
-                            }
-                            CssDependencyChainStep::Percent { source_node, .. } => {
-                                *source_node = NodeId::new(source_node.index() + self.node_count);
-                            }
-                            _ => {}
+        for mut chains_map in other.dependency_chains.drain(..) {
+            for (_prop_type, chain) in chains_map.iter_mut() {
+                for step in chain.steps.iter_mut() {
+                    match step {
+                        CssDependencyChainStep::Em { source_node, .. } => {
+                            *source_node = NodeId::new(source_node.index() + self.node_count);
                         }
+                        CssDependencyChainStep::Percent { source_node, .. } => {
+                            *source_node = NodeId::new(source_node.index() + self.node_count);
+                        }
+                        _ => {}
                     }
                 }
-                self.dependency_chains
-                    .insert(node_id + self.node_count, chains_map);
             }
+            self.dependency_chains.push(chains_map);
         }
 
         self.node_count += other.node_count;
+
+        // Invalidate resolved cache since node IDs shifted
+        self.resolved_cache.clear();
     }
 
     pub fn is_horizontal_overflow_visible(
@@ -1540,15 +1453,34 @@ impl CssPropertyCache {
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
     ) -> Option<&CssProperty> {
-        // NOTE: This function is slow, but it is going to be called on every
-        // node in parallel, so it should be rather fast in the end
+        // Fast path: use pre-resolved cache if available (O(1) + O(log m) vs O(log n) × 18)
+        if let Some(node_props) = self.resolved_cache.get(node_id.index()) {
+            return node_props
+                .binary_search_by_key(css_property_type, |(t, _)| *t)
+                .ok()
+                .map(|i| &node_props[i].1);
+        }
+
+        // Slow path: full cascade resolution
+        self.get_property_slow(node_data, node_id, node_state, css_property_type)
+    }
+
+    /// Full cascade resolution without using the resolved cache.
+    /// Used internally by build_resolved_cache() and as fallback when cache is not built.
+    fn get_property_slow<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+        css_property_type: &CssPropertyType,
+    ) -> Option<&CssProperty> {
 
         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
         // First test if there is some user-defined override for the property
         if let Some(p) = self
             .user_overridden_properties
-            .get(node_id)
+            .get(node_id.index())
             .and_then(|n| n.get(css_property_type))
         {
             return Some(p);
@@ -1588,7 +1520,7 @@ impl CssPropertyCache {
             // PRIORITY 2: CSS stylesheet properties
             if let Some(p) = self
                 .css_focus_props
-                .get(node_id)
+                .get(node_id.index())
                 .and_then(|map| map.get(css_property_type))
             {
                 return Some(p);
@@ -1597,7 +1529,7 @@ impl CssPropertyCache {
             // PRIORITY 3: Cascaded/inherited properties
             if let Some(p) = self
                 .cascaded_focus_props
-                .get(node_id)
+                .get(node_id.index())
                 .and_then(|map| map.get(css_property_type))
             {
                 return Some(p);
@@ -1621,7 +1553,7 @@ impl CssPropertyCache {
             // PRIORITY 2: CSS stylesheet properties
             if let Some(p) = self
                 .css_active_props
-                .get(node_id)
+                .get(node_id.index())
                 .and_then(|map| map.get(css_property_type))
             {
                 return Some(p);
@@ -1630,7 +1562,7 @@ impl CssPropertyCache {
             // PRIORITY 3: Cascaded/inherited properties
             if let Some(p) = self
                 .cascaded_active_props
-                .get(node_id)
+                .get(node_id.index())
                 .and_then(|map| map.get(css_property_type))
             {
                 return Some(p);
@@ -1653,7 +1585,7 @@ impl CssPropertyCache {
 
             if let Some(p) = self
                 .css_dragging_props
-                .get(node_id)
+                .get(node_id.index())
                 .and_then(|map| map.get(css_property_type))
             {
                 return Some(p);
@@ -1661,7 +1593,7 @@ impl CssPropertyCache {
 
             if let Some(p) = self
                 .cascaded_dragging_props
-                .get(node_id)
+                .get(node_id.index())
                 .and_then(|map| map.get(css_property_type))
             {
                 return Some(p);
@@ -1684,7 +1616,7 @@ impl CssPropertyCache {
 
             if let Some(p) = self
                 .css_drag_over_props
-                .get(node_id)
+                .get(node_id.index())
                 .and_then(|map| map.get(css_property_type))
             {
                 return Some(p);
@@ -1692,7 +1624,7 @@ impl CssPropertyCache {
 
             if let Some(p) = self
                 .cascaded_drag_over_props
-                .get(node_id)
+                .get(node_id.index())
                 .and_then(|map| map.get(css_property_type))
             {
                 return Some(p);
@@ -1716,7 +1648,7 @@ impl CssPropertyCache {
             // PRIORITY 2: CSS stylesheet properties
             if let Some(p) = self
                 .css_hover_props
-                .get(node_id)
+                .get(node_id.index())
                 .and_then(|map| map.get(css_property_type))
             {
                 return Some(p);
@@ -1725,7 +1657,7 @@ impl CssPropertyCache {
             // PRIORITY 3: Cascaded/inherited properties
             if let Some(p) = self
                 .cascaded_hover_props
-                .get(node_id)
+                .get(node_id.index())
                 .and_then(|map| map.get(css_property_type))
             {
                 return Some(p);
@@ -1749,7 +1681,7 @@ impl CssPropertyCache {
         // PRIORITY 2: CSS stylesheet properties
         if let Some(p) = self
             .css_normal_props
-            .get(node_id)
+            .get(node_id.index())
             .and_then(|map| map.get(css_property_type))
         {
             return Some(p);
@@ -1758,7 +1690,7 @@ impl CssPropertyCache {
         // PRIORITY 3: Cascaded/inherited properties
         if let Some(p) = self
             .cascaded_normal_props
-            .get(node_id)
+            .get(node_id.index())
             .and_then(|map| map.get(css_property_type))
         {
             return Some(p);
@@ -1770,7 +1702,7 @@ impl CssPropertyCache {
         if css_property_type.is_inheritable() {
             if let Some(prop_with_origin) = self
                 .computed_values
-                .get(node_id)
+                .get(node_id.index())
                 .and_then(|map| map.get(css_property_type))
             {
                 return Some(&prop_with_origin.property);
@@ -1799,7 +1731,7 @@ impl CssPropertyCache {
         // First test if there is some user-defined override for the property
         if let Some(p) = self
             .user_overridden_properties
-            .get(node_id)
+            .get(node_id.index())
             .and_then(|n| n.get(css_property_type))
         {
             return Some(p);
@@ -4446,21 +4378,19 @@ impl CssPropertyCache {
 
                     let has_css = self
                         .css_normal_props
-                        .get(&node_id)
+                        .get(node_id.index())
                         .map(|map| map.contains_key(prop_type))
                         .unwrap_or(false);
 
                     let has_cascaded = self
                         .cascaded_normal_props
-                        .get(&node_id)
+                        .get(node_id.index())
                         .map(|map| map.contains_key(prop_type))
                         .unwrap_or(false);
 
                     // Insert UA CSS only if not already present (lowest priority)
                     if !has_inline && !has_css && !has_cascaded {
-                        self.cascaded_normal_props
-                            .entry(node_id)
-                            .or_insert_with(|| BTreeMap::new())
+                        self.cascaded_normal_props[node_id.index()]
                             .entry(*prop_type)
                             .or_insert_with(|| ua_prop.clone());
                     }
@@ -4486,7 +4416,7 @@ impl CssPropertyCache {
                 let node_id = NodeId::new(node_index);
                 let parent_id = hierarchy_item.parent_id();
                 let parent_computed =
-                    parent_id.and_then(|pid| self.computed_values.get(&pid).cloned());
+                    parent_id.and_then(|pid| self.computed_values.get(pid.index()).cloned());
 
                 let mut ctx = InheritanceContext {
                     node_id,
@@ -4540,7 +4470,7 @@ impl CssPropertyCache {
 
             if let Some(chain) = ctx
                 .parent_id
-                .and_then(|pid| self.dependency_chains.get(&pid))
+                .and_then(|pid| self.dependency_chains.get(pid.index()))
                 .and_then(|chains| chains.get(prop_type))
             {
                 ctx.dependency_chains.insert(*prop_type, chain.clone());
@@ -4558,7 +4488,7 @@ impl CssPropertyCache {
         node_index: usize,
     ) {
         // Step 2: Cascaded properties (UA CSS)
-        if let Some(cascaded_props) = self.cascaded_normal_props.get(&node_id).cloned() {
+        if let Some(cascaded_props) = self.cascaded_normal_props.get(node_id.index()).cloned() {
             for (prop_type, prop) in cascaded_props.iter() {
                 if self.should_apply_cascaded(&ctx.computed_values, *prop_type, prop) {
                     self.process_property(ctx, prop, parent_computed);
@@ -4567,7 +4497,7 @@ impl CssPropertyCache {
         }
 
         // Step 3: CSS properties (stylesheets)
-        if let Some(css_props) = self.css_normal_props.get(&node_id) {
+        if let Some(css_props) = self.css_normal_props.get(node_id.index()) {
             for (_, prop) in css_props.iter() {
                 self.process_property(ctx, prop, parent_computed);
             }
@@ -4582,7 +4512,7 @@ impl CssPropertyCache {
         }
 
         // Step 5: User-overridden properties
-        if let Some(user_props) = self.user_overridden_properties.get(&node_id) {
+        if let Some(user_props) = self.user_overridden_properties.get(node_id.index()) {
             for (_, prop) in user_props.iter() {
                 self.process_property(ctx, prop, parent_computed);
             }
@@ -4731,23 +4661,21 @@ impl CssPropertyCache {
     fn store_if_changed(&mut self, ctx: &InheritanceContext) -> bool {
         let values_changed = self
             .computed_values
-            .get(&ctx.node_id)
+            .get(ctx.node_id.index())
             .map(|old| old != &ctx.computed_values)
             .unwrap_or(true);
 
         let chains_changed = self
             .dependency_chains
-            .get(&ctx.node_id)
+            .get(ctx.node_id.index())
             .map(|old| old != &ctx.dependency_chains)
             .unwrap_or(!ctx.dependency_chains.is_empty());
 
         let changed = values_changed || chains_changed;
 
-        self.computed_values
-            .insert(ctx.node_id, ctx.computed_values.clone());
+        self.computed_values[ctx.node_id.index()] = ctx.computed_values.clone();
         if !ctx.dependency_chains.is_empty() {
-            self.dependency_chains
-                .insert(ctx.node_id, ctx.dependency_chains.clone());
+            self.dependency_chains[ctx.node_id.index()] = ctx.dependency_chains.clone();
         }
 
         changed
@@ -4802,7 +4730,7 @@ impl CssPropertyCache {
         property_type: CssPropertyType,
     ) -> Option<&CssDependencyChain> {
         self.dependency_chains
-            .get(&node_id)
+            .get(node_id.index())
             .and_then(|chains| chains.get(&property_type))
     }
 
@@ -4875,9 +4803,7 @@ impl CssPropertyCache {
 
     /// Update a property in computed_values with Own origin
     fn update_computed_property(&mut self, node_id: NodeId, property: CssProperty) {
-        self.computed_values
-            .entry(node_id)
-            .or_insert_with(BTreeMap::new)
+        self.computed_values[node_id.index()]
             .insert(
                 property.get_type(),
                 CssPropertyWithOrigin {
@@ -4900,9 +4826,7 @@ impl CssPropertyCache {
             .and_then(|h| h.parent_id());
 
         if let Some(chain) = self.build_dependency_chain(node_id, parent_id, property) {
-            self.dependency_chains
-                .entry(node_id)
-                .or_insert_with(BTreeMap::new)
+            self.dependency_chains[node_id.index()]
                 .insert(prop_type, chain);
         }
     }
@@ -4911,7 +4835,8 @@ impl CssPropertyCache {
     fn invalidate_dependents(&mut self, node_id: NodeId) -> Vec<NodeId> {
         self.dependency_chains
             .iter_mut()
-            .filter_map(|(dep_node_id, chains)| {
+            .enumerate()
+            .filter_map(|(dep_node_idx, chains)| {
                 let affected = chains.values_mut().any(|chain| {
                     if chain.depends_on(node_id) {
                         chain.cached_pixels = None;
@@ -4920,9 +4845,249 @@ impl CssPropertyCache {
                         false
                     }
                 });
-                affected.then_some(*dep_node_id)
+                affected.then_some(NodeId::new(dep_node_idx))
             })
             .collect()
+    }
+
+    /// Property types that may have User-Agent CSS defaults.
+    /// Used by build_resolved_cache to ensure UA CSS properties are included.
+    const UA_PROPERTY_TYPES: &'static [CssPropertyType] = &[
+        CssPropertyType::Display,
+        CssPropertyType::Width,
+        CssPropertyType::Height,
+        CssPropertyType::FontSize,
+        CssPropertyType::FontWeight,
+        CssPropertyType::FontFamily,
+        CssPropertyType::MarginTop,
+        CssPropertyType::MarginBottom,
+        CssPropertyType::MarginLeft,
+        CssPropertyType::MarginRight,
+        CssPropertyType::PaddingTop,
+        CssPropertyType::PaddingBottom,
+        CssPropertyType::PaddingLeft,
+        CssPropertyType::PaddingRight,
+        CssPropertyType::BreakInside,
+        CssPropertyType::BreakBefore,
+        CssPropertyType::BreakAfter,
+        CssPropertyType::BorderCollapse,
+        CssPropertyType::BorderSpacing,
+        CssPropertyType::TextAlign,
+        CssPropertyType::VerticalAlign,
+        CssPropertyType::ListStyleType,
+        CssPropertyType::ListStylePosition,
+    ];
+
+    /// Build a pre-resolved cache of all CSS properties for every node.
+    ///
+    /// After calling restyle(), apply_ua_css(), and compute_inherited_values(),
+    /// call this to pre-resolve the CSS cascade for all nodes. This builds a flat
+    /// Vec<Vec<(CssPropertyType, CssProperty)>> where:
+    /// - Outer Vec is indexed by node ID (O(1) access)
+    /// - Inner Vec is sorted by CssPropertyType (O(log m) binary search, m ≈ 5-10)
+    ///
+    /// This replaces 18+ BTreeMap lookups per get_property() call with
+    /// a single Vec index + binary search, typically a 5-10x speedup.
+    ///
+    /// The returned cache should be assigned to self.resolved_cache.
+    pub fn build_resolved_cache(
+        &self,
+        node_data: &[NodeData],
+        styled_nodes: &[crate::styled_dom::StyledNode],
+    ) -> Vec<Vec<(CssPropertyType, CssProperty)>> {
+        use alloc::collections::BTreeSet;
+        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+
+        let node_count = node_data.len();
+        let mut resolved = Vec::with_capacity(node_count);
+
+        for node_index in 0..node_count {
+            let node_id = NodeId::new(node_index);
+            let nd = &node_data[node_index];
+            let node_state = &styled_nodes[node_index].styled_node_state;
+
+            // Collect all property types that might be set for this node.
+            // BTreeSet<CssPropertyType> is cheap (u8-sized keys, small set per node).
+            let mut prop_types = BTreeSet::new();
+
+            if let Some(map) = self.user_overridden_properties.get(node_id.index()) {
+                prop_types.extend(map.keys().copied());
+            }
+            for css_prop in nd.css_props.iter() {
+                let conditions = css_prop.apply_if.as_slice();
+                let matches = if conditions.is_empty() {
+                    true
+                } else {
+                    conditions.iter().all(|c| match c {
+                        DynamicSelector::PseudoState(PseudoStateType::Hover) => node_state.hover,
+                        DynamicSelector::PseudoState(PseudoStateType::Active) => node_state.active,
+                        DynamicSelector::PseudoState(PseudoStateType::Focus) => node_state.focused,
+                        DynamicSelector::PseudoState(PseudoStateType::Dragging) => node_state.dragging,
+                        DynamicSelector::PseudoState(PseudoStateType::DragOver) => node_state.drag_over,
+                        _ => false,
+                    })
+                };
+                if matches {
+                    prop_types.insert(css_prop.property.get_type());
+                }
+            }
+            if let Some(map) = self.css_normal_props.get(node_id.index()) {
+                prop_types.extend(map.keys().copied());
+            }
+            if let Some(map) = self.cascaded_normal_props.get(node_id.index()) {
+                prop_types.extend(map.keys().copied());
+            }
+            if let Some(map) = self.computed_values.get(node_id.index()) {
+                for pt in map.keys() {
+                    if pt.is_inheritable() {
+                        prop_types.insert(*pt);
+                    }
+                }
+            }
+            // Pseudo-state maps (only when state is active)
+            if node_state.hover {
+                if let Some(map) = self.css_hover_props.get(node_id.index()) {
+                    prop_types.extend(map.keys().copied());
+                }
+                if let Some(map) = self.cascaded_hover_props.get(node_id.index()) {
+                    prop_types.extend(map.keys().copied());
+                }
+            }
+            if node_state.active {
+                if let Some(map) = self.css_active_props.get(node_id.index()) {
+                    prop_types.extend(map.keys().copied());
+                }
+                if let Some(map) = self.cascaded_active_props.get(node_id.index()) {
+                    prop_types.extend(map.keys().copied());
+                }
+            }
+            if node_state.focused {
+                if let Some(map) = self.css_focus_props.get(node_id.index()) {
+                    prop_types.extend(map.keys().copied());
+                }
+                if let Some(map) = self.cascaded_focus_props.get(node_id.index()) {
+                    prop_types.extend(map.keys().copied());
+                }
+            }
+            if node_state.dragging {
+                if let Some(map) = self.css_dragging_props.get(node_id.index()) {
+                    prop_types.extend(map.keys().copied());
+                }
+                if let Some(map) = self.cascaded_dragging_props.get(node_id.index()) {
+                    prop_types.extend(map.keys().copied());
+                }
+            }
+            if node_state.drag_over {
+                if let Some(map) = self.css_drag_over_props.get(node_id.index()) {
+                    prop_types.extend(map.keys().copied());
+                }
+                if let Some(map) = self.cascaded_drag_over_props.get(node_id.index()) {
+                    prop_types.extend(map.keys().copied());
+                }
+            }
+            // UA CSS
+            for pt in Self::UA_PROPERTY_TYPES {
+                if crate::ua_css::get_ua_property(&nd.node_type, *pt).is_some() {
+                    prop_types.insert(*pt);
+                }
+            }
+
+            // Resolve each property through the cascade. get_property_slow
+            // returns a reference; we only clone the winning value per type.
+            let mut props: Vec<(CssPropertyType, CssProperty)> =
+                Vec::with_capacity(prop_types.len());
+            for prop_type in &prop_types {
+                if let Some(prop) = self.get_property_slow(nd, &node_id, node_state, prop_type) {
+                    props.push((*prop_type, prop.clone()));
+                }
+            }
+            // Props are already sorted because BTreeSet iterates in Ord order.
+            resolved.push(props);
+        }
+
+        resolved
+    }
+
+    /// Invalidate the resolved cache for a single node.
+    /// Call this when a node's state changes (e.g., hover on/off) or
+    /// when a property is overridden dynamically.
+    /// After invalidation, rebuild the node's entry by calling
+    /// rebuild_resolved_node().
+    pub fn invalidate_resolved_node(
+        &mut self,
+        node_id: NodeId,
+        node_data: &NodeData,
+        styled_node: &crate::styled_dom::StyledNode,
+    ) {
+        let idx = node_id.index();
+        if idx >= self.resolved_cache.len() {
+            return;
+        }
+
+        let node_state = &styled_node.styled_node_state;
+
+        // Build the resolved properties using shared reference (&self via get_property_slow)
+        let mut prop_types = alloc::collections::BTreeSet::new();
+
+        if let Some(map) = self.user_overridden_properties.get(node_id.index()) {
+            prop_types.extend(map.keys().copied());
+        }
+        for css_prop in node_data.css_props.iter() {
+            prop_types.insert(css_prop.property.get_type());
+        }
+        if let Some(map) = self.css_normal_props.get(node_id.index()) {
+            prop_types.extend(map.keys().copied());
+        }
+        if let Some(map) = self.cascaded_normal_props.get(node_id.index()) {
+            prop_types.extend(map.keys().copied());
+        }
+        if let Some(map) = self.computed_values.get(node_id.index()) {
+            prop_types.extend(map.keys().copied());
+        }
+        for pt in Self::UA_PROPERTY_TYPES {
+            if crate::ua_css::get_ua_property(&node_data.node_type, *pt).is_some() {
+                prop_types.insert(*pt);
+            }
+        }
+        if node_state.hover {
+            if let Some(map) = self.css_hover_props.get(node_id.index()) {
+                prop_types.extend(map.keys().copied());
+            }
+            if let Some(map) = self.cascaded_hover_props.get(node_id.index()) {
+                prop_types.extend(map.keys().copied());
+            }
+        }
+        if node_state.active {
+            if let Some(map) = self.css_active_props.get(node_id.index()) {
+                prop_types.extend(map.keys().copied());
+            }
+            if let Some(map) = self.cascaded_active_props.get(node_id.index()) {
+                prop_types.extend(map.keys().copied());
+            }
+        }
+        if node_state.focused {
+            if let Some(map) = self.css_focus_props.get(node_id.index()) {
+                prop_types.extend(map.keys().copied());
+            }
+            if let Some(map) = self.cascaded_focus_props.get(node_id.index()) {
+                prop_types.extend(map.keys().copied());
+            }
+        }
+
+        let mut props = Vec::with_capacity(prop_types.len());
+        for prop_type in &prop_types {
+            if let Some(prop) = self.get_property_slow(node_data, &node_id, node_state, prop_type) {
+                props.push((*prop_type, prop.clone()));
+            }
+        }
+
+        // Now assign to the cache entry (mutable borrow happens after shared borrows end)
+        self.resolved_cache[idx] = props;
+    }
+
+    /// Clear the entire resolved cache. Call after major DOM changes.
+    pub fn invalidate_resolved_cache(&mut self) {
+        self.resolved_cache.clear();
     }
 }
 

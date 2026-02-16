@@ -54,7 +54,7 @@ pub fn get_element_font_size(
     // Try to get from dependency chain first (proper resolution)
     let cached_font_size = cache
         .dependency_chains
-        .get(&dom_id)
+        .get(dom_id.index())
         .and_then(|chains| chains.get(&azul_css::props::property::CssPropertyType::FontSize))
         .and_then(|chain| chain.cached_pixels);
 
@@ -72,7 +72,7 @@ pub fn get_element_font_size(
             // Check parent's dependency chain first (avoids recursion)
             cache
                 .dependency_chains
-                .get(&parent_id)
+                .get(parent_id.index())
                 .and_then(|chains| {
                     chains.get(&azul_css::props::property::CssPropertyType::FontSize)
                 })
@@ -85,7 +85,7 @@ pub fn get_element_font_size(
         let root_id = NodeId::new(0);
         cache
             .dependency_chains
-            .get(&root_id)
+            .get(root_id.index())
             .and_then(|chains| chains.get(&azul_css::props::property::CssPropertyType::FontSize))
             .and_then(|chain| chain.cached_pixels)
             .unwrap_or(DEFAULT_FONT_SIZE)
