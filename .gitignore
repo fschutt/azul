@@ -36,4 +36,4 @@ LICENSE-MAC.txt
 Cargo.lock
 *.lock
 commits.txt
-out-italic.txt
+out-italic.txtscripts/gemini_perf_prompt*.md
