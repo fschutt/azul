@@ -4456,7 +4456,6 @@ impl LayoutCache {
         // --- Stages 1-3: Preparation ---
         // These stages are independent of the final geometry. We perform them once
         // on the entire content block before flowing. Caching is used at each stage.
-        let _layout_flow_start = std::time::Instant::now();
 
         // Stage 1: Logical Analysis (InlineContent -> LogicalItem)
         let logical_items_id = calculate_id(&content);
@@ -4503,7 +4502,6 @@ impl LayoutCache {
             .clone();
 
         // Stage 3: Shaping (VisualItem -> ShapedItem)
-        let _stage3_start = std::time::Instant::now();
         let shaped_key = ShapedItemsKey::new(visual_items_id, &visual_items);
         let shaped_items_id = calculate_id(&shaped_key);
         let shaped_items = match self.shaped_items.get(&shaped_items_id) {
@@ -4532,7 +4530,6 @@ impl LayoutCache {
         let oriented_items = apply_text_orientation(shaped_items, first_constraints)?;
 
         // --- Stage 5: The Flow Loop ---
-        let _stage5_start = std::time::Instant::now();
         let mut fragment_layouts = HashMap::new();
         // The cursor now manages the stream of items for the entire flow.
         let mut cursor = BreakCursor::new(&oriented_items);
@@ -4552,9 +4549,6 @@ impl LayoutCache {
                 break; // All content has been laid out.
             }
         }
-
-        let _total_flow = _layout_flow_start.elapsed();
-        let _stage5_time = _stage5_start.elapsed();
 
         Ok(FlowLayout {
             fragment_layouts,
@@ -4980,7 +4974,6 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
     loaded_fonts: &LoadedFonts<T>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<Vec<ShapedItem>, LayoutError> {
-    let _shape_start = std::time::Instant::now();
     let mut shaped = Vec::new();
     let mut idx = 0;
     let mut _coalesced_runs = 0usize;
@@ -5428,8 +5421,6 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
         }
         idx += 1;
     }
-
-    let _shape_time = _shape_start.elapsed();
 
     Ok(shaped)
 }

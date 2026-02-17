@@ -138,7 +138,6 @@ where
     F: Fn(&[u8], usize) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
     // Font Resolution And Loading
-    let _paged_t0 = std::time::Instant::now();
     {
         use crate::solver3::getters::{
             collect_and_resolve_font_chains, collect_font_ids_from_chains, compute_fonts_to_load,
@@ -151,7 +150,6 @@ where
         // Register embedded FontRefs (e.g. Material Icons) before resolving chains
         register_embedded_fonts_from_styled_dom(new_dom, font_manager, &platform);
 
-        let _fc0 = std::time::Instant::now();
         let chains = collect_and_resolve_font_chains(new_dom, &font_manager.fc_cache, &platform);
 
         let required_fonts = collect_font_ids_from_chains(&chains);
@@ -160,7 +158,6 @@ where
 
 
         if !fonts_to_load.is_empty() {
-            let _fc1 = std::time::Instant::now();
             let load_result =
                 load_fonts_from_disk(&fonts_to_load, &font_manager.fc_cache, &font_loader);
 
@@ -234,7 +231,6 @@ where
     // Paged Layout
 
     // Perform layout with fragmentation context (layout only, no display list)
-    let _paged_t1 = std::time::Instant::now();
     let _result = compute_layout_with_fragmentation(
         cache,
         text_cache,
@@ -304,7 +300,6 @@ where
     };
 
     // Step 1: Generate ONE complete display list (infinite canvas)
-    let _paged_t2 = std::time::Instant::now();
     let full_display_list = generate_display_list(
         &mut ctx,
         tree,
@@ -348,7 +343,6 @@ where
     // Step 3: Paginate with CSS break property support
     // Break properties (break-before, break-after) are now collected during display list
     // generation and stored in DisplayList::forced_page_breaks
-    let _paged_t3 = std::time::Instant::now();
     let pages = paginate_display_list_with_slicer_and_breaks(
         full_display_list,
         &slicer_config,
@@ -409,7 +403,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     };
 
     // --- Step 1: Tree Building & Invalidation ---
-    let _frag_t0 = std::time::Instant::now();
     let is_fresh_dom = cache.tree.is_none();
     let (mut new_tree, mut recon_result) = if is_fresh_dom {
         // Fast path: no old tree to diff against — build tree directly.
@@ -480,7 +473,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     }
 
     // --- Step 2: Incremental Layout Loop ---
-    let _frag_t1 = std::time::Instant::now();
     let mut calculated_positions = cache.calculated_positions.clone();
     let mut loop_count = 0;
     loop {
@@ -569,7 +561,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
 
     // --- Step 3: Adjust Positions ---
-    let _frag_t2 = std::time::Instant::now();
     crate::solver3::positioning::adjust_relative_positions(
         &mut ctx,
         &new_tree,

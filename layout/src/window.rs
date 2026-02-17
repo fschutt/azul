@@ -5443,7 +5443,10 @@ impl LayoutWindow {
             text_content: old_text.into(),
             cursor_position: old_cursor.into(),
             selection_range: old_selection_range.into(),
+            #[cfg(feature = "std")]
             timestamp: azul_core::task::Instant::System(std::time::Instant::now().into()),
+            #[cfg(not(feature = "std"))]
+            timestamp: azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 }),
         };
 
         // Apply the edit using text3::edit - this is a pure function
@@ -5503,7 +5506,10 @@ impl LayoutWindow {
                 position: old_cursor_pos,
                 new_cursor,
             }),
+            #[cfg(feature = "std")]
             timestamp: azul_core::task::Instant::System(std::time::Instant::now().into()),
+            #[cfg(not(feature = "std"))]
+            timestamp: azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 }),
         };
         self.undo_redo_manager
             .record_operation(undo_changeset, pre_state);

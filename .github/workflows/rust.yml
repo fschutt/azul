@@ -88,6 +88,46 @@ jobs:
           cargo check -p azul-layout
           cargo check -p azul-dll --no-default-features --features "link-static,logging,ico,tga,hdr,webp,pnm,gif,png,tiff,bmp,a11y"
 
+      - name: Check no std::time::Instant::now() in WASM-compatible crates
+        run: |
+          # azul-css, azul-core, and azul-layout must not call std::time::Instant::now()
+          # because it panics on WASM targets. Uses in comments and #[cfg(feature = "std")]
+          # blocks are allowed, but direct calls in non-gated code are forbidden.
+          #
+          # This is a simple grep-based check. It looks for Instant::now() in actual code
+          # (not comments) and verifies a #[cfg] gate exists within 10 lines above.
+          FOUND=0
+          for dir in css/src core/src layout/src; do
+            # Find Instant::now() calls, skip lines that are doc-comments or line-comments
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              FILE=$(echo "$line" | cut -d: -f1)
+              LNO=$(echo "$line" | cut -d: -f2)
+              CODE=$(echo "$line" | cut -d: -f3-)
+              # Skip if the code portion is a comment (starts with // or /// or *)
+              TRIMMED=$(echo "$CODE" | sed 's/^[[:space:]]*//')
+              case "$TRIMMED" in
+                //*) continue ;;
+                \**) continue ;;
+              esac
+              # Check 30 lines above for a cfg gate (covers impl blocks)
+              START=$((LNO > 30 ? LNO - 30 : 1))
+              CONTEXT=$(sed -n "${START},${LNO}p" "$FILE")
+              if ! echo "$CONTEXT" | grep -q '#\[cfg'; then
+                echo "ERROR: Ungated std::time::Instant::now() at ${FILE}:${LNO}"
+                echo "  $CODE"
+                FOUND=1
+              fi
+            done < <(grep -rn 'std::time::Instant::now()' "$dir" --include='*.rs' || true)
+          done
+          if [ "$FOUND" -eq 1 ]; then
+            echo ""
+            echo "std::time::Instant::now() panics on WASM. Use #[cfg(feature = \"std\")] gate"
+            echo "or remove the call entirely."
+            exit 1
+          fi
+          echo "OK: No ungated std::time::Instant::now() found in WASM-compatible crates."
+
   # Check that the crate compiles with various feature combinations
   # This catches issues like missing Copy/Clone derives on stub types
   feature_matrix_check:

@@ -387,9 +387,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         node_index: usize,
     ) -> Result<IntrinsicSizes> {
         // Collect all inline content from this IFC root and its inline descendants
-        let _sizing_start = std::time::Instant::now();
         let inline_content = collect_inline_content(&mut self.ctx, tree, node_index)?;
-        let _collect_time = _sizing_start.elapsed();
 
 
 

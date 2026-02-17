@@ -5024,8 +5024,6 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 ) -> Result<(Vec<InlineContent>, HashMap<ContentIndex, usize>)> {
     use crate::solver3::layout_tree::{IfcId, IfcMembership};
 
-    let _collect_ifc_start = std::time::Instant::now();
-
     debug_ifc_layout!(
         ctx,
         "collect_and_measure_inline_content: node_index={}",
