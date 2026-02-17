@@ -397,6 +397,39 @@ fn pixel_to_lp(pv: PixelValue) -> taffy::LengthPercentage {
         .unwrap_or_else(|| taffy::LengthPercentage::ZERO)
 }
 
+/// Slow path for flex-basis: full property cache lookup + decode.
+/// Extracted to avoid duplicating the logic in the compact fast-path fallback.
+fn flex_basis_slow_path(
+    cache: &azul_core::prop_cache::CssPropertyCache,
+    node_data: &azul_core::dom::NodeData,
+    id: &NodeId,
+    node_state: &azul_core::styled_dom::StyledNodeState,
+    taffy_style: &mut Style,
+) -> taffy::Dimension {
+    cache
+        .get_property(node_data, id, node_state, &CssPropertyType::FlexBasis)
+        .and_then(|p| {
+            if let CssProperty::FlexBasis(v) = p {
+                let basis = match v.get_property_or_default().unwrap_or_default() {
+                    LayoutFlexBasis::Auto => taffy::Dimension::auto(),
+                    LayoutFlexBasis::Exact(pv) => pixel_value_to_pixels_fallback(&pv)
+                        .map(taffy::Dimension::length)
+                        .or_else(|| pv.to_percent().map(|p| taffy::Dimension::percent(p.get())))
+                        .unwrap_or_else(taffy::Dimension::auto),
+                };
+                // WORKAROUND: If flex-basis is set and not auto, clear width to let flex-basis
+                // take precedence. Workaround for Taffy not properly prioritizing flex-basis over width
+                if !matches!(basis, _auto if _auto == taffy::Dimension::auto()) {
+                    taffy_style.size.width = taffy::Dimension::auto();
+                }
+                Some(basis)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(taffy::Dimension::auto)
+}
+
 /// The bridge struct that implements Taffy's traits.
 /// It holds mutable references to the solver's data structures, allowing Taffy
 /// to read styles and write layout results back into our `LayoutTree`.
@@ -707,17 +740,24 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             MultiValue::Exact(v) => layout_flex_direction_to_taffy(CssPropertyValue::Exact(v)),
             _ => taffy::FlexDirection::Row,
         };
-        taffy_style.flex_wrap = cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::FlexWrap)
-            .and_then(|p| {
-                if let CssProperty::FlexWrap(v) = p {
-                    Some(*v)
-                } else {
-                    None
-                }
-            })
-            .map(layout_flex_wrap_to_taffy)
-            .unwrap_or(taffy::FlexWrap::NoWrap);
+        // COMPACT FAST PATH: flex_wrap is Tier 1 enum
+        taffy_style.flex_wrap = if node_state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                layout_flex_wrap_to_taffy(CssPropertyValue::Exact(cc.get_flex_wrap(id.index())))
+            } else {
+                cache
+                    .get_property(node_data, &id, node_state, &CssPropertyType::FlexWrap)
+                    .and_then(|p| if let CssProperty::FlexWrap(v) = p { Some(*v) } else { None })
+                    .map(layout_flex_wrap_to_taffy)
+                    .unwrap_or(taffy::FlexWrap::NoWrap)
+            }
+        } else {
+            cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::FlexWrap)
+                .and_then(|p| if let CssProperty::FlexWrap(v) = p { Some(*v) } else { None })
+                .map(layout_flex_wrap_to_taffy)
+                .unwrap_or(taffy::FlexWrap::NoWrap)
+        };
         taffy_style.align_items = match get_align_items(styled_dom, id, node_state) {
             MultiValue::Exact(v) => Some(layout_align_items_to_taffy(CssPropertyValue::Exact(v))),
             _ => None,
@@ -747,53 +787,102 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 .map(layout_justify_content_to_taffy);
                 // CSS spec: default justify-content is "normal". Taffy handles
                 // this internally when justify_content is None.
-        taffy_style.flex_grow = cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::FlexGrow)
-            .and_then(|p| {
-                if let CssProperty::FlexGrow(v) = p {
-                    let value = v.get_property_or_default().unwrap_or_default().inner.get();
-                    Some(value)
+        // COMPACT FAST PATH: flex_grow stored as u16 × 100
+        taffy_style.flex_grow = if node_state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                if let Some(v) = cc.get_flex_grow(id.index()) {
+                    v
                 } else {
-                    None
+                    // Sentinel: fall through to slow path
+                    cache
+                        .get_property(node_data, &id, node_state, &CssPropertyType::FlexGrow)
+                        .and_then(|p| if let CssProperty::FlexGrow(v) = p {
+                            Some(v.get_property_or_default().unwrap_or_default().inner.get())
+                        } else { None })
+                        .unwrap_or(0.0)
                 }
-            })
-            .unwrap_or(0.0);
-
-        taffy_style.flex_shrink = cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::FlexShrink)
-            .and_then(|p| {
-                if let CssProperty::FlexShrink(v) = p {
+            } else {
+                cache
+                    .get_property(node_data, &id, node_state, &CssPropertyType::FlexGrow)
+                    .and_then(|p| if let CssProperty::FlexGrow(v) = p {
+                        Some(v.get_property_or_default().unwrap_or_default().inner.get())
+                    } else { None })
+                    .unwrap_or(0.0)
+            }
+        } else {
+            cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::FlexGrow)
+                .and_then(|p| if let CssProperty::FlexGrow(v) = p {
                     Some(v.get_property_or_default().unwrap_or_default().inner.get())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(1.0);
-        taffy_style.flex_basis = cache
-            .get_property(node_data, &id, node_state, &CssPropertyType::FlexBasis)
-            .and_then(|p| {
-                if let CssProperty::FlexBasis(v) = p {
-                    let basis = match v.get_property_or_default().unwrap_or_default() {
-                        LayoutFlexBasis::Auto => taffy::Dimension::auto(),
-                        LayoutFlexBasis::Exact(pv) => pixel_value_to_pixels_fallback(&pv)
-                            .map(taffy::Dimension::length)
-                            .or_else(|| pv.to_percent().map(|p| taffy::Dimension::percent(p.get())))
-                            .unwrap_or_else(taffy::Dimension::auto),
-                    };
+                } else { None })
+                .unwrap_or(0.0)
+        };
 
-                    // WORKAROUND: If flex-basis is set and not auto, clear width to let flex-basis
-                    // take precedence This is a workaround for Taffy not
-                    // properly prioritizing flex-basis over width
-                    if !matches!(basis, _auto if _auto == taffy::Dimension::auto()) {
-                        taffy_style.size.width = taffy::Dimension::auto();
+        // COMPACT FAST PATH: flex_shrink stored as u16 × 100
+        taffy_style.flex_shrink = if node_state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                if let Some(v) = cc.get_flex_shrink(id.index()) {
+                    v
+                } else {
+                    // Sentinel: fall through to slow path
+                    cache
+                        .get_property(node_data, &id, node_state, &CssPropertyType::FlexShrink)
+                        .and_then(|p| if let CssProperty::FlexShrink(v) = p {
+                            Some(v.get_property_or_default().unwrap_or_default().inner.get())
+                        } else { None })
+                        .unwrap_or(1.0)
+                }
+            } else {
+                cache
+                    .get_property(node_data, &id, node_state, &CssPropertyType::FlexShrink)
+                    .and_then(|p| if let CssProperty::FlexShrink(v) = p {
+                        Some(v.get_property_or_default().unwrap_or_default().inner.get())
+                    } else { None })
+                    .unwrap_or(1.0)
+            }
+        } else {
+            cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::FlexShrink)
+                .and_then(|p| if let CssProperty::FlexShrink(v) = p {
+                    Some(v.get_property_or_default().unwrap_or_default().inner.get())
+                } else { None })
+                .unwrap_or(1.0)
+        };
+        // COMPACT FAST PATH: flex_basis stored as u32 with PixelValue encoding
+        taffy_style.flex_basis = if node_state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                let raw = cc.get_flex_basis_raw(id.index());
+                match raw {
+                    azul_css::compact_cache::U32_AUTO
+                    | azul_css::compact_cache::U32_NONE
+                    | azul_css::compact_cache::U32_INITIAL => taffy::Dimension::auto(),
+                    azul_css::compact_cache::U32_SENTINEL
+                    | azul_css::compact_cache::U32_INHERIT => {
+                        // Sentinel/inherit: fall through to slow path
+                        flex_basis_slow_path(cache, node_data, &id, node_state, &mut taffy_style)
                     }
-
-                    Some(basis)
-                } else {
-                    None
+                    _ => {
+                        // Try to decode the PixelValue from compact u32
+                        if let Some(pv) = azul_css::compact_cache::decode_pixel_value_u32(raw) {
+                            let basis = pixel_value_to_pixels_fallback(&pv)
+                                .map(taffy::Dimension::length)
+                                .or_else(|| pv.to_percent().map(|p| taffy::Dimension::percent(p.get())))
+                                .unwrap_or_else(taffy::Dimension::auto);
+                            if !matches!(basis, _auto if _auto == taffy::Dimension::auto()) {
+                                taffy_style.size.width = taffy::Dimension::auto();
+                            }
+                            basis
+                        } else {
+                            taffy::Dimension::auto()
+                        }
+                    }
                 }
-            })
-            .unwrap_or_else(taffy::Dimension::auto);
+            } else {
+                flex_basis_slow_path(cache, node_data, &id, node_state, &mut taffy_style)
+            }
+        } else {
+            flex_basis_slow_path(cache, node_data, &id, node_state, &mut taffy_style)
+        };
         taffy_style.align_self = cache
             .get_property(node_data, &id, node_state, &CssPropertyType::AlignSelf)
             .and_then(|p| {
