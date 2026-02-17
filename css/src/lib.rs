@@ -9,6 +9,7 @@ extern crate core;
 
 #[macro_use]
 pub mod macros;
+pub mod compact_cache;
 pub mod corety;
 pub mod css;
 pub mod dynamic_selector;

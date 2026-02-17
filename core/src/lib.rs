@@ -57,6 +57,8 @@ pub mod id;
 pub mod menu;
 /// Cache for CSS Properties
 pub mod prop_cache;
+/// Compact cache builder: CssPropertyCache → CompactLayoutCache
+pub mod compact_cache_builder;
 /// Type-erased reference wrapper (like `Box<dyn Any>` but for references)
 pub mod refany;
 /// CSS cascading module

@@ -912,6 +912,14 @@ impl StyledDom {
         //     &styled_nodes,
         // );
 
+        // Build compact layout cache: three-tier numeric encoding for O(1) layout lookups.
+        // Resolves all layout-relevant properties for the "normal" state and encodes them
+        // into cache-friendly arrays (8+72+24+8 = 112 bytes/node).
+        let compact = css_property_cache.build_compact_cache(
+            compact_dom.node_data.as_ref().internal,
+        );
+        css_property_cache.compact_cache = Some(compact);
+
         // Pre-filter all EventFilter::Window and EventFilter::Not nodes
         // since we need them in the CallbacksOfHitTest::new function
         let nodes_with_window_callbacks = compact_dom

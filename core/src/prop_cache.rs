@@ -462,6 +462,10 @@ pub struct CssPropertyCache {
 
     // Pre-resolved property cache: Vec indexed by node ID, inner Vec sorted by CssPropertyType.
     pub resolved_cache: Vec<Vec<(CssPropertyType, CssProperty)>>,
+
+    // Compact layout cache: three-tier numeric encoding for O(1) layout lookups.
+    // Built once after restyle + apply_ua_css + compute_inherited_values.
+    pub compact_cache: Option<azul_css::compact_cache::CompactLayoutCache>,
 }
 
 impl CssPropertyCache {
@@ -1267,6 +1271,7 @@ impl CssPropertyCache {
             computed_values: vec![BTreeMap::new(); node_count],
             dependency_chains: vec![BTreeMap::new(); node_count],
             resolved_cache: Vec::new(),
+            compact_cache: None,
         }
     }
 

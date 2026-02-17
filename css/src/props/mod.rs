@@ -6,6 +6,9 @@
 #[macro_use]
 mod macros;
 
+// Re-export PixelValueTaker trait so external crates can construct dimension types
+pub use macros::PixelValueTaker;
+
 // Public modules for different property categories.
 pub mod basic;
 pub mod layout;
