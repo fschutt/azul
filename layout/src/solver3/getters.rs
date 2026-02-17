@@ -3334,13 +3334,13 @@ pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool 
     })
 }
 // =============================================================================
-// ExtractPropertyValue impls for macro-based getters
+// Additional ExtractPropertyValue impls (not in compact cache tier 1/2)
 // =============================================================================
 
 use azul_css::props::layout::text::LayoutTextJustify;
 use azul_css::props::layout::table::{LayoutTableLayout, StyleBorderCollapse, StyleCaptionSide};
-use azul_css::props::style::text::{StyleDirection, StyleHyphens, StyleWhiteSpace};
-use azul_css::props::style::effects::{StyleCursor, StyleVisibility};
+use azul_css::props::style::text::StyleHyphens;
+use azul_css::props::style::effects::StyleCursor;
 
 impl ExtractPropertyValue<LayoutTextJustify> for CssProperty {
     fn extract(&self) -> Option<LayoutTextJustify> {
@@ -3351,37 +3351,10 @@ impl ExtractPropertyValue<LayoutTextJustify> for CssProperty {
     }
 }
 
-impl ExtractPropertyValue<StyleVerticalAlign> for CssProperty {
-    fn extract(&self) -> Option<StyleVerticalAlign> {
-        match self {
-            Self::VerticalAlign(CssPropertyValue::Exact(v)) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
-impl ExtractPropertyValue<StyleDirection> for CssProperty {
-    fn extract(&self) -> Option<StyleDirection> {
-        match self {
-            Self::Direction(CssPropertyValue::Exact(v)) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
 impl ExtractPropertyValue<StyleHyphens> for CssProperty {
     fn extract(&self) -> Option<StyleHyphens> {
         match self {
             Self::Hyphens(CssPropertyValue::Exact(v)) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
-impl ExtractPropertyValue<StyleWhiteSpace> for CssProperty {
-    fn extract(&self) -> Option<StyleWhiteSpace> {
-        match self {
-            Self::WhiteSpace(CssPropertyValue::Exact(v)) => Some(v.clone()),
             _ => None,
         }
     }
@@ -3414,15 +3387,6 @@ impl ExtractPropertyValue<StyleCaptionSide> for CssProperty {
     }
 }
 
-impl ExtractPropertyValue<StyleVisibility> for CssProperty {
-    fn extract(&self) -> Option<StyleVisibility> {
-        match self {
-            Self::Visibility(CssPropertyValue::Exact(v)) => Some(*v),
-            _ => None,
-        }
-    }
-}
-
 impl ExtractPropertyValue<StyleCursor> for CssProperty {
     fn extract(&self) -> Option<StyleCursor> {
         match self {
@@ -3433,7 +3397,7 @@ impl ExtractPropertyValue<StyleCursor> for CssProperty {
 }
 
 // =============================================================================
-// Macro-based getters (return MultiValue<T> with UA CSS fallback)
+// Additional macro-based getters (not covered by compact cache fast-path getters)
 // =============================================================================
 
 get_css_property!(
@@ -3444,31 +3408,10 @@ get_css_property!(
 );
 
 get_css_property!(
-    get_vertical_align_raw,
-    get_vertical_align,
-    StyleVerticalAlign,
-    CssPropertyType::VerticalAlign
-);
-
-get_css_property!(
-    get_direction,
-    get_direction,
-    StyleDirection,
-    CssPropertyType::Direction
-);
-
-get_css_property!(
     get_hyphens,
     get_hyphens,
     StyleHyphens,
     CssPropertyType::Hyphens
-);
-
-get_css_property!(
-    get_white_space_prop,
-    get_white_space,
-    StyleWhiteSpace,
-    CssPropertyType::WhiteSpace
 );
 
 get_css_property!(
@@ -3490,13 +3433,6 @@ get_css_property!(
     get_caption_side,
     StyleCaptionSide,
     CssPropertyType::CaptionSide
-);
-
-get_css_property!(
-    get_visibility,
-    get_visibility,
-    StyleVisibility,
-    CssPropertyType::Visibility
 );
 
 get_css_property!(
