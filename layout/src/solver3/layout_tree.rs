@@ -1470,9 +1470,6 @@ fn hash_node_data(dom: &StyledDom, node_id: NodeId) -> u64 {
 
 /// Helper function to get element's computed font-size
 fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
-    use crate::solver3::getters::*;
-
-    let node_data = &styled_dom.node_data.as_container()[dom_id];
     let node_state = styled_dom
         .styled_nodes
         .as_container()
@@ -1481,26 +1478,7 @@ fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
         .cloned()
         .unwrap_or_default();
 
-    let cache = &styled_dom.css_property_cache.ptr;
-
-    // Try to get from dependency chain first (proper resolution)
-    if let Some(node_chains) = cache.dependency_chains.get(dom_id.index()) {
-        if let Some(chain) = node_chains.get(&CssPropertyType::FontSize) {
-            if let Some(cached) = chain.cached_pixels {
-                return cached;
-            }
-        }
-    }
-
-    // Fallback: get from property cache
-    cache
-        .get_font_size(node_data, &dom_id, &node_state)
-        .and_then(|v| v.get_property().cloned())
-        .map(|v| {
-            // Fallback using hardcoded 16px base
-            v.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE)
-        })
-        .unwrap_or(DEFAULT_FONT_SIZE)
+    crate::solver3::getters::get_element_font_size(styled_dom, dom_id, &node_state)
 }
 
 /// Helper function to get parent's computed font-size
@@ -1803,29 +1781,10 @@ fn needs_table_parent_wrapper(
 }
 
 // Determines the display type of a node based on its tag and CSS properties.
+// Delegates to getters::get_display_property which uses the compact cache fast path.
 pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
-    if let Some(_styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
-        let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
-
-        // 1. Check author CSS first (via centralized getter)
-        if let Some(d) = crate::solver3::getters::get_display_raw(styled_dom, node_id, &node_state) {
-            return d;
-        }
-
-        // 2. Check User Agent CSS (always returns a value for display)
-        let node_type = &styled_dom.node_data.as_container()[node_id].node_type;
-        if let Some(ua_prop) =
-            azul_core::ua_css::get_ua_property(node_type, CssPropertyType::Display)
-        {
-            if let CssProperty::Display(azul_css::css::CssPropertyValue::Exact(d)) = ua_prop {
-                return *d;
-            }
-        }
-    }
-
-    // 3. Final fallback (should never be reached since UA CSS always provides display)
-    // Inline is the safest default per CSS spec
-    LayoutDisplay::Inline
+    use crate::solver3::getters::get_display_property;
+    get_display_property(styled_dom, Some(node_id)).unwrap_or(LayoutDisplay::Inline)
 }
 
 /// **Corrected:** Checks for all conditions that create a new Block Formatting Context.

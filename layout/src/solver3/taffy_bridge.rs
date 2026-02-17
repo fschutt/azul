@@ -1,13 +1,5 @@
 use crate::solver3::calc::CalcResolveContext;
-use crate::solver3::getters::{get_overflow_x, get_overflow_y, get_display_raw,
-    get_gap_prop, get_grid_template_rows_prop, get_grid_template_columns_prop,
-    get_grid_template_areas_prop, get_grid_auto_rows_prop, get_grid_auto_columns_prop,
-    get_grid_auto_flow_prop, get_grid_column_prop, get_grid_row_prop,
-    get_flex_direction_prop, get_flex_wrap_prop, get_flex_grow_prop, get_flex_shrink_prop,
-    get_flex_basis_prop, get_align_items_prop, get_align_self_prop, get_align_content_prop,
-    get_justify_content_prop, get_justify_items_prop, get_justify_self_prop,
-    get_text_align,
-};
+use crate::solver3::getters::{get_overflow_x, get_overflow_y};
 use azul_core::dom::FormattingContext;
 use azul_css::{
     css::CssPropertyValue,
@@ -307,7 +299,10 @@ pub fn layout_justify_items_to_taffy(
 use std::{collections::BTreeMap, sync::Arc};
 
 use azul_core::{dom::NodeId, geom::LogicalSize, styled_dom::StyledDom};
-use azul_css::props::layout::{LayoutHeight, LayoutWidth};
+use azul_css::props::{
+    layout::{LayoutHeight, LayoutWidth},
+    property::{CssProperty, CssPropertyType},
+};
 use taffy::{
     compute_cached_layout, compute_flexbox_layout, compute_grid_layout, compute_leaf_layout,
     prelude::*, CacheTree, LayoutFlexboxContainer, LayoutGridContainer, LayoutInput, LayoutOutput,
@@ -322,13 +317,14 @@ use crate::{
             LayoutConstraints, TextAlign as FcTextAlign,
         },
         getters::{
-            get_css_border_bottom_width, get_css_border_left_width, get_css_border_right_width,
+            get_align_content, get_align_items, get_css_border_bottom_width,
+            get_css_border_left_width, get_css_border_right_width,
             get_css_border_top_width, get_css_box_sizing, get_css_bottom, get_css_height, get_css_left,
             get_css_margin_bottom, get_css_margin_left, get_css_margin_right, get_css_margin_top,
             get_css_max_height, get_css_max_width, get_css_min_height, get_css_min_width,
             get_css_padding_bottom, get_css_padding_left, get_css_padding_right,
-            get_css_padding_top, get_css_right, get_css_top, get_css_width, get_position,
-            MultiValue,
+            get_css_padding_top, get_css_right, get_css_top, get_css_width, get_flex_direction,
+            get_position, MultiValue,
         },
         layout_tree::{get_display_type, LayoutNode, LayoutTree},
         sizing, LayoutContext,
@@ -438,7 +434,9 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             return Style::default();
         };
         let styled_dom = &self.ctx.styled_dom;
+        let node_data = &styled_dom.node_data.as_ref()[id.index()];
         let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
+        let cache = &styled_dom.css_property_cache.ptr;
         let mut taffy_style = Style::default();
 
         // Box Sizing — CSS default is content-box, but Taffy defaults to border-box
@@ -548,7 +546,15 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         };
 
         // Grid & gap properties
-        taffy_style.gap = get_gap_prop(styled_dom, id, node_state)
+        taffy_style.gap = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::Gap)
+            .and_then(|p| {
+                if let CssProperty::Gap(v) = p {
+                    Some(v)
+                } else {
+                    None
+                }
+            })
             .map(|v| {
                 let val = v.get_property_or_default().unwrap_or_default().inner;
                 // Gap can use %, em, rem - convert properly
@@ -561,17 +567,56 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             .unwrap_or_else(Size::zero);
 
         // Grid template rows - convert GridTemplate to Vec<GridTemplateComponent>
-        taffy_style.grid_template_rows = get_grid_template_rows_prop(styled_dom, id, node_state)
+        taffy_style.grid_template_rows = cache
+            .get_property(
+                node_data,
+                &id,
+                node_state,
+                &CssPropertyType::GridTemplateRows,
+            )
+            .and_then(|p| {
+                if let CssProperty::GridTemplateRows(v) = p {
+                    Some(v.clone())
+                } else {
+                    None
+                }
+            })
             .map(|v| grid_template_rows_to_taffy(v).into())
             .unwrap_or_default();
 
         // Grid template columns - convert GridTemplate to Vec<GridTemplateComponent>
-        taffy_style.grid_template_columns = get_grid_template_columns_prop(styled_dom, id, node_state)
+        taffy_style.grid_template_columns = cache
+            .get_property(
+                node_data,
+                &id,
+                node_state,
+                &CssPropertyType::GridTemplateColumns,
+            )
+            .and_then(|p| {
+                if let CssProperty::GridTemplateColumns(v) = p {
+                    Some(v.clone())
+                } else {
+                    None
+                }
+            })
             .map(|v| grid_template_columns_to_taffy(v).into())
             .unwrap_or_default();
 
         // Grid template areas - convert GridTemplateAreas to Vec<taffy::GridTemplateArea<String>>
-        taffy_style.grid_template_areas = get_grid_template_areas_prop(styled_dom, id, node_state)
+        taffy_style.grid_template_areas = cache
+            .get_property(
+                node_data,
+                &id,
+                node_state,
+                &CssPropertyType::GridTemplateAreas,
+            )
+            .and_then(|p| {
+                if let CssProperty::GridTemplateAreas(v) = p {
+                    v.get_property().cloned()
+                } else {
+                    None
+                }
+            })
             .map(|areas| {
                 areas
                     .areas
@@ -589,94 +634,195 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             })
             .unwrap_or_default();
 
-        taffy_style.grid_auto_rows = get_grid_auto_rows_prop(styled_dom, id, node_state)
+        taffy_style.grid_auto_rows = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::GridAutoRows)
+            .and_then(|p| {
+                if let CssProperty::GridAutoRows(v) = p {
+                    Some(v.clone())
+                } else {
+                    None
+                }
+            })
             .map(|v| grid_auto_rows_to_taffy(v))
             .unwrap_or_default();
 
-        taffy_style.grid_auto_columns = get_grid_auto_columns_prop(styled_dom, id, node_state)
+        taffy_style.grid_auto_columns = cache
+            .get_property(
+                node_data,
+                &id,
+                node_state,
+                &CssPropertyType::GridAutoColumns,
+            )
+            .and_then(|p| {
+                if let CssProperty::GridAutoColumns(v) = p {
+                    Some(v.clone())
+                } else {
+                    None
+                }
+            })
             .map(|v| grid_auto_columns_to_taffy(v))
             .unwrap_or_default();
 
-        taffy_style.grid_auto_flow = get_grid_auto_flow_prop(styled_dom, id, node_state)
+        taffy_style.grid_auto_flow = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::GridAutoFlow)
+            .and_then(|p| {
+                if let CssProperty::GridAutoFlow(v) = p {
+                    Some(*v)
+                } else {
+                    None
+                }
+            })
             .map(|v| grid_auto_flow_to_taffy(v))
             .unwrap_or_default();
 
         // Grid item placement (grid-column, grid-row)
-        if let Some(grid_col) = get_grid_column_prop(styled_dom, id, node_state)
-            .and_then(|v| v.get_property().cloned())
+        if let Some(grid_col) = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::GridColumn)
+            .and_then(|p| {
+                if let CssProperty::GridColumn(v) = p {
+                    v.get_property().cloned()
+                } else {
+                    None
+                }
+            })
         {
             taffy_style.grid_column = grid_placement_to_taffy(&grid_col);
         }
 
-        if let Some(grid_row) = get_grid_row_prop(styled_dom, id, node_state)
-            .and_then(|v| v.get_property().cloned())
+        if let Some(grid_row) = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::GridRow)
+            .and_then(|p| {
+                if let CssProperty::GridRow(v) = p {
+                    v.get_property().cloned()
+                } else {
+                    None
+                }
+            })
         {
             taffy_style.grid_row = grid_placement_to_taffy(&grid_row);
         }
 
         // Flexbox
-        taffy_style.flex_direction = get_flex_direction_prop(styled_dom, id, node_state)
-            .map(layout_flex_direction_to_taffy)
-            .unwrap_or(taffy::FlexDirection::Row);
-        taffy_style.flex_wrap = get_flex_wrap_prop(styled_dom, id, node_state)
+        taffy_style.flex_direction = match get_flex_direction(styled_dom, id, node_state) {
+            MultiValue::Exact(v) => layout_flex_direction_to_taffy(CssPropertyValue::Exact(v)),
+            _ => taffy::FlexDirection::Row,
+        };
+        taffy_style.flex_wrap = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::FlexWrap)
+            .and_then(|p| {
+                if let CssProperty::FlexWrap(v) = p {
+                    Some(*v)
+                } else {
+                    None
+                }
+            })
             .map(layout_flex_wrap_to_taffy)
             .unwrap_or(taffy::FlexWrap::NoWrap);
-        taffy_style.align_items = get_align_items_prop(styled_dom, id, node_state)
-                .map(layout_align_items_to_taffy);
+        taffy_style.align_items = match get_align_items(styled_dom, id, node_state) {
+            MultiValue::Exact(v) => Some(layout_align_items_to_taffy(CssPropertyValue::Exact(v))),
+            _ => None,
+        };
                 // CSS spec: default align-items is "normal" which acts like "stretch"
                 // for non-replaced grid/flex items. Taffy handles this internally when
                 // align_items is None, so we should NOT force a default here.
-        taffy_style.justify_items = get_justify_items_prop(styled_dom, id, node_state)
+        taffy_style.justify_items = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::JustifyItems)
+            .and_then(|p| {
+                if let CssProperty::JustifyItems(v) = p {
+                    Some(*v)
+                } else {
+                    None
+                }
+            })
             .map(|v| layout_justify_items_to_taffy(v));
-        taffy_style.justify_content = get_justify_content_prop(styled_dom, id, node_state)
+        taffy_style.justify_content = cache
+                .get_property(node_data, &id, node_state, &CssPropertyType::JustifyContent)
+                .and_then(|p| {
+                    if let CssProperty::JustifyContent(v) = p {
+                        Some(*v)
+                    } else {
+                        None
+                    }
+                })
                 .map(layout_justify_content_to_taffy);
                 // CSS spec: default justify-content is "normal". Taffy handles
                 // this internally when justify_content is None.
-        taffy_style.flex_grow = get_flex_grow_prop(styled_dom, id, node_state)
-            .and_then(|v| {
-                let value = v.get_property_or_default().unwrap_or_default().inner.get();
-                Some(value)
+        taffy_style.flex_grow = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::FlexGrow)
+            .and_then(|p| {
+                if let CssProperty::FlexGrow(v) = p {
+                    let value = v.get_property_or_default().unwrap_or_default().inner.get();
+                    Some(value)
+                } else {
+                    None
+                }
             })
             .unwrap_or(0.0);
 
-        taffy_style.flex_shrink = get_flex_shrink_prop(styled_dom, id, node_state)
-            .map(|v| v.get_property_or_default().unwrap_or_default().inner.get())
-            .unwrap_or(1.0);
-        taffy_style.flex_basis = get_flex_basis_prop(styled_dom, id, node_state)
-            .map(|v| {
-                let basis = match v.get_property_or_default().unwrap_or_default() {
-                    LayoutFlexBasis::Auto => taffy::Dimension::auto(),
-                    LayoutFlexBasis::Exact(pv) => pixel_value_to_pixels_fallback(&pv)
-                        .map(taffy::Dimension::length)
-                        .or_else(|| pv.to_percent().map(|p| taffy::Dimension::percent(p.get())))
-                        .unwrap_or_else(taffy::Dimension::auto),
-                };
-
-                // WORKAROUND: If flex-basis is set and not auto, clear width to let flex-basis
-                // take precedence This is a workaround for Taffy not
-                // properly prioritizing flex-basis over width
-                if !matches!(basis, _auto if _auto == taffy::Dimension::auto()) {
-                    taffy_style.size.width = taffy::Dimension::auto();
+        taffy_style.flex_shrink = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::FlexShrink)
+            .and_then(|p| {
+                if let CssProperty::FlexShrink(v) = p {
+                    Some(v.get_property_or_default().unwrap_or_default().inner.get())
+                } else {
+                    None
                 }
+            })
+            .unwrap_or(1.0);
+        taffy_style.flex_basis = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::FlexBasis)
+            .and_then(|p| {
+                if let CssProperty::FlexBasis(v) = p {
+                    let basis = match v.get_property_or_default().unwrap_or_default() {
+                        LayoutFlexBasis::Auto => taffy::Dimension::auto(),
+                        LayoutFlexBasis::Exact(pv) => pixel_value_to_pixels_fallback(&pv)
+                            .map(taffy::Dimension::length)
+                            .or_else(|| pv.to_percent().map(|p| taffy::Dimension::percent(p.get())))
+                            .unwrap_or_else(taffy::Dimension::auto),
+                    };
 
-                basis
+                    // WORKAROUND: If flex-basis is set and not auto, clear width to let flex-basis
+                    // take precedence This is a workaround for Taffy not
+                    // properly prioritizing flex-basis over width
+                    if !matches!(basis, _auto if _auto == taffy::Dimension::auto()) {
+                        taffy_style.size.width = taffy::Dimension::auto();
+                    }
+
+                    Some(basis)
+                } else {
+                    None
+                }
             })
             .unwrap_or_else(taffy::Dimension::auto);
-        taffy_style.align_self = get_align_self_prop(styled_dom, id, node_state)
-            .and_then(|v| layout_align_self_to_taffy(v));
-        taffy_style.justify_self = get_justify_self_prop(styled_dom, id, node_state)
-            .and_then(|v| {
-                use azul_css::props::layout::grid::LayoutJustifySelf;
-                match v.get_property_or_default().unwrap_or_default() {
-                    LayoutJustifySelf::Auto => None,
-                    LayoutJustifySelf::Start => Some(taffy::AlignSelf::Start),
-                    LayoutJustifySelf::End => Some(taffy::AlignSelf::End),
-                    LayoutJustifySelf::Center => Some(taffy::AlignSelf::Center),
-                    LayoutJustifySelf::Stretch => Some(taffy::AlignSelf::Stretch),
+        taffy_style.align_self = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::AlignSelf)
+            .and_then(|p| {
+                if let CssProperty::AlignSelf(v) = p {
+                    layout_align_self_to_taffy(*v)
+                } else {
+                    None
                 }
             });
-        taffy_style.align_content = get_align_content_prop(styled_dom, id, node_state)
-                .map(layout_align_content_to_taffy);
+        taffy_style.justify_self = cache
+            .get_property(node_data, &id, node_state, &CssPropertyType::JustifySelf)
+            .and_then(|p| {
+                if let CssProperty::JustifySelf(v) = p {
+                    use azul_css::props::layout::grid::LayoutJustifySelf;
+                    match v.get_property_or_default().unwrap_or_default() {
+                        LayoutJustifySelf::Auto => None,
+                        LayoutJustifySelf::Start => Some(taffy::AlignSelf::Start),
+                        LayoutJustifySelf::End => Some(taffy::AlignSelf::End),
+                        LayoutJustifySelf::Center => Some(taffy::AlignSelf::Center),
+                        LayoutJustifySelf::Stretch => Some(taffy::AlignSelf::Stretch),
+                    }
+                } else {
+                    None
+                }
+            });
+        taffy_style.align_content = match get_align_content(styled_dom, id, node_state) {
+            MultiValue::Exact(v) => Some(layout_align_content_to_taffy(CssPropertyValue::Exact(v))),
+            _ => None,
+        };
                 // CSS spec: default align-content is "normal". Taffy handles
                 // this internally when align_content is None.
 
@@ -820,11 +966,9 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 };
 
                 // Check if child has display: none
-                let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[child_dom_id]
-                    .styled_node_state;
-
-                let is_display_none = get_display_raw(self.ctx.styled_dom, child_dom_id, node_state)
-                    == Some(LayoutDisplay::None);
+                use crate::solver3::getters::{get_display_property, MultiValue};
+                let display = get_display_property(self.ctx.styled_dom, Some(child_dom_id));
+                let is_display_none = matches!(display, MultiValue::Exact(LayoutDisplay::None));
 
                 !is_display_none
             })
@@ -1166,10 +1310,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             .map(|dom_id| {
                 let node_state =
                     &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-                match get_text_align(self.ctx.styled_dom, dom_id, node_state) {
-                    MultiValue::Exact(v) => v,
-                    _ => Default::default(),
-                }
+                crate::solver3::getters::get_text_align(self.ctx.styled_dom, dom_id, node_state)
+                    .unwrap_or_default()
             })
             .unwrap_or_default();
 

@@ -42,10 +42,9 @@ use crate::{
         fc::{self, layout_formatting_context, LayoutConstraints, OverflowBehavior},
         geometry::PositionedRectangle,
         getters::{
-            get_css_height, get_display_property, get_display_raw,
-            get_counter_reset, get_counter_increment,
-            get_justify_content, get_overflow_x,
-            get_overflow_y, get_text_align, get_white_space_prop, get_wrap, get_writing_mode, MultiValue,
+            get_css_height, get_display_property, get_justify_content, get_overflow_x,
+            get_overflow_y, get_text_align, get_white_space_property, get_wrap, get_writing_mode,
+            MultiValue,
         },
         layout_tree::{
             is_block_level, AnonymousBoxType, LayoutNode, LayoutTreeBuilder, SubtreeHash,
@@ -722,7 +721,7 @@ fn is_whitespace_only_inline_run(
 
     // Check if the parent preserves whitespace
     let parent_state = &styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
-    let white_space = match get_white_space_prop(styled_dom, parent_dom_id, parent_state) {
+    let white_space = match get_white_space_property(styled_dom, parent_dom_id, parent_state) {
         MultiValue::Exact(ws) => Some(ws),
         _ => None,
     };
@@ -791,9 +790,9 @@ pub fn reconcile_recursive(
     // This must be done after the node is created but before processing children
     // Per CSS Lists Module Level 3, ::marker is generated as the first child of list-items
     {
-        let node_state = &styled_dom.styled_nodes.as_container()[new_dom_id].styled_node_state;
-
-        let display = get_display_raw(styled_dom, new_dom_id, node_state);
+        use crate::solver3::getters::get_display_property;
+        let display = get_display_property(styled_dom, Some(new_dom_id))
+            .exact();
 
         if matches!(display, Some(LayoutDisplay::ListItem)) {
             // Create ::marker pseudo-element for this list-item
@@ -2188,20 +2187,27 @@ fn compute_counters_recursive(
         }
     };
 
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    let cache = &styled_dom.css_property_cache.ptr;
 
     // Track which counters we reset at this level (for cleanup later)
     let mut reset_counters_at_this_level = Vec::new();
 
     // CSS Lists §3: display: list-item automatically increments the "list-item" counter
     // Check if this is a list-item
-    let display = get_display_raw(styled_dom, dom_id, &node_state);
+    let display = {
+        use crate::solver3::getters::get_display_property;
+        get_display_property(styled_dom, Some(dom_id)).exact()
+    };
     let is_list_item = matches!(display, Some(LayoutDisplay::ListItem));
 
     // Process counter-reset (now properly typed)
-    let counter_reset = get_counter_reset(styled_dom, dom_id, &node_state);
+    let counter_reset = cache
+        .get_counter_reset(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property());
 
-    if let Some(ref counter_reset) = counter_reset {
+    if let Some(counter_reset) = counter_reset {
         let counter_name_str = counter_reset.counter_name.as_str();
         if counter_name_str != "none" {
             let counter_name = counter_name_str.to_string();
@@ -2217,9 +2223,11 @@ fn compute_counters_recursive(
     }
 
     // Process counter-increment (now properly typed)
-    let counter_inc = get_counter_increment(styled_dom, dom_id, &node_state);
+    let counter_inc = cache
+        .get_counter_increment(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property());
 
-    if let Some(ref counter_inc) = counter_inc {
+    if let Some(counter_inc) = counter_inc {
         let counter_name_str = counter_inc.counter_name.as_str();
         if counter_name_str != "none" {
             let counter_name = counter_name_str.to_string();

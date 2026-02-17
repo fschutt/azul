@@ -12,7 +12,12 @@ use azul_core::{
 };
 use azul_css::{
     corety::LayoutDebugMessage,
-    props::layout::{LayoutPosition, LayoutWritingMode},
+    css::CssPropertyValue,
+    props::{
+        basic::pixel::PixelValue,
+        layout::{LayoutPosition, LayoutWritingMode},
+        property::{CssProperty, CssPropertyType},
+    },
 };
 
 use crate::{
@@ -20,8 +25,8 @@ use crate::{
     solver3::{
         fc::{layout_formatting_context, LayoutConstraints, TextAlign},
         getters::{
-            get_css_bottom, get_css_left, get_css_right, get_css_top,
-            get_direction, get_position, get_writing_mode, MultiValue,
+            get_direction_property, get_writing_mode, get_position, MultiValue,
+            get_css_top, get_css_bottom, get_css_left, get_css_right,
         },
         layout_tree::LayoutTree,
         LayoutContext, LayoutError, Result,
@@ -36,10 +41,7 @@ struct PositionOffsets {
     left: Option<f32>,
 }
 
-// STUB: These functions simulate reading computed CSS values.
-// In a real implementation, they would access the `StyledDom`'s property cache.
-
-// STUB: This function simulates reading computed CSS values.
+/// Looks up the `position` property using the compact-cache-aware getter.
 pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutPosition {
     let Some(id) = dom_id else {
         return LayoutPosition::Static;
@@ -51,7 +53,7 @@ pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Layo
 /// Correctly looks up the `position` property from the styled DOM.
 fn get_position_property(styled_dom: &StyledDom, node_id: NodeId) -> LayoutPosition {
     let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
-    get_position(styled_dom, node_id, node_state).unwrap_or_default()
+    get_position(styled_dom, node_id, node_state).unwrap_or(LayoutPosition::Static)
 }
 
 /// **NEW API:** Correctly reads and resolves `top`, `right`, `bottom`, `left` properties,
@@ -91,7 +93,7 @@ fn resolve_position_offsets(
 
     let mut offsets = PositionOffsets::default();
 
-    // Resolve offsets with proper context
+    // Resolve offsets using compact-cache-aware getters
     // top/bottom use Height context (% refers to containing block height)
     offsets.top = match get_css_top(styled_dom, id, node_state) {
         MultiValue::Exact(pv) => Some(pv.resolve_with_context(&resolution_context, PropertyContext::Height)),
@@ -327,12 +329,12 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         // Get the direction for this element
         let node_dom_id = node.dom_node_id.unwrap_or(NodeId::ZERO);
         let node_state = &ctx.styled_dom.styled_nodes.as_container()[node_dom_id].styled_node_state;
-        let direction = match get_direction(ctx.styled_dom, node_dom_id, node_state) {
-            MultiValue::Exact(d) => d,
-            _ => azul_css::props::style::StyleDirection::Ltr,
-        };
 
         use azul_css::props::style::StyleDirection;
+        let direction = match get_direction_property(ctx.styled_dom, node_dom_id, node_state) {
+            MultiValue::Exact(v) => v,
+            _ => StyleDirection::Ltr,
+        };
         match direction {
             StyleDirection::Ltr => {
                 // In LTR mode: `left` takes precedence over `right`

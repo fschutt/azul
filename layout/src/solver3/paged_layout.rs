@@ -153,17 +153,17 @@ where
 
         let _fc0 = std::time::Instant::now();
         let chains = collect_and_resolve_font_chains(new_dom, &font_manager.fc_cache, &platform);
-        eprintln!("      [font_resolution] collect_and_resolve_font_chains: {:?}", _fc0.elapsed());
+
         let required_fonts = collect_font_ids_from_chains(&chains);
         let already_loaded = font_manager.get_loaded_font_ids();
         let fonts_to_load = compute_fonts_to_load(&required_fonts, &already_loaded);
-        eprintln!("      [font_resolution] {} required, {} already loaded, {} to load", required_fonts.len(), already_loaded.len(), fonts_to_load.len());
+
 
         if !fonts_to_load.is_empty() {
             let _fc1 = std::time::Instant::now();
             let load_result =
                 load_fonts_from_disk(&fonts_to_load, &font_manager.fc_cache, &font_loader);
-            eprintln!("      [font_resolution] load_fonts_from_disk: {:?} ({} loaded, {} failed)", _fc1.elapsed(), load_result.loaded.len(), load_result.failed.len());
+
             font_manager.insert_fonts(load_result.loaded);
             for (font_id, error) in &load_result.failed {
                 if let Some(msgs) = debug_messages {
@@ -176,7 +176,7 @@ where
         }
         font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
     }
-    eprintln!("    [paged_layout] font resolution: {:?}", _paged_t0.elapsed());
+
 
     // Get page dimensions from fragmentation context
     let page_content_height = fragmentation_context.page_content_height();
@@ -246,7 +246,7 @@ where
         debug_messages,
         get_system_time_fn,
     )?;
-    eprintln!("    [paged_layout] layout_with_fragmentation: {:?}", _paged_t1.elapsed());
+
 
     // Get the layout tree and positions
     let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
@@ -317,7 +317,7 @@ where
         dom_id,
     )?;
 
-    eprintln!("    [paged_layout] generate_display_list: {:?} ({} items)", _paged_t2.elapsed(), full_display_list.items.len());
+
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
             "[PagedLayout] Generated master display list with {} items",
@@ -353,7 +353,7 @@ where
         full_display_list,
         &slicer_config,
     )?;
-    eprintln!("    [paged_layout] paginate: {:?} ({} pages)", _paged_t3.elapsed(), pages.len());
+
 
     if let Some(msgs) = ctx.debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -425,9 +425,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         // Incremental path: diff old tree vs new DOM
         cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport)?
     };
-    eprintln!("      [fragmentation] {} tree build: {:?} ({} nodes, {} dirty)",
-        if is_fresh_dom { "fresh" } else { "reconcile" },
-        _frag_t0.elapsed(), new_tree.nodes.len(), recon_result.intrinsic_dirty.len());
 
     // Step 1.2: Clear Taffy Caches for Dirty Nodes
     for &node_idx in &recon_result.intrinsic_dirty {
@@ -570,7 +567,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         break;
     }
 
-    eprintln!("      [fragmentation] layout loop: {:?} ({} iterations)", _frag_t1.elapsed(), loop_count);
 
     // --- Step 3: Adjust Positions ---
     let _frag_t2 = std::time::Instant::now();
@@ -588,7 +584,6 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
         viewport,
     )?;
 
-    eprintln!("      [fragmentation] position adjustments: {:?}", _frag_t2.elapsed());
 
     // --- Step 3.75: Compute Stable Scroll IDs ---
     use crate::window::LayoutWindow;

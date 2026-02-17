@@ -391,11 +391,7 @@ impl<'a, 'b, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, T> {
         let inline_content = collect_inline_content(&mut self.ctx, tree, node_index)?;
         let _collect_time = _sizing_start.elapsed();
 
-        if inline_content.len() > 10 {
-            let text_count = inline_content.iter().filter(|i| matches!(i, InlineContent::Text(_))).count();
-            let shape_count = inline_content.iter().filter(|i| matches!(i, InlineContent::Shape(_))).count();
-            eprintln!("  [sizing_ifc] node={} content: {} items ({} text, {} shapes) collect={:?}", node_index, inline_content.len(), text_count, shape_count, _collect_time);
-        }
+
 
         if inline_content.is_empty() {
             return Ok(IntrinsicSizes::default());
