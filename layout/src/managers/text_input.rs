@@ -164,10 +164,6 @@ impl TextInputManager {
         old_text: String,
         source: TextInputSource,
     ) -> DomNodeId {
-        println!("[TextInputManager::record_input] Recording input for node {:?}", node);
-        println!("[TextInputManager::record_input] Inserted text: '{}', old_text len: {}", inserted_text, old_text.len());
-        println!("[TextInputManager::record_input] Source: {:?}", source);
-
         // Clear any previous changeset
         self.pending_changeset = None;
 
@@ -179,27 +175,19 @@ impl TextInputManager {
         });
 
         self.input_source = Some(source);
-        println!("[TextInputManager::record_input] Changeset stored successfully");
 
         node
     }
 
     /// Get the pending changeset (if any)
     pub fn get_pending_changeset(&self) -> Option<&PendingTextEdit> {
-        let result = self.pending_changeset.as_ref();
-        if result.is_some() {
-            println!("[TextInputManager::get_pending_changeset] Returning pending changeset");
-        } else {
-            println!("[TextInputManager::get_pending_changeset] No pending changeset!");
-        }
-        result
+        self.pending_changeset.as_ref()
     }
 
     /// Clear the pending changeset
     ///
     /// This is called after applying the changeset or if preventDefault was set.
     pub fn clear_changeset(&mut self) {
-        println!("[TextInputManager::clear_changeset] Clearing changeset");
         self.pending_changeset = None;
         self.input_source = None;
     }

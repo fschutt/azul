@@ -4508,10 +4508,6 @@ impl LayoutCache {
         let shaped_items_id = calculate_id(&shaped_key);
         let shaped_items = match self.shaped_items.get(&shaped_items_id) {
             Some(cached) => {
-                let _s3 = _stage3_start.elapsed();
-                if content.len() > 10 && _s3.as_micros() > 50 {
-                    eprintln!("      [layout_flow] stage3 shaping CACHED ({} items): {:?}", visual_items.len(), _s3);
-                }
                 cached.clone()
             }
             None => {
@@ -4522,10 +4518,6 @@ impl LayoutCache {
                     loaded_fonts,
                     debug_messages,
                 )?);
-                let _s3 = _stage3_start.elapsed();
-                if content.len() > 10 || _s3.as_micros() > 100 {
-                    eprintln!("      [layout_flow] stage3 shaping NEW ({} items): {:?}", visual_items.len(), _s3);
-                }
                 self.shaped_items.insert(shaped_items_id, items.clone());
                 items
             }
@@ -4563,9 +4555,6 @@ impl LayoutCache {
 
         let _total_flow = _layout_flow_start.elapsed();
         let _stage5_time = _stage5_start.elapsed();
-        if content.len() > 10 || _total_flow.as_micros() > 200 {
-            eprintln!("    [layout_flow] {} content items -> stage5={:?} total={:?}", content.len(), _stage5_time, _total_flow);
-        }
 
         Ok(FlowLayout {
             fragment_layouts,
@@ -4999,16 +4988,6 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
     let mut _shape_calls = 0usize;
 
     // Log count of visual items for debugging coalescing
-    if visual_items.len() > 100 {
-        let text_count = visual_items.iter().filter(|v| matches!(&v.logical_source, LogicalItem::Text { .. })).count();
-        let break_count = visual_items.iter().filter(|v| matches!(&v.logical_source, LogicalItem::Break { .. })).count();
-        let tab_count = visual_items.iter().filter(|v| matches!(&v.logical_source, LogicalItem::Tab { .. })).count();
-        let obj_count = visual_items.iter().filter(|v| matches!(&v.logical_source, LogicalItem::Object { .. })).count();
-        let combined_count = visual_items.iter().filter(|v| matches!(&v.logical_source, LogicalItem::CombinedText { .. })).count();
-        let ruby_count = visual_items.iter().filter(|v| matches!(&v.logical_source, LogicalItem::Ruby { .. })).count();
-        eprintln!("    [shape_visual_items] {} visual items: {} text, {} breaks, {} tab, {} obj, {} combined, {} ruby",
-            visual_items.len(), text_count, break_count, tab_count, obj_count, combined_count, ruby_count);
-    }
 
     while idx < visual_items.len() {
         let item = &visual_items[idx];
@@ -5451,12 +5430,6 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
     }
 
     let _shape_time = _shape_start.elapsed();
-    if visual_items.len() > 10 || _shape_time.as_micros() > 100 {
-        eprintln!("    [shape_visual_items] {} items -> {} shaped in {:?} ({} calls, {} runs coalesced into {} calls, saved {})",
-            visual_items.len(), shaped.len(), _shape_time,
-            _shape_calls + _total_runs, _coalesced_runs, _shape_calls,
-            if _coalesced_runs > _shape_calls { _coalesced_runs - _shape_calls } else { 0 });
-    }
 
     Ok(shaped)
 }

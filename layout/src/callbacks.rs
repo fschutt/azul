@@ -1182,7 +1182,6 @@ impl CallbackInfo {
     /// # Arguments
     /// * `text` - The text to insert at the current cursor position
     pub fn create_text_input(&mut self, text: AzString) {
-        println!("[CallbackInfo::create_text_input] Creating text input: '{}'", text.as_str());
         self.push_change(CallbackChange::CreateTextInput { text });
     }
 

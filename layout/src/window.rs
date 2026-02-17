@@ -654,7 +654,6 @@ impl LayoutWindow {
                     e
                 )));
             }
-            eprintln!("[layout_and_generate_display_list] Layout FAILED: {:?}", e);
         } else {
             if let Some(msgs) = debug_messages.as_mut() {
                 msgs.push(LayoutDebugMessage::info(format!(
@@ -2356,11 +2355,9 @@ impl LayoutWindow {
                 CallbackChange::CreateTextInput { text } => {
                     // Create a synthetic text input event
                     // This simulates receiving text input from the OS
-                    println!("[CreateTextInput] Processing text: '{}'", text.as_str());
                     
                     // Process the text input - this records the changeset in TextInputManager
                     let affected_nodes = self.process_text_input(text.as_str());
-                    println!("[CreateTextInput] process_text_input returned {} affected nodes", affected_nodes.len());
                     
                     // Mark that we need to trigger text input callbacks
                     // The affected nodes and their events will be processed by the recursive event loop
@@ -3572,7 +3569,6 @@ impl LayoutWindow {
 
             // Forward text_input_triggered to shell layer for recursive callback processing
             if !change_result.text_input_triggered.is_empty() {
-                println!("[run_single_timer] Forwarding {} text_input_triggered events", change_result.text_input_triggered.len());
                 ret.text_input_triggered = change_result.text_input_triggered;
             }
 
@@ -5305,34 +5301,23 @@ impl LayoutWindow {
 
         use crate::managers::text_input::TextInputSource;
 
-        println!("[record_text_input] Called with text: '{}'", text_input);
-
         let mut affected_nodes = BTreeMap::new();
 
         if text_input.is_empty() {
-            println!("[record_text_input] Empty text, returning empty");
             return affected_nodes;
         }
 
         // Get focused node
         let focused_node = match self.focus_manager.get_focused_node().copied() {
-            Some(node) => {
-                println!("[record_text_input] Focused node: {:?}", node);
-                node
-            },
+            Some(node) => node,
             None => {
-                println!("[record_text_input] ERROR: No focused node!");
                 return affected_nodes;
             }
         };
 
         let node_id = match focused_node.node.into_crate_internal() {
-            Some(id) => {
-                println!("[record_text_input] Node ID: {:?}", id);
-                id
-            },
+            Some(id) => id,
             None => {
-                println!("[record_text_input] ERROR: Invalid node ID");
                 return affected_nodes;
             }
         };
@@ -5340,23 +5325,19 @@ impl LayoutWindow {
         // Get the OLD text before any changes
         let old_inline_content = self.get_text_before_textinput(focused_node.dom, node_id);
         let old_text = self.extract_text_from_inline_content(&old_inline_content);
-        println!("[record_text_input] Old text: '{}' ({} bytes)", old_text, old_text.len());
 
         // Record the changeset in TextInputManager (but DON'T apply changes yet)
-        println!("[record_text_input] Recording input in TextInputManager...");
         self.text_input_manager.record_input(
             focused_node,
             text_input.to_string(),
             old_text,
             TextInputSource::Keyboard, // Assuming keyboard for now
         );
-        println!("[record_text_input] Input recorded successfully");
 
         // Return affected nodes with TextInput event so callbacks can be invoked
         let text_input_event = vec![EventFilter::Focus(FocusEventFilter::TextInput)];
 
         affected_nodes.insert(focused_node, (text_input_event, false)); // false = no re-layout yet
-        println!("[record_text_input] Returning {} affected nodes", affected_nodes.len());
 
         affected_nodes
     }
@@ -5370,41 +5351,28 @@ impl LayoutWindow {
     ///
     /// Returns the nodes that need to be marked dirty for re-layout.
     pub fn apply_text_changeset(&mut self) -> Vec<azul_core::dom::DomNodeId> {
-        println!("[apply_text_changeset] Starting...");
-        
         // Get the changeset from TextInputManager
         let changeset = match self.text_input_manager.get_pending_changeset() {
-            Some(cs) => {
-                println!("[apply_text_changeset] Got changeset for node {:?}, inserted='{}', old_len={}", 
-                    cs.node, cs.inserted_text.as_str(), cs.old_text.as_str().len());
-                cs.clone()
-            },
+            Some(cs) => cs.clone(),
             None => {
-                println!("[apply_text_changeset] ERROR: No pending changeset!");
                 return Vec::new();
             }
         };
 
         let node_id = match changeset.node.node.into_crate_internal() {
-            Some(id) => {
-                println!("[apply_text_changeset] Node ID: {:?}", id);
-                id
-            },
+            Some(id) => id,
             None => {
-                println!("[apply_text_changeset] ERROR: Invalid node ID");
                 self.text_input_manager.clear_changeset();
                 return Vec::new();
             }
         };
 
         let dom_id = changeset.node.dom;
-        println!("[apply_text_changeset] DOM ID: {:?}", dom_id);
 
         // Check if node is contenteditable
         let layout_result = match self.layout_results.get(&dom_id) {
             Some(lr) => lr,
             None => {
-                println!("[apply_text_changeset] ERROR: No layout result for DOM {:?}", dom_id);
                 self.text_input_manager.clear_changeset();
                 return Vec::new();
             }
@@ -5418,7 +5386,6 @@ impl LayoutWindow {
         {
             Some(node) => node,
             None => {
-                println!("[apply_text_changeset] ERROR: No styled node at index {}", node_id.index());
                 self.text_input_manager.clear_changeset();
                 return Vec::new();
             }
@@ -5439,15 +5406,11 @@ impl LayoutWindow {
 
         // Get the current inline content from cache
         let content = self.get_text_before_textinput(dom_id, node_id);
-        println!("[apply_text_changeset] Got content, {} inline items", content.len());
 
         // Get current cursor/selection from cursor manager
         let current_selection = if let Some(cursor) = self.cursor_manager.get_cursor() {
-            println!("[apply_text_changeset] Cursor: run={}, byte={}", 
-                cursor.cluster_id.source_run, cursor.cluster_id.start_byte_in_run);
             vec![Selection::Cursor(cursor.clone())]
         } else {
-            println!("[apply_text_changeset] No cursor, creating at position 0");
             // No cursor - create one at start of text
             vec![Selection::Cursor(TextCursor {
                 cluster_id: GraphemeClusterId {
@@ -5486,24 +5449,17 @@ impl LayoutWindow {
         // Apply the edit using text3::edit - this is a pure function
         use crate::text3::edit::{edit_text, TextEdit};
         let text_edit = TextEdit::Insert(changeset.inserted_text.as_str().to_string());
-        println!("[apply_text_changeset] Calling edit_text() with Insert('{}')", changeset.inserted_text.as_str());
         let (new_content, new_selections) = edit_text(&content, &current_selection, &text_edit);
-        println!("[apply_text_changeset] edit_text returned {} inline items, {} selections", 
-            new_content.len(), new_selections.len());
 
         // Update the cursor/selection in cursor manager
         // This happens lazily, only when we actually apply the changes
         if let Some(Selection::Cursor(new_cursor)) = new_selections.first() {
-            println!("[apply_text_changeset] Updating cursor to run={}, byte={}", 
-                new_cursor.cluster_id.source_run, new_cursor.cluster_id.start_byte_in_run);
             self.cursor_manager
                 .move_cursor_to(new_cursor.clone(), dom_id, node_id);
         }
 
         // Update the text cache with the new inline content
-        println!("[apply_text_changeset] Calling update_text_cache_after_edit()");
         self.update_text_cache_after_edit(dom_id, node_id, new_content);
-        println!("[apply_text_changeset] Text cache updated successfully");
 
         // Record this operation to the undo/redo manager AFTER successful mutation
 
@@ -5554,11 +5510,9 @@ impl LayoutWindow {
 
         // Clear the changeset now that it's been applied
         self.text_input_manager.clear_changeset();
-        println!("[apply_text_changeset] Changeset cleared");
 
         // Return nodes that need dirty marking
         let dirty_nodes = self.determine_dirty_text_nodes(dom_id, node_id);
-        println!("[apply_text_changeset] Dirty nodes: {:?}", dirty_nodes);
         dirty_nodes
     }
 
@@ -5611,13 +5565,7 @@ impl LayoutWindow {
         &mut self,
         text_input: &str,
     ) -> BTreeMap<azul_core::dom::DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
-        println!("[process_text_input] Called with text: '{}'", text_input);
-        let result = self.record_text_input(text_input);
-        println!("[process_text_input] record_text_input returned {} affected nodes", result.len());
-        for (node, (filters, has_text)) in &result {
-            println!("[process_text_input]   Node {:?}: {} filters, has_text={}", node, filters.len(), has_text);
-        }
-        result
+        self.record_text_input(text_input)
     }
 
     /// Get the last text changeset (what was changed in the last text input)
@@ -5802,19 +5750,6 @@ impl LayoutWindow {
     ) {
         use crate::solver3::layout_tree::CachedInlineLayout;
 
-        println!("[update_text_cache_after_edit] Starting for DOM {:?}, node {:?}", dom_id, node_id);
-        println!("[update_text_cache_after_edit] New content has {} inline items", new_inline_content.len());
-        for (i, item) in new_inline_content.iter().enumerate() {
-            match item {
-                crate::text3::cache::InlineContent::Text(run) => {
-                    println!("[update_text_cache_after_edit]   Item {}: Text('{}')", i, run.text);
-                }
-                _ => {
-                    println!("[update_text_cache_after_edit]   Item {}: Non-text", i);
-                }
-            }
-        }
-
         // 1. Store the new content in dirty_text_nodes for tracking
         let cursor = self.cursor_manager.get_cursor().cloned();
         self.dirty_text_nodes.insert(
@@ -5825,7 +5760,6 @@ impl LayoutWindow {
                 needs_ancestor_relayout: false, // Will be set if size changes
             },
         );
-        println!("[update_text_cache_after_edit] Stored in dirty_text_nodes");
 
         // 2. Get the cached constraints from the existing inline layout result
         // We need to find the IFC root node and extract its constraints
@@ -5833,7 +5767,6 @@ impl LayoutWindow {
             let layout_result = match self.layout_results.get(&dom_id) {
                 Some(r) => r,
                 None => {
-                    println!("[update_text_cache_after_edit] ERROR: No layout result for DOM");
                     return;
                 }
             };
@@ -5841,7 +5774,6 @@ impl LayoutWindow {
             let layout_node = match layout_result.layout_tree.get(node_id.index()) {
                 Some(n) => n,
                 None => {
-                    println!("[update_text_cache_after_edit] ERROR: Node {} not found in layout tree", node_id.index());
                     return;
                 }
             };
@@ -5849,32 +5781,24 @@ impl LayoutWindow {
             let cached_layout = match &layout_node.inline_layout_result {
                 Some(c) => c,
                 None => {
-                    println!("[update_text_cache_after_edit] ERROR: No inline layout cached for node");
                     return;
                 }
             };
             
             match &cached_layout.constraints {
-                Some(c) => {
-                    println!("[update_text_cache_after_edit] Got cached constraints");
-                    c.clone()
-                },
+                Some(c) => c.clone(),
                 None => {
-                    println!("[update_text_cache_after_edit] ERROR: No constraints cached");
                     return;
                 }
             }
         };
 
         // 3. Re-run the text3 layout pipeline
-        println!("[update_text_cache_after_edit] Re-running text3 layout pipeline...");
         let new_layout = self.relayout_text_node_internal(&new_inline_content, &constraints);
 
         let Some(new_layout) = new_layout else {
-            println!("[update_text_cache_after_edit] ERROR: relayout_text_node_internal returned None");
             return;
         };
-        println!("[update_text_cache_after_edit] Text3 layout complete, {} items", new_layout.items.len());
 
         // 4. Update the layout cache with the new layout
         // Find the IFC root node in the layout tree and update its inline_layout_result
@@ -5888,13 +5812,11 @@ impl LayoutWindow {
                     width: new_bounds.width,
                     height: new_bounds.height,
                 });
-                println!("[update_text_cache_after_edit] Old size: {:?}, new size: {:?}", old_size, new_size);
 
                 // Check if we need to propagate layout shift
                 if let (Some(old), Some(new)) = (old_size, new_size) {
                     if (old.height - new.height).abs() > 0.5 || (old.width - new.width).abs() > 0.5 {
                         // Mark that ancestor relayout is needed
-                        println!("[update_text_cache_after_edit] Size changed, marking for ancestor relayout");
                         if let Some(dirty_node) = self.dirty_text_nodes.get_mut(&(dom_id, node_id)) {
                             dirty_node.needs_ancestor_relayout = true;
                         }
@@ -5908,20 +5830,13 @@ impl LayoutWindow {
                     false, // No floats in quick relayout
                     constraints,
                 ));
-                println!("[update_text_cache_after_edit] Layout cache updated successfully");
-            } else {
-                println!("[update_text_cache_after_edit] ERROR: Layout node {} not found for update", node_id.index());
             }
-        } else {
-            println!("[update_text_cache_after_edit] ERROR: Layout result not found for update");
         }
 
         // CRITICAL: Regenerate the display list after updating the inline layout.
         // Without this, the old display list (with old text glyphs) is sent to WebRender,
         // so the screen still shows the old text even though the layout tree is updated.
-        println!("[update_text_cache_after_edit] Regenerating display list for DOM {:?}", dom_id);
         self.regenerate_display_list_for_dom(dom_id);
-        println!("[update_text_cache_after_edit] Display list regenerated");
     }
 
     /// Regenerate the display list for a specific DOM from the current layout tree.
@@ -5942,10 +5857,7 @@ impl LayoutWindow {
         // Get all the data we need from the layout result
         let layout_result = match self.layout_results.get(&dom_id) {
             Some(lr) => lr,
-            None => {
-                println!("[regenerate_display_list_for_dom] ERROR: No layout result for DOM {:?}", dom_id);
-                return;
-            }
+            None => { return; }
         };
 
         let tree = &layout_result.layout_tree;
@@ -6009,14 +5921,11 @@ impl LayoutWindow {
 
         match new_display_list {
             Ok(display_list) => {
-                println!("[regenerate_display_list_for_dom] Generated {} display items", display_list.items.len());
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
                     layout_result.display_list = display_list;
                 }
             }
-            Err(e) => {
-                println!("[regenerate_display_list_for_dom] ERROR: {:?}", e);
-            }
+            Err(_e) => { }
         }
     }
 
