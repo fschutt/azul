@@ -13,13 +13,14 @@ use azul_css::{
     css::CssPropertyValue,
     props::{
         basic::{
-            font::{StyleFontFamily, StyleFontFamilyVec},
+            font::{StyleFontFamily, StyleFontFamilyVec, StyleFontWeight, StyleFontStyle},
             pixel::{DEFAULT_FONT_SIZE, PT_TO_PX},
             ColorU, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,
         },
         layout::{
             BoxDecorationBreak, BreakInside, LayoutBoxSizing, LayoutClear, LayoutDisplay,
-            LayoutFlexWrap, LayoutFloat, LayoutHeight, LayoutJustifyContent, LayoutOverflow,
+            LayoutFlexDirection, LayoutFlexWrap, LayoutFloat, LayoutHeight,
+            LayoutJustifyContent, LayoutAlignItems, LayoutAlignContent, LayoutOverflow,
             LayoutPosition, LayoutWidth, LayoutWritingMode, Orphans, PageBreak, Widows,
             grid::GridTemplateAreas,
         },
@@ -36,7 +37,8 @@ use azul_css::{
         style::{
             border_radius::StyleBorderRadius,
             lists::{StyleListStylePosition, StyleListStyleType},
-            StyleTextAlign, StyleUserSelect, StyleVerticalAlign,
+            StyleDirection, StyleTextAlign, StyleUserSelect, StyleVerticalAlign,
+            StyleVisibility, StyleWhiteSpace,
         },
     },
 };
@@ -290,6 +292,59 @@ impl<T: Default> Default for MultiValue<T> {
 /// Helper macro to reduce boilerplate for simple CSS property getters
 /// Returns the inner PixelValue wrapped in MultiValue
 macro_rules! get_css_property_pixel {
+    // Variant WITH compact cache fast path for i16-encoded resolved px properties
+    ($fn_name:ident, $cache_method:ident, $ua_property:expr, compact_i16 = $compact_method:ident) => {
+        pub fn $fn_name(
+            styled_dom: &StyledDom,
+            node_id: NodeId,
+            node_state: &StyledNodeState,
+        ) -> MultiValue<PixelValue> {
+            // FAST PATH: compact cache for normal state (O(1) array lookup)
+            if node_state.is_normal() {
+                if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+                    let raw = cc.$compact_method(node_id.index());
+                    if raw == azul_css::compact_cache::I16_AUTO {
+                        return MultiValue::Auto;
+                    }
+                    if raw == azul_css::compact_cache::I16_INITIAL {
+                        return MultiValue::Initial;
+                    }
+                    if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
+                        // Valid value: decode i16 ×10 → px
+                        return MultiValue::Exact(PixelValue::px(raw as f32 / 10.0));
+                    }
+                    // I16_SENTINEL or I16_INHERIT → fall through to slow path
+                }
+            }
+
+            let node_data = &styled_dom.node_data.as_container()[node_id];
+
+            let author_css = styled_dom
+                .css_property_cache
+                .ptr
+                .$cache_method(node_data, &node_id, node_state);
+
+            if let Some(ref val) = author_css {
+                if val.is_auto() {
+                    return MultiValue::Auto;
+                }
+                if let Some(exact) = val.get_property().copied() {
+                    return MultiValue::Exact(exact.inner);
+                }
+            }
+
+            let ua_css = azul_core::ua_css::get_ua_property(&node_data.node_type, $ua_property);
+
+            if let Some(ua_prop) = ua_css {
+                if let Some(inner) = ua_prop.get_pixel_inner() {
+                    return MultiValue::Exact(inner);
+                }
+            }
+
+            MultiValue::Initial
+        }
+    };
+    // Variant WITHOUT compact cache (original behavior)
     ($fn_name:ident, $cache_method:ident, $ua_property:expr) => {
         pub fn $fn_name(
             styled_dom: &StyledDom,
@@ -362,6 +417,154 @@ impl CssPropertyPixelInner for azul_css::props::property::CssProperty {
 
 /// Generic macro for CSS properties with UA CSS fallback - returns MultiValue<T>
 macro_rules! get_css_property {
+    // Variant WITH compact cache fast path (for enum properties in Tier 1)
+    ($fn_name:ident, $cache_method:ident, $return_type:ty, $ua_property:expr, compact = $compact_method:ident) => {
+        pub fn $fn_name(
+            styled_dom: &StyledDom,
+            node_id: NodeId,
+            node_state: &StyledNodeState,
+        ) -> MultiValue<$return_type> {
+            // FAST PATH: compact cache for normal state (O(1) array + bitshift)
+            if node_state.is_normal() {
+                if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+                    return MultiValue::Exact(cc.$compact_method(node_id.index()));
+                }
+            }
+
+            // SLOW PATH: full cascade resolution
+            let node_data = &styled_dom.node_data.as_container()[node_id];
+
+            // 1. Check author CSS first
+            let author_css = styled_dom
+                .css_property_cache
+                .ptr
+                .$cache_method(node_data, &node_id, node_state);
+
+            if let Some(val) = author_css.and_then(|v| v.get_property().cloned()) {
+                return MultiValue::Exact(val);
+            }
+
+            // 2. Check User Agent CSS
+            let ua_css = azul_core::ua_css::get_ua_property(&node_data.node_type, $ua_property);
+
+            if let Some(ua_prop) = ua_css {
+                if let Some(val) = extract_property_value::<$return_type>(ua_prop) {
+                    return MultiValue::Exact(val);
+                }
+            }
+
+            // 3. Fallback to Auto (not set)
+            MultiValue::Auto
+        }
+    };
+    // Variant WITH compact cache for u32-encoded dimension enums (LayoutWidth/LayoutHeight)
+    // These types have Auto, Px(PixelValue), MinContent, MaxContent, Calc variants
+    ($fn_name:ident, $cache_method:ident, $return_type:ty, $ua_property:expr, compact_u32_dim = $compact_raw_method:ident, $px_variant:path, $auto_variant:path, $min_content_variant:path, $max_content_variant:path) => {
+        pub fn $fn_name(
+            styled_dom: &StyledDom,
+            node_id: NodeId,
+            node_state: &StyledNodeState,
+        ) -> MultiValue<$return_type> {
+            // FAST PATH: compact cache for normal state
+            if node_state.is_normal() {
+                if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+                    let raw = cc.$compact_raw_method(node_id.index());
+                    match raw {
+                        azul_css::compact_cache::U32_AUTO => return MultiValue::Auto,
+                        azul_css::compact_cache::U32_INITIAL => return MultiValue::Initial,
+                        azul_css::compact_cache::U32_NONE => return MultiValue::Auto,
+                        azul_css::compact_cache::U32_MIN_CONTENT => return MultiValue::Exact($min_content_variant),
+                        azul_css::compact_cache::U32_MAX_CONTENT => return MultiValue::Exact($max_content_variant),
+                        azul_css::compact_cache::U32_SENTINEL | azul_css::compact_cache::U32_INHERIT => {
+                            // fall through to slow path
+                        }
+                        _ => {
+                            // Valid encoded pixel value
+                            if let Some(pv) = azul_css::compact_cache::decode_pixel_value_u32(raw) {
+                                return MultiValue::Exact($px_variant(pv));
+                            }
+                            // decode failed → slow path
+                        }
+                    }
+                }
+            }
+
+            // SLOW PATH: full cascade resolution
+            let node_data = &styled_dom.node_data.as_container()[node_id];
+
+            let author_css = styled_dom
+                .css_property_cache
+                .ptr
+                .$cache_method(node_data, &node_id, node_state);
+
+            if let Some(val) = author_css.and_then(|v| v.get_property().cloned()) {
+                return MultiValue::Exact(val);
+            }
+
+            let ua_css = azul_core::ua_css::get_ua_property(&node_data.node_type, $ua_property);
+
+            if let Some(ua_prop) = ua_css {
+                if let Some(val) = extract_property_value::<$return_type>(ua_prop) {
+                    return MultiValue::Exact(val);
+                }
+            }
+
+            MultiValue::Auto
+        }
+    };
+    // Variant WITH compact cache for u32-encoded dimension structs (LayoutMinWidth etc.)
+    // These types are struct { inner: PixelValue }
+    ($fn_name:ident, $cache_method:ident, $return_type:ty, $ua_property:expr, compact_u32_struct = $compact_raw_method:ident) => {
+        pub fn $fn_name(
+            styled_dom: &StyledDom,
+            node_id: NodeId,
+            node_state: &StyledNodeState,
+        ) -> MultiValue<$return_type> {
+            // FAST PATH: compact cache for normal state
+            if node_state.is_normal() {
+                if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+                    let raw = cc.$compact_raw_method(node_id.index());
+                    match raw {
+                        azul_css::compact_cache::U32_AUTO | azul_css::compact_cache::U32_NONE => return MultiValue::Auto,
+                        azul_css::compact_cache::U32_INITIAL => return MultiValue::Initial,
+                        azul_css::compact_cache::U32_SENTINEL | azul_css::compact_cache::U32_INHERIT => {
+                            // fall through to slow path
+                        }
+                        _ => {
+                            if let Some(pv) = azul_css::compact_cache::decode_pixel_value_u32(raw) {
+                                return MultiValue::Exact(
+                                    <$return_type as azul_css::props::PixelValueTaker>::from_pixel_value(pv)
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            // SLOW PATH
+            let node_data = &styled_dom.node_data.as_container()[node_id];
+
+            let author_css = styled_dom
+                .css_property_cache
+                .ptr
+                .$cache_method(node_data, &node_id, node_state);
+
+            if let Some(val) = author_css.and_then(|v| v.get_property().cloned()) {
+                return MultiValue::Exact(val);
+            }
+
+            let ua_css = azul_core::ua_css::get_ua_property(&node_data.node_type, $ua_property);
+
+            if let Some(ua_prop) = ua_css {
+                if let Some(val) = extract_property_value::<$return_type>(ua_prop) {
+                    return MultiValue::Exact(val);
+                }
+            }
+
+            MultiValue::Auto
+        }
+    };
+    // Variant WITHOUT compact cache (original behavior)
     ($fn_name:ident, $cache_method:ident, $return_type:ty, $ua_property:expr) => {
         pub fn $fn_name(
             styled_dom: &StyledDom,
@@ -560,88 +763,253 @@ impl ExtractPropertyValue<PixelValue> for azul_css::props::property::CssProperty
     }
 }
 
+impl ExtractPropertyValue<LayoutFlexDirection> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<LayoutFlexDirection> {
+        match self {
+            Self::FlexDirection(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<LayoutAlignItems> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<LayoutAlignItems> {
+        match self {
+            Self::AlignItems(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<LayoutAlignContent> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<LayoutAlignContent> {
+        match self {
+            Self::AlignContent(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleFontWeight> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleFontWeight> {
+        match self {
+            Self::FontWeight(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleFontStyle> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleFontStyle> {
+        match self {
+            Self::FontStyle(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleVisibility> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleVisibility> {
+        match self {
+            Self::Visibility(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleWhiteSpace> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleWhiteSpace> {
+        match self {
+            Self::WhiteSpace(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleDirection> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleDirection> {
+        match self {
+            Self::Direction(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleVerticalAlign> for azul_css::props::property::CssProperty {
+    fn extract(&self) -> Option<StyleVerticalAlign> {
+        match self {
+            Self::VerticalAlign(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
 get_css_property!(
     get_writing_mode,
     get_writing_mode,
     LayoutWritingMode,
-    azul_css::props::property::CssPropertyType::WritingMode
+    azul_css::props::property::CssPropertyType::WritingMode,
+    compact = get_writing_mode
 );
 
 get_css_property!(
     get_css_width,
     get_width,
     LayoutWidth,
-    azul_css::props::property::CssPropertyType::Width
+    azul_css::props::property::CssPropertyType::Width,
+    compact_u32_dim = get_width_raw, LayoutWidth::Px, LayoutWidth::Auto, LayoutWidth::MinContent, LayoutWidth::MaxContent
 );
 
 get_css_property!(
     get_css_height,
     get_height,
     LayoutHeight,
-    azul_css::props::property::CssPropertyType::Height
+    azul_css::props::property::CssPropertyType::Height,
+    compact_u32_dim = get_height_raw, LayoutHeight::Px, LayoutHeight::Auto, LayoutHeight::MinContent, LayoutHeight::MaxContent
 );
 
 get_css_property!(
     get_wrap,
     get_flex_wrap,
     LayoutFlexWrap,
-    azul_css::props::property::CssPropertyType::FlexWrap
+    azul_css::props::property::CssPropertyType::FlexWrap,
+    compact = get_flex_wrap
 );
 
 get_css_property!(
     get_justify_content,
     get_justify_content,
     LayoutJustifyContent,
-    azul_css::props::property::CssPropertyType::JustifyContent
+    azul_css::props::property::CssPropertyType::JustifyContent,
+    compact = get_justify_content
 );
 
 get_css_property!(
     get_text_align,
     get_text_align,
     StyleTextAlign,
-    azul_css::props::property::CssPropertyType::TextAlign
+    azul_css::props::property::CssPropertyType::TextAlign,
+    compact = get_text_align
 );
 
 get_css_property!(
     get_float,
     get_float,
     LayoutFloat,
-    azul_css::props::property::CssPropertyType::Float
+    azul_css::props::property::CssPropertyType::Float,
+    compact = get_float
 );
 
 get_css_property!(
     get_clear,
     get_clear,
     LayoutClear,
-    azul_css::props::property::CssPropertyType::Clear
+    azul_css::props::property::CssPropertyType::Clear,
+    compact = get_clear
 );
 
 get_css_property!(
     get_overflow_x,
     get_overflow_x,
     LayoutOverflow,
-    azul_css::props::property::CssPropertyType::OverflowX
+    azul_css::props::property::CssPropertyType::OverflowX,
+    compact = get_overflow_x
 );
 
 get_css_property!(
     get_overflow_y,
     get_overflow_y,
     LayoutOverflow,
-    azul_css::props::property::CssPropertyType::OverflowY
+    azul_css::props::property::CssPropertyType::OverflowY,
+    compact = get_overflow_y
 );
 
 get_css_property!(
     get_position,
     get_position,
     LayoutPosition,
-    azul_css::props::property::CssPropertyType::Position
+    azul_css::props::property::CssPropertyType::Position,
+    compact = get_position
 );
 
 get_css_property!(
     get_css_box_sizing,
     get_box_sizing,
     LayoutBoxSizing,
-    azul_css::props::property::CssPropertyType::BoxSizing
+    azul_css::props::property::CssPropertyType::BoxSizing,
+    compact = get_box_sizing
+);
+
+get_css_property!(
+    get_flex_direction,
+    get_flex_direction,
+    LayoutFlexDirection,
+    azul_css::props::property::CssPropertyType::FlexDirection,
+    compact = get_flex_direction
+);
+
+get_css_property!(
+    get_align_items,
+    get_align_items,
+    LayoutAlignItems,
+    azul_css::props::property::CssPropertyType::AlignItems,
+    compact = get_align_items
+);
+
+get_css_property!(
+    get_align_content,
+    get_align_content,
+    LayoutAlignContent,
+    azul_css::props::property::CssPropertyType::AlignContent,
+    compact = get_align_content
+);
+
+get_css_property!(
+    get_font_weight_property,
+    get_font_weight,
+    StyleFontWeight,
+    azul_css::props::property::CssPropertyType::FontWeight,
+    compact = get_font_weight
+);
+
+get_css_property!(
+    get_font_style_property,
+    get_font_style,
+    StyleFontStyle,
+    azul_css::props::property::CssPropertyType::FontStyle,
+    compact = get_font_style
+);
+
+get_css_property!(
+    get_visibility,
+    get_visibility,
+    StyleVisibility,
+    azul_css::props::property::CssPropertyType::Visibility,
+    compact = get_visibility
+);
+
+get_css_property!(
+    get_white_space_property,
+    get_white_space,
+    StyleWhiteSpace,
+    azul_css::props::property::CssPropertyType::WhiteSpace,
+    compact = get_white_space
+);
+
+get_css_property!(
+    get_direction_property,
+    get_direction,
+    StyleDirection,
+    azul_css::props::property::CssPropertyType::Direction,
+    compact = get_direction
+);
+
+get_css_property!(
+    get_vertical_align_property,
+    get_vertical_align,
+    StyleVerticalAlign,
+    azul_css::props::property::CssPropertyType::VerticalAlign,
+    compact = get_vertical_align
 );
 // Complex Property Getters
 
@@ -969,7 +1337,77 @@ pub fn get_border_info(
     node_state: &StyledNodeState,
 ) -> BorderInfo {
     use crate::solver3::display_list::{StyleBorderColors, StyleBorderStyles, StyleBorderWidths};
+    use azul_css::css::CssPropertyValue;
+    use azul_css::props::basic::color::ColorU;
+    use azul_css::props::style::border::{
+        BorderStyle, StyleBorderTopColor, StyleBorderRightColor,
+        StyleBorderBottomColor, StyleBorderLeftColor,
+        StyleBorderTopStyle, StyleBorderRightStyle,
+        StyleBorderBottomStyle, StyleBorderLeftStyle,
+    };
 
+    // FAST PATH: compact cache for normal state
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            let idx = node_id.index();
+
+            // Border widths (already have compact path via i16)
+            let node_data = &styled_dom.node_data.as_container()[node_id];
+            let widths = StyleBorderWidths {
+                top: styled_dom.css_property_cache.ptr
+                    .get_border_top_width(node_data, &node_id, node_state).cloned(),
+                right: styled_dom.css_property_cache.ptr
+                    .get_border_right_width(node_data, &node_id, node_state).cloned(),
+                bottom: styled_dom.css_property_cache.ptr
+                    .get_border_bottom_width(node_data, &node_id, node_state).cloned(),
+                left: styled_dom.css_property_cache.ptr
+                    .get_border_left_width(node_data, &node_id, node_state).cloned(),
+            };
+
+            // Border colors from compact cache
+            let make_color = |raw: u32| -> Option<ColorU> {
+                if raw == 0 { None } else {
+                    Some(ColorU {
+                        r: ((raw >> 24) & 0xFF) as u8,
+                        g: ((raw >> 16) & 0xFF) as u8,
+                        b: ((raw >> 8) & 0xFF) as u8,
+                        a: (raw & 0xFF) as u8,
+                    })
+                }
+            };
+
+            let colors = StyleBorderColors {
+                top: make_color(cc.get_border_top_color_raw(idx))
+                    .map(|c| CssPropertyValue::Exact(StyleBorderTopColor { inner: c })),
+                right: make_color(cc.get_border_right_color_raw(idx))
+                    .map(|c| CssPropertyValue::Exact(StyleBorderRightColor { inner: c })),
+                bottom: make_color(cc.get_border_bottom_color_raw(idx))
+                    .map(|c| CssPropertyValue::Exact(StyleBorderBottomColor { inner: c })),
+                left: make_color(cc.get_border_left_color_raw(idx))
+                    .map(|c| CssPropertyValue::Exact(StyleBorderLeftColor { inner: c })),
+            };
+
+            // Border styles from compact cache
+            let styles = StyleBorderStyles {
+                top: Some(CssPropertyValue::Exact(StyleBorderTopStyle {
+                    inner: cc.get_border_top_style(idx),
+                })),
+                right: Some(CssPropertyValue::Exact(StyleBorderRightStyle {
+                    inner: cc.get_border_right_style(idx),
+                })),
+                bottom: Some(CssPropertyValue::Exact(StyleBorderBottomStyle {
+                    inner: cc.get_border_bottom_style(idx),
+                })),
+                left: Some(CssPropertyValue::Exact(StyleBorderLeftStyle {
+                    inner: cc.get_border_left_style(idx),
+                })),
+            };
+
+            return BorderInfo { widths, colors, styles };
+        }
+    }
+
+    // SLOW PATH: full cascade
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
     // Get all border widths
@@ -1440,7 +1878,8 @@ get_css_property!(
     get_display_property_internal,
     get_display,
     LayoutDisplay,
-    azul_css::props::property::CssPropertyType::Display
+    azul_css::props::property::CssPropertyType::Display,
+    compact = get_display
 );
 
 pub fn get_display_property(
@@ -1460,14 +1899,11 @@ pub fn get_vertical_align_for_node(
     styled_dom: &StyledDom,
     dom_id: NodeId,
 ) -> crate::text3::cache::VerticalAlign {
-    let node_data = &styled_dom.node_data.as_container()[dom_id];
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-    let va = styled_dom
-        .css_property_cache
-        .ptr
-        .get_vertical_align(node_data, &dom_id, &node_state)
-        .and_then(|s| s.get_property().copied())
-        .unwrap_or_default();
+    let va = match get_vertical_align_property(styled_dom, dom_id, node_state) {
+        MultiValue::Exact(v) => v,
+        _ => StyleVerticalAlign::default(),
+    };
     match va {
         StyleVerticalAlign::Baseline => crate::text3::cache::VerticalAlign::Baseline,
         StyleVerticalAlign::Top => crate::text3::cache::VerticalAlign::Top,
@@ -1540,19 +1976,61 @@ pub fn get_style_properties(
     // Get font-size: either from this node's CSS, or inherit from parent
     // font-size is an inheritable property, so if the node doesn't have
     // an explicit font-size, it should inherit from the parent (not default to 16px)
-    let font_size = cache
-        .get_font_size(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .map(|v| {
-            v.inner
-                .resolve_with_context(&font_size_context, PropertyContext::FontSize)
+    let font_size = {
+        // FAST PATH: compact cache for normal state
+        let mut fast_font_size = None;
+        if node_state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                let raw = cc.get_font_size_raw(dom_id.index());
+                if raw != azul_css::compact_cache::U32_SENTINEL
+                    && raw != azul_css::compact_cache::U32_INHERIT
+                    && raw != azul_css::compact_cache::U32_INITIAL
+                {
+                    if let Some(pv) = azul_css::compact_cache::decode_pixel_value_u32(raw) {
+                        fast_font_size = Some(pv.resolve_with_context(
+                            &font_size_context,
+                            PropertyContext::FontSize,
+                        ));
+                    }
+                }
+            }
+        }
+        fast_font_size.unwrap_or_else(|| {
+            cache
+                .get_font_size(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property().cloned())
+                .map(|v| {
+                    v.inner
+                        .resolve_with_context(&font_size_context, PropertyContext::FontSize)
+                })
+                .unwrap_or(parent_font_size)
         })
-        .unwrap_or(parent_font_size);
+    };
 
-    let color_from_cache = cache
-        .get_text_color(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .map(|v| v.inner);
+    let color_from_cache = {
+        // FAST PATH: compact cache for text color
+        let mut fast_color = None;
+        if node_state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                let raw = cc.get_text_color_raw(dom_id.index());
+                if raw != 0 {
+                    // Decode 0xRRGGBBAA → ColorU
+                    fast_color = Some(ColorU {
+                        r: (raw >> 24) as u8,
+                        g: (raw >> 16) as u8,
+                        b: (raw >> 8) as u8,
+                        a: raw as u8,
+                    });
+                }
+            }
+        }
+        fast_color.or_else(|| {
+            cache
+                .get_text_color(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property().cloned())
+                .map(|v| v.inner)
+        })
+    };
 
     // Use system text color as fallback (respects dark/light mode)
     let system_text_color = system_style
@@ -1561,11 +2039,31 @@ pub fn get_style_properties(
     
     let color = color_from_cache.unwrap_or(system_text_color);
 
-    let line_height = cache
-        .get_line_height(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .map(|v| v.inner.normalized() * font_size)
-        .unwrap_or(font_size * 1.2);
+    let line_height = {
+        // FAST PATH: compact cache for line-height (stored as normalized × 1000 i16)
+        let mut fast_lh = None;
+        if node_state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                if let Some(normalized) = cc.get_line_height(dom_id.index()) {
+                    // normalized is the raw i16 / 1000.0 value from decode_resolved_px_i16
+                    // But line_height encoding is special: percentage × 10 as i16
+                    // decode: i16 / 10.0 → raw percentage value (not /100!)
+                    // Wait - get_line_height uses decode_resolved_px_i16 which does val / 10.0
+                    // Builder stores: normalized() * 1000.0 as i16
+                    // So decoded = i16 / 10.0 = normalized() * 100.0
+                    // We need normalized() * font_size, so: decoded / 100.0 * font_size
+                    fast_lh = Some(normalized / 100.0 * font_size);
+                }
+            }
+        }
+        fast_lh.unwrap_or_else(|| {
+            cache
+                .get_line_height(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property().cloned())
+                .map(|v| v.inner.normalized() * font_size)
+                .unwrap_or(font_size * 1.2)
+        })
+    };
 
     // Get background color for INLINE elements only
     // CSS background-color is NOT inherited. For block-level elements (th, td, div, etc.),
@@ -1601,16 +2099,16 @@ pub fn get_style_properties(
         };
 
     // Query font-weight from CSS cache
-    let font_weight = cache
-        .get_font_weight(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().copied())
-        .unwrap_or(azul_css::props::basic::font::StyleFontWeight::Normal);
+    let font_weight = match get_font_weight_property(styled_dom, dom_id, node_state) {
+        MultiValue::Exact(v) => v,
+        _ => StyleFontWeight::Normal,
+    };
 
     // Query font-style from CSS cache
-    let font_style = cache
-        .get_font_style(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().copied())
-        .unwrap_or(azul_css::props::basic::font::StyleFontStyle::Normal);
+    let font_style = match get_font_style_property(styled_dom, dom_id, node_state) {
+        MultiValue::Exact(v) => v,
+        _ => StyleFontStyle::Normal,
+    };
 
     // Convert StyleFontWeight/StyleFontStyle to fontconfig types
     let fc_weight = super::fc::convert_font_weight(font_weight);
@@ -1704,26 +2202,50 @@ pub fn get_style_properties(
     };
 
     // Get letter-spacing from CSS
-    let letter_spacing = cache
-        .get_letter_spacing(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .map(|v| {
-            // Convert PixelValue to Spacing
-            // PixelValue can be px, em, rem, etc.
-            let px_value = v.inner.resolve_with_context(&font_size_context, PropertyContext::FontSize);
-            crate::text3::cache::Spacing::Px(px_value.round() as i32)
+    let letter_spacing = {
+        // FAST PATH: compact cache for letter-spacing (i16 resolved px × 10)
+        let mut fast_ls = None;
+        if node_state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                if let Some(px_val) = cc.get_letter_spacing(dom_id.index()) {
+                    fast_ls = Some(crate::text3::cache::Spacing::Px(px_val.round() as i32));
+                }
+            }
+        }
+        fast_ls.unwrap_or_else(|| {
+            cache
+                .get_letter_spacing(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property().cloned())
+                .map(|v| {
+                    let px_value = v.inner.resolve_with_context(&font_size_context, PropertyContext::FontSize);
+                    crate::text3::cache::Spacing::Px(px_value.round() as i32)
+                })
+                .unwrap_or_default()
         })
-        .unwrap_or_default();
+    };
 
     // Get word-spacing from CSS
-    let word_spacing = cache
-        .get_word_spacing(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .map(|v| {
-            let px_value = v.inner.resolve_with_context(&font_size_context, PropertyContext::FontSize);
-            crate::text3::cache::Spacing::Px(px_value.round() as i32)
+    let word_spacing = {
+        // FAST PATH: compact cache for word-spacing (i16 resolved px × 10)
+        let mut fast_ws = None;
+        if node_state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                if let Some(px_val) = cc.get_word_spacing(dom_id.index()) {
+                    fast_ws = Some(crate::text3::cache::Spacing::Px(px_val.round() as i32));
+                }
+            }
+        }
+        fast_ws.unwrap_or_else(|| {
+            cache
+                .get_word_spacing(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property().cloned())
+                .map(|v| {
+                    let px_value = v.inner.resolve_with_context(&font_size_context, PropertyContext::FontSize);
+                    crate::text3::cache::Spacing::Px(px_value.round() as i32)
+                })
+                .unwrap_or_default()
         })
-        .unwrap_or_default();
+    };
 
     // Get text-decoration from CSS
     let text_decoration = cache
@@ -1733,11 +2255,25 @@ pub fn get_style_properties(
         .unwrap_or_default();
 
     // Get tab-size (tab-size) from CSS
-    let tab_size = cache
-        .get_tab_size(node_data, &dom_id, node_state)
-        .and_then(|v| v.get_property().cloned())
-        .map(|v| v.inner.number.get())
-        .unwrap_or(8.0);
+    let tab_size = {
+        // FAST PATH: compact cache for tab-size (i16 resolved px × 10)
+        let mut fast_tab = None;
+        if node_state.is_normal() {
+            if let Some(ref cc) = cache.compact_cache {
+                let raw = cc.get_tab_size_raw(dom_id.index());
+                if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
+                    fast_tab = Some(raw as f32 / 10.0);
+                }
+            }
+        }
+        fast_tab.unwrap_or_else(|| {
+            cache
+                .get_tab_size(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property().cloned())
+                .map(|v| v.inner.number.get())
+                .unwrap_or(8.0)
+        })
+    };
 
     let properties = StyleProperties {
         font_stack,
@@ -1804,66 +2340,78 @@ use azul_css::props::layout::{
 get_css_property_pixel!(
     get_css_left,
     get_left,
-    azul_css::props::property::CssPropertyType::Left
+    azul_css::props::property::CssPropertyType::Left,
+    compact_i16 = get_left
 );
 get_css_property_pixel!(
     get_css_right,
     get_right,
-    azul_css::props::property::CssPropertyType::Right
+    azul_css::props::property::CssPropertyType::Right,
+    compact_i16 = get_right
 );
 get_css_property_pixel!(
     get_css_top,
     get_top,
-    azul_css::props::property::CssPropertyType::Top
+    azul_css::props::property::CssPropertyType::Top,
+    compact_i16 = get_top
 );
 get_css_property_pixel!(
     get_css_bottom,
     get_bottom,
-    azul_css::props::property::CssPropertyType::Bottom
+    azul_css::props::property::CssPropertyType::Bottom,
+    compact_i16 = get_bottom
 );
 
 /// Get margin properties - returns MultiValue<PixelValue>
 get_css_property_pixel!(
     get_css_margin_left,
     get_margin_left,
-    azul_css::props::property::CssPropertyType::MarginLeft
+    azul_css::props::property::CssPropertyType::MarginLeft,
+    compact_i16 = get_margin_left_raw
 );
 get_css_property_pixel!(
     get_css_margin_right,
     get_margin_right,
-    azul_css::props::property::CssPropertyType::MarginRight
+    azul_css::props::property::CssPropertyType::MarginRight,
+    compact_i16 = get_margin_right_raw
 );
 get_css_property_pixel!(
     get_css_margin_top,
     get_margin_top,
-    azul_css::props::property::CssPropertyType::MarginTop
+    azul_css::props::property::CssPropertyType::MarginTop,
+    compact_i16 = get_margin_top_raw
 );
 get_css_property_pixel!(
     get_css_margin_bottom,
     get_margin_bottom,
-    azul_css::props::property::CssPropertyType::MarginBottom
+    azul_css::props::property::CssPropertyType::MarginBottom,
+    compact_i16 = get_margin_bottom_raw
 );
 
 /// Get padding properties - returns MultiValue<PixelValue>
 get_css_property_pixel!(
     get_css_padding_left,
     get_padding_left,
-    azul_css::props::property::CssPropertyType::PaddingLeft
+    azul_css::props::property::CssPropertyType::PaddingLeft,
+    compact_i16 = get_padding_left_raw
 );
 get_css_property_pixel!(
     get_css_padding_right,
     get_padding_right,
-    azul_css::props::property::CssPropertyType::PaddingRight
+    azul_css::props::property::CssPropertyType::PaddingRight,
+    compact_i16 = get_padding_right_raw
 );
 get_css_property_pixel!(
     get_css_padding_top,
     get_padding_top,
-    azul_css::props::property::CssPropertyType::PaddingTop
+    azul_css::props::property::CssPropertyType::PaddingTop,
+    compact_i16 = get_padding_top_raw
 );
 get_css_property_pixel!(
     get_css_padding_bottom,
     get_padding_bottom,
-    azul_css::props::property::CssPropertyType::PaddingBottom
+    azul_css::props::property::CssPropertyType::PaddingBottom,
+    compact_i16 = get_padding_bottom_raw
 );
 
 /// Get min/max size properties
@@ -1871,50 +2419,58 @@ get_css_property!(
     get_css_min_width,
     get_min_width,
     LayoutMinWidth,
-    azul_css::props::property::CssPropertyType::MinWidth
+    azul_css::props::property::CssPropertyType::MinWidth,
+    compact_u32_struct = get_min_width_raw
 );
 
 get_css_property!(
     get_css_min_height,
     get_min_height,
     LayoutMinHeight,
-    azul_css::props::property::CssPropertyType::MinHeight
+    azul_css::props::property::CssPropertyType::MinHeight,
+    compact_u32_struct = get_min_height_raw
 );
 
 get_css_property!(
     get_css_max_width,
     get_max_width,
     LayoutMaxWidth,
-    azul_css::props::property::CssPropertyType::MaxWidth
+    azul_css::props::property::CssPropertyType::MaxWidth,
+    compact_u32_struct = get_max_width_raw
 );
 
 get_css_property!(
     get_css_max_height,
     get_max_height,
     LayoutMaxHeight,
-    azul_css::props::property::CssPropertyType::MaxHeight
+    azul_css::props::property::CssPropertyType::MaxHeight,
+    compact_u32_struct = get_max_height_raw
 );
 
 /// Get border width properties (no UA CSS fallback needed, defaults to 0)
 get_css_property_pixel!(
     get_css_border_left_width,
     get_border_left_width,
-    azul_css::props::property::CssPropertyType::BorderLeftWidth
+    azul_css::props::property::CssPropertyType::BorderLeftWidth,
+    compact_i16 = get_border_left_width_raw
 );
 get_css_property_pixel!(
     get_css_border_right_width,
     get_border_right_width,
-    azul_css::props::property::CssPropertyType::BorderRightWidth
+    azul_css::props::property::CssPropertyType::BorderRightWidth,
+    compact_i16 = get_border_right_width_raw
 );
 get_css_property_pixel!(
     get_css_border_top_width,
     get_border_top_width,
-    azul_css::props::property::CssPropertyType::BorderTopWidth
+    azul_css::props::property::CssPropertyType::BorderTopWidth,
+    compact_i16 = get_border_top_width_raw
 );
 get_css_property_pixel!(
     get_css_border_bottom_width,
     get_border_bottom_width,
-    azul_css::props::property::CssPropertyType::BorderBottomWidth
+    azul_css::props::property::CssPropertyType::BorderBottomWidth,
+    compact_i16 = get_border_bottom_width_raw
 );
 
 // Fragmentation (page breaking) properties
@@ -2195,15 +2751,15 @@ pub fn collect_font_stacks_from_styled_dom(
         }
 
         // Get font weight and style
-        let font_weight = cache
-            .get_font_weight(node_data, &dom_id, node_state)
-            .and_then(|v| v.get_property().copied())
-            .unwrap_or(azul_css::props::basic::font::StyleFontWeight::Normal);
+        let font_weight = match get_font_weight_property(styled_dom, dom_id, node_state) {
+            MultiValue::Exact(v) => v,
+            _ => StyleFontWeight::Normal,
+        };
 
-        let font_style = cache
-            .get_font_style(node_data, &dom_id, node_state)
-            .and_then(|v| v.get_property().copied())
-            .unwrap_or(azul_css::props::basic::font::StyleFontStyle::Normal);
+        let font_style = match get_font_style_property(styled_dom, dom_id, node_state) {
+            MultiValue::Exact(v) => v,
+            _ => StyleFontStyle::Normal,
+        };
 
         // Convert to fontconfig types
         let mut fc_weight = super::fc::convert_font_weight(font_weight);
