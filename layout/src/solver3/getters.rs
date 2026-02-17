@@ -1155,8 +1155,24 @@ pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
         None => return 0,
     };
 
-    let node_data = &styled_dom.node_data.as_container()[node_id];
     let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
+
+    // FAST PATH: compact cache for normal state
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            let raw = cc.get_z_index(node_id.index());
+            if raw == azul_css::compact_cache::I16_AUTO {
+                return 0;
+            }
+            if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
+                return raw as i32;
+            }
+            // I16_SENTINEL → fall through to slow path
+        }
+    }
+
+    // SLOW PATH
+    let node_data = &styled_dom.node_data.as_container()[node_id];
 
     styled_dom
         .css_property_cache
@@ -3425,7 +3441,8 @@ get_css_property!(
     get_border_collapse,
     get_border_collapse,
     StyleBorderCollapse,
-    CssPropertyType::BorderCollapse
+    CssPropertyType::BorderCollapse,
+    compact = get_border_collapse
 );
 
 get_css_property!(
@@ -3622,6 +3639,27 @@ pub fn get_border_spacing(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> azul_css::props::layout::table::LayoutBorderSpacing {
+    use azul_css::props::basic::pixel::PixelValue;
+
+    // FAST PATH: compact cache for normal state
+    if node_state.is_normal() {
+        if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
+            let h_raw = cc.get_border_spacing_h_raw(node_id.index());
+            let v_raw = cc.get_border_spacing_v_raw(node_id.index());
+            // Both 0 means no border-spacing set (default)
+            // Sentinel means non-px unit → slow path
+            if h_raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD
+                && v_raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD
+            {
+                return azul_css::props::layout::table::LayoutBorderSpacing {
+                    horizontal: PixelValue::px(h_raw as f32 / 10.0),
+                    vertical: PixelValue::px(v_raw as f32 / 10.0),
+                };
+            }
+        }
+    }
+
+    // SLOW PATH
     let node_data = &styled_dom.node_data.as_container()[node_id];
     styled_dom.css_property_cache.ptr
         .get_border_spacing(node_data, &node_id, node_state)
