@@ -228,7 +228,7 @@ impl AzString {
     /// - `ptr` must be a valid pointer to a null-terminated UTF-8 string
     /// - The string must remain valid for the duration of this call
     #[inline]
-    pub unsafe fn from_c_str(ptr: *const i8) -> Self {
+    pub unsafe fn from_c_str(ptr: *const core::ffi::c_char) -> Self {
         if ptr.is_null() {
             return Self::default();
         }
