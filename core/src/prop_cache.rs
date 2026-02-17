@@ -419,6 +419,17 @@ fn get_initial_value(property_type: CssPropertyType) -> Option<CssProperty> {
     }
 }
 
+/// A CSS property tagged with its pseudo-state and property type.
+/// Replaces the per-pseudo-state BTreeMap approach: instead of 6 BTreeMaps
+/// per node (Normal/Hover/Active/Focus/Dragging/DragOver), we store one Vec
+/// per node and tag each property with its state. Lookups use `.iter().find()`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StatefulCssProperty {
+    pub state: azul_css::dynamic_selector::PseudoStateType,
+    pub prop_type: CssPropertyType,
+    pub property: CssProperty,
+}
+
 // NOTE: To avoid large memory allocations, this is a "cache" that stores all the CSS properties
 // found in the DOM. This cache exists on a per-DOM basis, so it scales independent of how many
 // nodes are in the DOM.
@@ -438,21 +449,14 @@ pub struct CssPropertyCache {
     // properties that were overridden in callbacks (not specific to any node state)
     pub user_overridden_properties: Vec<BTreeMap<CssPropertyType, CssProperty>>,
 
-    // non-default CSS properties that were cascaded from the parent
-    pub cascaded_normal_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
-    pub cascaded_hover_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
-    pub cascaded_active_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
-    pub cascaded_focus_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
-    pub cascaded_dragging_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
-    pub cascaded_drag_over_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
+    // non-default CSS properties that were cascaded from the parent,
+    // unified across all pseudo-states (Normal, Hover, Active, Focus, Dragging, DragOver).
+    // Each inner Vec contains StatefulCssProperty entries tagged with their pseudo-state.
+    pub cascaded_props: Vec<Vec<StatefulCssProperty>>,
 
-    // non-default CSS properties that were set via a CSS file
-    pub css_normal_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
-    pub css_hover_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
-    pub css_active_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
-    pub css_focus_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
-    pub css_dragging_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
-    pub css_drag_over_props: Vec<BTreeMap<CssPropertyType, CssProperty>>,
+    // non-default CSS properties that were set via a CSS file,
+    // unified across all pseudo-states.
+    pub css_props: Vec<Vec<StatefulCssProperty>>,
 
     // NEW: Computed values cache - pre-resolved inherited properties
     pub computed_values: Vec<BTreeMap<CssPropertyType, CssPropertyWithOrigin>>,
@@ -466,6 +470,37 @@ pub struct CssPropertyCache {
     // Compact layout cache: three-tier numeric encoding for O(1) layout lookups.
     // Built once after restyle + apply_ua_css + compute_inherited_values.
     pub compact_cache: Option<azul_css::compact_cache::CompactLayoutCache>,
+}
+
+impl CssPropertyCache {
+    /// Look up a CSS property for a specific pseudo-state in a stateful property vec.
+    #[inline]
+    fn find_in_stateful<'a>(
+        props: &'a [StatefulCssProperty],
+        state: azul_css::dynamic_selector::PseudoStateType,
+        prop_type: &CssPropertyType,
+    ) -> Option<&'a CssProperty> {
+        props.iter()
+            .find(|p| p.state == state && p.prop_type == *prop_type)
+            .map(|p| &p.property)
+    }
+
+    /// Check if any properties exist for a specific pseudo-state in a stateful property vec.
+    #[inline]
+    fn has_state_props(
+        props: &[StatefulCssProperty],
+        state: azul_css::dynamic_selector::PseudoStateType,
+    ) -> bool {
+        props.iter().any(|p| p.state == state)
+    }
+
+    /// Collect all property types for a specific pseudo-state.
+    pub(crate) fn prop_types_for_state<'a>(
+        props: &'a [StatefulCssProperty],
+        state: azul_css::dynamic_selector::PseudoStateType,
+    ) -> impl Iterator<Item = &'a CssPropertyType> + 'a {
+        props.iter().filter(move |p| p.state == state).map(|p| &p.prop_type)
+    }
 }
 
 impl CssPropertyCache {
@@ -585,24 +620,33 @@ impl CssPropertyCache {
                     }
                 });
 
-            // Assign CSS rules to Vec-based storage (indexed by NodeId)
-            macro_rules! assign_css_rules {
-                ($field:expr, $rules:expr) => {{
-                    for entry in $field.iter_mut() { entry.clear(); }
-                    for (n, map) in $rules.internal.into_iter() {
-                        $field[n.index()] = map.into_iter()
-                            .map(|prop| (prop.get_type(), prop))
-                            .collect();
+            // Assign CSS rules to unified Vec-based storage (indexed by NodeId)
+            // Each rule gets tagged with its pseudo-state
+            macro_rules! assign_css_rules_stateful {
+                ($rules:expr, $state:expr) => {{
+                    for (n, props) in $rules.internal.into_iter() {
+                        let node_vec = &mut self.css_props[n.index()];
+                        for prop in props.into_iter() {
+                            node_vec.push(StatefulCssProperty {
+                                state: $state,
+                                prop_type: prop.get_type(),
+                                property: prop,
+                            });
+                        }
                     }
                 }};
             }
 
-            assign_css_rules!(self.css_normal_props, css_normal_rules);
-            assign_css_rules!(self.css_hover_props, css_hover_rules);
-            assign_css_rules!(self.css_active_props, css_active_rules);
-            assign_css_rules!(self.css_focus_props, css_focus_rules);
-            assign_css_rules!(self.css_dragging_props, css_dragging_rules);
-            assign_css_rules!(self.css_drag_over_props, css_drag_over_rules);
+            // Clear all css_props before re-assigning
+            for entry in self.css_props.iter_mut() { entry.clear(); }
+
+            use azul_css::dynamic_selector::PseudoStateType;
+            assign_css_rules_stateful!(css_normal_rules, PseudoStateType::Normal);
+            assign_css_rules_stateful!(css_hover_rules, PseudoStateType::Hover);
+            assign_css_rules_stateful!(css_active_rules, PseudoStateType::Active);
+            assign_css_rules_stateful!(css_focus_rules, PseudoStateType::Focus);
+            assign_css_rules_stateful!(css_dragging_rules, PseudoStateType::Dragging);
+            assign_css_rules_stateful!(css_drag_over_rules, PseudoStateType::DragOver);
         }
 
         // Inheritance: Inherit all values of the parent to the children, but
@@ -613,104 +657,83 @@ impl CssPropertyCache {
                 None => continue,
             };
 
-            // Inherit CSS properties from map A -> map B
-            // map B will be populated with all inherited CSS properties
-            macro_rules! inherit_props {
-                ($from_inherit_map:expr, $to_inherit_map:expr) => {
-                    let parent_map = &$from_inherit_map[parent_id.index()];
-                    if !parent_map.is_empty() {
-                        let parent_inherit_props: Vec<(CssPropertyType, CssProperty)> = parent_map
-                            .iter()
-                            .filter(|(css_prop_type, _)| css_prop_type.is_inheritable())
-                            .map(|(css_prop_type, css_prop)| (*css_prop_type, css_prop.clone()))
-                            .collect();
+            use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
-                        if !parent_inherit_props.is_empty() {
-                            // only override the rule if the child does not already have an
-                            // inherited rule
-                            for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
-                                let child_map = &mut $to_inherit_map[child_id.index()];
+            let all_states = [
+                PseudoStateType::Normal,
+                PseudoStateType::Hover,
+                PseudoStateType::Active,
+                PseudoStateType::Focus,
+                PseudoStateType::Dragging,
+                PseudoStateType::DragOver,
+            ];
 
-                                for (inherited_rule_type, inherited_rule_value) in parent_inherit_props.iter() {
-                                    let _ = child_map
-                                        .entry(*inherited_rule_type)
-                                        .or_insert_with(|| inherited_rule_value.clone());
-                                }
-                            }
+            for &state in &all_states {
+                // 1. Inherit inline CSS properties from parent for this pseudo-state
+                let parent_inheritable_inline: Vec<(CssPropertyType, CssProperty)> = node_data[parent_id]
+                    .css_props
+                    .iter()
+                    .filter(|css_prop| {
+                        let conditions = css_prop.apply_if.as_slice();
+                        if conditions.is_empty() {
+                            state == PseudoStateType::Normal
+                        } else {
+                            conditions.iter().all(|c| {
+                                matches!(c, DynamicSelector::PseudoState(s) if *s == state)
+                            })
                         }
-                    }
+                    })
+                    .map(|css_prop| &css_prop.property)
+                    .filter(|css_prop| css_prop.get_type().is_inheritable())
+                    .map(|p| (p.get_type(), p.clone()))
+                    .collect();
+
+                // 2. Inherit CSS stylesheet properties from parent for this pseudo-state
+                let parent_inheritable_css: Vec<(CssPropertyType, CssProperty)> = if !css_is_empty {
+                    self.css_props[parent_id.index()]
+                        .iter()
+                        .filter(|p| p.state == state && p.prop_type.is_inheritable())
+                        .map(|p| (p.prop_type, p.property.clone()))
+                        .collect()
+                } else {
+                    Vec::new()
                 };
-            }
 
-            // Same as inherit_props, but filters along the inline node data instead
-            // Uses the new CssPropertyWithConditions system
-            macro_rules! inherit_inline_css_props {($filter_pseudo_state:expr, $to_inherit_map:expr) => {{
-                let parent_inheritable_css_props = &node_data[parent_id]
-                .css_props
-                .iter()
-                // Filter by pseudo state condition
-                .filter(|css_prop| {
-                    // Check if property matches the desired pseudo state
-                    let conditions = css_prop.apply_if.as_slice();
-                    if conditions.is_empty() {
-                        // No conditions = Normal state
-                        $filter_pseudo_state == PseudoStateType::Normal
-                    } else {
-                        // Check if all conditions are the matching pseudo state
-                        conditions.iter().all(|c| {
-                            matches!(c, DynamicSelector::PseudoState(state) if *state == $filter_pseudo_state)
-                        })
-                    }
-                })
-                // Get the inner property
-                .map(|css_prop| &css_prop.property)
-                // test whether the property is inheritable
-                .filter(|css_prop| css_prop.get_type().is_inheritable())
-                .cloned()
-                .collect::<Vec<CssProperty>>();
+                // 3. Inherit cascaded properties from parent for this pseudo-state
+                let parent_inheritable_cascaded: Vec<(CssPropertyType, CssProperty)> =
+                    self.cascaded_props[parent_id.index()]
+                        .iter()
+                        .filter(|p| p.state == state && p.prop_type.is_inheritable())
+                        .map(|p| (p.prop_type, p.property.clone()))
+                        .collect();
 
-                if !parent_inheritable_css_props.is_empty() {
-                    // only override the rule if the child does not already have an inherited rule
-                    for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
-                        let child_map = &mut $to_inherit_map[child_id.index()];
-                        for inherited_rule in parent_inheritable_css_props.iter() {
-                            let _ = child_map
-                            .entry(inherited_rule.get_type())
-                            .or_insert_with(|| inherited_rule.clone());
+                // Combine all inheritable props (inline first = strongest, cascaded last)
+                // Only insert if child doesn't already have that (state, prop_type) combo
+                if parent_inheritable_inline.is_empty()
+                    && parent_inheritable_css.is_empty()
+                    && parent_inheritable_cascaded.is_empty()
+                {
+                    continue;
+                }
+
+                for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
+                    let child_vec = &mut self.cascaded_props[child_id.index()];
+                    for (prop_type, prop_value) in parent_inheritable_inline
+                        .iter()
+                        .chain(parent_inheritable_css.iter())
+                        .chain(parent_inheritable_cascaded.iter())
+                    {
+                        // or_insert: only insert if child doesn't already have this (state, prop_type)
+                        if !child_vec.iter().any(|p| p.state == state && p.prop_type == *prop_type) {
+                            child_vec.push(StatefulCssProperty {
+                                state,
+                                prop_type: *prop_type,
+                                property: prop_value.clone(),
+                            });
                         }
                     }
                 }
-
-            }};}
-
-            use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
-            // strongest inheritance first
-
-            // Inherit inline CSS properties
-            inherit_inline_css_props!(PseudoStateType::Normal, self.cascaded_normal_props);
-            inherit_inline_css_props!(PseudoStateType::Hover, self.cascaded_hover_props);
-            inherit_inline_css_props!(PseudoStateType::Active, self.cascaded_active_props);
-            inherit_inline_css_props!(PseudoStateType::Focus, self.cascaded_focus_props);
-            inherit_inline_css_props!(PseudoStateType::Dragging, self.cascaded_dragging_props);
-            inherit_inline_css_props!(PseudoStateType::DragOver, self.cascaded_drag_over_props);
-
-            // Inherit the CSS properties from the CSS file
-            if !css_is_empty {
-                inherit_props!(self.css_normal_props, self.cascaded_normal_props);
-                inherit_props!(self.css_hover_props, self.cascaded_hover_props);
-                inherit_props!(self.css_active_props, self.cascaded_active_props);
-                inherit_props!(self.css_focus_props, self.cascaded_focus_props);
-                inherit_props!(self.css_dragging_props, self.cascaded_dragging_props);
-                inherit_props!(self.css_drag_over_props, self.cascaded_drag_over_props);
             }
-
-            // Inherit properties that were inherited in a previous iteration of the loop
-            inherit_props!(self.cascaded_normal_props, self.cascaded_normal_props);
-            inherit_props!(self.cascaded_hover_props, self.cascaded_hover_props);
-            inherit_props!(self.cascaded_active_props, self.cascaded_active_props);
-            inherit_props!(self.cascaded_focus_props, self.cascaded_focus_props);
-            inherit_props!(self.cascaded_dragging_props, self.cascaded_dragging_props);
-            inherit_props!(self.cascaded_drag_over_props, self.cascaded_drag_over_props);
         }
 
         // When restyling, the tag / node ID mappings may change, regenerate them
@@ -792,8 +815,14 @@ impl CssPropertyCache {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::Hover))
                             })
                         })
-                    } || self.css_hover_props.get(node_id.index()).map_or(false, |m| !m.is_empty())
-                        || self.cascaded_hover_props.get(node_id.index()).map_or(false, |m| !m.is_empty());
+                    } || Self::has_state_props(
+                            self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                            azul_css::dynamic_selector::PseudoStateType::Hover,
+                        )
+                        || Self::has_state_props(
+                            self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                            azul_css::dynamic_selector::PseudoStateType::Hover,
+                        );
 
                     if node_has_hover_props {
                         node_should_have_tag = true;
@@ -808,8 +837,14 @@ impl CssPropertyCache {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::Active))
                             })
                         })
-                    } || self.css_active_props.get(node_id.index()).map_or(false, |m| !m.is_empty())
-                        || self.cascaded_active_props.get(node_id.index()).map_or(false, |m| !m.is_empty());
+                    } || Self::has_state_props(
+                            self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                            azul_css::dynamic_selector::PseudoStateType::Active,
+                        )
+                        || Self::has_state_props(
+                            self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                            azul_css::dynamic_selector::PseudoStateType::Active,
+                        );
 
                     if node_has_active_props {
                         node_should_have_tag = true;
@@ -824,8 +859,14 @@ impl CssPropertyCache {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::Focus))
                             })
                         })
-                    } || self.css_focus_props.get(node_id.index()).map_or(false, |m| !m.is_empty())
-                        || self.cascaded_focus_props.get(node_id.index()).map_or(false, |m| !m.is_empty());
+                    } || Self::has_state_props(
+                            self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                            azul_css::dynamic_selector::PseudoStateType::Focus,
+                        )
+                        || Self::has_state_props(
+                            self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                            azul_css::dynamic_selector::PseudoStateType::Focus,
+                        );
 
                     if node_has_focus_props {
                         node_should_have_tag = true;
@@ -840,8 +881,14 @@ impl CssPropertyCache {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::Dragging))
                             })
                         })
-                    } || self.css_dragging_props.get(node_id.index()).map_or(false, |m| !m.is_empty())
-                        || self.cascaded_dragging_props.get(node_id.index()).map_or(false, |m| !m.is_empty());
+                    } || Self::has_state_props(
+                            self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                            azul_css::dynamic_selector::PseudoStateType::Dragging,
+                        )
+                        || Self::has_state_props(
+                            self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                            azul_css::dynamic_selector::PseudoStateType::Dragging,
+                        );
 
                     if node_has_dragging_props {
                         node_should_have_tag = true;
@@ -856,8 +903,14 @@ impl CssPropertyCache {
                                 matches!(c, DynamicSelector::PseudoState(PseudoStateType::DragOver))
                             })
                         })
-                    } || self.css_drag_over_props.get(node_id.index()).map_or(false, |m| !m.is_empty())
-                        || self.cascaded_drag_over_props.get(node_id.index()).map_or(false, |m| !m.is_empty());
+                    } || Self::has_state_props(
+                            self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                            azul_css::dynamic_selector::PseudoStateType::DragOver,
+                        )
+                        || Self::has_state_props(
+                            self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                            azul_css::dynamic_selector::PseudoStateType::DragOver,
+                        );
 
                     if node_has_drag_over_props {
                         node_should_have_tag = true;
@@ -1254,19 +1307,8 @@ impl CssPropertyCache {
             node_count,
             user_overridden_properties: vec![BTreeMap::new(); node_count],
 
-            cascaded_normal_props: vec![BTreeMap::new(); node_count],
-            cascaded_hover_props: vec![BTreeMap::new(); node_count],
-            cascaded_active_props: vec![BTreeMap::new(); node_count],
-            cascaded_focus_props: vec![BTreeMap::new(); node_count],
-            cascaded_dragging_props: vec![BTreeMap::new(); node_count],
-            cascaded_drag_over_props: vec![BTreeMap::new(); node_count],
-
-            css_normal_props: vec![BTreeMap::new(); node_count],
-            css_hover_props: vec![BTreeMap::new(); node_count],
-            css_active_props: vec![BTreeMap::new(); node_count],
-            css_focus_props: vec![BTreeMap::new(); node_count],
-            css_dragging_props: vec![BTreeMap::new(); node_count],
-            css_drag_over_props: vec![BTreeMap::new(); node_count],
+            cascaded_props: vec![Vec::new(); node_count],
+            css_props: vec![Vec::new(); node_count],
 
             computed_values: vec![BTreeMap::new(); node_count],
             dependency_chains: vec![BTreeMap::new(); node_count],
@@ -1283,18 +1325,8 @@ impl CssPropertyCache {
         }
 
         append_css_property_vec!(user_overridden_properties);
-        append_css_property_vec!(cascaded_normal_props);
-        append_css_property_vec!(cascaded_hover_props);
-        append_css_property_vec!(cascaded_active_props);
-        append_css_property_vec!(cascaded_focus_props);
-        append_css_property_vec!(cascaded_dragging_props);
-        append_css_property_vec!(cascaded_drag_over_props);
-        append_css_property_vec!(css_normal_props);
-        append_css_property_vec!(css_hover_props);
-        append_css_property_vec!(css_active_props);
-        append_css_property_vec!(css_focus_props);
-        append_css_property_vec!(css_dragging_props);
-        append_css_property_vec!(css_drag_over_props);
+        append_css_property_vec!(cascaded_props);
+        append_css_property_vec!(css_props);
         append_css_property_vec!(computed_values);
 
         // Special handling for dependency_chains: need to adjust source_node IDs
@@ -1472,7 +1504,8 @@ impl CssPropertyCache {
 
     /// Full cascade resolution without using the resolved cache.
     /// Used internally by build_resolved_cache() and as fallback when cache is not built.
-    fn get_property_slow<'a>(
+    /// Also used by restyle functions that need state-aware lookups.
+    pub(crate) fn get_property_slow<'a>(
         &'a self,
         node_data: &'a NodeData,
         node_id: &NodeId,
@@ -1523,20 +1556,20 @@ impl CssPropertyCache {
             }
 
             // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = self
-                .css_focus_props
-                .get(node_id.index())
-                .and_then(|map| map.get(css_property_type))
-            {
+            if let Some(p) = Self::find_in_stateful(
+                self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                PseudoStateType::Focus,
+                css_property_type,
+            ) {
                 return Some(p);
             }
 
             // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = self
-                .cascaded_focus_props
-                .get(node_id.index())
-                .and_then(|map| map.get(css_property_type))
-            {
+            if let Some(p) = Self::find_in_stateful(
+                self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                PseudoStateType::Focus,
+                css_property_type,
+            ) {
                 return Some(p);
             }
         }
@@ -1556,20 +1589,20 @@ impl CssPropertyCache {
             }
 
             // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = self
-                .css_active_props
-                .get(node_id.index())
-                .and_then(|map| map.get(css_property_type))
-            {
+            if let Some(p) = Self::find_in_stateful(
+                self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                PseudoStateType::Active,
+                css_property_type,
+            ) {
                 return Some(p);
             }
 
             // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = self
-                .cascaded_active_props
-                .get(node_id.index())
-                .and_then(|map| map.get(css_property_type))
-            {
+            if let Some(p) = Self::find_in_stateful(
+                self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                PseudoStateType::Active,
+                css_property_type,
+            ) {
                 return Some(p);
             }
         }
@@ -1588,19 +1621,19 @@ impl CssPropertyCache {
                 return Some(p);
             }
 
-            if let Some(p) = self
-                .css_dragging_props
-                .get(node_id.index())
-                .and_then(|map| map.get(css_property_type))
-            {
+            if let Some(p) = Self::find_in_stateful(
+                self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                PseudoStateType::Dragging,
+                css_property_type,
+            ) {
                 return Some(p);
             }
 
-            if let Some(p) = self
-                .cascaded_dragging_props
-                .get(node_id.index())
-                .and_then(|map| map.get(css_property_type))
-            {
+            if let Some(p) = Self::find_in_stateful(
+                self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                PseudoStateType::Dragging,
+                css_property_type,
+            ) {
                 return Some(p);
             }
         }
@@ -1619,19 +1652,19 @@ impl CssPropertyCache {
                 return Some(p);
             }
 
-            if let Some(p) = self
-                .css_drag_over_props
-                .get(node_id.index())
-                .and_then(|map| map.get(css_property_type))
-            {
+            if let Some(p) = Self::find_in_stateful(
+                self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                PseudoStateType::DragOver,
+                css_property_type,
+            ) {
                 return Some(p);
             }
 
-            if let Some(p) = self
-                .cascaded_drag_over_props
-                .get(node_id.index())
-                .and_then(|map| map.get(css_property_type))
-            {
+            if let Some(p) = Self::find_in_stateful(
+                self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                PseudoStateType::DragOver,
+                css_property_type,
+            ) {
                 return Some(p);
             }
         }
@@ -1651,20 +1684,20 @@ impl CssPropertyCache {
             }
 
             // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = self
-                .css_hover_props
-                .get(node_id.index())
-                .and_then(|map| map.get(css_property_type))
-            {
+            if let Some(p) = Self::find_in_stateful(
+                self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                PseudoStateType::Hover,
+                css_property_type,
+            ) {
                 return Some(p);
             }
 
             // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = self
-                .cascaded_hover_props
-                .get(node_id.index())
-                .and_then(|map| map.get(css_property_type))
-            {
+            if let Some(p) = Self::find_in_stateful(
+                self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+                PseudoStateType::Hover,
+                css_property_type,
+            ) {
                 return Some(p);
             }
         }
@@ -1684,20 +1717,20 @@ impl CssPropertyCache {
         }
 
         // PRIORITY 2: CSS stylesheet properties
-        if let Some(p) = self
-            .css_normal_props
-            .get(node_id.index())
-            .and_then(|map| map.get(css_property_type))
-        {
+        if let Some(p) = Self::find_in_stateful(
+            self.css_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+            PseudoStateType::Normal,
+            css_property_type,
+        ) {
             return Some(p);
         }
 
         // PRIORITY 3: Cascaded/inherited properties
-        if let Some(p) = self
-            .cascaded_normal_props
-            .get(node_id.index())
-            .and_then(|map| map.get(css_property_type))
-        {
+        if let Some(p) = Self::find_in_stateful(
+            self.cascaded_props.get(node_id.index()).map(|v| v.as_slice()).unwrap_or(&[]),
+            PseudoStateType::Normal,
+            css_property_type,
+        ) {
             return Some(p);
         }
 
@@ -4382,22 +4415,38 @@ impl CssPropertyCache {
                     });
 
                     let has_css = self
-                        .css_normal_props
+                        .css_props
                         .get(node_id.index())
-                        .map(|map| map.contains_key(prop_type))
+                        .map(|v| v.iter().any(|p| {
+                            p.state == azul_css::dynamic_selector::PseudoStateType::Normal
+                                && p.prop_type == *prop_type
+                        }))
                         .unwrap_or(false);
 
                     let has_cascaded = self
-                        .cascaded_normal_props
+                        .cascaded_props
                         .get(node_id.index())
-                        .map(|map| map.contains_key(prop_type))
+                        .map(|v| v.iter().any(|p| {
+                            p.state == azul_css::dynamic_selector::PseudoStateType::Normal
+                                && p.prop_type == *prop_type
+                        }))
                         .unwrap_or(false);
 
                     // Insert UA CSS only if not already present (lowest priority)
                     if !has_inline && !has_css && !has_cascaded {
-                        self.cascaded_normal_props[node_id.index()]
-                            .entry(*prop_type)
-                            .or_insert_with(|| ua_prop.clone());
+                        let already_exists = self.cascaded_props[node_id.index()]
+                            .iter()
+                            .any(|p| {
+                                p.state == azul_css::dynamic_selector::PseudoStateType::Normal
+                                    && p.prop_type == *prop_type
+                            });
+                        if !already_exists {
+                            self.cascaded_props[node_id.index()].push(StatefulCssProperty {
+                                state: azul_css::dynamic_selector::PseudoStateType::Normal,
+                                prop_type: *prop_type,
+                                property: ua_prop.clone(),
+                            });
+                        }
                     }
                 }
             }
@@ -4493,18 +4542,22 @@ impl CssPropertyCache {
         node_index: usize,
     ) {
         // Step 2: Cascaded properties (UA CSS)
-        if let Some(cascaded_props) = self.cascaded_normal_props.get(node_id.index()).cloned() {
-            for (prop_type, prop) in cascaded_props.iter() {
-                if self.should_apply_cascaded(&ctx.computed_values, *prop_type, prop) {
-                    self.process_property(ctx, prop, parent_computed);
+        if let Some(cascaded_vec) = self.cascaded_props.get(node_id.index()) {
+            for p in cascaded_vec.iter() {
+                if p.state == azul_css::dynamic_selector::PseudoStateType::Normal {
+                    if self.should_apply_cascaded(&ctx.computed_values, p.prop_type, &p.property) {
+                        self.process_property(ctx, &p.property, parent_computed);
+                    }
                 }
             }
         }
 
         // Step 3: CSS properties (stylesheets)
-        if let Some(css_props) = self.css_normal_props.get(node_id.index()) {
-            for (_, prop) in css_props.iter() {
-                self.process_property(ctx, prop, parent_computed);
+        if let Some(css_vec) = self.css_props.get(node_id.index()) {
+            for p in css_vec.iter() {
+                if p.state == azul_css::dynamic_selector::PseudoStateType::Normal {
+                    self.process_property(ctx, &p.property, parent_computed);
+                }
             }
         }
 
@@ -4936,58 +4989,36 @@ impl CssPropertyCache {
                     prop_types.insert(css_prop.property.get_type());
                 }
             }
-            if let Some(map) = self.css_normal_props.get(node_id.index()) {
-                prop_types.extend(map.keys().copied());
-            }
-            if let Some(map) = self.cascaded_normal_props.get(node_id.index()) {
-                prop_types.extend(map.keys().copied());
-            }
-            if let Some(map) = self.computed_values.get(node_id.index()) {
-                for pt in map.keys() {
-                    if pt.is_inheritable() {
-                        prop_types.insert(*pt);
+            if let Some(v) = self.css_props.get(node_id.index()) {
+                for p in v.iter() {
+                    let state_active = match p.state {
+                        PseudoStateType::Normal => true,
+                        PseudoStateType::Hover => node_state.hover,
+                        PseudoStateType::Active => node_state.active,
+                        PseudoStateType::Focus => node_state.focused,
+                        PseudoStateType::Dragging => node_state.dragging,
+                        PseudoStateType::DragOver => node_state.drag_over,
+                        _ => false,
+                    };
+                    if state_active {
+                        prop_types.insert(p.prop_type);
                     }
                 }
             }
-            // Pseudo-state maps (only when state is active)
-            if node_state.hover {
-                if let Some(map) = self.css_hover_props.get(node_id.index()) {
-                    prop_types.extend(map.keys().copied());
-                }
-                if let Some(map) = self.cascaded_hover_props.get(node_id.index()) {
-                    prop_types.extend(map.keys().copied());
-                }
-            }
-            if node_state.active {
-                if let Some(map) = self.css_active_props.get(node_id.index()) {
-                    prop_types.extend(map.keys().copied());
-                }
-                if let Some(map) = self.cascaded_active_props.get(node_id.index()) {
-                    prop_types.extend(map.keys().copied());
-                }
-            }
-            if node_state.focused {
-                if let Some(map) = self.css_focus_props.get(node_id.index()) {
-                    prop_types.extend(map.keys().copied());
-                }
-                if let Some(map) = self.cascaded_focus_props.get(node_id.index()) {
-                    prop_types.extend(map.keys().copied());
-                }
-            }
-            if node_state.dragging {
-                if let Some(map) = self.css_dragging_props.get(node_id.index()) {
-                    prop_types.extend(map.keys().copied());
-                }
-                if let Some(map) = self.cascaded_dragging_props.get(node_id.index()) {
-                    prop_types.extend(map.keys().copied());
-                }
-            }
-            if node_state.drag_over {
-                if let Some(map) = self.css_drag_over_props.get(node_id.index()) {
-                    prop_types.extend(map.keys().copied());
-                }
-                if let Some(map) = self.cascaded_drag_over_props.get(node_id.index()) {
-                    prop_types.extend(map.keys().copied());
+            if let Some(v) = self.cascaded_props.get(node_id.index()) {
+                for p in v.iter() {
+                    let state_active = match p.state {
+                        PseudoStateType::Normal => true,
+                        PseudoStateType::Hover => node_state.hover,
+                        PseudoStateType::Active => node_state.active,
+                        PseudoStateType::Focus => node_state.focused,
+                        PseudoStateType::Dragging => node_state.dragging,
+                        PseudoStateType::DragOver => node_state.drag_over,
+                        _ => false,
+                    };
+                    if state_active {
+                        prop_types.insert(p.prop_type);
+                    }
                 }
             }
             // UA CSS
@@ -5040,11 +5071,15 @@ impl CssPropertyCache {
         for css_prop in node_data.css_props.iter() {
             prop_types.insert(css_prop.property.get_type());
         }
-        if let Some(map) = self.css_normal_props.get(node_id.index()) {
-            prop_types.extend(map.keys().copied());
+        if let Some(v) = self.css_props.get(node_id.index()) {
+            for p in v.iter() {
+                prop_types.insert(p.prop_type);
+            }
         }
-        if let Some(map) = self.cascaded_normal_props.get(node_id.index()) {
-            prop_types.extend(map.keys().copied());
+        if let Some(v) = self.cascaded_props.get(node_id.index()) {
+            for p in v.iter() {
+                prop_types.insert(p.prop_type);
+            }
         }
         if let Some(map) = self.computed_values.get(node_id.index()) {
             prop_types.extend(map.keys().copied());
@@ -5052,30 +5087,6 @@ impl CssPropertyCache {
         for pt in Self::UA_PROPERTY_TYPES {
             if crate::ua_css::get_ua_property(&node_data.node_type, *pt).is_some() {
                 prop_types.insert(*pt);
-            }
-        }
-        if node_state.hover {
-            if let Some(map) = self.css_hover_props.get(node_id.index()) {
-                prop_types.extend(map.keys().copied());
-            }
-            if let Some(map) = self.cascaded_hover_props.get(node_id.index()) {
-                prop_types.extend(map.keys().copied());
-            }
-        }
-        if node_state.active {
-            if let Some(map) = self.css_active_props.get(node_id.index()) {
-                prop_types.extend(map.keys().copied());
-            }
-            if let Some(map) = self.cascaded_active_props.get(node_id.index()) {
-                prop_types.extend(map.keys().copied());
-            }
-        }
-        if node_state.focused {
-            if let Some(map) = self.css_focus_props.get(node_id.index()) {
-                prop_types.extend(map.keys().copied());
-            }
-            if let Some(map) = self.cascaded_focus_props.get(node_id.index()) {
-                prop_types.extend(map.keys().copied());
             }
         }
 

@@ -832,6 +832,8 @@ impl StyledDom {
 
         use crate::dom::EventFilter;
 
+        let t0 = std::time::Instant::now();
+
         let mut swap_dom = Dom::create_body();
 
         mem::swap(dom, &mut swap_dom);
@@ -880,6 +882,7 @@ impl StyledDom {
         let non_leaf_nodes: ParentWithNodeDepthVec = non_leaf_nodes.into();
 
         // apply all the styles from the CSS
+        let t_restyle = std::time::Instant::now();
         let tag_ids = css_property_cache.restyle(
             &mut css,
             &compact_dom.node_data.as_ref(),
@@ -887,38 +890,44 @@ impl StyledDom {
             &non_leaf_nodes,
             &html_tree.as_ref(),
         );
+        let restyle_ms = t_restyle.elapsed().as_secs_f64() * 1000.0;
 
         // Apply UA CSS properties to all nodes (lowest priority in cascade)
         // This MUST be done before compute_inherited_values() so that UA CSS
         // properties can be inherited by child nodes (especially text nodes)
+        let t_ua = std::time::Instant::now();
         css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
+        let ua_ms = t_ua.elapsed().as_secs_f64() * 1000.0;
 
         // Compute inherited values for all nodes (resolves em, %, etc.)
         // This must be called after restyle() and apply_ua_css() to ensure
         // CSS properties are available for inheritance
+        let t_inherit = std::time::Instant::now();
         css_property_cache.compute_inherited_values(
             node_hierarchy.as_container().internal,
             compact_dom.node_data.as_ref().internal,
         );
+        let inherit_ms = t_inherit.elapsed().as_secs_f64() * 1000.0;
 
         // Build pre-resolved property cache for O(1) layout lookups.
-        // Must be called after restyle() + apply_ua_css() + compute_inherited_values()
-        // so that all cascade sources are populated.
-        // NOTE: Currently disabled — the build cost (~70ms for 12K nodes) roughly equals
-        // the layout savings (~20ms), so net benefit is negligible. The Vec-based source
-        // maps already give O(1) outer lookup. Uncomment if build cost is reduced further.
-        // css_property_cache.resolved_cache = css_property_cache.build_resolved_cache(
-        //     compact_dom.node_data.as_ref().internal,
-        //     &styled_nodes,
-        // );
+        let t_resolved = std::time::Instant::now();
+        css_property_cache.resolved_cache = css_property_cache.build_resolved_cache(
+            compact_dom.node_data.as_ref().internal,
+            &styled_nodes,
+        );
+        let resolved_ms = t_resolved.elapsed().as_secs_f64() * 1000.0;
 
-        // Build compact layout cache: three-tier numeric encoding for O(1) layout lookups.
-        // Resolves all layout-relevant properties for the "normal" state and encodes them
-        // into cache-friendly arrays (8+72+24+8 = 112 bytes/node).
+        // Build compact layout cache
+        let t_compact = std::time::Instant::now();
         let compact = css_property_cache.build_compact_cache(
             compact_dom.node_data.as_ref().internal,
         );
         css_property_cache.compact_cache = Some(compact);
+        let compact_ms = t_compact.elapsed().as_secs_f64() * 1000.0;
+
+        let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        eprintln!("  [StyledDom::create] nodes={} restyle={:.1}ms ua_css={:.1}ms inherit={:.1}ms resolved_cache={:.1}ms compact_cache={:.1}ms total={:.1}ms",
+            compact_dom.len(), restyle_ms, ua_ms, inherit_ms, resolved_ms, compact_ms, total_ms);
 
         // Pre-filter all EventFilter::Window and EventFilter::Not nodes
         // since we need them in the CallbacksOfHitTest::new function
@@ -1406,25 +1415,21 @@ impl StyledDom {
         let styled_nodes = self.styled_nodes.as_container();
         let node_data = self.node_data.as_container();
 
-        let default_map = BTreeMap::default();
+        let empty_vec = Vec::new();
 
         // scan all properties that could have changed because of addition / removal
         let v = nodes
             .iter()
             .zip(old_node_states.iter())
             .filter_map(|(node_id, old_node_state)| {
-                let mut keys_normal: Vec<_> = css_property_cache
-                    .css_hover_props
-                    .get(node_id.index())
-                    .unwrap_or(&default_map)
-                    .keys()
-                    .collect();
-                let mut keys_inherited: Vec<_> = css_property_cache
-                    .cascaded_hover_props
-                    .get(node_id.index())
-                    .unwrap_or(&default_map)
-                    .keys()
-                    .collect();
+                let mut keys_normal: Vec<_> = CssPropertyCache::prop_types_for_state(
+                    css_property_cache.css_props.get(node_id.index()).unwrap_or(&empty_vec),
+                    azul_css::dynamic_selector::PseudoStateType::Hover,
+                ).collect();
+                let mut keys_inherited: Vec<_> = CssPropertyCache::prop_types_for_state(
+                    css_property_cache.cascaded_props.get(node_id.index()).unwrap_or(&empty_vec),
+                    azul_css::dynamic_selector::PseudoStateType::Hover,
+                ).collect();
                 let keys_inline: Vec<CssPropertyType> = {
                     use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
                     node_data[*node_id]
@@ -1460,13 +1465,13 @@ impl StyledDom {
                     .into_iter()
                     .filter_map(|prop| {
                         // calculate both the old and the new state
-                        let old = css_property_cache.get_property(
+                        let old = css_property_cache.get_property_slow(
                             node_data,
                             node_id,
                             old_node_state,
                             prop,
                         );
-                        let new = css_property_cache.get_property(
+                        let new = css_property_cache.get_property_slow(
                             node_data,
                             node_id,
                             new_node_state,
@@ -1529,26 +1534,22 @@ impl StyledDom {
         let styled_nodes = self.styled_nodes.as_container();
         let node_data = self.node_data.as_container();
 
-        let default_map = BTreeMap::default();
+        let empty_vec = Vec::new();
 
         // scan all properties that could have changed because of addition / removal
         let v = nodes
             .iter()
             .zip(old_node_states.iter())
             .filter_map(|(node_id, old_node_state)| {
-                let mut keys_normal: Vec<_> = css_property_cache
-                    .css_active_props
-                    .get(node_id.index())
-                    .unwrap_or(&default_map)
-                    .keys()
-                    .collect();
+                let mut keys_normal: Vec<_> = CssPropertyCache::prop_types_for_state(
+                    css_property_cache.css_props.get(node_id.index()).unwrap_or(&empty_vec),
+                    azul_css::dynamic_selector::PseudoStateType::Active,
+                ).collect();
 
-                let mut keys_inherited: Vec<_> = css_property_cache
-                    .cascaded_active_props
-                    .get(node_id.index())
-                    .unwrap_or(&default_map)
-                    .keys()
-                    .collect();
+                let mut keys_inherited: Vec<_> = CssPropertyCache::prop_types_for_state(
+                    css_property_cache.cascaded_props.get(node_id.index()).unwrap_or(&empty_vec),
+                    azul_css::dynamic_selector::PseudoStateType::Active,
+                ).collect();
 
                 let keys_inline: Vec<CssPropertyType> = {
                     use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
@@ -1585,13 +1586,13 @@ impl StyledDom {
                     .into_iter()
                     .filter_map(|prop| {
                         // calculate both the old and the new state
-                        let old = css_property_cache.get_property(
+                        let old = css_property_cache.get_property_slow(
                             node_data,
                             node_id,
                             old_node_state,
                             prop,
                         );
-                        let new = css_property_cache.get_property(
+                        let new = css_property_cache.get_property_slow(
                             node_data,
                             node_id,
                             new_node_state,
@@ -1656,27 +1657,23 @@ impl StyledDom {
         let styled_nodes = self.styled_nodes.as_container();
         let node_data = self.node_data.as_container();
 
-        let default_map = BTreeMap::default();
+        let empty_vec = Vec::new();
 
         // scan all properties that could have changed because of addition / removal
         let v = nodes
             .iter()
             .zip(old_node_states.iter())
             .filter_map(|(node_id, old_node_state)| {
-                let mut keys_normal: Vec<_> = css_property_cache
-                    .css_focus_props
-                    .get(node_id.index())
-                    .unwrap_or(&default_map)
-                    .keys()
-                    .collect();
+                let mut keys_normal: Vec<_> = CssPropertyCache::prop_types_for_state(
+                    css_property_cache.css_props.get(node_id.index()).unwrap_or(&empty_vec),
+                    azul_css::dynamic_selector::PseudoStateType::Focus,
+                ).collect();
                 
 
-                let mut keys_inherited: Vec<_> = css_property_cache
-                    .cascaded_focus_props
-                    .get(node_id.index())
-                    .unwrap_or(&default_map)
-                    .keys()
-                    .collect();
+                let mut keys_inherited: Vec<_> = CssPropertyCache::prop_types_for_state(
+                    css_property_cache.cascaded_props.get(node_id.index()).unwrap_or(&empty_vec),
+                    azul_css::dynamic_selector::PseudoStateType::Focus,
+                ).collect();
                 
 
                 let keys_inline: Vec<CssPropertyType> = {
@@ -1715,13 +1712,13 @@ impl StyledDom {
                     .into_iter()
                     .filter_map(|prop| {
                         // calculate both the old and the new state
-                        let old = css_property_cache.get_property(
+                        let old = css_property_cache.get_property_slow(
                             node_data,
                             node_id,
                             old_node_state,
                             prop,
                         );
-                        let new = css_property_cache.get_property(
+                        let new = css_property_cache.get_property_slow(
                             node_data,
                             node_id,
                             new_node_state,
@@ -1896,7 +1893,7 @@ impl StyledDom {
             new_properties
                 .iter()
                 .filter_map(|new_prop| {
-                    let old_prop = css_property_cache.get_property(
+                    let old_prop = css_property_cache.get_property_slow(
                         node_data,
                         node_id,
                         old_node_state,

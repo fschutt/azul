@@ -274,12 +274,15 @@ mod text2 {
         // Apply CSS properties
         let mut property_cache = CssPropertyCache::empty(1);
 
-        let mut props_map = BTreeMap::new();
+        use azul_core::prop_cache::StatefulCssProperty;
+        use azul_css::dynamic_selector::PseudoStateType;
         for (property_type, property_value) in properties {
-            props_map.insert(property_type, property_value);
+            property_cache.css_props[0].push(StatefulCssProperty {
+                state: PseudoStateType::Normal,
+                prop_type: property_type,
+                property: property_value,
+            });
         }
-
-        property_cache.css_normal_props[0] = props_map;
 
         // Create styled node
         let styled_node = StyledNode::default();
@@ -1346,10 +1349,15 @@ mod context {
         // Apply the CSS properties
         let mut property_cache = CssPropertyCache::empty(properties.len() + 1);
 
+        use azul_core::prop_cache::StatefulCssProperty;
+        use azul_css::dynamic_selector::PseudoStateType;
         for (node_id, property_type, property_value) in properties {
-            // Insert properties directly into the normal properties map
-            property_cache.css_normal_props[node_id.index()]
-                .insert(property_type, property_value);
+            // Insert properties directly into the unified properties vec
+            property_cache.css_props[node_id.index()].push(StatefulCssProperty {
+                state: PseudoStateType::Normal,
+                prop_type: property_type,
+                property: property_value,
+            });
         }
 
         // Convert CssPropertyCache to CssPropertyCachePtr
