@@ -2767,6 +2767,522 @@ pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool 
         matches!(attr, AttributeType::ContentEditable(true))
     })
 }
+// =============================================================================
+// ExtractPropertyValue impls for macro-based getters
+// =============================================================================
+
+use azul_css::props::layout::text::LayoutTextJustify;
+use azul_css::props::layout::table::{LayoutTableLayout, StyleBorderCollapse, StyleCaptionSide};
+use azul_css::props::style::text::{StyleDirection, StyleHyphens, StyleWhiteSpace};
+use azul_css::props::style::effects::{StyleCursor, StyleVisibility};
+
+impl ExtractPropertyValue<LayoutTextJustify> for CssProperty {
+    fn extract(&self) -> Option<LayoutTextJustify> {
+        match self {
+            Self::TextJustify(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleVerticalAlign> for CssProperty {
+    fn extract(&self) -> Option<StyleVerticalAlign> {
+        match self {
+            Self::VerticalAlign(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleDirection> for CssProperty {
+    fn extract(&self) -> Option<StyleDirection> {
+        match self {
+            Self::Direction(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleHyphens> for CssProperty {
+    fn extract(&self) -> Option<StyleHyphens> {
+        match self {
+            Self::Hyphens(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleWhiteSpace> for CssProperty {
+    fn extract(&self) -> Option<StyleWhiteSpace> {
+        match self {
+            Self::WhiteSpace(CssPropertyValue::Exact(v)) => Some(v.clone()),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<LayoutTableLayout> for CssProperty {
+    fn extract(&self) -> Option<LayoutTableLayout> {
+        match self {
+            Self::TableLayout(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleBorderCollapse> for CssProperty {
+    fn extract(&self) -> Option<StyleBorderCollapse> {
+        match self {
+            Self::BorderCollapse(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleCaptionSide> for CssProperty {
+    fn extract(&self) -> Option<StyleCaptionSide> {
+        match self {
+            Self::CaptionSide(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleVisibility> for CssProperty {
+    fn extract(&self) -> Option<StyleVisibility> {
+        match self {
+            Self::Visibility(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<StyleCursor> for CssProperty {
+    fn extract(&self) -> Option<StyleCursor> {
+        match self {
+            Self::Cursor(CssPropertyValue::Exact(v)) => Some(v.clone()),
+            _ => None,
+        }
+    }
+}
+
+// =============================================================================
+// Macro-based getters (return MultiValue<T> with UA CSS fallback)
+// =============================================================================
+
+get_css_property!(
+    get_text_justify,
+    get_text_justify,
+    LayoutTextJustify,
+    CssPropertyType::TextJustify
+);
+
+get_css_property!(
+    get_vertical_align_raw,
+    get_vertical_align,
+    StyleVerticalAlign,
+    CssPropertyType::VerticalAlign
+);
+
+get_css_property!(
+    get_direction,
+    get_direction,
+    StyleDirection,
+    CssPropertyType::Direction
+);
+
+get_css_property!(
+    get_hyphens,
+    get_hyphens,
+    StyleHyphens,
+    CssPropertyType::Hyphens
+);
+
+get_css_property!(
+    get_white_space_prop,
+    get_white_space,
+    StyleWhiteSpace,
+    CssPropertyType::WhiteSpace
+);
+
+get_css_property!(
+    get_table_layout,
+    get_table_layout,
+    LayoutTableLayout,
+    CssPropertyType::TableLayout
+);
+
+get_css_property!(
+    get_border_collapse,
+    get_border_collapse,
+    StyleBorderCollapse,
+    CssPropertyType::BorderCollapse
+);
+
+get_css_property!(
+    get_caption_side,
+    get_caption_side,
+    StyleCaptionSide,
+    CssPropertyType::CaptionSide
+);
+
+get_css_property!(
+    get_visibility,
+    get_visibility,
+    StyleVisibility,
+    CssPropertyType::Visibility
+);
+
+get_css_property!(
+    get_cursor_property,
+    get_cursor,
+    StyleCursor,
+    CssPropertyType::Cursor
+);
+
+// =============================================================================
+// Handwritten getters (Option<T>, special logic, or non-standard returns)
+// =============================================================================
+
+/// Get height property value for IFC text layout height reference.
+pub fn get_height_value(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<LayoutHeight> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_height(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get shape-inside property. Returns Option<ShapeInside> (cloned).
+pub fn get_shape_inside(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::layout::shape::ShapeInside> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_shape_inside(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get shape-outside property. Returns Option<ShapeOutside> (cloned).
+pub fn get_shape_outside(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::layout::shape::ShapeOutside> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_shape_outside(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get line-height as the full StyleLineHeight value for caller resolution.
+pub fn get_line_height_value(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::text::StyleLineHeight> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_line_height(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get text-indent as the full StyleTextIndent value for caller resolution.
+pub fn get_text_indent_value(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::text::StyleTextIndent> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_text_indent(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get column-count property. Returns Option<ColumnCount>.
+pub fn get_column_count(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::layout::column::ColumnCount> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_column_count(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get column-gap as PixelValue. Returns Option.
+pub fn get_column_gap_value(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::layout::spacing::LayoutColumnGap> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_column_gap(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get initial-letter property. Returns Option<StyleInitialLetter>.
+pub fn get_initial_letter(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::text::StyleInitialLetter> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_initial_letter(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get line-clamp property. Returns Option<StyleLineClamp>.
+pub fn get_line_clamp(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::text::StyleLineClamp> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_line_clamp(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get hanging-punctuation property. Returns Option<StyleHangingPunctuation>.
+pub fn get_hanging_punctuation(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::text::StyleHangingPunctuation> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_hanging_punctuation(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get text-combine-upright property. Returns Option<StyleTextCombineUpright>.
+pub fn get_text_combine_upright(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::text::StyleTextCombineUpright> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_text_combine_upright(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get exclusion-margin value. Returns f32 (default 0.0).
+pub fn get_exclusion_margin(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> f32 {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_exclusion_margin(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(|v| v.inner.get() as f32)
+        .unwrap_or(0.0)
+}
+
+/// Get hyphenation-language property. Returns Option<StyleHyphenationLanguage>.
+pub fn get_hyphenation_language(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::azul_exclusion::StyleHyphenationLanguage> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_hyphenation_language(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get border-spacing property.
+pub fn get_border_spacing(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> azul_css::props::layout::table::LayoutBorderSpacing {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_border_spacing(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Get opacity value. Returns f32 (default 1.0).
+pub fn get_opacity(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> f32 {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_opacity(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(|v| v.inner.normalized())
+        .unwrap_or(1.0)
+}
+
+/// Get filter property. Returns Option with cloned filter list.
+pub fn get_filter(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::filter::StyleFilterVec> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_filter(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get backdrop-filter property. Returns Option with cloned filter list.
+pub fn get_backdrop_filter(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::filter::StyleFilterVec> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_backdrop_filter(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get box-shadow for left side. Returns Option<StyleBoxShadow> (cloned).
+pub fn get_box_shadow_left(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_box_shadow_left(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get box-shadow for right side. Returns Option<StyleBoxShadow> (cloned).
+pub fn get_box_shadow_right(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_box_shadow_right(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get box-shadow for top side. Returns Option<StyleBoxShadow> (cloned).
+pub fn get_box_shadow_top(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_box_shadow_top(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get box-shadow for bottom side. Returns Option<StyleBoxShadow> (cloned).
+pub fn get_box_shadow_bottom(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_box_shadow_bottom(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get text-shadow property. Returns Option<StyleBoxShadow> (cloned).
+pub fn get_text_shadow(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::box_shadow::StyleBoxShadow> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_text_shadow(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get transform property. Returns Option (non-empty transform list, cloned).
+pub fn get_transform(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::transform::StyleTransformVec> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_transform(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get display property (raw). Returns Option<LayoutDisplay>.
+pub fn get_display_raw(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<LayoutDisplay> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_display(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+}
+
+/// Get counter-reset property. Returns Option<CounterReset> (cloned).
+pub fn get_counter_reset(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::content::CounterReset> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_counter_reset(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
+
+/// Get counter-increment property. Returns Option<CounterIncrement> (cloned).
+pub fn get_counter_increment(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<azul_css::props::style::content::CounterIncrement> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom.css_property_cache.ptr
+        .get_counter_increment(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .cloned()
+}
 
 /// W3C-conformant contenteditable inheritance check.
 ///
