@@ -12,19 +12,17 @@ use azul_core::{
 };
 use azul_css::{
     corety::LayoutDebugMessage,
-    css::CssPropertyValue,
-    props::{
-        basic::pixel::PixelValue,
-        layout::{LayoutPosition, LayoutWritingMode},
-        property::{CssProperty, CssPropertyType},
-    },
+    props::layout::{LayoutPosition, LayoutWritingMode},
 };
 
 use crate::{
     font_traits::{FontLoaderTrait, ParsedFontTrait},
     solver3::{
         fc::{layout_formatting_context, LayoutConstraints, TextAlign},
-        getters::get_writing_mode,
+        getters::{
+            get_css_bottom, get_css_left, get_css_right, get_css_top,
+            get_direction, get_position, get_writing_mode, MultiValue,
+        },
         layout_tree::LayoutTree,
         LayoutContext, LayoutError, Result,
     },
@@ -46,26 +44,14 @@ pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> Layo
     let Some(id) = dom_id else {
         return LayoutPosition::Static;
     };
-    let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_position(node_data, &id, node_state)
-        .and_then(|w| w.get_property().cloned())
-        .unwrap_or_default()
+    get_position(styled_dom, id, node_state).unwrap_or_default()
 }
 
 /// Correctly looks up the `position` property from the styled DOM.
 fn get_position_property(styled_dom: &StyledDom, node_id: NodeId) -> LayoutPosition {
-    let node_data = &styled_dom.node_data.as_container()[node_id];
     let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_position(node_data, &node_id, node_state)
-        .and_then(|p| p.get_property().copied())
-        .unwrap_or(LayoutPosition::Static)
+    get_position(styled_dom, node_id, node_state).unwrap_or_default()
 }
 
 /// **NEW API:** Correctly reads and resolves `top`, `right`, `bottom`, `left` properties,
@@ -85,7 +71,6 @@ fn resolve_position_offsets(
     let Some(id) = dom_id else {
         return PositionOffsets::default();
     };
-    let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
 
     // Create resolution context with font sizes and containing block size
@@ -108,46 +93,26 @@ fn resolve_position_offsets(
 
     // Resolve offsets with proper context
     // top/bottom use Height context (% refers to containing block height)
-    offsets.top = styled_dom
-        .css_property_cache
-        .ptr
-        .get_top(node_data, &id, node_state)
-        .and_then(|t| t.get_property())
-        .map(|v| {
-            v.inner
-                .resolve_with_context(&resolution_context, PropertyContext::Height)
-        });
+    offsets.top = match get_css_top(styled_dom, id, node_state) {
+        MultiValue::Exact(pv) => Some(pv.resolve_with_context(&resolution_context, PropertyContext::Height)),
+        _ => None,
+    };
 
-    offsets.bottom = styled_dom
-        .css_property_cache
-        .ptr
-        .get_bottom(node_data, &id, node_state)
-        .and_then(|b| b.get_property())
-        .map(|v| {
-            v.inner
-                .resolve_with_context(&resolution_context, PropertyContext::Height)
-        });
+    offsets.bottom = match get_css_bottom(styled_dom, id, node_state) {
+        MultiValue::Exact(pv) => Some(pv.resolve_with_context(&resolution_context, PropertyContext::Height)),
+        _ => None,
+    };
 
     // left/right use Width context (% refers to containing block width)
-    offsets.left = styled_dom
-        .css_property_cache
-        .ptr
-        .get_left(node_data, &id, node_state)
-        .and_then(|l| l.get_property())
-        .map(|v| {
-            v.inner
-                .resolve_with_context(&resolution_context, PropertyContext::Width)
-        });
+    offsets.left = match get_css_left(styled_dom, id, node_state) {
+        MultiValue::Exact(pv) => Some(pv.resolve_with_context(&resolution_context, PropertyContext::Width)),
+        _ => None,
+    };
 
-    offsets.right = styled_dom
-        .css_property_cache
-        .ptr
-        .get_right(node_data, &id, node_state)
-        .and_then(|r| r.get_property())
-        .map(|v| {
-            v.inner
-                .resolve_with_context(&resolution_context, PropertyContext::Width)
-        });
+    offsets.right = match get_css_right(styled_dom, id, node_state) {
+        MultiValue::Exact(pv) => Some(pv.resolve_with_context(&resolution_context, PropertyContext::Width)),
+        _ => None,
+    };
 
     offsets
 }
@@ -361,15 +326,11 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         // Horizontal positioning: depends on direction
         // Get the direction for this element
         let node_dom_id = node.dom_node_id.unwrap_or(NodeId::ZERO);
-        let node_data = &ctx.styled_dom.node_data.as_container()[node_dom_id];
         let node_state = &ctx.styled_dom.styled_nodes.as_container()[node_dom_id].styled_node_state;
-        let direction = ctx
-            .styled_dom
-            .css_property_cache
-            .ptr
-            .get_direction(node_data, &node_dom_id, node_state)
-            .and_then(|s| s.get_property().copied())
-            .unwrap_or(azul_css::props::style::StyleDirection::Ltr);
+        let direction = match get_direction(ctx.styled_dom, node_dom_id, node_state) {
+            MultiValue::Exact(d) => d,
+            _ => azul_css::props::style::StyleDirection::Ltr,
+        };
 
         use azul_css::props::style::StyleDirection;
         match direction {

@@ -73,9 +73,17 @@ use crate::{
     solver3::{
         geometry::{BoxProps, EdgeSizes, IntrinsicSizes},
         getters::{
+            get_border_collapse, get_border_spacing, get_caption_side,
+            get_border_info as get_raw_border_info, get_clear, get_display_raw,
             get_css_height, get_css_width, get_display_property, get_element_font_size, get_float,
+            get_hyphens, get_direction, get_height_value,
             get_list_style_position, get_list_style_type, get_overflow_x, get_overflow_y,
-            get_parent_font_size, get_root_font_size, get_style_properties, get_writing_mode,
+            get_parent_font_size, get_root_font_size, get_shape_inside, get_shape_outside,
+            get_style_properties, get_table_layout, get_text_justify, get_vertical_align_raw,
+            get_visibility, get_white_space_prop, get_writing_mode,
+            get_line_height_value, get_text_indent_value, get_column_count, get_column_gap_value,
+            get_initial_letter, get_line_clamp, get_hanging_punctuation,
+            get_text_combine_upright, get_exclusion_margin, get_hyphenation_language,
             MultiValue,
         },
         layout_tree::{
@@ -2523,7 +2531,6 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
 
     // Map text-align and justify-content from CSS to text3 enums.
     let id = dom_id;
-    let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
 
     // Read CSS Shapes properties
@@ -2536,11 +2543,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         // Try to get explicit CSS height
         // NOTE: If height is infinite, we can't properly resolve % heights
         // This is a limitation - shape-inside with % heights requires finite containing block
-        styled_dom
-            .css_property_cache
-            .ptr
-            .get_height(node_data, &id, node_state)
-            .and_then(|v| v.get_property())
+        get_height_value(styled_dom, id, node_state)
             .and_then(|h| match h {
                 LayoutHeight::Px(v) => {
                     // Only accept absolute units (px, pt, in, cm, mm) - no %, em, rem
@@ -2575,17 +2578,10 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         constraints.available_size.height
     );
 
-    let shape_boundaries = styled_dom
-        .css_property_cache
-        .ptr
-        .get_shape_inside(node_data, &id, node_state)
-        .and_then(|v| {
-            debug_info!(ctx, "Got shape-inside value: {:?}", v);
-            v.get_property()
-        })
+    let shape_boundaries = get_shape_inside(styled_dom, id, node_state)
         .and_then(|shape_inside| {
             debug_info!(ctx, "shape-inside property: {:?}", shape_inside);
-            if let ShapeInside::Shape(css_shape) = shape_inside {
+            if let ShapeInside::Shape(css_shape) = &shape_inside {
                 debug_info!(
                     ctx,
                     "Converting CSS shape to ShapeBoundary: {:?}",
@@ -2610,15 +2606,10 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
 
     // shape-outside: Text wraps around the shape (adds to exclusions)
     debug_info!(ctx, "Checking shape-outside for node {:?}", id);
-    if let Some(shape_outside_value) = styled_dom
-        .css_property_cache
-        .ptr
-        .get_shape_outside(node_data, &id, node_state)
+    if let Some(shape_outside) = get_shape_outside(styled_dom, id, node_state)
     {
-        debug_info!(ctx, "Got shape-outside value: {:?}", shape_outside_value);
-        if let Some(shape_outside) = shape_outside_value.get_property() {
             debug_info!(ctx, "shape-outside property: {:?}", shape_outside);
-            if let ShapeOutside::Shape(css_shape) = shape_outside {
+            if let ShapeOutside::Shape(css_shape) = &shape_outside {
                 debug_info!(
                     ctx,
                     "Converting CSS shape-outside to ShapeBoundary: {:?}",
@@ -2629,66 +2620,31 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
                 debug_info!(ctx, "Created ShapeBoundary (exclusion): {:?}", boundary);
                 shape_exclusions.push(boundary);
             }
-        }
     } else {
         debug_info!(ctx, "No shape-outside value found");
     }
 
     // TODO: clip-path will be used for rendering clipping (not text layout)
 
-    let writing_mode = styled_dom
-        .css_property_cache
-        .ptr
-        .get_writing_mode(node_data, &id, node_state)
-        .and_then(|s| s.get_property().copied())
-        .unwrap_or_default();
+    let writing_mode = get_writing_mode(styled_dom, id, node_state).unwrap_or_default();
 
-    let text_align = styled_dom
-        .css_property_cache
-        .ptr
-        .get_text_align(node_data, &id, node_state)
-        .and_then(|s| s.get_property().copied())
-        .unwrap_or_default();
+    let text_align = crate::solver3::getters::get_text_align(styled_dom, id, node_state).unwrap_or_default();
 
-    let text_justify = styled_dom
-        .css_property_cache
-        .ptr
-        .get_text_justify(node_data, &id, node_state)
-        .and_then(|s| s.get_property().copied())
-        .unwrap_or_default();
+    let text_justify = get_text_justify(styled_dom, id, node_state).unwrap_or_default();
 
     // Get font-size for resolving line-height
     // Use helper function which checks dependency chain first
     let font_size = get_element_font_size(styled_dom, id, node_state);
 
-    let line_height_value = styled_dom
-        .css_property_cache
-        .ptr
-        .get_line_height(node_data, &id, node_state)
-        .and_then(|s| s.get_property().cloned())
+    let line_height_value = get_line_height_value(styled_dom, id, node_state)
         .unwrap_or_default();
 
-    let hyphenation = styled_dom
-        .css_property_cache
-        .ptr
-        .get_hyphens(node_data, &id, node_state)
-        .and_then(|s| s.get_property().copied())
-        .unwrap_or_default();
+    let hyphenation = get_hyphens(styled_dom, id, node_state).unwrap_or_default();
 
-    let overflow_behaviour = styled_dom
-        .css_property_cache
-        .ptr
-        .get_overflow_x(node_data, &id, node_state)
-        .and_then(|s| s.get_property().copied())
-        .unwrap_or_default();
+    let overflow_behaviour = get_overflow_x(styled_dom, id, node_state).unwrap_or_default();
 
     // Get vertical-align from CSS property cache (defaults to Baseline per CSS spec)
-    let vertical_align = styled_dom
-        .css_property_cache
-        .ptr
-        .get_vertical_align(node_data, &id, node_state)
-        .and_then(|s| s.get_property().copied())
-        .unwrap_or_default();
+    let vertical_align = get_vertical_align_raw(styled_dom, id, node_state).unwrap_or_default();
 
     let vertical_align = match vertical_align {
         StyleVerticalAlign::Baseline => text3::cache::VerticalAlign::Baseline,
@@ -2702,16 +2658,12 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     };
     let text_orientation = text3::cache::TextOrientation::default();
 
-    // Get the direction property from the CSS cache (defaults to LTR if not set)
-    let direction = styled_dom
-        .css_property_cache
-        .ptr
-        .get_direction(node_data, &id, node_state)
-        .and_then(|s| s.get_property().copied())
-        .map(|d| match d {
-            StyleDirection::Ltr => text3::cache::BidiDirection::Ltr,
-            StyleDirection::Rtl => text3::cache::BidiDirection::Rtl,
-        });
+    // Get the direction property (defaults to LTR if not set)
+    let direction = match get_direction(styled_dom, id, node_state) {
+        MultiValue::Exact(StyleDirection::Rtl) => Some(text3::cache::BidiDirection::Rtl),
+        MultiValue::Exact(StyleDirection::Ltr) => Some(text3::cache::BidiDirection::Ltr),
+        _ => None,
+    };
 
     debug_info!(
         ctx,
@@ -2723,11 +2675,7 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
     );
 
     // Get text-indent
-    let text_indent = styled_dom
-        .css_property_cache
-        .ptr
-        .get_text_indent(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
+    let text_indent = get_text_indent_value(styled_dom, id, node_state)
         .map(|ti| {
             let context = ResolutionContext {
                 element_font_size: get_element_font_size(styled_dom, id, node_state),
@@ -2743,23 +2691,15 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         .unwrap_or(0.0);
 
     // Get column-count for multi-column layout (default: 1 = no columns)
-    let columns = styled_dom
-        .css_property_cache
-        .ptr
-        .get_column_count(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
+    let columns = get_column_count(styled_dom, id, node_state)
         .map(|cc| match cc {
-            ColumnCount::Integer(n) => *n,
+            ColumnCount::Integer(n) => n,
             ColumnCount::Auto => 1,
         })
         .unwrap_or(1);
 
     // Get column-gap for multi-column layout (default: normal = 1em)
-    let column_gap = styled_dom
-        .css_property_cache
-        .ptr
-        .get_column_gap(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
+    let column_gap = get_column_gap_value(styled_dom, id, node_state)
         .map(|cg| {
             let context = ResolutionContext {
                 element_font_size: get_element_font_size(styled_dom, id, node_state),
@@ -2778,27 +2718,20 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         });
 
     // Map white-space CSS property to TextWrap
-    let text_wrap = styled_dom
-        .css_property_cache
-        .ptr
-        .get_white_space(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
-        .map(|ws| match ws {
+    let text_wrap = match get_white_space_prop(styled_dom, id, node_state) {
+        MultiValue::Exact(ws) => match ws {
             StyleWhiteSpace::Normal => text3::cache::TextWrap::Wrap,
             StyleWhiteSpace::Nowrap => text3::cache::TextWrap::NoWrap,
             StyleWhiteSpace::Pre => text3::cache::TextWrap::NoWrap,
             StyleWhiteSpace::PreWrap => text3::cache::TextWrap::Wrap,
             StyleWhiteSpace::PreLine => text3::cache::TextWrap::Wrap,
             StyleWhiteSpace::BreakSpaces => text3::cache::TextWrap::Wrap,
-        })
-        .unwrap_or(text3::cache::TextWrap::Wrap);
+        },
+        _ => text3::cache::TextWrap::Wrap,
+    };
 
     // Get initial-letter for drop caps
-    let initial_letter = styled_dom
-        .css_property_cache
-        .ptr
-        .get_initial_letter(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
+    let initial_letter = get_initial_letter(styled_dom, id, node_state)
         .map(|il| {
             use std::num::NonZeroUsize;
             let sink = match il.sink {
@@ -2813,49 +2746,27 @@ fn translate_to_text3_constraints<'a, T: ParsedFontTrait>(
         });
 
     // Get line-clamp for limiting visible lines
-    let line_clamp = styled_dom
-        .css_property_cache
-        .ptr
-        .get_line_clamp(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
+    let line_clamp = get_line_clamp(styled_dom, id, node_state)
         .and_then(|lc| std::num::NonZeroUsize::new(lc.max_lines));
 
     // Get hanging-punctuation for hanging punctuation marks
-    let hanging_punctuation = styled_dom
-        .css_property_cache
-        .ptr
-        .get_hanging_punctuation(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
+    let hanging_punctuation = get_hanging_punctuation(styled_dom, id, node_state)
         .map(|hp| hp.enabled)
         .unwrap_or(false);
 
     // Get text-combine-upright for vertical text combination
-    let text_combine_upright = styled_dom
-        .css_property_cache
-        .ptr
-        .get_text_combine_upright(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
+    let text_combine_upright = get_text_combine_upright(styled_dom, id, node_state)
         .map(|tcu| match tcu {
             StyleTextCombineUpright::None => text3::cache::TextCombineUpright::None,
             StyleTextCombineUpright::All => text3::cache::TextCombineUpright::All,
-            StyleTextCombineUpright::Digits(n) => text3::cache::TextCombineUpright::Digits(*n),
+            StyleTextCombineUpright::Digits(n) => text3::cache::TextCombineUpright::Digits(n),
         });
 
     // Get exclusion-margin for shape exclusions
-    let exclusion_margin = styled_dom
-        .css_property_cache
-        .ptr
-        .get_exclusion_margin(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
-        .map(|em| em.inner.get() as f32)
-        .unwrap_or(0.0);
+    let exclusion_margin = get_exclusion_margin(styled_dom, id, node_state);
 
     // Get hyphenation-language for language-specific hyphenation
-    let hyphenation_language = styled_dom
-        .css_property_cache
-        .ptr
-        .get_hyphenation_language(node_data, &id, node_state)
-        .and_then(|s| s.get_property())
+    let hyphenation_language = get_hyphenation_language(styled_dom, id, node_state)
         .and_then(|hl| {
             #[cfg(feature = "text_layout_hyphenation")]
             {
@@ -3154,9 +3065,7 @@ fn get_border_info<T: ParsedFontTrait>(
         );
     };
 
-    let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
     let node_state = StyledNodeState::default();
-    let cache = &ctx.styled_dom.css_property_cache.ptr;
 
     // Create resolution context for border-width (em/rem support, no % support)
     let element_font_size = get_element_font_size(ctx.styled_dom, dom_id, &node_state);
@@ -3174,110 +3083,83 @@ fn get_border_info<T: ParsedFontTrait>(
         viewport_size: PhysicalSize::new(0.0, 0.0),
     };
 
+    // Get all raw border properties through the centralized getter
+    let raw = get_raw_border_info(ctx.styled_dom, dom_id, &node_state);
+
+    let default_color = ColorU { r: 0, g: 0, b: 0, a: 255 };
+
     // Top border
-    let top = cache
-        .get_border_top_style(node_data, &dom_id, &node_state)
+    let top = raw.styles.top
+        .as_ref()
         .and_then(|s| s.get_property())
         .map(|style_val| {
-            let width = cache
-                .get_border_top_width(node_data, &dom_id, &node_state)
+            let width = raw.widths.top
+                .as_ref()
                 .and_then(|w| w.get_property())
-                .map(|w| {
-                    w.inner
-                        .resolve_with_context(&resolution_context, PropertyContext::BorderWidth)
-                })
+                .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
                 .unwrap_or(0.0);
-            let color = cache
-                .get_border_top_color(node_data, &dom_id, &node_state)
+            let color = raw.colors.top
+                .as_ref()
                 .and_then(|c| c.get_property())
                 .map(|c| c.inner)
-                .unwrap_or(ColorU {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 255,
-                });
+                .unwrap_or(default_color);
             BorderInfo::new(width, style_val.inner, color, source)
         })
         .unwrap_or_else(|| default_border.clone());
 
     // Right border
-    let right = cache
-        .get_border_right_style(node_data, &dom_id, &node_state)
+    let right = raw.styles.right
+        .as_ref()
         .and_then(|s| s.get_property())
         .map(|style_val| {
-            let width = cache
-                .get_border_right_width(node_data, &dom_id, &node_state)
+            let width = raw.widths.right
+                .as_ref()
                 .and_then(|w| w.get_property())
-                .map(|w| {
-                    w.inner
-                        .resolve_with_context(&resolution_context, PropertyContext::BorderWidth)
-                })
+                .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
                 .unwrap_or(0.0);
-            let color = cache
-                .get_border_right_color(node_data, &dom_id, &node_state)
+            let color = raw.colors.right
+                .as_ref()
                 .and_then(|c| c.get_property())
                 .map(|c| c.inner)
-                .unwrap_or(ColorU {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 255,
-                });
+                .unwrap_or(default_color);
             BorderInfo::new(width, style_val.inner, color, source)
         })
         .unwrap_or_else(|| default_border.clone());
 
     // Bottom border
-    let bottom = cache
-        .get_border_bottom_style(node_data, &dom_id, &node_state)
+    let bottom = raw.styles.bottom
+        .as_ref()
         .and_then(|s| s.get_property())
         .map(|style_val| {
-            let width = cache
-                .get_border_bottom_width(node_data, &dom_id, &node_state)
+            let width = raw.widths.bottom
+                .as_ref()
                 .and_then(|w| w.get_property())
-                .map(|w| {
-                    w.inner
-                        .resolve_with_context(&resolution_context, PropertyContext::BorderWidth)
-                })
+                .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
                 .unwrap_or(0.0);
-            let color = cache
-                .get_border_bottom_color(node_data, &dom_id, &node_state)
+            let color = raw.colors.bottom
+                .as_ref()
                 .and_then(|c| c.get_property())
                 .map(|c| c.inner)
-                .unwrap_or(ColorU {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 255,
-                });
+                .unwrap_or(default_color);
             BorderInfo::new(width, style_val.inner, color, source)
         })
         .unwrap_or_else(|| default_border.clone());
 
     // Left border
-    let left = cache
-        .get_border_left_style(node_data, &dom_id, &node_state)
+    let left = raw.styles.left
+        .as_ref()
         .and_then(|s| s.get_property())
         .map(|style_val| {
-            let width = cache
-                .get_border_left_width(node_data, &dom_id, &node_state)
+            let width = raw.widths.left
+                .as_ref()
                 .and_then(|w| w.get_property())
-                .map(|w| {
-                    w.inner
-                        .resolve_with_context(&resolution_context, PropertyContext::BorderWidth)
-                })
+                .map(|w| w.inner.resolve_with_context(&resolution_context, PropertyContext::BorderWidth))
                 .unwrap_or(0.0);
-            let color = cache
-                .get_border_left_color(node_data, &dom_id, &node_state)
+            let color = raw.colors.left
+                .as_ref()
                 .and_then(|c| c.get_property())
                 .map(|c| c.inner)
-                .unwrap_or(ColorU {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 255,
-                });
+                .unwrap_or(default_color);
             BorderInfo::new(width, style_val.inner, color, source)
         })
         .unwrap_or_else(|| default_border.clone());
@@ -3293,16 +3175,8 @@ fn get_table_layout_property<T: ParsedFontTrait>(
     let Some(dom_id) = node.dom_node_id else {
         return LayoutTableLayout::Auto;
     };
-
-    let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
     let node_state = StyledNodeState::default();
-
-    ctx.styled_dom
-        .css_property_cache
-        .ptr
-        .get_table_layout(node_data, &dom_id, &node_state)
-        .and_then(|prop| prop.get_property().copied())
-        .unwrap_or(LayoutTableLayout::Auto)
+    get_table_layout(ctx.styled_dom, dom_id, &node_state).unwrap_or_default()
 }
 
 /// Get the border-collapse property for a table node
@@ -3313,16 +3187,8 @@ fn get_border_collapse_property<T: ParsedFontTrait>(
     let Some(dom_id) = node.dom_node_id else {
         return StyleBorderCollapse::Separate;
     };
-
-    let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
     let node_state = StyledNodeState::default();
-
-    ctx.styled_dom
-        .css_property_cache
-        .ptr
-        .get_border_collapse(node_data, &dom_id, &node_state)
-        .and_then(|prop| prop.get_property().copied())
-        .unwrap_or(StyleBorderCollapse::Separate)
+    get_border_collapse(ctx.styled_dom, dom_id, &node_state).unwrap_or_default()
 }
 
 /// Get the border-spacing property for a table node
@@ -3331,21 +3197,10 @@ fn get_border_spacing_property<T: ParsedFontTrait>(
     node: &LayoutNode,
 ) -> LayoutBorderSpacing {
     if let Some(dom_id) = node.dom_node_id {
-        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
         let node_state = StyledNodeState::default();
-
-        if let Some(prop) = ctx.styled_dom.css_property_cache.ptr.get_border_spacing(
-            node_data,
-            &dom_id,
-            &node_state,
-        ) {
-            if let Some(value) = prop.get_property() {
-                return *value;
-            }
-        }
+        return get_border_spacing(ctx.styled_dom, dom_id, &node_state);
     }
-
-    LayoutBorderSpacing::default() // Default: 0
+    LayoutBorderSpacing::default()
 }
 
 /// CSS 2.2 Section 17.4 - Tables in the visual formatting model:
@@ -3361,22 +3216,10 @@ fn get_caption_side_property<T: ParsedFontTrait>(
     node: &LayoutNode,
 ) -> StyleCaptionSide {
     if let Some(dom_id) = node.dom_node_id {
-        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
         let node_state = StyledNodeState::default();
-
-        if let Some(prop) =
-            ctx.styled_dom
-                .css_property_cache
-                .ptr
-                .get_caption_side(node_data, &dom_id, &node_state)
-        {
-            if let Some(value) = prop.get_property() {
-                return *value;
-            }
-        }
+        return get_caption_side(ctx.styled_dom, dom_id, &node_state).unwrap_or_default();
     }
-
-    StyleCaptionSide::Top // Default per CSS 2.2
+    StyleCaptionSide::Top
 }
 
 /// CSS 2.2 Section 17.6 - Dynamic row and column effects:
@@ -3394,19 +3237,8 @@ fn is_visibility_collapsed<T: ParsedFontTrait>(
     node: &LayoutNode,
 ) -> bool {
     if let Some(dom_id) = node.dom_node_id {
-        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
         let node_state = StyledNodeState::default();
-
-        if let Some(prop) =
-            ctx.styled_dom
-                .css_property_cache
-                .ptr
-                .get_visibility(node_data, &dom_id, &node_state)
-        {
-            if let Some(value) = prop.get_property() {
-                return matches!(value, StyleVisibility::Collapse);
-            }
-        }
+        return matches!(get_visibility(ctx.styled_dom, dom_id, &node_state), MultiValue::Exact(StyleVisibility::Collapse));
     }
 
     false
@@ -4837,17 +4669,13 @@ fn position_table_cells<T: ParsedFontTrait>(
             let inline_result = &cached_layout.layout;
             use StyleVerticalAlign;
 
-            // Get vertical-align property from styled_dom
+            // Get vertical-align property via centralized getter
             let vertical_align = if let Some(dom_id) = cell_node.dom_node_id {
-                let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
                 let node_state = StyledNodeState::default();
-
-                ctx.styled_dom
-                    .css_property_cache
-                    .ptr
-                    .get_vertical_align(node_data, &dom_id, &node_state)
-                    .and_then(|v| v.get_property().copied())
-                    .unwrap_or(StyleVerticalAlign::Top)
+                match get_vertical_align_raw(ctx.styled_dom, dom_id, &node_state) {
+                    MultiValue::Exact(v) => v,
+                    _ => StyleVerticalAlign::Top,
+                }
             } else {
                 StyleVerticalAlign::Top
             };
@@ -5244,21 +5072,12 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
     // Check IFC root itself
     if let Some(dom_id) = ifc_root_node.dom_node_id {
-        let node_data = &ctx.styled_dom.node_data.as_container()[dom_id];
         let node_state = StyledNodeState::default();
-
-        if let Some(display_value) =
-            ctx.styled_dom
-                .css_property_cache
-                .ptr
-                .get_display(node_data, &dom_id, &node_state)
-        {
-            if let Some(display) = display_value.get_property() {
-                use LayoutDisplay;
-                if *display == LayoutDisplay::ListItem {
-                    debug_ifc_layout!(ctx, "IFC root NodeId({:?}) is list-item", dom_id);
-                    list_item_dom_id = Some(dom_id);
-                }
+        if let Some(display) = get_display_raw(ctx.styled_dom, dom_id, &node_state) {
+            use LayoutDisplay;
+            if display == LayoutDisplay::ListItem {
+                debug_ifc_layout!(ctx, "IFC root NodeId({:?}) is list-item", dom_id);
+                list_item_dom_id = Some(dom_id);
             }
         }
     }
@@ -5268,24 +5087,16 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         if let Some(parent_idx) = ifc_root_node.parent {
             if let Some(parent_node) = tree.get(parent_idx) {
                 if let Some(parent_dom_id) = parent_node.dom_node_id {
-                    let parent_node_data = &ctx.styled_dom.node_data.as_container()[parent_dom_id];
                     let parent_node_state = StyledNodeState::default();
-
-                    if let Some(display_value) = ctx.styled_dom.css_property_cache.ptr.get_display(
-                        parent_node_data,
-                        &parent_dom_id,
-                        &parent_node_state,
-                    ) {
-                        if let Some(display) = display_value.get_property() {
-                            use LayoutDisplay;
-                            if *display == LayoutDisplay::ListItem {
-                                debug_ifc_layout!(
-                                    ctx,
-                                    "IFC root parent NodeId({:?}) is list-item",
-                                    parent_dom_id
-                                );
-                                list_item_dom_id = Some(parent_dom_id);
-                            }
+                    if let Some(display) = get_display_raw(ctx.styled_dom, parent_dom_id, &parent_node_state) {
+                        use LayoutDisplay;
+                        if display == LayoutDisplay::ListItem {
+                            debug_ifc_layout!(
+                                ctx,
+                                "IFC root parent NodeId({:?}) is list-item",
+                                parent_dom_id
+                            );
+                            list_item_dom_id = Some(parent_dom_id);
                         }
                     }
                 }
@@ -6053,41 +5864,22 @@ fn get_float_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutF
     let Some(id) = dom_id else {
         return LayoutFloat::None;
     };
-    let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_float(node_data, &id, node_state)
-        .and_then(|f| {
-            f.get_property().map(|inner| match inner {
-                LayoutFloat::Left => LayoutFloat::Left,
-                LayoutFloat::Right => LayoutFloat::Right,
-                LayoutFloat::None => LayoutFloat::None,
-            })
-        })
-        .unwrap_or(LayoutFloat::None)
+    match get_float(styled_dom, id, node_state) {
+        MultiValue::Exact(f) => f,
+        _ => LayoutFloat::None,
+    }
 }
 
 fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutClear {
     let Some(id) = dom_id else {
         return LayoutClear::None;
     };
-    let node_data = &styled_dom.node_data.as_container()[id];
     let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
-    styled_dom
-        .css_property_cache
-        .ptr
-        .get_clear(node_data, &id, node_state)
-        .and_then(|c| {
-            c.get_property().map(|inner| match inner {
-                LayoutClear::Left => LayoutClear::Left,
-                LayoutClear::Right => LayoutClear::Right,
-                LayoutClear::Both => LayoutClear::Both,
-                LayoutClear::None => LayoutClear::None,
-            })
-        })
-        .unwrap_or(LayoutClear::None)
+    match get_clear(styled_dom, id, node_state) {
+        MultiValue::Exact(c) => c,
+        _ => LayoutClear::None,
+    }
 }
 /// Helper to determine if scrollbars are needed.
 ///
@@ -6499,19 +6291,15 @@ pub(crate) fn split_text_for_whitespace(
     
     // Try parent first, then fall back to the node itself
     let white_space = if let Some(parent) = parent_id {
-        let parent_node_data = &styled_dom.node_data.as_container()[parent];
         let styled_nodes = styled_dom.styled_nodes.as_container();
         let parent_state = styled_nodes
             .get(parent)
             .map(|n| n.styled_node_state.clone())
             .unwrap_or_default();
-        
-        styled_dom
-            .css_property_cache
-            .ptr
-            .get_white_space(parent_node_data, &parent, &parent_state)
-            .and_then(|s| s.get_property().cloned())
-            .unwrap_or(StyleWhiteSpace::Normal)
+        match get_white_space_prop(styled_dom, parent, &parent_state) {
+            MultiValue::Exact(ws) => ws,
+            _ => StyleWhiteSpace::Normal,
+        }
     } else {
         StyleWhiteSpace::Normal
     };

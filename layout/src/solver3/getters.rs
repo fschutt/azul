@@ -21,8 +21,18 @@ use azul_css::{
             BoxDecorationBreak, BreakInside, LayoutBoxSizing, LayoutClear, LayoutDisplay,
             LayoutFlexWrap, LayoutFloat, LayoutHeight, LayoutJustifyContent, LayoutOverflow,
             LayoutPosition, LayoutWidth, LayoutWritingMode, Orphans, PageBreak, Widows,
+            grid::GridTemplateAreas,
         },
-        property::{CssProperty, CssPropertyType},
+        property::{CssProperty, CssPropertyType,
+            LayoutFlexBasisValue, LayoutFlexDirectionValue, LayoutFlexWrapValue,
+            LayoutFlexGrowValue, LayoutFlexShrinkValue,
+            LayoutAlignItemsValue, LayoutAlignSelfValue, LayoutAlignContentValue,
+            LayoutJustifyContentValue, LayoutJustifyItemsValue, LayoutJustifySelfValue,
+            LayoutGapValue,
+            LayoutGridTemplateColumnsValue, LayoutGridTemplateRowsValue,
+            LayoutGridAutoColumnsValue, LayoutGridAutoRowsValue,
+            LayoutGridAutoFlowValue, LayoutGridColumnValue, LayoutGridRowValue,
+        },
         style::{
             border_radius::StyleBorderRadius,
             lists::{StyleListStylePosition, StyleListStyleType},
@@ -3386,4 +3396,77 @@ pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) ->
     }
     
     None
+}
+
+// --- Taffy bridge property getters ---
+//
+// These getters return `Option<CssPropertyValue<T>>` (cloned from cache) for use
+// by taffy_bridge.rs. The conversion from CssPropertyValue to taffy types is done
+// in taffy_bridge.rs itself. Routing access through these functions centralizes
+// all CSS property lookups for future cache optimizations (e.g., FxHash migration).
+
+macro_rules! get_css_property_value {
+    ($fn_name:ident, $cache_method:ident, $ret_type:ty) => {
+        pub fn $fn_name(
+            styled_dom: &StyledDom,
+            node_id: NodeId,
+            node_state: &StyledNodeState,
+        ) -> Option<$ret_type> {
+            let node_data = &styled_dom.node_data.as_container()[node_id];
+            styled_dom
+                .css_property_cache
+                .ptr
+                .$cache_method(node_data, &node_id, node_state)
+                .cloned()
+        }
+    };
+}
+
+// Flexbox properties
+get_css_property_value!(get_flex_direction_prop, get_flex_direction, LayoutFlexDirectionValue);
+get_css_property_value!(get_flex_wrap_prop, get_flex_wrap, LayoutFlexWrapValue);
+get_css_property_value!(get_flex_grow_prop, get_flex_grow, LayoutFlexGrowValue);
+get_css_property_value!(get_flex_shrink_prop, get_flex_shrink, LayoutFlexShrinkValue);
+get_css_property_value!(get_flex_basis_prop, get_flex_basis, LayoutFlexBasisValue);
+
+// Alignment properties
+get_css_property_value!(get_align_items_prop, get_align_items, LayoutAlignItemsValue);
+get_css_property_value!(get_align_self_prop, get_align_self, LayoutAlignSelfValue);
+get_css_property_value!(get_align_content_prop, get_align_content, LayoutAlignContentValue);
+get_css_property_value!(get_justify_content_prop, get_justify_content, LayoutJustifyContentValue);
+get_css_property_value!(get_justify_items_prop, get_justify_items, LayoutJustifyItemsValue);
+get_css_property_value!(get_justify_self_prop, get_justify_self, LayoutJustifySelfValue);
+
+// Gap
+get_css_property_value!(get_gap_prop, get_gap, LayoutGapValue);
+
+// Grid properties
+get_css_property_value!(get_grid_template_rows_prop, get_grid_template_rows, LayoutGridTemplateRowsValue);
+get_css_property_value!(get_grid_template_columns_prop, get_grid_template_columns, LayoutGridTemplateColumnsValue);
+get_css_property_value!(get_grid_auto_rows_prop, get_grid_auto_rows, LayoutGridAutoRowsValue);
+get_css_property_value!(get_grid_auto_columns_prop, get_grid_auto_columns, LayoutGridAutoColumnsValue);
+get_css_property_value!(get_grid_auto_flow_prop, get_grid_auto_flow, LayoutGridAutoFlowValue);
+get_css_property_value!(get_grid_column_prop, get_grid_column, LayoutGridColumnValue);
+get_css_property_value!(get_grid_row_prop, get_grid_row, LayoutGridRowValue);
+
+/// Get grid-template-areas property.
+/// Uses the generic `get_property()` since CssPropertyCache lacks a specific getter.
+/// Returns the inner `GridTemplateAreas` value (already unwrapped from CssPropertyValue).
+pub fn get_grid_template_areas_prop(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Option<GridTemplateAreas> {
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    styled_dom
+        .css_property_cache
+        .ptr
+        .get_property(node_data, &node_id, node_state, &CssPropertyType::GridTemplateAreas)
+        .and_then(|p| {
+            if let CssProperty::GridTemplateAreas(v) = p {
+                v.get_property().cloned()
+            } else {
+                None
+            }
+        })
 }

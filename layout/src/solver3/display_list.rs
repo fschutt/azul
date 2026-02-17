@@ -51,10 +51,13 @@ use crate::{
     solver3::{
         getters::{
             get_background_color, get_background_contents, get_border_info, get_border_radius,
-            get_break_after, get_break_before, get_caret_style, get_overflow_x, get_overflow_y,
+            get_break_after, get_break_before, get_box_shadow_left, get_box_shadow_right,
+            get_box_shadow_top, get_box_shadow_bottom, get_caret_style, get_cursor_property,
+            get_display_raw, get_filter, get_backdrop_filter, get_opacity, get_overflow_x, get_overflow_y,
             get_scrollbar_info_from_layout, get_scrollbar_style, get_selection_style,
-            get_style_border_radius, get_z_index, is_forced_page_break, BorderInfo, CaretStyle,
-            ComputedScrollbarStyle, SelectionStyle,
+            get_style_border_radius, get_text_shadow, get_transform, get_z_index,
+            is_forced_page_break, BorderInfo, CaretStyle,
+            ComputedScrollbarStyle, SelectionStyle, MultiValue,
         },
         layout_tree::{LayoutNode, LayoutTree},
         positioning::get_position_type,
@@ -1355,17 +1358,10 @@ where
         use azul_css::props::style::effects::StyleCursor;
         
         let styled_node_state = self.get_styled_node_state(node_id);
-        let node_data_container = self.ctx.styled_dom.node_data.as_container();
-        let node_data = node_data_container.get(node_id);
         
-        // Query the cursor CSS property for this text node
-        if let Some(node_data) = node_data {
-            if let Some(cursor_value) = self.ctx.styled_dom.get_css_property_cache().get_cursor(
-                node_data,
-                &node_id,
-                &styled_node_state,
-            ) {
-                if let CssPropertyValue::Exact(cursor) = cursor_value {
+        // Query the cursor CSS property via the centralized getter
+        let cursor_mv = get_cursor_property(self.ctx.styled_dom, node_id, &styled_node_state);
+        if let MultiValue::Exact(cursor) = cursor_mv {
                     return match cursor {
                         StyleCursor::Default => CursorType::Default,
                         StyleCursor::Pointer => CursorType::Pointer,
@@ -1397,8 +1393,6 @@ where
                         StyleCursor::VerticalText => CursorType::Text,
                         StyleCursor::Unset => CursorType::Text, // Default to text for text nodes
                     };
-                }
-            }
         }
         
         // Default: Text cursor (I-beam) for text nodes
@@ -1723,15 +1717,10 @@ where
         let mut pushed_backdrop_filter = false;
 
         if let Some(dom_id) = node.dom_node_id {
-            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
             // Opacity
-            let opacity = self.ctx.styled_dom.css_property_cache.ptr
-                .get_opacity(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property())
-                .map(|v| v.inner.normalized())
-                .unwrap_or(1.0);
+            let opacity = get_opacity(self.ctx.styled_dom, dom_id, &node_state);
 
             if opacity < 1.0 {
                 builder.push_item(DisplayListItem::PushOpacity {
@@ -1742,10 +1731,8 @@ where
             }
 
             // Filter
-            if let Some(filter_vec_value) = self.ctx.styled_dom.css_property_cache.ptr
-                .get_filter(node_data, &dom_id, node_state)
+            if let Some(filter_vec) = get_filter(self.ctx.styled_dom, dom_id, &node_state)
             {
-                if let Some(filter_vec) = filter_vec_value.get_property() {
                     let filters: Vec<_> = filter_vec.as_ref().to_vec();
                     if !filters.is_empty() {
                         builder.push_item(DisplayListItem::PushFilter {
@@ -1754,14 +1741,11 @@ where
                         });
                         pushed_filter = true;
                     }
-                }
             }
 
             // Backdrop filter
-            if let Some(backdrop_filter_value) = self.ctx.styled_dom.css_property_cache.ptr
-                .get_backdrop_filter(node_data, &dom_id, node_state)
+            if let Some(filter_vec) = get_backdrop_filter(self.ctx.styled_dom, dom_id, &node_state)
             {
-                if let Some(filter_vec) = backdrop_filter_value.get_property() {
                     let filters: Vec<_> = filter_vec.as_ref().to_vec();
                     if !filters.is_empty() {
                         builder.push_item(DisplayListItem::PushBackdropFilter {
@@ -1770,7 +1754,6 @@ where
                         });
                         pushed_backdrop_filter = true;
                     }
-                }
             }
         }
 
@@ -2330,17 +2313,7 @@ where
         
         if let Some(dom_id) = node.dom_node_id {
             let styled_node_state = self.get_styled_node_state(dom_id);
-            let display = self
-                .ctx
-                .styled_dom
-                .css_property_cache
-                .ptr
-                .get_display(
-                    &self.ctx.styled_dom.node_data.as_container()[dom_id],
-                    &dom_id,
-                    &styled_node_state,
-                )
-                .and_then(|v| v.get_property().cloned())
+            let display = get_display_raw(self.ctx.styled_dom, dom_id, &styled_node_state)
                 .unwrap_or(LayoutDisplay::Inline);
 
             if display == LayoutDisplay::InlineBlock || display == LayoutDisplay::Inline {
@@ -2408,29 +2381,25 @@ where
                 get_style_border_radius(self.ctx.styled_dom, dom_id, &styled_node_state);
 
             // Paint box shadows before backgrounds (CSS spec: shadows render behind the element)
-            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
             // Check all four sides for box-shadow (azul stores them per-side)
             for get_shadow_fn in [
-                azul_core::prop_cache::CssPropertyCache::get_box_shadow_left,
-                azul_core::prop_cache::CssPropertyCache::get_box_shadow_right,
-                azul_core::prop_cache::CssPropertyCache::get_box_shadow_top,
-                azul_core::prop_cache::CssPropertyCache::get_box_shadow_bottom,
+                crate::solver3::getters::get_box_shadow_left,
+                crate::solver3::getters::get_box_shadow_right,
+                crate::solver3::getters::get_box_shadow_top,
+                crate::solver3::getters::get_box_shadow_bottom,
             ] {
-                if let Some(shadow_value) = get_shadow_fn(
-                    &self.ctx.styled_dom.css_property_cache.ptr,
-                    node_data,
-                    &dom_id,
+                if let Some(shadow) = get_shadow_fn(
+                    self.ctx.styled_dom,
+                    dom_id,
                     &node_state,
                 ) {
-                    if let Some(shadow) = shadow_value.get_property() {
-                        builder.push_item(DisplayListItem::BoxShadow {
-                            bounds: paint_rect,
-                            shadow: shadow.clone(),
-                            border_radius: simple_border_radius,
-                        });
-                    }
+                    builder.push_item(DisplayListItem::BoxShadow {
+                        bounds: paint_rect,
+                        shadow: shadow.clone(),
+                        border_radius: simple_border_radius,
+                    });
                 }
             }
 
@@ -2714,17 +2683,13 @@ where
             // Check for text-shadow and wrap inline content with push/pop shadow
             let mut pushed_text_shadow = false;
             if let Some(dom_id) = node.dom_node_id {
-                let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
                 let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-                if let Some(shadow_val) = self.ctx.styled_dom.css_property_cache.ptr
-                    .get_text_shadow(node_data, &dom_id, node_state)
+                if let Some(shadow) = get_text_shadow(self.ctx.styled_dom, dom_id, &node_state)
                 {
-                    if let Some(shadow) = shadow_val.get_property() {
-                        builder.push_item(DisplayListItem::PushTextShadow {
-                            shadow: shadow.clone(),
-                        });
-                        pushed_text_shadow = true;
-                    }
+                    builder.push_item(DisplayListItem::PushTextShadow {
+                        shadow: shadow.clone(),
+                    });
+                    pushed_text_shadow = true;
                 }
             }
 
@@ -3412,33 +3377,18 @@ where
         }
 
         if let Some(styled_node) = self.ctx.styled_dom.styled_nodes.as_container().get(dom_id) {
-            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             let node_state =
                 &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
             // Opacity < 1
-            let opacity = self
-                .ctx
-                .styled_dom
-                .css_property_cache
-                .ptr
-                .get_opacity(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property())
-                .map(|v| v.inner.normalized())
-                .unwrap_or(1.0);
+            let opacity = get_opacity(self.ctx.styled_dom, dom_id, node_state);
 
             if opacity < 1.0 {
                 return true;
             }
 
             // Transform != none
-            let has_transform = self
-                .ctx
-                .styled_dom
-                .css_property_cache
-                .ptr
-                .get_transform(node_data, &dom_id, node_state)
-                .and_then(|v| v.get_property())
+            let has_transform = get_transform(self.ctx.styled_dom, dom_id, node_state)
                 .map(|v| !v.is_empty())
                 .unwrap_or(false);
 

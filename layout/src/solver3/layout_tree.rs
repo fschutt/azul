@@ -1805,16 +1805,10 @@ fn needs_table_parent_wrapper(
 // Determines the display type of a node based on its tag and CSS properties.
 pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     if let Some(_styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
-        let node_data = &styled_dom.node_data.as_container()[node_id];
         let node_state = &styled_dom.styled_nodes.as_container()[node_id].styled_node_state;
 
-        // 1. Check author CSS first
-        if let Some(d) = styled_dom
-            .css_property_cache
-            .ptr
-            .get_display(node_data, &node_id, node_state)
-            .and_then(|v| v.get_property().copied())
-        {
+        // 1. Check author CSS first (via centralized getter)
+        if let Some(d) = crate::solver3::getters::get_display_raw(styled_dom, node_id, &node_state) {
             return d;
         }
 
