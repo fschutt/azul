@@ -21,8 +21,6 @@ pub mod debug;
 pub mod callbacks;
 /// `Dom` construction, `NodeData` and `NodeType` management functions
 pub mod dom;
-/// Table layout support (anonymous box generation)
-pub mod dom_table;
 /// Unified drag context for text selection, scrollbar, node, and window drags
 pub mod drag;
 /// Icon system for loading and resolving icons from fonts, images, or zip packs
