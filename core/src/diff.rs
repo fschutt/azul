@@ -16,17 +16,293 @@ use alloc::{collections::VecDeque, vec::Vec};
 use core::hash::Hash;
 
 use crate::{
-    dom::{DomId, DomNodeHash, DomNodeId, NodeData, IdOrClass},
+    dom::{DomId, DomNodeHash, DomNodeId, NodeData, NodeType, IdOrClass},
     events::{
         ComponentEventFilter, EventData, EventFilter, EventPhase, EventSource, EventType,
         LifecycleEventData, LifecycleReason, SyntheticEvent,
     },
     geom::LogicalRect,
     id::NodeId,
-    styled_dom::{NodeHierarchyItemId, NodeHierarchyItem},
+    styled_dom::{NodeHierarchyItemId, NodeHierarchyItem, StyledNodeState},
     task::Instant,
     FastHashMap,
 };
+
+// ============================================================================
+// NodeChangeSet — granular per-node change flags
+// ============================================================================
+
+/// Bit flags describing what changed about a node between old and new DOM.
+/// Multiple flags can be set simultaneously. Uses manual bit manipulation
+/// instead of bitflags crate to avoid adding a dependency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct NodeChangeSet {
+    pub bits: u32,
+}
+
+impl NodeChangeSet {
+    // --- Changes that affect LAYOUT (need relayout + repaint) ---
+
+    /// Node type changed entirely (e.g., Text → Image).
+    pub const NODE_TYPE_CHANGED: u32    = 0b0000_0000_0000_0001;
+    /// Text content changed (for Text nodes).
+    pub const TEXT_CONTENT: u32         = 0b0000_0000_0000_0010;
+    /// CSS IDs or classes changed (may cause restyle → relayout).
+    pub const IDS_AND_CLASSES: u32      = 0b0000_0000_0000_0100;
+    /// Inline CSS properties changed that affect layout.
+    pub const INLINE_STYLE_LAYOUT: u32  = 0b0000_0000_0000_1000;
+    /// Children added, removed, or reordered.
+    pub const CHILDREN_CHANGED: u32     = 0b0000_0000_0001_0000;
+    /// Image source changed (may affect intrinsic size).
+    pub const IMAGE_CHANGED: u32        = 0b0000_0000_0010_0000;
+    /// Contenteditable flag changed.
+    pub const CONTENTEDITABLE: u32      = 0b0000_0000_0100_0000;
+    /// Tab index changed.
+    pub const TAB_INDEX: u32            = 0b0000_0000_1000_0000;
+
+    // --- Changes that affect PAINT only (no relayout needed) ---
+
+    /// Inline CSS properties changed that affect paint only.
+    pub const INLINE_STYLE_PAINT: u32   = 0b0000_0001_0000_0000;
+    /// Styled node state changed (hover, active, focus, etc.).
+    pub const STYLED_STATE: u32         = 0b0000_0010_0000_0000;
+
+    // --- Changes that affect NEITHER layout nor paint ---
+
+    /// Callbacks changed (new RefAny, different event handlers).
+    pub const CALLBACKS: u32            = 0b0000_0100_0000_0000;
+    /// Dataset changed.
+    pub const DATASET: u32              = 0b0000_1000_0000_0000;
+    /// Accessibility info changed.
+    pub const ACCESSIBILITY: u32        = 0b0001_0000_0000_0000;
+
+    // --- Composite masks ---
+
+    /// Any change that requires a layout pass.
+    pub const AFFECTS_LAYOUT: u32 = Self::NODE_TYPE_CHANGED
+        | Self::TEXT_CONTENT
+        | Self::IDS_AND_CLASSES
+        | Self::INLINE_STYLE_LAYOUT
+        | Self::CHILDREN_CHANGED
+        | Self::IMAGE_CHANGED
+        | Self::CONTENTEDITABLE;
+
+    /// Any change that requires a paint/display-list update (but not layout).
+    pub const AFFECTS_PAINT: u32 = Self::INLINE_STYLE_PAINT
+        | Self::STYLED_STATE;
+
+    pub const fn empty() -> Self {
+        Self { bits: 0 }
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.bits == 0
+    }
+
+    pub const fn contains(&self, flag: u32) -> bool {
+        (self.bits & flag) == flag
+    }
+
+    pub const fn intersects(&self, mask: u32) -> bool {
+        (self.bits & mask) != 0
+    }
+
+    pub fn insert(&mut self, flag: u32) {
+        self.bits |= flag;
+    }
+
+    /// Returns true if no visual change occurred (only callbacks/dataset/a11y).
+    pub const fn is_visually_unchanged(&self) -> bool {
+        !self.intersects(Self::AFFECTS_LAYOUT) && !self.intersects(Self::AFFECTS_PAINT)
+    }
+
+    /// Returns true if layout is needed.
+    pub const fn needs_layout(&self) -> bool {
+        self.intersects(Self::AFFECTS_LAYOUT)
+    }
+
+    /// Returns true if paint is needed (but not necessarily layout).
+    pub const fn needs_paint(&self) -> bool {
+        self.intersects(Self::AFFECTS_PAINT)
+    }
+}
+
+impl core::ops::BitOrAssign for NodeChangeSet {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.bits |= rhs.bits;
+    }
+}
+
+impl core::ops::BitOr for NodeChangeSet {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Self { bits: self.bits | rhs.bits }
+    }
+}
+
+/// Extended diff result that includes per-node change information.
+#[derive(Debug, Clone)]
+pub struct ExtendedDiffResult {
+    /// Original diff result (lifecycle events + node moves).
+    pub diff: DiffResult,
+    /// Per-node change report for matched (moved) nodes.
+    /// Each entry: (old_node_id, new_node_id, what_changed).
+    /// Only contains entries for nodes that were matched.
+    pub node_changes: Vec<(NodeId, NodeId, NodeChangeSet)>,
+}
+
+impl Default for ExtendedDiffResult {
+    fn default() -> Self {
+        Self {
+            diff: DiffResult::default(),
+            node_changes: Vec::new(),
+        }
+    }
+}
+
+/// Compare two matched `NodeData` instances field-by-field and return
+/// a `NodeChangeSet` describing what changed.
+pub fn compute_node_changes(
+    old_node: &NodeData,
+    new_node: &NodeData,
+    old_styled_state: Option<&StyledNodeState>,
+    new_styled_state: Option<&StyledNodeState>,
+) -> NodeChangeSet {
+    let mut changes = NodeChangeSet::empty();
+
+    // 1. Node type discriminant
+    if core::mem::discriminant(old_node.get_node_type())
+        != core::mem::discriminant(new_node.get_node_type())
+    {
+        changes.insert(NodeChangeSet::NODE_TYPE_CHANGED);
+        return changes; // everything else is irrelevant
+    }
+
+    // 2. Content-specific comparison (same discriminant)
+    match (old_node.get_node_type(), new_node.get_node_type()) {
+        (NodeType::Text(old_text), NodeType::Text(new_text)) => {
+            if old_text.as_str() != new_text.as_str() {
+                changes.insert(NodeChangeSet::TEXT_CONTENT);
+            }
+        }
+        (NodeType::Image(old_img), NodeType::Image(new_img)) => {
+            // Use Hash-based comparison (pointer identity for decoded images,
+            // callback identity for callback images)
+            use core::hash::Hasher;
+            use highway::{HighwayHash, HighwayHasher, Key};
+            let hash_img = |img: &crate::resources::ImageRef| -> u64 {
+                let mut h = HighwayHasher::new(Key([0; 4]));
+                img.hash(&mut h);
+                h.finalize64()
+            };
+            if hash_img(old_img) != hash_img(new_img) {
+                changes.insert(NodeChangeSet::IMAGE_CHANGED);
+            }
+        }
+        _ => {} // Same non-content type → no content change
+    }
+
+    // 3. IDs and classes
+    if old_node.ids_and_classes.as_ref() != new_node.ids_and_classes.as_ref() {
+        changes.insert(NodeChangeSet::IDS_AND_CLASSES);
+    }
+
+    // 4. Inline CSS properties — classify into layout-affecting vs paint-only
+    let old_props = old_node.css_props.as_ref();
+    let new_props = new_node.css_props.as_ref();
+    if old_props != new_props {
+        let mut has_layout = false;
+        let mut has_paint = false;
+
+        // Build a map of property type → value for old props
+        let mut old_map = FastHashMap::default();
+        for prop in old_props.iter() {
+            old_map.insert(
+                prop.property.get_type(),
+                prop,
+            );
+        }
+
+        // Check new props against old
+        let mut seen_types = FastHashMap::default();
+        for prop in new_props.iter() {
+            let prop_type = prop.property.get_type();
+            seen_types.insert(prop_type, ());
+            match old_map.get(&prop_type) {
+                Some(old_prop) if **old_prop == *prop => {} // unchanged
+                _ => {
+                    // Changed or new property — use relayout_scope for classification
+                    // Pass node_is_ifc_member=true conservatively
+                    use azul_css::props::property::RelayoutScope;
+                    let scope = prop_type.relayout_scope(true);
+                    if scope != RelayoutScope::None {
+                        has_layout = true;
+                    } else {
+                        has_paint = true;
+                    }
+                }
+            }
+        }
+
+        // Check for removed properties
+        for (prop_type, _) in old_map.iter() {
+            if !seen_types.contains_key(prop_type) {
+                use azul_css::props::property::RelayoutScope;
+                let scope = prop_type.relayout_scope(true);
+                if scope != RelayoutScope::None {
+                    has_layout = true;
+                } else {
+                    has_paint = true;
+                }
+            }
+        }
+
+        if has_layout {
+            changes.insert(NodeChangeSet::INLINE_STYLE_LAYOUT);
+        }
+        if has_paint {
+            changes.insert(NodeChangeSet::INLINE_STYLE_PAINT);
+        }
+    }
+
+    // 5. Callbacks
+    {
+        let old_cbs = old_node.callbacks.as_ref();
+        let new_cbs = new_node.callbacks.as_ref();
+        if old_cbs.len() != new_cbs.len() {
+            changes.insert(NodeChangeSet::CALLBACKS);
+        } else {
+            for (o, n) in old_cbs.iter().zip(new_cbs.iter()) {
+                if o.event != n.event || o.callback != n.callback {
+                    changes.insert(NodeChangeSet::CALLBACKS);
+                    break;
+                }
+            }
+        }
+    }
+
+    // 6. Dataset
+    if old_node.dataset != new_node.dataset {
+        changes.insert(NodeChangeSet::DATASET);
+    }
+
+    // 7. Contenteditable
+    if old_node.contenteditable != new_node.contenteditable {
+        changes.insert(NodeChangeSet::CONTENTEDITABLE);
+    }
+
+    // 8. Tab index
+    if old_node.tab_index != new_node.tab_index {
+        changes.insert(NodeChangeSet::TAB_INDEX);
+    }
+
+    // 9. Styled node state (hover, active, focused, etc.)
+    if old_styled_state != new_styled_state {
+        changes.insert(NodeChangeSet::STYLED_STATE);
+    }
+
+    changes
+}
 
 /// Represents a mapping between a node in the old DOM and the new DOM.
 #[derive(Debug, Clone, Copy)]
@@ -724,5 +1000,557 @@ pub fn get_node_text_content(node: &NodeData) -> Option<&str> {
         Some(text.as_str())
     } else {
         None
+    }
+}
+
+// ============================================================================
+// ChangeAccumulator — unifies all change input paths
+// ============================================================================
+
+use azul_css::props::property::{RelayoutScope, CssPropertyType};
+use alloc::collections::BTreeMap;
+use alloc::string::String;
+
+/// Text change info for cursor/selection reconciliation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextChange {
+    pub old_text: String,
+    pub new_text: String,
+}
+
+/// Per-node change report combining multiple information sources.
+#[derive(Debug, Clone, Default)]
+pub struct NodeChangeReport {
+    /// Bitflags from DOM-level field comparison.
+    pub change_set: NodeChangeSet,
+
+    /// Highest RelayoutScope from any CSS property that changed on this node.
+    /// This is more granular than NodeChangeSet's binary LAYOUT/PAINT split.
+    ///
+    /// - `None` → repaint only (color, opacity, transform)
+    /// - `IfcOnly` → reshape text in the containing IFC
+    /// - `SizingOnly` → recompute this node's intrinsic size
+    /// - `Full` → full subtree relayout (display, position, float, etc.)
+    pub relayout_scope: RelayoutScope,
+
+    /// Individual CSS properties that changed (for fine-grained cache invalidation).
+    /// Empty if the change was structural (text content, node type, etc.)
+    pub changed_css_properties: Vec<CssPropertyType>,
+
+    /// If text content changed, the old and new text for cursor reconciliation.
+    pub text_change: Option<TextChange>,
+}
+
+impl NodeChangeReport {
+    /// Returns the DirtyFlag level needed for this change report.
+    /// Maps RelayoutScope + NodeChangeSet → a simple tri-state.
+    pub fn needs_layout(&self) -> bool {
+        self.change_set.needs_layout() || self.relayout_scope > RelayoutScope::None
+    }
+
+    pub fn needs_paint(&self) -> bool {
+        self.change_set.needs_paint()
+    }
+
+    pub fn is_visually_unchanged(&self) -> bool {
+        self.change_set.is_visually_unchanged() && self.relayout_scope == RelayoutScope::None
+    }
+}
+
+/// Unified change report that merges information from all three change paths:
+///
+/// 1. **DOM reconciliation** (`compute_node_changes` after `reconcile_dom`)
+/// 2. **CSS restyle** (`restyle_on_state_change` for hover/focus/active)
+/// 3. **Runtime edits** (`words_changed`, `css_properties_changed`, `images_changed`)
+///
+/// This is the single source of truth for "what work needs to happen this frame".
+#[derive(Debug, Clone, Default)]
+pub struct ChangeAccumulator {
+    /// Per-node change info. Key is the new-DOM NodeId.
+    pub per_node: BTreeMap<NodeId, NodeChangeReport>,
+
+    /// Maximum RelayoutScope across all changed nodes.
+    /// Quick check: if this is `None`, we can skip layout entirely.
+    pub max_scope: RelayoutScope,
+
+    /// Nodes that are newly mounted (no old counterpart).
+    /// These always need full layout.
+    pub mounted_nodes: Vec<NodeId>,
+
+    /// Nodes that were unmounted (no new counterpart).
+    /// Used for cleanup (remove from scroll/focus/cursor managers).
+    pub unmounted_nodes: Vec<NodeId>,
+}
+
+impl ChangeAccumulator {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns true if no changes were detected at all.
+    pub fn is_empty(&self) -> bool {
+        self.per_node.is_empty() && self.mounted_nodes.is_empty() && self.unmounted_nodes.is_empty()
+    }
+
+    /// Returns true if layout work is needed (any node has scope > None).
+    pub fn needs_layout(&self) -> bool {
+        self.max_scope > RelayoutScope::None
+            || !self.mounted_nodes.is_empty()
+            || self.per_node.values().any(|r| r.needs_layout())
+    }
+
+    /// Returns true if only paint work is needed (no layout).
+    pub fn needs_paint_only(&self) -> bool {
+        !self.needs_layout() && self.per_node.values().any(|r| r.needs_paint())
+    }
+
+    /// Returns true if only non-visual changes occurred (callbacks, dataset, a11y).
+    pub fn is_visually_unchanged(&self) -> bool {
+        self.mounted_nodes.is_empty()
+            && self.unmounted_nodes.is_empty()
+            && self.max_scope == RelayoutScope::None
+            && self.per_node.values().all(|r| r.is_visually_unchanged())
+    }
+
+    /// Add a node change from DOM reconciliation (Path A).
+    pub fn add_dom_change(
+        &mut self,
+        new_node_id: NodeId,
+        change_set: NodeChangeSet,
+        relayout_scope: RelayoutScope,
+        text_change: Option<TextChange>,
+        changed_css_properties: Vec<CssPropertyType>,
+    ) {
+        if relayout_scope > self.max_scope {
+            self.max_scope = relayout_scope;
+        }
+
+        let report = self.per_node.entry(new_node_id).or_default();
+        report.change_set |= change_set;
+        if relayout_scope > report.relayout_scope {
+            report.relayout_scope = relayout_scope;
+        }
+        if text_change.is_some() {
+            report.text_change = text_change;
+        }
+        report.changed_css_properties.extend(changed_css_properties);
+    }
+
+    /// Add a text change (from runtime edit or DOM reconciliation).
+    pub fn add_text_change(
+        &mut self,
+        node_id: NodeId,
+        old_text: String,
+        new_text: String,
+    ) {
+        let scope = RelayoutScope::IfcOnly;
+        if scope > self.max_scope {
+            self.max_scope = scope;
+        }
+
+        let report = self.per_node.entry(node_id).or_default();
+        report.change_set.insert(NodeChangeSet::TEXT_CONTENT);
+        if scope > report.relayout_scope {
+            report.relayout_scope = scope;
+        }
+        report.text_change = Some(TextChange { old_text, new_text });
+    }
+
+    /// Add a CSS property change (from runtime edit or restyle).
+    pub fn add_css_change(
+        &mut self,
+        node_id: NodeId,
+        prop_type: CssPropertyType,
+        scope: RelayoutScope,
+    ) {
+        if scope > self.max_scope {
+            self.max_scope = scope;
+        }
+
+        let report = self.per_node.entry(node_id).or_default();
+        if scope > RelayoutScope::None {
+            report.change_set.insert(NodeChangeSet::INLINE_STYLE_LAYOUT);
+        } else {
+            report.change_set.insert(NodeChangeSet::INLINE_STYLE_PAINT);
+        }
+        if scope > report.relayout_scope {
+            report.relayout_scope = scope;
+        }
+        report.changed_css_properties.push(prop_type);
+    }
+
+    /// Add an image change (from runtime edit or DOM reconciliation).
+    pub fn add_image_change(
+        &mut self,
+        node_id: NodeId,
+        scope: RelayoutScope,
+    ) {
+        if scope > self.max_scope {
+            self.max_scope = scope;
+        }
+
+        let report = self.per_node.entry(node_id).or_default();
+        report.change_set.insert(NodeChangeSet::IMAGE_CHANGED);
+        if scope > report.relayout_scope {
+            report.relayout_scope = scope;
+        }
+    }
+
+    /// Add a mounted (new) node.
+    pub fn add_mount(&mut self, node_id: NodeId) {
+        self.mounted_nodes.push(node_id);
+    }
+
+    /// Add an unmounted (removed) node.
+    pub fn add_unmount(&mut self, node_id: NodeId) {
+        self.unmounted_nodes.push(node_id);
+    }
+
+    /// Populate this accumulator from an `ExtendedDiffResult` + the old/new DOM data.
+    ///
+    /// This converts per-node `NodeChangeSet` flags into full `NodeChangeReport`s
+    /// with `RelayoutScope` classification.
+    pub fn merge_extended_diff(
+        &mut self,
+        extended: &ExtendedDiffResult,
+        old_node_data: &[NodeData],
+        new_node_data: &[NodeData],
+    ) {
+        for &(old_id, new_id, ref change_set) in &extended.node_changes {
+            if change_set.is_empty() {
+                continue;
+            }
+
+            // Determine RelayoutScope from the change flags
+            let scope = self.classify_change_scope(change_set, new_node_data, new_id);
+
+            // Extract text change info if TEXT_CONTENT flag is set
+            let text_change = if change_set.contains(NodeChangeSet::TEXT_CONTENT) {
+                let old_text = get_node_text_content(&old_node_data[old_id.index()])
+                    .unwrap_or("")
+                    .to_string();
+                let new_text = get_node_text_content(&new_node_data[new_id.index()])
+                    .unwrap_or("")
+                    .to_string();
+                Some(TextChange { old_text, new_text })
+            } else {
+                None
+            };
+
+            self.add_dom_change(new_id, *change_set, scope, text_change, Vec::new());
+        }
+
+        // Track mounts: new nodes that didn't match anything in old
+        let matched_new: alloc::collections::BTreeSet<usize> = extended
+            .diff
+            .node_moves
+            .iter()
+            .map(|m| m.new_node_id.index())
+            .collect();
+
+        for idx in 0..new_node_data.len() {
+            if !matched_new.contains(&idx) {
+                self.add_mount(NodeId::new(idx));
+            }
+        }
+
+        // Track unmounts: old nodes that didn't match anything in new
+        let matched_old: alloc::collections::BTreeSet<usize> = extended
+            .diff
+            .node_moves
+            .iter()
+            .map(|m| m.old_node_id.index())
+            .collect();
+
+        for idx in 0..old_node_data.len() {
+            if !matched_old.contains(&idx) {
+                self.add_unmount(NodeId::new(idx));
+            }
+        }
+    }
+
+    /// Classify a NodeChangeSet into the appropriate RelayoutScope.
+    fn classify_change_scope(
+        &self,
+        change_set: &NodeChangeSet,
+        new_node_data: &[NodeData],
+        new_node_id: NodeId,
+    ) -> RelayoutScope {
+        // NODE_TYPE_CHANGED or CHILDREN_CHANGED → Full
+        if change_set.contains(NodeChangeSet::NODE_TYPE_CHANGED)
+            || change_set.contains(NodeChangeSet::CHILDREN_CHANGED)
+        {
+            return RelayoutScope::Full;
+        }
+
+        // IDS_AND_CLASSES → Full (conservative: class change may add layout-affecting CSS)
+        if change_set.contains(NodeChangeSet::IDS_AND_CLASSES) {
+            return RelayoutScope::Full;
+        }
+
+        // INLINE_STYLE_LAYOUT → could be IfcOnly, SizingOnly, or Full
+        // We need to check individual properties for the exact scope.
+        // For now, we use SizingOnly as a conservative default since
+        // the individual property scopes were already checked in compute_node_changes.
+        if change_set.contains(NodeChangeSet::INLINE_STYLE_LAYOUT) {
+            // Walk the inline CSS properties to find the max scope
+            let new_node = &new_node_data[new_node_id.index()];
+            let mut max_scope = RelayoutScope::None;
+            for prop in new_node.css_props.as_ref().iter() {
+                let scope = prop.property.get_type().relayout_scope(true);
+                if scope > max_scope {
+                    max_scope = scope;
+                }
+            }
+            return if max_scope == RelayoutScope::None {
+                RelayoutScope::SizingOnly // conservative fallback
+            } else {
+                max_scope
+            };
+        }
+
+        // TEXT_CONTENT → IfcOnly (reshape text, may cascade)
+        if change_set.contains(NodeChangeSet::TEXT_CONTENT) {
+            return RelayoutScope::IfcOnly;
+        }
+
+        // IMAGE_CHANGED → SizingOnly (intrinsic size may change)
+        if change_set.contains(NodeChangeSet::IMAGE_CHANGED) {
+            return RelayoutScope::SizingOnly;
+        }
+
+        // CONTENTEDITABLE → SizingOnly
+        if change_set.contains(NodeChangeSet::CONTENTEDITABLE) {
+            return RelayoutScope::SizingOnly;
+        }
+
+        // Paint-only or no-visual changes
+        if change_set.intersects(NodeChangeSet::AFFECTS_PAINT) {
+            return RelayoutScope::None;
+        }
+
+        RelayoutScope::None
+    }
+}
+
+/// Perform a full reconciliation with change detection.
+///
+/// This combines `reconcile_dom()` + `compute_node_changes()` into a single
+/// pass that produces an `ExtendedDiffResult` with per-node change flags.
+///
+/// The `ChangeAccumulator` can then be populated from the result via
+/// `accumulator.merge_extended_diff()`.
+pub fn reconcile_dom_with_changes(
+    old_node_data: &[NodeData],
+    new_node_data: &[NodeData],
+    old_styled_nodes: Option<&[StyledNodeState]>,
+    new_styled_nodes: Option<&[StyledNodeState]>,
+    old_layout: &FastHashMap<NodeId, LogicalRect>,
+    new_layout: &FastHashMap<NodeId, LogicalRect>,
+    dom_id: DomId,
+    timestamp: Instant,
+) -> ExtendedDiffResult {
+    // Step 1: Run standard reconciliation
+    let diff = reconcile_dom(
+        old_node_data,
+        new_node_data,
+        old_layout,
+        new_layout,
+        dom_id,
+        timestamp,
+    );
+
+    // Step 2: For each matched pair, compute what changed
+    let mut node_changes = Vec::new();
+    for node_move in &diff.node_moves {
+        let old_nd = &old_node_data[node_move.old_node_id.index()];
+        let new_nd = &new_node_data[node_move.new_node_id.index()];
+
+        let old_state = old_styled_nodes.and_then(|s| s.get(node_move.old_node_id.index()));
+        let new_state = new_styled_nodes.and_then(|s| s.get(node_move.new_node_id.index()));
+
+        let changes = compute_node_changes(old_nd, new_nd, old_state, new_state);
+        node_changes.push((node_move.old_node_id, node_move.new_node_id, changes));
+    }
+
+    ExtendedDiffResult { diff, node_changes }
+}
+
+// ============================================================================
+// NodeDataFingerprint — multi-field hash for fast change detection
+// ============================================================================
+
+/// Per-node hash broken into independent fields for fast change detection.
+///
+/// Instead of a single u64 hash (which loses all granularity), this stores
+/// separate hashes per field category. Comparing two fingerprints is O(1)
+/// (6 integer comparisons) and immediately tells us WHICH category changed,
+/// avoiding the more expensive `compute_node_changes()` for unchanged nodes.
+///
+/// Two-tier strategy:
+/// - **Tier 1** (this struct): O(1) per node, identifies which categories changed.
+/// - **Tier 2** (`compute_node_changes`): O(n) per changed field, does field-by-field
+///   comparison only for nodes that Tier 1 identified as changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NodeDataFingerprint {
+    /// Hash of node_type (Text content, Image ref, Div, etc.)
+    pub content_hash: u64,
+    /// Hash of styled_node_state (hover, focus, active bits)
+    pub state_hash: u64,
+    /// Hash of inline CSS properties
+    pub inline_css_hash: u64,
+    /// Hash of ids_and_classes
+    pub ids_classes_hash: u64,
+    /// Hash of callbacks (event types + function pointers)
+    pub callbacks_hash: u64,
+    /// Hash of other attributes (contenteditable, tab_index, dataset)
+    pub attrs_hash: u64,
+}
+
+impl Default for NodeDataFingerprint {
+    fn default() -> Self {
+        Self {
+            content_hash: 0,
+            state_hash: 0,
+            inline_css_hash: 0,
+            ids_classes_hash: 0,
+            callbacks_hash: 0,
+            attrs_hash: 0,
+        }
+    }
+}
+
+impl NodeDataFingerprint {
+    /// Compute a fingerprint from a node's data and styled state.
+    pub fn compute(node: &NodeData, styled_state: Option<&StyledNodeState>) -> Self {
+        use highway::{HighwayHash, HighwayHasher, Key};
+        use core::hash::Hash;
+
+        // Content hash
+        let content_hash = {
+            let mut h = HighwayHasher::new(Key([1; 4]));
+            node.get_node_type().hash(&mut h);
+            h.finalize64()
+        };
+
+        // State hash
+        let state_hash = {
+            let mut h = HighwayHasher::new(Key([2; 4]));
+            if let Some(state) = styled_state {
+                state.hash(&mut h);
+            }
+            h.finalize64()
+        };
+
+        // Inline CSS hash
+        let inline_css_hash = {
+            let mut h = HighwayHasher::new(Key([3; 4]));
+            for prop in node.css_props.as_ref().iter() {
+                prop.hash(&mut h);
+            }
+            h.finalize64()
+        };
+
+        // IDs and classes hash
+        let ids_classes_hash = {
+            let mut h = HighwayHasher::new(Key([4; 4]));
+            for id_or_class in node.ids_and_classes.as_ref().iter() {
+                id_or_class.hash(&mut h);
+            }
+            h.finalize64()
+        };
+
+        // Callbacks hash
+        let callbacks_hash = {
+            let mut h = HighwayHasher::new(Key([5; 4]));
+            for cb in node.callbacks.as_ref().iter() {
+                cb.event.hash(&mut h);
+                cb.callback.hash(&mut h);
+            }
+            h.finalize64()
+        };
+
+        // Attributes hash
+        let attrs_hash = {
+            let mut h = HighwayHasher::new(Key([6; 4]));
+            node.contenteditable.hash(&mut h);
+            node.tab_index.hash(&mut h);
+            node.dataset.hash(&mut h);
+            h.finalize64()
+        };
+
+        Self {
+            content_hash,
+            state_hash,
+            inline_css_hash,
+            ids_classes_hash,
+            callbacks_hash,
+            attrs_hash,
+        }
+    }
+
+    /// Returns a quick NodeChangeSet by comparing two fingerprints.
+    /// This is O(1) — just comparing 6 u64s.
+    ///
+    /// The result is *conservative*: if a field hash differs, we set the
+    /// broadest applicable flag. For precise classification (e.g., which
+    /// CSS properties changed and their `relayout_scope()`), the caller
+    /// should fall back to `compute_node_changes()` for changed nodes.
+    pub fn diff(&self, other: &NodeDataFingerprint) -> NodeChangeSet {
+        let mut changes = NodeChangeSet::empty();
+
+        if self.content_hash != other.content_hash {
+            // Could be TEXT_CONTENT, IMAGE_CHANGED, or NODE_TYPE_CHANGED
+            // We set both TEXT_CONTENT and IMAGE_CHANGED conservatively;
+            // compute_node_changes() will refine this.
+            changes.insert(NodeChangeSet::TEXT_CONTENT);
+            changes.insert(NodeChangeSet::IMAGE_CHANGED);
+        }
+
+        if self.state_hash != other.state_hash {
+            changes.insert(NodeChangeSet::STYLED_STATE);
+        }
+
+        if self.inline_css_hash != other.inline_css_hash {
+            // Conservative: inline CSS could affect layout or paint.
+            // compute_node_changes() checks relayout_scope() per property.
+            changes.insert(NodeChangeSet::INLINE_STYLE_LAYOUT);
+        }
+
+        if self.ids_classes_hash != other.ids_classes_hash {
+            changes.insert(NodeChangeSet::IDS_AND_CLASSES);
+        }
+
+        if self.callbacks_hash != other.callbacks_hash {
+            changes.insert(NodeChangeSet::CALLBACKS);
+        }
+
+        if self.attrs_hash != other.attrs_hash {
+            changes.insert(NodeChangeSet::TAB_INDEX);
+            changes.insert(NodeChangeSet::CONTENTEDITABLE);
+        }
+
+        changes
+    }
+
+    /// Returns true if the fingerprint is identical (no changes at all).
+    pub fn is_identical(&self, other: &NodeDataFingerprint) -> bool {
+        self == other
+    }
+
+    /// Quick check: could this change affect layout?
+    pub fn might_affect_layout(&self, other: &NodeDataFingerprint) -> bool {
+        self.content_hash != other.content_hash
+            || self.inline_css_hash != other.inline_css_hash
+            || self.ids_classes_hash != other.ids_classes_hash
+            || self.attrs_hash != other.attrs_hash
+    }
+
+    /// Quick check: could this change affect visuals at all?
+    pub fn might_affect_visuals(&self, other: &NodeDataFingerprint) -> bool {
+        self.content_hash != other.content_hash
+            || self.state_hash != other.state_hash
+            || self.inline_css_hash != other.inline_css_hash
+            || self.ids_classes_hash != other.ids_classes_hash
     }
 }

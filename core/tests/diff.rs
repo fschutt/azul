@@ -1,6 +1,12 @@
 
-use azul_core::*;
-use azul_core::dom::NodeData;
+extern crate alloc;
+
+use azul_core::FastHashMap;
+use azul_core::dom::{NodeData, DomId};
+use azul_core::id::NodeId;
+use azul_core::geom::LogicalRect;
+use azul_core::diff::{reconcile_dom, reconcile_cursor_position, transfer_states, create_migration_map, NodeMove};
+use azul_core::task::Instant;
 
 #[test]
 fn test_simple_mount() {
@@ -603,7 +609,7 @@ fn test_migration_map() {
 fn test_different_node_types() {
     // Different node types should not match by hash
     let div = NodeData::create_div();
-    let span = NodeData::create_node(crate::dom::NodeType::Span);
+    let span = NodeData::create_node(azul_core::dom::NodeType::Span);
     
     let old_data = vec![div];
     let new_data = vec![span];
@@ -709,8 +715,8 @@ fn test_shuffle_three() {
 // MERGE CALLBACK / STATE MIGRATION TESTS
 // =========================================================================
 
-use crate::refany::{RefAny, OptionRefAny};
-use crate::dom::DatasetMergeCallbackType;
+use azul_core::refany::{RefAny, OptionRefAny};
+use azul_core::dom::DatasetMergeCallbackType;
 use alloc::sync::Arc;
 use core::cell::RefCell;
 
