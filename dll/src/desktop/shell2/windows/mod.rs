@@ -846,7 +846,7 @@ impl Win32Window {
     }
 
     /// Regenerate layout (called after DOM changes)
-    pub fn regenerate_layout(&mut self) -> Result<(), String> {
+    pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout_v2::LayoutRegenerateResult, String> {
         let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
@@ -858,7 +858,7 @@ impl Win32Window {
         };
 
         // Call unified regenerate_layout from common module
-        crate::desktop::shell2::common::layout_v2::regenerate_layout(
+        let result = crate::desktop::shell2::common::layout_v2::regenerate_layout(
             layout_window,
             &self.app_data,
             &self.current_window_state,
@@ -927,7 +927,7 @@ impl Win32Window {
         self.update_ime_position_from_cursor();
         self.sync_ime_position_to_os();
 
-        Ok(())
+        Ok(result)
     }
 
     /// Update ime_position in window state from focused text cursor

@@ -32,6 +32,21 @@ use crate::{
 };
 use azul_css::LayoutDebugMessage;
 
+/// Result of `regenerate_layout()` indicating whether the DOM structure changed.
+///
+/// When the DOM is structurally unchanged (same node types, hierarchy, classes,
+/// IDs, inline styles, callback events), the expensive layout pipeline
+/// (CSS cascade, flexbox, display list) can be skipped. Only image callbacks
+/// need to be re-invoked since their content (e.g. GL textures) may have changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutRegenerateResult {
+    /// DOM structure changed — full layout was performed.
+    LayoutChanged,
+    /// DOM structure is unchanged — layout was reused from previous frame.
+    /// Image callbacks still need to be re-invoked.
+    LayoutUnchanged,
+}
+
 /// Regenerate layout after DOM changes.
 ///
 /// This function implements the complete layout regeneration workflow:
@@ -51,7 +66,9 @@ use azul_css::LayoutDebugMessage;
 ///
 /// ## Return Value
 ///
-/// Returns `Ok(())` on success, or an error message on failure.
+/// Returns `Ok(LayoutChanged)` if full layout was performed,
+/// `Ok(LayoutUnchanged)` if the DOM was structurally unchanged and layout was reused,
+/// or an error message on failure.
 pub fn regenerate_layout(
     layout_window: &mut LayoutWindow,
     app_data: &Arc<RefCell<RefAny>>,
@@ -66,7 +83,7 @@ pub fn regenerate_layout(
     icon_provider: &SharedIconProvider,
     document_id: DocumentId,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
-) -> Result<(), String> {
+) -> Result<LayoutRegenerateResult, String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");
 
     // If the async font registry is available, request commonly-used fonts
@@ -253,6 +270,76 @@ pub fn regenerate_layout(
         current_window_state,
     );
 
+    // 3.7 OPTIMIZATION: Check if the new DOM is structurally identical to the old DOM.
+    // If so, we can skip the expensive layout pipeline (CSS cascade, flexbox, display list)
+    // and reuse the layout from the previous frame. Only image callbacks need re-invocation
+    // since their content (e.g. GL textures) may have changed.
+    if let Some(old_layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
+        if azul_core::styled_dom::is_layout_equivalent(&old_layout_result.styled_dom, &styled_dom) {
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] DOM unchanged - skipping layout, will only refresh image callbacks"
+            );
+
+            // Transfer the new image callback RefAnys to the old DOM's nodes.
+            // The old layout result keeps all its positions/sizes/display list data,
+            // but the image callback data needs to be updated so that re-invocation
+            // uses the freshly-created RefAny (which may reference new app state).
+            let old_node_data = old_layout_result.styled_dom.node_data.as_ref();
+            let new_node_data = styled_dom.node_data.as_ref();
+            // Collect updates first to avoid borrow issues
+            let mut image_updates: Vec<(usize, azul_core::callbacks::CoreImageCallback)> = Vec::new();
+            for (idx, (old_nd, new_nd)) in old_node_data.iter().zip(new_node_data.iter()).enumerate() {
+                if let (
+                    azul_core::dom::NodeType::Image(ref _old_img),
+                    azul_core::dom::NodeType::Image(ref new_img),
+                ) = (&old_nd.node_type, &new_nd.node_type) {
+                    if let azul_core::resources::DecodedImage::Callback(new_cb) = new_img.get_data() {
+                        image_updates.push((idx, new_cb.clone()));
+                    }
+                }
+            }
+
+            // Now apply image callback updates to old DOM's node data
+            if !image_updates.is_empty() {
+                let old_layout_result_mut = layout_window.layout_results.get_mut(&azul_core::dom::DomId::ROOT_ID).unwrap();
+                let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
+                for (idx, new_cb) in image_updates {
+                    if let Some(old_nd) = old_node_data_mut.get_mut(idx) {
+                        old_nd.node_type = azul_core::dom::NodeType::Image(
+                            azul_core::resources::ImageRef::callback(new_cb.callback.clone(), new_cb.refany.clone())
+                        );
+                    }
+                }
+            }
+
+            // Also transfer any updated callback data (RefAny) for event callbacks
+            // so that future events use fresh app state references
+            let mut callback_updates: Vec<(usize, azul_core::callbacks::CoreCallbackDataVec)> = Vec::new();
+            {
+                let old_nd_ref = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID).unwrap().styled_dom.node_data.as_ref();
+                let new_nd_ref = styled_dom.node_data.as_ref();
+                for (idx, (_old_nd, new_nd)) in old_nd_ref.iter().zip(new_nd_ref.iter()).enumerate() {
+                    if !new_nd.callbacks.as_ref().is_empty() {
+                        callback_updates.push((idx, new_nd.callbacks.clone()));
+                    }
+                }
+            }
+            if !callback_updates.is_empty() {
+                let old_layout_result_mut = layout_window.layout_results.get_mut(&azul_core::dom::DomId::ROOT_ID).unwrap();
+                let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
+                for (idx, new_callbacks) in callback_updates {
+                    if let Some(old_nd) = old_node_data_mut.get_mut(idx) {
+                        old_nd.callbacks = new_callbacks;
+                    }
+                }
+            }
+
+            log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE (layout unchanged)");
+            return Ok(LayoutRegenerateResult::LayoutUnchanged);
+        }
+    }
+
     // 4. Perform layout with solver3
     log_debug!(
         LogCategory::Layout,
@@ -360,7 +447,7 @@ pub fn regenerate_layout(
 
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
 
-    Ok(())
+    Ok(LayoutRegenerateResult::LayoutChanged)
 }
 
 /// Apply runtime states (focus, hover, active) to the StyledDom BEFORE layout

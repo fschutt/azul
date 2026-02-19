@@ -2742,9 +2742,24 @@ impl NodeData {
             iframe.hash(&mut hasher);
         }
         
-        // For Image nodes, hash the image reference to distinguish different images
+        // For Image nodes, hash the image reference to distinguish different images.
+        // For callback images, hash the callback function pointer and RefAny type ID
+        // instead of the heap pointer, so that the same callback produces the same
+        // structural hash across frames (the heap pointer differs each frame because
+        // ImageRef::new() does Box::into_raw(Box::new(...))).
         if let NodeType::Image(ref img_ref) = self.node_type {
-            img_ref.hash(&mut hasher);
+            match img_ref.get_data() {
+                crate::resources::DecodedImage::Callback(cb) => {
+                    // Hash callback function pointer (stable across frames)
+                    cb.callback.cb.hash(&mut hasher);
+                    // Hash RefAny type ID (not instance pointer)
+                    cb.refany.get_type_id().hash(&mut hasher);
+                }
+                _ => {
+                    // Raw images / GL textures: hash normally (pointer identity)
+                    img_ref.hash(&mut hasher);
+                }
+            }
         }
         
         // Hash IDs and classes - these are structural and shouldn't change

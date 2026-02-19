@@ -2539,3 +2539,118 @@ pub fn collect_nodes_in_document_order(
     
     result
 }
+
+/// Check if two `StyledDom`s are structurally equivalent for layout purposes.
+///
+/// Returns `true` if the DOMs have the same structure, node types, classes,
+/// IDs, inline styles, and callback event registrations — meaning the
+/// layout output would be identical.
+///
+/// Image callback nodes are compared by function pointer and `RefAny` type ID
+/// rather than heap pointer, since each `layout()` call creates new `ImageRef`
+/// allocations even when the callback is the same.
+///
+/// This is used to short-circuit the expensive layout pipeline when the DOM
+/// hasn't actually changed (e.g., an animation timer fires but only the GL
+/// texture content changed, not the DOM structure).
+pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
+    use crate::dom::NodeType;
+    use crate::resources::DecodedImage;
+
+    // Quick check: node count must match
+    let old_nodes = old.node_data.as_ref();
+    let new_nodes = new.node_data.as_ref();
+    if old_nodes.len() != new_nodes.len() {
+        return false;
+    }
+
+    // Check hierarchy (parent/child/sibling structure)
+    let old_hier = old.node_hierarchy.as_ref();
+    let new_hier = new.node_hierarchy.as_ref();
+    if old_hier.len() != new_hier.len() {
+        return false;
+    }
+    if old_hier != new_hier {
+        return false;
+    }
+
+    // Per-node comparison
+    for (old_node, new_node) in old_nodes.iter().zip(new_nodes.iter()) {
+
+        // Compare node type discriminant
+        if core::mem::discriminant(&old_node.node_type)
+            != core::mem::discriminant(&new_node.node_type)
+        {
+            return false;
+        }
+
+        // Compare node type content (with special handling for image callbacks)
+        match (&old_node.node_type, &new_node.node_type) {
+            (NodeType::Image(old_img), NodeType::Image(new_img)) => {
+                match (old_img.get_data(), new_img.get_data()) {
+                    (DecodedImage::Callback(old_cb), DecodedImage::Callback(new_cb)) => {
+                        // Compare callback function pointer (stable across frames)
+                        if old_cb.callback.cb != new_cb.callback.cb {
+                            return false;
+                        }
+                        // Compare RefAny type ID (not instance pointer)
+                        if old_cb.refany.get_type_id() != new_cb.refany.get_type_id() {
+                            return false;
+                        }
+                    }
+                    _ => {
+                        // Raw images / GL textures: compare by pointer identity
+                        if old_img != new_img {
+                            return false;
+                        }
+                    }
+                }
+            }
+            _ => {
+                if old_node.node_type != new_node.node_type {
+                    return false;
+                }
+            }
+        }
+
+        // Compare IDs and classes (affects CSS selector matching)
+        if old_node.ids_and_classes.as_ref() != new_node.ids_and_classes.as_ref() {
+            return false;
+        }
+
+        // Compare inline CSS properties (direct layout input)
+        if old_node.css_props.as_ref() != new_node.css_props.as_ref() {
+            return false;
+        }
+
+        // Compare callback event types (affects hit-test tags)
+        // We compare only event types, not function pointers or data
+        let old_cbs = old_node.callbacks.as_ref();
+        let new_cbs = new_node.callbacks.as_ref();
+        if old_cbs.len() != new_cbs.len() {
+            return false;
+        }
+        for (old_cb, new_cb) in old_cbs.iter().zip(new_cbs.iter()) {
+            if old_cb.event != new_cb.event {
+                return false;
+            }
+        }
+
+        // Compare attributes (some affect layout, e.g. colspan)
+        if old_node.attributes.as_ref() != new_node.attributes.as_ref() {
+            return false;
+        }
+    }
+
+    // Compare styled node states (hover/focus/active flags affect CSS resolution)
+    let old_styled = old.styled_nodes.as_ref();
+    let new_styled = new.styled_nodes.as_ref();
+    if old_styled.len() != new_styled.len() {
+        return false;
+    }
+    if old_styled != new_styled {
+        return false;
+    }
+
+    true
+}

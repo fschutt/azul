@@ -3113,7 +3113,7 @@ impl MacOSWindow {
     /// - The window is resized
     /// - The DOM changes (via callbacks)
     /// - Layout callback changes
-    pub fn regenerate_layout(&mut self) -> Result<(), String> {
+    pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout_v2::LayoutRegenerateResult, String> {
         let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
@@ -3125,7 +3125,7 @@ impl MacOSWindow {
         };
 
         // Call unified regenerate_layout from common module
-        crate::desktop::shell2::common::layout_v2::regenerate_layout(
+        let result = crate::desktop::shell2::common::layout_v2::regenerate_layout(
             layout_window,
             &self.app_data,
             &self.current_window_state,
@@ -3164,7 +3164,7 @@ impl MacOSWindow {
         self.update_ime_position_from_cursor();
         self.sync_ime_position_to_os();
 
-        Ok(())
+        Ok(result)
     }
 
     /// Update ime_position in window state from focused text cursor
@@ -4799,23 +4799,29 @@ impl MacOSWindow {
 
         // CRITICAL: Regenerate layout FIRST if needed
         // Layout must be current before building display lists
-        if self.frame_needs_regeneration {
+        let layout_unchanged = if self.frame_needs_regeneration {
             log_trace!(
                 LogCategory::Layout,
                 "[build_atomic_txn] Regenerating layout"
             );
-            if let Err(e) = self.regenerate_layout() {
-                log_error!(
-                    LogCategory::Layout,
-                    "[build_atomic_txn] Layout failed: {}",
-                    e
-                );
-                return Err(WindowError::PlatformError(
-                    format!("Layout failed: {}", e).into(),
-                ));
-            }
+            let result = match self.regenerate_layout() {
+                Ok(r) => r,
+                Err(e) => {
+                    log_error!(
+                        LogCategory::Layout,
+                        "[build_atomic_txn] Layout failed: {}",
+                        e
+                    );
+                    return Err(WindowError::PlatformError(
+                        format!("Layout failed: {}", e).into(),
+                    ));
+                }
+            };
             self.frame_needs_regeneration = false;
-        }
+            result == crate::desktop::shell2::common::layout_v2::LayoutRegenerateResult::LayoutUnchanged
+        } else {
+            false
+        };
 
         // Get layout_window
         let layout_window = self
@@ -4847,17 +4853,32 @@ impl MacOSWindow {
             "[build_atomic_txn] Building transaction"
         );
 
-        // Build everything into this transaction using helper functions
-        crate::desktop::wr_translate2::build_webrender_transaction(
-            &mut txn,
-            layout_window,
-            &mut self.render_api,
-            &self.image_cache,
-            &self.gl_context_ptr,
-        )
-        .map_err(|e| {
-            WindowError::PlatformError(format!("Failed to build transaction: {}", e).into())
-        })?;
+        // Build transaction: full rebuild if layout changed, lightweight if unchanged
+        if layout_unchanged {
+            // DOM structure didn't change — only re-invoke image callbacks
+            // (skip font/image resources, display list translation, root pipeline setup)
+            crate::desktop::wr_translate2::build_image_only_transaction(
+                &mut txn,
+                layout_window,
+                &mut self.render_api,
+                &self.gl_context_ptr,
+            )
+            .map_err(|e| {
+                WindowError::PlatformError(format!("Failed to build image-only transaction: {}", e).into())
+            })?;
+        } else {
+            // Full rebuild: fonts, images, display lists, everything
+            crate::desktop::wr_translate2::build_webrender_transaction(
+                &mut txn,
+                layout_window,
+                &mut self.render_api,
+                &self.image_cache,
+                &self.gl_context_ptr,
+            )
+            .map_err(|e| {
+                WindowError::PlatformError(format!("Failed to build transaction: {}", e).into())
+            })?;
+        }
 
         log_trace!(LogCategory::Rendering, "[build_atomic_txn] COMPLETE");
 
