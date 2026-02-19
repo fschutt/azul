@@ -95,6 +95,7 @@ fn test_body_margin_15vh_auto() {
         font_loader,
         page_config,
         azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        false,
     )
     .expect("Layout should succeed");
 

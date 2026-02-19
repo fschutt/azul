@@ -103,6 +103,7 @@ where
         font_loader,
         page_config,
         get_system_time_fn,
+        false,
     )
 }
 
@@ -132,6 +133,7 @@ pub fn layout_document_paged_with_config<T, F>(
     font_loader: F,
     page_config: FakePageConfig,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    print_timing: bool,
 ) -> Result<Vec<DisplayList>>
 where
     T: ParsedFontTrait + Sync + 'static,
@@ -192,6 +194,7 @@ where
             selections,
             debug_messages,
             get_system_time_fn,
+            print_timing,
         )?;
 
         // Generate display list from cached tree/positions
@@ -244,6 +247,7 @@ where
         selections,
         debug_messages,
         get_system_time_fn,
+        print_timing,
     )?;
     let compute_ms = t_compute.elapsed().as_secs_f64() * 1000.0;
 
@@ -355,8 +359,10 @@ where
     let paginate_ms = t_paginate.elapsed().as_secs_f64() * 1000.0;
 
     let total_layout_ms = t_layout_start.elapsed().as_secs_f64() * 1000.0;
-    eprintln!("  [layout_document_paged] compute_layout={:.1}ms display_list={:.1}ms paginate={:.1}ms total={:.1}ms pages={}",
-        compute_ms, displist_ms, paginate_ms, total_layout_ms, pages.len());
+    if print_timing {
+        eprintln!("  [layout_document_paged] compute_layout={:.1}ms display_list={:.1}ms paginate={:.1}ms total={:.1}ms pages={}",
+            compute_ms, displist_ms, paginate_ms, total_layout_ms, pages.len());
+    }
 
 
     if let Some(msgs) = ctx.debug_messages {
@@ -387,6 +393,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     selections: &BTreeMap<DomId, SelectionState>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
+    print_timing: bool,
 ) -> Result<FragmentationLayoutResult> {
     use crate::solver3::{
         cache, getters::get_writing_mode,
@@ -590,9 +597,11 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     )?;
     let position_ms = t_position.elapsed().as_secs_f64() * 1000.0;
 
-    eprintln!("  [compute_layout] tree_build={:.1}ms layout_loop={:.1}ms positioning={:.1}ms dom_nodes={} layout_nodes={}",
-        tree_build_ms, layout_loop_ms, position_ms,
-        new_dom.node_data.as_container().len(), new_tree.nodes.len());
+    if print_timing {
+        eprintln!("  [compute_layout] tree_build={:.1}ms layout_loop={:.1}ms positioning={:.1}ms dom_nodes={} layout_nodes={}",
+            tree_build_ms, layout_loop_ms, position_ms,
+            new_dom.node_data.as_container().len(), new_tree.nodes.len());
+    }
 
 
     // --- Step 3.75: Compute Stable Scroll IDs ---

@@ -106,6 +106,7 @@ fn test_flex_column_child_text_has_nonzero_width() {
         font_loader,
         page_config,
         azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        false,
     )
     .expect("Layout should succeed");
 
@@ -220,6 +221,7 @@ fn test_flex_row_text_child_has_intrinsic_width() {
         font_loader,
         page_config,
         azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        false,
     )
     .expect("Layout should succeed");
 
