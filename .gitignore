@@ -2,7 +2,7 @@ GEMINI_API_KEY.txt
 target/
 reftest_output/
 output/
-api/
+/api/
 vendor/
 **/*.rs.bk
 *.pdf
@@ -24,7 +24,7 @@ output.log
 *.o
 test_cpurender_output.png
 *.exe
-api/c/main/
+/api/c/main/
 .DS_Store
 .xcodeproject
 LICENSE-WINDOWS.json
@@ -36,4 +36,5 @@ LICENSE-MAC.txt
 Cargo.lock
 *.lock
 commits.txt
-out-italic.txtscripts/gemini_perf_prompt*.md
+out-italic.txt
+scripts/gemini_perf_prompt*.md
