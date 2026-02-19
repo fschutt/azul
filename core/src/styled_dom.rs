@@ -929,8 +929,7 @@ impl StyledDom {
         let compact_ms = t_compact.elapsed().as_secs_f64() * 1000.0;
 
         let total_ms = t0.elapsed().as_secs_f64() * 1000.0;
-        eprintln!("  [StyledDom::create] nodes={} restyle={:.1}ms ua_css={:.1}ms inherit={:.1}ms resolved_cache={:.1}ms compact_cache={:.1}ms total={:.1}ms",
-            compact_dom.len(), restyle_ms, ua_ms, inherit_ms, resolved_ms, compact_ms, total_ms);
+        let _ = (compact_dom.len(), restyle_ms, ua_ms, inherit_ms, resolved_ms, compact_ms, total_ms);
 
         // Pre-filter all EventFilter::Window and EventFilter::Not nodes
         // since we need them in the CallbacksOfHitTest::new function
@@ -1013,11 +1012,8 @@ impl StyledDom {
         // This must happen after CSS cascade but before layout
         // Anonymous nodes are marked with is_anonymous=true and are skipped by CallbackInfo
         #[cfg(feature = "table_layout")]
-        if let Err(e) = crate::dom_table::generate_anonymous_table_elements(&mut styled_dom) {
-            eprintln!(
-                "Warning: Failed to generate anonymous table elements: {:?}",
-                e
-            );
+        if let Err(_e) = crate::dom_table::generate_anonymous_table_elements(&mut styled_dom) {
+            // Warning: Failed to generate anonymous table elements
         }
 
         styled_dom
