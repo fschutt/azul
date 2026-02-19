@@ -203,7 +203,7 @@ impl FluentLocaleBundle {
     fn format(&self, message_id: &str, args: &FmtArgVec) -> Option<String> {
         let msg = self.bundle.get_message(message_id)?;
         let pattern = msg.value()?;
-        
+
         let mut errors = vec![];
         let fluent_args = if args.is_empty() {
             None
@@ -263,7 +263,7 @@ impl FluentLocaleBundle {
             }
             Some(fa)
         };
-        
+
         let result = self.bundle.format_pattern(pattern, fluent_args.as_ref(), &mut errors);
         Some(result.to_string())
     }
@@ -451,7 +451,7 @@ impl FluentLocalizerHandle {
             };
 
             let name = file.name().to_string();
-            
+
             // Skip directories and non-.fluent files
             if file.is_dir() || !name.ends_with(".fluent") {
                 continue;
@@ -531,7 +531,7 @@ impl FluentLocalizerHandle {
     /// * `locale_override` - If Some, use this locale. If None, detect from filename.
     pub fn load_from_path(&self, path: &str, locale_override: Option<&str>) -> FluentZipLoadResult {
         let path_obj = std::path::Path::new(path);
-        
+
         // Read file contents
         let data = match std::fs::read(path) {
             Ok(d) => d,
@@ -552,7 +552,7 @@ impl FluentLocalizerHandle {
 
         // Handle based on file extension
         let extension = path_obj.extension().and_then(|s| s.to_str()).unwrap_or("");
-        
+
         match extension {
             "zip" => self.load_from_zip_with_locale(&data, locale.as_deref()),
             "fluent" | "ftl" => {
@@ -564,7 +564,7 @@ impl FluentLocalizerHandle {
                         errors: StringVec::from_vec(vec![AzString::from(format!("Could not determine locale from filename: {}", path))]),
                     },
                 };
-                
+
                 match std::str::from_utf8(&data) {
                     Ok(content) => {
                         if self.add_resource(&locale, content) {
@@ -613,7 +613,7 @@ impl FluentLocalizerHandle {
     ) -> AzString {
         let locale = locale.as_str();
         let message_id = message_id.as_str();
-        
+
         // Try the requested locale first
         if let Some(result) = self.try_translate(locale, message_id, &args) {
             return result;
@@ -634,7 +634,7 @@ impl FluentLocalizerHandle {
         let default_locale = self.ptr.default_locale.lock()
             .map(|g| g.clone())
             .unwrap_or_else(|_| "en-US".to_string());
-        
+
         if locale != default_locale {
             if let Some(result) = self.try_translate(&default_locale, message_id, &args) {
                 return result;
@@ -737,7 +737,7 @@ pub fn check_fluent_syntax_bytes(data: &[u8]) -> FluentSyntaxCheckResult {
 fn get_error_position(source: &str, offset: usize) -> (u32, u32) {
     let mut line = 1u32;
     let mut column = 1u32;
-    
+
     for (i, ch) in source.char_indices() {
         if i >= offset {
             break;
@@ -749,7 +749,7 @@ fn get_error_position(source: &str, offset: usize) -> (u32, u32) {
             column += 1;
         }
     }
-    
+
     (line, column)
 }
 
@@ -785,7 +785,7 @@ pub fn create_fluent_zip_from_strings(files: Vec<(String, String)>) -> Result<Ve
 pub fn export_to_zip(localizer: &FluentLocalizerHandle) -> Result<Vec<u8>, String> {
     let bundles = localizer.ptr.bundles.lock()
         .map_err(|e| format!("Lock error: {:?}", e))?;
-    
+
     let entries: Vec<ZipFileEntry> = bundles.iter().flat_map(|(locale, bundle)| {
         bundle.sources.iter().enumerate().map(|(i, source)| {
             let path = if bundle.sources.len() == 1 {
@@ -796,7 +796,7 @@ pub fn export_to_zip(localizer: &FluentLocalizerHandle) -> Result<Vec<u8>, Strin
             ZipFileEntry::file(path, source.clone().into_bytes())
         }).collect::<Vec<_>>()
     }).collect();
-    
+
     create_fluent_zip(entries)
 }
 
@@ -813,10 +813,10 @@ pub fn export_to_zip(localizer: &FluentLocalizerHandle) -> Result<Vec<u8>, Strin
 /// - "locales/en-US/main.fluent" -> "en-US"
 fn extract_locale_from_path(path: &str) -> Option<String> {
     let path = path.trim_start_matches('/');
-    
+
     // Try to extract from directory structure first
     let parts: Vec<&str> = path.split('/').collect();
-    
+
     if parts.len() >= 2 {
         // Check if second-to-last part looks like a locale (directory name)
         let potential_locale = parts[parts.len() - 2];
@@ -824,7 +824,7 @@ fn extract_locale_from_path(path: &str) -> Option<String> {
             return Some(potential_locale.to_string());
         }
     }
-    
+
     // Try extracting from filename (strip .fluent suffix first)
     if let Some(filename) = parts.last() {
         let name = filename.trim_end_matches(".fluent");
@@ -832,7 +832,7 @@ fn extract_locale_from_path(path: &str) -> Option<String> {
             return Some(name.to_string());
         }
     }
-    
+
     // Check if first part (after stripping suffix) looks like a locale
     if parts.len() == 1 {
         let name = parts[0].trim_end_matches(".fluent");
@@ -840,7 +840,7 @@ fn extract_locale_from_path(path: &str) -> Option<String> {
             return Some(name.to_string());
         }
     }
-    
+
     None
 }
 
@@ -852,7 +852,7 @@ fn looks_like_locale(s: &str) -> bool {
     if parts.is_empty() {
         return false;
     }
-    
+
     let first = parts[0];
     if first.len() < 2 || first.len() > 3 {
         return false;
@@ -860,7 +860,7 @@ fn looks_like_locale(s: &str) -> bool {
     if !first.chars().all(|c| c.is_ascii_alphabetic()) {
         return false;
     }
-    
+
     true
 }
 
@@ -881,18 +881,18 @@ mod tests {
     #[test]
     fn test_basic_translation() {
         let localizer = FluentLocalizerHandle::create("en-US");
-        
+
         let ftl = r#"
 hello = Hello, world!
 greeting = Hello, { $name }!
 "#;
-        
+
         assert!(localizer.add_resource("en-US", ftl));
-        
+
         let empty_args = FmtArgVec::new();
         let result = localizer.translate("en-US", "hello", &empty_args);
         assert_eq!(result.as_str(), "Hello, world!");
-        
+
         let args = FmtArgVec::from_vec(vec![FmtArg {
             key: AzString::from("name"),
             value: FmtValue::Str(AzString::from("Alice")),
@@ -906,7 +906,7 @@ greeting = Hello, { $name }!
         // Valid FTL
         let valid = "hello = Hello, world!";
         assert!(matches!(check_fluent_syntax(valid), FluentSyntaxCheckResult::Ok));
-        
+
         // Invalid FTL (missing value)
         let invalid = "hello = ";
         let result = check_fluent_syntax(invalid);

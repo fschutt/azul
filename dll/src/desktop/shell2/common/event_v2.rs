@@ -367,12 +367,12 @@ fn apply_focus_restyle(
     new_focus: Option<NodeId>,
 ) -> ProcessEventResult {
     use azul_core::styled_dom::FocusChange;
-    
+
     // Get the first (primary) layout result
     let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() else {
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     };
-    
+
     // Apply restyle for focus change
     let restyle_result = layout_result.styled_dom.restyle_on_state_change(
         Some(FocusChange {
@@ -382,7 +382,7 @@ fn apply_focus_restyle(
         None, // hover
         None, // active
     );
-    
+
     log_debug!(
         super::debug_server::LogCategory::Input,
         "[Event V2] Focus restyle: needs_layout={}, needs_display_list={}, changed_nodes={}",
@@ -390,7 +390,7 @@ fn apply_focus_restyle(
         restyle_result.needs_display_list,
         restyle_result.changed_nodes.len()
     );
-    
+
     // Determine ProcessEventResult based on what changed
     if restyle_result.needs_layout {
         ProcessEventResult::ShouldRegenerateDomCurrentWindow
@@ -662,7 +662,7 @@ pub trait PlatformWindowV2 {
 
     /// Remove threads from the thread pool.
     ///
-    /// ## Parameters  
+    /// ## Parameters
     /// * `thread_ids` - Thread IDs to remove
     fn remove_threads(
         &mut self,
@@ -1297,7 +1297,7 @@ pub trait PlatformWindowV2 {
     /// Recursively processes events with depth limiting (max 5 levels) to prevent
     /// infinite loops from callbacks that regenerate the DOM.
     fn process_window_events_recursive_v2(&mut self, depth: usize) -> ProcessEventResult {
-        
+
         if depth >= MAX_EVENT_RECURSION_DEPTH {
             log_warn!(
                 super::debug_server::LogCategory::EventLoop,
@@ -2291,13 +2291,13 @@ pub trait PlatformWindowV2 {
             let has_mouse_down = synthetic_events.iter().any(|e| {
                 matches!(e.event_type, azul_core::events::EventType::MouseDown)
             });
-            
+
             if has_mouse_down {
                 // Get the hit test data to find which node was clicked
                 if let Some(ref hit_test) = hit_test_for_dispatch {
                     // Find the deepest focusable node in the hit chain
                     let mut clicked_focusable_node: Option<azul_core::dom::DomNodeId> = None;
-                    
+
                     for (dom_id, hit_test_data) in &hit_test.hovered_nodes {
                         // Find deepest hit node first
                         let deepest = hit_test_data.regular_hit_test_nodes
@@ -2307,13 +2307,13 @@ pub trait PlatformWindowV2 {
                                 // But we actually want the topmost (frontmost) which is depth 0
                                 std::cmp::Reverse(hit_item.hit_depth)
                             });
-                        
+
                         if let Some((node_id, _)) = deepest {
                             if let Some(layout_window) = self.get_layout_window() {
                                 if let Some(layout_result) = layout_window.layout_results.get(dom_id) {
                                     let node_data = layout_result.styled_dom.node_data.as_container();
                                     let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
-                                    
+
                                     // Walk from clicked node to root, find first focusable
                                     let mut current = Some(*node_id);
                                     while let Some(nid) = current {
@@ -2332,18 +2332,18 @@ pub trait PlatformWindowV2 {
                             }
                         }
                     }
-                    
+
                     // If we found a focusable node, set focus to it
                     if let Some(new_focus) = clicked_focusable_node {
                         let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
                         let new_focus_node_id = new_focus.node.into_crate_internal();
-                        
+
                         // Only change focus if clicking on a different node
                         if old_focus_node_id != new_focus_node_id {
                             if let Some(layout_window) = self.get_layout_window_mut() {
                                 layout_window.focus_manager.set_focused_node(Some(new_focus));
                                 mouse_click_focus_changed = true;
-                                
+
                                 // SCROLL INTO VIEW: Scroll newly focused node into visible area
                                 use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
                                 let now = azul_core::task::Instant::now();
@@ -2352,7 +2352,7 @@ pub trait PlatformWindowV2 {
                                     ScrollIntoViewOptions::nearest(),
                                     now,
                                 );
-                                
+
                                 // RESTYLE: Update StyledNodeState and compute CSS changes
                                 let restyle_result = apply_focus_restyle(
                                     layout_window,
@@ -2361,7 +2361,7 @@ pub trait PlatformWindowV2 {
                                 );
                                 result = result.max(restyle_result);
                             }
-                            
+
                             log_debug!(
                                 super::debug_server::LogCategory::Input,
                                 "[Event V2] Click-to-focus: {:?} -> {:?}",
@@ -2379,7 +2379,7 @@ pub trait PlatformWindowV2 {
         // This implements W3C focus navigation and element activation behavior
         let mut default_action_focus_changed = false;
         let mut synthetic_click_target: Option<azul_core::dom::DomNodeId> = None;
-        
+
         if !prevent_default {
             // Check if we have a keyboard event (KeyDown specifically)
             let has_key_event = pre_filter.user_events.iter().any(|e| {
@@ -2415,7 +2415,7 @@ pub trait PlatformWindowV2 {
                             DefaultAction::FocusFirst | DefaultAction::FocusLast => {
                                 // Convert DefaultAction to FocusTarget
                                 let focus_target = azul_layout::default_actions::default_action_to_focus_target(&default_action_result.action);
-                                
+
                                 if let Some(focus_target) = focus_target {
                                     // Resolve the focus target to an actual node
                                     let resolve_result = resolve_focus_target(
@@ -2423,17 +2423,17 @@ pub trait PlatformWindowV2 {
                                         layout_results,
                                         focused_node,
                                     );
-                                    
+
                                     if let Ok(new_focus_node) = resolve_result {
                                         // Get the old focus node ID for restyle
                                         let old_focus_node_id = focused_node.and_then(|f| f.node.into_crate_internal());
                                         let new_focus_node_id = new_focus_node.and_then(|f| f.node.into_crate_internal());
-                                        
+
                                         // Update focus manager and get timer action
                                         let timer_action = if let Some(layout_window) = self.get_layout_window_mut() {
                                             layout_window.focus_manager.set_focused_node(new_focus_node);
                                             default_action_focus_changed = true;
-                                            
+
                                             // SCROLL INTO VIEW: Scroll newly focused node into visible area
                                             if let Some(focus_node) = new_focus_node {
                                                 use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
@@ -2444,14 +2444,14 @@ pub trait PlatformWindowV2 {
                                                     now,
                                                 );
                                             }
-                                            
+
                                             // CURSOR BLINK TIMER: Start/stop timer based on contenteditable focus
                                             let window_state = layout_window.current_window_state.clone();
                                             let timer_action = layout_window.handle_focus_change_for_cursor_blink(
                                                 new_focus_node,
                                                 &window_state,
                                             );
-                                            
+
                                             // RESTYLE: Update StyledNodeState and compute CSS changes
                                             if old_focus_node_id != new_focus_node_id {
                                                 let restyle_result = apply_focus_restyle(
@@ -2463,12 +2463,12 @@ pub trait PlatformWindowV2 {
                                             } else {
                                                 result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
                                             }
-                                            
+
                                             Some(timer_action)
                                         } else {
                                             None
                                         };
-                                        
+
                                         // Apply timer action outside the layout_window borrow
                                         if let Some(timer_action) = timer_action {
                                             match timer_action {
@@ -2496,18 +2496,18 @@ pub trait PlatformWindowV2 {
                                 // Clear focus (Escape key)
                                 // Get old focus before clearing
                                 let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
-                                
+
                                 let timer_action = if let Some(layout_window) = self.get_layout_window_mut() {
                                     layout_window.focus_manager.set_focused_node(None);
                                     default_action_focus_changed = true;
-                                    
+
                                     // CURSOR BLINK TIMER: Stop timer when focus is cleared
                                     let window_state = layout_window.current_window_state.clone();
                                     let timer_action = layout_window.handle_focus_change_for_cursor_blink(
                                         None,
                                         &window_state,
                                     );
-                                    
+
                                     // RESTYLE: Update StyledNodeState when focus is cleared
                                     if old_focus_node_id.is_some() {
                                         let restyle_result = apply_focus_restyle(
@@ -2519,12 +2519,12 @@ pub trait PlatformWindowV2 {
                                     } else {
                                         result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
                                     }
-                                    
+
                                     Some(timer_action)
                                 } else {
                                     None
                                 };
-                                
+
                                 // Apply timer action outside the layout_window borrow
                                 if let Some(timer_action) = timer_action {
                                     match timer_action {
@@ -2564,7 +2564,7 @@ pub trait PlatformWindowV2 {
                             }
 
                             DefaultAction::None => {}
-                            
+
                             // Additional default actions not yet implemented
                             DefaultAction::SubmitForm { .. } |
                             DefaultAction::CloseModal { .. } |
@@ -2628,25 +2628,25 @@ pub trait PlatformWindowV2 {
             depth,
             old_focus
         );
-        
+
         if (focus_changed || default_action_focus_changed || mouse_click_focus_changed) && depth + 1 < MAX_EVENT_RECURSION_DEPTH {
             // Get the new focus BEFORE clearing selections
             let new_focus = self
                 .get_layout_window()
                 .and_then(|lw| lw.focus_manager.get_focused_node().copied());
-            
+
             log_debug!(
                 super::debug_server::LogCategory::Input,
                 "[Event V2] Focus changed! old_focus={:?}, new_focus={:?}",
                 old_focus,
                 new_focus
             );
-            
+
             // Clear selections when focus changes (standard UI behavior)
             if let Some(layout_window) = self.get_layout_window_mut() {
                 layout_window.selection_manager.clear_all();
             }
-            
+
             // DISPATCH FOCUS CALLBACKS: FocusLost on old node, FocusReceived on new node
             // Create synthetic focus events and dispatch through propagation
             {
@@ -2730,7 +2730,7 @@ pub trait PlatformWindowV2 {
         // to compute the new window position via modify_window_state().
 
         // W3C "flag and defer" pattern: Finalize pending focus changes after all events processed
-        // 
+        //
         // This is called at the end of event processing to initialize the cursor for
         // contenteditable elements. The cursor wasn't initialized during focus event handling
         // because text layout may not have been available. Now that all events have been
@@ -2749,7 +2749,7 @@ pub trait PlatformWindowV2 {
                         "[Event V2] Cursor initialized via finalize_pending_focus_changes"
                     );
                     result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-                    
+
                     // Check if blink timer is not already active
                     if !layout_window.cursor_manager.is_blink_timer_active() {
                         layout_window.cursor_manager.set_blink_timer_active(true);
@@ -2766,7 +2766,7 @@ pub trait PlatformWindowV2 {
         } else {
             false
         };
-        
+
         // Create and start the blink timer outside of the mutable layout_window borrow
         if timer_creation_needed {
             // Now we can safely get both window_state and layout_window
@@ -2776,7 +2776,7 @@ pub trait PlatformWindowV2 {
             } else {
                 None
             };
-            
+
             if let Some(timer) = timer {
                 self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
                 log_debug!(
@@ -2821,7 +2821,7 @@ pub trait PlatformWindowV2 {
                 let old_state = self.get_current_window_state().clone();
                 self.set_previous_window_state(old_state);
             }
-            
+
             // Check if keyboard_state changed (for synthetic keyboard events)
             let old_keyboard_state = self.get_current_window_state().keyboard_state.clone();
             if old_keyboard_state != modified_state.keyboard_state {
@@ -2874,7 +2874,7 @@ pub trait PlatformWindowV2 {
             let nested_result = self.process_window_events_recursive_v2(0);
             event_result = event_result.max(nested_result);
         }
-        
+
         // If keyboard_state changed, trigger event processing to invoke callbacks
         // This enables synthetic keyboard events from debug API (Tab, Enter, etc.)
         if keyboard_state_changed && !mouse_state_changed {
@@ -2923,7 +2923,7 @@ pub trait PlatformWindowV2 {
                     layout_window
                         .focus_manager
                         .set_focused_node(Some(new_focus));
-                    
+
                     // SCROLL INTO VIEW: Scroll newly focused node into visible area
                     use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
                     let now = azul_core::task::Instant::now();
@@ -2932,14 +2932,14 @@ pub trait PlatformWindowV2 {
                         ScrollIntoViewOptions::nearest(),
                         now,
                     );
-                    
+
                     // CURSOR BLINK TIMER: Start/stop timer based on contenteditable focus
                     let window_state = layout_window.current_window_state.clone();
                     let timer_action = layout_window.handle_focus_change_for_cursor_blink(
                         Some(new_focus),
                         &window_state,
                     );
-                    
+
                     match timer_action {
                         azul_layout::CursorBlinkTimerAction::Start(timer) => {
                             self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
@@ -2956,14 +2956,14 @@ pub trait PlatformWindowV2 {
                 // Clear focus in the FocusManager (in LayoutWindow)
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     layout_window.focus_manager.set_focused_node(None);
-                    
+
                     // CURSOR BLINK TIMER: Stop timer when focus is cleared
                     let window_state = layout_window.current_window_state.clone();
                     let timer_action = layout_window.handle_focus_change_for_cursor_blink(
                         None,
                         &window_state,
                     );
-                    
+
                     match timer_action {
                         azul_layout::CursorBlinkTimerAction::Start(_timer) => {
                             // Shouldn't happen when clearing focus, but handle it
@@ -3191,9 +3191,9 @@ pub trait PlatformWindowV2 {
         // 5. We trigger recursive event processing to invoke user callbacks
         if !result.text_input_triggered.is_empty() {
             use crate::desktop::shell2::common::debug_server::{log, LogLevel, LogCategory};
-            log(LogLevel::Debug, LogCategory::EventLoop, 
+            log(LogLevel::Debug, LogCategory::EventLoop,
                 format!("[process_callback_result_v2] Processing {} text_input_triggered events", result.text_input_triggered.len()), None);
-            
+
             // Build synthetic events for text input callbacks
             let now = {
                 #[cfg(feature = "std")]
@@ -3205,9 +3205,9 @@ pub trait PlatformWindowV2 {
             // Convert text_input_triggered to SyntheticEvents for dispatch
             let mut text_events = Vec::new();
             for (dom_node_id, _event_filters) in &result.text_input_triggered {
-                log(LogLevel::Debug, LogCategory::EventLoop, 
+                log(LogLevel::Debug, LogCategory::EventLoop,
                     format!("[process_callback_result_v2] Node {:?} triggered text input", dom_node_id), None);
-                
+
                 text_events.push(azul_core::events::SyntheticEvent::new(
                     azul_core::events::EventType::Input,
                     azul_core::events::EventSource::User,
@@ -3221,7 +3221,7 @@ pub trait PlatformWindowV2 {
                 let (text_results, text_prevented) = self.dispatch_events_propagated(&text_events);
                 for callback_result in &text_results {
                     if callback_result.prevent_default {
-                        log(LogLevel::Debug, LogCategory::EventLoop, 
+                        log(LogLevel::Debug, LogCategory::EventLoop,
                             "[process_callback_result_v2] preventDefault called - text input will be rejected".to_string(), None);
                     }
                     if matches!(callback_result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
@@ -3229,16 +3229,16 @@ pub trait PlatformWindowV2 {
                     }
                 }
             }
-            
+
             // After processing callbacks, apply the text changeset if not rejected
             // This updates the visual cache
             if let Some(layout_window) = self.get_layout_window_mut() {
                 let dirty_nodes = layout_window.apply_text_changeset();
                 if !dirty_nodes.is_empty() {
-                    log(LogLevel::Debug, LogCategory::EventLoop, 
+                    log(LogLevel::Debug, LogCategory::EventLoop,
                         format!("[process_callback_result_v2] Applied text changeset, {} dirty nodes", dirty_nodes.len()), None);
                     event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-                    
+
                     // CRITICAL FIX: Scroll cursor into view after text edit
                     // Without this, typing at the end of a long text doesn't scroll
                     // the view to keep the cursor visible.
@@ -3247,11 +3247,11 @@ pub trait PlatformWindowV2 {
                         azul_layout::window::ScrollMode::Instant,
                     );
                 } else {
-                    log(LogLevel::Debug, LogCategory::EventLoop, 
+                    log(LogLevel::Debug, LogCategory::EventLoop,
                         "[process_callback_result_v2] apply_text_changeset returned 0 dirty nodes".to_string(), None);
                 }
             } else {
-                log(LogLevel::Debug, LogCategory::EventLoop, 
+                log(LogLevel::Debug, LogCategory::EventLoop,
                     "[process_callback_result_v2] No layout_window available for apply_text_changeset".to_string(), None);
             }
         }

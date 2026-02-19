@@ -185,29 +185,29 @@ pub extern "C" fn cursor_blink_timer_callback(
 ) -> azul_core::callbacks::TimerCallbackReturn {
     use azul_core::callbacks::{TimerCallbackReturn, Update};
     use azul_core::task::TerminateTimer;
-    
+
     // Get current time
     let now = info.get_current_time();
-    
+
     // We need to access the LayoutWindow through the info
     // The timer callback needs to:
     // 1. Check if focus is still on a contenteditable element
     // 2. Check time since last input
     // 3. Toggle visibility or keep solid
-    
+
     // For now, we'll queue changes via the CallbackInfo system
     // The actual state modification happens in apply_callback_changes
-    
+
     // Check if we should blink or stay solid
     // This is done by checking CursorManager.should_blink(now) in the layout window
-    
+
     // Since we can't access LayoutWindow directly here (it's not passed to timer callbacks),
     // we use a different approach: the timer callback always toggles, and the visibility
     // check is done in display_list.rs based on CursorManager state.
-    
+
     // Simply toggle cursor visibility
     info.set_cursor_visibility_toggle();
-    
+
     // Continue the timer and request a redraw
     TimerCallbackReturn {
         should_update: Update::RefreshDom,
@@ -285,7 +285,7 @@ pub struct DirtyTextNode {
 pub struct CallbackChangeResult {
     /// Timers to add
     pub timers: FastHashMap<TimerId, crate::timer::Timer>,
-    /// Threads to add  
+    /// Threads to add
     pub threads: FastHashMap<ThreadId, crate::thread::Thread>,
     /// Timers to remove
     pub timers_removed: FastBTreeSet<TimerId>,
@@ -813,10 +813,10 @@ impl LayoutWindow {
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
         let styled_dom_clone = styled_dom.clone();
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
-        
+
         // Get cursor visibility from cursor manager for display list generation
         let cursor_is_visible = self.cursor_manager.should_draw_cursor();
-        
+
         // Get cursor location from cursor manager for independent cursor rendering
         let cursor_location = self.cursor_manager.get_cursor_location().and_then(|loc| {
             self.cursor_manager.get_cursor().map(|cursor| {
@@ -1441,7 +1441,7 @@ impl LayoutWindow {
     }
 
     // Scroll Into View
-    
+
     /// Scroll a DOM node into view
     ///
     /// This is the main API for scrolling elements into view. It handles:
@@ -1472,7 +1472,7 @@ impl LayoutWindow {
             now,
         )
     }
-    
+
     /// Scroll a text cursor into view
     ///
     /// Used when the cursor moves within a contenteditable element.
@@ -1601,9 +1601,9 @@ impl LayoutWindow {
     pub fn get_thread_ids(&self) -> ThreadIdVec {
         self.threads.keys().copied().collect::<Vec<_>>().into()
     }
-    
+
     // Cursor Blinking Timer
-    
+
     /// Create the cursor blink timer
     ///
     /// This timer toggles cursor visibility at ~530ms intervals.
@@ -1613,13 +1613,13 @@ impl LayoutWindow {
         use azul_core::task::{Duration, SystemTimeDiff};
         use crate::timer::{Timer, TimerCallback};
         use azul_core::refany::RefAny;
-        
+
         let interval_ms = crate::managers::cursor::CURSOR_BLINK_INTERVAL_MS;
-        
+
         // Create a RefAny with a unit type - the timer callback doesn't need any data
         // The actual cursor state is in LayoutWindow.cursor_manager
         let refany = RefAny::new(());
-        
+
         Timer {
             refany,
             node_id: None.into(),
@@ -1632,57 +1632,57 @@ impl LayoutWindow {
             callback: TimerCallback::create(cursor_blink_timer_callback),
         }
     }
-    
+
     /// Scroll the active text cursor into view within its scrollable container
     ///
     /// This finds the focused contenteditable node, gets the cursor rectangle,
     /// and scrolls any scrollable ancestor to ensure the cursor is visible.
     pub fn scroll_active_cursor_into_view(&mut self, result: &mut CallbackChangeResult) {
         use crate::managers::scroll_into_view;
-        
+
         // Get the focused node
         let focused_node = match self.focus_manager.get_focused_node() {
             Some(node) => *node,
             None => return,
         };
-        
+
         let Some(node_id_internal) = focused_node.node.into_crate_internal() else {
             return;
         };
-        
+
         // Check if node is contenteditable
         if !self.is_node_contenteditable_internal(focused_node.dom, node_id_internal) {
             return;
         }
-        
+
         // Get the cursor location
         let cursor_location = match self.cursor_manager.get_cursor_location() {
             Some(loc) if loc.dom_id == focused_node.dom && loc.node_id == node_id_internal => loc,
             _ => return,
         };
-        
+
         // Get the cursor position
         let cursor = match self.cursor_manager.get_cursor() {
             Some(c) => c.clone(),
             None => return,
         };
-        
+
         // Get the inline layout to find the cursor rectangle
         let layout = match self.get_inline_layout_for_node(focused_node.dom, node_id_internal) {
             Some(l) => l,
             None => return,
         };
-        
+
         // Get cursor rectangle (node-local coordinates)
         let cursor_rect = match layout.get_cursor_rect(&cursor) {
             Some(r) => r,
             None => return,
         };
-        
+
         // Use scroll_into_view to scroll the cursor rect into view
         let now = azul_core::task::Instant::now();
         let options = scroll_into_view::ScrollIntoViewOptions::nearest();
-        
+
         // Calculate scroll adjustments
         let adjustments = scroll_into_view::scroll_rect_into_view(
             cursor_rect,
@@ -1693,13 +1693,13 @@ impl LayoutWindow {
             options,
             now,
         );
-        
+
         // Record the scroll changes
         for adj in adjustments {
             let current_pos = self.scroll_manager
                 .get_current_offset(adj.scroll_container_dom_id, adj.scroll_container_node_id)
                 .unwrap_or(LogicalPosition::zero());
-            
+
             let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(adj.scroll_container_node_id));
             result
                 .nodes_scrolled
@@ -1708,18 +1708,18 @@ impl LayoutWindow {
                 .insert(hierarchy_id, current_pos);
         }
     }
-    
+
     /// Check if a node is contenteditable (internal version using NodeId)
     fn is_node_contenteditable_internal(&self, dom_id: DomId, node_id: NodeId) -> bool {
         use crate::solver3::getters::is_node_contenteditable;
-        
+
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
             return false;
         };
-        
+
         is_node_contenteditable(&layout_result.styled_dom, node_id)
     }
-    
+
     /// Check if a node is contenteditable with W3C-conformant inheritance.
     ///
     /// This traverses up the DOM tree to check if the node or any ancestor
@@ -1727,14 +1727,14 @@ impl LayoutWindow {
     /// to stop inheritance.
     fn is_node_contenteditable_inherited_internal(&self, dom_id: DomId, node_id: NodeId) -> bool {
         use crate::solver3::getters::is_node_contenteditable_inherited;
-        
+
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
             return false;
         };
-        
+
         is_node_contenteditable_inherited(&layout_result.styled_dom, node_id)
     }
-    
+
     /// Handle focus change for cursor blink timer management (W3C "flag and defer" pattern)
     ///
     /// This method implements the W3C focus/selection model:
@@ -1779,12 +1779,12 @@ impl LayoutWindow {
             }
             None => None,
         };
-        
+
         // Determine the action based on current state and new focus
         let timer_was_active = self.cursor_manager.is_blink_timer_active();
-        
+
         if let Some((dom_id, container_node_id, text_node_id)) = contenteditable_info {
-            
+
             // W3C "flag and defer" pattern:
             // Set flag for cursor initialization AFTER layout pass
             self.focus_manager.set_pending_contenteditable_focus(
@@ -1792,12 +1792,12 @@ impl LayoutWindow {
                 container_node_id,
                 text_node_id,
             );
-            
+
             // Make cursor visible and record current time (even before actual initialization)
             let now = azul_core::task::Instant::now();
             self.cursor_manager.reset_blink_on_input(now);
             self.cursor_manager.set_blink_timer_active(true);
-            
+
             if !timer_was_active {
                 // Need to start the timer
                 let timer = self.create_cursor_blink_timer(current_window_state);
@@ -1808,11 +1808,11 @@ impl LayoutWindow {
             }
         } else {
             // Focus is moving away from contenteditable or being cleared
-            
+
             // Clear the cursor AND the pending focus flag
             self.cursor_manager.clear();
             self.focus_manager.clear_pending_contenteditable_focus();
-            
+
             if timer_was_active {
                 // Need to stop the timer
                 self.cursor_manager.set_blink_timer_active(false);
@@ -1822,7 +1822,7 @@ impl LayoutWindow {
             }
         }
     }
-    
+
     /// Finalize pending focus changes after layout pass (W3C "flag and defer" pattern)
     ///
     /// This method should be called AFTER the layout pass completes. It checks if
@@ -1850,10 +1850,10 @@ impl LayoutWindow {
             Some(p) => p,
             None => return false,
         };
-        
+
         // Now we can safely get the text layout (layout pass has completed)
         let text_layout = self.get_inline_layout_for_node(pending.dom_id, pending.text_node_id).cloned();
-        
+
         // Initialize cursor at end of text
         self.cursor_manager.initialize_cursor_at_end(
             pending.dom_id,
@@ -2017,7 +2017,7 @@ impl LayoutWindow {
                         let current_pos = self.scroll_manager
                             .get_current_offset(adj.scroll_container_dom_id, adj.scroll_container_node_id)
                             .unwrap_or(LogicalPosition::zero());
-                        
+
                         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(adj.scroll_container_node_id));
                         result
                             .nodes_scrolled
@@ -2355,10 +2355,10 @@ impl LayoutWindow {
                 CallbackChange::CreateTextInput { text } => {
                     // Create a synthetic text input event
                     // This simulates receiving text input from the OS
-                    
+
                     // Process the text input - this records the changeset in TextInputManager
                     let affected_nodes = self.process_text_input(text.as_str());
-                    
+
                     // Mark that we need to trigger text input callbacks
                     // The affected nodes and their events will be processed by the recursive event loop
                     for (node, (events, _)) in affected_nodes {
@@ -2405,7 +2405,7 @@ impl LayoutWindow {
     }
 
     /// Helper: Get inline layout for a node
-    /// 
+    ///
     /// For text nodes that participate in an IFC, the inline layout is stored
     /// on the IFC root node (the block container), not on the text node itself.
     /// This method handles both cases:
@@ -4261,7 +4261,7 @@ impl LayoutWindow {
 
         return ret;
     }
-    
+
     /// Set the system style for resolving system color keywords in CSS.
     ///
     /// This should be called during window initialization and whenever the system
@@ -4701,7 +4701,7 @@ impl LayoutWindow {
     }
 
     /// Find the last text child node of a given node.
-    /// 
+    ///
     /// For contenteditable elements, the text is usually in a child Text node,
     /// not the contenteditable div itself. This function finds the last Text node
     /// so the cursor defaults to the end position.
@@ -4710,13 +4710,13 @@ impl LayoutWindow {
         let styled_dom = &layout_result.styled_dom;
         let node_data_container = styled_dom.node_data.as_container();
         let hierarchy_container = styled_dom.node_hierarchy.as_container();
-        
+
         // Check if parent itself is a text node
         let parent_type = node_data_container[parent_node_id].get_node_type();
         if matches!(parent_type, NodeType::Text(_)) {
             return Some(parent_node_id);
         }
-        
+
         // Find the last text child by iterating through all children
         let parent_item = &hierarchy_container[parent_node_id];
         let mut last_text_child: Option<NodeId> = None;
@@ -4728,7 +4728,7 @@ impl LayoutWindow {
             }
             current_child = hierarchy_container[child_id].next_sibling_id();
         }
-        
+
         last_text_child
     }
 
@@ -4821,7 +4821,7 @@ impl LayoutWindow {
                             || styled_node.attributes.as_ref().iter().any(|attr| {
                                 matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
                             });
-                        
+
                         if is_contenteditable {
                             // Get inline layout for cursor positioning
                             // Clone the Arc to avoid borrow conflict
@@ -5776,21 +5776,21 @@ impl LayoutWindow {
                     return;
                 }
             };
-            
+
             let layout_node = match layout_result.layout_tree.get(node_id.index()) {
                 Some(n) => n,
                 None => {
                     return;
                 }
             };
-            
+
             let cached_layout = match &layout_node.inline_layout_result {
                 Some(c) => c,
                 None => {
                     return;
                 }
             };
-            
+
             match &cached_layout.constraints {
                 Some(c) => c.clone(),
                 None => {
@@ -6412,7 +6412,7 @@ impl LayoutWindow {
                 };
                 // Use layout tree from layout_result, not layout_cache
                 let tree = &layout_result.layout_tree;
-                
+
                 // Sort by DOM depth (deepest first) to prefer specific text nodes over containers.
                 // We count the actual number of parents to determine DOM depth properly.
                 // Secondary sort by NodeId for deterministic ordering within the same depth.
@@ -6426,7 +6426,7 @@ impl LayoutWindow {
                     }
                     depth
                 };
-                
+
                 let mut sorted_hits: Vec<_> = hit.regular_hit_test_nodes.iter().collect();
                 sorted_hits.sort_by(|(a_id, _), (b_id, _)| {
                     let depth_a = get_dom_depth(a_id);
@@ -6435,13 +6435,13 @@ impl LayoutWindow {
                     // Then sort by NodeId for deterministic order within same depth
                     depth_b.cmp(&depth_a).then_with(|| a_id.index().cmp(&b_id.index()))
                 });
-                
+
                 for (node_id, hit_item) in sorted_hits {
                     // Check if text is selectable
                     if !self.is_text_selectable(&layout_result.styled_dom, *node_id) {
                         continue;
                     }
-                    
+
                     // Find the layout node for this DOM node
                     let layout_node_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(*node_id));
                     let layout_node_idx = match layout_node_idx {
@@ -6449,7 +6449,7 @@ impl LayoutWindow {
                         None => continue,
                     };
                     let layout_node = &tree.nodes[layout_node_idx];
-                    
+
                     // Get the IFC layout and IFC root NodeId
                     // Selection must be stored on the IFC root, not on text nodes
                     let (cached_layout, ifc_root_node_id) = if let Some(ref cached) = layout_node.inline_layout_result {
@@ -6468,13 +6468,13 @@ impl LayoutWindow {
                         // No IFC involvement - not a text node
                         continue;
                     };
-                    
+
                     let layout = &cached_layout.layout;
-                    
+
                     // Use point_relative_to_item - this is the local position within the hit node
                     // provided by WebRender's hit test
                     let local_pos = hit_item.point_relative_to_item;
-                    
+
                     // Hit-test the cursor in this text layout
                     if let Some(cursor) = layout.hittest_cursor(local_pos) {
                         // Store selection with IFC root NodeId, not the hit text node
@@ -6485,7 +6485,7 @@ impl LayoutWindow {
                         break;
                     }
                 }
-                
+
                 if found_selection.is_some() {
                     break;
                 }
@@ -6500,50 +6500,50 @@ impl LayoutWindow {
                 // layout_cache.tree is for the root DOM only; layout_result.layout_tree
                 // is the correct tree for each DOM (including iframes)
                 let tree = &layout_result.layout_tree;
-                
+
                 // Only iterate IFC roots (nodes with inline_layout_result)
                 for (node_idx, layout_node) in tree.nodes.iter().enumerate() {
                     let cached_layout = match layout_node.inline_layout_result.as_ref() {
                         Some(c) => c,
                         None => continue, // Skip non-IFC-root nodes
                     };
-                    
+
                     let node_id = match layout_node.dom_node_id {
                         Some(n) => n,
                         None => continue,
                     };
-                    
+
                     // Check if text is selectable
                     if !self.is_text_selectable(&layout_result.styled_dom, node_id) {
                         continue;
                     }
-                    
+
                     // Get the node's absolute position
                     // Use layout_result.calculated_positions for the correct DOM
                     let node_pos = layout_result.calculated_positions
             .get(node_idx)
                         .copied()
                         .unwrap_or_default();
-                    
+
                     // Check if position is within node bounds
                     let node_size = layout_node.used_size.unwrap_or_else(|| {
                         let bounds = cached_layout.layout.bounds();
                         azul_core::geom::LogicalSize::new(bounds.width, bounds.height)
                     });
-                    
+
                     if position.x < node_pos.x || position.x > node_pos.x + node_size.width ||
                        position.y < node_pos.y || position.y > node_pos.y + node_size.height {
                         continue;
                     }
-                    
+
                     // Convert global position to node-local coordinates
                     let local_pos = azul_core::geom::LogicalPosition {
                         x: position.x - node_pos.x,
                         y: position.y - node_pos.y,
                     };
-                    
+
                     let layout = &cached_layout.layout;
-                    
+
                     // Hit-test the cursor in this text layout
                     if let Some(cursor) = layout.hittest_cursor(local_pos) {
                         found_selection = Some((*dom_id, node_id, SelectionRange {
@@ -6553,7 +6553,7 @@ impl LayoutWindow {
                         break;
                     }
                 }
-                
+
                 if found_selection.is_some() {
                     break;
                 }
@@ -6580,12 +6580,12 @@ impl LayoutWindow {
             // Use layout_results for the correct DOM's tree
             let layout_result = self.layout_results.get(&dom_id)?;
             let tree = &layout_result.layout_tree;
-            
+
             // Find layout node - ifc_root_node_id is always the IFC root, so it has inline_layout_result
             let layout_node = tree.nodes.iter().find(|n| n.dom_node_id == Some(ifc_root_node_id))?;
             let cached_layout = layout_node.inline_layout_result.as_ref()?;
             let layout = &cached_layout.layout;
-            
+
             match click_count {
                 2 => select_word_at_cursor(&initial_range.start, layout.as_ref())
                     .unwrap_or(initial_range),
@@ -6610,10 +6610,10 @@ impl LayoutWindow {
                     size: azul_core::geom::LogicalSize { width: 1.0, height: 16.0 },
                 })
         };
-        
+
         // Clear any existing text selection for this DOM
         self.selection_manager.clear_text_selection(&dom_id);
-        
+
         // Start a new selection with the anchor at the clicked position
         self.selection_manager.start_selection(
             dom_id,
@@ -6622,7 +6622,7 @@ impl LayoutWindow {
             char_bounds,
             position,
         );
-        
+
         // Also update the legacy selection state for backward compatibility with rendering
         self.selection_manager.clear_selection(&dom_id);
 
@@ -6630,7 +6630,7 @@ impl LayoutWindow {
             selections: vec![Selection::Range(final_range)].into(),
             node_id: dom_node_id,
         };
-        
+
         self.selection_manager.set_selection(dom_id, state);
 
         // CRITICAL FIX 1: Set focus on the clicked node
@@ -6644,7 +6644,7 @@ impl LayoutWindow {
             .map(|lr| {
                 let node_hierarchy = lr.styled_dom.node_hierarchy.as_container();
                 let node_data = lr.styled_dom.node_data.as_ref();
-                
+
                 // Walk up the DOM tree to check if any ancestor has contenteditable
                 let mut current_node = Some(ifc_root_node_id);
                 while let Some(node_id) = current_node {
@@ -6655,7 +6655,7 @@ impl LayoutWindow {
                         if styled_node.contenteditable {
                             return true;
                         }
-                        
+
                         // Also check the attribute (for backwards compatibility)
                         let has_contenteditable_attr = styled_node.attributes.as_ref().iter().any(|attr| {
                             matches!(attr, azul_core::dom::AttributeType::ContentEditable(_))
@@ -6670,7 +6670,7 @@ impl LayoutWindow {
                 false
             })
             .unwrap_or(false);
-        
+
         // W3C conformance: contenteditable elements are implicitly focusable
         if is_contenteditable {
             self.focus_manager.set_focused_node(Some(dom_node_id));
@@ -6721,30 +6721,30 @@ impl LayoutWindow {
             .keys()
             .next()
             .copied()?;
-        
+
         // Get the existing anchor from the text selection
         let anchor = {
             let text_selection = self.selection_manager.get_text_selection(&dom_id)?;
             text_selection.anchor.clone()
         };
-        
+
         // Get the current hit test from HoverManager
         let hit_test = self.hover_manager.get_current(&InputPointId::Mouse)?;
 
         // Find the focus position (current cursor under mouse)
         let mut focus_info: Option<(NodeId, TextCursor, azul_core::geom::LogicalPosition)> = None;
-        
+
         for (hit_dom_id, hit) in &hit_test.hovered_nodes {
             if *hit_dom_id != dom_id {
                 continue;
             }
-            
+
             let layout_result = match self.layout_results.get(hit_dom_id) {
                 Some(lr) => lr,
                 None => continue,
             };
             let tree = &layout_result.layout_tree;
-            
+
             for (node_id, hit_item) in &hit.regular_hit_test_nodes {
                 if !self.is_text_selectable(&layout_result.styled_dom, *node_id) {
                     continue;
@@ -6756,7 +6756,7 @@ impl LayoutWindow {
                     None => continue,
                 };
                 let layout_node = &tree.nodes[layout_node_idx];
-                
+
                 // Get the IFC layout and IFC root NodeId
                 let (cached_layout, ifc_root_node_id) = if let Some(ref cached) = layout_node.inline_layout_result {
                     (cached, *node_id)
@@ -6771,26 +6771,26 @@ impl LayoutWindow {
                 } else {
                     continue;
                 };
-                
+
                 let local_pos = hit_item.point_relative_to_item;
-                
+
                 if let Some(cursor) = cached_layout.layout.hittest_cursor(local_pos) {
                     focus_info = Some((ifc_root_node_id, cursor, current_position));
                     break;
                 }
             }
-            
+
             if focus_info.is_some() {
                 break;
             }
         }
-        
+
         let (focus_ifc_root, focus_cursor, focus_mouse_pos) = focus_info?;
-        
+
         // Compute affected nodes between anchor and focus
         let layout_result = self.layout_results.get(&dom_id)?;
         let hierarchy = &layout_result.styled_dom.node_hierarchy;
-        
+
         // Determine document order
         let is_forward = if anchor.ifc_root_node_id == focus_ifc_root {
             // Same IFC - compare cursors
@@ -6799,20 +6799,20 @@ impl LayoutWindow {
             // Different IFCs - use document order
             is_before_in_document_order(hierarchy, anchor.ifc_root_node_id, focus_ifc_root)
         };
-        
+
         let (start_node, end_node) = if is_forward {
             (anchor.ifc_root_node_id, focus_ifc_root)
         } else {
             (focus_ifc_root, anchor.ifc_root_node_id)
         };
-        
+
         // Collect all IFC roots between start and end
         let nodes_in_range = collect_nodes_in_document_order(hierarchy, start_node, end_node);
-        
+
         // Build the affected_nodes map with SelectionRanges for each IFC root
         let mut affected_nodes_map = std::collections::BTreeMap::new();
         let tree = &layout_result.layout_tree;
-        
+
         for node_id in &nodes_in_range {
             // Check if this node is an IFC root (has inline_layout_result)
             let layout_node = tree.nodes.iter().find(|n| n.dom_node_id == Some(*node_id));
@@ -6820,10 +6820,10 @@ impl LayoutWindow {
                 Some(ln) if ln.inline_layout_result.is_some() => ln,
                 _ => continue, // Skip non-IFC-root nodes
             };
-            
+
             let cached_layout = layout_node.inline_layout_result.as_ref()?;
             let layout = &cached_layout.layout;
-            
+
             let range = if *node_id == anchor.ifc_root_node_id && *node_id == focus_ifc_root {
                 // Both anchor and focus in same IFC
                 SelectionRange {
@@ -6858,10 +6858,10 @@ impl LayoutWindow {
                 let end_cursor = layout.get_last_cluster_cursor()?;
                 SelectionRange { start: start_cursor, end: end_cursor }
             };
-            
+
             affected_nodes_map.insert(*node_id, range);
         }
-        
+
         // Update the text selection with new focus and affected nodes
         // This does NOT clear the anchor!
         self.selection_manager.update_selection_focus(
@@ -6872,7 +6872,7 @@ impl LayoutWindow {
             affected_nodes_map.clone(),
             is_forward,
         );
-        
+
         // Also update the legacy selection state for backward compatibility with rendering
         // For now, we just update the anchor's IFC root with the visible range
         if let Some(anchor_range) = affected_nodes_map.get(&anchor.ifc_root_node_id) {
@@ -6881,7 +6881,7 @@ impl LayoutWindow {
                 dom: dom_id,
                 node: node_hierarchy_id,
             };
-            
+
             let state = SelectionState {
                 selections: vec![Selection::Range(*anchor_range)].into(),
                 node_id: dom_node_id,
@@ -6896,7 +6896,7 @@ impl LayoutWindow {
                 node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
             })
             .collect();
-        
+
         if affected_dom_nodes.is_empty() {
             None
         } else {
