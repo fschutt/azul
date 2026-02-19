@@ -654,7 +654,7 @@ impl LanguageCondition {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum PseudoStateType {
     /// No special state (corresponds to "Normal" in NodeDataInlineCssProperty)
     Normal,

@@ -63,44 +63,36 @@ pub fn get_element_font_size(
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let cache = &styled_dom.css_property_cache.ptr;
 
-    // Try to get from dependency chain first (proper resolution)
-    let cached_font_size = cache
-        .dependency_chains
-        .get(dom_id.index())
-        .and_then(|chains| chains.get(&azul_css::props::property::CssPropertyType::FontSize))
-        .and_then(|chain| chain.cached_pixels);
-
-    if let Some(cached) = cached_font_size {
-        return cached;
+    // Try to get pre-resolved font-size from computed_values (already in pixels)
+    if let Some(vec) = cache.computed_values.get(dom_id.index()) {
+        if let Ok(idx) = vec.binary_search_by_key(
+            &azul_css::props::property::CssPropertyType::FontSize,
+            |(k, _)| *k,
+        ) {
+            if let azul_css::props::property::CssProperty::FontSize(css_val) = &vec[idx].1.property {
+                if let Some(fs) = css_val.get_property() {
+                    if fs.inner.metric == azul_css::props::basic::length::SizeMetric::Px {
+                        return fs.inner.number.get();
+                    }
+                }
+            }
+        }
     }
 
-    // Fallback: get from property cache and resolve manually
+    // Fallback: get parent font-size (avoid recursion for root)
     let parent_font_size = styled_dom
         .node_hierarchy
         .as_container()
         .get(dom_id)
         .and_then(|node| node.parent_id())
-        .and_then(|parent_id| {
-            // Check parent's dependency chain first (avoids recursion)
-            cache
-                .dependency_chains
-                .get(parent_id.index())
-                .and_then(|chains| {
-                    chains.get(&azul_css::props::property::CssPropertyType::FontSize)
-                })
-                .and_then(|chain| chain.cached_pixels)
-        })
+        .map(|parent_id| get_element_font_size(styled_dom, parent_id, node_state))
         .unwrap_or(DEFAULT_FONT_SIZE);
 
-    // Get root font-size (avoid recursion by checking cache first)
-    let root_font_size = {
-        let root_id = NodeId::new(0);
-        cache
-            .dependency_chains
-            .get(root_id.index())
-            .and_then(|chains| chains.get(&azul_css::props::property::CssPropertyType::FontSize))
-            .and_then(|chain| chain.cached_pixels)
-            .unwrap_or(DEFAULT_FONT_SIZE)
+    // Root font-size: use DEFAULT to avoid infinite recursion
+    let root_font_size = if dom_id == NodeId::new(0) {
+        DEFAULT_FONT_SIZE
+    } else {
+        get_element_font_size(styled_dom, NodeId::new(0), node_state)
     };
 
     // Resolve font-size with proper context
@@ -109,12 +101,12 @@ pub fn get_element_font_size(
         .and_then(|v| v.get_property().cloned())
         .map(|v| {
             let context = ResolutionContext {
-                element_font_size: DEFAULT_FONT_SIZE, // Not used for FontSize property
+                element_font_size: DEFAULT_FONT_SIZE,
                 parent_font_size,
                 root_font_size,
                 containing_block_size: PhysicalSize::new(0.0, 0.0),
                 element_size: None,
-                viewport_size: PhysicalSize::new(0.0, 0.0), // Not used for font-size resolution
+                viewport_size: PhysicalSize::new(0.0, 0.0),
             };
 
             v.inner

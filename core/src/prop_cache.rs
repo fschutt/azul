@@ -23,7 +23,7 @@
 
 extern crate alloc;
 
-use alloc::{boxed::Box, collections::BTreeMap, string::String, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 
 use crate::dom::NodeType;
 
@@ -42,143 +42,6 @@ pub enum CssPropertyOrigin {
 pub struct CssPropertyWithOrigin {
     pub property: CssProperty,
     pub origin: CssPropertyOrigin,
-}
-
-/// Represents a single step in a CSS property dependency chain.
-/// Example: "10% of node 5" or "1.2em of node 3"
-#[derive(Debug, Clone, PartialEq)]
-pub enum CssDependencyChainStep {
-    /// Value depends on a percentage of another node's resolved value
-    /// e.g., font-size: 150% means 1.5 * parent's font-size
-    Percent { source_node: NodeId, factor: f32 },
-
-    /// Value depends on an em multiple of another node's font-size
-    /// e.g., padding: 2em means 2.0 * current element's font-size
-    Em { source_node: NodeId, factor: f32 },
-
-    /// Value depends on a rem multiple of root node's font-size
-    /// e.g., margin: 1.5rem means 1.5 * root font-size
-    Rem { factor: f32 },
-
-    /// Absolute value (px, pt, etc.) - no further dependencies
-    Absolute { pixels: f32 },
-}
-
-/// A dependency chain for a CSS property value.
-/// Example: [10% of node 10, then 1.2em of that, then 1.5em of that]
-///
-/// During layout, this chain is resolved by:
-/// 1. Starting with the root dependency (e.g., node 10's resolved font-size)
-/// 2. Applying each transformation in sequence
-/// 3. Producing the final pixel value
-#[derive(Debug, Clone, PartialEq)]
-pub struct CssDependencyChain {
-    /// The property type this chain is for
-    pub property_type: CssPropertyType,
-
-    /// The ordered list of dependencies, from root to leaf
-    /// Empty if the value is absolute (no dependencies)
-    pub steps: Vec<CssDependencyChainStep>,
-
-    /// Cached resolved value (in pixels) from the last resolution
-    /// None if the chain hasn't been resolved yet
-    pub cached_pixels: Option<f32>,
-}
-
-impl CssDependencyChain {
-    /// Create a new dependency chain for an absolute pixel value
-    pub fn absolute(property_type: CssPropertyType, pixels: f32) -> Self {
-        Self {
-            property_type,
-            steps: vec![CssDependencyChainStep::Absolute { pixels }],
-            cached_pixels: Some(pixels),
-        }
-    }
-
-    /// Create a new dependency chain for a percentage-based value
-    pub fn percent(property_type: CssPropertyType, source_node: NodeId, factor: f32) -> Self {
-        Self {
-            property_type,
-            steps: vec![CssDependencyChainStep::Percent {
-                source_node,
-                factor,
-            }],
-            cached_pixels: None,
-        }
-    }
-
-    /// Create a new dependency chain for an em-based value
-    pub fn em(property_type: CssPropertyType, source_node: NodeId, factor: f32) -> Self {
-        Self {
-            property_type,
-            steps: vec![CssDependencyChainStep::Em {
-                source_node,
-                factor,
-            }],
-            cached_pixels: None,
-        }
-    }
-
-    /// Create a new dependency chain for a rem-based value
-    pub fn rem(property_type: CssPropertyType, factor: f32) -> Self {
-        Self {
-            property_type,
-            steps: vec![CssDependencyChainStep::Rem { factor }],
-            cached_pixels: None,
-        }
-    }
-
-    /// Check if this chain depends on a specific node
-    pub fn depends_on(&self, node_id: NodeId) -> bool {
-        self.steps.iter().any(|step| match step {
-            CssDependencyChainStep::Percent { source_node, .. } => *source_node == node_id,
-            CssDependencyChainStep::Em { source_node, .. } => *source_node == node_id,
-            _ => false,
-        })
-    }
-
-    /// Resolve the dependency chain to a pixel value.
-    ///
-    /// # Arguments
-    /// * `resolve_node_value` - Closure to resolve a node's property value to pixels
-    /// * `root_font_size` - Root element's font-size for rem calculations
-    ///
-    /// # Returns
-    /// The resolved pixel value, or None if any dependency couldn't be resolved
-    pub fn resolve<F>(&mut self, mut resolve_node_value: F, root_font_size: f32) -> Option<f32>
-    where
-        F: FnMut(NodeId, CssPropertyType) -> Option<f32>,
-    {
-        let mut current_value: Option<f32> = None;
-
-        for step in &self.steps {
-            match step {
-                CssDependencyChainStep::Absolute { pixels } => {
-                    current_value = Some(*pixels);
-                }
-                CssDependencyChainStep::Percent {
-                    source_node,
-                    factor,
-                } => {
-                    let source_val = resolve_node_value(*source_node, self.property_type)?;
-                    current_value = Some(source_val * factor);
-                }
-                CssDependencyChainStep::Em {
-                    source_node,
-                    factor,
-                } => {
-                    let font_size = resolve_node_value(*source_node, CssPropertyType::FontSize)?;
-                    current_value = Some(font_size * factor);
-                }
-                CssDependencyChainStep::Rem { factor } => {
-                    current_value = Some(root_font_size * factor);
-                }
-            }
-        }
-
-        self.cached_pixels = current_value;
-        current_value
-    }
 }
 
 use azul_css::{
@@ -447,7 +310,7 @@ pub struct CssPropertyCache {
     pub node_count: usize,
 
     // properties that were overridden in callbacks (not specific to any node state)
-    pub user_overridden_properties: Vec<BTreeMap<CssPropertyType, CssProperty>>,
+    pub user_overridden_properties: Vec<Vec<(CssPropertyType, CssProperty)>>,
 
     // non-default CSS properties that were cascaded from the parent,
     // unified across all pseudo-states (Normal, Hover, Active, Focus, Dragging, DragOver).
@@ -458,14 +321,12 @@ pub struct CssPropertyCache {
     // unified across all pseudo-states.
     pub css_props: Vec<Vec<StatefulCssProperty>>,
 
-    // NEW: Computed values cache - pre-resolved inherited properties
-    pub computed_values: Vec<BTreeMap<CssPropertyType, CssPropertyWithOrigin>>,
-
-    // NEW: Dependency chains for relative values (em, %, rem, etc.)
-    pub dependency_chains: Vec<BTreeMap<CssPropertyType, CssDependencyChain>>,
+    // Pre-resolved inherited properties (sorted Vec per node, keyed by CssPropertyType)
+    pub computed_values: Vec<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
 
     // Pre-resolved property cache: Vec indexed by node ID, inner Vec sorted by CssPropertyType.
-    pub resolved_cache: Vec<Vec<(CssPropertyType, CssProperty)>>,
+    // NOTE: This is now stored inside compact_cache.tier3_overflow instead of as a separate field.
+    // pub resolved_cache: Vec<Vec<(CssPropertyType, CssProperty)>>,
 
     // Compact layout cache: three-tier numeric encoding for O(1) layout lookups.
     // Built once after restyle + apply_ua_css + compute_inherited_values.
@@ -474,24 +335,30 @@ pub struct CssPropertyCache {
 
 impl CssPropertyCache {
     /// Look up a CSS property for a specific pseudo-state in a stateful property vec.
+    /// Requires the vec to be sorted by (state, prop_type).
     #[inline]
     fn find_in_stateful<'a>(
         props: &'a [StatefulCssProperty],
         state: azul_css::dynamic_selector::PseudoStateType,
         prop_type: &CssPropertyType,
     ) -> Option<&'a CssProperty> {
-        props.iter()
-            .find(|p| p.state == state && p.prop_type == *prop_type)
-            .map(|p| &p.property)
+        let key = (state, *prop_type);
+        props.binary_search_by_key(&key, |p| (p.state, p.prop_type))
+            .ok()
+            .map(|idx| &props[idx].property)
     }
 
     /// Check if any properties exist for a specific pseudo-state in a stateful property vec.
+    /// Requires the vec to be sorted by (state, prop_type).
     #[inline]
     fn has_state_props(
         props: &[StatefulCssProperty],
         state: azul_css::dynamic_selector::PseudoStateType,
     ) -> bool {
-        props.iter().any(|p| p.state == state)
+        // All entries with the same state are contiguous. Use partition_point
+        // to find the first entry >= state, then check if it matches.
+        let i = props.partition_point(|p| p.state < state);
+        i < props.len() && props[i].state == state
     }
 
     /// Collect all property types for a specific pseudo-state.
@@ -734,6 +601,13 @@ impl CssPropertyCache {
                     }
                 }
             }
+        }
+
+        // Sort css_props and cascaded_props by (state, prop_type) for binary search lookups.
+        // NOTE: Only sort css_props here. cascaded_props will be sorted after apply_ua_css()
+        // since apply_ua_css() adds more entries to cascaded_props.
+        for v in self.css_props.iter_mut() {
+            v.sort_unstable_by_key(|p| (p.state, p.prop_type));
         }
 
         // When restyling, the tag / node ID mappings may change, regenerate them
@@ -1305,14 +1179,12 @@ impl CssPropertyCache {
     pub fn empty(node_count: usize) -> Self {
         Self {
             node_count,
-            user_overridden_properties: vec![BTreeMap::new(); node_count],
+            user_overridden_properties: vec![Vec::new(); node_count],
 
             cascaded_props: vec![Vec::new(); node_count],
             css_props: vec![Vec::new(); node_count],
 
-            computed_values: vec![BTreeMap::new(); node_count],
-            dependency_chains: vec![BTreeMap::new(); node_count],
-            resolved_cache: Vec::new(),
+            computed_values: vec![Vec::new(); node_count],
             compact_cache: None,
         }
     }
@@ -1329,28 +1201,10 @@ impl CssPropertyCache {
         append_css_property_vec!(css_props);
         append_css_property_vec!(computed_values);
 
-        // Special handling for dependency_chains: need to adjust source_node IDs
-        for mut chains_map in other.dependency_chains.drain(..) {
-            for (_prop_type, chain) in chains_map.iter_mut() {
-                for step in chain.steps.iter_mut() {
-                    match step {
-                        CssDependencyChainStep::Em { source_node, .. } => {
-                            *source_node = NodeId::new(source_node.index() + self.node_count);
-                        }
-                        CssDependencyChainStep::Percent { source_node, .. } => {
-                            *source_node = NodeId::new(source_node.index() + self.node_count);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            self.dependency_chains.push(chains_map);
-        }
-
         self.node_count += other.node_count;
 
-        // Invalidate resolved cache since node IDs shifted
-        self.resolved_cache.clear();
+        // Invalidate compact cache since node IDs shifted
+        self.compact_cache = None;
     }
 
     pub fn is_horizontal_overflow_visible(
@@ -1490,15 +1344,12 @@ impl CssPropertyCache {
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
     ) -> Option<&CssProperty> {
-        // Fast path: use pre-resolved cache if available (O(1) + O(log m) vs O(log n) × 18)
-        if let Some(node_props) = self.resolved_cache.get(node_id.index()) {
-            return node_props
-                .binary_search_by_key(css_property_type, |(t, _)| *t)
-                .ok()
-                .map(|i| &node_props[i].1);
+        // Fast path: use compact cache tier3_overflow (stores ALL resolved properties)
+        if let Some(compact) = &self.compact_cache {
+            return compact.get_overflow_prop(node_id.index(), css_property_type);
         }
 
-        // Slow path: full cascade resolution
+        // Slow path: full cascade resolution (before compact cache is built)
         self.get_property_slow(node_data, node_id, node_state, css_property_type)
     }
 
@@ -1516,12 +1367,10 @@ impl CssPropertyCache {
         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
         // First test if there is some user-defined override for the property
-        if let Some(p) = self
-            .user_overridden_properties
-            .get(node_id.index())
-            .and_then(|n| n.get(css_property_type))
-        {
-            return Some(p);
+        if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
+            if let Ok(idx) = v.binary_search_by_key(css_property_type, |(k, _)| *k) {
+                return Some(&v[idx].1);
+            }
         }
 
         // Helper to check if property matches a specific pseudo state
@@ -1734,16 +1583,13 @@ impl CssPropertyCache {
             return Some(p);
         }
 
-        // NEW: Check computed values cache for inherited properties
-        // This provides efficient access to pre-resolved inherited values
-        // without needing to walk up the tree
+        // Check computed values cache for inherited properties
+        // Sorted Vec with binary search
         if css_property_type.is_inheritable() {
-            if let Some(prop_with_origin) = self
-                .computed_values
-                .get(node_id.index())
-                .and_then(|map| map.get(css_property_type))
-            {
-                return Some(&prop_with_origin.property);
+            if let Some(vec) = self.computed_values.get(node_id.index()) {
+                if let Ok(idx) = vec.binary_search_by_key(css_property_type, |(k, _)| *k) {
+                    return Some(&vec[idx].1.property);
+                }
             }
         }
 
@@ -1767,12 +1613,10 @@ impl CssPropertyCache {
         css_property_type: &CssPropertyType,
     ) -> Option<&CssProperty> {
         // First test if there is some user-defined override for the property
-        if let Some(p) = self
-            .user_overridden_properties
-            .get(node_id.index())
-            .and_then(|n| n.get(css_property_type))
-        {
-            return Some(p);
+        if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
+            if let Ok(idx) = v.binary_search_by_key(css_property_type, |(k, _)| *k) {
+                return Some(&v[idx].1);
+            }
         }
 
         // Check inline CSS properties with DynamicSelectorContext evaluation.
@@ -4281,93 +4125,6 @@ impl CssPropertyCache {
         }
     }
 
-    /// Build a dependency chain for a CSS property value.
-    ///
-    /// This analyzes the property value and creates a chain of dependencies that can be
-    /// resolved later during layout. For example:
-    ///
-    /// - `font-size: 16px` → Absolute chain with 16.0 pixels
-    /// - `font-size: 1.5em` → Em chain depending on parent's font-size
-    /// - `font-size: 150%` → Percent chain depending on parent's font-size
-    /// - `padding: 2em` → Em chain depending on current node's font-size
-    ///
-    /// # Arguments
-    ///
-    /// * `node_id` - The node this property belongs to
-    /// * `parent_id` - The parent node (for inheritance)
-    /// * `property` - The CSS property to analyze
-    ///
-    /// Returns a dependency chain, or None if the property doesn't support chaining
-    fn build_dependency_chain(
-        &self,
-        node_id: NodeId,
-        parent_id: Option<NodeId>,
-        property: &CssProperty,
-    ) -> Option<CssDependencyChain> {
-        use azul_css::props::basic::{length::SizeMetric, pixel::PixelValue};
-
-        let prop_type = property.get_type();
-
-        // For now, only handle font-size dependency chains
-        // Other properties will be handled during layout resolution
-        if prop_type != CssPropertyType::FontSize {
-            return None;
-        }
-
-        // Extract PixelValue from FontSize property
-        let pixel_value = match property {
-            CssProperty::FontSize(val) => val.get_property().map(|v| &v.inner)?,
-            _ => return None,
-        };
-
-        let number = pixel_value.number.get();
-
-        // For font-size: em/% refers to parent's font-size
-        let source_node = parent_id?;
-
-        match pixel_value.metric {
-            SizeMetric::Px => Some(CssDependencyChain::absolute(prop_type, number)),
-            SizeMetric::Pt => {
-                // 1pt = 1.333333px
-                Some(CssDependencyChain::absolute(prop_type, number * 1.333333))
-            }
-            SizeMetric::Em => Some(CssDependencyChain::em(prop_type, source_node, number)),
-            SizeMetric::Rem => {
-                // Rem refers to root font-size
-                Some(CssDependencyChain::rem(prop_type, number))
-            }
-            SizeMetric::Percent => Some(CssDependencyChain::percent(
-                prop_type,
-                source_node,
-                number / 100.0,
-            )),
-            SizeMetric::In => {
-                // 1in = 96px
-                Some(CssDependencyChain::absolute(prop_type, number * 96.0))
-            }
-            SizeMetric::Cm => {
-                // 1cm = 37.7952755906px
-                Some(CssDependencyChain::absolute(
-                    prop_type,
-                    number * 37.7952755906,
-                ))
-            }
-            SizeMetric::Mm => {
-                // 1mm = 3.7795275591px
-                Some(CssDependencyChain::absolute(
-                    prop_type,
-                    number * 3.7795275591,
-                ))
-            }
-            // Viewport units: Cannot be resolved via dependency chain, need viewport context
-            // These should be resolved at layout time using ResolutionContext
-            SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => {
-                // For now, treat as unresolvable (need viewport size at layout time)
-                None
-            }
-        }
-    }
-
     /// Applies user-agent (UA) CSS properties to the cascade before inheritance.
     ///
     /// UA CSS has the lowest priority in the cascade, so it should only be applied
@@ -4375,85 +4132,138 @@ impl CssPropertyCache {
     ///
     /// This is critical for text nodes: UA CSS properties (like font-weight: bold for H1)
     /// must be in the cascade maps so they can be inherited by child text nodes.
+    ///
+    /// Uses a bitset per node to avoid O(n²) scanning of property vecs.
     pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
         use azul_css::props::property::CssPropertyType;
+        use azul_css::dynamic_selector::PseudoStateType;
 
-        // Apply UA CSS to all nodes
+        let node_count = node_data.len();
+        if node_count == 0 {
+            return;
+        }
+
+        // Build a bitset per node: which CssPropertyType values are already set (Normal state).
+        // CssPropertyType has ~152 variants, so we need [u128; 2] per node.
+        let mut prop_set: Vec<[u128; 2]> = vec![[0u128; 2]; node_count];
+
+        // Mark properties from css_props (author CSS, Normal state)
+        for (node_idx, props) in self.css_props.iter().enumerate() {
+            for p in props.iter() {
+                if p.state == PseudoStateType::Normal {
+                    let d = p.prop_type as u8 as usize;
+                    if d < 128 {
+                        prop_set[node_idx][0] |= 1u128 << d;
+                    } else {
+                        prop_set[node_idx][1] |= 1u128 << (d - 128);
+                    }
+                }
+            }
+        }
+
+        // Mark properties from cascaded_props (Normal state)
+        for (node_idx, props) in self.cascaded_props.iter().enumerate() {
+            for p in props.iter() {
+                if p.state == PseudoStateType::Normal {
+                    let d = p.prop_type as u8 as usize;
+                    if d < 128 {
+                        prop_set[node_idx][0] |= 1u128 << d;
+                    } else {
+                        prop_set[node_idx][1] |= 1u128 << (d - 128);
+                    }
+                }
+            }
+        }
+
+        // Mark properties from inline CSS (NodeData.css_props, unconditional = Normal)
+        for (node_idx, node) in node_data.iter().enumerate() {
+            for p in node.css_props.iter() {
+                let is_normal = p.apply_if.as_slice().is_empty();
+                if is_normal {
+                    let d = p.property.get_type() as u8 as usize;
+                    if d < 128 {
+                        prop_set[node_idx][0] |= 1u128 << d;
+                    } else {
+                        prop_set[node_idx][1] |= 1u128 << (d - 128);
+                    }
+                }
+            }
+        }
+
+        // All UA property types that get_ua_property() may return Some for
+        let property_types = [
+            CssPropertyType::Display,
+            CssPropertyType::Width,
+            CssPropertyType::Height,
+            CssPropertyType::FontSize,
+            CssPropertyType::FontWeight,
+            CssPropertyType::FontFamily,
+            CssPropertyType::MarginTop,
+            CssPropertyType::MarginBottom,
+            CssPropertyType::MarginLeft,
+            CssPropertyType::MarginRight,
+            CssPropertyType::PaddingTop,
+            CssPropertyType::PaddingBottom,
+            CssPropertyType::PaddingLeft,
+            CssPropertyType::PaddingRight,
+            CssPropertyType::BorderTopStyle,
+            CssPropertyType::BorderTopWidth,
+            CssPropertyType::BorderTopColor,
+            CssPropertyType::BreakInside,
+            CssPropertyType::BreakAfter,
+            CssPropertyType::ListStyleType,
+            CssPropertyType::CounterReset,
+            CssPropertyType::TextDecoration,
+            CssPropertyType::TextAlign,
+            CssPropertyType::VerticalAlign,
+            CssPropertyType::Cursor,
+        ];
+
+        // Apply UA CSS: only insert for property types not yet set (bitset check = O(1))
         for (node_index, node) in node_data.iter().enumerate() {
-            let node_id = NodeId::new(node_index);
             let node_type = &node.node_type;
 
-            // Get all possible CSS property types and check if UA CSS defines them
-            // We need to check all properties that this node type might have
-            let property_types = [
-                CssPropertyType::Display,
-                CssPropertyType::Width,
-                CssPropertyType::Height,
-                CssPropertyType::FontSize,
-                CssPropertyType::FontWeight,
-                CssPropertyType::FontFamily,
-                CssPropertyType::MarginTop,
-                CssPropertyType::MarginBottom,
-                CssPropertyType::MarginLeft,
-                CssPropertyType::MarginRight,
-                CssPropertyType::PaddingTop,
-                CssPropertyType::PaddingBottom,
-                CssPropertyType::PaddingLeft,
-                CssPropertyType::PaddingRight,
-                // Add more as needed
-            ];
-
             for prop_type in &property_types {
+                // Check bitset: if already set, skip entirely
+                let d = *prop_type as u8 as usize;
+                let has_prop = if d < 128 {
+                    (prop_set[node_index][0] & (1u128 << d)) != 0
+                } else {
+                    (prop_set[node_index][1] & (1u128 << (d - 128))) != 0
+                };
+
+                if has_prop {
+                    continue;
+                }
+
                 // Check if UA CSS defines this property for this node type
                 if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type, *prop_type) {
-                    // Only insert if the property is NOT already set by inline CSS or author CSS
-                    // UA CSS has LOWEST priority
-                    let has_inline = node.css_props.iter().any(|p| {
-                        // Check if this is a normal (unconditional) property
-                        let is_normal = p.apply_if.as_slice().is_empty();
-                        is_normal && p.property.get_type() == *prop_type
+                    self.cascaded_props[node_index].push(StatefulCssProperty {
+                        state: PseudoStateType::Normal,
+                        prop_type: *prop_type,
+                        property: ua_prop.clone(),
                     });
 
-                    let has_css = self
-                        .css_props
-                        .get(node_id.index())
-                        .map(|v| v.iter().any(|p| {
-                            p.state == azul_css::dynamic_selector::PseudoStateType::Normal
-                                && p.prop_type == *prop_type
-                        }))
-                        .unwrap_or(false);
-
-                    let has_cascaded = self
-                        .cascaded_props
-                        .get(node_id.index())
-                        .map(|v| v.iter().any(|p| {
-                            p.state == azul_css::dynamic_selector::PseudoStateType::Normal
-                                && p.prop_type == *prop_type
-                        }))
-                        .unwrap_or(false);
-
-                    // Insert UA CSS only if not already present (lowest priority)
-                    if !has_inline && !has_css && !has_cascaded {
-                        let already_exists = self.cascaded_props[node_id.index()]
-                            .iter()
-                            .any(|p| {
-                                p.state == azul_css::dynamic_selector::PseudoStateType::Normal
-                                    && p.prop_type == *prop_type
-                            });
-                        if !already_exists {
-                            self.cascaded_props[node_id.index()].push(StatefulCssProperty {
-                                state: azul_css::dynamic_selector::PseudoStateType::Normal,
-                                prop_type: *prop_type,
-                                property: ua_prop.clone(),
-                            });
-                        }
+                    // Mark as set in the bitset (prevent duplicate insertion for same node)
+                    if d < 128 {
+                        prop_set[node_index][0] |= 1u128 << d;
+                    } else {
+                        prop_set[node_index][1] |= 1u128 << (d - 128);
                     }
                 }
             }
         }
     }
 
-    /// Compute inherited values and dependency chains for all nodes in the DOM tree.
+    /// Sort cascaded_props by (state, prop_type) for binary search lookups.
+    /// Must be called after apply_ua_css() which adds entries to cascaded_props.
+    pub fn sort_cascaded_props(&mut self) {
+        for v in self.cascaded_props.iter_mut() {
+            v.sort_unstable_by_key(|p| (p.state, p.prop_type));
+        }
+    }
+
+    /// Compute inherited values for all nodes in the DOM tree.
     ///
     /// Implements CSS inheritance: walk tree depth-first, apply cascade priority
     /// (inherited → cascaded → css → inline → user), create dependency chains for
@@ -4469,14 +4279,13 @@ impl CssPropertyCache {
             .filter_map(|(node_index, hierarchy_item)| {
                 let node_id = NodeId::new(node_index);
                 let parent_id = hierarchy_item.parent_id();
-                let parent_computed =
+                let parent_computed: Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
                     parent_id.and_then(|pid| self.computed_values.get(pid.index()).cloned());
 
                 let mut ctx = InheritanceContext {
                     node_id,
                     parent_id,
-                    computed_values: BTreeMap::new(),
-                    dependency_chains: BTreeMap::new(),
+                    computed_values: Vec::new(),
                 };
 
                 // Step 1: Inherit from parent
@@ -4504,30 +4313,19 @@ impl CssPropertyCache {
     fn inherit_from_parent(
         &self,
         ctx: &mut InheritanceContext,
-        parent_values: &BTreeMap<CssPropertyType, CssPropertyWithOrigin>,
+        parent_values: &[(CssPropertyType, CssPropertyWithOrigin)],
     ) {
         for (prop_type, prop_with_origin) in
             parent_values.iter().filter(|(pt, _)| pt.is_inheritable())
         {
-            ctx.computed_values.insert(
-                *prop_type,
-                CssPropertyWithOrigin {
-                    property: prop_with_origin.property.clone(),
-                    origin: CssPropertyOrigin::Inherited,
-                },
-            );
-
-            // Don't inherit font-size chains (would cause double resolution)
-            if *prop_type == CssPropertyType::FontSize {
-                continue;
-            }
-
-            if let Some(chain) = ctx
-                .parent_id
-                .and_then(|pid| self.dependency_chains.get(pid.index()))
-                .and_then(|chains| chains.get(prop_type))
-            {
-                ctx.dependency_chains.insert(*prop_type, chain.clone());
+            let entry = (*prop_type, CssPropertyWithOrigin {
+                property: prop_with_origin.property.clone(),
+                origin: CssPropertyOrigin::Inherited,
+            });
+            // Insert into sorted vec
+            match ctx.computed_values.binary_search_by_key(prop_type, |(k, _)| *k) {
+                Ok(idx) => ctx.computed_values[idx] = entry,
+                Err(idx) => ctx.computed_values.insert(idx, entry),
             }
         }
     }
@@ -4537,7 +4335,7 @@ impl CssPropertyCache {
         &self,
         ctx: &mut InheritanceContext,
         node_id: NodeId,
-        parent_computed: &Option<BTreeMap<CssPropertyType, CssPropertyWithOrigin>>,
+        parent_computed: &Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
         node_data: &[NodeData],
         node_index: usize,
     ) {
@@ -4572,7 +4370,7 @@ impl CssPropertyCache {
         // Step 5: User-overridden properties
         if let Some(user_props) = self.user_overridden_properties.get(node_id.index()) {
             for (_, prop) in user_props.iter() {
-                self.process_property(ctx, prop, parent_computed);
+                self.process_property(ctx, &prop, parent_computed);
             }
         }
     }
@@ -4580,14 +4378,14 @@ impl CssPropertyCache {
     /// Check if a cascaded property should be applied
     fn should_apply_cascaded(
         &self,
-        computed: &BTreeMap<CssPropertyType, CssPropertyWithOrigin>,
+        computed: &[(CssPropertyType, CssPropertyWithOrigin)],
         prop_type: CssPropertyType,
         prop: &CssProperty,
     ) -> bool {
         // Skip relative font-size if we already have inherited resolved value
         if prop_type == CssPropertyType::FontSize {
-            if let Some(existing) = computed.get(&prop_type) {
-                if existing.origin == CssPropertyOrigin::Inherited
+            if let Ok(idx) = computed.binary_search_by_key(&prop_type, |(k, _)| *k) {
+                if computed[idx].1.origin == CssPropertyOrigin::Inherited
                     && Self::has_relative_font_size_unit(prop)
                 {
                     return false;
@@ -4595,18 +4393,18 @@ impl CssPropertyCache {
             }
         }
 
-        match computed.get(&prop_type) {
-            None => true,
-            Some(existing) => existing.origin == CssPropertyOrigin::Inherited,
+        match computed.binary_search_by_key(&prop_type, |(k, _)| *k) {
+            Err(_) => true,
+            Ok(idx) => computed[idx].1.origin == CssPropertyOrigin::Inherited,
         }
     }
 
-    /// Process a single property: resolve dependencies and store
+    /// Process a single property: resolve and store
     fn process_property(
         &self,
         ctx: &mut InheritanceContext,
         prop: &CssProperty,
-        parent_computed: &Option<BTreeMap<CssPropertyType, CssPropertyWithOrigin>>,
+        parent_computed: &Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
     ) {
         let prop_type = prop.get_type();
 
@@ -4616,16 +4414,13 @@ impl CssPropertyCache {
             self.resolve_other_property(prop, &ctx.computed_values)
         };
 
-        ctx.computed_values.insert(
-            prop_type,
-            CssPropertyWithOrigin {
-                property: resolved.clone(),
-                origin: CssPropertyOrigin::Own,
-            },
-        );
-
-        if let Some(chain) = self.build_dependency_chain(ctx.node_id, ctx.parent_id, &resolved) {
-            ctx.dependency_chains.insert(prop_type, chain);
+        let entry = (prop_type, CssPropertyWithOrigin {
+            property: resolved,
+            origin: CssPropertyOrigin::Own,
+        });
+        match ctx.computed_values.binary_search_by_key(&prop_type, |(k, _)| *k) {
+            Ok(idx) => ctx.computed_values[idx] = entry,
+            Err(idx) => ctx.computed_values.insert(idx, entry),
         }
     }
 
@@ -4633,13 +4428,17 @@ impl CssPropertyCache {
     fn resolve_font_size_property(
         &self,
         prop: &CssProperty,
-        parent_computed: &Option<BTreeMap<CssPropertyType, CssPropertyWithOrigin>>,
+        parent_computed: &Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
     ) -> CssProperty {
         const DEFAULT_FONT_SIZE_PX: f32 = 16.0;
 
         let parent_font_size = parent_computed
             .as_ref()
-            .and_then(|p| p.get(&CssPropertyType::FontSize));
+            .and_then(|p| {
+                p.binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k)
+                    .ok()
+                    .map(|idx| &p[idx].1)
+            });
 
         match parent_font_size {
             Some(pfs) => Self::resolve_property_dependency(prop, &pfs.property)
@@ -4652,11 +4451,12 @@ impl CssPropertyCache {
     fn resolve_other_property(
         &self,
         prop: &CssProperty,
-        computed: &BTreeMap<CssPropertyType, CssPropertyWithOrigin>,
+        computed: &[(CssPropertyType, CssPropertyWithOrigin)],
     ) -> CssProperty {
         computed
-            .get(&CssPropertyType::FontSize)
-            .and_then(|fs| Self::resolve_property_dependency(prop, &fs.property))
+            .binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k)
+            .ok()
+            .and_then(|idx| Self::resolve_property_dependency(prop, &computed[idx].1.property))
             .unwrap_or_else(|| prop.clone())
     }
 
@@ -4723,20 +4523,9 @@ impl CssPropertyCache {
             .map(|old| old != &ctx.computed_values)
             .unwrap_or(true);
 
-        let chains_changed = self
-            .dependency_chains
-            .get(ctx.node_id.index())
-            .map(|old| old != &ctx.dependency_chains)
-            .unwrap_or(!ctx.dependency_chains.is_empty());
-
-        let changed = values_changed || chains_changed;
-
         self.computed_values[ctx.node_id.index()] = ctx.computed_values.clone();
-        if !ctx.dependency_chains.is_empty() {
-            self.dependency_chains[ctx.node_id.index()] = ctx.dependency_chains.clone();
-        }
 
-        changed
+        values_changed
     }
 }
 
@@ -4744,169 +4533,10 @@ impl CssPropertyCache {
 struct InheritanceContext {
     node_id: NodeId,
     parent_id: Option<NodeId>,
-    computed_values: BTreeMap<CssPropertyType, CssPropertyWithOrigin>,
-    dependency_chains: BTreeMap<CssPropertyType, CssDependencyChain>,
+    computed_values: Vec<(CssPropertyType, CssPropertyWithOrigin)>,
 }
 
 impl CssPropertyCache {
-    /// Resolve a dependency chain to an absolute pixel value.
-    ///
-    /// This walks through the chain and resolves each dependency:
-    /// - Absolute values: return immediately
-    /// - Em values: multiply by source node's font-size
-    /// - Percent values: multiply by source node's property value
-    /// - Rem values: multiply by root node's font-size
-    ///
-    /// # Arguments
-    /// * `node_id` - The node to resolve the property for
-    /// * `property_type` - The property type to resolve
-    /// * `root_font_size` - Root element's font-size for rem calculations (default 16px)
-    ///
-    /// # Returns
-    /// The resolved pixel value, or None if the chain couldn't be resolved
-    pub fn resolve_dependency_chain(
-        &self,
-        node_id: NodeId,
-        property_type: CssPropertyType,
-        root_font_size: f32,
-    ) -> Option<f32> {
-        let chain = self.get_chain(node_id, property_type)?;
-
-        if let Some(cached) = chain.cached_pixels {
-            return Some(cached);
-        }
-
-        chain.steps.clone().iter().try_fold(None, |_, step| {
-            Some(self.resolve_step(step, property_type, root_font_size))
-        })?
-    }
-
-    /// Get a dependency chain for a node/property pair
-    fn get_chain(
-        &self,
-        node_id: NodeId,
-        property_type: CssPropertyType,
-    ) -> Option<&CssDependencyChain> {
-        self.dependency_chains
-            .get(node_id.index())
-            .and_then(|chains| chains.get(&property_type))
-    }
-
-    /// Resolve a single step in a dependency chain
-    fn resolve_step(
-        &self,
-        step: &CssDependencyChainStep,
-        property_type: CssPropertyType,
-        root_font_size: f32,
-    ) -> Option<f32> {
-        match step {
-            CssDependencyChainStep::Absolute { pixels } => Some(*pixels),
-            CssDependencyChainStep::Percent {
-                source_node,
-                factor,
-            } => {
-                let source_val = self.get_cached_pixels(*source_node, property_type)?;
-                Some(source_val * factor)
-            }
-            CssDependencyChainStep::Em {
-                source_node,
-                factor,
-            } => {
-                let font_size = self.get_cached_pixels(*source_node, CssPropertyType::FontSize)?;
-                Some(font_size * factor)
-            }
-            CssDependencyChainStep::Rem { factor } => Some(root_font_size * factor),
-        }
-    }
-
-    /// Get cached pixel value for a node's property
-    fn get_cached_pixels(&self, node_id: NodeId, property_type: CssPropertyType) -> Option<f32> {
-        self.get_chain(node_id, property_type)
-            .and_then(|chain| chain.cached_pixels)
-    }
-
-    /// Update a property value and invalidate all dependent chains.
-    ///
-    /// When a property changes (e.g., font-size changes from 16px to 20px):
-    /// 1. Update the property value in computed_values
-    /// 2. Update/rebuild the dependency chain
-    /// 3. Find all nodes whose chains depend on this node
-    /// 4. Invalidate their cached values
-    /// 5. Return list of affected nodes that need re-layout
-    ///
-    /// # Arguments
-    /// * `node_id` - The node whose property changed
-    /// * `property` - The new property value
-    /// * `node_hierarchy` - DOM tree (needed to find children)
-    /// * `node_data` - Node data array
-    ///
-    /// # Returns
-    /// Vector of NodeIds that were affected and need re-layout
-    pub fn update_property_and_invalidate_dependents(
-        &mut self,
-        node_id: NodeId,
-        property: CssProperty,
-        node_hierarchy: &[NodeHierarchyItem],
-        _node_data: &[NodeData],
-    ) -> Vec<NodeId> {
-        let prop_type = property.get_type();
-
-        self.update_computed_property(node_id, property.clone());
-        self.rebuild_dependency_chain(node_id, prop_type, &property, node_hierarchy);
-
-        let mut affected = self.invalidate_dependents(node_id);
-        affected.push(node_id);
-        affected
-    }
-
-    /// Update a property in computed_values with Own origin
-    fn update_computed_property(&mut self, node_id: NodeId, property: CssProperty) {
-        self.computed_values[node_id.index()]
-            .insert(
-                property.get_type(),
-                CssPropertyWithOrigin {
-                    property,
-                    origin: CssPropertyOrigin::Own,
-                },
-            );
-    }
-
-    /// Rebuild the dependency chain for a property
-    fn rebuild_dependency_chain(
-        &mut self,
-        node_id: NodeId,
-        prop_type: CssPropertyType,
-        property: &CssProperty,
-        node_hierarchy: &[NodeHierarchyItem],
-    ) {
-        let parent_id = node_hierarchy
-            .get(node_id.index())
-            .and_then(|h| h.parent_id());
-
-        if let Some(chain) = self.build_dependency_chain(node_id, parent_id, property) {
-            self.dependency_chains[node_id.index()]
-                .insert(prop_type, chain);
-        }
-    }
-
-    /// Invalidate cached values for all chains that depend on a node
-    fn invalidate_dependents(&mut self, node_id: NodeId) -> Vec<NodeId> {
-        self.dependency_chains
-            .iter_mut()
-            .enumerate()
-            .filter_map(|(dep_node_idx, chains)| {
-                let affected = chains.values_mut().any(|chain| {
-                    if chain.depends_on(node_id) {
-                        chain.cached_pixels = None;
-                        true
-                    } else {
-                        false
-                    }
-                });
-                affected.then_some(NodeId::new(dep_node_idx))
-            })
-            .collect()
-    }
 
     /// Property types that may have User-Agent CSS defaults.
     /// Used by build_resolved_cache to ensure UA CSS properties are included.
@@ -4947,7 +4577,7 @@ impl CssPropertyCache {
     /// This replaces 18+ BTreeMap lookups per get_property() call with
     /// a single Vec index + binary search, typically a 5-10x speedup.
     ///
-    /// The returned cache should be assigned to self.resolved_cache.
+    /// The returned cache is used to populate compact_cache.tier3_overflow.
     pub fn build_resolved_cache(
         &self,
         node_data: &[NodeData],
@@ -4968,8 +4598,8 @@ impl CssPropertyCache {
             // BTreeSet<CssPropertyType> is cheap (u8-sized keys, small set per node).
             let mut prop_types = BTreeSet::new();
 
-            if let Some(map) = self.user_overridden_properties.get(node_id.index()) {
-                prop_types.extend(map.keys().copied());
+            if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
+                prop_types.extend(v.iter().map(|(k, _)| *k));
             }
             for css_prop in nd.css_props.iter() {
                 let conditions = css_prop.apply_if.as_slice();
@@ -5047,8 +4677,7 @@ impl CssPropertyCache {
     /// Invalidate the resolved cache for a single node.
     /// Call this when a node's state changes (e.g., hover on/off) or
     /// when a property is overridden dynamically.
-    /// After invalidation, rebuild the node's entry by calling
-    /// rebuild_resolved_node().
+    /// Rebuilds the compact cache tier3_overflow entry for a single node.
     pub fn invalidate_resolved_node(
         &mut self,
         node_id: NodeId,
@@ -5056,8 +4685,11 @@ impl CssPropertyCache {
         styled_node: &crate::styled_dom::StyledNode,
     ) {
         let idx = node_id.index();
-        if idx >= self.resolved_cache.len() {
-            return;
+
+        // Check that compact_cache exists and has this node
+        match &self.compact_cache {
+            Some(c) if idx < c.node_count() => {},
+            _ => return,
         }
 
         let node_state = &styled_node.styled_node_state;
@@ -5065,8 +4697,8 @@ impl CssPropertyCache {
         // Build the resolved properties using shared reference (&self via get_property_slow)
         let mut prop_types = alloc::collections::BTreeSet::new();
 
-        if let Some(map) = self.user_overridden_properties.get(node_id.index()) {
-            prop_types.extend(map.keys().copied());
+        if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
+            prop_types.extend(v.iter().map(|(k, _)| *k));
         }
         for css_prop in node_data.css_props.iter() {
             prop_types.insert(css_prop.property.get_type());
@@ -5082,7 +4714,7 @@ impl CssPropertyCache {
             }
         }
         if let Some(map) = self.computed_values.get(node_id.index()) {
-            prop_types.extend(map.keys().copied());
+            prop_types.extend(map.iter().map(|(k, _)| *k));
         }
         for pt in Self::UA_PROPERTY_TYPES {
             if crate::ua_css::get_ua_property(&node_data.node_type, *pt).is_some() {
@@ -5090,6 +4722,7 @@ impl CssPropertyCache {
             }
         }
 
+        // Resolve all properties first (immutable borrow of self)
         let mut props = Vec::with_capacity(prop_types.len());
         for prop_type in &prop_types {
             if let Some(prop) = self.get_property_slow(node_data, &node_id, node_state, prop_type) {
@@ -5097,13 +4730,15 @@ impl CssPropertyCache {
             }
         }
 
-        // Now assign to the cache entry (mutable borrow happens after shared borrows end)
-        self.resolved_cache[idx] = props;
+        // Now mutably borrow compact_cache to update it
+        if let Some(compact) = &mut self.compact_cache {
+            compact.set_overflow_props(idx, props);
+        }
     }
 
-    /// Clear the entire resolved cache. Call after major DOM changes.
+    /// Clear the entire compact cache. Call after major DOM changes.
     pub fn invalidate_resolved_cache(&mut self) {
-        self.resolved_cache.clear();
+        self.compact_cache = None;
     }
 }
 

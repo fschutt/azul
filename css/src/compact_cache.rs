@@ -31,7 +31,6 @@ use crate::props::style::border::BorderStyle;
 use crate::props::property::{CssProperty, CssPropertyType};
 use crate::css::CssPropertyValue;
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 // =============================================================================
@@ -1148,7 +1147,8 @@ impl Default for CompactTextProps {
 /// - Have calc() expressions
 /// - Exceed the numeric range of compact encoding
 /// - Are rare CSS properties (grid, transforms, etc.)
-pub type CompactOverflowProps = BTreeMap<CssPropertyType, CssProperty>;
+/// Sorted by `CssPropertyType` for binary-search lookup.
+pub type CompactOverflowProps = Vec<(CssPropertyType, CssProperty)>;
 
 // =============================================================================
 // CompactLayoutCache — the top-level container
@@ -1642,14 +1642,32 @@ impl CompactLayoutCache {
         self.tier3_overflow
             .get(node_idx)
             .and_then(|opt| opt.as_ref())
-            .and_then(|map| map.get(prop))
+            .and_then(|v| {
+                v.binary_search_by_key(prop, |(t, _)| *t)
+                    .ok()
+                    .map(|i| &v[i].1)
+            })
     }
 
-    /// Insert a property into the Tier 3 overflow map for a node.
+    /// Insert a property into the Tier 3 overflow for a node.
     pub fn set_overflow_prop(&mut self, node_idx: usize, prop: CssPropertyType, value: CssProperty) {
         if let Some(slot) = self.tier3_overflow.get_mut(node_idx) {
-            slot.get_or_insert_with(|| Box::new(BTreeMap::new()))
-                .insert(prop, value);
+            let v = slot.get_or_insert_with(|| Box::new(Vec::new()));
+            match v.binary_search_by_key(&prop, |(t, _)| *t) {
+                Ok(i) => v[i].1 = value,
+                Err(i) => v.insert(i, (prop, value)),
+            }
+        }
+    }
+
+    /// Set the entire tier3 overflow entry for a node (replacing any existing).
+    pub fn set_overflow_props(&mut self, node_idx: usize, props: Vec<(CssPropertyType, CssProperty)>) {
+        if let Some(slot) = self.tier3_overflow.get_mut(node_idx) {
+            if props.is_empty() {
+                *slot = None;
+            } else {
+                *slot = Some(Box::new(props));
+            }
         }
     }
 }

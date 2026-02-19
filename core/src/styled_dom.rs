@@ -897,6 +897,8 @@ impl StyledDom {
         // properties can be inherited by child nodes (especially text nodes)
         let t_ua = std::time::Instant::now();
         css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
+        // Sort cascaded_props after apply_ua_css() added UA entries
+        css_property_cache.sort_cascaded_props();
         let ua_ms = t_ua.elapsed().as_secs_f64() * 1000.0;
 
         // Compute inherited values for all nodes (resolves em, %, etc.)
@@ -909,18 +911,19 @@ impl StyledDom {
         );
         let inherit_ms = t_inherit.elapsed().as_secs_f64() * 1000.0;
 
-        // Build pre-resolved property cache for O(1) layout lookups.
+        // Build pre-resolved property cache (temporary, consumed by compact cache builder).
         let t_resolved = std::time::Instant::now();
-        css_property_cache.resolved_cache = css_property_cache.build_resolved_cache(
+        let resolved_props = css_property_cache.build_resolved_cache(
             compact_dom.node_data.as_ref().internal,
             &styled_nodes,
         );
         let resolved_ms = t_resolved.elapsed().as_secs_f64() * 1000.0;
 
-        // Build compact layout cache
+        // Build compact layout cache (includes tier3_overflow with all resolved properties)
         let t_compact = std::time::Instant::now();
         let compact = css_property_cache.build_compact_cache(
             compact_dom.node_data.as_ref().internal,
+            resolved_props,
         );
         css_property_cache.compact_cache = Some(compact);
         let compact_ms = t_compact.elapsed().as_secs_f64() * 1000.0;
@@ -1923,15 +1926,19 @@ impl StyledDom {
         let css_property_cache_mut = self.get_css_property_cache_mut();
 
         for new_prop in new_properties.iter() {
+            let prop_type = new_prop.get_type();
+            let vec = &mut css_property_cache_mut
+                .user_overridden_properties[node_id.index()];
             if new_prop.is_initial() {
-                let map = &mut css_property_cache_mut
-                    .user_overridden_properties[node_id.index()];
                 // CssProperty::Initial = remove overridden property
-                map.remove(&new_prop.get_type());
+                if let Ok(idx) = vec.binary_search_by_key(&prop_type, |(k, _)| *k) {
+                    vec.remove(idx);
+                }
             } else {
-                css_property_cache_mut
-                    .user_overridden_properties[node_id.index()]
-                    .insert(new_prop.get_type(), new_prop.clone());
+                match vec.binary_search_by_key(&prop_type, |(k, _)| *k) {
+                    Ok(idx) => vec[idx].1 = new_prop.clone(),
+                    Err(idx) => vec.insert(idx, (prop_type, new_prop.clone())),
+                }
             }
         }
 

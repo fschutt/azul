@@ -9,6 +9,7 @@ use crate::prop_cache::CssPropertyCache;
 use crate::styled_dom::StyledNodeState;
 use azul_css::compact_cache::*;
 use azul_css::css::CssPropertyValue;
+use azul_css::props::property::{CssProperty, CssPropertyType};
 use azul_css::props::basic::length::SizeMetric;
 use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
 use azul_css::props::layout::flex::LayoutFlexBasis;
@@ -23,9 +24,14 @@ impl CssPropertyCache {
     /// Resolves all layout-relevant properties for every node in the "normal" state
     /// (no hover/active/focus) and encodes them into compact arrays.
     ///
-    /// For the initial layout pass (where all nodes are in normal state), this provides
-    /// O(1) array-indexed access to all properties instead of BTreeMap lookups.
-    pub fn build_compact_cache(&self, node_data: &[NodeData]) -> CompactLayoutCache {
+    /// `resolved_props` is the pre-resolved property cache (from `build_resolved_cache()`).
+    /// All resolved properties are stored in `tier3_overflow` for generic property access,
+    /// while tier1/2/2b provide fast-path access for layout-hot properties.
+    pub fn build_compact_cache(
+        &self,
+        node_data: &[NodeData],
+        resolved_props: Vec<Vec<(CssPropertyType, CssProperty)>>,
+    ) -> CompactLayoutCache {
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
@@ -381,6 +387,18 @@ impl CssPropertyCache {
             // Text-indent (PixelValue wrapper → i16 × 10 resolved px)
             if let Some(val) = self.get_text_indent(nd, &node_id, &default_state) {
                 result.tier2b_text[i].text_indent = encode_css_pixel_as_i16(val);
+            }
+        }
+
+        // =====================================================================
+        // Tier 3: Populate overflow with ALL resolved properties
+        // =====================================================================
+        // This serves as the generic property store for get_property() lookups.
+        // Properties already encoded in tier1/2/2b are also stored here so that
+        // get_property() can return CssProperty references for any property type.
+        for (i, props) in resolved_props.into_iter().enumerate() {
+            if !props.is_empty() {
+                result.tier3_overflow[i] = Some(Box::new(props));
             }
         }
 
