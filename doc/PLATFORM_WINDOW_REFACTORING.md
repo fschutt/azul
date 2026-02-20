@@ -402,7 +402,7 @@ delegating, or whether run.rs should match on the enum variant directly.
 | Phase | Description | Lines Removed | Difficulty |
 |-------|-------------|:------------:|:----------:|
 | 1 | Merge V1→V2, delete V1 trait + dead code | ~500 | Medium |
-| 2 | CommonWindowState struct + macro | ~520 | Medium |
+| 2 | CommonWindowState struct + macro | ~520 | Low |
 | 3 | Rename all V2 → clean names | 0 | Easy |
 | 4 | Linux timer dedup | ~80 | Easy |
 | 5 | Simplify LinuxWindow | ~70 | Easy |
@@ -513,9 +513,8 @@ Phases 4 and 5 are independent and can be done anytime after Phase 1.
 
 - **Phase 1:** Low risk — merge + delete, no logic changes. Compiler errors
   catch missed references.
-- **Phase 2:** Medium risk — restructuring struct fields across 5 platforms.
-  All getters are trivial, but `prepare_callback_invocation` has borrow-checker
-  implications. Mitigation: split-borrow patterns (see note above).
+- **Phase 2:** Low risk — no logic changes, just pulling duplicated getter
+  implementations into a macro. All 28 getters are trivial field accessors.
 - **Phase 3:** Zero risk — mechanical rename, compiler catches everything
 - **Phase 4:** Zero risk — extract identical code to shared function
 - **Phase 5:** Low risk — simplify delegation layer
