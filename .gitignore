@@ -38,3 +38,8 @@ Cargo.lock
 commits.txt
 out-italic.txt
 scripts/gemini_perf_prompt*.md
+coverage/
+profraw/
+coverage.txt
+coverage.json
+*.profraw

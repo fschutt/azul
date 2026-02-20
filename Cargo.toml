@@ -20,3 +20,11 @@ strip = true      # Automatically strip symbols from the binary.
 lto = true        # Enable Link Time Optimization (removes dead code).
 codegen-units = 1 # Reduces parallel builds but allows better optimization.
 panic = "abort"   # Removes stack unwinding code (drastic size reduction).
+
+[profile.coverage]
+inherits = "release"
+strip = false     # Keep symbols for grcov source mapping.
+debug = true      # Full debug info for line-level coverage.
+lto = false       # Disable LTO so grcov can see individual object files.
+codegen-units = 16
+panic = "unwind"  # Tests need unwinding for #[should_panic] etc.
