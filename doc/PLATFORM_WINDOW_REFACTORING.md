@@ -96,7 +96,7 @@ After moving `poll_event()`, `request_redraw()`, `is_open()` to PlatformWindowV2
 
 ---
 
-## Phase 2: Extract `CommonWindowState` struct + macro (~28 getters → 2)
+## Phase 2: `CommonWindowState` struct + macro for getter implementations
 
 ### Problem
 
@@ -104,9 +104,20 @@ All 5 PlatformWindowV2 implementations have **28 identical getter methods** that
 just return `&self.some_field` or `&mut self.some_field`. These exist because
 the trait can't access struct fields directly.
 
-### Solution
+### Solution: Macro-generated implementations (no `common()` accessor)
 
-Extract shared state into a `CommonWindowState` struct:
+Instead of adding `common()`/`common_mut()` accessor methods to the trait
+(which would cause borrow-checker issues — a single `&mut CommonWindowState`
+prevents split-borrowing its fields), we keep the **28 getters as separate
+trait methods** but use a macro to **generate all implementations at once**.
+
+This way:
+- The trait still has 28 individual getters → **no borrow-checker issues**
+- Each getter borrows only one field → **split borrows work naturally**
+- Platforms don't _have_ to use `CommonWindowState`, but it's highly encouraged
+- Zero boilerplate per platform — one macro invocation replaces 28 method impls
+
+#### Step 1: Define `CommonWindowState` struct
 
 ```rust
 pub struct CommonWindowState {
@@ -143,46 +154,133 @@ pub struct CommonWindowState {
 }
 ```
 
-Add only 2 required methods to the trait:
+#### Step 2: Macro generates all 28 getter implementations
 
 ```rust
-pub trait PlatformWindowV2 {
-    fn common(&self) -> &CommonWindowState;
-    fn common_mut(&mut self) -> &mut CommonWindowState;
-    // ... only truly platform-specific methods remain required
-}
-```
-
-Use a macro to implement these 2 methods per platform (assumes each
-platform struct has `common: CommonWindowState` field):
-
-```rust
-macro_rules! impl_common_window_state {
-    () => {
-        fn common(&self) -> &CommonWindowState { &self.common }
-        fn common_mut(&mut self) -> &mut CommonWindowState { &mut self.common }
+/// Generates all 28 PlatformWindowV2 getter/setter implementations
+/// by delegating to `self.$field` (a `CommonWindowState` field).
+///
+/// Usage: `impl_platform_window_getters!(common);`
+/// where `common` is the field name on the platform struct.
+macro_rules! impl_platform_window_getters {
+    ($field:ident) => {
+        fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
+            self.$field.layout_window.as_mut()
+        }
+        fn get_layout_window(&self) -> Option<&LayoutWindow> {
+            self.$field.layout_window.as_ref()
+        }
+        fn get_current_window_state(&self) -> &FullWindowState {
+            &self.$field.current_window_state
+        }
+        fn get_current_window_state_mut(&mut self) -> &mut FullWindowState {
+            &mut self.$field.current_window_state
+        }
+        fn get_previous_window_state(&self) -> &Option<FullWindowState> {
+            &self.$field.previous_window_state
+        }
+        fn set_previous_window_state(&mut self, state: FullWindowState) {
+            self.$field.previous_window_state = Some(state);
+        }
+        fn get_image_cache_mut(&mut self) -> &mut ImageCache {
+            &mut self.$field.image_cache
+        }
+        fn get_renderer_resources_mut(&mut self) -> &mut RendererResources {
+            &mut self.$field.renderer_resources
+        }
+        fn get_fc_cache(&self) -> &Arc<FcFontCache> {
+            &self.$field.fc_cache
+        }
+        fn get_gl_context_ptr(&self) -> &OptionGlContextPtr {
+            &self.$field.gl_context_ptr
+        }
+        fn get_system_style(&self) -> &Arc<azul_css::system::SystemStyle> {
+            &self.$field.system_style
+        }
+        fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
+            &self.$field.app_data
+        }
+        fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
+            self.$field.scrollbar_drag_state.as_ref()
+        }
+        fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState> {
+            &mut self.$field.scrollbar_drag_state
+        }
+        fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
+            self.$field.scrollbar_drag_state = state;
+        }
+        fn get_hit_tester(&self) -> &AsyncHitTester {
+            self.$field.hit_tester.as_ref().expect("hit_tester not initialized")
+        }
+        fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester {
+            self.$field.hit_tester.as_mut().expect("hit_tester not initialized")
+        }
+        fn get_last_hovered_node(&self) -> Option<&HitTestNode> {
+            self.$field.last_hovered_node.as_ref()
+        }
+        fn set_last_hovered_node(&mut self, node: Option<HitTestNode>) {
+            self.$field.last_hovered_node = node;
+        }
+        fn get_document_id(&self) -> DocumentId {
+            self.$field.document_id.expect("document_id not initialized")
+        }
+        fn get_id_namespace(&self) -> IdNamespace {
+            self.$field.id_namespace.expect("id_namespace not initialized")
+        }
+        fn get_render_api(&self) -> &WrRenderApi {
+            self.$field.render_api.as_ref().expect("render_api not initialized")
+        }
+        fn get_render_api_mut(&mut self) -> &mut WrRenderApi {
+            self.$field.render_api.as_mut().expect("render_api not initialized")
+        }
+        fn get_renderer(&self) -> Option<&webrender::Renderer> {
+            self.$field.renderer.as_ref()
+        }
+        fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer> {
+            self.$field.renderer.as_mut()
+        }
+        fn needs_frame_regeneration(&self) -> bool {
+            self.$field.frame_needs_regeneration
+        }
+        fn mark_frame_needs_regeneration(&mut self) {
+            self.$field.frame_needs_regeneration = true;
+        }
+        fn clear_frame_regeneration_flag(&mut self) {
+            self.$field.frame_needs_regeneration = false;
+        }
     }
 }
-
-// In each platform:
-impl PlatformWindowV2 for Win32Window {
-    impl_common_window_state!();
-    // ... only ~10 platform-specific methods
-}
 ```
 
-All 28 getters become default methods on the trait:
+#### Step 3: One-line invocation per platform
 
 ```rust
-// These 28 methods become zero-boilerplate defaults:
-fn get_layout_window(&self) -> Option<&LayoutWindow> {
-    self.common().layout_window.as_ref()
+impl PlatformWindowV2 for Win32Window {
+    impl_platform_window_getters!(common);   // ← generates all 28 methods
+    // ... only ~10 platform-specific methods remain
 }
-fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
-    self.common_mut().layout_window.as_mut()
+
+impl PlatformWindowV2 for X11Window {
+    impl_platform_window_getters!(common);
+    // ...
 }
-// ... etc for all 28
 ```
+
+### Why macro instead of `common()`/`common_mut()` default methods?
+
+With `common()`/`common_mut()` on the trait, all getters route through a
+single `&mut self` → `&mut CommonWindowState`, which means the borrow
+checker sees **one big mutable borrow**. You can't simultaneously borrow
+`image_cache` and `layout_window` through default methods because both
+call `self.common_mut()`.
+
+With the macro approach:
+- Each getter method borrows **only its own field** via `self.common.field`
+- The compiler sees `self.common.image_cache` and `self.common.layout_window`
+  as **independent borrows** — split borrows work naturally
+- The trait keeps 28 separate required methods (the macro just implements them)
+- A platform could _choose_ not to use the macro and implement getters manually
+  (e.g., if it stores fields differently)
 
 ### Structs before/after
 
@@ -194,57 +292,47 @@ BEFORE: Win32Window { hwnd, hinstance, ..., layout_window, current_window_state,
 AFTER:  Win32Window { hwnd, hinstance, ..., common: CommonWindowState }
 ```
 
-### Methods that become defaults (using `common()`)
+### Cross-platform logic → provided default methods
 
-These all move from "required" → "provided default":
+These methods have **identical logic across all platforms** and only call
+trait getter methods. They become provided defaults on PlatformWindowV2:
 
-- `get_layout_window` / `get_layout_window_mut`
-- `get_current_window_state` / `get_current_window_state_mut`
-- `get_previous_window_state` / `set_previous_window_state`
-- `get_image_cache_mut`
-- `get_renderer_resources_mut`
-- `get_fc_cache`
-- `get_gl_context_ptr`
-- `get_system_style`
-- `get_app_data`
-- `get_scrollbar_drag_state` / `get_scrollbar_drag_state_mut` / `set_scrollbar_drag_state`
-- `get_hit_tester` / `get_hit_tester_mut`
-- `get_last_hovered_node` / `set_last_hovered_node`
-- `get_document_id` / `get_id_namespace`
-- `get_render_api` / `get_render_api_mut`
-- `get_renderer` / `get_renderer_mut`
-- `needs_frame_regeneration` / `mark_frame_needs_regeneration` / `clear_frame_regeneration_flag`
+```rust
+pub trait PlatformWindowV2 {
+    // ... required methods ...
 
-### Methods that also become defaults (cross-platform logic)
+    // PROVIDED: Uses get_layout_window_mut() + mark_frame_needs_regeneration()
+    fn add_threads(
+        &mut self,
+        threads: BTreeMap<ThreadId, Thread>,
+    ) {
+        if let Some(lw) = self.get_layout_window_mut() {
+            for (id, thread) in threads {
+                lw.threads.insert(id, thread);
+            }
+        }
+        self.mark_frame_needs_regeneration();
+    }
 
-These have identical logic across all platforms:
+    // PROVIDED: Uses get_layout_window_mut()
+    fn remove_threads(&mut self, ids: &BTreeSet<ThreadId>) {
+        if let Some(lw) = self.get_layout_window_mut() {
+            for id in ids { lw.threads.remove(id); }
+        }
+    }
 
-| Method | Impact |
-|--------|--------|
-| `add_threads` | -10 lines × 3 |
-| `remove_threads` | -8 lines × 3 |
-| `queue_window_create` | -3 lines × 3 |
-| `show_menu_from_callback` | -20 lines × 3 |
-| `prepare_callback_invocation` | -15 lines × 3 |
+    // PROVIDED: Uses get_current_window_state() + get_system_style()
+    fn queue_window_create(&mut self, options: WindowCreateOptions) { ... }
 
-**Total Phase 2 impact:** ~-520 lines (350 getters + 170 logic methods)
+    // PROVIDED: Uses get_current_window_state() + get_system_style() + queue_window_create()
+    fn show_menu_from_callback(&mut self, menu: &Menu, position: LogicalPosition) { ... }
 
-### Borrow-Checker Note
+    // PROVIDED: Uses get_raw_window_handle() + individual field getters
+    fn prepare_callback_invocation(&mut self) -> InvokeSingleCallbackBorrows { ... }
+}
+```
 
-The reason the trait originally has individual getters instead of a single
-`&mut self` → `&mut CommonWindowState` is to allow **split borrows**:
-borrowing `image_cache` and `layout_window` simultaneously from
-`&mut self`. With a single `common_mut()`, the borrow checker sees
-one `&mut CommonWindowState` and won't allow simultaneous mutable borrows
-of its fields.
-
-**Mitigation options:**
-1. **Temporarily reborrow**: `let c = self.common_mut(); let (a, b) = (&mut c.field_a, &mut c.field_b);`
-   — Rust allows splitting borrows on a struct if done in the same expression
-2. **Keep `prepare_callback_invocation` as the split-borrow point** — it already
-   returns a struct of individually borrowed fields, so the common getters can
-   still go through `common()`/`common_mut()` for all other cases
-3. **Add targeted splitter methods**: `fn common_split_layout_and_resources(&mut self) -> (&mut Option<LayoutWindow>, &mut RendererResources, ...)`
+**Total Phase 2 impact:** ~-520 lines (350 getter impls + 170 logic method impls)
 
 ---
 
@@ -324,16 +412,43 @@ delegating, or whether run.rs should match on the enum variant directly.
 
 ```rust
 pub trait PlatformWindow {
-    // 2 struct access methods (macro-generated per platform)
-    fn common(&self) -> &CommonWindowState;
-    fn common_mut(&mut self) -> &mut CommonWindowState;
+    // === 28 REQUIRED getter/setter methods ===
+    // (macro-generated per platform via impl_platform_window_getters!)
+    fn get_layout_window(&self) -> Option<&LayoutWindow>;
+    fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow>;
+    fn get_current_window_state(&self) -> &FullWindowState;
+    fn get_current_window_state_mut(&mut self) -> &mut FullWindowState;
+    fn get_previous_window_state(&self) -> &Option<FullWindowState>;
+    fn set_previous_window_state(&mut self, state: FullWindowState);
+    fn get_image_cache_mut(&mut self) -> &mut ImageCache;
+    fn get_renderer_resources_mut(&mut self) -> &mut RendererResources;
+    fn get_fc_cache(&self) -> &Arc<FcFontCache>;
+    fn get_gl_context_ptr(&self) -> &OptionGlContextPtr;
+    fn get_system_style(&self) -> &Arc<SystemStyle>;
+    fn get_app_data(&self) -> &Arc<RefCell<RefAny>>;
+    fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState>;
+    fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState>;
+    fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>);
+    fn get_hit_tester(&self) -> &AsyncHitTester;
+    fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester;
+    fn get_last_hovered_node(&self) -> Option<&HitTestNode>;
+    fn set_last_hovered_node(&mut self, node: Option<HitTestNode>);
+    fn get_document_id(&self) -> DocumentId;
+    fn get_id_namespace(&self) -> IdNamespace;
+    fn get_render_api(&self) -> &WrRenderApi;
+    fn get_render_api_mut(&mut self) -> &mut WrRenderApi;
+    fn get_renderer(&self) -> Option<&webrender::Renderer>;
+    fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer>;
+    fn needs_frame_regeneration(&self) -> bool;
+    fn mark_frame_needs_regeneration(&mut self);
+    fn clear_frame_regeneration_flag(&mut self);
 
-    // 3 lifecycle methods (from old V1, platform-specific)
+    // === 3 lifecycle methods (from old V1, platform-specific) ===
     fn poll_event(&mut self) -> Option<Self::EventType>;
     fn request_redraw(&mut self);
     fn is_open(&self) -> bool;
 
-    // 8 truly platform-specific methods
+    // === 8 truly platform-specific methods (hand-written) ===
     fn get_raw_window_handle(&self) -> RawWindowHandle;
     fn start_timer(&mut self, timer_id: usize, timer: Timer);
     fn stop_timer(&mut self, timer_id: usize);
@@ -342,23 +457,18 @@ pub trait PlatformWindow {
     fn sync_window_state(&mut self);
     fn show_tooltip_from_callback(&mut self, text: &str, position: LogicalPosition);
     fn hide_tooltip_from_callback(&mut self);
+    fn prepare_callback_invocation(&mut self) -> InvokeSingleCallbackBorrows;
 
-    // 1 optional override (only Wayland overrides)
+    // === 1 optional override (only Wayland overrides) ===
     fn handle_begin_interactive_move(&mut self) { /* no-op */ }
 
-    // ~28 default getter methods (auto-derived from common())
-    fn get_layout_window(&self) -> Option<&LayoutWindow> { ... }
-    fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> { ... }
-    // ... all delegating to common()/common_mut()
-
-    // ~5 default cross-platform logic methods
+    // === PROVIDED: cross-platform logic (use trait getters) ===
     fn add_threads(&mut self, ...) { ... }
     fn remove_threads(&mut self, ...) { ... }
     fn queue_window_create(&mut self, ...) { ... }
     fn show_menu_from_callback(&mut self, ...) { ... }
-    fn prepare_callback_invocation(&mut self) -> InvokeSingleCallbackBorrows { ... }
 
-    // ~3400 lines of provided event processing (unchanged)
+    // === PROVIDED: ~3400 lines of event processing (unchanged) ===
     fn apply_user_change(&mut self, ...) -> ProcessEventResult { ... }
     fn apply_system_change(&mut self, ...) -> ProcessEventResult { ... }
     fn dispatch_events_propagated(&mut self, ...) -> (...) { ... }
@@ -370,7 +480,29 @@ pub trait PlatformWindow {
 }
 ```
 
-**Result: Each platform goes from ~47 required methods (V1+V2) to ~13 required methods.**
+**Per-platform implementation (using macro):**
+
+```rust
+impl PlatformWindow for Win32Window {
+    impl_platform_window_getters!(common);  // ← all 28 getters in one line
+
+    fn poll_event(&mut self) -> ... { /* Win32-specific */ }
+    fn request_redraw(&mut self) { /* Win32-specific */ }
+    fn is_open(&self) -> bool { self.is_open }
+    fn get_raw_window_handle(&self) -> RawWindowHandle { /* HWND */ }
+    fn start_timer(&mut self, ...) { /* SetTimer */ }
+    fn stop_timer(&mut self, ...) { /* KillTimer */ }
+    fn start_thread_poll_timer(&mut self) { /* SetTimer(0xFFFF) */ }
+    fn stop_thread_poll_timer(&mut self) { /* KillTimer(0xFFFF) */ }
+    fn sync_window_state(&mut self) { /* SetWindowPos, etc. */ }
+    fn show_tooltip_from_callback(&mut self, ...) { /* Win32 tooltip */ }
+    fn hide_tooltip_from_callback(&mut self) { /* Win32 tooltip */ }
+    fn prepare_callback_invocation(&mut self) -> ... { /* Win32-specific handle */ }
+}
+```
+
+**Result: Each platform writes ~12 methods by hand. The macro generates
+the other 28. Cross-platform logic is provided by the trait.**
 
 ### Execution Order
 
