@@ -450,6 +450,7 @@ AzUpdate startup_window(AzRefAny data, AzCallbackInfo info) {
 }
 
 // Animation callback - mirrors animate() in Rust
+// Uses updateAllImageCallbacks instead of full DOM rebuild for efficiency
 AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info) {
     OpenGlStateRefMut d = OpenGlStateRefMut_create(&data);
     if (!OpenGlState_downcastMut(&data, &d)) {
@@ -463,7 +464,9 @@ AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info) {
     
     OpenGlStateRefMut_delete(&d);
     
-    return AzTimerCallbackReturn_continueAndUpdate();
+    // Only re-render image callbacks (OpenGL textures), no DOM rebuild needed
+    AzTimerCallbackInfo_updateAllImageCallbacks(&info);
+    return AzTimerCallbackReturn_continueUnchanged();
 }
 
 int main(void) {

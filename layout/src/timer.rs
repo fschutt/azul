@@ -7,8 +7,9 @@ use core::ffi::c_void;
 
 use azul_core::{
     callbacks::{TimerCallbackReturn, Update},
-    dom::OptionDomNodeId,
+    dom::{DomId, OptionDomNodeId},
     geom::{LogicalPosition, LogicalSize, OptionLogicalPosition, OptionCursorNodePosition, CursorNodePosition},
+    id::NodeId,
     menu::Menu,
     refany::{OptionRefAny, RefAny},
     resources::ImageRef,
@@ -384,6 +385,11 @@ impl TimerCallbackInfo {
     /// Triggers only texture re-rendering — no DOM rebuild or display list resubmission.
     pub fn update_all_image_callbacks(&mut self) {
         self.callback_info.update_all_image_callbacks();
+    }
+
+    /// Trigger re-rendering of an IFrame (applied after callback returns)
+    pub fn trigger_iframe_rerender(&mut self, dom_id: DomId, node_id: NodeId) {
+        self.callback_info.trigger_iframe_rerender(dom_id, node_id);
     }
 
     /// Reload system fonts (applied after callback returns)

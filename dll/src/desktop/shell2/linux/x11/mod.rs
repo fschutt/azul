@@ -1403,12 +1403,19 @@ impl X11Window {
 
                     // Invoke thread writeback callbacks
                     if let Some(thread_result) = self.invoke_thread_callbacks() {
+                        let mut thread_needs_redraw = false;
                         if thread_result.needs_processing() {
                             self.previous_window_state = Some(self.current_window_state.clone());
-                            let _ = self.process_callback_result_v2(&thread_result);
+                            let process_result = self.process_callback_result_v2(&thread_result);
                             self.sync_window_state();
+                            if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+                                thread_needs_redraw = true;
+                            }
                         }
                         if thread_result.needs_redraw() {
+                            thread_needs_redraw = true;
+                        }
+                        if thread_needs_redraw {
                             needs_redraw = true;
                         }
                     }
@@ -2823,6 +2830,7 @@ impl X11Window {
     /// This is called on every poll_event() to simulate timer ticks
     fn check_timers_and_threads(&mut self) {
         use super::super::common::event_v2::PlatformWindowV2;
+        use azul_core::events::ProcessEventResult;
 
         // Invoke expired timer callbacks
         let timer_results = self.invoke_expired_timers();
@@ -2848,8 +2856,11 @@ impl X11Window {
         if let Some(thread_result) = self.invoke_thread_callbacks() {
             if thread_result.needs_processing() {
                 self.previous_window_state = Some(self.current_window_state.clone());
-                let _ = self.process_callback_result_v2(&thread_result);
+                let process_result = self.process_callback_result_v2(&thread_result);
                 self.sync_window_state();
+                if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+                    self.frame_needs_regeneration = true;
+                }
             }
             if thread_result.needs_redraw() {
                 self.frame_needs_regeneration = true;

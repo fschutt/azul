@@ -2867,13 +2867,21 @@ unsafe extern "system" fn window_proc(
             if timer_id == 0xFFFF {
                 // Thread polling timer - invoke thread writeback callbacks
                 use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+                use azul_core::events::ProcessEventResult;
                 if let Some(thread_result) = window.invoke_thread_callbacks() {
+                    let mut needs_redraw = false;
                     if thread_result.needs_processing() {
                         window.previous_window_state = Some(window.current_window_state.clone());
-                        let _ = window.process_callback_result_v2(&thread_result);
+                        let process_result = window.process_callback_result_v2(&thread_result);
                         window.sync_window_state();
+                        if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+                            needs_redraw = true;
+                        }
                     }
                     if thread_result.needs_redraw() {
+                        needs_redraw = true;
+                    }
+                    if needs_redraw {
                         window.frame_needs_regeneration = true;
                         (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                     }

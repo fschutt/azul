@@ -448,7 +448,7 @@ impl TimerCallbackReturn {
     }
 
     /// Timer continues running and DOM should be refreshed.
-    pub fn continue_and_update() -> Self {
+    pub fn continue_and_refresh_dom() -> Self {
         Self {
             should_update: Update::RefreshDom,
             should_terminate: TerminateTimer::Continue,
@@ -464,7 +464,7 @@ impl TimerCallbackReturn {
     }
 
     /// Timer should stop and DOM should be refreshed.
-    pub fn terminate_and_update() -> Self {
+    pub fn terminate_and_refresh_dom() -> Self {
         Self {
             should_update: Update::RefreshDom,
             should_terminate: TerminateTimer::Terminate,

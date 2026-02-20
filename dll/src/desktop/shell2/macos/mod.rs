@@ -430,6 +430,7 @@ define_class!(
         #[unsafe(method(tickTimers:))]
         fn tick_timers(&self, _sender: Option<&NSObject>) {
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            use azul_core::events::ProcessEventResult;
 
             // Only log every ~60 frames to avoid spam, but always log if there's work
             static TICK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -447,8 +448,11 @@ define_class!(
                     for result in &timer_results {
                         if result.needs_processing() {
                             macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
-                            let _ = macos_window.process_callback_result_v2(result);
+                            let process_result = macos_window.process_callback_result_v2(result);
                             macos_window.sync_window_state();
+                            if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+                                needs_redraw = true;
+                            }
                         }
                         if result.needs_redraw() {
                             needs_redraw = true;
@@ -955,6 +959,7 @@ define_class!(
         #[unsafe(method(tickTimers:))]
         fn tick_timers(&self, _sender: Option<&NSObject>) {
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            use azul_core::events::ProcessEventResult;
 
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
@@ -968,8 +973,11 @@ define_class!(
                     for result in &timer_results {
                         if result.needs_processing() {
                             macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
-                            let _ = macos_window.process_callback_result_v2(result);
+                            let process_result = macos_window.process_callback_result_v2(result);
                             macos_window.sync_window_state();
+                            if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+                                needs_redraw = true;
+                            }
                         }
                         if result.needs_redraw() {
                             needs_redraw = true;
@@ -1857,6 +1865,16 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
             layout_window
                 .timers
                 .insert(azul_core::task::TimerId { id: timer_id }, timer);
+        }
+
+        // IDEMPOTENT: If an NSTimer already exists for this timer_id, invalidate
+        // it before creating a new one. This prevents duplicate NSTimers when
+        // invoke_expired_timers() already inserted the timer into layout_window
+        // and then process_callback_result_v2 calls start_timer() again.
+        if let Some(old_timer) = self.timers.remove(&timer_id) {
+            unsafe {
+                old_timer.invalidate();
+            }
         }
 
         // Create NSTimer that calls tickTimers: on the GLView
@@ -4677,29 +4695,11 @@ impl MacOSWindow {
 
         log_trace!(LogCategory::Rendering, "[render_and_present] START");
 
-        // CRITICAL: Invoke expired timer callbacks FIRST, before any rendering
-        // This allows timer callbacks (like the debug server timer) to run
-        let timer_results = self.invoke_expired_timers();
-        if !timer_results.is_empty() {
-            log_trace!(
-                LogCategory::Timer,
-                "[render_and_present] Invoked {} timer callbacks",
-                timer_results.len()
-            );
-
-            // Process each callback result to handle window state modifications,
-            // queued_window_states (for debug server click simulation), and text_input_triggered
-            for result in &timer_results {
-                if result.needs_processing() {
-                    self.previous_window_state = Some(self.current_window_state.clone());
-                    let _ = self.process_callback_result_v2(result);
-                    self.sync_window_state();
-                }
-                if result.needs_redraw() {
-                    self.frame_needs_regeneration = true;
-                }
-            }
-        }
+        // NOTE: Timer callbacks are NOT invoked here — they run in the
+        // NSTimer tick_timers callback. Invoking them here as well would
+        // cause double invocation (once in tick_timers, once in drawRect),
+        // leading to duplicate state mutations (e.g. rotation += 1 twice
+        // per frame) and redundant image callback re-invocations.
 
         // CRITICAL: Poll threads for completed work and invoke writeback callbacks
         // This processes ThreadWriteBackMsg from background threads
@@ -4771,8 +4771,8 @@ impl MacOSWindow {
 
         log_trace!(LogCategory::Rendering, "[build_atomic_txn] START");
 
-        // NOTE: Timer callbacks are now invoked in render_and_present_in_draw_rect()
-        // before this method is called, via invoke_expired_timers()
+        // NOTE: Timer callbacks are invoked in the NSTimer tick_timers callback,
+        // NOT here. See tick_timers in GLView/CPUView.
 
         // CRITICAL: Regenerate layout FIRST if needed
         // Layout must be current before building display lists

@@ -154,6 +154,7 @@ use azul_core::{
     refany::RefAny,
     resources::{IdNamespace, ImageCache, RendererResources},
     window::RawWindowHandle,
+    FastBTreeSet,
 };
 use azul_layout::{
     callbacks::{
@@ -3076,6 +3077,34 @@ pub trait PlatformWindowV2 {
                 event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
         }
 
+        // Handle image callback re-invocation (OpenGL texture updates, etc.)
+        // This covers both update_all_image_callbacks (re-invoke ALL image callbacks)
+        // and image_callbacks_changed (re-invoke specific nodes).
+        //
+        // NOTE: We do NOT invoke the image callbacks here. The actual invocation
+        // happens in wr_translate2::process_image_callback_updates() during the
+        // WebRender transaction building phase (build_webrender_transaction or
+        // build_image_only_transaction). Invoking them here would cause:
+        //   1. Double callback invocation (once here, once during transaction build)
+        //   2. Double state mutation (e.g. rotation += 1 incremented twice per frame)
+        //   3. Wasted work (the textures produced here are never registered with
+        //      WebRender and are discarded)
+        //
+        // Instead, we just signal that a redraw is needed so the rendering path
+        // picks up the updated textures.
+        {
+            let has_specific = result.image_callbacks_changed.as_ref()
+                .map(|m| !m.is_empty()).unwrap_or(false);
+
+            if result.update_all_image_callbacks || has_specific {
+                // Signal that we need a new frame — the rendering path will
+                // re-invoke image callbacks and register textures with WebRender.
+                event_result = event_result.max(
+                    ProcessEventResult::ShouldReRenderCurrentWindow
+                );
+            }
+        }
+
         // Handle text changes (words_changed) — previously dead field, now wired
         if let Some(ref words) = result.words_changed {
             use azul_core::diff::ChangeAccumulator;
@@ -3600,7 +3629,15 @@ pub trait PlatformWindowV2 {
                 borrows.renderer_resources,
             );
 
-            // Apply results: add new timers/threads, remove terminated ones
+            // Apply timer/thread results directly to layout_window for inter-callback
+            // correctness (e.g. if timer A removes timer B, the next timer in this
+            // tick shouldn't try to invoke timer B).
+            //
+            // NOTE: These are ALSO processed by process_callback_result_v2 (called
+            // by the platform tick_timers handler), which calls start_timer()/
+            // stop_timer() to manage platform-specific timers (e.g. NSTimer).
+            // start_timer() is idempotent — it invalidates any existing NSTimer
+            // before creating a new one. stop_timer() is also idempotent.
             if let Some(ref new_timers) = result.timers {
                 for (timer_id, timer) in new_timers {
                     borrows

@@ -4445,6 +4445,26 @@
                 ],
                 "fn_body": "object.update_image_callback(dom_id, node_id)"
               },
+              "update_all_image_callbacks": {
+                "doc": [
+                  "Re-render ALL image callbacks across all DOMs (applied after callback returns)",
+                  "",
+                  "This is the most efficient way to update animated GL textures from a timer.",
+                  "Triggers only texture re-rendering — no DOM rebuild or display list resubmission.",
+                  "",
+                  "# Example",
+                  "```ignore",
+                  "// In a timer callback, update all OpenGL textures each frame",
+                  "info.update_all_image_callbacks();",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  }
+                ],
+                "fn_body": "object.update_all_image_callbacks()"
+              },
               "trigger_iframe_rerender": {
                 "doc": [
                   "Trigger re-rendering of an IFrame (applied after callback returns)",
@@ -7190,6 +7210,46 @@
                   "type": "OptionLogicalPosition"
                 },
                 "fn_body": "object.get_attached_node_position().into()"
+              },
+              "update_all_image_callbacks": {
+                "doc": [
+                  "Re-render ALL image callbacks across all DOMs (applied after callback returns)",
+                  "",
+                  "This is the most efficient way to update animated GL textures from a timer.",
+                  "Triggers only texture re-rendering — no DOM rebuild or display list resubmission.",
+                  "",
+                  "# Example",
+                  "```ignore",
+                  "// In a timer callback, update all OpenGL textures each frame",
+                  "info.update_all_image_callbacks();",
+                  "```"
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  }
+                ],
+                "fn_body": "object.update_all_image_callbacks()"
+              },
+              "trigger_iframe_rerender": {
+                "doc": [
+                  "Trigger re-rendering of an IFrame (applied after callback returns)",
+                  "",
+                  "This forces the IFrame to call its layout callback with reason `DomRecreated`",
+                  "and submit a new display list to WebRender."
+                ],
+                "fn_args": [
+                  {
+                    "self": "refmut"
+                  },
+                  {
+                    "dom_id": "DomId"
+                  },
+                  {
+                    "node_id": "NodeId"
+                  }
+                ],
+                "fn_body": "object.trigger_iframe_rerender(dom_id, node_id)"
               }
             },
             "repr": "C"
@@ -7241,12 +7301,12 @@
                 "fn_args": [],
                 "fn_body": "azul_core::callbacks::TimerCallbackReturn::continue_unchanged()"
               },
-              "continue_and_update": {
+              "continue_and_refresh_dom": {
                 "doc": [
                   "Timer continues running and DOM should be refreshed."
                 ],
                 "fn_args": [],
-                "fn_body": "azul_core::callbacks::TimerCallbackReturn::continue_and_update()"
+                "fn_body": "azul_core::callbacks::TimerCallbackReturn::continue_and_refresh_dom()"
               },
               "terminate_unchanged": {
                 "doc": [
@@ -7255,12 +7315,12 @@
                 "fn_args": [],
                 "fn_body": "azul_core::callbacks::TimerCallbackReturn::terminate_unchanged()"
               },
-              "terminate_and_update": {
+              "terminate_and_refresh_dom": {
                 "doc": [
                   "Timer should stop and DOM should be refreshed."
                 ],
                 "fn_args": [],
-                "fn_body": "azul_core::callbacks::TimerCallbackReturn::terminate_and_update()"
+                "fn_body": "azul_core::callbacks::TimerCallbackReturn::terminate_and_refresh_dom()"
               }
             },
             "repr": "C"
@@ -20075,44 +20135,49 @@
               {
                 "Blend": {
                   "type": "StyleMixBlendMode"
-                }
-              },
-              {
+                },
                 "Flood": {
                   "type": "ColorU"
-                }
-              },
-              {
+                },
                 "Blur": {
                   "type": "StyleBlur"
-                }
-              },
-              {
+                },
                 "Opacity": {
                   "type": "PercentageValue"
-                }
-              },
-              {
+                },
                 "ColorMatrix": {
                   "type": "StyleColorMatrix"
-                }
-              },
-              {
+                },
                 "DropShadow": {
                   "type": "StyleBoxShadow"
-                }
-              },
-              {
-                "ComponentTransfer": {}
-              },
-              {
+                },
+                "ComponentTransfer": {},
                 "Offset": {
                   "type": "StyleFilterOffset"
-                }
-              },
-              {
+                },
                 "Composite": {
                   "type": "StyleCompositeFilter"
+                },
+                "Brightness": {
+                  "type": "PercentageValue"
+                },
+                "Contrast": {
+                  "type": "PercentageValue"
+                },
+                "Grayscale": {
+                  "type": "PercentageValue"
+                },
+                "HueRotate": {
+                  "type": "AngleValue"
+                },
+                "Invert": {
+                  "type": "PercentageValue"
+                },
+                "Saturate": {
+                  "type": "PercentageValue"
+                },
+                "Sepia": {
+                  "type": "PercentageValue"
                 }
               }
             ],
@@ -30882,6 +30947,31 @@
                     "Number of elements in the slice"
                   ]
                 }
+              }
+            ],
+            "repr": "C"
+          },
+          "OverflowScrolling": {
+            "doc": [
+              "Per-node overflow scrolling mode (`-azul-overflow-scrolling: auto | touch`).",
+              "Controls whether rubber-banding / momentum scrolling is forced on a node."
+            ],
+            "external": "azul_css::props::style::scrollbar::OverflowScrolling",
+            "derive": [
+              "Debug",
+              "Copy",
+              "Clone",
+              "PartialEq",
+              "Eq",
+              "PartialOrd",
+              "Ord",
+              "Hash",
+              "Default"
+            ],
+            "enum_fields": [
+              {
+                "Auto": {},
+                "Touch": {}
               }
             ],
             "repr": "C"
@@ -74115,7 +74205,9 @@
               "Copy",
               "PartialEq",
               "Eq",
-              "Hash"
+              "Hash",
+              "Ord",
+              "PartialOrd"
             ],
             "enum_fields": [
               {
@@ -74177,45 +74269,20 @@
             ],
             "repr": "C"
           },
-          "OverflowScrolling": {
-            "doc": [
-              "Per-node overflow scrolling mode (`-azul-overflow-scrolling: auto | touch`).",
-              "Controls whether rubber-banding / momentum scrolling is forced on a node."
-            ],
-            "external": "azul_css::props::style::scrollbar::OverflowScrolling",
-            "derive": [
-              "Debug",
-              "Copy",
-              "Clone",
-              "PartialEq",
-              "Eq",
-              "PartialOrd",
-              "Ord",
-              "Hash",
-              "Default"
-            ],
-            "enum_fields": [
-              {
-                "Auto": {},
-                "Touch": {}
-              }
-            ],
-            "repr": "C"
-          },
           "ScrollPhysics": {
             "doc": [
               "Scroll physics configuration for momentum scrolling.",
               "Controls how scrolling feels - the 'weight' and 'friction' of the scroll."
             ],
             "external": "azul_css::props::style::scrollbar::ScrollPhysics",
+            "custom_impls": [
+              "Default"
+            ],
             "derive": [
               "Debug",
               "Clone",
               "PartialEq",
               "PartialOrd"
-            ],
-            "custom_impls": [
-              "Default"
             ],
             "struct_fields": [
               {

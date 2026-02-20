@@ -6850,16 +6850,41 @@ impl LayoutWindow {
                         Some(nd) => {
                             match &mut nd.node_type {
                                 NodeType::Image(img_ref) => {
-                                    img_ref.get_image_callback_mut().map(|core_callback| {
-                                        // Convert from CoreImageCallback (cb: usize) to
-                                        // RenderImageCallback (cb: fn pointer)
-                                        let callback =
-                                            RenderImageCallback::from_core(&core_callback.callback);
-                                        (callback.cb)(
-                                            core_callback.refany.clone(),
-                                            gl_callback_info,
-                                        )
-                                    })
+                                    // Try get_image_callback_mut first (requires exclusive access)
+                                    let callback_result = img_ref.get_image_callback_mut();
+                                    
+                                    if callback_result.is_none() {
+                                        // The ImageRef has multiple copies (Arc refcount > 1),
+                                        // so get_image_callback_mut returns None. Fall back to
+                                        // read-only access + clone to invoke the callback.
+                                        match img_ref.get_data() {
+                                            azul_core::resources::DecodedImage::Callback(core_callback) => {
+                                                if core_callback.callback.cb == 0 {
+                                                    None
+                                                } else {
+                                                    let callback = RenderImageCallback::from_core(&core_callback.callback);
+                                                    let refany_clone = core_callback.refany.clone();
+                                                    use std::panic;
+                                                    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+                                                        (callback.cb)(refany_clone, gl_callback_info)
+                                                    }));
+                                                    result.ok()
+                                                }
+                                            }
+                                            _ => None,
+                                        }
+                                    } else {
+                                        callback_result.map(|core_callback| {
+                                            // Convert from CoreImageCallback (cb: usize) to
+                                            // RenderImageCallback (cb: fn pointer)
+                                            let callback =
+                                                RenderImageCallback::from_core(&core_callback.callback);
+                                            (callback.cb)(
+                                                core_callback.refany.clone(),
+                                                gl_callback_info,
+                                            )
+                                        })
+                                    }
                                 }
                                 _ => None,
                             }

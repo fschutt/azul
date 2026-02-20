@@ -274,6 +274,18 @@ pub fn regenerate_layout(
     // If so, we can skip the expensive layout pipeline (CSS cascade, flexbox, display list)
     // and reuse the layout from the previous frame. Only image callbacks need re-invocation
     // since their content (e.g. GL textures) may have changed.
+    //
+    // IMPORTANT: We must NOT skip layout when the window size changed, even if the DOM
+    // structure is identical. Flexbox positions/sizes depend on the viewport dimensions,
+    // so a resize invalidates all computed positions. Without this check, image callbacks
+    // would receive stale bounds after a window resize.
+    let window_size_changed = {
+        let old_dims = layout_window.current_window_state.size.dimensions;
+        let new_dims = current_window_state.size.dimensions;
+        (old_dims.width - new_dims.width).abs() > 0.5
+            || (old_dims.height - new_dims.height).abs() > 0.5
+    };
+    if !window_size_changed {
     if let Some(old_layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
         if azul_core::styled_dom::is_layout_equivalent(&old_layout_result.styled_dom, &styled_dom) {
             log_debug!(
@@ -339,6 +351,7 @@ pub fn regenerate_layout(
             return Ok(LayoutRegenerateResult::LayoutUnchanged);
         }
     }
+    } // end if !window_size_changed
 
     // 4. Perform layout with solver3
     log_debug!(

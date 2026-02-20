@@ -1564,8 +1564,11 @@ impl WaylandWindow {
                     if let Some(thread_result) = self.invoke_thread_callbacks() {
                         if thread_result.needs_processing() {
                             self.previous_window_state = Some(self.current_window_state.clone());
-                            let _ = self.process_callback_result_v2(&thread_result);
+                            let process_result = self.process_callback_result_v2(&thread_result);
                             self.sync_window_state();
+                            if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+                                needs_redraw = true;
+                            }
                         }
                         if thread_result.needs_redraw() {
                             needs_redraw = true;
@@ -3266,6 +3269,7 @@ impl WaylandWindow {
     /// This is called on every poll_event() to simulate timer ticks
     fn check_timers_and_threads(&mut self) {
         use super::super::common::event_v2::PlatformWindowV2;
+        use azul_core::events::ProcessEventResult;
 
         // Invoke expired timer callbacks
         let timer_results = self.invoke_expired_timers();
@@ -3273,8 +3277,11 @@ impl WaylandWindow {
         for result in &timer_results {
             if result.needs_processing() {
                 self.previous_window_state = Some(self.current_window_state.clone());
-                let _ = self.process_callback_result_v2(result);
+                let process_result = self.process_callback_result_v2(result);
                 self.sync_window_state();
+                if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+                    needs_redraw = true;
+                }
             }
             if result.needs_redraw() {
                 needs_redraw = true;
@@ -3288,8 +3295,11 @@ impl WaylandWindow {
         if let Some(thread_result) = self.invoke_thread_callbacks() {
             if thread_result.needs_processing() {
                 self.previous_window_state = Some(self.current_window_state.clone());
-                let _ = self.process_callback_result_v2(&thread_result);
+                let process_result = self.process_callback_result_v2(&thread_result);
                 self.sync_window_state();
+                if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+                    self.frame_needs_regeneration = true;
+                }
             }
             if thread_result.needs_redraw() {
                 self.frame_needs_regeneration = true;
