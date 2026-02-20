@@ -59,26 +59,39 @@ const app = {
     },
 
     init: async function() {
+        console.log('[azul-debugger] init() called, apiUrl =', this.config.apiUrl);
         this.log('Initializing Azul Debugger...', 'info');
 
         // Detect API URL from current page origin
         if (window.location.port) {
             this.config.apiUrl = window.location.origin;
+            console.log('[azul-debugger] Detected port, apiUrl =', this.config.apiUrl);
         }
 
         // Load saved tests
         const saved = localStorage.getItem('azul_tests');
         if (saved) {
-            try { this.state.tests = JSON.parse(saved); } catch(e) {}
+            try {
+                this.state.tests = JSON.parse(saved);
+                console.log('[azul-debugger] Loaded', this.state.tests.length, 'saved test(s) from localStorage');
+            } catch(e) {
+                console.warn('[azul-debugger] Failed to parse saved tests:', e);
+            }
         }
-        if (!this.state.tests.length) this.handlers.newTest();
+        if (!this.state.tests.length) {
+            console.log('[azul-debugger] No saved tests, creating default test');
+            this.handlers.newTest();
+        }
 
         // Try connecting
         try {
+            console.log('[azul-debugger] Attempting connection to', this.config.apiUrl);
             const r = await this.api.post({ op: 'get_state' });
+            console.log('[azul-debugger] Connected! get_state response:', r);
             document.getElementById('connection-status').innerText = 'Connected';
             document.getElementById('connection-status').style.color = 'var(--success)';
         } catch(e) {
+            console.warn('[azul-debugger] Connection failed, switching to Mock Mode:', e);
             this.log('Connection failed — Mock Mode.', 'warning');
             this.config.isMock = true;
             document.getElementById('connection-status').innerText = 'Mock Mode';
@@ -86,6 +99,7 @@ const app = {
 
         this.ui.renderTestList();
         this.handlers.refreshSidebar();
+        console.log('[azul-debugger] init() complete, state:', JSON.stringify(this.state, null, 2));
     },
 
     log: function(msg, type = 'info') {
@@ -101,35 +115,56 @@ const app = {
     // ─── API Layer ───
     api: {
         post: async function(payload) {
-            if (app.config.isMock) return app.api.mockResponse(payload);
+            if (app.config.isMock) {
+                console.log('[azul-api] MOCK request:', payload.op, payload);
+                return app.api.mockResponse(payload);
+            }
+            const t0 = performance.now();
+            console.log('[azul-api] POST', payload.op, payload);
             const res = await fetch(app.config.apiUrl, {
                 method: 'POST',
                 body: JSON.stringify(payload)
             });
             const json = await res.json();
+            const elapsed = Math.round(performance.now() - t0);
+            console.log('[azul-api] Response (' + elapsed + 'ms):', payload.op, json);
             app.log(payload, 'command');
             app.log(json, 'info');
             return json;
         },
 
         postE2e: async function(tests) {
+            const testArr = Array.isArray(tests) ? tests : [tests];
+            console.log('[azul-e2e] Submitting', testArr.length, 'test(s) to server:', testArr.map(t => t.name));
             if (app.config.isMock) return app.api.mockE2eResponse(tests);
             // run_e2e_tests is a normal debug command — sent via POST /
             const payload = {
                 op: 'run_e2e_tests',
-                tests: Array.isArray(tests) ? tests : [tests],
+                tests: testArr,
                 timeout_secs: 300
             };
+            const t0 = performance.now();
+            console.log('[azul-e2e] POST run_e2e_tests payload:', JSON.stringify(payload).length, 'bytes');
             const res = await fetch(app.config.apiUrl, {
                 method: 'POST',
                 body: JSON.stringify(payload)
             });
             const json = await res.json();
+            const elapsed = Math.round(performance.now() - t0);
+            console.log('[azul-e2e] Server response (' + elapsed + 'ms):', JSON.stringify(json).substring(0, 500));
             // Unwrap the standard DebugHttpResponse envelope:
             // { status, request_id, data: { E2eResults: { results: [...] } } }
-            if (json.data && json.data.E2eResults) {
-                return { status: json.status, results: json.data.E2eResults.results };
+            if (json.data && json.data.type === 'e2e_results' && json.data.value) {
+                const results = json.data.value.results;
+                console.log('[azul-e2e] Parsed', results.length, 'result(s):', results.map(r => r.name + ': ' + r.status));
+                return { status: json.status, results };
             }
+            if (json.data && json.data.E2eResults) {
+                const results = json.data.E2eResults.results;
+                console.log('[azul-e2e] Parsed (legacy)', results.length, 'result(s)');
+                return { status: json.status, results };
+            }
+            console.warn('[azul-e2e] Unexpected response format:', json);
             return json;
         },
 
@@ -190,7 +225,9 @@ const app = {
         renderTree: function(htmlString) {
             const container = document.getElementById('sidebar-inspector');
             container.innerHTML = '';
-            htmlString.split('\n').forEach((line, idx) => {
+            const lines = htmlString.split('\n');
+            console.log('[azul-ui] renderTree: parsing', lines.length, 'lines of DOM HTML');
+            lines.forEach((line, idx) => {
                 const div = document.createElement('div');
                 div.className = 'tree-node';
                 div.onclick = () => app.handlers.nodeSelected(idx);
@@ -198,6 +235,7 @@ const app = {
                 container.appendChild(div);
             });
             document.getElementById('dom-preview').textContent = htmlString;
+            console.log('[azul-ui] DOM tree rendered,', lines.length, 'nodes in sidebar');
         },
 
         renderTestList: function() {
@@ -337,6 +375,7 @@ const app = {
                 name: `Test ${app.state.tests.length + 1}`,
                 steps: [{ op: 'get_state', params: {}, breakpoint: false }]
             };
+            console.log('[azul-handler] newTest: created "' + newTest.name + '" (id=' + newTest.id + ')');
             app.state.tests.push(newTest);
             this.save();
             this.selectTest(newTest.id);
@@ -363,6 +402,7 @@ const app = {
             });
             const test = app.state.tests.find(t => t.id === app.state.activeTestId);
             test.steps.push({ op, params, breakpoint: false });
+            console.log('[azul-handler] addStep: ' + op, params, 'to test "' + test.name + '" (now ' + test.steps.length + ' steps)');
             this.save();
             app.ui.renderSteps();
         },
@@ -384,13 +424,23 @@ const app = {
         },
 
         refreshSidebar: async function() {
+            console.log('[azul-handler] refreshSidebar: fetching DOM...');
             try {
                 const res = await app.api.post({ op: 'get_html_string' });
                 if (res.data) {
                     const html = res.data.html || (res.data.value && res.data.value.html);
-                    if (html) app.ui.renderTree(html);
+                    if (html) {
+                        console.log('[azul-handler] refreshSidebar: got HTML (' + html.length + ' chars)');
+                        app.ui.renderTree(html);
+                    } else {
+                        console.warn('[azul-handler] refreshSidebar: response had data but no html field:', res.data);
+                    }
+                } else {
+                    console.warn('[azul-handler] refreshSidebar: no data in response:', res);
                 }
-            } catch(e) { /* ignore */ }
+            } catch(e) {
+                console.error('[azul-handler] refreshSidebar failed:', e);
+            }
         },
 
         nodeSelected: async function(idx) {
@@ -441,11 +491,13 @@ const app = {
         importFile: function(input) {
             const file = input.files[0];
             if (!file) return;
+            console.log('[azul-handler] importFile: reading', file.name, '(' + file.size + ' bytes)');
             const reader = new FileReader();
             reader.onload = function(e) {
                 try {
                     const imported = JSON.parse(e.target.result);
                     const arr = Array.isArray(imported) ? imported : [imported];
+                    console.log('[azul-handler] importFile: parsed', arr.length, 'test(s) from', file.name);
                     arr.forEach(t => {
                         // Normalise imported test format
                         app.state.tests.push({
@@ -488,7 +540,12 @@ const app = {
             if (app.state.executionStatus === 'running') return;
             app.state.executionStatus = 'running';
             const test = app.state.tests.find(t => t.id === app.state.activeTestId);
-            if (!test) return;
+            if (!test) {
+                console.warn('[azul-runner] run() called but no active test');
+                return;
+            }
+
+            console.log('[azul-runner] Starting client-side run of test "' + test.name + '" (' + test.steps.length + ' steps)');
 
             if (app.state.currentStepIndex === -1) {
                 test.steps.forEach(s => { delete s.status; delete s.error; delete s.lastResponse; delete s.screenshot; delete s.duration_ms; });
@@ -522,6 +579,7 @@ const app = {
             step._breakHit = false;
 
             const t0 = performance.now();
+            console.log('[azul-runner] Step ' + (idx + 1) + '/' + test.steps.length + ': executing "' + step.op + '"', step.params);
             try {
                 const payload = { op: step.op, ...step.params };
                 const res = await app.api.post(payload);
@@ -536,11 +594,13 @@ const app = {
                 }
 
                 step.status = 'pass';
+                console.log('[azul-runner] Step ' + (idx + 1) + ' PASSED (' + step.duration_ms + 'ms)');
             } catch(e) {
                 step.status = 'fail';
                 step.error = e.message;
                 step.duration_ms = Math.round(performance.now() - t0);
                 app.state.executionStatus = 'idle';
+                console.error('[azul-runner] Step ' + (idx + 1) + ' FAILED (' + step.duration_ms + 'ms):', e.message);
                 app.log(`Step ${idx + 1} Failed: ${e.message}`, 'error');
                 app.ui.renderSteps();
                 return;
@@ -581,6 +641,7 @@ const app = {
             const test = app.state.tests.find(t => t.id === app.state.activeTestId);
             if (!test) { app.log('No test selected', 'error'); return; }
 
+            console.log('[azul-runner] runServerSide: submitting test "' + test.name + '" (' + test.steps.length + ' steps)');
             const statusEl = document.getElementById('run-status');
             statusEl.classList.remove('hidden');
             app.log(`Running test "${test.name}" on server (StubWindow)...`, 'info');
@@ -608,8 +669,15 @@ const app = {
                             }
                         });
                     }
+                    console.log('[azul-runner] Server result for "' + test.name + '":', result.status, '(' + result.duration_ms + 'ms, ' + result.steps_passed + '/' + result.step_count + ' passed)');
+                    if (result.steps) {
+                        result.steps.forEach((sr, i) => {
+                            console.log('[azul-runner]   step ' + i + ': ' + sr.op + ' → ' + sr.status + (sr.error ? ' (' + sr.error + ')' : ''));
+                        });
+                    }
                     app.log(`Test "${test.name}": ${result.status.toUpperCase()} (${result.duration_ms}ms, ${result.steps_passed}/${result.step_count} passed)`, result.status === 'pass' ? 'info' : 'error');
                 } else if (res.status === 'error') {
+                    console.error('[azul-runner] Server returned error:', res.message);
                     app.log(`Server error: ${res.message}`, 'error');
                 }
             } catch(e) {
@@ -622,6 +690,7 @@ const app = {
         },
 
         runAllServerSide: async function() {
+            console.log('[azul-runner] runAllServerSide: submitting', app.state.tests.length, 'test(s)');
             const statusEl = document.getElementById('run-status');
             statusEl.classList.remove('hidden');
             app.log('Running ALL tests on server...', 'info');
@@ -651,9 +720,11 @@ const app = {
                         }
                         if (result.status === 'pass') passed++; else failed++;
                     });
+                    console.log('[azul-runner] runAllServerSide complete:', passed, 'passed,', failed, 'failed');
                     app.log(`All tests done: ${passed} passed, ${failed} failed`, failed ? 'error' : 'info');
                 }
             } catch(e) {
+                console.error('[azul-runner] runAllServerSide failed:', e);
                 app.log(`Failed: ${e.message}`, 'error');
             }
 

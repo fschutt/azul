@@ -1550,6 +1550,23 @@ pub fn queue_e2e_tests(
     ensure_queue_initialized();
     E2E_ACTIVE.store(true, Ordering::SeqCst);
 
+    let test_count = tests.len();
+    let total_steps: usize = tests.iter().map(|t| t.steps.len()).sum();
+    log(
+        LogLevel::Info,
+        LogCategory::DebugServer,
+        format!("[E2E] Queuing {} test(s) with {} total step(s)", test_count, total_steps),
+        None,
+    );
+    for (i, test) in tests.iter().enumerate() {
+        log(
+            LogLevel::Debug,
+            LogCategory::DebugServer,
+            format!("[E2E]   test[{}]: '{}' ({} steps)", i, test.name, test.steps.len()),
+            None,
+        );
+    }
+
     let (tx, rx) = mpsc::channel();
     let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst);
 
@@ -2244,7 +2261,13 @@ pub fn evaluate_assertion(
     callback_info: &azul_layout::callbacks::CallbackInfo,
     app_data: &azul_core::refany::RefAny,
 ) -> AssertionResult {
-    match op {
+    log(
+        LogLevel::Debug,
+        LogCategory::DebugServer,
+        format!("[E2E] evaluate_assertion: op='{}', params={}", op, params),
+        None,
+    );
+    let result = match op {
         "assert_text" => eval_assert_text(params, callback_info),
         "assert_exists" => eval_assert_exists(params, callback_info),
         "assert_not_exists" => eval_assert_not_exists(params, callback_info),
@@ -2254,7 +2277,23 @@ pub fn evaluate_assertion(
         "assert_app_state" => eval_assert_app_state(params, app_data),
         "assert_scroll" => eval_assert_scroll(params, callback_info),
         other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
+    };
+    if result.passed {
+        log(
+            LogLevel::Debug,
+            LogCategory::DebugServer,
+            format!("[E2E] assertion PASSED: {}", result.message),
+            None,
+        );
+    } else {
+        log(
+            LogLevel::Info,
+            LogCategory::DebugServer,
+            format!("[E2E] assertion FAILED: {} (expected={:?}, actual={:?})", result.message, result.expected, result.actual),
+            None,
+        );
     }
+    result
 }
 
 // ---- Individual assertion implementations ----
@@ -2698,15 +2737,24 @@ pub extern "C" fn debug_timer_callback(
     use azul_core::task::TerminateTimer;
 
     // Check queue length first (without popping)
-    let _queue_len = REQUEST_QUEUE
+    let queue_len = REQUEST_QUEUE
         .get()
         .and_then(|q| q.lock().ok())
         .map(|q| q.len())
         .unwrap_or(0);
 
+    if queue_len > 0 {
+        log(
+            LogLevel::Debug,
+            LogCategory::DebugServer,
+            format!("[timer] debug_timer_callback: {} request(s) in queue", queue_len),
+            None,
+        );
+    }
+
     // Process all pending requests
     let mut needs_update = false;
-    let mut _processed_count = 0;
+    let mut processed_count = 0;
 
     while let Some(request) = pop_request() {
         log(
@@ -2719,7 +2767,16 @@ pub extern "C" fn debug_timer_callback(
         // Pass the app_data (stored in timer_data) to process_debug_event
         let result = process_debug_event(&request, &mut timer_info.callback_info, &mut timer_data);
         needs_update = needs_update || result;
-        _processed_count += 1;
+        processed_count += 1;
+    }
+
+    if processed_count > 0 {
+        log(
+            LogLevel::Debug,
+            LogCategory::DebugServer,
+            format!("[timer] Processed {} request(s), needs_update={}", processed_count, needs_update),
+            None,
+        );
     }
 
     TimerCallbackReturn {
@@ -5551,12 +5608,26 @@ fn process_debug_event(
         DebugEvent::RunE2eTests { ref tests } => {
             let mut all_results = Vec::new();
 
+            log(
+                LogLevel::Info,
+                LogCategory::DebugServer,
+                format!("[E2E] RunE2eTests: executing {} test(s)", tests.len()),
+                None,
+            );
+
             for test in tests {
                 let test_start = std::time::Instant::now();
                 let mut step_results = Vec::new();
                 let mut test_failed = false;
                 let continue_on_failure = test.config.continue_on_failure;
                 let delay_ms = test.config.delay_between_steps_ms;
+
+                log(
+                    LogLevel::Info,
+                    LogCategory::DebugServer,
+                    format!("[E2E] === Test '{}' ({} steps, continue_on_failure={}) ===", test.name, test.steps.len(), continue_on_failure),
+                    None,
+                );
 
                 for (step_index, step) in test.steps.iter().enumerate() {
 
@@ -5567,6 +5638,13 @@ fn process_debug_event(
 
                     let step_start = std::time::Instant::now();
                     let op = step.op.as_str();
+
+                    log(
+                        LogLevel::Debug,
+                        LogCategory::DebugServer,
+                        format!("[E2E]   step[{}]: op='{}', params={}", step_index, op, step.params),
+                        None,
+                    );
 
                     // Check if this is an assertion step
                     if op.starts_with("assert_") {
@@ -5697,19 +5775,54 @@ fn process_debug_event(
                         }
                     }
 
+                    // Log step result
+                    if let Some(last) = step_results.last() {
+                        log(
+                            LogLevel::Debug,
+                            LogCategory::DebugServer,
+                            format!("[E2E]   step[{}] => {} ({} ms){}",
+                                step_index,
+                                last.status,
+                                last.duration_ms,
+                                last.error.as_ref().map(|e| format!(": {}", e)).unwrap_or_default(),
+                            ),
+                            None,
+                        );
+                    }
+
                     // Stop executing further steps if a step failed (unless continue_on_failure)
                     if test_failed && !continue_on_failure {
+                        log(
+                            LogLevel::Debug,
+                            LogCategory::DebugServer,
+                            format!("[E2E]   stopping test '{}' early (continue_on_failure=false)", test.name),
+                            None,
+                        );
                         break;
                     }
                 }
 
                 let steps_passed = step_results.iter().filter(|s| s.status == "pass").count();
                 let steps_failed = step_results.iter().filter(|s| s.status == "fail").count();
+                let duration = test_start.elapsed().as_millis();
+
+                log(
+                    LogLevel::Info,
+                    LogCategory::DebugServer,
+                    format!("[E2E] === Test '{}' {} ({} ms, {}/{} passed) ===",
+                        test.name,
+                        if test_failed { "FAILED" } else { "PASSED" },
+                        duration,
+                        steps_passed,
+                        test.steps.len(),
+                    ),
+                    None,
+                );
 
                 all_results.push(E2eTestResult {
                     name: test.name.clone(),
                     status: if test_failed { "fail" } else { "pass" }.into(),
-                    duration_ms: test_start.elapsed().as_millis() as u64,
+                    duration_ms: duration as u64,
                     step_count: test.steps.len(),
                     steps_passed,
                     steps_failed,
