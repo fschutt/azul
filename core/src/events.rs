@@ -1501,7 +1501,7 @@ pub struct LifecycleEventResult {
 /// - `node_id_mapping`: Mapping from old to new NodeIds for state migration
 ///
 /// # Example
-/// ```rust
+/// ```rust,ignore
 /// let result = detect_lifecycle_events_with_reconciliation(
 ///     dom_id,
 ///     &old_node_data,

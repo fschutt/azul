@@ -137,19 +137,23 @@ impl Default for FontLoadingConfig {
 /// 
 /// # Example
 /// ```rust
-/// use azul_css::dynamic_selector::{OsCondition, ThemeCondition, OsVersion};
+/// # use azul_core::resources::CssMockEnvironment;
+/// use azul_css::dynamic_selector::{
+///     OsCondition, ThemeCondition, OsVersion,
+///     OptionOsCondition, OptionThemeCondition, OptionOsVersion,
+/// };
 /// 
 /// // Mock a Linux dark theme environment on any platform
 /// let mock = CssMockEnvironment {
-///     os: Some(OsCondition::Linux),
-///     theme: Some(ThemeCondition::Dark),
+///     os: OptionOsCondition::Some(OsCondition::Linux),
+///     theme: OptionThemeCondition::Some(ThemeCondition::Dark),
 ///     ..Default::default()
 /// };
 /// 
 /// // Mock Windows XP for retro testing
 /// let mock = CssMockEnvironment {
-///     os: Some(OsCondition::Windows),
-///     os_version: Some(OsVersion::WIN_XP),
+///     os: OptionOsCondition::Some(OsCondition::Windows),
+///     os_version: OptionOsVersion::Some(OsVersion::WIN_XP),
 ///     ..Default::default()
 /// };
 /// ```
@@ -340,6 +344,8 @@ impl AppConfig {
     /// 
     /// # Example
     /// ```rust
+    /// # use azul_core::resources::{AppConfig, CssMockEnvironment};
+    /// # use azul_css::dynamic_selector::{OsCondition, OptionOsCondition, ThemeCondition, OptionThemeCondition};
     /// let config = AppConfig::create()
     ///     .with_mock_environment(CssMockEnvironment {
     ///         os: OptionOsCondition::Some(OsCondition::Linux),

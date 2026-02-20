@@ -714,7 +714,7 @@ fn has_update_callback(node: &NodeData) -> bool {
 /// that references old NodeIds to use the new NodeIds.
 ///
 /// # Example
-/// ```rust
+/// ```rust,ignore
 /// let diff = reconcile_dom(...);
 /// let migration_map = create_migration_map(&diff.node_moves);
 /// 

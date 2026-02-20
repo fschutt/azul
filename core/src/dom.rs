@@ -2585,6 +2585,8 @@ impl NodeData {
     ///
     /// # Example
     /// ```rust
+    /// # use azul_core::dom::NodeData;
+    /// # let mut node_data = NodeData::create_div();
     /// node_data.set_key("user-123");
     /// ```
     #[inline]
@@ -2616,7 +2618,7 @@ impl NodeData {
     /// and new datasets must match this type, otherwise the merge is skipped.
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// struct VideoPlayer {
     ///     url: String,
     ///     decoder: Option<DecoderHandle>,
@@ -2836,8 +2838,9 @@ impl NodeData {
     ///
     /// # Example
     /// ```rust
+    /// # use azul_core::dom::NodeData;
     /// NodeData::create_div()
-    ///     .with_key("user-avatar-123")
+    ///     .with_key("user-avatar-123");
     /// ```
     #[inline]
     pub fn with_key<K: core::hash::Hash>(mut self, key: K) -> Self {
@@ -2855,7 +2858,7 @@ impl NodeData {
     /// returns the `RefAny` that should be used for the new node.
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// struct VideoPlayer {
     ///     url: String,
     ///     decoder_handle: Option<DecoderHandle>,
@@ -2912,11 +2915,12 @@ impl NodeData {
     /// 
     /// # Examples
     /// ```rust
+    /// # use azul_core::dom::NodeData;
     /// NodeData::create_div().with_css("
     ///     color: blue;
     ///     :hover { color: red; }
     ///     @os linux { font-size: 14px; }
-    /// ")
+    /// ");
     /// ```
     pub fn set_css(&mut self, style: &str) {
         let parsed = CssPropertyWithConditionsVec::parse(style);
@@ -4895,8 +4899,9 @@ impl Dom {
     ///
     /// # Example
     /// ```rust
+    /// # use azul_core::dom::Dom;
     /// Dom::create_div()
-    ///     .with_key("user-avatar-123")
+    ///     .with_key("user-avatar-123");
     /// ```
     #[inline]
     pub fn with_key<K: core::hash::Hash>(mut self, key: K) -> Self {
@@ -4937,22 +4942,23 @@ impl Dom {
     /// 
     /// # Examples
     /// ```rust
+    /// # use azul_core::dom::Dom;
     /// // Simple inline styles
-    /// Dom::create_div().with_css("color: red; font-size: 14px;")
+    /// Dom::create_div().with_css("color: red; font-size: 14px;");
     /// 
     /// // With hover and active states
     /// Dom::create_div().with_css("
     ///     color: blue;
     ///     :hover { color: red; }
     ///     :active { color: green; }
-    /// ")
+    /// ");
     /// 
     /// // OS-specific with nested hover
     /// Dom::create_div().with_css("
     ///     font-size: 12px;
     ///     @os linux { font-size: 14px; :hover { color: red; }}
     ///     @os windows { font-size: 13px; }
-    /// ")
+    /// ");
     /// ```
     pub fn set_css(&mut self, style: &str) {
         let parsed = CssPropertyWithConditionsVec::parse(style);
