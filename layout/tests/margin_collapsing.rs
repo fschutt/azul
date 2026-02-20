@@ -9,22 +9,7 @@
 //! 3. Parent's bottom margin collapses with last child's bottom margin
 //! 4. Empty block's top and bottom margins collapse with each other
 
-/// Implementation of CSS 2.1 margin collapsing rules (section 8.3.1)
-/// This duplicates the function from solver3/fc.rs for testing purposes
-///
-/// Rules:
-/// 1. Both positive: result = max(a, b) - larger margin wins
-/// 2. Both negative: result = min(a, b) - more negative wins
-/// 3. Mixed signs: result = a + b - margins are effectively summed
-fn collapse_margins(a: f32, b: f32) -> f32 {
-    if a.is_sign_positive() && b.is_sign_positive() {
-        a.max(b)
-    } else if a.is_sign_negative() && b.is_sign_negative() {
-        a.min(b)
-    } else {
-        a + b
-    }
-}
+use azul_layout::solver3::fc::collapse_margins;
 
 #[test]
 fn test_both_positive_margins_use_maximum() {

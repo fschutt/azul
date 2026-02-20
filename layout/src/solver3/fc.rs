@@ -2330,7 +2330,7 @@ fn translate_taffy_size(size: LogicalSize) -> TaffySize<Option<f32>> {
 }
 
 /// Helper: Convert StyleFontStyle to text3::cache::FontStyle
-pub(crate) fn convert_font_style(style: StyleFontStyle) -> crate::font_traits::FontStyle {
+pub fn convert_font_style(style: StyleFontStyle) -> crate::font_traits::FontStyle {
     match style {
         StyleFontStyle::Normal => crate::font_traits::FontStyle::Normal,
         StyleFontStyle::Italic => crate::font_traits::FontStyle::Italic,
@@ -2339,7 +2339,7 @@ pub(crate) fn convert_font_style(style: StyleFontStyle) -> crate::font_traits::F
 }
 
 /// Helper: Convert StyleFontWeight to FcWeight
-pub(crate) fn convert_font_weight(weight: StyleFontWeight) -> FcWeight {
+pub fn convert_font_weight(weight: StyleFontWeight) -> FcWeight {
     match weight {
         StyleFontWeight::W100 => FcWeight::Thin,
         StyleFontWeight::W200 => FcWeight::ExtraLight,
@@ -6178,7 +6178,7 @@ pub fn check_scrollbar_necessity(
 /// - If both margins are positive, the result is the larger of the two.
 /// - If both margins are negative, the result is the more negative of the two.
 /// - If the margins have mixed signs, they are effectively summed.
-pub(crate) fn collapse_margins(a: f32, b: f32) -> f32 {
+pub fn collapse_margins(a: f32, b: f32) -> f32 {
     if a.is_sign_positive() && b.is_sign_positive() {
         a.max(b)
     } else if a.is_sign_negative() && b.is_sign_negative() {
@@ -6502,7 +6502,7 @@ fn generate_list_marker_segments(
 /// 3. Otherwise: returns the text as a single `InlineContent::Text`
 ///
 /// Returns a Vec of InlineContent items that correctly represent line breaks.
-pub(crate) fn split_text_for_whitespace(
+pub fn split_text_for_whitespace(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     text: &str,

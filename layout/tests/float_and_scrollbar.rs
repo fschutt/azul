@@ -39,8 +39,13 @@ fn edges(top: f32, right: f32, bottom: f32, left: f32) -> EdgeSizes {
 
 #[test]
 fn test_floating_context_default_is_empty() {
+    // A default FloatingContext should behave as if no floats exist:
+    // available space returns the full container width.
     let ctx = FloatingContext::default();
-    assert!(ctx.floats.is_empty());
+    let wm = LayoutWritingMode::HorizontalTb;
+    let (start, end) = ctx.available_line_box_space(0.0, 50.0, 800.0, wm);
+    assert_eq!(start, 0.0);
+    assert_eq!(end, 800.0);
 }
 
 #[test]
@@ -53,7 +58,10 @@ fn test_add_float_left() {
         size: LogicalSize::new(100.0, 50.0),
     };
     ctx.add_float(LayoutFloat::Left, rect, zero_edges());
-    assert_eq!(ctx.floats.len(), 1);
+    // After adding a left float at x=0..100, the available space should narrow
+    let wm = LayoutWritingMode::HorizontalTb;
+    let (start, _end) = ctx.available_line_box_space(0.0, 50.0, 800.0, wm);
+    assert_eq!(start, 100.0); // pushed right by the 100px-wide float
 }
 
 #[test]
@@ -66,7 +74,10 @@ fn test_add_float_right() {
         size: LogicalSize::new(100.0, 50.0),
     };
     ctx.add_float(LayoutFloat::Right, rect, zero_edges());
-    assert_eq!(ctx.floats.len(), 1);
+    // After adding a right float at x=200..300, the available space should narrow from the right
+    let wm = LayoutWritingMode::HorizontalTb;
+    let (_start, end) = ctx.available_line_box_space(0.0, 50.0, 800.0, wm);
+    assert_eq!(end, 200.0); // narrowed to the float's cross_start
 }
 
 #[test]
@@ -82,7 +93,12 @@ fn test_add_multiple_floats() {
     };
     ctx.add_float(LayoutFloat::Left, r1, zero_edges());
     ctx.add_float(LayoutFloat::Right, r2, zero_edges());
-    assert_eq!(ctx.floats.len(), 2);
+    // Both floats should affect available space: left float narrows from left,
+    // right float narrows from right
+    let wm = LayoutWritingMode::HorizontalTb;
+    let (start, end) = ctx.available_line_box_space(0.0, 50.0, 800.0, wm);
+    assert_eq!(start, 100.0); // left float at x=0..100
+    assert_eq!(end, 200.0);   // right float at x=200..300
 }
 
 // ============================================================================
