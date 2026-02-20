@@ -2861,62 +2861,11 @@ unsafe extern "system" fn window_proc(
         }
 
         WM_TIMER => {
-            // Timer fired
-            let timer_id = wparam;
-
-            if timer_id == 0xFFFF {
-                // Thread polling timer - invoke thread writeback callbacks
-                use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-                use azul_core::events::ProcessEventResult;
-                if let Some(thread_result) = window.invoke_thread_callbacks() {
-                    let mut needs_redraw = false;
-                    if thread_result.needs_processing() {
-                        window.previous_window_state = Some(window.current_window_state.clone());
-                        let process_result = window.process_callback_result_v2(&thread_result);
-                        window.sync_window_state();
-                        if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
-                            needs_redraw = true;
-                        }
-                    }
-                    if thread_result.needs_redraw() {
-                        needs_redraw = true;
-                    }
-                    if needs_redraw {
-                        window.frame_needs_regeneration = true;
-                        (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-                    }
-                }
-            } else {
-                // User timer from LayoutWindow - invoke expired timer callbacks
-                use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-
-                let timer_results = window.invoke_expired_timers();
-
-                // Process each callback result to handle window state modifications
-                let mut needs_redraw = false;
-                for result in &timer_results {
-                    if result.needs_processing() {
-                        window.previous_window_state = Some(window.current_window_state.clone());
-                        let process_result = window.process_callback_result_v2(result);
-                        window.sync_window_state();
-                        if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
-                            needs_redraw = true;
-                        }
-                    }
-                    if result.needs_redraw() {
-                        needs_redraw = true;
-                    }
-                }
-
-                if needs_redraw {
-                    log_trace!(
-                        LogCategory::Timer,
-                        "Invoked {} timer callbacks",
-                        timer_results.len()
-                    );
-                    window.frame_needs_regeneration = true;
-                    (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
-                }
+            // Timer fired — process_timers_and_threads() handles both user timers
+            // (invoke_expired_timers) and thread polling (invoke_thread_callbacks).
+            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            if window.process_timers_and_threads() {
+                (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
 
             0
@@ -3812,6 +3761,10 @@ impl PlatformWindowV2 for Win32Window {
         if let Err(e) = self.hide_tooltip() {
             log_error!(LogCategory::Window, "Failed to hide tooltip: {}", e);
         }
+    }
+
+    fn sync_window_state(&mut self) {
+        Win32Window::sync_window_state(self);
     }
 }
 

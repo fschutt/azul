@@ -275,6 +275,7 @@ impl PlatformWindowV2 for IOSWindow {
     fn needs_frame_regeneration(&self) -> bool { true }
     fn mark_frame_needs_regeneration(&mut self) {}
     fn clear_frame_regeneration_flag(&mut self) {}
+    fn sync_window_state(&mut self) {} // stub - iOS handles this natively
 }
 
 impl PlatformWindow for IOSWindow {

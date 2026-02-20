@@ -1379,50 +1379,9 @@ impl X11Window {
                     }
                 }
 
-                // Invoke all expired timer callbacks
+                // Invoke expired timer and thread callbacks
                 if any_timer_fired {
-                    use azul_core::callbacks::Update;
-
-                    let timer_results = self.invoke_expired_timers();
-
-                    // Process each callback result to handle window state modifications
-                    let mut needs_redraw = false;
-                    for result in &timer_results {
-                        if result.needs_processing() {
-                            self.previous_window_state = Some(self.current_window_state.clone());
-                            let process_result = self.process_callback_result_v2(result);
-                            self.sync_window_state();
-                            if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
-                                needs_redraw = true;
-                            }
-                        }
-                        if result.needs_redraw() {
-                            needs_redraw = true;
-                        }
-                    }
-
-                    // Invoke thread writeback callbacks
-                    if let Some(thread_result) = self.invoke_thread_callbacks() {
-                        let mut thread_needs_redraw = false;
-                        if thread_result.needs_processing() {
-                            self.previous_window_state = Some(self.current_window_state.clone());
-                            let process_result = self.process_callback_result_v2(&thread_result);
-                            self.sync_window_state();
-                            if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
-                                thread_needs_redraw = true;
-                            }
-                        }
-                        if thread_result.needs_redraw() {
-                            thread_needs_redraw = true;
-                        }
-                        if thread_needs_redraw {
-                            needs_redraw = true;
-                        }
-                    }
-
-                    if needs_redraw {
-                        self.frame_needs_regeneration = true;
-                    }
+                    self.process_timers_and_threads();
                 }
             }
             // result == 0: timeout (shouldn't happen with -1)
@@ -2668,6 +2627,10 @@ impl PlatformWindowV2 for X11Window {
     fn hide_tooltip_from_callback(&mut self) {
         self.hide_tooltip();
     }
+
+    fn sync_window_state(&mut self) {
+        X11Window::sync_window_state(self);
+    }
 }
 
 impl X11Window {
@@ -2826,46 +2789,11 @@ impl X11Window {
 }
 
 impl X11Window {
-    /// Check timers and threads, trigger callbacks if needed
-    /// This is called on every poll_event() to simulate timer ticks
+    /// Check timers and threads, trigger callbacks if needed.
+    /// This is called on every poll_event() to simulate timer ticks.
     fn check_timers_and_threads(&mut self) {
         use super::super::common::event_v2::PlatformWindowV2;
-        use azul_core::events::ProcessEventResult;
-
-        // Invoke expired timer callbacks
-        let timer_results = self.invoke_expired_timers();
-        let mut needs_redraw = false;
-        for result in &timer_results {
-            if result.needs_processing() {
-                self.previous_window_state = Some(self.current_window_state.clone());
-                let process_result = self.process_callback_result_v2(result);
-                self.sync_window_state();
-                if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
-                    needs_redraw = true;
-                }
-            }
-            if result.needs_redraw() {
-                needs_redraw = true;
-            }
-        }
-        if needs_redraw {
-            self.frame_needs_regeneration = true;
-        }
-
-        // Invoke thread writeback callbacks
-        if let Some(thread_result) = self.invoke_thread_callbacks() {
-            if thread_result.needs_processing() {
-                self.previous_window_state = Some(self.current_window_state.clone());
-                let process_result = self.process_callback_result_v2(&thread_result);
-                self.sync_window_state();
-                if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
-                    self.frame_needs_regeneration = true;
-                }
-            }
-            if thread_result.needs_redraw() {
-                self.frame_needs_regeneration = true;
-            }
-        }
+        self.process_timers_and_threads();
     }
 
     /// Set the window to always be on top (X11 implementation using _NET_WM_STATE_ABOVE)

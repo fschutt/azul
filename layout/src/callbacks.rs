@@ -3817,8 +3817,6 @@ impl FocusUpdateRequest {
 /// Result of calling callbacks, containing all state changes
 #[derive(Debug)]
 pub struct CallCallbacksResult {
-    /// Whether the UI should be rendered due to a scroll event
-    pub should_scroll_render: bool,
     /// Whether the callbacks say to rebuild the UI or not
     pub callbacks_update_screen: Update,
     /// FullWindowState that was (potentially) modified in the callbacks
@@ -3858,8 +3856,6 @@ pub struct CallCallbacksResult {
     pub tooltips_to_show: Vec<(AzString, LogicalPosition)>,
     /// Whether to hide the currently displayed tooltip
     pub hide_tooltip: bool,
-    /// Whether the cursor changed
-    pub cursor_changed: bool,
     /// Whether stopPropagation() was called (prevents propagation to other nodes,
     /// but remaining handlers on the same node still fire)
     pub stop_propagation: bool,
@@ -3896,7 +3892,6 @@ impl CallCallbacksResult {
     /// Prefer this over repeating the 28-field literal in every callback path.
     pub fn empty() -> Self {
         Self {
-            should_scroll_render: false,
             callbacks_update_screen: Update::DoNothing,
             modified_window_state: None,
             words_changed: None,
@@ -3915,7 +3910,6 @@ impl CallCallbacksResult {
             menus_to_open: Vec::new(),
             tooltips_to_show: Vec::new(),
             hide_tooltip: false,
-            cursor_changed: false,
             stop_propagation: false,
             stop_immediate_propagation: false,
             prevent_default: false,
@@ -3979,10 +3973,6 @@ impl CallCallbacksResult {
 }
 
 impl CallCallbacksResult {
-    pub fn cursor_changed(&self) -> bool {
-        self.cursor_changed
-    }
-
     pub fn focus_changed(&self) -> bool {
         self.update_focused_node.is_change()
     }

@@ -751,6 +751,11 @@ pub trait PlatformWindowV2 {
         // No-op on non-Wayland platforms
     }
 
+    /// Synchronize the platform window properties (title, size, position, etc.)
+    /// with `current_window_state`. Called after callbacks have potentially
+    /// modified window state via `ModifyWindowState`.
+    fn sync_window_state(&mut self);
+
     // PROVIDED: Hit Testing (Cross-Platform Implementation)
 
     /// Update hit test at given position and store in hover manager.
@@ -3078,20 +3083,9 @@ pub trait PlatformWindowV2 {
         }
 
         // Handle image callback re-invocation (OpenGL texture updates, etc.)
-        // This covers both update_all_image_callbacks (re-invoke ALL image callbacks)
-        // and image_callbacks_changed (re-invoke specific nodes).
-        //
-        // NOTE: We do NOT invoke the image callbacks here. The actual invocation
-        // happens in wr_translate2::process_image_callback_updates() during the
-        // WebRender transaction building phase (build_webrender_transaction or
-        // build_image_only_transaction). Invoking them here would cause:
-        //   1. Double callback invocation (once here, once during transaction build)
-        //   2. Double state mutation (e.g. rotation += 1 incremented twice per frame)
-        //   3. Wasted work (the textures produced here are never registered with
-        //      WebRender and are discarded)
-        //
-        // Instead, we just signal that a redraw is needed so the rendering path
-        // picks up the updated textures.
+        // Signal that a redraw is needed; actual invocation happens in
+        // wr_translate2::process_image_callback_updates() during WebRender
+        // transaction building — invoking here would cause double invocation.
         {
             let has_specific = result.image_callbacks_changed.as_ref()
                 .map(|m| !m.is_empty()).unwrap_or(false);
@@ -3396,6 +3390,63 @@ pub trait PlatformWindowV2 {
         event_result
     }
 
+    /// Process all expired timer callbacks and pending thread callbacks.
+    ///
+    /// This is the single method that replaces the 8× copy-pasted timer/thread
+    /// processing boilerplate that previously existed in each platform's tick handler.
+    ///
+    /// Returns `true` if a redraw is needed (i.e. any callback requested a visual update).
+    /// The platform is then responsible for triggering the actual OS redraw.
+    ///
+    /// Each platform's tick handler becomes a one-liner:
+    /// ```ignore
+    /// if self.process_timers_and_threads() {
+    ///     self.trigger_platform_redraw(); // setNeedsDisplay / InvalidateRect / etc.
+    /// }
+    /// ```
+    fn process_timers_and_threads(&mut self) -> bool {
+        use azul_core::events::ProcessEventResult;
+
+        let timer_results = self.invoke_expired_timers();
+        let mut needs_redraw = false;
+
+        for result in &timer_results {
+            if result.needs_processing() {
+                let old_state = self.get_current_window_state().clone();
+                self.set_previous_window_state(old_state);
+                let process_result = self.process_callback_result_v2(result);
+                self.sync_window_state();
+                if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+                    needs_redraw = true;
+                }
+            }
+            if result.needs_redraw() {
+                needs_redraw = true;
+            }
+        }
+
+        if let Some(thread_result) = self.invoke_thread_callbacks() {
+            if thread_result.needs_processing() {
+                let old_state = self.get_current_window_state().clone();
+                self.set_previous_window_state(old_state);
+                let process_result = self.process_callback_result_v2(&thread_result);
+                self.sync_window_state();
+                if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+                    needs_redraw = true;
+                }
+            }
+            if thread_result.needs_redraw() {
+                needs_redraw = true;
+            }
+        }
+
+        if needs_redraw {
+            self.mark_frame_needs_regeneration();
+        }
+
+        needs_redraw
+    }
+
     /// Perform scrollbar hit-test at the given position.
     ///
     /// Returns `Some(ScrollbarHitId)` if a scrollbar was hit, `None` otherwise.
@@ -3631,13 +3682,8 @@ pub trait PlatformWindowV2 {
 
             // Apply timer/thread results directly to layout_window for inter-callback
             // correctness (e.g. if timer A removes timer B, the next timer in this
-            // tick shouldn't try to invoke timer B).
-            //
-            // NOTE: These are ALSO processed by process_callback_result_v2 (called
-            // by the platform tick_timers handler), which calls start_timer()/
-            // stop_timer() to manage platform-specific timers (e.g. NSTimer).
-            // start_timer() is idempotent — it invalidates any existing NSTimer
-            // before creating a new one. stop_timer() is also idempotent.
+            // tick shouldn't try to invoke timer B). process_callback_result_v2
+            // will also call start_timer()/stop_timer() for platform-level registration.
             if let Some(ref new_timers) = result.timers {
                 for (timer_id, timer) in new_timers {
                     borrows

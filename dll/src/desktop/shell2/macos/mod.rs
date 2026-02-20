@@ -426,41 +426,15 @@ define_class!(
         }
 
         /// Timer tick method - called by NSTimer with repeats:true
-        /// This method invokes expired timers via the stored MacOSWindow pointer.
+        /// This method invokes expired timers and thread callbacks via the stored MacOSWindow pointer.
         #[unsafe(method(tickTimers:))]
         fn tick_timers(&self, _sender: Option<&NSObject>) {
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-            use azul_core::events::ProcessEventResult;
-
-            // Only log every ~60 frames to avoid spam, but always log if there's work
-            static TICK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let tick = TICK_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-
-                    // Invoke all expired timer callbacks
-                    let timer_results = macos_window.invoke_expired_timers();
-
-                    // Process each callback result to handle window state modifications
-                    let mut needs_redraw = false;
-                    for result in &timer_results {
-                        if result.needs_processing() {
-                            macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
-                            let process_result = macos_window.process_callback_result_v2(result);
-                            macos_window.sync_window_state();
-                            if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
-                                needs_redraw = true;
-                            }
-                        }
-                        if result.needs_redraw() {
-                            needs_redraw = true;
-                        }
-                    }
-
-                    if needs_redraw {
-                        macos_window.frame_needs_regeneration = true;
+                    if macos_window.process_timers_and_threads() {
                         let _: () = msg_send![self, setNeedsDisplay: true];
                     }
                 }
@@ -955,37 +929,15 @@ define_class!(
         }
 
         /// Timer tick method - called by NSTimer with repeats:true
-        /// This method invokes expired timers via the stored MacOSWindow pointer.
+        /// This method invokes expired timers and thread callbacks via the stored MacOSWindow pointer.
         #[unsafe(method(tickTimers:))]
         fn tick_timers(&self, _sender: Option<&NSObject>) {
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-            use azul_core::events::ProcessEventResult;
 
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-
-                    // Invoke all expired timer callbacks
-                    let timer_results = macos_window.invoke_expired_timers();
-
-                    // Process each callback result to handle window state modifications
-                    let mut needs_redraw = false;
-                    for result in &timer_results {
-                        if result.needs_processing() {
-                            macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
-                            let process_result = macos_window.process_callback_result_v2(result);
-                            macos_window.sync_window_state();
-                            if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
-                                needs_redraw = true;
-                            }
-                        }
-                        if result.needs_redraw() {
-                            needs_redraw = true;
-                        }
-                    }
-
-                    if needs_redraw {
-                        macos_window.frame_needs_regeneration = true;
+                    if macos_window.process_timers_and_threads() {
                         let _: () = msg_send![self, setNeedsDisplay: true];
                     }
                 }
@@ -1867,10 +1819,7 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
                 .insert(azul_core::task::TimerId { id: timer_id }, timer);
         }
 
-        // IDEMPOTENT: If an NSTimer already exists for this timer_id, invalidate
-        // it before creating a new one. This prevents duplicate NSTimers when
-        // invoke_expired_timers() already inserted the timer into layout_window
-        // and then process_callback_result_v2 calls start_timer() again.
+        // Invalidate any existing NSTimer for this ID before creating a new one.
         if let Some(old_timer) = self.timers.remove(&timer_id) {
             unsafe {
                 old_timer.invalidate();
@@ -2017,6 +1966,10 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
                 e
             );
         }
+    }
+
+    fn sync_window_state(&mut self) {
+        MacOSWindow::sync_window_state(self);
     }
 }
 
