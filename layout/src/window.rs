@@ -2556,7 +2556,7 @@ impl LayoutWindow {
     /// 2. The node has `ifc_membership` pointing to the IFC root
     ///
     /// This is a thin wrapper around `LayoutTree::get_inline_layout_for_node`.
-    fn get_inline_layout_for_node(
+    pub fn get_inline_layout_for_node(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -2571,7 +2571,7 @@ impl LayoutWindow {
     }
 
     /// Helper: Move cursor using a movement function and return the new cursor if it changed
-    fn move_cursor_in_node<F>(
+    pub fn move_cursor_in_node<F>(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -2594,7 +2594,7 @@ impl LayoutWindow {
     }
 
     /// Helper: Handle cursor movement with optional selection extension
-    fn handle_cursor_movement(
+    pub fn handle_cursor_movement(
         &mut self,
         dom_id: DomId,
         node_id: NodeId,
@@ -3533,29 +3533,29 @@ impl LayoutWindow {
     /// NOTE: The timer has to be selected first by the calling code and verified
     /// that it is ready to run
     #[cfg(feature = "std")]
+    /// Run a single timer callback and return raw changes + update.
+    ///
+    /// If the timer should terminate, a `RemoveTimer` change is appended.
     pub fn run_single_timer(
         &mut self,
         timer_id: usize,
         frame_start: Instant,
         current_window_handle: &RawWindowHandle,
         gl_context: &OptionGlContextPtr,
-        image_cache: &mut ImageCache,
-        system_fonts: &mut FcFontCache,
         system_style: std::sync::Arc<azul_css::system::SystemStyle>,
         system_callbacks: &ExternalSystemCallbacks,
         previous_window_state: &Option<FullWindowState>,
         current_window_state: &FullWindowState,
         renderer_resources: &RendererResources,
-    ) -> CallCallbacksResult {
-        use crate::callbacks::{CallCallbacksResult, CallbackInfo};
+    ) -> (Vec<crate::callbacks::CallbackChange>, Update) {
+        use crate::callbacks::{CallbackInfo, CallbackChange};
 
-        let mut ret = CallCallbacksResult::empty();
-
+        let mut update = Update::DoNothing;
+        let mut all_changes = Vec::new();
         let mut should_terminate = TerminateTimer::Continue;
 
         let current_scroll_states_nested = self.get_nested_scroll_states(DomId::ROOT_ID);
 
-        // Check if timer exists and get node_id before borrowing self mutably
         let timer_exists = self.timers.contains_key(&TimerId { id: timer_id });
         let timer_node_id = self
             .timers
@@ -3563,7 +3563,6 @@ impl LayoutWindow {
             .and_then(|t| t.node_id.into_option());
 
         if timer_exists {
-            // TODO: store the hit DOM of the timer?
             let hit_dom_node = match timer_node_id {
                 Some(s) => s,
                 None => DomNodeId {
@@ -3574,13 +3573,8 @@ impl LayoutWindow {
             let cursor_relative_to_item = OptionLogicalPosition::None;
             let cursor_in_viewport = OptionLogicalPosition::None;
 
-            // Create changes container for callback transaction system
-            // Uses Arc<Mutex> so that cloned CallbackInfo (e.g., in timer callbacks)
-            // still push to the same collection
             let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
-            // Create reference data container (syntax sugar to reduce parameter count)
-            // First get the ctx from the timer's callback before we borrow timer again
             let timer_ctx = self
                 .timers
                 .get(&TimerId { id: timer_id })
@@ -3609,79 +3603,54 @@ impl LayoutWindow {
                 hit_dom_node,
                 cursor_relative_to_item,
                 cursor_in_viewport,
-            ); // Now we can borrow the timer mutably
+            );
+
             let timer = self.timers.get_mut(&TimerId { id: timer_id }).unwrap();
             let tcr = timer.invoke(&callback_info, &system_callbacks.get_system_time_fn);
 
-            ret.callbacks_update_screen = tcr.should_update;
+            update = tcr.should_update;
             should_terminate = tcr.should_terminate;
 
-            // Extract changes from the Arc<Mutex> - they may have been pushed by
-            // cloned CallbackInfo instances (e.g., in timer callbacks)
-            let collected_changes = callback_changes
+            all_changes = callback_changes
                 .lock()
                 .map(|mut guard| core::mem::take(&mut *guard))
                 .unwrap_or_default();
-
-            // Apply callback changes collected during timer execution
-            let change_result = self.apply_callback_changes(
-                collected_changes,
-                current_window_state,
-                image_cache,
-                system_fonts,
-            );
-
-            // Queue IFrame updates for next frame
-            if !change_result.iframes_to_update.is_empty() {
-                self.queue_iframe_updates(change_result.iframes_to_update.clone());
-            }
-
-            // Transfer ALL fields from CallbackChangeResult to CallCallbacksResult
-            let focus_target = change_result.focus_target.clone();
-            change_result.merge_into(&mut ret, current_window_state);
-            CallbackChangeResult::resolve_focus_into(
-                focus_target,
-                &mut ret,
-                &self.layout_results,
-                self.focus_manager.get_focused_node().copied(),
-            );
         }
 
         if should_terminate == TerminateTimer::Terminate {
-            ret.timers_removed
-                .get_or_insert_with(|| std::collections::BTreeSet::new())
-                .insert(TimerId { id: timer_id });
+            all_changes.push(CallbackChange::RemoveTimer {
+                timer_id: TimerId { id: timer_id },
+            });
         }
 
-        return ret;
+        (all_changes, update)
     }
 
     #[cfg(feature = "std")]
+    /// Run all thread writeback callbacks and return raw changes + update.
     pub fn run_all_threads(
         &mut self,
         data: &mut RefAny,
         current_window_handle: &RawWindowHandle,
         gl_context: &OptionGlContextPtr,
-        image_cache: &mut ImageCache,
-        system_fonts: &mut FcFontCache,
         system_style: std::sync::Arc<azul_css::system::SystemStyle>,
         system_callbacks: &ExternalSystemCallbacks,
         previous_window_state: &Option<FullWindowState>,
         current_window_state: &FullWindowState,
         renderer_resources: &RendererResources,
-    ) -> CallCallbacksResult {
+    ) -> (Vec<crate::callbacks::CallbackChange>, Update) {
         use std::collections::BTreeSet;
 
         use crate::{
-            callbacks::{CallCallbacksResult, CallbackInfo},
+            callbacks::{CallbackInfo, CallbackChange},
             thread::{OptionThreadReceiveMsg, ThreadReceiveMsg, ThreadWriteBackMsg},
         };
 
-        let mut ret = CallCallbacksResult::empty();
+        let mut update = Update::DoNothing;
+        let mut all_changes = Vec::new();
 
         let current_scroll_states = self.get_nested_scroll_states(DomId::ROOT_ID);
 
-        // Collect thread IDs first to avoid borrowing self.threads while accessing self
         let thread_ids: Vec<ThreadId> = self.threads.keys().copied().collect();
 
         for thread_id in thread_ids {
@@ -3697,21 +3666,18 @@ impl LayoutWindow {
             let cursor_relative_to_item = OptionLogicalPosition::None;
             let cursor_in_viewport = OptionLogicalPosition::None;
 
-            // Lock the mutex, extract data, then drop the guard before creating CallbackInfo
             let (msg, writeback_data_ptr, is_finished) = {
                 let thread_inner = &mut *match thread.ptr.lock().ok() {
                     Some(s) => s,
                     None => {
-                        ret.threads_removed
-                            .get_or_insert_with(|| BTreeSet::default())
-                            .insert(thread_id);
+                        all_changes.push(CallbackChange::RemoveThread { thread_id });
                         continue;
                     }
                 };
 
                 let _ = thread_inner.sender_send(ThreadSendMsg::Tick);
-                let update = thread_inner.receiver_try_recv();
-                let msg = match update {
+                let recv = thread_inner.receiver_try_recv();
+                let msg = match recv {
                     OptionThreadReceiveMsg::None => continue,
                     OptionThreadReceiveMsg::Some(s) => s,
                 };
@@ -3720,24 +3686,21 @@ impl LayoutWindow {
                 let is_finished = thread_inner.is_finished();
 
                 (msg, writeback_data_ptr, is_finished)
-                // MutexGuard is dropped here
             };
 
             let ThreadWriteBackMsg {
-                refany: mut data,
+                refany: mut data_inner,
                 callback,
             } = match msg {
                 ThreadReceiveMsg::Update(update_screen) => {
-                    ret.callbacks_update_screen.max_self(update_screen);
+                    update.max_self(update_screen);
                     continue;
                 }
                 ThreadReceiveMsg::WriteBack(t) => t,
             };
 
-            // Create changes container for callback transaction system
             let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
-            // Create reference data container (syntax sugar to reduce parameter count)
             let ref_data = crate::callbacks::CallbackInfoRefData {
                 layout_window: self,
                 renderer_resources,
@@ -3761,74 +3724,52 @@ impl LayoutWindow {
                 cursor_relative_to_item,
                 cursor_in_viewport,
             );
+
             let callback_update = (callback.cb)(
                 unsafe { (*writeback_data_ptr).clone() },
-                data.clone(),
+                data_inner.clone(),
                 callback_info,
             );
-            ret.callbacks_update_screen.max_self(callback_update);
+            update.max_self(callback_update);
 
-            // Extract changes from the Arc<Mutex>
             let collected_changes = callback_changes
                 .lock()
                 .map(|mut guard| core::mem::take(&mut *guard))
                 .unwrap_or_default();
 
-            // Apply callback changes collected during thread writeback
-            let change_result = self.apply_callback_changes(
-                collected_changes,
-                current_window_state,
-                image_cache,
-                system_fonts,
-            );
-
-            // Queue any IFrame updates from this callback
-            self.queue_iframe_updates(change_result.iframes_to_update.clone());
-
-            // Transfer ALL fields from CallbackChangeResult to CallCallbacksResult
-            let focus_target = change_result.focus_target.clone();
-            change_result.merge_into(&mut ret, current_window_state);
-            CallbackChangeResult::resolve_focus_into(
-                focus_target,
-                &mut ret,
-                &self.layout_results,
-                self.focus_manager.get_focused_node().copied(),
-            );
+            all_changes.extend(collected_changes);
 
             if is_finished {
-                ret.threads_removed
-                    .get_or_insert_with(|| BTreeSet::default())
-                    .insert(thread_id);
+                all_changes.push(CallbackChange::RemoveThread { thread_id });
             }
         }
 
-        return ret;
+        (all_changes, update)
     }
 
-    /// Invokes a single callback (used for on_window_create, on_window_shutdown, etc.)
+    /// Invokes a single callback and returns the raw changes + update signal.
+    ///
+    /// Caller is responsible for processing each `CallbackChange` via
+    /// `PlatformWindowV2::apply_user_change()`.
     pub fn invoke_single_callback(
         &mut self,
         callback: &mut Callback,
         data: &mut RefAny,
         current_window_handle: &RawWindowHandle,
         gl_context: &OptionGlContextPtr,
-        image_cache: &mut ImageCache,
-        system_fonts: &mut FcFontCache,
         system_style: std::sync::Arc<azul_css::system::SystemStyle>,
         system_callbacks: &ExternalSystemCallbacks,
         previous_window_state: &Option<FullWindowState>,
         current_window_state: &FullWindowState,
         renderer_resources: &RendererResources,
-    ) -> CallCallbacksResult {
-        use crate::callbacks::{CallCallbacksResult, Callback, CallbackInfo};
+    ) -> (Vec<crate::callbacks::CallbackChange>, Update) {
+        use crate::callbacks::{CallbackInfo, CallbackChange};
 
         let hit_dom_node = DomNodeId {
             dom: DomId::ROOT_ID,
             node: NodeHierarchyItemId::from_crate_internal(None),
         };
 
-        let mut ret = CallCallbacksResult::empty();
-
         let current_scroll_states = self.get_nested_scroll_states(DomId::ROOT_ID);
 
         let cursor_relative_to_item = OptionLogicalPosition::None;
@@ -3840,7 +3781,7 @@ impl LayoutWindow {
         // Create changes container for callback transaction system
         let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
-        // Create reference data container (syntax sugar to reduce parameter count)
+        // Create reference data container
         let ref_data = crate::callbacks::CallbackInfoRefData {
             layout_window: self,
             renderer_resources,
@@ -3865,7 +3806,7 @@ impl LayoutWindow {
             cursor_in_viewport,
         );
 
-        ret.callbacks_update_screen = (callback.cb)(data.clone(), callback_info);
+        let update = (callback.cb)(data.clone(), callback_info);
 
         // Extract changes from the Arc<Mutex>
         let collected_changes = callback_changes
@@ -3873,116 +3814,7 @@ impl LayoutWindow {
             .map(|mut guard| core::mem::take(&mut *guard))
             .unwrap_or_default();
 
-        // Apply callback changes collected during callback execution
-        let change_result = self.apply_callback_changes(
-            collected_changes,
-            current_window_state,
-            image_cache,
-            system_fonts,
-        );
-
-        // Queue any IFrame updates from this callback
-        self.queue_iframe_updates(change_result.iframes_to_update.clone());
-
-        // Transfer ALL fields from CallbackChangeResult to CallCallbacksResult
-        let focus_target = change_result.focus_target.clone();
-        change_result.merge_into(&mut ret, current_window_state);
-        CallbackChangeResult::resolve_focus_into(
-            focus_target,
-            &mut ret,
-            &self.layout_results,
-            self.focus_manager.get_focused_node().copied(),
-        );
-
-        return ret;
-    }
-
-    /// Invokes a menu callback
-    pub fn invoke_menu_callback(
-        &mut self,
-        menu_callback: &mut MenuCallback,
-        hit_dom_node: DomNodeId,
-        current_window_handle: &RawWindowHandle,
-        gl_context: &OptionGlContextPtr,
-        image_cache: &mut ImageCache,
-        system_fonts: &mut FcFontCache,
-        system_style: std::sync::Arc<azul_css::system::SystemStyle>,
-        system_callbacks: &ExternalSystemCallbacks,
-        previous_window_state: &Option<FullWindowState>,
-        current_window_state: &FullWindowState,
-        renderer_resources: &RendererResources,
-    ) -> CallCallbacksResult {
-        use crate::callbacks::{CallCallbacksResult, CallbackInfo, MenuCallback};
-
-        let mut ret = CallCallbacksResult::empty();
-
-        let current_scroll_states = self.get_nested_scroll_states(DomId::ROOT_ID);
-
-        let cursor_relative_to_item = OptionLogicalPosition::None;
-        let cursor_in_viewport = match current_window_state.mouse_state.cursor_position.get_position() {
-            Some(pos) => OptionLogicalPosition::Some(pos),
-            None => OptionLogicalPosition::None,
-        };
-
-        // Create changes container for callback transaction system
-        let callback_changes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-
-        // Create reference data container (syntax sugar to reduce parameter count)
-        let ref_data = crate::callbacks::CallbackInfoRefData {
-            layout_window: self,
-            renderer_resources,
-            previous_window_state,
-            current_window_state,
-            gl_context,
-            current_scroll_manager: &current_scroll_states,
-            current_window_handle,
-            system_callbacks,
-            system_style,
-            monitors: self.monitors.clone(),
-            #[cfg(feature = "icu")]
-            icu_localizer: self.icu_localizer.clone(),
-            ctx: OptionRefAny::None,
-        };
-
-        let callback_info = CallbackInfo::new(
-            &ref_data,
-            &callback_changes,
-            hit_dom_node,
-            cursor_relative_to_item,
-            cursor_in_viewport,
-        );
-
-        ret.callbacks_update_screen =
-            (menu_callback.callback.cb)(menu_callback.refany.clone(), callback_info);
-
-        // Extract changes from the Arc<Mutex>
-        let collected_changes = callback_changes
-            .lock()
-            .map(|mut guard| core::mem::take(&mut *guard))
-            .unwrap_or_default();
-
-        // Apply callback changes collected during menu callback execution
-        let change_result = self.apply_callback_changes(
-            collected_changes,
-            current_window_state,
-            image_cache,
-            system_fonts,
-        );
-
-        // Queue any IFrame updates from this callback
-        self.queue_iframe_updates(change_result.iframes_to_update.clone());
-
-        // Transfer ALL fields from CallbackChangeResult to CallCallbacksResult
-        let focus_target = change_result.focus_target.clone();
-        change_result.merge_into(&mut ret, current_window_state);
-        CallbackChangeResult::resolve_focus_into(
-            focus_target,
-            &mut ret,
-            &self.layout_results,
-            self.focus_manager.get_focused_node().copied(),
-        );
-
-        return ret;
+        (collected_changes, update)
     }
 
     /// Set the system style for resolving system color keywords in CSS.
