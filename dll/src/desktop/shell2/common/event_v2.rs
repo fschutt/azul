@@ -158,7 +158,7 @@ use azul_core::{
 };
 use azul_layout::{
     callbacks::{
-        CallCallbacksResult, Callback as LayoutCallback, CallbackInfo, ExternalSystemCallbacks,
+        Callback as LayoutCallback, CallbackInfo, ExternalSystemCallbacks,
     },
     event_determination::determine_all_events,
     hit_test::FullHitTest,
@@ -664,7 +664,7 @@ pub trait PlatformWindowV2 {
     /// the thread polling timer to check for completion.
     ///
     /// ## Parameters
-    /// * `threads` - Threads to add to the pool (BTreeMap from CallCallbacksResult)
+    /// * `threads` - Threads to add to the pool
     fn add_threads(
         &mut self,
         threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
@@ -678,6 +678,18 @@ pub trait PlatformWindowV2 {
         &mut self,
         thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>,
     );
+
+    // REQUIRED: Window Creation (Platform-Specific Implementation)
+
+    /// Queue a new window to be created by the event loop.
+    ///
+    /// Pushes the `WindowCreateOptions` onto `self.pending_window_creates`.
+    /// The event loop (in `run.rs`) pops from this queue after each event
+    /// iteration and creates the platform window.
+    ///
+    /// ## Parameters
+    /// * `options` - Configuration for the new window
+    fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions);
 
     // REQUIRED: Menu Display (Platform-Specific Implementation)
 
@@ -851,8 +863,8 @@ pub trait PlatformWindowV2 {
                 result
             }
 
-            CallbackChange::CreateNewWindow { options: _ } => {
-                // TODO: Signal event loop to create new window
+            CallbackChange::CreateNewWindow { options } => {
+                self.queue_window_create(options.clone());
                 ProcessEventResult::DoNothing
             }
 
@@ -1017,8 +1029,16 @@ pub trait PlatformWindowV2 {
                 ProcessEventResult::ShouldIncrementalRelayout
             }
 
-            CallbackChange::ChangeNodeImage { dom_id, node_id: _, image: _, update_type: _ } => {
-                let _ = dom_id;
+            CallbackChange::ChangeNodeImage { dom_id, node_id, image, update_type: _ } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                        let idx = node_id.index();
+                        if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                            layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                                .set_node_type(azul_core::dom::NodeType::Image(image.clone()));
+                        }
+                    }
+                }
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
@@ -1041,7 +1061,16 @@ pub trait PlatformWindowV2 {
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
-            CallbackChange::ChangeNodeImageMask { dom_id: _, node_id: _, mask: _ } => {
+            CallbackChange::ChangeNodeImageMask { dom_id, node_id, mask } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                        let idx = node_id.index();
+                        if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                            layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                                .set_clip_mask(mask.clone());
+                        }
+                    }
+                }
                 ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             }
 
@@ -1202,6 +1231,9 @@ pub trait PlatformWindowV2 {
                         }
                         azul_core::selection::Selection::Range(range) => {
                             lw.cursor_manager.move_cursor_to(range.start, *dom_id, *node_id);
+                            let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(*node_id));
+                            let dom_node_id = azul_core::dom::DomNodeId { dom: *dom_id, node: hierarchy_id };
+                            lw.selection_manager.add_selection(*dom_id, dom_node_id, selection.clone());
                         }
                     }
                 }
@@ -1440,11 +1472,10 @@ pub trait PlatformWindowV2 {
                 let mut result = ProcessEventResult::DoNothing;
 
                 if !text_events.is_empty() {
-                    let (text_results, _) = self.dispatch_events_propagated(&text_events);
-                    for callback_result in &text_results {
-                        if matches!(callback_result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
-                            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-                        }
+                    let (text_changes_result, text_update, _) = self.dispatch_events_propagated(&text_events);
+                    result = result.max(text_changes_result);
+                    if matches!(text_update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                        result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                     }
                 }
 
@@ -1584,14 +1615,15 @@ pub trait PlatformWindowV2 {
     /// * `events` - SyntheticEvents to dispatch (already filtered to user events)
     ///
     /// ## Returns
-    /// * `Vec<CallCallbacksResult>` - Results from all invoked callbacks
+    /// * `ProcessEventResult` - The maximum framework-determined processing level from applied changes
+    /// * `Update` - The maximum update level requested by all invoked callbacks
     /// * `bool` - Whether any callback called preventDefault()
     fn dispatch_events_propagated(
         &mut self,
         events: &[azul_core::events::SyntheticEvent],
-    ) -> (Vec<CallCallbacksResult>, bool) {
+    ) -> (ProcessEventResult, azul_core::callbacks::Update, bool) {
         use azul_core::{
-            callbacks::CoreCallbackData,
+            callbacks::{CoreCallbackData, Update},
             dom::{DomId, NodeId as CoreNodeId},
             events::{EventFilter, EventPhase, SyntheticEvent},
             id::NodeId,
@@ -1612,7 +1644,7 @@ pub trait PlatformWindowV2 {
         let planned_callbacks: Vec<PlannedInvocation> = {
             let layout_window = match self.get_layout_window() {
                 Some(lw) => lw,
-                None => return (Vec::new(), false),
+                None => return (ProcessEventResult::DoNothing, Update::DoNothing, false),
             };
 
             let focused_node = layout_window.focus_manager.get_focused_node().cloned();
@@ -1787,7 +1819,7 @@ pub trait PlatformWindowV2 {
         // Phase 2: Invoke planned callbacks (mutable access)
         // ===================================================================
         if planned_callbacks.is_empty() {
-            return (Vec::new(), false);
+            return (ProcessEventResult::DoNothing, Update::DoNothing, false);
         }
 
         let mut borrows = self.prepare_callback_invocation();
@@ -1863,22 +1895,20 @@ pub trait PlatformWindowV2 {
         // Drop borrows before calling apply_user_change on self
         drop(borrows);
 
-        // Apply all accumulated user changes
+        // Apply all accumulated user changes, tracking max ProcessEventResult
+        let mut changes_result = ProcessEventResult::DoNothing;
         for change in &all_changes {
-            self.apply_user_change(change);
+            let r = self.apply_user_change(change);
+            changes_result = changes_result.max(r);
         }
 
-        // Build result for callers: single merged CallCallbacksResult
-        use azul_core::callbacks::Update;
+        // Compute the maximum update level across all callbacks
         let merged_update = all_updates.iter().copied().fold(
             Update::DoNothing,
             |acc, u| acc.max(u),
         );
-        let mut merged_result = CallCallbacksResult::empty();
-        merged_result.callbacks_update_screen = merged_update;
-        merged_result.prevent_default = any_prevent_default;
 
-        (vec![merged_result], any_prevent_default)
+        (changes_result, merged_update, any_prevent_default)
     }
 
     // PROVIDED: Complete Logic (Default Implementations)
@@ -2558,29 +2588,28 @@ pub trait PlatformWindowV2 {
             .and_then(|lw| lw.focus_manager.get_focused_node().copied());
 
         // Dispatch user events using W3C Capture→Target→Bubble propagation
-        // dispatch_events_propagated now applies all CallbackChanges internally
-        // via apply_user_change(), and returns a single merged CallCallbacksResult.
-        let (callback_results, prevent_default) =
+        // dispatch_events_propagated applies all CallbackChanges internally
+        // via apply_user_change(), and returns the merged Update level.
+        let (changes_result, callback_update, prevent_default) =
             self.dispatch_events_propagated(&pre_filter.user_events);
+        result = result.max(changes_result);
 
         let mut should_recurse = false;
         let mut focus_changed = false;
 
         use azul_core::callbacks::Update;
-        for callback_result in &callback_results {
-            match callback_result.callbacks_update_screen {
-                Update::RefreshDom => {
-                    self.mark_frame_needs_regeneration();
-                    result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-                    should_recurse = true;
-                }
-                Update::RefreshDomAllWindows => {
-                    self.mark_frame_needs_regeneration();
-                    result = result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
-                    should_recurse = true;
-                }
-                Update::DoNothing => {}
+        match callback_update {
+            Update::RefreshDom => {
+                self.mark_frame_needs_regeneration();
+                result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                should_recurse = true;
             }
+            Update::RefreshDomAllWindows => {
+                self.mark_frame_needs_regeneration();
+                result = result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
+                should_recurse = true;
+            }
+            Update::DoNothing => {}
         }
 
         // AUTO-ACTIVATE NODE DRAG
@@ -3397,17 +3426,13 @@ pub trait PlatformWindowV2 {
                     azul_core::events::EventData::None,
                 );
 
-                let (click_results, _) = self.dispatch_events_propagated(&[click_event]);
+                let (click_changes_result, click_update, _) = self.dispatch_events_propagated(&[click_event]);
+                result = result.max(click_changes_result);
 
-                for callback_result in &click_results {
-                    if matches!(
-                        callback_result.callbacks_update_screen,
-                        Update::RefreshDom | Update::RefreshDomAllWindows
-                    ) {
-                        self.mark_frame_needs_regeneration();
-                        result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-                        should_recurse = true;
-                    }
+                if matches!(click_update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                    self.mark_frame_needs_regeneration();
+                    result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                    should_recurse = true;
                 }
 
                 log_debug!(
@@ -3492,15 +3517,11 @@ pub trait PlatformWindowV2 {
                 }
 
                 if !focus_events.is_empty() {
-                    let (focus_results, _) = self.dispatch_events_propagated(&focus_events);
-                    for callback_result in &focus_results {
-                        if matches!(
-                            callback_result.callbacks_update_screen,
-                            Update::RefreshDom | Update::RefreshDomAllWindows
-                        ) {
-                            self.mark_frame_needs_regeneration();
-                            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-                        }
+                    let (focus_changes_result, focus_update, _) = self.dispatch_events_propagated(&focus_events);
+                    result = result.max(focus_changes_result);
+                    if matches!(focus_update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                        self.mark_frame_needs_regeneration();
+                        result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                     }
                 }
             }
@@ -3611,13 +3632,13 @@ pub trait PlatformWindowV2 {
     fn process_timers_and_threads(&mut self) -> bool {
         use azul_core::callbacks::Update;
 
-        let timer_results = self.invoke_expired_timers();
-        let mut needs_redraw = false;
+        let (timer_changes_result, timer_results) = self.invoke_expired_timers();
+        let mut needs_redraw = timer_changes_result != ProcessEventResult::DoNothing;
 
-        for result in &timer_results {
+        for update in &timer_results {
             // apply_user_change was already called inside invoke_expired_timers
             // We just check if the callback requested a visual update
-            match result.callbacks_update_screen {
+            match update {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
                     needs_redraw = true;
                 }
@@ -3625,9 +3646,12 @@ pub trait PlatformWindowV2 {
             }
         }
 
-        if let Some(thread_result) = self.invoke_thread_callbacks() {
+        if let Some((thread_changes_result, thread_update)) = self.invoke_thread_callbacks() {
             // apply_user_change was already called inside invoke_thread_callbacks
-            match thread_result.callbacks_update_screen {
+            if thread_changes_result != ProcessEventResult::DoNothing {
+                needs_redraw = true;
+            }
+            match thread_update {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
                     needs_redraw = true;
                 }
@@ -3826,7 +3850,7 @@ pub trait PlatformWindowV2 {
     /// the callback for each expired timer using `run_single_timer()`.
     ///
     /// ## Returns
-    /// * `Vec<CallCallbacksResult>` - Results from all invoked timer callbacks
+    /// * `Vec<Update>` - Update level from each invoked timer callback
     ///
     /// ## Platform Usage
     /// Call this from platform event loops when:
@@ -3834,10 +3858,10 @@ pub trait PlatformWindowV2 {
     /// - **macOS**: In `performSelector:withObject:afterDelay:` callback
     /// - **X11**: After `select()` timeout
     /// - **Wayland**: After `timerfd` read
-    fn invoke_expired_timers(&mut self) -> Vec<azul_layout::callbacks::CallCallbacksResult> {
+    fn invoke_expired_timers(&mut self) -> (ProcessEventResult, Vec<azul_core::callbacks::Update>) {
         use azul_core::callbacks::Update;
         use azul_core::task::TimerId;
-        use azul_layout::callbacks::{CallCallbacksResult, ExternalSystemCallbacks};
+        use azul_layout::callbacks::ExternalSystemCallbacks;
 
         // Get current system time
         let system_callbacks = ExternalSystemCallbacks::rust_internal();
@@ -3848,16 +3872,17 @@ pub trait PlatformWindowV2 {
         let expired_timer_ids: Vec<TimerId> = {
             let layout_window = match self.get_layout_window_mut() {
                 Some(lw) => lw,
-                None => return Vec::new(),
+                None => return (ProcessEventResult::DoNothing, Vec::new()),
             };
             layout_window.tick_timers(current_time)
         };
 
         if expired_timer_ids.is_empty() {
-            return Vec::new();
+            return (ProcessEventResult::DoNothing, Vec::new());
         }
 
         let mut all_results = Vec::new();
+        let mut changes_result = ProcessEventResult::DoNothing;
 
         // Process each expired timer
         for timer_id in expired_timer_ids {
@@ -3880,11 +3905,9 @@ pub trait PlatformWindowV2 {
             // (e.g., timer A removes timer B → B shouldn't fire)
             drop(borrows);
 
-            let mut result = CallCallbacksResult::empty();
-            result.callbacks_update_screen = update;
-
             for change in &changes {
-                let _ = self.apply_user_change(change);
+                let r = self.apply_user_change(change);
+                changes_result = changes_result.max(r);
             }
 
             // Mark frame for redraw if callback requested it
@@ -3894,10 +3917,10 @@ pub trait PlatformWindowV2 {
                 self.mark_frame_needs_regeneration();
             }
 
-            all_results.push(result);
+            all_results.push(update);
         }
 
-        all_results
+        (changes_result, all_results)
     }
 
     // PROVIDED: Thread Callback Invocation (Cross-Platform Implementation)
@@ -3908,7 +3931,7 @@ pub trait PlatformWindowV2 {
     /// the writeback callbacks for any threads that have finished.
     ///
     /// ## Returns
-    /// * `Option<CallCallbacksResult>` - Combined result from all thread writeback callbacks, or None if no threads processed
+    /// * `Option<Update>` - Update level from thread writeback callbacks, or None if no threads processed
     ///
     /// ## Platform Usage
     /// Call this from platform event loops when:
@@ -3916,8 +3939,8 @@ pub trait PlatformWindowV2 {
     /// - **macOS**: In thread poll timer callback (NSTimer every 16ms)
     /// - **X11**: After `select()` timeout when threads exist
     /// - **Wayland**: After thread timerfd read
-    fn invoke_thread_callbacks(&mut self) -> Option<azul_layout::callbacks::CallCallbacksResult> {
-        use azul_layout::callbacks::{CallCallbacksResult, ExternalSystemCallbacks};
+    fn invoke_thread_callbacks(&mut self) -> Option<(ProcessEventResult, azul_core::callbacks::Update)> {
+        use azul_layout::callbacks::ExternalSystemCallbacks;
 
         // Check if we have threads to poll
         let has_threads = {
@@ -3954,14 +3977,13 @@ pub trait PlatformWindowV2 {
         drop(app_data);
         drop(borrows);
 
-        let mut result = CallCallbacksResult::empty();
-        result.callbacks_update_screen = update;
-
+        let mut changes_result = ProcessEventResult::DoNothing;
         for change in &changes {
-            let _ = self.apply_user_change(change);
+            let r = self.apply_user_change(change);
+            changes_result = changes_result.max(r);
         }
 
-        Some(result)
+        Some((changes_result, update))
     }
 
     /// Handle scrollbar drag - update scroll position based on mouse delta.

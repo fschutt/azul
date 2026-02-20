@@ -1069,7 +1069,10 @@ impl X11Window {
             drop(app_data_ref);
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
             for change in &changes {
-                window.apply_user_change(change);
+                let r = window.apply_user_change(change);
+                if r != azul_core::events::ProcessEventResult::DoNothing {
+                    window.frame_needs_regeneration = true;
+                }
             }
         }
 
@@ -2580,6 +2583,10 @@ impl PlatformWindowV2 for X11Window {
                 layout_window.threads.remove(thread_id);
             }
         }
+    }
+
+    fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions) {
+        self.pending_window_creates.push(options);
     }
 
     // REQUIRED: Menu Display

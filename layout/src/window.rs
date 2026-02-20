@@ -61,7 +61,7 @@ use rust_fontconfig::FcFontCache;
 use crate::icu::IcuLocalizerHandle;
 use crate::{
     callbacks::{
-        CallCallbacksResult, Callback, ExternalSystemCallbacks, FocusUpdateRequest, MenuCallback,
+        Callback, ExternalSystemCallbacks, MenuCallback,
     },
     managers::{
         gpu_state::GpuStateManager,

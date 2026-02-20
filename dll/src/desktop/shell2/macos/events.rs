@@ -496,12 +496,11 @@ impl MacOSWindow {
             .collect();
 
         if !text_events.is_empty() {
-            let (text_results, _) = self.dispatch_events_propagated(&text_events);
-            for callback_result in &text_results {
-                use azul_core::callbacks::Update;
-                if matches!(callback_result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
-                    overall_result = overall_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-                }
+            let (text_changes_result, text_update, _) = self.dispatch_events_propagated(&text_events);
+            overall_result = overall_result.max(text_changes_result);
+            use azul_core::callbacks::Update;
+            if matches!(text_update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                overall_result = overall_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
             }
         }
 

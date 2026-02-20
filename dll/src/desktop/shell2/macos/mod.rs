@@ -1926,6 +1926,10 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         }
     }
 
+    fn queue_window_create(&mut self, options: azul_layout::window_state::WindowCreateOptions) {
+        self.pending_window_creates.push(options);
+    }
+
     // REQUIRED: Menu Display
 
     fn show_menu_from_callback(
@@ -2900,9 +2904,12 @@ impl MacOSWindow {
             drop(app_data_ref); // Release borrow before apply_user_change
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
             window.previous_window_state = Some(window.current_window_state.clone());
-            let (changes, update) = callback_result;
+            let (changes, _update) = callback_result;
             for change in &changes {
-                let _ = window.apply_user_change(change);
+                let r = window.apply_user_change(change);
+                if r != azul_core::events::ProcessEventResult::DoNothing {
+                    window.frame_needs_regeneration = true;
+                }
             }
             // Sync window state to OS (handles close_requested, title, size, etc.)
             window.sync_window_state();
@@ -4659,9 +4666,13 @@ impl MacOSWindow {
         // CRITICAL: Poll threads for completed work and invoke writeback callbacks
         // This processes ThreadWriteBackMsg from background threads
         // Note: invoke_thread_callbacks already calls apply_user_change internally
-        if let Some(thread_result) = self.invoke_thread_callbacks() {
+        if let Some((thread_changes_result, thread_update)) = self.invoke_thread_callbacks() {
             use azul_core::callbacks::Update;
-            match thread_result.callbacks_update_screen {
+            use azul_core::events::ProcessEventResult;
+            if thread_changes_result != ProcessEventResult::DoNothing {
+                self.frame_needs_regeneration = true;
+            }
+            match thread_update {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
                     self.frame_needs_regeneration = true;
                 }
