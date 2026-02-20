@@ -15,6 +15,16 @@
 //! ```bash
 //! AZUL_HEADLESS=1 AZUL_DEBUG=1 ./my_app
 //! ```
+//!
+//! # E2E Test Runner
+//!
+//! Set `AZUL_RUN_E2E_TESTS=<path>` to run E2E tests from a JSON file.
+//! The app starts in headless mode, runs all tests, prints cargo-test-style
+//! output, and exits with code 0 (all pass) or 1 (any failure).
+//!
+//! ```bash
+//! AZUL_RUN_E2E_TESTS=tests.json ./my_app
+//! ```
 
 use std::{ffi::c_void, sync::Arc};
 
@@ -37,6 +47,132 @@ fn is_headless() -> bool {
         std::env::var("AZUL_HEADLESS").as_deref(),
         Ok("1") | Ok("true") | Ok("yes")
     )
+}
+
+/// Check if E2E test runner mode is requested via environment variable.
+/// Returns `Some(path)` if `AZUL_RUN_E2E_TESTS` is set.
+fn e2e_test_file() -> Option<String> {
+    std::env::var("AZUL_RUN_E2E_TESTS").ok().filter(|s| !s.is_empty())
+}
+
+/// Set up E2E test runner: read the JSON file, push a `RunE2eTests`
+/// event onto the queue, and spawn a background thread that waits for
+/// results, prints cargo-test-style output, and calls `exit()`.
+///
+/// This does **not** replace the normal `run()` flow.  The app continues
+/// to start its window (real or headless) and the debug timer processes
+/// the queued event.  The three systems are independent:
+///
+/// - **Headless mode** (`AZUL_HEADLESS`) → StubWindow instead of real window
+/// - **Debug server** (`AZUL_DEBUG=<port>`) → HTTP API on that port
+/// - **E2E runner** (`AZUL_RUN_E2E_TESTS=<file>`) → one event on the queue
+fn setup_e2e_runner(test_file: &str) {
+    // Read the test file — exit immediately on error
+    let tests_json = match std::fs::read_to_string(test_file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot read E2E test file '{}': {}", test_file, e);
+            std::process::exit(1);
+        }
+    };
+
+    // Parse JSON — accept array or single test object
+    let tests: Vec<debug_server::E2eTest> =
+        match serde_json::from_str::<Vec<debug_server::E2eTest>>(&tests_json) {
+            Ok(v) => v,
+            Err(_) => match serde_json::from_str::<debug_server::E2eTest>(&tests_json) {
+                Ok(t) => vec![t],
+                Err(e) => {
+                    eprintln!("error: invalid E2E JSON in '{}': {}", test_file, e);
+                    std::process::exit(1);
+                }
+            },
+        };
+
+    let total = tests.len();
+    eprintln!("\nrunning {} test{}", total, if total == 1 { "" } else { "s" });
+
+    // Push the event onto the queue (this also sets E2E_ACTIVE so
+    // is_debug_enabled() returns true and the timer gets registered).
+    let rx = debug_server::queue_e2e_tests(tests);
+
+    // Spawn a thread that blocks on the response, prints results, exits.
+    std::thread::Builder::new()
+        .name("e2e-result-printer".into())
+        .spawn(move || {
+            use debug_server::{DebugResponseData, ResponseData};
+
+            let response = match rx.recv_timeout(std::time::Duration::from_secs(600)) {
+                Ok(r) => r,
+                Err(_) => {
+                    eprintln!("\nerror: E2E test timeout (600 s)");
+                    std::process::exit(1);
+                }
+            };
+
+            let results = match response {
+                DebugResponseData::Ok { data: Some(ResponseData::E2eResults(r)), .. } => r.results,
+                DebugResponseData::Ok { .. } => {
+                    eprintln!("\nerror: unexpected response (no E2eResults)");
+                    std::process::exit(1);
+                }
+                DebugResponseData::Err(msg) => {
+                    eprintln!("\nerror: {}", msg);
+                    std::process::exit(1);
+                }
+            };
+
+            // cargo-test-style output
+            eprintln!();
+            let mut passed = 0usize;
+            let mut failed = 0usize;
+            let mut failures = Vec::new();
+
+            for result in &results {
+                if result.status == "pass" {
+                    eprintln!("test {} ... \x1b[32mok\x1b[0m ({} ms)", result.name, result.duration_ms);
+                    passed += 1;
+                } else {
+                    eprintln!("test {} ... \x1b[31mFAILED\x1b[0m ({} ms)", result.name, result.duration_ms);
+                    failed += 1;
+                    failures.push(result);
+                }
+            }
+
+            eprintln!();
+
+            if !failures.is_empty() {
+                eprintln!("failures:\n");
+                for f in &failures {
+                    eprintln!("---- {} ----", f.name);
+                    for step in &f.steps {
+                        if step.status == "fail" {
+                            eprintln!(
+                                "  step {}: {} → FAILED: {}",
+                                step.step_index,
+                                step.op,
+                                step.error.as_deref().unwrap_or("unknown error")
+                            );
+                        }
+                    }
+                    eprintln!();
+                }
+                eprintln!("failures:");
+                for f in &failures {
+                    eprintln!("    {}", f.name);
+                }
+                eprintln!();
+            }
+
+            let word = if failed > 0 { "\x1b[31mFAILED\x1b[0m" } else { "\x1b[32mok\x1b[0m" };
+            eprintln!(
+                "test result: {}. {} passed; {} failed; 0 ignored; 0 measured; 0 filtered out\n",
+                word, passed, failed
+            );
+
+            std::process::exit(if failed > 0 { 1 } else { 0 });
+        })
+        .expect("failed to spawn e2e-result-printer thread");
 }
 
 /// Create a `StubWindow` and run its blocking event loop.
@@ -94,6 +230,12 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
+    // Set up E2E runner (pushes event onto queue, spawns result thread).
+    // Does NOT replace run() — the app continues normally.
+    if let Some(ref test_file) = e2e_test_file() {
+        setup_e2e_runner(test_file);
+    }
+
     // Check for headless mode BEFORE any platform-specific initialization
     if is_headless() {
         return run_stub(app_data, config, fc_cache, font_registry, root_window);
@@ -387,6 +529,9 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
+    if let Some(ref test_file) = e2e_test_file() {
+        setup_e2e_runner(test_file);
+    }
     if is_headless() {
         return run_stub(app_data, config, fc_cache, font_registry, root_window);
     }
@@ -405,6 +550,9 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
+    if let Some(ref test_file) = e2e_test_file() {
+        setup_e2e_runner(test_file);
+    }
     if is_headless() {
         return run_stub(app_data, config, fc_cache, font_registry, root_window);
     }
@@ -664,6 +812,9 @@ pub fn run(
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
+    if let Some(ref test_file) = e2e_test_file() {
+        setup_e2e_runner(test_file);
+    }
     if is_headless() {
         return run_stub(app_data, config, fc_cache, font_registry, root_window);
     }

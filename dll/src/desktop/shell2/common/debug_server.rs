@@ -122,7 +122,7 @@ pub enum ResponseData {
 
 /// Wrapper for E2E test results
 #[cfg(feature = "std")]
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct E2eResultsResponse {
     pub results: Vec<E2eTestResult>,
 }
@@ -1215,11 +1215,12 @@ pub enum DebugEvent {
     GetCursorState,
 
     // E2E Test Execution
-    /// Run one or more E2E tests in StubWindows.
-    /// The `tests_json` field is a serialised `Vec<E2eTest>`.
-    #[serde(skip)]
+    /// Run one or more E2E tests.
+    /// This is a regular debug command — send via `POST /` with
+    /// `{"op": "run_e2e_tests", "tests": [...]}` or queue
+    /// programmatically via `queue_e2e_tests()`.
     RunE2eTests {
-        tests_json: String,
+        tests: Vec<E2eTest>,
     },
 }
 
@@ -1418,6 +1419,10 @@ static SERVER_START_TIME: OnceLock<std::time::Instant> = OnceLock::new();
 #[cfg(feature = "std")]
 static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
+/// Whether E2E test runner mode is active (independent of debug server).
+#[cfg(feature = "std")]
+static E2E_ACTIVE: AtomicBool = AtomicBool::new(false);
+
 #[cfg(feature = "std")]
 static DEBUG_PORT: OnceLock<u16> = OnceLock::new();
 
@@ -1463,10 +1468,57 @@ impl Drop for DebugServerHandle {
 
 // ==================== Public API ====================
 
-/// Check if debug mode is enabled
+/// Check if the debug timer should be registered.
+///
+/// Returns `true` when either `AZUL_DEBUG=<port>` started the HTTP
+/// server **or** `AZUL_RUN_E2E_TESTS` queued tests.  Both use the
+/// same `REQUEST_QUEUE` and `debug_timer_callback`.
 #[cfg(feature = "std")]
 pub fn is_debug_enabled() -> bool {
-    DEBUG_ENABLED.load(Ordering::SeqCst)
+    DEBUG_ENABLED.load(Ordering::SeqCst) || E2E_ACTIVE.load(Ordering::SeqCst)
+}
+
+/// Initialise the `REQUEST_QUEUE` without starting the HTTP server.
+///
+/// Called by `queue_e2e_tests()` and `start_debug_server()`.  Safe to
+/// call multiple times (uses `OnceLock`).
+#[cfg(feature = "std")]
+pub fn ensure_queue_initialized() {
+    REQUEST_QUEUE.get_or_init(|| Mutex::new(VecDeque::new()));
+}
+
+/// Push `RunE2eTests` onto the `REQUEST_QUEUE` and return the response
+/// receiver.  Activates the E2E flag so `is_debug_enabled()` returns
+/// `true` and the timer gets registered by the platform event loop.
+///
+/// The caller is responsible for receiving from the returned channel —
+/// typically on a background thread that prints results and calls
+/// `std::process::exit`.
+#[cfg(feature = "std")]
+pub fn queue_e2e_tests(
+    tests: Vec<E2eTest>,
+) -> std::sync::mpsc::Receiver<DebugResponseData> {
+    ensure_queue_initialized();
+    E2E_ACTIVE.store(true, Ordering::SeqCst);
+
+    let (tx, rx) = mpsc::channel();
+    let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst);
+
+    let request = DebugRequest {
+        request_id,
+        event: DebugEvent::RunE2eTests { tests },
+        window_id: None,
+        wait_for_render: false,
+        response_tx: tx,
+    };
+
+    if let Some(queue) = REQUEST_QUEUE.get() {
+        if let Ok(mut q) = queue.lock() {
+            q.push_back(request);
+        }
+    }
+
+    rx
 }
 
 /// Get debug server port from environment
@@ -1729,9 +1781,47 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
     let method = parts[0];
     let path = parts[1];
 
+    // ── Route: GET /debugger.css → serve CSS ──
+    if method == "GET" && path == "/debugger.css" {
+        let css = include_str!("debugger/debugger.css");
+        let header = format!(
+            "HTTP/1.0 200 OK\r\nContent-Type: text/css; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            css.len()
+        );
+        stream.set_nodelay(true).ok();
+        let _ = stream.write_all(header.as_bytes());
+        for chunk in css.as_bytes().chunks(8192) {
+            if stream.write_all(chunk).is_err() { return; }
+        }
+        let _ = stream.flush();
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+        let mut drain = [0u8; 64];
+        while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
+        return;
+    }
+
+    // ── Route: GET /debugger.js → serve JS ──
+    if method == "GET" && path == "/debugger.js" {
+        let js = include_str!("debugger/debugger.js");
+        let header = format!(
+            "HTTP/1.0 200 OK\r\nContent-Type: application/javascript; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            js.len()
+        );
+        stream.set_nodelay(true).ok();
+        let _ = stream.write_all(header.as_bytes());
+        for chunk in js.as_bytes().chunks(8192) {
+            if stream.write_all(chunk).is_err() { return; }
+        }
+        let _ = stream.flush();
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+        let mut drain = [0u8; 64];
+        while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
+        return;
+    }
+
     // ── Route: GET / → serve the debugger UI ──
     if method == "GET" && (path == "/" || path == "/index.html") {
-        let html = include_str!("debugger.html");
+        let html = include_str!("debugger/debugger.html");
         let header = format!(
             "HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             html.len()
@@ -1792,27 +1882,9 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
             }
         }
 
-        // E2E test execution — POST /e2e/run
-        ("POST", "/e2e/run") => {
-            let body_start = request
-                .find("\r\n\r\n")
-                .map(|i| i + 4)
-                .or_else(|| request.find("\n\n").map(|i| i + 2));
-
-            if let Some(start) = body_start {
-                let body = &request[start..];
-                handle_e2e_request(body)
-            } else {
-                serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
-                    request_id: None,
-                    message: "No request body for /e2e/run".to_string(),
-                }))
-            }
-        }
-
         _ => serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
             request_id: None,
-            message: "Use GET / for debugger UI, GET /health for status, POST / for commands, POST /e2e/run for E2E tests".to_string(),
+            message: "GET / → debugger UI, GET /debugger.css → CSS, GET /debugger.js → JS, GET /health → status, POST / → debug commands (incl. run_e2e_tests)".to_string(),
         })),
     };
 
@@ -1879,6 +1951,10 @@ fn handle_event_request(body: &str) -> String {
         window_id: Option<String>,
         #[serde(default)]
         wait_for_render: bool,
+        /// Override the default 30 s response timeout (seconds).
+        /// E2E tests should set this to 300+.
+        #[serde(default)]
+        timeout_secs: Option<u64>,
     }
 
     let parsed: Result<EventRequest, _> = serde_json::from_str(body);
@@ -1905,7 +1981,8 @@ fn handle_event_request(body: &str) -> String {
             }
 
             // Wait for response (with timeout)
-            match rx.recv_timeout(Duration::from_secs(30)) {
+            let timeout = Duration::from_secs(req.timeout_secs.unwrap_or(30));
+            match rx.recv_timeout(timeout) {
                 Ok(response_data) => {
                     let http_response = match response_data {
                         DebugResponseData::Ok { window_state, data } => {
@@ -1945,15 +2022,41 @@ fn handle_event_request(body: &str) -> String {
 
 // ==================== E2E Test Types ====================
 
+/// Runtime configuration that governs how the E2E runner executes tests.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
+pub struct E2eConfig {
+    /// failure instead of aborting the test immediately.  Default: `false`.
+    #[serde(default)]
+    pub continue_on_failure: bool,
+    /// Milliseconds to wait between successive steps.  Useful for visual
+    /// inspection when the test runs on a visible window.  Default: `0`.
+    #[serde(default)]
+    pub delay_between_steps_ms: u64,
+}
+
+#[cfg(feature = "std")]
+impl Default for E2eConfig {
+    fn default() -> Self {
+        Self {
+            continue_on_failure: false,
+            delay_between_steps_ms: 0,
+        }
+    }
+}
+
 /// A single E2E test containing setup + steps.
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct E2eTest {
-    /// Human-readable test name.
+    /// Human-readable test name (required).
     pub name: String,
     /// Optional description.
     #[serde(default)]
     pub description: Option<String>,
+    /// Optional runtime configuration (continue_on_failure, delay, …).
+    #[serde(default)]
+    pub config: E2eConfig,
     /// Optional setup (window size, DPI, initial app state).
     #[serde(default)]
     pub setup: Option<E2eSetup>,
@@ -2003,7 +2106,7 @@ pub struct E2eStep {
 
 /// Result of running a single E2E test.
 #[cfg(feature = "std")]
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct E2eTestResult {
     pub name: String,
     /// "pass" or "fail"
@@ -2020,7 +2123,7 @@ pub struct E2eTestResult {
 
 /// Result of running a single step.
 #[cfg(feature = "std")]
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct E2eStepResult {
     pub step_index: usize,
     pub op: String,
@@ -2034,124 +2137,6 @@ pub struct E2eStepResult {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response: Option<serde_json::Value>,
-}
-
-/// HTTP response wrapper for E2E results.
-#[cfg(feature = "std")]
-#[derive(Debug, Clone, serde::Serialize)]
-struct E2eHttpResponse {
-    pub status: String,
-    pub results: Vec<E2eTestResult>,
-}
-
-/// Handle `POST /e2e/run` — parse tests, queue them for execution,
-/// return results.
-///
-/// The request body is either:
-/// - `{ "tests": [...] }` — array of tests
-/// - `{ "name": "...", "steps": [...] }` — single test
-///
-/// For now, tests are queued as a special `RunE2eTests` debug event and
-/// processed on the event-loop thread (same as all other debug commands).
-/// This keeps the implementation simple and avoids threading issues.
-///
-/// Future optimisation: run each test in its own StubWindow on a separate
-/// thread.
-#[cfg(feature = "std")]
-fn handle_e2e_request(body: &str) -> String {
-    // Try parsing as { tests: [...] } or as a single test
-    #[derive(serde::Deserialize)]
-    struct E2eRequest {
-        tests: Vec<E2eTest>,
-    }
-
-    let tests: Vec<E2eTest> = match serde_json::from_str::<E2eRequest>(body) {
-        Ok(req) => req.tests,
-        Err(_) => {
-            // Try as a single test
-            match serde_json::from_str::<E2eTest>(body) {
-                Ok(t) => vec![t],
-                Err(e) => {
-                    return serde_json::to_string(&E2eHttpResponse {
-                        status: "error".into(),
-                        results: vec![],
-                    })
-                    .unwrap_or_else(|_| r#"{"status":"error","results":[]}"#.into());
-                }
-            }
-        }
-    };
-
-    if tests.is_empty() {
-        return serde_json::to_string(&E2eHttpResponse {
-            status: "ok".into(),
-            results: vec![],
-        })
-        .unwrap_or_default();
-    }
-
-    // Queue as a special debug event
-    let (tx, rx) = mpsc::channel();
-    let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst);
-
-    // Serialize the tests into the event
-    let tests_json = serde_json::to_string(&tests).unwrap_or_default();
-
-    let request = DebugRequest {
-        request_id,
-        event: DebugEvent::RunE2eTests { tests_json },
-        window_id: None,
-        wait_for_render: false,
-        response_tx: tx,
-    };
-
-    if let Some(queue) = REQUEST_QUEUE.get() {
-        if let Ok(mut q) = queue.lock() {
-            q.push_back(request);
-        }
-    }
-
-    // E2E tests can take a long time — use a generous timeout
-    use std::time::Duration;
-    match rx.recv_timeout(Duration::from_secs(300)) {
-        Ok(response_data) => match response_data {
-            DebugResponseData::Ok { data, .. } => {
-                // The response data should contain serialized E2eTestResults
-                if let Some(ResponseData::E2eResults(results)) = data {
-                    serde_json::to_string(&E2eHttpResponse {
-                        status: "ok".into(),
-                        results: results.results,
-                    })
-                    .unwrap_or_default()
-                } else {
-                    serde_json::to_string(&E2eHttpResponse {
-                        status: "ok".into(),
-                        results: vec![],
-                    })
-                    .unwrap_or_default()
-                }
-            }
-            DebugResponseData::Err(msg) => serde_json::to_string(&E2eHttpResponse {
-                status: "error".into(),
-                results: vec![E2eTestResult {
-                    name: "error".into(),
-                    status: "fail".into(),
-                    duration_ms: 0,
-                    step_count: 0,
-                    steps_passed: 0,
-                    steps_failed: 0,
-                    steps: vec![],
-                    final_screenshot: None,
-                }],
-            })
-            .unwrap_or_default(),
-        },
-        Err(_) => serde_json::to_string(&E2eHttpResponse {
-            status: "error".into(),
-            results: vec![],
-        })
-        .unwrap_or_default(),
-    }
 }
 
 // ==================== E2E Assertion Evaluation ====================
@@ -5090,24 +5075,23 @@ fn process_debug_event(
             send_ok(request, None, Some(ResponseData::CursorState(response)));
         }
 
-        DebugEvent::RunE2eTests { tests_json } => {
-            // Parse the tests back from JSON
-            let tests: Vec<E2eTest> = match serde_json::from_str(tests_json) {
-                Ok(t) => t,
-                Err(e) => {
-                    send_err(request, format!("Failed to parse E2E tests JSON: {}", e));
-                    return needs_update;
-                }
-            };
-
+        DebugEvent::RunE2eTests { ref tests } => {
             let mut all_results = Vec::new();
 
-            for test in &tests {
+            for test in tests {
                 let test_start = std::time::Instant::now();
                 let mut step_results = Vec::new();
                 let mut test_failed = false;
+                let continue_on_failure = test.config.continue_on_failure;
+                let delay_ms = test.config.delay_between_steps_ms;
 
                 for (step_index, step) in test.steps.iter().enumerate() {
+
+                    // Delay between steps (for visual inspection)
+                    if step_index > 0 && delay_ms > 0 {
+                        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                    }
+
                     let step_start = std::time::Instant::now();
                     let op = step.op.as_str();
 
@@ -5239,8 +5223,8 @@ fn process_debug_event(
                         }
                     }
 
-                    // Stop executing further steps if a step failed
-                    if test_failed {
+                    // Stop executing further steps if a step failed (unless continue_on_failure)
+                    if test_failed && !continue_on_failure {
                         break;
                     }
                 }
