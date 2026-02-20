@@ -8,8 +8,8 @@ pub mod window;
 
 // V2 unified cross-platform modules
 pub mod debug_server;
-pub mod event_v2;
-pub mod layout_v2;
+pub mod event;
+pub mod layout;
 
 // Re-exports for convenience
 pub use compositor::{
@@ -19,5 +19,5 @@ pub use cpu_compositor::CpuCompositor;
 pub use dlopen::DynamicLibrary;
 pub use error::{CompositorError, DlError, WindowError};
 // V2 re-exports
-pub use event_v2::{CommonWindowState, HitTestNode, PlatformWindowV2};
-pub use layout_v2::{generate_frame, regenerate_layout};
+pub use event::{CommonWindowState, HitTestNode, PlatformWindow};
+pub use layout::{generate_frame, regenerate_layout};

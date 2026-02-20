@@ -59,7 +59,7 @@ use super::{
 use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::desktop::{
     shell2::common::{
-        event_v2::{self, PlatformWindowV2},
+        event::{self, PlatformWindow},
         WindowError,
     },
     wr_translate2::{self, AsyncHitTester, Notifier},
@@ -159,7 +159,7 @@ pub struct WaylandWindow {
     dbus_connection: Option<*mut super::dbus::DBusConnection>,
 
     // Shell2 state (common fields shared with all platforms)
-    pub common: event_v2::CommonWindowState,
+    pub common: event::CommonWindowState,
     new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
 
     render_mode: RenderMode,
@@ -185,7 +185,7 @@ pub struct WaylandWindow {
     pub pending_window_creates: Vec<WindowCreateOptions>,
 
     // GNOME native menu V2 with dlopen
-    pub gnome_menu_v2: Option<super::gnome_menu::GnomeMenuManagerV2>,
+    pub gnome_menu: Option<super::gnome_menu::GnomeMenuManager>,
 
     // Shared resources
     pub resources: Arc<super::AppResources>,
@@ -248,7 +248,7 @@ pub struct WaylandPopup {
 
     // V2 Event system state
     pub scrollbar_drag_state: Option<ScrollbarDragState>,
-    pub last_hovered_node: Option<event_v2::HitTestNode>,
+    pub last_hovered_node: Option<event::HitTestNode>,
     pub frame_needs_regeneration: bool,
     pub frame_callback_pending: bool,
 
@@ -536,9 +536,9 @@ impl WaylandWindow {
     }
 }
 
-// PlatformWindowV2 Trait Implementation (Cross-platform V2 Event System)
+// PlatformWindow Trait Implementation (Cross-platform V2 Event System)
 
-impl PlatformWindowV2 for WaylandWindow {
+impl PlatformWindow for WaylandWindow {
 
     impl_platform_window_getters!(common);
 
@@ -549,13 +549,13 @@ impl PlatformWindowV2 for WaylandWindow {
         })
     }
 
-    fn prepare_callback_invocation(&mut self) -> event_v2::InvokeSingleCallbackBorrows {
+    fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows {
         let layout_window = self.common
             .layout_window
             .as_mut()
             .expect("Layout window must exist for callback invocation");
 
-        event_v2::InvokeSingleCallbackBorrows {
+        event::InvokeSingleCallbackBorrows {
             layout_window,
             window_handle: RawWindowHandle::Wayland(WaylandHandle {
                 surface: self.surface as *mut c_void,
@@ -887,7 +887,7 @@ impl WaylandWindow {
             tooltip: None,
             screensaver_inhibit_cookie: None,
             dbus_connection: None,
-            common: event_v2::CommonWindowState {
+            common: event::CommonWindowState {
                 current_window_state: FullWindowState {
                     title: options.window_state.title.clone(),
                     size: options.window_state.size,
@@ -937,7 +937,7 @@ impl WaylandWindow {
             known_outputs: Vec::new(),
             current_outputs: Vec::new(),
             pending_window_creates: Vec::new(),
-            gnome_menu_v2: None, // Will be initialized if GNOME menus are enabled
+            gnome_menu: None, // Will be initialized if GNOME menus are enabled
             resources: resources.clone(),
             dynamic_selector_context: {
                 let mut ctx =
@@ -1080,7 +1080,7 @@ impl WaylandWindow {
             if let Some(dbus_lib) = super::gnome_menu::get_shared_dbus_lib() {
                 let app_name = &options.window_state.title;
 
-                match super::gnome_menu::GnomeMenuManagerV2::new(app_name, dbus_lib) {
+                match super::gnome_menu::GnomeMenuManager::new(app_name, dbus_lib) {
                     Ok(manager) => {
                         // Register window with GNOME Shell
                         // Note: We don't have direct access to wl_surface handle as XID,
@@ -1098,7 +1098,7 @@ impl WaylandWindow {
                                 e
                             );
                         } else {
-                            window.gnome_menu_v2 = Some(manager);
+                            window.gnome_menu = Some(manager);
                             log_info!(
                                 LogCategory::Platform,
                                 "[Wayland] GNOME menu integration V2 initialized successfully"
@@ -1174,7 +1174,7 @@ impl WaylandWindow {
             );
 
             drop(app_data_ref);
-            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            use crate::desktop::shell2::common::event::PlatformWindow;
             for change in &changes {
                 let r = window.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
@@ -1303,7 +1303,7 @@ impl WaylandWindow {
     }
 
     pub fn wait_for_events(&mut self) -> Result<(), WindowError> {
-        use super::super::common::event_v2::PlatformWindowV2;
+        use super::super::common::event::PlatformWindow;
 
         // First, dispatch any pending events without blocking
         let pending = unsafe {
@@ -1388,14 +1388,14 @@ impl WaylandWindow {
     /// V2: Uses cross-platform dispatch system with recursive callback handling.
     pub fn process_events(&mut self) -> ProcessEventResult {
         // Process GNOME menu DBus messages (non-blocking)
-        if let Some(ref manager) = self.gnome_menu_v2 {
+        if let Some(ref manager) = self.gnome_menu {
             manager.process_messages();
         }
 
         // Process any pending menu callbacks from DBus
         self.process_pending_menu_callbacks();
 
-        self.process_window_events_recursive_v2(0)
+        self.process_window_events(0)
     }
 
     /// Process pending menu callbacks from GNOME DBus.
@@ -1459,7 +1459,7 @@ impl WaylandWindow {
                 &self.common.renderer_resources,
             );
 
-            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            use crate::desktop::shell2::common::event::PlatformWindow;
             let mut event_result = azul_core::events::ProcessEventResult::DoNothing;
             for change in &changes {
                 event_result = event_result.max(self.apply_user_change(change));
@@ -1585,7 +1585,7 @@ impl WaylandWindow {
         }
 
         // V2: Process events through state-diffing system
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
 
         // Process the result
         match result {
@@ -1619,8 +1619,8 @@ impl WaylandWindow {
 
         // Handle scrollbar dragging if active
         if self.common.scrollbar_drag_state.is_some() {
-            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-            let result = PlatformWindowV2::handle_scrollbar_drag(self, logical_pos);
+            use crate::desktop::shell2::common::event::PlatformWindow;
+            let result = PlatformWindow::handle_scrollbar_drag(self, logical_pos);
             if !matches!(result, ProcessEventResult::DoNothing) {
                 self.common.frame_needs_regeneration = true;
             }
@@ -1663,7 +1663,7 @@ impl WaylandWindow {
         }
 
         // V2: Process events through state-diffing system
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
 
         // Process the result
         match result {
@@ -1711,12 +1711,12 @@ impl WaylandWindow {
 
         // Check for scrollbar hit FIRST (before state changes)
         if is_down {
-            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            use crate::desktop::shell2::common::event::PlatformWindow;
             if let Some(scrollbar_hit_id) =
-                PlatformWindowV2::perform_scrollbar_hit_test(self, position)
+                PlatformWindow::perform_scrollbar_hit_test(self, position)
             {
                 let result =
-                    PlatformWindowV2::handle_scrollbar_click(self, scrollbar_hit_id, position);
+                    PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
                 if !matches!(result, ProcessEventResult::DoNothing) {
                     self.common.frame_needs_regeneration = true;
                 }
@@ -1766,7 +1766,7 @@ impl WaylandWindow {
         self.record_input_sample(position, button_state, is_down, !is_down, None);
 
         // V2: Process events through state-diffing system
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
 
         // Process the result
         match result {
@@ -1867,7 +1867,7 @@ impl WaylandWindow {
         }
 
         // V2: Process events through state-diffing system
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
 
         // Process the result
         match result {
@@ -1963,7 +1963,7 @@ impl WaylandWindow {
     /// Returns true if a context menu was shown
     fn try_show_context_menu(
         &mut self,
-        node: event_v2::HitTestNode,
+        node: event::HitTestNode,
         position: LogicalPosition,
     ) -> bool {
         use azul_core::{dom::DomId, id::NodeId};
@@ -2059,7 +2059,7 @@ impl WaylandWindow {
     /// Regenerate layout after DOM changes
     ///
     /// Wayland-specific implementation with mandatory CSD injection.
-    pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout_v2::LayoutRegenerateResult, String> {
+    pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
         let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
@@ -2071,7 +2071,7 @@ impl WaylandWindow {
         };
 
         // Call unified regenerate_layout from common module
-        let result = crate::desktop::shell2::common::layout_v2::regenerate_layout(
+        let result = crate::desktop::shell2::common::layout::regenerate_layout(
             layout_window,
             &self.resources.app_data,
             &self.common.current_window_state,
@@ -2592,7 +2592,7 @@ impl WaylandWindow {
             self.common.render_api.as_mut(),
             self.common.document_id,
         ) {
-            crate::desktop::shell2::common::layout_v2::generate_frame(
+            crate::desktop::shell2::common::layout::generate_frame(
                 layout_window,
                 render_api,
                 document_id,
@@ -3068,7 +3068,7 @@ impl WaylandWindow {
     /// Check timers and threads, trigger callbacks if needed.
     /// This is called on every poll_event() to simulate timer ticks.
     fn check_timers_and_threads(&mut self) {
-        use super::super::common::event_v2::PlatformWindowV2;
+        use super::super::common::event::PlatformWindow;
         self.process_timers_and_threads();
     }
 

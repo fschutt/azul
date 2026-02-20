@@ -627,7 +627,7 @@ fn apply_runtime_states_before_layout(
 
     // 4. Apply :dragging pseudo-state from gesture_drag_manager
     // When the layout callback returns RefreshDom, the DOM is rebuilt from scratch
-    // and the :dragging state that was set in event_v2.rs on DragStart is lost.
+    // and the :dragging state that was set in event.rs on DragStart is lost.
     // Re-apply it here from the authoritative drag manager state.
     if let Some(drag_ctx) = layout_window.gesture_drag_manager.get_drag_context() {
         if let Some(node_drag) = drag_ctx.as_node_drag() {

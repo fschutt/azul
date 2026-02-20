@@ -10,7 +10,7 @@ use core_graphics_sys::base::CGRect;
 
 use crate::desktop::{
     shell2::common::{
-        event_v2::{self, PlatformWindowV2}, 
+        event::{self, PlatformWindow}, 
         debug_server::LogCategory,
         WindowError,
     },
@@ -77,7 +77,7 @@ extern "C" fn draw_rect(self: &Object, _cmd: Sel, rect: CGRect) {
 extern "C" fn touches_began(self: &Object, _cmd: Sel, touches: *mut Object, event: *mut Object) {
     if let Some(window) = unsafe { AZUL_IOS_WINDOW.as_mut() } {
         // Here you would translate the UITouch event into an Azul event,
-        // update the FullWindowState, and call `window.process_window_events_recursive_v2(0)`.
+        // update the FullWindowState, and call `window.process_window_events(0)`.
         log_debug!(LogCategory::Input, "[AzulView] Touches Began!");
     }
 }
@@ -182,7 +182,7 @@ pub struct IOSWindow {
     backend: RenderBackend,
     is_open: bool,
     // Common fields shared with all platforms
-    pub common: event_v2::CommonWindowState,
+    pub common: event::CommonWindowState,
 }
 
 impl IOSWindow {
@@ -235,7 +235,7 @@ impl IOSWindow {
             ui_window,
             backend,
             is_open: true,
-            common: event_v2::CommonWindowState {
+            common: event::CommonWindowState {
                 layout_window: Some(layout_window),
                 current_window_state: full_window_state,
                 previous_window_state: None,
@@ -266,9 +266,9 @@ impl IOSWindow {
     }
 }
 
-// NOTE: This PlatformWindowV2 impl is mostly stubs to satisfy the trait bounds.
+// NOTE: This PlatformWindow impl is mostly stubs to satisfy the trait bounds.
 // A full implementation would wire up the touch events to call the default trait methods.
-impl PlatformWindowV2 for IOSWindow {
+impl PlatformWindow for IOSWindow {
 
     impl_platform_window_getters!(common);
 

@@ -29,9 +29,9 @@ use objc2_foundation::NSPoint;
 
 use super::MacOSWindow;
 // Re-export common types
-pub use crate::desktop::shell2::common::event_v2::HitTestNode;
+pub use crate::desktop::shell2::common::event::HitTestNode;
 // Import V2 cross-platform event processing trait
-use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+use crate::desktop::shell2::common::event::PlatformWindow;
 
 /// Convert macOS window coordinates to Azul logical coordinates.
 ///
@@ -85,9 +85,9 @@ impl MacOSWindow {
     }
 
     // NOTE: perform_scrollbar_hit_test(), handle_scrollbar_click(), and handle_scrollbar_drag()
-    // are now provided by the PlatformWindowV2 trait as default methods.
+    // are now provided by the PlatformWindow trait as default methods.
     // The trait methods are cross-platform and work identically.
-    // See dll/src/desktop/shell2/common/event_v2.rs for the implementation.
+    // See dll/src/desktop/shell2/common/event.rs for the implementation.
 
     /// Process a mouse button down event.
     pub fn handle_mouse_down(
@@ -100,10 +100,10 @@ impl MacOSWindow {
         let position = macos_to_azul_coords(location, window_height);
 
         // Check for scrollbar hit FIRST (before state changes)
-        // Use trait method from PlatformWindowV2
-        if let Some(scrollbar_hit_id) = PlatformWindowV2::perform_scrollbar_hit_test(self, position)
+        // Use trait method from PlatformWindow
+        if let Some(scrollbar_hit_id) = PlatformWindow::perform_scrollbar_hit_test(self, position)
         {
-            let result = PlatformWindowV2::handle_scrollbar_click(self, scrollbar_hit_id, position);
+            let result = PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
             return Self::convert_process_result(result);
         }
 
@@ -138,7 +138,7 @@ impl MacOSWindow {
         // - Dispatch to hovered nodes (including CSD buttons with callbacks)
         // - Handle event propagation
         // - Process callback results recursively
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
 
         Self::convert_process_result(result)
     }
@@ -191,7 +191,7 @@ impl MacOSWindow {
         }
 
         // Use V2 cross-platform event system - automatically detects MouseUp
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
         Self::convert_process_result(result)
     }
 
@@ -202,9 +202,9 @@ impl MacOSWindow {
         let position = macos_to_azul_coords(location, window_height);
 
         // Handle active scrollbar drag (special case - not part of normal event system)
-        // Use trait method from PlatformWindowV2
+        // Use trait method from PlatformWindow
         if self.common.scrollbar_drag_state.is_some() {
-            let result = PlatformWindowV2::handle_scrollbar_drag(self, position);
+            let result = PlatformWindow::handle_scrollbar_drag(self, position);
             return Self::convert_process_result(result);
         }
 
@@ -251,7 +251,7 @@ impl MacOSWindow {
         }
 
         // V2 system will detect MouseOver/MouseEnter/MouseLeave/Drag from state diff
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
         Self::convert_process_result(result)
     }
 
@@ -271,7 +271,7 @@ impl MacOSWindow {
         self.update_hit_test(position);
 
         // V2 system will detect MouseEnter events from state diff
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
         Self::convert_process_result(result)
     }
 
@@ -297,7 +297,7 @@ impl MacOSWindow {
         }
 
         // V2 system will detect MouseLeave events from state diff
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
         Self::convert_process_result(result)
     }
 
@@ -383,7 +383,7 @@ impl MacOSWindow {
         }
 
         // V2 system will detect Scroll event from ScrollManager state
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
         Self::convert_process_result(result)
     }
 
@@ -424,7 +424,7 @@ impl MacOSWindow {
         }
 
         // V2 system will detect VirtualKeyDown and TextInput from state diff
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
         Self::convert_process_result(result)
     }
 
@@ -443,7 +443,7 @@ impl MacOSWindow {
         self.update_keyboard_state_with_char(None);
 
         // V2 system will detect VirtualKeyUp from state diff
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
         Self::convert_process_result(result)
     }
 
@@ -470,7 +470,7 @@ impl MacOSWindow {
         }
 
         // Manually process the generated text input event.
-        // We do NOT call process_window_events_recursive_v2() here, because that function
+        // We do NOT call process_window_events() here, because that function
         // is for discovering events from state diffs. Here, we already know the exact event.
         let mut overall_result = ProcessEventResult::DoNothing;
 
@@ -685,7 +685,7 @@ impl MacOSWindow {
         }
 
         // V2 system will detect FileDrop event from state diff
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
 
         // Clear dropped file after processing (one-shot event)
         if let Some(layout_window) = self.common.layout_window.as_mut() {
@@ -1221,9 +1221,9 @@ impl MacOSWindow {
 
     // V2 Cross-Platform Event Processing
     // NOTE: All V2 event processing methods are now provided by the
-    // PlatformWindowV2 trait in common/event_v2.rs. The trait provides:
+    // PlatformWindow trait in common/event.rs. The trait provides:
     // - process_window_events_v2() - Entry point (public API)
-    // - process_window_events_recursive_v2() - Recursive processing
+    // - process_window_events() - Recursive processing
     // - dispatch_events_propagated() - W3C Capture→Target→Bubble dispatch
     // - apply_user_change() - Result handling
     // This eliminates ~336 lines of platform-specific duplicated code.

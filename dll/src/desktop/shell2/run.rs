@@ -465,7 +465,7 @@ pub fn run(
 
         // PHASE 2: V2 state diffing and callback dispatch
         // This is where callbacks fire (comparing previous_window_state vs current_window_state)
-        // NOTE: window_proc already calls process_window_events_recursive_v2() for mouse/keyboard
+        // NOTE: window_proc already calls process_window_events() for mouse/keyboard
         // events, but this catches any additional state changes and processes pending window
         // creates
         for hwnd in &window_handles {

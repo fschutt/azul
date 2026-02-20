@@ -6,7 +6,7 @@
 //!
 //! ## Architecture
 //!
-//! The `PlatformWindowV2` trait provides **default implementations** for all complex logic:
+//! The `PlatformWindow` trait provides **default implementations** for all complex logic:
 //! - Event processing (state diffing via `process_window_events()`)
 //! - Callback invocation (`dispatch_events_propagated()`)
 //! - Hit testing (`perform_scrollbar_hit_test()`)
@@ -133,7 +133,7 @@
 //! - Client-side decorations (CSD) always enabled
 //! - Seat-based input (single seat assumption for now)
 //!
-//! When migrating a platform to use `PlatformWindowV2`.
+//! When migrating a platform to use `PlatformWindow`.
 
 use alloc::sync::Arc;
 use core::cell::RefCell;
@@ -448,7 +448,7 @@ pub struct InvokeSingleCallbackBorrows<'a> {
 
 /// Common window state shared across all platform window implementations.
 ///
-/// Contains the 17 fields that are accessed via the 28 PlatformWindowV2 getter/setter methods.
+/// Contains the 17 fields that are accessed via the 28 PlatformWindow getter/setter methods.
 /// Each platform window struct should contain this as `pub common: CommonWindowState` and use
 /// `impl_platform_window_getters!(common)` to generate all 28 trivial getter implementations.
 ///
@@ -494,7 +494,7 @@ pub struct CommonWindowState {
     pub frame_needs_regeneration: bool,
 }
 
-/// Generates all 28 PlatformWindowV2 getter/setter implementations
+/// Generates all 28 PlatformWindow getter/setter implementations
 /// by delegating to `self.$field` (a `CommonWindowState` field).
 ///
 /// Usage: `impl_platform_window_getters!(common);`
@@ -614,7 +614,7 @@ macro_rules! impl_platform_window_getters {
 /// These methods have default implementations with the full cross-platform logic:
 /// - `dispatch_events_propagated()` - **FULLY CROSS-PLATFORM!** W3C event dispatch using
 ///   `propagate_event()` + `prepare_callback_invocation()`
-/// - `process_window_events_recursive_v2()` - Main event processing with recursion
+/// - `process_window_events()` - Main event processing with recursion
 /// - `apply_user_change()` - Apply individual callback changes
 /// - `perform_scrollbar_hit_test()` - Scrollbar interaction
 /// - `handle_scrollbar_click()` - Scrollbar click handling
@@ -625,10 +625,10 @@ macro_rules! impl_platform_window_getters {
 ///
 /// To integrate a new platform:
 /// 1. Implement the 26 required getter methods
-/// 2. Import the trait: `use crate::desktop::shell2::common::event_v2::PlatformWindowV2;`
-/// 3. Call `self.process_window_events_recursive_v2(0)` after updating window state
+/// 2. Import the trait: `use crate::desktop::shell2::common::event::PlatformWindow;`
+/// 3. Call `self.process_window_events(0)` after updating window state
 /// 4. Done! All event processing is now unified.
-pub trait PlatformWindowV2 {
+pub trait PlatformWindow {
     // REQUIRED: Simple Getter Methods (Platform Must Implement)
 
     // Layout Window Access
@@ -969,13 +969,13 @@ pub trait PlatformWindowV2 {
                     if let Some(pos) = mouse_pos {
                         self.update_hit_test_at(pos);
                     }
-                    let nested = self.process_window_events_recursive_v2(0);
+                    let nested = self.process_window_events(0);
                     result = result.max(nested);
                 }
 
                 // Keyboard state changed → re-process events
                 if keyboard_state_changed && !mouse_state_changed {
-                    let nested = self.process_window_events_recursive_v2(0);
+                    let nested = self.process_window_events(0);
                     result = result.max(nested);
                 }
 
@@ -1003,7 +1003,7 @@ pub trait PlatformWindowV2 {
                         self.update_hit_test_at(pos);
                     }
 
-                    let nested = self.process_window_events_recursive_v2(0);
+                    let nested = self.process_window_events(0);
                     result = result.max(nested);
                 }
                 result
@@ -2941,12 +2941,12 @@ pub trait PlatformWindowV2 {
     /// ## Implementation
     /// Recursively processes events with depth limiting (max 5 levels) to prevent
     /// infinite loops from callbacks that regenerate the DOM.
-    fn process_window_events_recursive_v2(&mut self, depth: usize) -> ProcessEventResult {
+    fn process_window_events(&mut self, depth: usize) -> ProcessEventResult {
 
         if depth >= MAX_EVENT_RECURSION_DEPTH {
             log_warn!(
                 super::debug_server::LogCategory::EventLoop,
-                "[PlatformWindowV2] Max event recursion depth {} reached",
+                "[PlatformWindow] Max event recursion depth {} reached",
                 MAX_EVENT_RECURSION_DEPTH
             );
             return ProcessEventResult::DoNothing;
@@ -3070,7 +3070,7 @@ pub trait PlatformWindowV2 {
         // arrives as keyboard events and is processed through the above paths.
         //
         // Accessibility tree updates happen after layout in LayoutWindow::rebuild_accessibility_tree().
-        // Screen reader actions are handled by PlatformWindowV2::record_accessibility_action().
+        // Screen reader actions are handled by PlatformWindow::record_accessibility_action().
 
         // PRE-CALLBACK INTERNAL EVENT FILTERING
         // Analyze events BEFORE user callbacks to extract internal system events
@@ -3552,7 +3552,7 @@ pub trait PlatformWindowV2 {
             self.set_previous_window_state(current);
 
             // Recurse to process any further events that may have been triggered
-            let focus_result = self.process_window_events_recursive_v2(depth + 1);
+            let focus_result = self.process_window_events(depth + 1);
             result = result.max(focus_result);
         }
 
@@ -3565,7 +3565,7 @@ pub trait PlatformWindowV2 {
             let current = self.get_current_window_state().clone();
             self.set_previous_window_state(current);
 
-            let recursive_result = self.process_window_events_recursive_v2(depth + 1);
+            let recursive_result = self.process_window_events(depth + 1);
             result = result.max(recursive_result);
         }
 

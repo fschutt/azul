@@ -19,7 +19,7 @@ use crate::desktop::shell2::linux::dbus::DBusLib;
 ///
 /// This version loads libdbus-1.so at runtime and uses the low-level
 /// protocol implementation for full cross-compilation support.
-pub struct GnomeMenuManagerV2 {
+pub struct GnomeMenuManager {
     app_name: String,
     bus_name: String,
     object_path: String,
@@ -35,7 +35,7 @@ pub struct GnomeMenuManagerV2 {
     actions: Arc<Mutex<HashMap<String, DbusAction>>>,
 }
 
-impl GnomeMenuManagerV2 {
+impl GnomeMenuManager {
     /// Create a new GNOME menu manager with dlopen DBus
     ///
     /// # Arguments
@@ -287,7 +287,7 @@ impl GnomeMenuManagerV2 {
     }
 }
 
-impl Drop for GnomeMenuManagerV2 {
+impl Drop for GnomeMenuManager {
     fn drop(&mut self) {
         debug_log(&format!(
             "Cleaning up GNOME menu manager V2 for: {}",
@@ -305,4 +305,4 @@ impl Drop for GnomeMenuManagerV2 {
 
 // Safety: DBus connections are thread-safe according to libdbus docs
 // (as long as we don't share the connection pointer directly)
-unsafe impl Send for GnomeMenuManagerV2 {}
+unsafe impl Send for GnomeMenuManager {}

@@ -2257,7 +2257,7 @@ fn process_debug_event(
 
             // Text selection is now handled automatically by the normal event pipeline.
             // When modify_window_state is called, it triggers apply_user_change
-            // which detects mouse_state_changed and calls process_window_events_recursive_v2.
+            // which detects mouse_state_changed and calls process_window_events.
             // This generates a TextClick internal event with the correct position from mouse_state.
 
             send_ok(request, None, None);

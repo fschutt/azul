@@ -33,7 +33,7 @@
 
 mod actions_protocol;
 mod dbus_connection;
-mod manager_v2; // New dlopen-based manager
+mod manager; // New dlopen-based manager
 mod menu_conversion;
 mod menu_protocol;
 mod protocol_impl; // New dlopen-based implementation
@@ -56,7 +56,7 @@ pub use actions_protocol::{
     PendingMenuCallback,
 };
 pub use dbus_connection::DbusConnection;
-pub use manager_v2::GnomeMenuManagerV2; // New dlopen-based manager
+pub use manager::GnomeMenuManager; // New dlopen-based manager
 pub use menu_conversion::MenuConversion;
 pub use menu_protocol::{DbusMenuGroup, DbusMenuItem, MenuProtocol};
 pub use protocol_impl::{register_actions_interface, register_menus_interface};

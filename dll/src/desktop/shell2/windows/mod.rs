@@ -68,7 +68,7 @@ use self::{
 };
 use crate::desktop::{
     shell2::common::{
-        event_v2::{self, PlatformWindowV2},
+        event::{self, PlatformWindow},
         Compositor, WindowError,
     },
     wr_translate2::{
@@ -95,7 +95,7 @@ pub struct Win32Window {
     pub new_frame_ready: Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
 
     /// Common window state (layout, resources, WebRender, etc.)
-    pub common: event_v2::CommonWindowState,
+    pub common: event::CommonWindowState,
 
     // Win32 libraries
     /// Dynamically loaded Win32 libraries
@@ -470,7 +470,7 @@ impl Win32Window {
             gl_context,
             gl_functions,
             new_frame_ready,
-            common: event_v2::CommonWindowState {
+            common: event::CommonWindowState {
                 layout_window: Some(layout_window),
                 gl_context_ptr,
                 renderer: Some(renderer),
@@ -586,7 +586,7 @@ impl Win32Window {
             );
 
             drop(app_data_ref);
-            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            use crate::desktop::shell2::common::event::PlatformWindow;
             for change in &changes {
                 let r = result.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
@@ -814,7 +814,7 @@ impl Win32Window {
     }
 
     /// Regenerate layout (called after DOM changes)
-    pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout_v2::LayoutRegenerateResult, String> {
+    pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
         let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
@@ -826,7 +826,7 @@ impl Win32Window {
         };
 
         // Call unified regenerate_layout from common module
-        let result = crate::desktop::shell2::common::layout_v2::regenerate_layout(
+        let result = crate::desktop::shell2::common::layout::regenerate_layout(
             layout_window,
             &self.common.app_data,
             &self.common.current_window_state,
@@ -883,7 +883,7 @@ impl Win32Window {
         }
         
         let layout_window = self.common.layout_window.as_mut().unwrap();
-        crate::desktop::shell2::common::layout_v2::generate_frame(
+        crate::desktop::shell2::common::layout::generate_frame(
             layout_window,
             self.common.render_api.as_mut().unwrap(),
             self.common.document_id.unwrap(),
@@ -1382,9 +1382,9 @@ impl Win32Window {
     // Query WebRender hit-tester for scrollbar hits at given position
     //
     // NOTE: perform_scrollbar_hit_test(), handle_scrollbar_click(), and handle_scrollbar_drag()
-    // are now provided by the PlatformWindowV2 trait as default methods.
+    // are now provided by the PlatformWindow trait as default methods.
     // The trait methods are cross-platform and work identically.
-    // See dll/src/desktop/shell2/common/event_v2.rs for the implementation.
+    // See dll/src/desktop/shell2/common/event.rs for the implementation.
     //
     // Windows-specific note: Mouse capture (SetCapture) is handled in WM_LBUTTONDOWN,
     // and redraw requests (InvalidateRect) are handled by checking ProcessEventResult.
@@ -1452,7 +1452,7 @@ impl Win32Window {
         }
 
         // Generate frame with updated scroll state
-        crate::desktop::shell2::common::layout_v2::generate_frame(
+        crate::desktop::shell2::common::layout::generate_frame(
             layout_window,
             self.common.render_api.as_mut().unwrap(),
             self.common.document_id.unwrap(),
@@ -1823,7 +1823,7 @@ unsafe extern "system" fn window_proc(
             window.common.current_window_state.flags.close_requested = true;
 
             // Process window events to trigger OnWindowClose callback
-            let _ = window.process_window_events_recursive_v2(0);
+            let _ = window.process_window_events(0);
 
             // Check if callback cancelled the close
             if window.common.current_window_state.flags.close_requested {
@@ -2033,7 +2033,7 @@ unsafe extern "system" fn window_proc(
 
             // Handle active scrollbar drag (special case - not part of normal event system)
             if window.common.scrollbar_drag_state.is_some() {
-                PlatformWindowV2::handle_scrollbar_drag(&mut *window, logical_pos);
+                PlatformWindow::handle_scrollbar_drag(&mut *window, logical_pos);
                 return 0;
             }
 
@@ -2092,7 +2092,7 @@ unsafe extern "system" fn window_proc(
             }
 
             // V2 system will detect MouseOver/MouseEnter/MouseLeave/Drag from state diff
-            let result = window.process_window_events_recursive_v2(0);
+            let result = window.process_window_events(0);
 
             // Request WM_MOUSELEAVE notification
             use self::dlopen::{TME_LEAVE, TRACKMOUSEEVENT};
@@ -2132,7 +2132,7 @@ unsafe extern "system" fn window_proc(
                 CursorPosition::OutOfWindow(last_pos);
 
             // Process events - this will trigger MouseLeave callbacks
-            let result = window.process_window_events_recursive_v2(0);
+            let result = window.process_window_events(0);
 
             // Request redraw if needed to clear hover states
             if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
@@ -2157,9 +2157,9 @@ unsafe extern "system" fn window_proc(
 
             // Check for scrollbar hit FIRST (before state changes)
             if let Some(scrollbar_hit_id) =
-                PlatformWindowV2::perform_scrollbar_hit_test(&*window, logical_pos)
+                PlatformWindow::perform_scrollbar_hit_test(&*window, logical_pos)
             {
-                PlatformWindowV2::handle_scrollbar_click(
+                PlatformWindow::handle_scrollbar_click(
                     &mut *window,
                     scrollbar_hit_id,
                     logical_pos,
@@ -2208,7 +2208,7 @@ unsafe extern "system" fn window_proc(
             (window.win32.user32.SetCapture)(hwnd);
 
             // V2 system will detect MouseDown event
-            let result = window.process_window_events_recursive_v2(0);
+            let result = window.process_window_events(0);
 
             // Request redraw if needed
             if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
@@ -2281,7 +2281,7 @@ unsafe extern "system" fn window_proc(
             (window.win32.user32.ReleaseCapture)();
 
             // V2 system will detect MouseUp event
-            let result = window.process_window_events_recursive_v2(0);
+            let result = window.process_window_events(0);
 
             // Request redraw if needed
             if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
@@ -2332,7 +2332,7 @@ unsafe extern "system" fn window_proc(
             }
 
             // V2 system will detect MouseDown event
-            let result = window.process_window_events_recursive_v2(0);
+            let result = window.process_window_events(0);
 
             // Request redraw if needed
             if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
@@ -2388,7 +2388,7 @@ unsafe extern "system" fn window_proc(
             // If context menu was shown, skip normal mouse up processing
             if !showed_context_menu {
                 // V2 system will detect MouseUp event
-                let result = window.process_window_events_recursive_v2(0);
+                let result = window.process_window_events(0);
 
                 // Request redraw if needed
                 if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
@@ -2419,7 +2419,7 @@ unsafe extern "system" fn window_proc(
             window.common.current_window_state.mouse_state.middle_down = true;
 
             // V2 system will detect MouseDown event
-            let result = window.process_window_events_recursive_v2(0);
+            let result = window.process_window_events(0);
 
             if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -2449,7 +2449,7 @@ unsafe extern "system" fn window_proc(
             window.common.current_window_state.mouse_state.middle_down = false;
 
             // V2 system will detect MouseUp event
-            let result = window.process_window_events_recursive_v2(0);
+            let result = window.process_window_events(0);
 
             if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -2555,7 +2555,7 @@ unsafe extern "system" fn window_proc(
             }
 
             // V2 system will detect Scroll event from ScrollManager state
-            let result = window.process_window_events_recursive_v2(0);
+            let result = window.process_window_events(0);
 
             if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -2593,7 +2593,7 @@ unsafe extern "system" fn window_proc(
                     .insert_hm_item(scan_code);
 
                 // V2 system will detect VirtualKeyDown event
-                let result = window.process_window_events_recursive_v2(0);
+                let result = window.process_window_events(0);
 
                 if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                     (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -2630,7 +2630,7 @@ unsafe extern "system" fn window_proc(
                     .remove_hm_item(&scan_code);
 
                 // V2 system will detect VirtualKeyUp event
-                let result = window.process_window_events_recursive_v2(0);
+                let result = window.process_window_events(0);
 
                 if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                     (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -2680,7 +2680,7 @@ unsafe extern "system" fn window_proc(
                 }
 
                 // V2 system will detect TextInput event
-                let result = window.process_window_events_recursive_v2(0);
+                let result = window.process_window_events(0);
 
                 if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                     (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -2789,7 +2789,7 @@ unsafe extern "system" fn window_proc(
                     }
 
                     // V2 system will detect TextInput event
-                    let result = window.process_window_events_recursive_v2(0);
+                    let result = window.process_window_events(0);
 
                     if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
                         (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -2831,7 +2831,7 @@ unsafe extern "system" fn window_proc(
         WM_TIMER => {
             // Timer fired — process_timers_and_threads() handles both user timers
             // (invoke_expired_timers) and thread polling (invoke_thread_callbacks).
-            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            use crate::desktop::shell2::common::event::PlatformWindow;
             if window.process_timers_and_threads() {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }
@@ -2895,7 +2895,7 @@ unsafe extern "system" fn window_proc(
                         &window.common.renderer_resources,
                     );
 
-                    use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+                    use crate::desktop::shell2::common::event::PlatformWindow;
                     let mut event_result = azul_core::events::ProcessEventResult::DoNothing;
                     for change in &changes {
                         event_result = event_result.max(window.apply_user_change(change));
@@ -3042,7 +3042,7 @@ unsafe extern "system" fn window_proc(
                         }
 
                         // Process window events to trigger FileDrop callbacks
-                        window.process_window_events_recursive_v2(0);
+                        window.process_window_events(0);
 
                         // Clear dropped file after processing
                         if let Some(ref mut layout_window) = window.common.layout_window {
@@ -3430,9 +3430,9 @@ impl Win32Window {
     }
 }
 
-// PlatformWindowV2 Trait Implementation
+// PlatformWindow Trait Implementation
 
-impl PlatformWindowV2 for Win32Window {
+impl PlatformWindow for Win32Window {
 
     impl_platform_window_getters!(common);
 
@@ -3443,13 +3443,13 @@ impl PlatformWindowV2 for Win32Window {
         })
     }
 
-    fn prepare_callback_invocation(&mut self) -> event_v2::InvokeSingleCallbackBorrows {
+    fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows {
         let layout_window = self
             .layout_window
             .as_mut()
             .expect("Layout window must exist for callback invocation");
 
-        event_v2::InvokeSingleCallbackBorrows {
+        event::InvokeSingleCallbackBorrows {
             layout_window,
             window_handle: RawWindowHandle::Windows(WindowsHandle {
                 hwnd: self.hwnd as *mut std::ffi::c_void,

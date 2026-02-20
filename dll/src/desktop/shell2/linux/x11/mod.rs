@@ -51,7 +51,7 @@ use super::common::gl::GlFunctions;
 use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::desktop::{
     shell2::common::{
-        event_v2::{self, PlatformWindowV2},
+        event::{self, PlatformWindow},
         WindowError,
     },
     wr_translate2::{self, AsyncHitTester, Notifier},
@@ -274,7 +274,7 @@ pub struct X11Window {
     pub argb_colormap: Option<Colormap>, // Custom colormap for ARGB visual (needs cleanup)
 
     // Shell2 state (common fields shared with all platforms)
-    pub common: event_v2::CommonWindowState,
+    pub common: event::CommonWindowState,
     new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
     /// XRandR event base (if available). Screen change events have type xrandr_event_base + 0.
     pub xrandr_event_base: Option<i32>,
@@ -290,7 +290,7 @@ pub struct X11Window {
     pub pending_window_creates: Vec<WindowCreateOptions>,
 
     // GNOME native menu V2 with dlopen (no compile-time dependency)
-    pub gnome_menu_v2: Option<super::gnome_menu::GnomeMenuManagerV2>,
+    pub gnome_menu: Option<super::gnome_menu::GnomeMenuManager>,
 
     // Shared resources
     pub resources: Arc<super::AppResources>,
@@ -825,7 +825,7 @@ impl X11Window {
             dbus_connection: None,
             has_argb_visual,
             argb_colormap,
-            common: event_v2::CommonWindowState {
+            common: event::CommonWindowState {
                 layout_window: None,
                 current_window_state: FullWindowState {
                     title: options.window_state.title.clone(),
@@ -867,7 +867,7 @@ impl X11Window {
             xrandr_event_base: None,
             timer_fds: std::collections::BTreeMap::new(),
             pending_window_creates: Vec::new(),
-            gnome_menu_v2: None, // New dlopen-based implementation
+            gnome_menu: None, // New dlopen-based implementation
             resources: resources.clone(),
             dynamic_selector_context: {
                 let mut ctx =
@@ -920,10 +920,10 @@ impl X11Window {
             if let Some(dbus_lib) = super::gnome_menu::get_shared_dbus_lib() {
                 let app_name = &options.window_state.title;
 
-                match super::gnome_menu::GnomeMenuManagerV2::new(app_name, dbus_lib) {
-                    Ok(menu_manager_v2) => {
+                match super::gnome_menu::GnomeMenuManager::new(app_name, dbus_lib) {
+                    Ok(menu_manager) => {
                         // Try to set window properties for GNOME Shell integration
-                        match menu_manager_v2
+                        match menu_manager
                             .set_window_properties(window.window, display as *mut _)
                         {
                             Ok(_) => {
@@ -931,7 +931,7 @@ impl X11Window {
                                     "GNOME menu V2 integration enabled for window: {}",
                                     app_name
                                 ));
-                                window.gnome_menu_v2 = Some(menu_manager_v2);
+                                window.gnome_menu = Some(menu_manager);
                             }
                             Err(e) => {
                                 super::gnome_menu::debug_log(&format!(
@@ -1018,7 +1018,7 @@ impl X11Window {
             );
 
             drop(app_data_ref);
-            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            use crate::desktop::shell2::common::event::PlatformWindow;
             for change in &changes {
                 let r = window.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
@@ -1154,14 +1154,14 @@ impl X11Window {
 
     fn process_events(&mut self) {
         // Process GNOME menu DBus messages (non-blocking)
-        if let Some(ref manager) = self.gnome_menu_v2 {
+        if let Some(ref manager) = self.gnome_menu {
             manager.process_messages();
         }
 
         // Process any pending menu callbacks from DBus
         self.process_pending_menu_callbacks();
 
-        let result = self.process_window_events_recursive_v2(0);
+        let result = self.process_window_events(0);
         if result != ProcessEventResult::DoNothing {
             self.request_redraw();
         }
@@ -1227,7 +1227,7 @@ impl X11Window {
                 &self.common.renderer_resources,
             );
 
-            use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+            use crate::desktop::shell2::common::event::PlatformWindow;
             let mut event_result = azul_core::events::ProcessEventResult::DoNothing;
             for change in &changes {
                 event_result = event_result.max(self.apply_user_change(change));
@@ -1260,7 +1260,7 @@ impl X11Window {
     }
 
     pub fn wait_for_events(&mut self) -> Result<(), WindowError> {
-        use super::super::common::event_v2::PlatformWindowV2;
+        use super::super::common::event::PlatformWindow;
         use std::mem;
 
         let connection_fd = unsafe { (self.xlib.XConnectionNumber)(self.display) };
@@ -1410,7 +1410,7 @@ impl X11Window {
         }
     }
 
-    pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout_v2::LayoutRegenerateResult, String> {
+    pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
         let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
@@ -1422,7 +1422,7 @@ impl X11Window {
         };
 
         // Call unified regenerate_layout from common module
-        let result = crate::desktop::shell2::common::layout_v2::regenerate_layout(
+        let result = crate::desktop::shell2::common::layout::regenerate_layout(
             layout_window,
             &self.common.app_data,
             &self.common.current_window_state,
@@ -1467,7 +1467,7 @@ impl X11Window {
 
         // Send frame immediately (like Windows - ensures WebRender transaction is sent)
         let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
-        crate::desktop::shell2::common::layout_v2::generate_frame(
+        crate::desktop::shell2::common::layout::generate_frame(
             layout_window,
             self.common.render_api.as_mut().ok_or("No render API")?,
             self.common.document_id.ok_or("No document ID")?,
@@ -1514,7 +1514,7 @@ impl X11Window {
             self.common.render_api.as_mut(),
             self.common.document_id,
         ) {
-            crate::desktop::shell2::common::layout_v2::generate_frame(
+            crate::desktop::shell2::common::layout::generate_frame(
                 layout_window,
                 render_api,
                 document_id,
@@ -2262,9 +2262,9 @@ impl X11Window {
     }
 }
 
-// PlatformWindowV2 Trait Implementation
+// PlatformWindow Trait Implementation
 
-impl PlatformWindowV2 for X11Window {
+impl PlatformWindow for X11Window {
 
     impl_platform_window_getters!(common);
 
@@ -2275,13 +2275,13 @@ impl PlatformWindowV2 for X11Window {
         })
     }
 
-    fn prepare_callback_invocation(&mut self) -> event_v2::InvokeSingleCallbackBorrows {
+    fn prepare_callback_invocation(&mut self) -> event::InvokeSingleCallbackBorrows {
         let layout_window = self.common
             .layout_window
             .as_mut()
             .expect("Layout window must exist for callback invocation");
 
-        event_v2::InvokeSingleCallbackBorrows {
+        event::InvokeSingleCallbackBorrows {
             layout_window,
             window_handle: RawWindowHandle::Xlib(XlibHandle {
                 window: self.window,
@@ -2631,7 +2631,7 @@ impl X11Window {
     /// Check timers and threads, trigger callbacks if needed.
     /// This is called on every poll_event() to simulate timer ticks.
     fn check_timers_and_threads(&mut self) {
-        use super::super::common::event_v2::PlatformWindowV2;
+        use super::super::common::event::PlatformWindow;
         self.process_timers_and_threads();
     }
 

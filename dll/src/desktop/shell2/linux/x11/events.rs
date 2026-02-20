@@ -28,7 +28,7 @@ use azul_layout::{
 };
 
 use super::{defines::*, dlopen::Xlib, X11Window};
-use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+use crate::desktop::shell2::common::event::PlatformWindow;
 
 use super::super::super::common::debug_server::LogCategory;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
@@ -184,9 +184,9 @@ impl X11Window {
         // Check for scrollbar hit FIRST (before state changes)
         if is_down {
             if let Some(scrollbar_hit_id) =
-                PlatformWindowV2::perform_scrollbar_hit_test(self, position)
+                PlatformWindow::perform_scrollbar_hit_test(self, position)
             {
-                return PlatformWindowV2::handle_scrollbar_click(self, scrollbar_hit_id, position);
+                return PlatformWindow::handle_scrollbar_click(self, scrollbar_hit_id, position);
             }
         } else {
             // End scrollbar drag if active
@@ -237,7 +237,7 @@ impl X11Window {
         }
 
         // V2 system will automatically detect MouseDown/MouseUp and dispatch callbacks
-        self.process_window_events_recursive_v2(0)
+        self.process_window_events(0)
     }
 
     /// Handle mouse motion events
@@ -246,7 +246,7 @@ impl X11Window {
 
         // Handle active scrollbar drag (special case - not part of normal event system)
         if self.common.scrollbar_drag_state.is_some() {
-            return PlatformWindowV2::handle_scrollbar_drag(self, position);
+            return PlatformWindow::handle_scrollbar_drag(self, position);
         }
 
         // Save previous state BEFORE making changes
@@ -296,7 +296,7 @@ impl X11Window {
         }
 
         // V2 system will detect MouseOver/MouseEnter/MouseLeave/Drag from state diff
-        self.process_window_events_recursive_v2(0)
+        self.process_window_events(0)
     }
 
     /// Handle mouse entering/leaving window
@@ -326,7 +326,7 @@ impl X11Window {
         }
 
         // V2 system will detect MouseEnter/MouseLeave from state diff
-        self.process_window_events_recursive_v2(0)
+        self.process_window_events(0)
     }
 
     /// Handle scroll wheel events (X11 button 4/5)
@@ -400,7 +400,7 @@ impl X11Window {
         }
 
         // V2 system will detect Scroll event from recorded state
-        self.process_window_events_recursive_v2(0)
+        self.process_window_events(0)
     }
 
     /// Handle keyboard events (key press/release)
@@ -486,7 +486,7 @@ impl X11Window {
         // current_char field has been removed from KeyboardState
 
         // V2 system will detect VirtualKeyDown/VirtualKeyUp/TextInput from state diff
-        self.process_window_events_recursive_v2(0)
+        self.process_window_events(0)
     }
 
     // Helper Functions for V2 Event System
@@ -615,9 +615,9 @@ impl X11Window {
 
     /// Query WebRender hit-tester for scrollbar hits at given position
     // NOTE: perform_scrollbar_hit_test(), handle_scrollbar_click(), and handle_scrollbar_drag()
-    // are now provided by the PlatformWindowV2 trait as default methods.
+    // are now provided by the PlatformWindow trait as default methods.
     // The trait methods are cross-platform and work identically.
-    // See dll/src/desktop/shell2/common/event_v2.rs for the implementation.
+    // See dll/src/desktop/shell2/common/event.rs for the implementation.
     //
     // X11-specific note: X11 doesn't have native mouse capture like Windows/macOS,
     // so we rely on the event loop to deliver motion events during drag.
