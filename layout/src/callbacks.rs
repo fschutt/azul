@@ -3925,6 +3925,25 @@ impl CallCallbacksResult {
             begin_interactive_move: false,
         }
     }
+
+    /// Whether this result contains changes that require `process_callback_result_v2()`
+    /// to be called: window state modifications, scroll position changes, queued
+    /// window states (debug server click simulation), or text input triggers.
+    pub fn needs_processing(&self) -> bool {
+        self.modified_window_state.is_some()
+            || !self.queued_window_states.is_empty()
+            || !self.text_input_triggered.is_empty()
+            || self.nodes_scrolled_in_callbacks.as_ref()
+                .map(|s| !s.is_empty()).unwrap_or(false)
+    }
+
+    /// Whether this result requests a full DOM redraw (display list rebuild).
+    pub fn needs_redraw(&self) -> bool {
+        matches!(
+            self.callbacks_update_screen,
+            Update::RefreshDom | Update::RefreshDomAllWindows
+        )
+    }
 }
 
 impl CallCallbacksResult {

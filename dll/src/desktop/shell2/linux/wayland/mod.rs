@@ -1547,25 +1547,12 @@ impl WaylandWindow {
                     // Process each callback result to handle window state modifications
                     let mut needs_redraw = false;
                     for result in &timer_results {
-                        // Apply window state changes from callback result
-                        // Also process queued_window_states (for debug server click simulation)
-                        // Also process text_input_triggered (for debug server text input)
-                        let needs_processing = result.modified_window_state.is_some()
-                            || !result.queued_window_states.is_empty()
-                            || !result.text_input_triggered.is_empty();
-                        
-                        if needs_processing {
-                            // Save previous state BEFORE applying changes (for sync_window_state diff)
+                        if result.needs_processing() {
                             self.previous_window_state = Some(self.current_window_state.clone());
                             let _ = self.process_callback_result_v2(result);
-                            // Synchronize window state with OS immediately after change
                             self.sync_window_state();
                         }
-                        // Check if redraw needed
-                        if matches!(
-                            result.callbacks_update_screen,
-                            Update::RefreshDom | Update::RefreshDomAllWindows
-                        ) {
+                        if result.needs_redraw() {
                             needs_redraw = true;
                         }
                     }

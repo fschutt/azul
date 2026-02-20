@@ -341,11 +341,7 @@ pub extern "C" fn scroll_physics_timer_callback(
     // 4. Decide whether to continue or terminate
     if physics.is_active() || any_changes {
         TimerCallbackReturn {
-            should_update: if any_changes {
-                Update::RefreshDom
-            } else {
-                Update::DoNothing
-            },
+            should_update: Update::DoNothing, // Scroll changes are handled via nodes_scrolled_in_callbacks, not DOM refresh
             should_terminate: TerminateTimer::Continue,
         }
     } else {

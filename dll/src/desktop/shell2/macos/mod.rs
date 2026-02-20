@@ -446,37 +446,12 @@ define_class!(
                     // Process each callback result to handle window state modifications
                     let mut needs_redraw = false;
                     for result in &timer_results {
-                        // Apply window state changes from callback result
-                        // Also process queued_window_states (for debug server click simulation)
-                        // Also process nodes_scrolled_in_callbacks (for scroll_node_by API)
-                        // Also process text_input_triggered (for debug server text input)
-                        let has_window_changes = result.modified_window_state.is_some()
-                            || !result.queued_window_states.is_empty();
-                        let has_scroll_changes = result.nodes_scrolled_in_callbacks.as_ref()
-                            .map(|s| !s.is_empty()).unwrap_or(false);
-                        let has_text_input = !result.text_input_triggered.is_empty();
-
-                        // Log text input processing (only when there's text input)
-                        if has_text_input {
-                            log_debug!(LogCategory::Timer, 
-                                "[tickTimers:1] has_text_input=true, text_input_triggered.len()={}", 
-                                result.text_input_triggered.len());
-                        }
-
-                        if has_window_changes || has_scroll_changes || has_text_input {
-                            if has_text_input {
-                                log_debug!(LogCategory::Timer, 
-                                    "[tickTimers:1] Calling process_callback_result_v2 for text_input");
-                            }
-                            // Save previous state BEFORE applying changes (for sync_window_state diff)
+                        if result.needs_processing() {
                             macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
                             let _ = macos_window.process_callback_result_v2(result);
-                            // Synchronize window state with OS immediately after change
-                            // This handles close_requested, title, size, position, etc.
                             macos_window.sync_window_state();
                         }
-                        // Check if redraw needed
-                        if matches!(result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                        if result.needs_redraw() {
                             needs_redraw = true;
                         }
                     }
@@ -993,26 +968,12 @@ define_class!(
                     // Process each callback result to handle window state modifications
                     let mut needs_redraw = false;
                     for result in &timer_results {
-                        // Apply window state changes from callback result
-                        // Also process queued_window_states (for debug server click simulation)
-                        // Also process nodes_scrolled_in_callbacks (for scroll_node_by API)
-                        // Also process text_input_triggered (for debug server text input)
-                        let has_window_changes = result.modified_window_state.is_some()
-                            || !result.queued_window_states.is_empty();
-                        let has_scroll_changes = result.nodes_scrolled_in_callbacks.as_ref()
-                            .map(|s| !s.is_empty()).unwrap_or(false);
-                        let has_text_input = !result.text_input_triggered.is_empty();
-
-                        if has_window_changes || has_scroll_changes || has_text_input {
-                            // Save previous state BEFORE applying changes (for sync_window_state diff)
+                        if result.needs_processing() {
                             macos_window.previous_window_state = Some(macos_window.current_window_state.clone());
                             let _ = macos_window.process_callback_result_v2(result);
-                            // Synchronize window state with OS immediately after change
-                            // This handles close_requested, title, size, position, etc.
                             macos_window.sync_window_state();
                         }
-                        // Check if redraw needed
-                        if matches!(result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                        if result.needs_redraw() {
                             needs_redraw = true;
                         }
                     }
