@@ -2,9 +2,9 @@
 
 <!-- [START badges] -->
 [![CI](https://github.com/fschutt/azul/actions/workflows/rust.yml/badge.svg)](https://github.com/fschutt/azul/actions/workflows/rust.yml)
-[![Coverage Status](https://coveralls.io/repos/github/fschutt/azul/badge.svg?branch=master)](https://coveralls.io/github/fschutt/azul?branch=master)
+[![Coverage](https://img.shields.io/badge/coverage-29%25-yellow.svg)](https://github.com/fschutt/azul/actions/workflows/rust.yml)
 [![LICENSE](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Rust Compiler Version](https://img.shields.io/badge/rustc-1.86%20stable-blue.svg)]()
+[![Rust Compiler Version](https://img.shields.io/badge/rustc-1.88%20stable-blue.svg)]()
 [![dependency status](https://deps.rs/repo/github/fschutt/azul/status.svg)](https://deps.rs/repo/github/fschutt/azul)
 <!-- [END badges] -->
 

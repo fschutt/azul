@@ -222,6 +222,43 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  coverage:
+    name: Code Coverage
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Install coverage tools
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install grcov
+
+      - name: Run coverage
+        run: bash scripts/coverage.sh --skip-install
+
+      - name: Run coverage analysis
+        if: always()
+        run: python3 scripts/analyze_coverage.py coverage.txt | tee coverage_analysis.txt
+
+      - name: Upload coverage HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: |
+            coverage/
+            coverage.txt
+            coverage_analysis.txt
+          retention-days: 30
+          if-no-files-found: warn
+
   ffi_safety_tests:
     name: FFI Safety Tests (${{ matrix.os }})
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy'
