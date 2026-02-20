@@ -4476,27 +4476,26 @@ mod tests {
         let dom_id = DomId::ROOT_ID;
         let node_id = NodeId::new(0);
 
-        // Create a scroll event
-        let scroll_event = crate::managers::scroll_state::ScrollEvent {
-            dom_id,
-            node_id,
-            delta: LogicalPosition::new(10.0, 20.0),
-            source: azul_core::events::EventSource::User,
-            duration: None,
-            easing: EasingFunction::Linear,
-        };
-
+        // Create a scroll input
         #[cfg(feature = "std")]
         let now = Instant::System(std::time::Instant::now().into());
         #[cfg(not(feature = "std"))]
         let now = Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
 
-        let did_scroll = window
-            .scroll_manager
-            .process_scroll_event(scroll_event, now.clone());
+        let scroll_input = crate::managers::scroll_state::ScrollInput {
+            dom_id,
+            node_id,
+            delta: LogicalPosition::new(10.0, 20.0),
+            timestamp: now.clone(),
+            source: crate::managers::scroll_state::ScrollInputSource::WheelDiscrete,
+        };
 
-        // process_scroll_event should return true for successful scroll
-        assert!(did_scroll);
+        let should_start_timer = window
+            .scroll_manager
+            .record_scroll_input(scroll_input);
+
+        // record_scroll_input should return true (timer was not running)
+        assert!(should_start_timer);
     }
 
     #[test]

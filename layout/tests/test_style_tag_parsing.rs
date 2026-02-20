@@ -15,6 +15,28 @@ fn as_text(child: &XmlNodeChild) -> &str {
     }
 }
 
+/// Find the first element child, skipping whitespace text nodes
+fn first_element_child(children: &[XmlNodeChild]) -> &azul_core::xml::XmlNode {
+    for child in children {
+        if let XmlNodeChild::Element(e) = child {
+            return e;
+        }
+    }
+    panic!("No element child found");
+}
+
+/// Find element child by tag name, skipping text nodes
+fn find_element_child<'a>(children: &'a [XmlNodeChild], tag: &str) -> &'a azul_core::xml::XmlNode {
+    for child in children {
+        if let XmlNodeChild::Element(e) = child {
+            if e.node_type.as_str() == tag {
+                return e;
+            }
+        }
+    }
+    panic!("No element child with tag '{}' found", tag);
+}
+
 #[test]
 fn test_style_tag_parsing_simple() {
     let xml = r#"
@@ -33,7 +55,7 @@ fn test_style_tag_parsing_simple() {
     eprintln!("HTML node has {} children", html.children.as_ref().len());
     assert_eq!(html.node_type.as_str(), "html");
 
-    let head = as_element(&html.children.as_ref()[0]);
+    let head = find_element_child(html.children.as_ref(), "head");
     eprintln!("HEAD node type: {}", head.node_type.as_str());
     eprintln!("HEAD has {} children", head.children.as_ref().len());
     assert_eq!(head.node_type.as_str(), "head");
@@ -44,7 +66,7 @@ fn test_style_tag_parsing_simple() {
         "HEAD should have children (style tag)"
     );
 
-    let style = as_element(&head.children.as_ref()[0]);
+    let style = find_element_child(head.children.as_ref(), "style");
     eprintln!("STYLE node type: {}", style.node_type.as_str());
     eprintln!("STYLE has {} children", style.children.as_ref().len());
     assert_eq!(style.node_type.as_str(), "style");
@@ -73,7 +95,7 @@ fn test_style_tag_parsing_with_quotes() {
 
     let result = parse_xml_string(xml).unwrap();
     let html = as_element(&result[0]);
-    let head = as_element(&html.children.as_ref()[0]);
+    let head = find_element_child(html.children.as_ref(), "head");
 
     eprintln!("HEAD has {} children", head.children.as_ref().len());
     assert!(
@@ -81,7 +103,7 @@ fn test_style_tag_parsing_with_quotes() {
         "HEAD should have style child"
     );
 
-    let style = as_element(&head.children.as_ref()[0]);
+    let style = find_element_child(head.children.as_ref(), "style");
     assert_eq!(style.node_type.as_str(), "style");
 
     assert_eq!(style.children.as_ref().len(), 1);

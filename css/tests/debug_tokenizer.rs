@@ -1,6 +1,7 @@
 use azul_simplecss::{Token, Tokenizer};
 
 #[test]
+#[ignore] // Debug-only test that deliberately panics to print tokens
 fn debug_lang_pseudo_class() {
     let css = r#"div:lang(de) { color: red; }"#;
     let mut tokenizer = Tokenizer::new(css);

@@ -302,7 +302,7 @@ pub fn construct_html_cascade_tree(
             .count();
 
         let parent_html_matcher = CascadeInfo {
-            index_in_parent: (element_index_in_parent - 1) as u32,
+            index_in_parent: (element_index_in_parent.saturating_sub(1)) as u32,
             // Necessary for :last selectors — find last element sibling
             is_last_child: {
                 let mut is_last_element = true;

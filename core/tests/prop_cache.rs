@@ -4,7 +4,7 @@
 
 use azul_core::{
     dom::{Dom, NodeType},
-    prop_cache::CssPropertyOrigin,
+    prop_cache::{CssPropertyOrigin, CssPropertyWithOrigin},
     styled_dom::StyledDom,
 };
 use azul_css::dynamic_selector::CssPropertyWithConditions;
@@ -16,6 +16,17 @@ use azul_css::{
         property::{CssProperty, CssPropertyType},
     },
 };
+
+/// Helper: look up a CssPropertyType in a sorted Vec of (CssPropertyType, CssPropertyWithOrigin)
+fn find_prop<'a>(
+    computed: &'a [(CssPropertyType, CssPropertyWithOrigin)],
+    prop_type: &CssPropertyType,
+) -> Option<&'a CssPropertyWithOrigin> {
+    computed
+        .binary_search_by_key(prop_type, |(k, _)| *k)
+        .ok()
+        .map(|idx| &computed[idx].1)
+}
 
 // Helper macro to create a StyledDom and get the CSS property cache
 macro_rules! setup_styled_dom {
@@ -77,8 +88,7 @@ fn test_inline_css_takes_precedence() {
         .computed_values
         .get(node_0.index())
         .expect("should have computed values");
-    let font_size_prop = computed
-        .get(&CssPropertyType::FontSize)
+    let font_size_prop = find_prop(computed, &CssPropertyType::FontSize)
         .expect("should have font-size");
 
     assert_eq!(font_size_prop.origin, CssPropertyOrigin::Own);
@@ -108,7 +118,7 @@ fn test_css_stylesheet_applies() {
         .get(p_id.index())
         .expect("p should have computed values");
 
-    if let Some(font_size_prop) = computed.get(&CssPropertyType::FontSize) {
+    if let Some(font_size_prop) = find_prop(computed, &CssPropertyType::FontSize) {
         if let CssProperty::FontSize(val) = &font_size_prop.property {
             if let Some(size) = val.get_property() {
                 assert!((size.inner.number.get() - 18.0).abs() < 0.001);
@@ -137,8 +147,7 @@ fn test_inherited_property_has_correct_origin() {
         .computed_values
         .get(p_id.index())
         .expect("p should have computed values");
-    let font_size_prop = computed
-        .get(&CssPropertyType::FontSize)
+    let font_size_prop = find_prop(computed, &CssPropertyType::FontSize)
         .expect("should have font-size");
 
     // Check that P has the correct font-size value (inherited from div)
@@ -185,8 +194,7 @@ fn test_own_property_overrides_inherited() {
         .computed_values
         .get(p_id.index())
         .expect("p should have computed values");
-    let font_size_prop = computed
-        .get(&CssPropertyType::FontSize)
+    let font_size_prop = find_prop(computed, &CssPropertyType::FontSize)
         .expect("should have font-size");
 
     assert_eq!(font_size_prop.origin, CssPropertyOrigin::Own);
@@ -230,8 +238,7 @@ fn test_em_resolved_to_px_in_computed() {
         .computed_values
         .get(p_id.index())
         .expect("p should have computed values");
-    let font_size_prop = computed
-        .get(&CssPropertyType::FontSize)
+    let font_size_prop = find_prop(computed, &CssPropertyType::FontSize)
         .expect("should have font-size");
 
     if let CssProperty::FontSize(val) = &font_size_prop.property {
@@ -275,8 +282,7 @@ fn test_deeply_nested_inheritance() {
         .computed_values
         .get(deep_id.index())
         .expect("deep node should have computed values");
-    let font_size_prop = computed
-        .get(&CssPropertyType::FontSize)
+    let font_size_prop = find_prop(computed, &CssPropertyType::FontSize)
         .expect("should have font-size");
 
     if let CssProperty::FontSize(val) = &font_size_prop.property {
@@ -299,7 +305,7 @@ fn test_ua_css_for_headings() {
         .get(h1_id.index())
         .expect("h1 should have computed values");
 
-    if let Some(font_size_prop) = computed.get(&CssPropertyType::FontSize) {
+    if let Some(font_size_prop) = find_prop(computed, &CssPropertyType::FontSize) {
         if let CssProperty::FontSize(val) = &font_size_prop.property {
             if let Some(size) = val.get_property() {
                 // H1 UA CSS is 2em, resolved with 16px default = 32px
@@ -333,8 +339,8 @@ fn test_multiple_properties_computed() {
         .expect("div should have computed values");
 
     // Check that multiple properties exist
-    assert!(computed.get(&CssPropertyType::FontSize).is_some());
-    assert!(computed.get(&CssPropertyType::Display).is_some());
+    assert!(find_prop(computed, &CssPropertyType::FontSize).is_some());
+    assert!(find_prop(computed, &CssPropertyType::Display).is_some());
     // Width might not be computed if it's not inheritable
 }
 
@@ -371,7 +377,7 @@ fn test_font_weight_inheritance() {
         .get(span_id.index())
         .expect("span should have computed values");
 
-    if let Some(font_weight_prop) = computed.get(&CssPropertyType::FontWeight) {
+    if let Some(font_weight_prop) = find_prop(computed, &CssPropertyType::FontWeight) {
         // Check that span has bold font-weight (value matters, origin may vary due to UA CSS)
         if let CssProperty::FontWeight(val) = &font_weight_prop.property {
             if let Some(weight) = val.get_property() {
@@ -413,7 +419,7 @@ fn test_color_inheritance() {
         .get(p_id.index())
         .expect("p should have computed values");
 
-    if let Some(color_prop) = computed.get(&CssPropertyType::TextColor) {
+    if let Some(color_prop) = find_prop(computed, &CssPropertyType::TextColor) {
         // Check that P has red color (value matters, origin may vary)
         if let CssProperty::TextColor(val) = &color_prop.property {
             if let Some(color) = val.get_property() {
@@ -444,7 +450,7 @@ fn test_non_inheritable_property_not_inherited() {
         .get(p_id.index())
         .expect("p should have computed values");
 
-    if let Some(display_prop) = computed.get(&CssPropertyType::Display) {
+    if let Some(display_prop) = find_prop(computed, &CssPropertyType::Display) {
         // If it exists, it should be the default (block for P), not inherited flex
         if let CssProperty::Display(val) = &display_prop.property {
             if let Some(display) = val.get_property() {
@@ -473,8 +479,8 @@ fn test_empty_css_produces_only_ua_styles() {
 
     // P has UA CSS margin-top and margin-bottom
     assert!(
-        computed.get(&CssPropertyType::MarginTop).is_some()
-            || computed.get(&CssPropertyType::Display).is_some(),
+        find_prop(computed, &CssPropertyType::MarginTop).is_some()
+            || find_prop(computed, &CssPropertyType::Display).is_some(),
         "P should have some UA CSS properties"
     );
 }
@@ -499,7 +505,7 @@ fn test_text_node_inherits_from_parent() {
         .get(text_id.index())
         .expect("text should have computed values");
 
-    if let Some(font_size_prop) = computed.get(&CssPropertyType::FontSize) {
+    if let Some(font_size_prop) = find_prop(computed, &CssPropertyType::FontSize) {
         // Check the VALUE is correct (18px from parent)
         if let CssProperty::FontSize(val) = &font_size_prop.property {
             if let Some(size) = val.get_property() {

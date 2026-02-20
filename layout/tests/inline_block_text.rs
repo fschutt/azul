@@ -44,7 +44,7 @@ fn test_inline_block_text_generates_text_items() {
     // Create layout cache and text cache
     let mut layout_cache = Solver3LayoutCache {
         tree: None,
-        calculated_positions: BTreeMap::new(),
+        calculated_positions: Vec::new(),
         viewport: None,
         scroll_ids: BTreeMap::new(),
         scroll_id_to_node_id: BTreeMap::new(),
@@ -73,7 +73,7 @@ fn test_inline_block_text_generates_text_items() {
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
-        styled_dom,
+        &styled_dom,
         viewport,
         &mut font_manager,
         &BTreeMap::new(),
@@ -261,7 +261,7 @@ fn test_text_wraps_at_constrained_width() {
     // Create layout cache and text cache
     let mut layout_cache = Solver3LayoutCache {
         tree: None,
-        calculated_positions: BTreeMap::new(),
+        calculated_positions: Vec::new(),
         viewport: None,
         scroll_ids: BTreeMap::new(),
         scroll_id_to_node_id: BTreeMap::new(),
@@ -290,7 +290,7 @@ fn test_text_wraps_at_constrained_width() {
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
-        styled_dom,
+        &styled_dom,
         viewport,
         &mut font_manager,
         &BTreeMap::new(),
@@ -431,7 +431,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
     // Create layout cache and text cache
     let mut layout_cache = Solver3LayoutCache {
         tree: None,
-        calculated_positions: BTreeMap::new(),
+        calculated_positions: Vec::new(),
         viewport: None,
         scroll_ids: BTreeMap::new(),
         scroll_id_to_node_id: BTreeMap::new(),
@@ -460,7 +460,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
-        styled_dom,
+        &styled_dom,
         viewport,
         &mut font_manager,
         &BTreeMap::new(),
@@ -488,7 +488,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
     // ===== CRITICAL: Check calculated_positions contains ABSOLUTE positions =====
     // This is the data structure that get_node_position uses
     println!("\n=== Calculated Positions (ABSOLUTE) ===");
-    for (layout_idx, pos) in &layout_cache.calculated_positions {
+    for (layout_idx, pos) in layout_cache.calculated_positions.iter().enumerate() {
         println!("Layout node {}: x={:.2}, y={:.2}", layout_idx, pos.x, pos.y);
     }
 
@@ -498,7 +498,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
         for (idx, node) in tree.nodes.iter().enumerate() {
             let dom_idx = node.dom_node_id.map(|id| id.index() as i64).unwrap_or(-1);
             let rel_pos = node.relative_position.map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
-            let abs_pos = layout_cache.calculated_positions.get(&idx).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
+            let abs_pos = layout_cache.calculated_positions.get(idx).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
             let fc = format!("{:?}", node.formatting_context);
             
             println!(
@@ -646,7 +646,7 @@ fn test_body_as_root_inline_block_positioning() {
     // Create layout cache and text cache
     let mut layout_cache = Solver3LayoutCache {
         tree: None,
-        calculated_positions: BTreeMap::new(),
+        calculated_positions: Vec::new(),
         viewport: None,
         scroll_ids: BTreeMap::new(),
         scroll_id_to_node_id: BTreeMap::new(),
@@ -675,7 +675,7 @@ fn test_body_as_root_inline_block_positioning() {
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
-        styled_dom,
+        &styled_dom,
         viewport,
         &mut font_manager,
         &BTreeMap::new(),
@@ -702,7 +702,7 @@ fn test_body_as_root_inline_block_positioning() {
 
     // ===== Check calculated_positions =====
     println!("\n=== Calculated Positions (ABSOLUTE) ===");
-    for (layout_idx, pos) in &layout_cache.calculated_positions {
+    for (layout_idx, pos) in layout_cache.calculated_positions.iter().enumerate() {
         println!("Layout node {}: x={:.2}, y={:.2}", layout_idx, pos.x, pos.y);
     }
 
@@ -712,7 +712,7 @@ fn test_body_as_root_inline_block_positioning() {
         for (idx, node) in tree.nodes.iter().enumerate() {
             let dom_idx = node.dom_node_id.map(|id| id.index() as i64).unwrap_or(-1);
             let rel_pos = node.relative_position.map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
-            let abs_pos = layout_cache.calculated_positions.get(&idx).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
+            let abs_pos = layout_cache.calculated_positions.get(idx).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
             let fc = format!("{:?}", node.formatting_context);
             
             println!(
@@ -771,7 +771,7 @@ fn test_body_as_root_inline_block_positioning() {
             // Find the inline-block node
             for (idx, node) in tree.nodes.iter().enumerate() {
                 if matches!(node.formatting_context, azul_core::dom::FormattingContext::InlineBlock) {
-                    if let Some(pos) = layout_cache.calculated_positions.get(&idx) {
+                    if let Some(pos) = layout_cache.calculated_positions.get(idx) {
                         println!("InlineBlock at layout idx {}: x={:.1}, y={:.1}", idx, pos.x, pos.y);
                         assert!(
                             pos.x > 30.0,

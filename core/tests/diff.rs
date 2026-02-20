@@ -1238,9 +1238,10 @@ fn test_cursor_reconcile_text_appended() {
 #[test]
 fn test_cursor_reconcile_text_prepended() {
     // Cursor at "H|ello", text becomes "Say Hello"
-    // The "H" is no longer at position 1, so cursor goes to changed region end
+    // "Hello" is a common suffix, so cursor in the suffix is remapped:
+    // offset_from_end = 5 - 1 = 4, new position = 9 - 4 = 5
     let result = reconcile_cursor_position("Hello", "Say Hello", 1);
-    assert_eq!(result, 4); // End of inserted content
+    assert_eq!(result, 5); // Same relative position within the suffix "Hello"
 }
 
 #[test]

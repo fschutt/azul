@@ -1815,6 +1815,9 @@ mod tests {
             parse_style_white_space("nowrap").unwrap(),
             StyleWhiteSpace::Nowrap
         );
-        assert!(parse_style_white_space("pre-wrap").is_err());
+        assert_eq!(
+            parse_style_white_space("pre-wrap").unwrap(),
+            StyleWhiteSpace::PreWrap
+        );
     }
 }

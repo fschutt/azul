@@ -52,7 +52,7 @@ fn test_body_margin_15vh_auto() {
     // Create layout cache and text cache
     let mut layout_cache = Solver3LayoutCache {
         tree: None,
-        calculated_positions: BTreeMap::new(),
+        calculated_positions: Vec::new(),
         viewport: None,
         scroll_ids: BTreeMap::new(),
         scroll_id_to_node_id: BTreeMap::new(),
@@ -82,7 +82,7 @@ fn test_body_margin_15vh_auto() {
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
-        styled_dom,
+        &styled_dom,
         viewport,
         &mut font_manager,
         &BTreeMap::new(),
@@ -101,10 +101,10 @@ fn test_body_margin_15vh_auto() {
 
     // Get body position from layout cache
     // Body should be at node index 1 (html is 0, body is 1)
-    let body_position = layout_cache.calculated_positions.get(&1);
+    let body_position = layout_cache.calculated_positions.get(1);
     
     println!("Layout cache positions:");
-    for (id, pos) in &layout_cache.calculated_positions {
+    for (id, pos) in layout_cache.calculated_positions.iter().enumerate() {
         println!("  Node {}: {:?}", id, pos);
     }
     

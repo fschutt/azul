@@ -10,7 +10,7 @@
 
 use azul_core::{
     dom::{Dom, NodeType},
-    prop_cache::CssPropertyOrigin,
+    prop_cache::{CssPropertyOrigin, CssPropertyWithOrigin},
     styled_dom::StyledDom,
 };
 use azul_css::{
@@ -21,6 +21,17 @@ use azul_css::{
         property::{CssProperty, CssPropertyType},
     },
 };
+
+/// Helper: look up a CssPropertyType in a sorted Vec of (CssPropertyType, CssPropertyWithOrigin)
+fn find_prop<'a>(
+    computed: &'a [(CssPropertyType, CssPropertyWithOrigin)],
+    prop_type: &CssPropertyType,
+) -> Option<&'a CssPropertyWithOrigin> {
+    computed
+        .binary_search_by_key(prop_type, |(k, _)| *k)
+        .ok()
+        .map(|idx| &computed[idx].1)
+}
 
 // Helper macro to create a StyledDom and get the necessary references
 macro_rules! setup_test {
@@ -67,7 +78,7 @@ fn test_font_size_inheritance_single_level() {
 
     // Check computed values for child
     if let Some(child_computed) = cache.computed_values.get(child_id.index()) {
-        let Some(prop_with_origin) = child_computed.get(&CssPropertyType::FontSize) else {
+        let Some(prop_with_origin) = find_prop(child_computed, &CssPropertyType::FontSize) else {
             panic!("Child should have FontSize");
         };
         if let CssProperty::FontSize(font_size_value) = &prop_with_origin.property {
@@ -125,7 +136,7 @@ fn test_font_size_override_not_inherited() {
 
     // Verify that child has its own explicit value, not the inherited one
     if let Some(child_computed) = cache.computed_values.get(child_id.index()) {
-        let Some(prop_with_origin) = child_computed.get(&CssPropertyType::FontSize) else {
+        let Some(prop_with_origin) = find_prop(child_computed, &CssPropertyType::FontSize) else {
             panic!("Child should have FontSize");
         };
         if let CssProperty::FontSize(font_size_value) = &prop_with_origin.property {
@@ -182,7 +193,7 @@ fn test_font_weight_inheritance_multi_level() {
     // Verify that both <p> and <span> inherited font-weight: bold
     for (node_id, node_name) in &[(p_id, "p"), (span_id, "span")] {
         if let Some(computed) = cache.computed_values.get(node_id.index()) {
-            let Some(prop_with_origin) = computed.get(&CssPropertyType::FontWeight) else {
+            let Some(prop_with_origin) = find_prop(computed, &CssPropertyType::FontWeight) else {
                 panic!("{} should have FontWeight", node_name);
             };
             if let CssProperty::FontWeight(font_weight_value) = &prop_with_origin.property {
@@ -245,7 +256,7 @@ fn test_mixed_inherited_and_explicit_properties() {
 
     if let Some(p_computed) = cache.computed_values.get(p_id.index()) {
         // Check font-size (explicit)
-        let Some(prop_with_origin) = p_computed.get(&CssPropertyType::FontSize) else {
+        let Some(prop_with_origin) = find_prop(p_computed, &CssPropertyType::FontSize) else {
             panic!("p should have computed FontSize");
         };
         if let CssProperty::FontSize(font_size_value) = &prop_with_origin.property {
@@ -258,7 +269,7 @@ fn test_mixed_inherited_and_explicit_properties() {
         }
 
         // Check font-weight (inherited)
-        let Some(prop_with_origin) = p_computed.get(&CssPropertyType::FontWeight) else {
+        let Some(prop_with_origin) = find_prop(p_computed, &CssPropertyType::FontWeight) else {
             panic!("p should have FontWeight");
         };
         if let CssProperty::FontWeight(font_weight_value) = &prop_with_origin.property {
@@ -308,7 +319,7 @@ fn test_non_inheritable_property_not_inherited() {
     if let Some(p_computed) = cache.computed_values.get(p_id.index()) {
         // Width should NOT be inherited from parent (200px)
         // Test the ORIGIN of the property, not just its value
-        if let Some(prop_with_origin) = p_computed.get(&CssPropertyType::Width) {
+        if let Some(prop_with_origin) = find_prop(p_computed, &CssPropertyType::Width) {
             // The KEY test: Width should have origin Own (from UA CSS), NOT Inherited
             assert_eq!(
                 prop_with_origin.origin,
@@ -350,7 +361,6 @@ fn test_update_invalidation() {
 
     // Clear the cache to test first computation (StyledDom::new already computed once)
     cache.computed_values.iter_mut().for_each(|m| m.clear());
-    cache.dependency_chains.iter_mut().for_each(|m| m.clear());
 
     // First computation
     let changed_nodes_1 = cache.compute_inherited_values(node_hierarchy, node_data);
@@ -417,7 +427,7 @@ fn test_deeply_nested_inheritance() {
         panic!("Deeply nested span should have computed values");
     };
 
-    let Some(prop_with_origin) = span_computed.get(&CssPropertyType::FontWeight) else {
+    let Some(prop_with_origin) = find_prop(span_computed, &CssPropertyType::FontWeight) else {
         panic!("Deeply nested span should have inherited FontWeight");
     };
     let CssProperty::FontWeight(font_weight_value) = &prop_with_origin.property else {
@@ -474,7 +484,7 @@ fn test_em_unit_inheritance_basic() {
         panic!("p should have computed values");
     };
 
-    let Some(prop_with_origin) = p_computed.get(&CssPropertyType::FontSize) else {
+    let Some(prop_with_origin) = find_prop(p_computed, &CssPropertyType::FontSize) else {
         panic!("p should have computed FontSize property");
     };
     let CssProperty::FontSize(font_size_value) = &prop_with_origin.property else {
@@ -546,7 +556,7 @@ fn test_em_unit_cascading_multiplication() {
         panic!("p should have computed values");
     };
 
-    let Some(prop_with_origin) = p_computed.get(&CssPropertyType::FontSize) else {
+    let Some(prop_with_origin) = find_prop(p_computed, &CssPropertyType::FontSize) else {
         panic!("p should have computed FontSize");
     };
     let CssProperty::FontSize(p_font_size) = &prop_with_origin.property else {
@@ -565,7 +575,7 @@ fn test_em_unit_cascading_multiplication() {
         panic!("span should have computed values");
     };
 
-    let Some(prop_with_origin) = span_computed.get(&CssPropertyType::FontSize) else {
+    let Some(prop_with_origin) = find_prop(span_computed, &CssPropertyType::FontSize) else {
         panic!("span should have computed FontSize");
     };
 
@@ -644,8 +654,7 @@ fn test_em_on_font_size_refers_to_parent() {
         .computed_values
         .get(div_id.index())
         .expect("div should have computed values");
-    let div_font_prop = div_computed
-        .get(&CssPropertyType::FontSize)
+    let div_font_prop = find_prop(div_computed, &CssPropertyType::FontSize)
         .expect("div should have FontSize");
     let CssProperty::FontSize(div_font_size) = &div_font_prop.property else {
         panic!("div property should be FontSize");
@@ -669,8 +678,7 @@ fn test_em_on_font_size_refers_to_parent() {
         .computed_values
         .get(p_id.index())
         .expect("p should have computed values");
-    let p_font_prop = p_computed
-        .get(&CssPropertyType::FontSize)
+    let p_font_prop = find_prop(p_computed, &CssPropertyType::FontSize)
         .expect("p should have FontSize");
     let CssProperty::FontSize(p_font_size) = &p_font_prop.property else {
         panic!("p property should be FontSize");
@@ -697,8 +705,7 @@ fn test_em_on_font_size_refers_to_parent() {
         .computed_values
         .get(span_id.index())
         .expect("span should have computed values");
-    let span_font_prop = span_computed
-        .get(&CssPropertyType::FontSize)
+    let span_font_prop = find_prop(span_computed, &CssPropertyType::FontSize)
         .expect("span should have inherited FontSize");
     let CssProperty::FontSize(span_font_size) = &span_font_prop.property else {
         panic!("span property should be FontSize");
@@ -762,8 +769,7 @@ fn test_em_without_ancestor_absolute_unit() {
         .computed_values
         .get(div_id.index())
         .expect("div should have computed values");
-    let div_font_prop = div_computed
-        .get(&CssPropertyType::FontSize)
+    let div_font_prop = find_prop(div_computed, &CssPropertyType::FontSize)
         .expect("div should have FontSize");
     let CssProperty::FontSize(div_font_size) = &div_font_prop.property else {
         panic!("div property should be FontSize");
@@ -790,8 +796,7 @@ fn test_em_without_ancestor_absolute_unit() {
         .computed_values
         .get(p_id.index())
         .expect("p should have computed values");
-    let p_font_prop = p_computed
-        .get(&CssPropertyType::FontSize)
+    let p_font_prop = find_prop(p_computed, &CssPropertyType::FontSize)
         .expect("p should have inherited FontSize");
     let CssProperty::FontSize(p_font_size) = &p_font_prop.property else {
         panic!("p property should be FontSize");
@@ -865,7 +870,7 @@ fn test_percentage_font_size_inheritance() {
         panic!("p should have computed values");
     };
 
-    let Some(prop_with_origin) = p_computed.get(&CssPropertyType::FontSize) else {
+    let Some(prop_with_origin) = find_prop(p_computed, &CssPropertyType::FontSize) else {
         panic!("p should have FontSize");
     };
 
@@ -885,7 +890,7 @@ fn test_percentage_font_size_inheritance() {
         panic!("span should have computed values");
     };
 
-    let Some(prop_with_origin) = span_computed.get(&CssPropertyType::FontSize) else {
+    let Some(prop_with_origin) = find_prop(span_computed, &CssPropertyType::FontSize) else {
         panic!("span should have FontSize");
     };
 

@@ -352,7 +352,7 @@ fn layout_html_and_get_tree(html: &str) -> azul_layout::Solver3LayoutCache {
     let mut font_manager = FontManager::new(fc_cache).expect("Failed to create font manager");
     let mut layout_cache = Solver3LayoutCache {
         tree: None,
-        calculated_positions: BTreeMap::new(),
+        calculated_positions: Vec::new(),
         viewport: None,
         scroll_ids: BTreeMap::new(),
         scroll_id_to_node_id: BTreeMap::new(),
@@ -378,7 +378,7 @@ fn layout_html_and_get_tree(html: &str) -> azul_layout::Solver3LayoutCache {
         &mut layout_cache,
         &mut text_cache,
         fragmentation_context,
-        styled_dom,
+        &styled_dom,
         viewport,
         &mut font_manager,
         &BTreeMap::new(),
