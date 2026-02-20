@@ -190,26 +190,26 @@ impl X11Window {
             }
         } else {
             // End scrollbar drag if active
-            if self.scrollbar_drag_state.is_some() {
-                self.scrollbar_drag_state = None;
+            if self.common.scrollbar_drag_state.is_some() {
+                self.common.scrollbar_drag_state = None;
                 return ProcessEventResult::ShouldReRenderCurrentWindow;
             }
         }
 
         // Save previous state BEFORE making changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
         // Update modifier state from X11 event state field
         self.update_modifiers_from_x11_state(event.state);
 
         // Update mouse state
-        self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
+        self.common.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
 
         // Set appropriate button flag
         match button {
-            MouseButton::Left => self.current_window_state.mouse_state.left_down = is_down,
-            MouseButton::Right => self.current_window_state.mouse_state.right_down = is_down,
-            MouseButton::Middle => self.current_window_state.mouse_state.middle_down = is_down,
+            MouseButton::Left => self.common.current_window_state.mouse_state.left_down = is_down,
+            MouseButton::Right => self.common.current_window_state.mouse_state.right_down = is_down,
+            MouseButton::Middle => self.common.current_window_state.mouse_state.middle_down = is_down,
             _ => {}
         }
 
@@ -245,30 +245,30 @@ impl X11Window {
         let position = LogicalPosition::new(event.x as f32, event.y as f32);
 
         // Handle active scrollbar drag (special case - not part of normal event system)
-        if self.scrollbar_drag_state.is_some() {
+        if self.common.scrollbar_drag_state.is_some() {
             return PlatformWindowV2::handle_scrollbar_drag(self, position);
         }
 
         // Save previous state BEFORE making changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
         // Update modifier state from X11 event state field
         self.update_modifiers_from_x11_state(event.state);
 
         // Update mouse state
-        self.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
+        self.common.current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(position);
 
         // Record input sample for gesture detection (movement during button press)
         // X11 provides x_root/y_root as native screen-absolute coordinates
-        let button_state = if self.current_window_state.mouse_state.left_down {
+        let button_state = if self.common.current_window_state.mouse_state.left_down {
             0x01
         } else {
             0x00
-        } | if self.current_window_state.mouse_state.right_down {
+        } | if self.common.current_window_state.mouse_state.right_down {
             0x02
         } else {
             0x00
-        } | if self.current_window_state.mouse_state.middle_down {
+        } | if self.common.current_window_state.mouse_state.middle_down {
             0x04
         } else {
             0x00
@@ -281,14 +281,14 @@ impl X11Window {
 
         // Update cursor based on CSS cursor properties
         // This is done BEFORE callbacks so callbacks can override the cursor
-        if let Some(layout_window) = self.layout_window.as_ref() {
+        if let Some(layout_window) = self.common.layout_window.as_ref() {
             if let Some(hit_test) = layout_window
                 .hover_manager
                 .get_current(&InputPointId::Mouse)
             {
                 let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
                 // Update the window state cursor type
-                self.current_window_state.mouse_state.mouse_cursor_type =
+                self.common.current_window_state.mouse_state.mouse_cursor_type =
                     Some(cursor_test.cursor_icon).into();
                 // Set the actual OS cursor
                 self.set_cursor(cursor_test.cursor_icon);
@@ -304,21 +304,21 @@ impl X11Window {
         let position = LogicalPosition::new(event.x as f32, event.y as f32);
 
         // Save previous state BEFORE making changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
         // Update modifier state from X11 event state field
         self.update_modifiers_from_x11_state(event.state);
 
         // Update mouse state based on enter/leave
         if event.type_ == EnterNotify {
-            self.current_window_state.mouse_state.cursor_position =
+            self.common.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(position);
             self.update_hit_test(position);
         } else if event.type_ == LeaveNotify {
-            self.current_window_state.mouse_state.cursor_position =
+            self.common.current_window_state.mouse_state.cursor_position =
                 CursorPosition::OutOfWindow(position);
             // Clear hit test since mouse is out
-            if let Some(ref mut layout_window) = self.layout_window {
+            if let Some(ref mut layout_window) = self.common.layout_window {
                 layout_window
                     .hover_manager
                     .push_hit_test(InputPointId::Mouse, FullHitTest::empty(None));
@@ -337,7 +337,7 @@ impl X11Window {
         position: LogicalPosition,
     ) -> ProcessEventResult {
         // Save previous state BEFORE making changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
         // Update hit test
         self.update_hit_test(position);
@@ -347,7 +347,7 @@ impl X11Window {
             let mut should_start_timer = false;
             let mut input_queue_clone = None;
 
-            if let Some(ref mut layout_window) = self.layout_window {
+            if let Some(ref mut layout_window) = self.common.layout_window {
                 use azul_core::task::Instant;
                 use azul_layout::managers::scroll_state::ScrollInputSource;
 
@@ -436,13 +436,13 @@ impl X11Window {
         };
 
         // Save previous state BEFORE making changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
         // Record text input if we have a character and it's a key press
         if is_down {
             if let Some(ref text) = char_str {
                 if !text.is_empty() {
-                    if let Some(ref mut layout_window) = self.layout_window {
+                    if let Some(ref mut layout_window) = self.common.layout_window {
                         layout_window.record_text_input(text);
                     }
                 }
@@ -452,30 +452,30 @@ impl X11Window {
         // Update keyboard state with virtual key and scancode
         if let Some(vk) = keysym.and_then(keysym_to_virtual_keycode) {
             if is_down {
-                self.current_window_state
+                self.common.current_window_state
                     .keyboard_state
                     .pressed_virtual_keycodes
                     .insert_hm_item(vk);
-                self.current_window_state
+                self.common.current_window_state
                     .keyboard_state
                     .current_virtual_keycode = Some(vk).into();
 
                 // Track scancode (X11 keycode is the scancode)
-                self.current_window_state
+                self.common.current_window_state
                     .keyboard_state
                     .pressed_scancodes
                     .insert_hm_item(event.keycode as u32);
             } else {
-                self.current_window_state
+                self.common.current_window_state
                     .keyboard_state
                     .pressed_virtual_keycodes
                     .remove_hm_item(&vk);
-                self.current_window_state
+                self.common.current_window_state
                     .keyboard_state
                     .current_virtual_keycode = None.into();
 
                 // Remove scancode
-                self.current_window_state
+                self.common.current_window_state
                     .keyboard_state
                     .pressed_scancodes
                     .remove_hm_item(&(event.keycode as u32));
@@ -500,7 +500,7 @@ impl X11Window {
         use azul_core::window::VirtualKeyCode;
 
         // Check each modifier mask and update the keyboard state accordingly
-        let keyboard_state = &mut self.current_window_state.keyboard_state;
+        let keyboard_state = &mut self.common.current_window_state.keyboard_state;
 
         // Shift
         let shift_down = (state & SHIFT_MASK) != 0;
@@ -565,17 +565,17 @@ impl X11Window {
 
     /// Update hit test at given position and store in current_window_state
     fn update_hit_test(&mut self, position: LogicalPosition) {
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             let cursor_position = CursorPosition::InWindow(position);
             // Get focused node from FocusManager
             let focused_node = layout_window.focus_manager.get_focused_node().copied();
             let hit_test = crate::desktop::wr_translate2::fullhittest_new_webrender(
-                &*self.hit_tester.as_mut().unwrap().resolve(),
-                self.document_id.unwrap(),
+                &*self.common.hit_tester.as_mut().unwrap().resolve(),
+                self.common.document_id.unwrap(),
                 focused_node,
                 &layout_window.layout_results,
                 &cursor_position,
-                self.current_window_state.size.get_hidpi_factor(),
+                self.common.current_window_state.size.get_hidpi_factor(),
             );
             layout_window
                 .hover_manager
@@ -585,7 +585,7 @@ impl X11Window {
 
     /// Get the first hovered node from current hit test
     fn get_first_hovered_node(&self) -> Option<HitTestNode> {
-        self.layout_window
+        self.common.layout_window
             .as_ref()?
             .hover_manager
             .get_current(&InputPointId::Mouse)?
@@ -630,7 +630,7 @@ impl X11Window {
         delta_x: f32,
         delta_y: f32,
     ) -> Result<(), String> {
-        let layout_window = match self.layout_window.as_mut() {
+        let layout_window = match self.common.layout_window.as_mut() {
             Some(lw) => lw,
             None => return Err("No layout window".into()),
         };
@@ -666,7 +666,7 @@ impl X11Window {
         layout_window.scroll_manager.calculate_scrollbar_states();
 
         // Update WebRender scroll layers and GPU transforms
-        if let (Some(render_api), Some(document_id)) = (&mut self.render_api, self.document_id) {
+        if let (Some(render_api), Some(document_id)) = (&mut self.common.render_api, self.common.document_id) {
             let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
 
             // Scroll all nodes to WebRender
@@ -681,7 +681,7 @@ impl X11Window {
                 layout_window,
                 render_api,
                 false, // Display list not rebuilt
-                &self.gl_context_ptr,
+                &self.common.gl_context_ptr,
             );
 
             // Send transaction
@@ -702,7 +702,7 @@ impl X11Window {
     /// to how menu bar menus work, but spawns at cursor position instead of below a trigger rect.
     /// Returns true if a menu was shown
     fn try_show_context_menu(&mut self, node: HitTestNode, position: LogicalPosition) -> bool {
-        let layout_window = match self.layout_window.as_ref() {
+        let layout_window = match self.common.layout_window.as_ref() {
             Some(lw) => lw,
             None => return false,
         };
@@ -758,7 +758,7 @@ impl X11Window {
         position: LogicalPosition,
     ) {
         // Get parent window position
-        let parent_pos = match self.current_window_state.position {
+        let parent_pos = match self.common.current_window_state.position {
             azul_core::window::WindowPosition::Initialized(pos) => {
                 azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
             }

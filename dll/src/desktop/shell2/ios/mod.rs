@@ -1,5 +1,6 @@
 //! iOS backend using raw FFI to UIKit, bootstrapped entirely from Rust.
 
+use crate::impl_platform_window_getters;
 use std::{ffi::c_void, ptr, sync::{Arc, Mutex, Condvar}, cell::RefCell};
 use objc::runtime::{Class, Object, Sel, Protocol};
 use objc::{class, msg_send, sel, sel_impl};
@@ -180,11 +181,8 @@ pub struct IOSWindow {
     // Azul state
     backend: RenderBackend,
     is_open: bool,
-    // Add all other fields from MacOSWindow to satisfy PlatformWindowV2
-    pub layout_window: Option<LayoutWindow>,
-    pub current_window_state: FullWindowState,
-    pub previous_window_state: Option<FullWindowState>,
-    // ... stubs for other fields
+    // Common fields shared with all platforms
+    pub common: event_v2::CommonWindowState,
 }
 
 impl IOSWindow {
@@ -237,9 +235,25 @@ impl IOSWindow {
             ui_window,
             backend,
             is_open: true,
-            layout_window: Some(layout_window),
-            current_window_state: full_window_state,
-            previous_window_state: None,
+            common: event_v2::CommonWindowState {
+                layout_window: Some(layout_window),
+                current_window_state: full_window_state,
+                previous_window_state: None,
+                image_cache: ImageCache::default(),
+                renderer_resources: RendererResources::default(),
+                fc_cache: fc_cache.clone(),
+                gl_context_ptr: gl_context_ptr,
+                system_style: std::sync::Arc::new(azul_css::system::SystemStyle::default()),
+                app_data: std::sync::Arc::new(std::cell::RefCell::new(azul_core::callbacks::RefAny::default())),
+                scrollbar_drag_state: None,
+                hit_tester: None,
+                last_hovered_node: None,
+                document_id: None,
+                id_namespace: None,
+                render_api: None,
+                renderer: None,
+                frame_needs_regeneration: true,
+            },
         })
     }
 
@@ -255,16 +269,9 @@ impl IOSWindow {
 // NOTE: This PlatformWindowV2 impl is mostly stubs to satisfy the trait bounds.
 // A full implementation would wire up the touch events to call the default trait methods.
 impl PlatformWindowV2 for IOSWindow {
-    // Implement all 27 required getter methods here...
-    // Most will return default or empty values for this minimal example.
 
-    fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> { self.layout_window.as_mut() }
-    fn get_layout_window(&self) -> Option<&LayoutWindow> { self.layout_window.as_ref() }
-    fn get_current_window_state(&self) -> &FullWindowState { &self.current_window_state }
-    fn get_current_window_state_mut(&mut self) -> &mut FullWindowState { &mut self.current_window_state }
-    fn get_previous_window_state(&self) -> &Option<FullWindowState> { &self.previous_window_state }
-    fn set_previous_window_state(&mut self, state: FullWindowState) { self.previous_window_state = Some(state); }
-    // ... and so on for all the other required methods ...
+    impl_platform_window_getters!(common);
+
     fn get_raw_window_handle(&self) -> RawWindowHandle {
         RawWindowHandle::IOS(IOSHandle {
             ui_window: Id::as_ptr(&self.ui_window) as *mut c_void,
@@ -272,9 +279,7 @@ impl PlatformWindowV2 for IOSWindow {
             ui_view_controller: ptr::null_mut(), // TODO
         })
     }
-    fn needs_frame_regeneration(&self) -> bool { true }
-    fn mark_frame_needs_regeneration(&mut self) {}
-    fn clear_frame_regeneration_flag(&mut self) {}
+
     fn sync_window_state(&mut self) {} // stub - iOS handles this natively
 }
 

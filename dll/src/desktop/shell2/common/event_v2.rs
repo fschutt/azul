@@ -446,6 +446,152 @@ pub struct InvokeSingleCallbackBorrows<'a> {
     pub renderer_resources: &'a mut RendererResources,
 }
 
+/// Common window state shared across all platform window implementations.
+///
+/// Contains the 17 fields that are accessed via the 28 PlatformWindowV2 getter/setter methods.
+/// Each platform window struct should contain this as `pub common: CommonWindowState` and use
+/// `impl_platform_window_getters!(common)` to generate all 28 trivial getter implementations.
+///
+/// Fields that are `Option<T>` here may be non-Option on some platforms (macOS, Win32)
+/// but are wrapped in Option for a common representation. The getters use `.expect()`
+/// for these fields — they should always be `Some(...)` by the time they're accessed.
+pub struct CommonWindowState {
+    /// LayoutWindow integration (for UI callbacks and display list)
+    pub layout_window: Option<LayoutWindow>,
+    /// Current window state
+    pub current_window_state: FullWindowState,
+    /// Window state from previous frame (for diff detection)
+    pub previous_window_state: Option<FullWindowState>,
+    /// Image cache for texture management
+    pub image_cache: ImageCache,
+    /// Renderer resources (GPU textures, etc.)
+    pub renderer_resources: RendererResources,
+    /// Shared font cache (shared across windows)
+    pub fc_cache: Arc<FcFontCache>,
+    /// OpenGL context pointer with compiled SVG and FXAA shaders
+    pub gl_context_ptr: OptionGlContextPtr,
+    /// System style (shared across windows)
+    pub system_style: Arc<azul_css::system::SystemStyle>,
+    /// Shared application data (used by callbacks, shared across windows)
+    pub app_data: Arc<RefCell<RefAny>>,
+    /// Current scrollbar drag state (if dragging a scrollbar thumb)
+    pub scrollbar_drag_state: Option<ScrollbarDragState>,
+    /// Hit-tester for fast asynchronous hit-testing (updated on layout changes).
+    /// `None` only during initialization on X11/Wayland before WebRender is set up.
+    pub hit_tester: Option<AsyncHitTester>,
+    /// Last hovered node (for hover state tracking)
+    pub last_hovered_node: Option<HitTestNode>,
+    /// WebRender document ID. `None` only during X11/Wayland initialization.
+    pub document_id: Option<DocumentId>,
+    /// WebRender ID namespace. `None` only during X11/Wayland initialization.
+    pub id_namespace: Option<IdNamespace>,
+    /// Main render API for registering fonts, images, display lists.
+    /// `None` only during X11/Wayland initialization.
+    pub render_api: Option<WrRenderApi>,
+    /// WebRender renderer (software or hardware depending on backend)
+    pub renderer: Option<webrender::Renderer>,
+    /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
+    pub frame_needs_regeneration: bool,
+}
+
+/// Generates all 28 PlatformWindowV2 getter/setter implementations
+/// by delegating to `self.$field` (a `CommonWindowState` field).
+///
+/// Usage: `impl_platform_window_getters!(common);`
+/// where `common` is the field name on the platform struct.
+///
+/// Each getter borrows only its own field via `self.$field.xxx`, so the compiler
+/// sees independent borrows and split borrows work naturally.
+#[macro_export]
+macro_rules! impl_platform_window_getters {
+    ($field:ident) => {
+        fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
+            self.$field.layout_window.as_mut()
+        }
+        fn get_layout_window(&self) -> Option<&LayoutWindow> {
+            self.$field.layout_window.as_ref()
+        }
+        fn get_current_window_state(&self) -> &FullWindowState {
+            &self.$field.current_window_state
+        }
+        fn get_current_window_state_mut(&mut self) -> &mut FullWindowState {
+            &mut self.$field.current_window_state
+        }
+        fn get_previous_window_state(&self) -> &Option<FullWindowState> {
+            &self.$field.previous_window_state
+        }
+        fn set_previous_window_state(&mut self, state: FullWindowState) {
+            self.$field.previous_window_state = Some(state);
+        }
+        fn get_image_cache_mut(&mut self) -> &mut ImageCache {
+            &mut self.$field.image_cache
+        }
+        fn get_renderer_resources_mut(&mut self) -> &mut RendererResources {
+            &mut self.$field.renderer_resources
+        }
+        fn get_fc_cache(&self) -> &Arc<FcFontCache> {
+            &self.$field.fc_cache
+        }
+        fn get_gl_context_ptr(&self) -> &OptionGlContextPtr {
+            &self.$field.gl_context_ptr
+        }
+        fn get_system_style(&self) -> &Arc<azul_css::system::SystemStyle> {
+            &self.$field.system_style
+        }
+        fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
+            &self.$field.app_data
+        }
+        fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
+            self.$field.scrollbar_drag_state.as_ref()
+        }
+        fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState> {
+            &mut self.$field.scrollbar_drag_state
+        }
+        fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
+            self.$field.scrollbar_drag_state = state;
+        }
+        fn get_hit_tester(&self) -> &AsyncHitTester {
+            self.$field.hit_tester.as_ref().expect("hit_tester not initialized")
+        }
+        fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester {
+            self.$field.hit_tester.as_mut().expect("hit_tester not initialized")
+        }
+        fn get_last_hovered_node(&self) -> Option<&HitTestNode> {
+            self.$field.last_hovered_node.as_ref()
+        }
+        fn set_last_hovered_node(&mut self, node: Option<HitTestNode>) {
+            self.$field.last_hovered_node = node;
+        }
+        fn get_document_id(&self) -> DocumentId {
+            self.$field.document_id.expect("document_id not initialized")
+        }
+        fn get_id_namespace(&self) -> IdNamespace {
+            self.$field.id_namespace.expect("id_namespace not initialized")
+        }
+        fn get_render_api(&self) -> &WrRenderApi {
+            self.$field.render_api.as_ref().expect("render_api not initialized")
+        }
+        fn get_render_api_mut(&mut self) -> &mut WrRenderApi {
+            self.$field.render_api.as_mut().expect("render_api not initialized")
+        }
+        fn get_renderer(&self) -> Option<&webrender::Renderer> {
+            self.$field.renderer.as_ref()
+        }
+        fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer> {
+            self.$field.renderer.as_mut()
+        }
+        fn needs_frame_regeneration(&self) -> bool {
+            self.$field.frame_needs_regeneration
+        }
+        fn mark_frame_needs_regeneration(&mut self) {
+            self.$field.frame_needs_regeneration = true;
+        }
+        fn clear_frame_regeneration_flag(&mut self) {
+            self.$field.frame_needs_regeneration = false;
+        }
+    };
+}
+
 /// Trait that platform-specific window types must implement to use the unified V2 event system.
 ///
 /// This trait provides **default implementations** for all complex cross-platform logic.

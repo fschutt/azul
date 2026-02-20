@@ -143,7 +143,7 @@ pub(super) extern "C" fn wl_surface_enter_handler(
 
     // Check if scale factor changed (entered monitor with different DPI)
     let new_scale = window.calculate_current_scale_factor();
-    let old_dpi = window.current_window_state.size.dpi;
+    let old_dpi = window.common.current_window_state.size.dpi;
     let new_dpi = (new_scale * 96.0) as u32;
 
     // Only regenerate if DPI changed significantly
@@ -154,8 +154,8 @@ pub(super) extern "C" fn wl_surface_enter_handler(
             old_dpi,
             new_dpi
         );
-        window.current_window_state.size.dpi = new_dpi;
-        window.frame_needs_regeneration = true;
+        window.common.current_window_state.size.dpi = new_dpi;
+        window.common.frame_needs_regeneration = true;
     }
 }
 
@@ -171,7 +171,7 @@ pub(super) extern "C" fn wl_surface_leave_handler(
 
     // Check if scale factor changed (left monitor, now on different monitor)
     let new_scale = window.calculate_current_scale_factor();
-    let old_dpi = window.current_window_state.size.dpi;
+    let old_dpi = window.common.current_window_state.size.dpi;
     let new_dpi = (new_scale * 96.0) as u32;
 
     // Only regenerate if DPI changed significantly
@@ -182,8 +182,8 @@ pub(super) extern "C" fn wl_surface_leave_handler(
             old_dpi,
             new_dpi
         );
-        window.current_window_state.size.dpi = new_dpi;
-        window.frame_needs_regeneration = true;
+        window.common.current_window_state.size.dpi = new_dpi;
+        window.common.frame_needs_regeneration = true;
     }
 }
 
@@ -505,7 +505,7 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
             }
         }
 
-        window.current_window_state.flags.frame = if is_fullscreen {
+        window.common.current_window_state.flags.frame = if is_fullscreen {
             WindowFrame::Fullscreen
         } else if is_maximized {
             WindowFrame::Maximized
@@ -517,16 +517,16 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
 
     // If width/height are non-zero, the compositor is requesting a specific size
     if width > 0 && height > 0 {
-        let current_width = window.current_window_state.size.dimensions.width as i32;
-        let current_height = window.current_window_state.size.dimensions.height as i32;
+        let current_width = window.common.current_window_state.size.dimensions.width as i32;
+        let current_height = window.common.current_window_state.size.dimensions.height as i32;
 
         if width != current_width || height != current_height {
             // Store old context for breakpoint detection
             let old_context = window.dynamic_selector_context.clone();
 
-            window.current_window_state.size.dimensions.width = width as f32;
-            window.current_window_state.size.dimensions.height = height as f32;
-            window.frame_needs_regeneration = true;
+            window.common.current_window_state.size.dimensions.width = width as f32;
+            window.common.current_window_state.size.dimensions.height = height as f32;
+            window.common.frame_needs_regeneration = true;
 
             // Update dynamic selector context with new viewport dimensions
             window.dynamic_selector_context.viewport_width = width as f32;

@@ -1,5 +1,7 @@
 //! X11 implementation for Linux using the shell2 architecture.
 
+use crate::impl_platform_window_getters;
+
 pub mod accessibility;
 pub mod clipboard;
 pub mod defines;
@@ -271,24 +273,9 @@ pub struct X11Window {
     pub has_argb_visual: bool, // True if window was created with 32-bit ARGB visual
     pub argb_colormap: Option<Colormap>, // Custom colormap for ARGB visual (needs cleanup)
 
-    // Shell2 state
-    pub layout_window: Option<LayoutWindow>,
-    pub current_window_state: FullWindowState,
-    pub previous_window_state: Option<FullWindowState>,
-    pub render_api: Option<webrender::RenderApi>,
-    pub renderer: Option<WrRenderer>,
-    pub hit_tester: Option<AsyncHitTester>,
-    pub document_id: Option<DocumentId>,
-    pub image_cache: ImageCache,
-    pub renderer_resources: RendererResources,
-    gl_context_ptr: OptionGlContextPtr,
+    // Shell2 state (common fields shared with all platforms)
+    pub common: event_v2::CommonWindowState,
     new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
-    id_namespace: Option<IdNamespace>,
-
-    // V2 Event system state
-    pub scrollbar_drag_state: Option<ScrollbarDragState>,
-    pub last_hovered_node: Option<event_v2::HitTestNode>,
-    pub frame_needs_regeneration: bool,
     /// XRandR event base (if available). Screen change events have type xrandr_event_base + 0.
     pub xrandr_event_base: Option<i32>,
 
@@ -356,7 +343,7 @@ impl X11Window {
                 }
                 defines::FocusIn => {
                     // Window gained focus
-                    self.current_window_state.window_focused = true;
+                    self.common.current_window_state.window_focused = true;
                     self.dynamic_selector_context.window_focused = true;
 
                     // Phase 2: OnFocus callback - sync IME position after focus
@@ -366,7 +353,7 @@ impl X11Window {
                 }
                 defines::FocusOut => {
                     // Window lost focus
-                    self.current_window_state.window_focused = false;
+                    self.common.current_window_state.window_focused = false;
                     self.dynamic_selector_context.window_focused = false;
                     ProcessEventResult::DoNothing
                 }
@@ -378,12 +365,12 @@ impl X11Window {
                     let old_context = self.dynamic_selector_context.clone();
 
                     // Check if size changed
-                    let size_changed = self.current_window_state.size.get_physical_size()
+                    let size_changed = self.common.current_window_state.size.get_physical_size()
                         != PhysicalSize::new(new_width, new_height);
 
                     // Check if position changed (might have moved to different monitor with
                     // different DPI)
-                    let position_changed = match self.current_window_state.position {
+                    let position_changed = match self.common.current_window_state.position {
                         azul_core::window::WindowPosition::Initialized(pos) => {
                             pos.x != ev.x || pos.y != ev.y
                         }
@@ -391,7 +378,7 @@ impl X11Window {
                     };
 
                     if size_changed {
-                        self.current_window_state.size.dimensions =
+                        self.common.current_window_state.size.dimensions =
                             LogicalSize::new(new_width as f32, new_height as f32);
 
                         // Update dynamic selector context with new viewport dimensions
@@ -424,7 +411,7 @@ impl X11Window {
                     }
 
                     // Update position
-                    self.current_window_state.position =
+                    self.common.current_window_state.position =
                         azul_core::window::WindowPosition::Initialized(
                             azul_core::geom::PhysicalPositionI32::new(ev.x, ev.y),
                         );
@@ -442,7 +429,7 @@ impl X11Window {
                             crate::desktop::display::get_display_at_point(window_center)
                         {
                             let new_dpi = (display.scale_factor * 96.0) as u32;
-                            let old_dpi = self.current_window_state.size.dpi;
+                            let old_dpi = self.common.current_window_state.size.dpi;
 
                             // Only regenerate if DPI changed significantly (avoid rounding errors)
                             if (new_dpi as i32 - old_dpi as i32).abs() > 1 {
@@ -452,7 +439,7 @@ impl X11Window {
                                     old_dpi,
                                     new_dpi
                                 );
-                                self.current_window_state.size.dpi = new_dpi;
+                                self.common.current_window_state.size.dpi = new_dpi;
                                 self.regenerate_layout().ok();
                             }
                         }
@@ -497,7 +484,7 @@ impl X11Window {
                                 LogCategory::Platform,
                                 "[X11] XRandR screen change detected, refreshing monitor cache"
                             );
-                            if let Some(ref lw) = self.layout_window {
+                            if let Some(ref lw) = self.common.layout_window {
                                 if let Ok(mut guard) = lw.monitors.lock() {
                                     *guard = crate::desktop::display::get_monitors();
                                 }
@@ -531,8 +518,8 @@ impl X11Window {
                             *gc,
                             0,
                             0,
-                            self.current_window_state.size.dimensions.width as u32,
-                            self.current_window_state.size.dimensions.height as u32,
+                            self.common.current_window_state.size.dimensions.width as u32,
+                            self.common.current_window_state.size.dimensions.height as u32,
                         );
                     }
                 }
@@ -838,40 +825,45 @@ impl X11Window {
             dbus_connection: None,
             has_argb_visual,
             argb_colormap,
-            layout_window: None,
-            current_window_state: FullWindowState {
-                title: options.window_state.title.clone(),
-                size: options.window_state.size,
-                position: options.window_state.position,
-                flags: options.window_state.flags,
-                theme: options.window_state.theme,
-                debug_state: options.window_state.debug_state,
-                keyboard_state: Default::default(),
-                mouse_state: Default::default(),
-                touch_state: Default::default(),
-                ime_position: options.window_state.ime_position,
-                platform_specific_options: options.window_state.platform_specific_options.clone(),
-                renderer_options: options.window_state.renderer_options,
-                background_color: options.window_state.background_color,
-                layout_callback: options.window_state.layout_callback,
-                close_callback: options.window_state.close_callback.clone(),
-                monitor_id: OptionU32::None, // Monitor ID will be detected from platform
-                window_id: options.window_state.window_id.clone(),
-                window_focused: true,
+            common: event_v2::CommonWindowState {
+                layout_window: None,
+                current_window_state: FullWindowState {
+                    title: options.window_state.title.clone(),
+                    size: options.window_state.size,
+                    position: options.window_state.position,
+                    flags: options.window_state.flags,
+                    theme: options.window_state.theme,
+                    debug_state: options.window_state.debug_state,
+                    keyboard_state: Default::default(),
+                    mouse_state: Default::default(),
+                    touch_state: Default::default(),
+                    ime_position: options.window_state.ime_position,
+                    platform_specific_options: options.window_state.platform_specific_options.clone(),
+                    renderer_options: options.window_state.renderer_options,
+                    background_color: options.window_state.background_color,
+                    layout_callback: options.window_state.layout_callback,
+                    close_callback: options.window_state.close_callback.clone(),
+                    monitor_id: OptionU32::None,
+                    window_id: options.window_state.window_id.clone(),
+                    window_focused: true,
+                },
+                previous_window_state: None,
+                renderer,
+                render_api,
+                hit_tester,
+                document_id,
+                id_namespace,
+                image_cache: ImageCache::default(),
+                renderer_resources: RendererResources::default(),
+                gl_context_ptr,
+                fc_cache: resources.fc_cache.clone(),
+                system_style: resources.system_style.clone(),
+                app_data: resources.app_data.clone(),
+                scrollbar_drag_state: None,
+                last_hovered_node: None,
+                frame_needs_regeneration: true,
             },
-            previous_window_state: None,
-            renderer,
-            render_api,
-            hit_tester,
-            document_id,
-            id_namespace,
-            image_cache: ImageCache::default(),
-            renderer_resources: RendererResources::default(),
-            gl_context_ptr,
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
-            scrollbar_drag_state: None,
-            last_hovered_node: None,
-            frame_needs_regeneration: true, // Initial render deferred to first Expose event
             xrandr_event_base: None,
             timer_fds: std::collections::BTreeMap::new(),
             pending_window_creates: Vec::new(),
@@ -1205,7 +1197,7 @@ impl X11Window {
             };
 
             // Get layout window
-            let layout_window = match self.layout_window.as_mut() {
+            let layout_window = match self.common.layout_window.as_mut() {
                 Some(lw) => lw,
                 None => {
                     log_warn!(
@@ -1227,12 +1219,12 @@ impl X11Window {
                 &mut menu_callback.callback,
                 &mut menu_callback.refany,
                 &raw_handle,
-                &self.gl_context_ptr,
-                self.resources.system_style.clone(),
+                &self.common.gl_context_ptr,
+                self.common.system_style.clone(),
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &self.previous_window_state,
-                &self.current_window_state,
-                &self.renderer_resources,
+                &self.common.previous_window_state,
+                &self.common.current_window_state,
+                &self.common.renderer_resources,
             );
 
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
@@ -1257,7 +1249,7 @@ impl X11Window {
                 | ProcessEventResult::ShouldReRenderCurrentWindow
                 | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                    self.frame_needs_regeneration = true;
+                    self.common.frame_needs_regeneration = true;
                     self.request_redraw();
                 }
                 ProcessEventResult::DoNothing => {
@@ -1401,7 +1393,7 @@ impl X11Window {
                             LogCategory::Platform,
                             "[X11] XRandR screen change detected (handle_event), refreshing monitor cache"
                         );
-                        if let Some(ref lw) = self.layout_window {
+                        if let Some(ref lw) = self.common.layout_window {
                             if let Ok(mut guard) = lw.monitors.lock() {
                                 *guard = crate::desktop::display::get_monitors();
                             }
@@ -1419,7 +1411,7 @@ impl X11Window {
     }
 
     pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout_v2::LayoutRegenerateResult, String> {
-        let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
+        let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
@@ -1432,17 +1424,17 @@ impl X11Window {
         // Call unified regenerate_layout from common module
         let result = crate::desktop::shell2::common::layout_v2::regenerate_layout(
             layout_window,
-            &self.resources.app_data,
-            &self.current_window_state,
-            &mut self.renderer_resources,
-            self.render_api.as_mut().ok_or("No render API")?,
-            &self.image_cache,
-            &self.gl_context_ptr,
-            &self.resources.fc_cache,
+            &self.common.app_data,
+            &self.common.current_window_state,
+            &mut self.common.renderer_resources,
+            self.common.render_api.as_mut().ok_or("No render API")?,
+            &self.common.image_cache,
+            &self.common.gl_context_ptr,
+            &self.common.fc_cache,
             &self.resources.font_registry,
-            &self.resources.system_style,
+            &self.common.system_style,
             &self.resources.icon_provider,
-            self.document_id.ok_or("No document ID")?,
+            self.common.document_id.ok_or("No document ID")?,
             &mut debug_messages,
         )?;
 
@@ -1460,7 +1452,7 @@ impl X11Window {
 
         // Update accessibility tree after layout
         #[cfg(feature = "a11y")]
-        if let Some(layout_window) = self.layout_window.as_ref() {
+        if let Some(layout_window) = self.common.layout_window.as_ref() {
             if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.clone() {
                 self.accessibility_adapter.update_tree(tree_update);
             }
@@ -1474,14 +1466,14 @@ impl X11Window {
         }
 
         // Send frame immediately (like Windows - ensures WebRender transaction is sent)
-        let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
+        let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
         crate::desktop::shell2::common::layout_v2::generate_frame(
             layout_window,
-            self.render_api.as_mut().ok_or("No render API")?,
-            self.document_id.ok_or("No document ID")?,
-            &self.gl_context_ptr,
+            self.common.render_api.as_mut().ok_or("No render API")?,
+            self.common.document_id.ok_or("No document ID")?,
+            &self.common.gl_context_ptr,
         );
-        if let Some(render_api) = self.render_api.as_mut() {
+        if let Some(render_api) = self.common.render_api.as_mut() {
             render_api.flush_scene_builder();
         }
 
@@ -1497,17 +1489,17 @@ impl X11Window {
     fn update_ime_position_from_cursor(&mut self) {
         use azul_core::window::ImePosition;
 
-        if let Some(layout_window) = &self.layout_window {
+        if let Some(layout_window) = &self.common.layout_window {
             if let Some(cursor_rect) = layout_window.get_focused_cursor_rect_viewport() {
                 // Successfully calculated cursor position from text layout
-                self.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
+                self.common.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
             }
         }
     }
 
     /// Generate frame if needed and reset flag
     pub fn generate_frame_if_needed(&mut self) {
-        if !self.frame_needs_regeneration {
+        if !self.common.frame_needs_regeneration {
             return;
         }
 
@@ -1518,19 +1510,19 @@ impl X11Window {
         }
 
         if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) = (
-            self.layout_window.as_mut(),
-            self.render_api.as_mut(),
-            self.document_id,
+            self.common.layout_window.as_mut(),
+            self.common.render_api.as_mut(),
+            self.common.document_id,
         ) {
             crate::desktop::shell2::common::layout_v2::generate_frame(
                 layout_window,
                 render_api,
                 document_id,
-                &self.gl_context_ptr,
+                &self.common.gl_context_ptr,
             );
         }
 
-        self.frame_needs_regeneration = false;
+        self.common.frame_needs_regeneration = false;
     }
 
     /// Render and present a frame using WebRender
@@ -1543,15 +1535,15 @@ impl X11Window {
     /// 4. Swap buffers to show the rendered frame
     pub fn render_and_present(&mut self) -> Result<(), WindowError> {
         // Step 1: Regenerate layout if needed
-        if self.frame_needs_regeneration {
+        if self.common.frame_needs_regeneration {
             if let Err(e) = self.regenerate_layout() {
                 return Err(WindowError::PlatformError(format!("Layout failed: {}", e)));
             }
-            self.frame_needs_regeneration = false;
+            self.common.frame_needs_regeneration = false;
         }
 
         // Step 2: Make sure we have required components
-        let renderer = match self.renderer.as_mut() {
+        let renderer = match self.common.renderer.as_mut() {
             Some(r) => r,
             None => {
                 return Err(WindowError::PlatformError("No renderer available".into()));
@@ -1567,7 +1559,7 @@ impl X11Window {
         renderer.update();
 
         // Step 5: Render frame
-        let physical_size = self.current_window_state.size.get_physical_size();
+        let physical_size = self.common.current_window_state.size.get_physical_size();
         let framebuffer_size = webrender::api::units::DeviceIntSize::new(
             physical_size.width as i32,
             physical_size.height as i32,
@@ -1612,7 +1604,7 @@ impl X11Window {
 
         // Clean up old textures from previous epochs to prevent memory leak
         // This must happen AFTER render() and buffer swap when WebRender no longer needs the textures
-        if let Some(ref layout_window) = self.layout_window {
+        if let Some(ref layout_window) = self.common.layout_window {
             crate::desktop::gl_texture_integration::remove_old_gl_textures(
                 &layout_window.document_id,
                 layout_window.epoch,
@@ -1647,7 +1639,7 @@ impl X11Window {
 
         // Title — XStoreName is NOT called in new(), so we must apply it here
         {
-            let c_title = CString::new(self.current_window_state.title.as_str()).unwrap();
+            let c_title = CString::new(self.common.current_window_state.title.as_str()).unwrap();
             unsafe {
                 (self.xlib.XStoreName)(self.display, self.window, c_title.as_ptr());
             }
@@ -1655,7 +1647,7 @@ impl X11Window {
 
         // Window frame (Maximized, Minimized, Fullscreen)
         // Must be done AFTER XMapWindow since _NET_WM_STATE messages go to the root window
-        match self.current_window_state.flags.frame {
+        match self.common.current_window_state.flags.frame {
             WindowFrame::Maximized => unsafe {
                 let screen = (self.xlib.XDefaultScreen)(self.display);
                 let root = (self.xlib.XRootWindow)(self.display, screen);
@@ -1726,7 +1718,7 @@ impl X11Window {
         }
 
         // Always-on-top
-        if self.current_window_state.flags.is_always_on_top {
+        if self.common.current_window_state.flags.is_always_on_top {
             unsafe {
                 let screen = (self.xlib.XDefaultScreen)(self.display);
                 let root = (self.xlib.XRootWindow)(self.display, screen);
@@ -1759,12 +1751,12 @@ impl X11Window {
         }
 
         // is_top_level
-        if self.current_window_state.flags.is_top_level {
+        if self.common.current_window_state.flags.is_top_level {
             self.set_is_top_level(true);
         }
 
         // prevent_system_sleep
-        if self.current_window_state.flags.prevent_system_sleep {
+        if self.common.current_window_state.flags.prevent_system_sleep {
             self.set_prevent_system_sleep(true);
         }
 
@@ -1774,7 +1766,7 @@ impl X11Window {
         }
 
         // CRITICAL: Set previous_window_state so sync_window_state() works for future changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
     }
 
     /// Synchronize X11 window properties with current_window_state
@@ -1782,8 +1774,8 @@ impl X11Window {
         use std::ffi::CString;
 
         // Get copies of previous and current state to avoid borrow checker issues
-        let (previous, current) = match &self.previous_window_state {
-            Some(prev) => (prev.clone(), self.current_window_state.clone()),
+        let (previous, current) = match &self.common.previous_window_state {
+            Some(prev) => (prev.clone(), self.common.current_window_state.clone()),
             None => return, // First frame, nothing to sync
         };
 
@@ -2273,115 +2265,8 @@ impl X11Window {
 // PlatformWindowV2 Trait Implementation
 
 impl PlatformWindowV2 for X11Window {
-    // REQUIRED: Simple Getter Methods
 
-    fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
-        self.layout_window.as_mut()
-    }
-
-    fn get_layout_window(&self) -> Option<&LayoutWindow> {
-        self.layout_window.as_ref()
-    }
-
-    fn get_current_window_state(&self) -> &FullWindowState {
-        &self.current_window_state
-    }
-
-    fn get_current_window_state_mut(&mut self) -> &mut FullWindowState {
-        &mut self.current_window_state
-    }
-
-    fn get_previous_window_state(&self) -> &Option<FullWindowState> {
-        &self.previous_window_state
-    }
-
-    fn set_previous_window_state(&mut self, state: FullWindowState) {
-        self.previous_window_state = Some(state);
-    }
-
-    fn get_image_cache_mut(&mut self) -> &mut ImageCache {
-        &mut self.image_cache
-    }
-
-    fn get_renderer_resources_mut(&mut self) -> &mut RendererResources {
-        &mut self.renderer_resources
-    }
-
-    fn get_fc_cache(&self) -> &Arc<FcFontCache> {
-        &self.resources.fc_cache
-    }
-
-    fn get_gl_context_ptr(&self) -> &OptionGlContextPtr {
-        &self.gl_context_ptr
-    }
-
-    fn get_system_style(&self) -> &Arc<azul_css::system::SystemStyle> {
-        &self.resources.system_style
-    }
-
-    fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
-        &self.resources.app_data
-    }
-
-    fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
-        self.scrollbar_drag_state.as_ref()
-    }
-
-    fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState> {
-        &mut self.scrollbar_drag_state
-    }
-
-    fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
-        self.scrollbar_drag_state = state;
-    }
-
-    fn get_hit_tester(&self) -> &AsyncHitTester {
-        self.hit_tester
-            .as_ref()
-            .expect("Hit tester must be initialized")
-    }
-
-    fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester {
-        self.hit_tester
-            .as_mut()
-            .expect("Hit tester must be initialized")
-    }
-
-    fn get_last_hovered_node(&self) -> Option<&event_v2::HitTestNode> {
-        self.last_hovered_node.as_ref()
-    }
-
-    fn set_last_hovered_node(&mut self, node: Option<event_v2::HitTestNode>) {
-        self.last_hovered_node = node;
-    }
-
-    fn get_document_id(&self) -> DocumentId {
-        self.document_id.expect("Document ID must be initialized")
-    }
-
-    fn get_id_namespace(&self) -> IdNamespace {
-        self.id_namespace.expect("ID namespace must be initialized")
-    }
-
-    fn get_render_api(&self) -> &webrender::RenderApi {
-        self.render_api
-            .as_ref()
-            .expect("Render API must be initialized")
-    }
-
-    fn get_render_api_mut(&mut self) -> &mut webrender::RenderApi {
-        self.render_api
-            .as_mut()
-            .expect("Render API must be initialized")
-    }
-
-    fn get_renderer(&self) -> Option<&webrender::Renderer> {
-        self.renderer.as_ref()
-    }
-
-    fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer> {
-        self.renderer.as_mut()
-    }
+    impl_platform_window_getters!(common);
 
     fn get_raw_window_handle(&self) -> RawWindowHandle {
         RawWindowHandle::Xlib(XlibHandle {
@@ -2390,20 +2275,8 @@ impl PlatformWindowV2 for X11Window {
         })
     }
 
-    fn needs_frame_regeneration(&self) -> bool {
-        self.frame_needs_regeneration
-    }
-
-    fn mark_frame_needs_regeneration(&mut self) {
-        self.frame_needs_regeneration = true;
-    }
-
-    fn clear_frame_regeneration_flag(&mut self) {
-        self.frame_needs_regeneration = false;
-    }
-
     fn prepare_callback_invocation(&mut self) -> event_v2::InvokeSingleCallbackBorrows {
-        let layout_window = self
+        let layout_window = self.common
             .layout_window
             .as_mut()
             .expect("Layout window must exist for callback invocation");
@@ -2414,13 +2287,13 @@ impl PlatformWindowV2 for X11Window {
                 window: self.window,
                 display: self.display as *mut c_void,
             }),
-            gl_context_ptr: &self.gl_context_ptr,
-            image_cache: &mut self.image_cache,
-            fc_cache_clone: (*self.resources.fc_cache).clone(),
-            system_style: self.resources.system_style.clone(),
-            previous_window_state: &self.previous_window_state,
-            current_window_state: &self.current_window_state,
-            renderer_resources: &mut self.renderer_resources,
+            gl_context_ptr: &self.common.gl_context_ptr,
+            image_cache: &mut self.common.image_cache,
+            fc_cache_clone: (*self.common.fc_cache).clone(),
+            system_style: self.common.system_style.clone(),
+            previous_window_state: &self.common.previous_window_state,
+            current_window_state: &self.common.current_window_state,
+            renderer_resources: &mut self.common.renderer_resources,
         }
     }
 
@@ -2431,7 +2304,7 @@ impl PlatformWindowV2 for X11Window {
         let interval_ms = timer.tick_millis();
 
         // Store timer in layout_window for callback invocation
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window
                 .timers
                 .insert(azul_core::task::TimerId { id: timer_id }, timer);
@@ -2485,7 +2358,7 @@ impl PlatformWindowV2 for X11Window {
 
     fn stop_timer(&mut self, timer_id: usize) {
         // Remove from layout_window
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window
                 .timers
                 .remove(&azul_core::task::TimerId { id: timer_id });
@@ -2511,7 +2384,7 @@ impl PlatformWindowV2 for X11Window {
         // For X11, we don't need a separate timer - threads are checked
         // in the event loop when layout_window.threads is non-empty
         // Just mark for regeneration to start checking
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
     }
 
     fn stop_thread_poll_timer(&mut self) {
@@ -2523,21 +2396,21 @@ impl PlatformWindowV2 for X11Window {
         &mut self,
         threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
     ) {
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             for (thread_id, thread) in threads {
                 layout_window.threads.insert(thread_id, thread);
             }
         }
 
         // Mark for regeneration to start thread polling
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
     }
 
     fn remove_threads(
         &mut self,
         thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>,
     ) {
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             for thread_id in thread_ids {
                 layout_window.threads.remove(thread_id);
             }
@@ -2556,7 +2429,7 @@ impl PlatformWindowV2 for X11Window {
         position: azul_core::geom::LogicalPosition,
     ) {
         // Check if native menus are enabled (GNOME menus on Linux)
-        if self.current_window_state.flags.use_native_context_menus {
+        if self.common.current_window_state.flags.use_native_context_menus {
             // TODO: Show GNOME native menu via DBus
             log_debug!(
                 LogCategory::Window,
@@ -2579,7 +2452,7 @@ impl PlatformWindowV2 for X11Window {
         position: azul_core::geom::LogicalPosition,
     ) {
         // Convert logical position to screen coordinates
-        let window_pos = match self.current_window_state.position {
+        let window_pos = match self.common.current_window_state.position {
             azul_core::window::WindowPosition::Initialized(pos) => (pos.x, pos.y),
             _ => (0, 0),
         };
@@ -2607,7 +2480,7 @@ impl X11Window {
         position: azul_core::geom::LogicalPosition,
     ) {
         // Get parent window position
-        let parent_pos = match self.current_window_state.position {
+        let parent_pos = match self.common.current_window_state.position {
             azul_core::window::WindowPosition::Initialized(pos) => {
                 azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
             }
@@ -2617,7 +2490,7 @@ impl X11Window {
         // Create menu window options
         let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
-            self.resources.system_style.clone(),
+            self.common.system_style.clone(),
             parent_pos,
             None,           // No trigger rect
             Some(position), // Position for menu
@@ -2705,7 +2578,7 @@ impl X11Window {
         use azul_core::window::ImePosition;
         use defines::{XPoint, XRectangle};
 
-        if let ImePosition::Initialized(rect) = self.current_window_state.ime_position {
+        if let ImePosition::Initialized(rect) = self.common.current_window_state.ime_position {
             // Use XIM if available (preferred over GTK)
             if let Some(ref ime_mgr) = self.ime_manager {
                 let spot = XPoint {

@@ -7,6 +7,8 @@
 //! Note: Uses dynamic loading (dlopen) to avoid linker errors
 //! and ensure compatibility across Linux distributions.
 
+use crate::impl_platform_window_getters;
+
 pub mod clipboard;
 mod defines;
 mod dlopen;
@@ -156,19 +158,9 @@ pub struct WaylandWindow {
     screensaver_inhibit_cookie: Option<u32>,
     dbus_connection: Option<*mut super::dbus::DBusConnection>,
 
-    // Shell2 state
-    pub layout_window: Option<LayoutWindow>,
-    pub current_window_state: FullWindowState,
-    pub previous_window_state: Option<FullWindowState>,
-    pub render_api: Option<webrender::RenderApi>,
-    pub renderer: Option<WrRenderer>,
-    pub hit_tester: Option<AsyncHitTester>,
-    pub document_id: Option<DocumentId>,
-    pub image_cache: ImageCache,
-    pub renderer_resources: RendererResources,
-    gl_context_ptr: OptionGlContextPtr,
+    // Shell2 state (common fields shared with all platforms)
+    pub common: event_v2::CommonWindowState,
     new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
-    id_namespace: Option<IdNamespace>,
 
     render_mode: RenderMode,
 
@@ -177,9 +169,6 @@ pub struct WaylandWindow {
     pub current_outputs: Vec<*mut defines::wl_output>,
 
     // V2 Event system state
-    pub scrollbar_drag_state: Option<ScrollbarDragState>,
-    pub last_hovered_node: Option<event_v2::HitTestNode>,
-    pub frame_needs_regeneration: bool,
     pub frame_callback_pending: bool, // Wayland frame callback synchronization
 
     // Native timer support via timerfd (Linux-specific)
@@ -200,8 +189,6 @@ pub struct WaylandWindow {
 
     // Shared resources
     pub resources: Arc<super::AppResources>,
-    fc_cache: Arc<FcFontCache>,
-    app_data: Arc<RefCell<RefAny>>,
     /// Dynamic selector context for evaluating conditional CSS properties
     /// (viewport size, OS, theme, etc.) - updated on resize and theme change
     pub dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
@@ -510,7 +497,7 @@ impl WaylandWindow {
 
         // Clean up old textures from previous epochs to prevent memory leak
         // This must happen AFTER render() and buffer swap when WebRender no longer needs the textures
-        if let Some(ref layout_window) = self.layout_window {
+        if let Some(ref layout_window) = self.common.layout_window {
             crate::desktop::gl_texture_integration::remove_old_gl_textures(
                 &layout_window.document_id,
                 layout_window.epoch,
@@ -552,113 +539,8 @@ impl WaylandWindow {
 // PlatformWindowV2 Trait Implementation (Cross-platform V2 Event System)
 
 impl PlatformWindowV2 for WaylandWindow {
-    fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
-        self.layout_window.as_mut()
-    }
 
-    fn get_layout_window(&self) -> Option<&LayoutWindow> {
-        self.layout_window.as_ref()
-    }
-
-    fn get_current_window_state(&self) -> &FullWindowState {
-        &self.current_window_state
-    }
-
-    fn get_current_window_state_mut(&mut self) -> &mut FullWindowState {
-        &mut self.current_window_state
-    }
-
-    fn get_previous_window_state(&self) -> &Option<FullWindowState> {
-        &self.previous_window_state
-    }
-
-    fn set_previous_window_state(&mut self, state: FullWindowState) {
-        self.previous_window_state = Some(state);
-    }
-
-    fn get_last_hovered_node(&self) -> Option<&event_v2::HitTestNode> {
-        self.last_hovered_node.as_ref()
-    }
-
-    fn set_last_hovered_node(&mut self, node: Option<event_v2::HitTestNode>) {
-        self.last_hovered_node = node;
-    }
-
-    fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
-        self.scrollbar_drag_state.as_ref()
-    }
-
-    fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState> {
-        &mut self.scrollbar_drag_state
-    }
-
-    fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
-        self.scrollbar_drag_state = state;
-    }
-
-    fn get_image_cache_mut(&mut self) -> &mut ImageCache {
-        &mut self.image_cache
-    }
-
-    fn get_renderer_resources_mut(&mut self) -> &mut RendererResources {
-        &mut self.renderer_resources
-    }
-
-    fn get_gl_context_ptr(&self) -> &OptionGlContextPtr {
-        &self.gl_context_ptr
-    }
-
-    fn get_fc_cache(&self) -> &Arc<FcFontCache> {
-        &self.fc_cache
-    }
-
-    fn get_system_style(&self) -> &Arc<azul_css::system::SystemStyle> {
-        &self.resources.system_style
-    }
-
-    fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
-        &self.app_data
-    }
-
-    fn get_render_api_mut(&mut self) -> &mut webrender::RenderApi {
-        self.render_api
-            .as_mut()
-            .expect("Render API not initialized")
-    }
-
-    fn get_render_api(&self) -> &webrender::RenderApi {
-        self.render_api
-            .as_ref()
-            .expect("Render API not initialized")
-    }
-
-    fn get_document_id(&self) -> DocumentId {
-        self.document_id.expect("Document ID not initialized")
-    }
-
-    fn get_id_namespace(&self) -> IdNamespace {
-        self.id_namespace.expect("ID namespace not initialized")
-    }
-
-    fn get_hit_tester(&self) -> &AsyncHitTester {
-        self.hit_tester
-            .as_ref()
-            .expect("Hit tester not initialized")
-    }
-
-    fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester {
-        self.hit_tester
-            .as_mut()
-            .expect("Hit tester not initialized")
-    }
-
-    fn get_renderer(&self) -> Option<&WrRenderer> {
-        self.renderer.as_ref()
-    }
-
-    fn get_renderer_mut(&mut self) -> Option<&mut WrRenderer> {
-        self.renderer.as_mut()
-    }
+    impl_platform_window_getters!(common);
 
     fn get_raw_window_handle(&self) -> RawWindowHandle {
         RawWindowHandle::Wayland(WaylandHandle {
@@ -667,20 +549,8 @@ impl PlatformWindowV2 for WaylandWindow {
         })
     }
 
-    fn needs_frame_regeneration(&self) -> bool {
-        self.frame_needs_regeneration
-    }
-
-    fn mark_frame_needs_regeneration(&mut self) {
-        self.frame_needs_regeneration = true;
-    }
-
-    fn clear_frame_regeneration_flag(&mut self) {
-        self.frame_needs_regeneration = false;
-    }
-
     fn prepare_callback_invocation(&mut self) -> event_v2::InvokeSingleCallbackBorrows {
-        let layout_window = self
+        let layout_window = self.common
             .layout_window
             .as_mut()
             .expect("Layout window must exist for callback invocation");
@@ -691,13 +561,13 @@ impl PlatformWindowV2 for WaylandWindow {
                 surface: self.surface as *mut c_void,
                 display: self.display as *mut c_void,
             }),
-            gl_context_ptr: &self.gl_context_ptr,
-            image_cache: &mut self.image_cache,
-            fc_cache_clone: (*self.fc_cache).clone(),
-            system_style: self.resources.system_style.clone(),
-            previous_window_state: &self.previous_window_state,
-            current_window_state: &self.current_window_state,
-            renderer_resources: &mut self.renderer_resources,
+            gl_context_ptr: &self.common.gl_context_ptr,
+            image_cache: &mut self.common.image_cache,
+            fc_cache_clone: (*self.common.fc_cache).clone(),
+            system_style: self.common.system_style.clone(),
+            previous_window_state: &self.common.previous_window_state,
+            current_window_state: &self.common.current_window_state,
+            renderer_resources: &mut self.common.renderer_resources,
         }
     }
 
@@ -708,7 +578,7 @@ impl PlatformWindowV2 for WaylandWindow {
         let interval_ms = timer.tick_millis();
 
         // Store timer in layout_window for callback invocation
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window
                 .timers
                 .insert(azul_core::task::TimerId { id: timer_id }, timer);
@@ -765,7 +635,7 @@ impl PlatformWindowV2 for WaylandWindow {
 
     fn stop_timer(&mut self, timer_id: usize) {
         // Remove from layout_window
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window
                 .timers
                 .remove(&azul_core::task::TimerId { id: timer_id });
@@ -791,7 +661,7 @@ impl PlatformWindowV2 for WaylandWindow {
         // For Wayland, we don't need a separate timer - threads are checked
         // in the event loop when layout_window.threads is non-empty
         // Just mark for regeneration to start checking
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
     }
 
     fn stop_thread_poll_timer(&mut self) {
@@ -803,21 +673,21 @@ impl PlatformWindowV2 for WaylandWindow {
         &mut self,
         threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
     ) {
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             for (thread_id, thread) in threads {
                 layout_window.threads.insert(thread_id, thread);
             }
         }
 
         // Mark for regeneration to start thread polling
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
     }
 
     fn remove_threads(
         &mut self,
         thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>,
     ) {
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             for thread_id in thread_ids {
                 layout_window.threads.remove(thread_id);
             }
@@ -836,7 +706,7 @@ impl PlatformWindowV2 for WaylandWindow {
         position: azul_core::geom::LogicalPosition,
     ) {
         // Check if native menus are enabled
-        if self.current_window_state.flags.use_native_context_menus {
+        if self.common.current_window_state.flags.use_native_context_menus {
             // TODO: Show native Wayland popup via xdg_popup protocol
             log_debug!(
                 LogCategory::Platform,
@@ -896,7 +766,7 @@ impl WaylandWindow {
         position: azul_core::geom::LogicalPosition,
     ) {
         // Get parent window position
-        let parent_pos = match self.current_window_state.position {
+        let parent_pos = match self.common.current_window_state.position {
             azul_core::window::WindowPosition::Initialized(pos) => {
                 azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
             }
@@ -906,7 +776,7 @@ impl WaylandWindow {
         // Create menu window options
         let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
-            self.resources.system_style.clone(),
+            self.common.system_style.clone(),
             parent_pos,
             None,           // No trigger rect
             Some(position), // Position for menu
@@ -1017,42 +887,47 @@ impl WaylandWindow {
             tooltip: None,
             screensaver_inhibit_cookie: None,
             dbus_connection: None,
-            current_window_state: FullWindowState {
-                title: options.window_state.title.clone(),
-                size: options.window_state.size,
-                position: options.window_state.position,
-                flags: options.window_state.flags,
-                theme: options.window_state.theme,
-                debug_state: options.window_state.debug_state,
-                keyboard_state: options.window_state.keyboard_state.clone(),
-                mouse_state: options.window_state.mouse_state.clone(),
-                touch_state: options.window_state.touch_state.clone(),
-                ime_position: options.window_state.ime_position,
-                platform_specific_options: options.window_state.platform_specific_options.clone(),
-                renderer_options: options.window_state.renderer_options,
-                background_color: options.window_state.background_color,
-                layout_callback: options.window_state.layout_callback.clone(),
-                close_callback: options.window_state.close_callback.clone(),
-                monitor_id: OptionU32::None, // Monitor ID will be detected from platform
-                window_id: options.window_state.window_id.clone(),
-                window_focused: false,
+            common: event_v2::CommonWindowState {
+                current_window_state: FullWindowState {
+                    title: options.window_state.title.clone(),
+                    size: options.window_state.size,
+                    position: options.window_state.position,
+                    flags: options.window_state.flags,
+                    theme: options.window_state.theme,
+                    debug_state: options.window_state.debug_state,
+                    keyboard_state: options.window_state.keyboard_state.clone(),
+                    mouse_state: options.window_state.mouse_state.clone(),
+                    touch_state: options.window_state.touch_state.clone(),
+                    ime_position: options.window_state.ime_position,
+                    platform_specific_options: options.window_state.platform_specific_options.clone(),
+                    renderer_options: options.window_state.renderer_options,
+                    background_color: options.window_state.background_color,
+                    layout_callback: options.window_state.layout_callback.clone(),
+                    close_callback: options.window_state.close_callback.clone(),
+                    monitor_id: OptionU32::None,
+                    window_id: options.window_state.window_id.clone(),
+                    window_focused: false,
+                },
+                previous_window_state: None,
+                layout_window: Some(layout_window),
+                render_api: None,
+                renderer: None,
+                hit_tester: None,
+                document_id: None,
+                image_cache: ImageCache::default(),
+                renderer_resources: RendererResources::default(),
+                gl_context_ptr: None.into(),
+                id_namespace: None,
+                fc_cache: resources.fc_cache.clone(),
+                system_style: resources.system_style.clone(),
+                app_data: resources.app_data.clone(),
+                scrollbar_drag_state: None,
+                last_hovered_node: None,
+                frame_needs_regeneration: false,
             },
-            previous_window_state: None,
-            layout_window: Some(layout_window),
-            render_api: None,
-            renderer: None,
-            hit_tester: None,
-            document_id: None,
-            image_cache: ImageCache::default(),
-            renderer_resources: RendererResources::default(),
-            gl_context_ptr: None.into(),
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
-            id_namespace: None,
             keyboard_state: events::WaylandKeyboardState::new(),
             pointer_state: events::PointerState::new(),
-            scrollbar_drag_state: None,
-            last_hovered_node: None,
-            frame_needs_regeneration: false,
             frame_callback_pending: false,
             timer_fds: std::collections::BTreeMap::new(),
             #[cfg(feature = "a11y")]
@@ -1064,8 +939,6 @@ impl WaylandWindow {
             pending_window_creates: Vec::new(),
             gnome_menu_v2: None, // Will be initialized if GNOME menus are enabled
             resources: resources.clone(),
-            fc_cache: resources.fc_cache.clone(),
-            app_data: resources.app_data.clone(),
             dynamic_selector_context: {
                 let mut ctx =
                     azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&resources.system_style);
@@ -1081,7 +954,7 @@ impl WaylandWindow {
         };
 
         // Initialize monitor cache once at window creation
-        if let Some(ref lw) = window.layout_window {
+        if let Some(ref lw) = window.common.layout_window {
             if let Ok(mut guard) = lw.monitors.lock() {
                 *guard = crate::desktop::display::get_monitors();
             }
@@ -1255,7 +1128,7 @@ impl WaylandWindow {
             });
 
             // Initialize LayoutWindow if not already done
-            if window.layout_window.is_none() {
+            if window.common.layout_window.is_none() {
                 let mut layout_window =
                     azul_layout::window::LayoutWindow::new((*window.resources.fc_cache).clone())
                         .map_err(|e| {
@@ -1265,19 +1138,19 @@ impl WaylandWindow {
                             ))
                         })?;
 
-                if let Some(doc_id) = window.document_id {
+                if let Some(doc_id) = window.common.document_id {
                     layout_window.document_id = doc_id;
                 }
-                if let Some(ns_id) = window.id_namespace {
+                if let Some(ns_id) = window.common.id_namespace {
                     layout_window.id_namespace = ns_id;
                 }
-                layout_window.current_window_state = window.current_window_state.clone();
+                layout_window.current_window_state = window.common.current_window_state.clone();
                 layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                 // Initialize monitor cache once at window creation
                 if let Ok(mut guard) = layout_window.monitors.lock() {
                     *guard = crate::desktop::display::get_monitors();
                 }
-                window.layout_window = Some(layout_window);
+                window.common.layout_window = Some(layout_window);
             }
 
             // Get mutable references needed for invoke_single_callback
@@ -1292,12 +1165,12 @@ impl WaylandWindow {
                 &mut callback,
                 &mut *app_data_ref,
                 &raw_handle,
-                &window.gl_context_ptr,
+                &window.common.gl_context_ptr,
                 window.resources.system_style.clone(),
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &window.previous_window_state,
-                &window.current_window_state,
-                &window.renderer_resources,
+                &window.common.previous_window_state,
+                &window.common.current_window_state,
+                &window.common.renderer_resources,
             );
 
             drop(app_data_ref);
@@ -1305,7 +1178,7 @@ impl WaylandWindow {
             for change in &changes {
                 let r = window.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
-                    window.frame_needs_regeneration = true;
+                    window.common.frame_needs_regeneration = true;
                 }
             }
         }
@@ -1314,27 +1187,27 @@ impl WaylandWindow {
         #[cfg(feature = "std")]
         if crate::desktop::shell2::common::debug_server::is_debug_enabled() {
             // Initialize LayoutWindow if not already done
-            if window.layout_window.is_none() {
+            if window.common.layout_window.is_none() {
                 if let Ok(mut layout_window) =
                     azul_layout::window::LayoutWindow::new((*window.resources.fc_cache).clone())
                 {
-                    if let Some(doc_id) = window.document_id {
+                    if let Some(doc_id) = window.common.document_id {
                         layout_window.document_id = doc_id;
                     }
-                    if let Some(ns_id) = window.id_namespace {
+                    if let Some(ns_id) = window.common.id_namespace {
                         layout_window.id_namespace = ns_id;
                     }
-                    layout_window.current_window_state = window.current_window_state.clone();
+                    layout_window.current_window_state = window.common.current_window_state.clone();
                     layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                     // Initialize monitor cache once at window creation
                     if let Ok(mut guard) = layout_window.monitors.lock() {
                         *guard = crate::desktop::display::get_monitors();
                     }
-                    window.layout_window = Some(layout_window);
+                    window.common.layout_window = Some(layout_window);
                 }
             }
 
-            if let Some(layout_window) = window.layout_window.as_mut() {
+            if let Some(layout_window) = window.common.layout_window.as_mut() {
                 use azul_core::task::TimerId;
                 use azul_layout::callbacks::ExternalSystemCallbacks;
 
@@ -1352,7 +1225,7 @@ impl WaylandWindow {
         // Apply initial background material if not Opaque
         {
             use azul_core::window::WindowBackgroundMaterial;
-            let initial_material = window.current_window_state.flags.background_material;
+            let initial_material = window.common.current_window_state.flags.background_material;
             if !matches!(initial_material, WindowBackgroundMaterial::Opaque) {
                 log_trace!(
                     LogCategory::Window,
@@ -1405,22 +1278,22 @@ impl WaylandWindow {
         )
         .map_err(|e| WindowError::PlatformError(format!("WebRender init failed: {:?}", e)))?;
 
-        self.renderer = Some(renderer);
-        self.render_api = Some(sender.create_api());
-        let render_api = self.render_api.as_mut().unwrap();
+        self.common.renderer = Some(renderer);
+        self.common.render_api = Some(sender.create_api());
+        let render_api = self.common.render_api.as_mut().unwrap();
 
         let framebuffer_size = webrender::api::units::DeviceIntSize::new(
-            self.current_window_state.size.dimensions.width as i32,
-            self.current_window_state.size.dimensions.height as i32,
+            self.common.current_window_state.size.dimensions.width as i32,
+            self.common.current_window_state.size.dimensions.height as i32,
         );
         let wr_doc_id = render_api.add_document(framebuffer_size);
-        self.document_id = Some(wr_translate2::translate_document_id_wr(wr_doc_id));
-        self.id_namespace = Some(wr_translate2::translate_id_namespace_wr(
+        self.common.document_id = Some(wr_translate2::translate_document_id_wr(wr_doc_id));
+        self.common.id_namespace = Some(wr_translate2::translate_id_namespace_wr(
             render_api.get_namespace_id(),
         ));
         let hit_tester_request = render_api.request_hit_tester(wr_doc_id);
-        self.hit_tester = Some(AsyncHitTester::Requested(hit_tester_request));
-        self.gl_context_ptr = OptionGlContextPtr::Some(GlContextPtr::new(
+        self.common.hit_tester = Some(AsyncHitTester::Requested(hit_tester_request));
+        self.common.gl_context_ptr = OptionGlContextPtr::Some(GlContextPtr::new(
             RendererType::Hardware,
             gl_functions.functions.clone(),
         ));
@@ -1555,7 +1428,7 @@ impl WaylandWindow {
             };
 
             // Get layout window
-            let layout_window = match self.layout_window.as_mut() {
+            let layout_window = match self.common.layout_window.as_mut() {
                 Some(lw) => lw,
                 None => {
                     log_warn!(
@@ -1578,12 +1451,12 @@ impl WaylandWindow {
                 &mut menu_callback.callback,
                 &mut menu_callback.refany,
                 &raw_handle,
-                &self.gl_context_ptr,
-                self.resources.system_style.clone(),
+                &self.common.gl_context_ptr,
+                self.common.system_style.clone(),
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &self.previous_window_state,
-                &self.current_window_state,
-                &self.renderer_resources,
+                &self.common.previous_window_state,
+                &self.common.current_window_state,
+                &self.common.renderer_resources,
             );
 
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
@@ -1608,7 +1481,7 @@ impl WaylandWindow {
                 | ProcessEventResult::ShouldReRenderCurrentWindow
                 | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                    self.frame_needs_regeneration = true;
+                    self.common.frame_needs_regeneration = true;
                     self.request_redraw();
                 }
                 ProcessEventResult::DoNothing => {
@@ -1626,13 +1499,13 @@ impl WaylandWindow {
         let is_pressed = state == 1;
 
         // Save previous state BEFORE making changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
         // Phase 2: OnFocus callback (delayed) - if we receive keyboard events, we must have focus
         // Wayland doesn't have explicit focus events like X11, so we detect focus from keyboard
         // activity
-        if is_pressed && !self.current_window_state.window_focused {
-            self.current_window_state.window_focused = true;
+        if is_pressed && !self.common.current_window_state.window_focused {
+            self.common.current_window_state.window_focused = true;
             self.dynamic_selector_context.window_focused = true;
             self.sync_ime_position_to_os();
         }
@@ -1644,7 +1517,7 @@ impl WaylandWindow {
         let xkb_state = self.keyboard_state.state;
         if xkb_state.is_null() {
             // XKB not initialized yet - V2 input system will handle text input
-            self.current_window_state
+            self.common.current_window_state
                 .keyboard_state
                 .current_virtual_keycode = OptionVirtualKeyCode::None;
             return;
@@ -1655,28 +1528,28 @@ impl WaylandWindow {
 
         // Translate keysym to VirtualKeyCode
         let virtual_keycode = translate_keysym_to_virtual_keycode(keysym);
-        self.current_window_state
+        self.common.current_window_state
             .keyboard_state
             .current_virtual_keycode = OptionVirtualKeyCode::Some(virtual_keycode);
 
         // Update pressed_virtual_keycodes and pressed_scancodes lists
         if is_pressed {
             // Add key to pressed lists
-            self.current_window_state
+            self.common.current_window_state
                 .keyboard_state
                 .pressed_virtual_keycodes
                 .insert_hm_item(virtual_keycode);
-            self.current_window_state
+            self.common.current_window_state
                 .keyboard_state
                 .pressed_scancodes
                 .insert_hm_item(key);
         } else {
             // Remove key from pressed lists
-            self.current_window_state
+            self.common.current_window_state
                 .keyboard_state
                 .pressed_virtual_keycodes
                 .remove_hm_item(&virtual_keycode);
-            self.current_window_state
+            self.common.current_window_state
                 .keyboard_state
                 .pressed_scancodes
                 .remove_hm_item(&key);
@@ -1704,7 +1577,7 @@ impl WaylandWindow {
 
                 // Record text input in TextInputManager
                 if !utf8_str.is_empty() {
-                    if let Some(ref mut layout_window) = self.layout_window {
+                    if let Some(ref mut layout_window) = self.common.layout_window {
                         layout_window.record_text_input(utf8_str);
                     }
                 }
@@ -1726,12 +1599,12 @@ impl WaylandWindow {
                 }
             }
             ProcessEventResult::ShouldReRenderCurrentWindow => {
-                self.frame_needs_regeneration = true;
+                self.common.frame_needs_regeneration = true;
             }
             _ => {}
         }
 
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
     }
 
     /// Handle pointer motion event
@@ -1739,31 +1612,31 @@ impl WaylandWindow {
         let logical_pos = LogicalPosition::new(x as f32, y as f32);
 
         // Save previous state BEFORE making changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
-        self.current_window_state.mouse_state.cursor_position =
+        self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(logical_pos);
 
         // Handle scrollbar dragging if active
-        if self.scrollbar_drag_state.is_some() {
+        if self.common.scrollbar_drag_state.is_some() {
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
             let result = PlatformWindowV2::handle_scrollbar_drag(self, logical_pos);
             if !matches!(result, ProcessEventResult::DoNothing) {
-                self.frame_needs_regeneration = true;
+                self.common.frame_needs_regeneration = true;
             }
             return;
         }
 
         // Record input sample for gesture detection (movement during button press)
-        let button_state = if self.current_window_state.mouse_state.left_down {
+        let button_state = if self.common.current_window_state.mouse_state.left_down {
             0x01
         } else {
             0x00
-        } | if self.current_window_state.mouse_state.right_down {
+        } | if self.common.current_window_state.mouse_state.right_down {
             0x02
         } else {
             0x00
-        } | if self.current_window_state.mouse_state.middle_down {
+        } | if self.common.current_window_state.mouse_state.middle_down {
             0x04
         } else {
             0x00
@@ -1775,14 +1648,14 @@ impl WaylandWindow {
 
         // Update cursor based on CSS cursor properties
         // This is done BEFORE callbacks so callbacks can override the cursor
-        if let Some(layout_window) = self.layout_window.as_ref() {
+        if let Some(layout_window) = self.common.layout_window.as_ref() {
             if let Some(hit_test) = layout_window
                 .hover_manager
                 .get_current(&azul_layout::managers::hover::InputPointId::Mouse)
             {
                 let cursor_test = layout_window.compute_cursor_type_hit_test(hit_test);
                 // Update the window state cursor type
-                self.current_window_state.mouse_state.mouse_cursor_type =
+                self.common.current_window_state.mouse_state.mouse_cursor_type =
                     Some(cursor_test.cursor_icon).into();
                 // Set the actual OS cursor
                 self.set_cursor(cursor_test.cursor_icon);
@@ -1808,12 +1681,12 @@ impl WaylandWindow {
             | ProcessEventResult::ShouldReRenderCurrentWindow
             | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                self.frame_needs_regeneration = true;
+                self.common.frame_needs_regeneration = true;
             }
             ProcessEventResult::DoNothing => {}
         }
 
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
     }
 
     /// Handle pointer button event
@@ -1828,13 +1701,13 @@ impl WaylandWindow {
         };
 
         let is_down = state == 1;
-        let position = match self.current_window_state.mouse_state.cursor_position {
+        let position = match self.common.current_window_state.mouse_state.cursor_position {
             CursorPosition::InWindow(pos) => pos,
             _ => LogicalPosition::zero(),
         };
 
         // Save previous state BEFORE making changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
         // Check for scrollbar hit FIRST (before state changes)
         if is_down {
@@ -1845,41 +1718,41 @@ impl WaylandWindow {
                 let result =
                     PlatformWindowV2::handle_scrollbar_click(self, scrollbar_hit_id, position);
                 if !matches!(result, ProcessEventResult::DoNothing) {
-                    self.frame_needs_regeneration = true;
+                    self.common.frame_needs_regeneration = true;
                 }
                 return;
             }
 
             // Check for context menu (right-click)
             if mouse_button == MouseButton::Right {
-                if let Some(hit_node) = self.last_hovered_node {
+                if let Some(hit_node) = self.common.last_hovered_node {
                     if self.try_show_context_menu(hit_node, position) {
                         // Context menu was shown, consume the event
-                        self.frame_needs_regeneration = true;
+                        self.common.frame_needs_regeneration = true;
                         return;
                     }
                 }
             }
         } else {
             // End scrollbar drag if active
-            if self.scrollbar_drag_state.is_some() {
-                self.scrollbar_drag_state = None;
-                self.frame_needs_regeneration = true;
+            if self.common.scrollbar_drag_state.is_some() {
+                self.common.scrollbar_drag_state = None;
+                self.common.frame_needs_regeneration = true;
                 return;
             }
         }
 
         if is_down {
             // Button pressed
-            self.current_window_state.mouse_state.left_down = mouse_button == MouseButton::Left;
-            self.current_window_state.mouse_state.right_down = mouse_button == MouseButton::Right;
-            self.current_window_state.mouse_state.middle_down = mouse_button == MouseButton::Middle;
+            self.common.current_window_state.mouse_state.left_down = mouse_button == MouseButton::Left;
+            self.common.current_window_state.mouse_state.right_down = mouse_button == MouseButton::Right;
+            self.common.current_window_state.mouse_state.middle_down = mouse_button == MouseButton::Middle;
             self.pointer_state.button_down = Some(mouse_button);
         } else {
             // Button released
-            self.current_window_state.mouse_state.left_down = false;
-            self.current_window_state.mouse_state.right_down = false;
-            self.current_window_state.mouse_state.middle_down = false;
+            self.common.current_window_state.mouse_state.left_down = false;
+            self.common.current_window_state.mouse_state.right_down = false;
+            self.common.current_window_state.mouse_state.middle_down = false;
             self.pointer_state.button_down = None;
         }
 
@@ -1911,12 +1784,12 @@ impl WaylandWindow {
             | ProcessEventResult::ShouldReRenderCurrentWindow
             | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                self.frame_needs_regeneration = true;
+                self.common.frame_needs_regeneration = true;
             }
             ProcessEventResult::DoNothing => {}
         }
 
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
     }
 
     /// Handle pointer axis (scroll) event
@@ -1927,7 +1800,7 @@ impl WaylandWindow {
         const WL_POINTER_AXIS_HORIZONTAL_SCROLL: u32 = 1;
 
         // Save previous state BEFORE making changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
         // Determine scroll delta based on axis
         let (delta_x, delta_y) = match axis {
@@ -1941,7 +1814,7 @@ impl WaylandWindow {
             let mut should_start_timer = false;
             let mut input_queue_clone = None;
 
-            if let Some(ref mut layout_window) = self.layout_window {
+            if let Some(ref mut layout_window) = self.common.layout_window {
                 use azul_core::task::Instant;
                 use azul_layout::managers::scroll_state::ScrollInputSource;
 
@@ -1975,8 +1848,8 @@ impl WaylandWindow {
                     use azul_core::refany::RefAny;
                     use azul_core::task::Duration;
 
-                    let physics_state = ScrollPhysicsState::new(queue, self.resources.system_style.scroll_physics.clone());
-                    let interval_ms = self.resources.system_style.scroll_physics.timer_interval_ms;
+                    let physics_state = ScrollPhysicsState::new(queue, self.common.system_style.scroll_physics.clone());
+                    let interval_ms = self.common.system_style.scroll_physics.timer_interval_ms;
                     let data = RefAny::new(physics_state);
                     let timer = Timer::create(
                         data,
@@ -2012,56 +1885,56 @@ impl WaylandWindow {
             | ProcessEventResult::ShouldReRenderCurrentWindow
             | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                self.frame_needs_regeneration = true;
+                self.common.frame_needs_regeneration = true;
             }
             ProcessEventResult::DoNothing => {}
         }
 
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
     }
 
     /// Handle pointer enter event
     pub fn handle_pointer_enter(&mut self, serial: u32, x: f64, y: f64) {
         self.pointer_state.serial = serial;
         let logical_pos = LogicalPosition::new(x as f32, y as f32);
-        self.current_window_state.mouse_state.cursor_position =
+        self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::InWindow(logical_pos);
         self.update_hit_test(logical_pos);
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
     }
 
     /// Handle keyboard leave event (window lost focus)
     pub fn handle_keyboard_leave(&mut self) {
-        self.previous_window_state = Some(self.current_window_state.clone());
-        self.current_window_state.window_focused = false;
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
+        self.common.current_window_state.window_focused = false;
         self.dynamic_selector_context.window_focused = false;
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
     }
 
     /// Handle pointer leave event
     pub fn handle_pointer_leave(&mut self, _serial: u32) {
         // Get last known position before leaving
-        let last_pos = match self.current_window_state.mouse_state.cursor_position {
+        let last_pos = match self.common.current_window_state.mouse_state.cursor_position {
             CursorPosition::InWindow(pos) => pos,
             _ => LogicalPosition::zero(),
         };
-        self.current_window_state.mouse_state.cursor_position =
+        self.common.current_window_state.mouse_state.cursor_position =
             CursorPosition::OutOfWindow(last_pos);
-        if let Some(ref mut layout_window) = self.layout_window {
+        if let Some(ref mut layout_window) = self.common.layout_window {
             layout_window
                 .hover_manager
                 .push_hit_test(InputPointId::Mouse, FullHitTest::empty(None));
         }
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
     }
 
     /// Update hit test at current cursor position
     fn update_hit_test(&mut self, position: LogicalPosition) {
         use azul_core::geom::PhysicalPosition;
 
-        if let Some(AsyncHitTester::Resolved(ref hit_tester)) = self.hit_tester {
+        if let Some(AsyncHitTester::Resolved(ref hit_tester)) = self.common.hit_tester {
             let physical_pos_u32 = position.to_physical(
-                self.current_window_state
+                self.common.current_window_state
                     .size
                     .get_hidpi_factor()
                     .inner
@@ -2078,7 +1951,7 @@ impl WaylandWindow {
                 .as_ref()
                 .and_then(|lw| lw.focus_manager.get_focused_node().copied());
             let hit_test = wr_translate2::translate_hit_test_result(hit_test_result, focused_node);
-            if let Some(ref mut layout_window) = self.layout_window {
+            if let Some(ref mut layout_window) = self.common.layout_window {
                 layout_window
                     .hover_manager
                     .push_hit_test(InputPointId::Mouse, hit_test);
@@ -2095,7 +1968,7 @@ impl WaylandWindow {
     ) -> bool {
         use azul_core::{dom::DomId, id::NodeId};
 
-        let layout_window = match self.layout_window.as_ref() {
+        let layout_window = match self.common.layout_window.as_ref() {
             Some(lw) => lw,
             None => return false,
         };
@@ -2151,7 +2024,7 @@ impl WaylandWindow {
         position: LogicalPosition,
     ) {
         // Get parent window position (Wayland doesn't expose absolute positions)
-        let parent_pos = match self.current_window_state.position {
+        let parent_pos = match self.common.current_window_state.position {
             azul_core::window::WindowPosition::Initialized(pos) => {
                 azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
             }
@@ -2161,7 +2034,7 @@ impl WaylandWindow {
         // Create menu window options using unified menu system
         let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
-            self.resources.system_style.clone(),
+            self.common.system_style.clone(),
             parent_pos,
             None,           // No trigger rect for context menus
             Some(position), // Cursor position
@@ -2187,7 +2060,7 @@ impl WaylandWindow {
     ///
     /// Wayland-specific implementation with mandatory CSD injection.
     pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout_v2::LayoutRegenerateResult, String> {
-        let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
+        let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
@@ -2201,16 +2074,16 @@ impl WaylandWindow {
         let result = crate::desktop::shell2::common::layout_v2::regenerate_layout(
             layout_window,
             &self.resources.app_data,
-            &self.current_window_state,
-            &mut self.renderer_resources,
-            self.render_api.as_mut().ok_or("No render API")?,
-            &self.image_cache,
-            &self.gl_context_ptr,
-            &self.fc_cache,
+            &self.common.current_window_state,
+            &mut self.common.renderer_resources,
+            self.common.render_api.as_mut().ok_or("No render API")?,
+            &self.common.image_cache,
+            &self.common.gl_context_ptr,
+            &self.common.fc_cache,
             &self.resources.font_registry,
-            &self.resources.system_style,
+            &self.common.system_style,
             &self.resources.icon_provider,
-            self.document_id.ok_or("No document ID")?,
+            self.common.document_id.ok_or("No document ID")?,
             &mut debug_messages,
         )?;
 
@@ -2227,7 +2100,7 @@ impl WaylandWindow {
         }
 
         // Mark that frame needs regeneration (will be called once at event processing end)
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
 
         // Update accessibility tree on Wayland
         #[cfg(feature = "a11y")]
@@ -2249,10 +2122,10 @@ impl WaylandWindow {
     fn update_ime_position_from_cursor(&mut self) {
         use azul_core::window::ImePosition;
 
-        if let Some(layout_window) = &self.layout_window {
+        if let Some(layout_window) = &self.common.layout_window {
             if let Some(cursor_rect) = layout_window.get_focused_cursor_rect_viewport() {
                 // Successfully calculated cursor position from text layout
-                self.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
+                self.common.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
             }
         }
     }
@@ -2273,7 +2146,7 @@ impl WaylandWindow {
         let mut needs_commit = false;
 
         // Window frame (Maximized, Minimized, Fullscreen)
-        match self.current_window_state.flags.frame {
+        match self.common.current_window_state.flags.frame {
             WindowFrame::Maximized => {
                 unsafe {
                     (self.wayland.xdg_toplevel_set_maximized)(self.xdg_toplevel);
@@ -2299,7 +2172,7 @@ impl WaylandWindow {
         }
 
         // Min dimensions
-        if let OptionLogicalSize::Some(dims) = self.current_window_state.size.min_dimensions {
+        if let OptionLogicalSize::Some(dims) = self.common.current_window_state.size.min_dimensions {
             unsafe {
                 (self.wayland.xdg_toplevel_set_min_size)(
                     self.xdg_toplevel,
@@ -2311,7 +2184,7 @@ impl WaylandWindow {
         }
 
         // Max dimensions
-        if let OptionLogicalSize::Some(dims) = self.current_window_state.size.max_dimensions {
+        if let OptionLogicalSize::Some(dims) = self.common.current_window_state.size.max_dimensions {
             unsafe {
                 (self.wayland.xdg_toplevel_set_max_size)(
                     self.xdg_toplevel,
@@ -2323,12 +2196,12 @@ impl WaylandWindow {
         }
 
         // is_top_level
-        if self.current_window_state.flags.is_top_level {
+        if self.common.current_window_state.flags.is_top_level {
             self.set_is_top_level(true);
         }
 
         // prevent_system_sleep
-        if self.current_window_state.flags.prevent_system_sleep {
+        if self.common.current_window_state.flags.prevent_system_sleep {
             self.set_prevent_system_sleep(true);
         }
 
@@ -2340,7 +2213,7 @@ impl WaylandWindow {
         }
 
         // CRITICAL: Set previous_window_state so sync_window_state() works for future changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
     }
 
     /// Synchronize window state with Wayland compositor
@@ -2353,9 +2226,9 @@ impl WaylandWindow {
         let mut needs_commit = false;
 
         // Sync title
-        if let Some(prev) = &self.previous_window_state {
-            if prev.title != self.current_window_state.title {
-                let c_title = match std::ffi::CString::new(self.current_window_state.title.as_str())
+        if let Some(prev) = &self.common.previous_window_state {
+            if prev.title != self.common.current_window_state.title {
+                let c_title = match std::ffi::CString::new(self.common.current_window_state.title.as_str())
                 {
                     Ok(s) => s,
                     Err(_) => return,
@@ -2367,8 +2240,8 @@ impl WaylandWindow {
             }
 
             // Window frame state changed? (Minimize/Maximize/Normal/Fullscreen)
-            if prev.flags.frame != self.current_window_state.flags.frame {
-                match self.current_window_state.flags.frame {
+            if prev.flags.frame != self.common.current_window_state.flags.frame {
+                match self.common.current_window_state.flags.frame {
                     WindowFrame::Minimized => {
                         unsafe {
                             (self.wayland.xdg_toplevel_set_minimized)(self.xdg_toplevel);
@@ -2417,9 +2290,9 @@ impl WaylandWindow {
             }
 
             // Min dimensions changed?
-            if prev.size.min_dimensions != self.current_window_state.size.min_dimensions {
+            if prev.size.min_dimensions != self.common.current_window_state.size.min_dimensions {
                 use azul_core::geom::OptionLogicalSize;
-                let (w, h) = match self.current_window_state.size.min_dimensions {
+                let (w, h) = match self.common.current_window_state.size.min_dimensions {
                     OptionLogicalSize::Some(dims) => (dims.width as i32, dims.height as i32),
                     OptionLogicalSize::None => (0, 0), // 0 = no minimum
                 };
@@ -2430,9 +2303,9 @@ impl WaylandWindow {
             }
 
             // Max dimensions changed?
-            if prev.size.max_dimensions != self.current_window_state.size.max_dimensions {
+            if prev.size.max_dimensions != self.common.current_window_state.size.max_dimensions {
                 use azul_core::geom::OptionLogicalSize;
-                let (w, h) = match self.current_window_state.size.max_dimensions {
+                let (w, h) = match self.common.current_window_state.size.max_dimensions {
                     OptionLogicalSize::Some(dims) => (dims.width as i32, dims.height as i32),
                     OptionLogicalSize::None => (0, 0), // 0 = no maximum
                 };
@@ -2445,16 +2318,16 @@ impl WaylandWindow {
 
         // Check window flags for is_top_level and other changes
         // We extract all values first to avoid borrow conflicts
-        let flag_changes = self.previous_window_state.as_ref().map(|prev| {
+        let flag_changes = self.common.previous_window_state.as_ref().map(|prev| {
             let is_top_level_changed =
-                prev.flags.is_top_level != self.current_window_state.flags.is_top_level;
+                prev.flags.is_top_level != self.common.current_window_state.flags.is_top_level;
             let prevent_sleep_changed = prev.flags.prevent_system_sleep
-                != self.current_window_state.flags.prevent_system_sleep;
+                != self.common.current_window_state.flags.prevent_system_sleep;
             let background_material_changed = prev.flags.background_material
-                != self.current_window_state.flags.background_material;
-            let new_is_top_level = self.current_window_state.flags.is_top_level;
-            let new_prevent_sleep = self.current_window_state.flags.prevent_system_sleep;
-            let new_background_material = self.current_window_state.flags.background_material;
+                != self.common.current_window_state.flags.background_material;
+            let new_is_top_level = self.common.current_window_state.flags.is_top_level;
+            let new_prevent_sleep = self.common.current_window_state.flags.prevent_system_sleep;
+            let new_background_material = self.common.current_window_state.flags.background_material;
 
             (
                 is_top_level_changed,
@@ -2543,8 +2416,8 @@ impl WaylandWindow {
             // For opaque windows, set opaque region covering the entire surface
             // This optimizes compositing by telling the compositor it can skip blending
             let (width, height) = (
-                self.current_window_state.size.dimensions.width as i32,
-                self.current_window_state.size.dimensions.height as i32,
+                self.common.current_window_state.size.dimensions.width as i32,
+                self.common.current_window_state.size.dimensions.height as i32,
             );
 
             if width > 0 && height > 0 {
@@ -2702,7 +2575,7 @@ impl WaylandWindow {
     /// 3. Swap buffers (if GPU mode)
     /// 4. Set up frame callback for next frame
     pub fn generate_frame_if_needed(&mut self) {
-        if !self.frame_needs_regeneration || self.frame_callback_pending {
+        if !self.common.frame_needs_regeneration || self.frame_callback_pending {
             return;
         }
 
@@ -2715,22 +2588,22 @@ impl WaylandWindow {
 
         // Send the WebRender transaction BEFORE rendering
         if let (Some(ref mut layout_window), Some(ref mut render_api), Some(document_id)) = (
-            self.layout_window.as_mut(),
-            self.render_api.as_mut(),
-            self.document_id,
+            self.common.layout_window.as_mut(),
+            self.common.render_api.as_mut(),
+            self.common.document_id,
         ) {
             crate::desktop::shell2::common::layout_v2::generate_frame(
                 layout_window,
                 render_api,
                 document_id,
-                &self.gl_context_ptr,
+                &self.common.gl_context_ptr,
             );
         }
 
         match &mut self.render_mode {
             RenderMode::Gpu(gl_context, _) => {
                 // 1. Wait for WebRender to be ready
-                if let Some(renderer) = &mut self.renderer {
+                if let Some(renderer) = &mut self.common.renderer {
                     let (lock, cvar) = &*self.new_frame_ready;
                     let mut ready = lock.lock().unwrap();
 
@@ -2743,7 +2616,7 @@ impl WaylandWindow {
 
                     // 2. Update and render
                     renderer.update();
-                    let physical_size = self.current_window_state.size.get_physical_size();
+                    let physical_size = self.common.current_window_state.size.get_physical_size();
                     let device_size = webrender::api::units::DeviceIntSize::new(
                         physical_size.width as i32,
                         physical_size.height as i32,
@@ -2768,7 +2641,7 @@ impl WaylandWindow {
                     }
 
                     // Clean up old textures from previous epochs to prevent memory leak
-                    if let Some(ref layout_window) = self.layout_window {
+                    if let Some(ref layout_window) = self.common.layout_window {
                         crate::desktop::gl_texture_integration::remove_old_gl_textures(
                             &layout_window.document_id,
                             layout_window.epoch,
@@ -2793,8 +2666,8 @@ impl WaylandWindow {
             RenderMode::Cpu(None) => {
                 // CPU fallback not yet initialized - initialize it now if we have shm
                 if !self.shm.is_null() {
-                    let width = self.current_window_state.size.dimensions.width as i32;
-                    let height = self.current_window_state.size.dimensions.height as i32;
+                    let width = self.common.current_window_state.size.dimensions.width as i32;
+                    let height = self.common.current_window_state.size.dimensions.height as i32;
                     match CpuFallbackState::new(&self.wayland, self.shm, width, height) {
                         Ok(cpu_state) => {
                             self.render_mode = RenderMode::Cpu(Some(cpu_state));
@@ -2831,7 +2704,7 @@ impl WaylandWindow {
             (self.wayland.wl_surface_commit)(self.surface);
         }
 
-        self.frame_needs_regeneration = false;
+        self.common.frame_needs_regeneration = false;
         self.frame_callback_pending = true;
     }
 
@@ -2989,7 +2862,7 @@ extern "C" fn frame_done_callback(
     window.frame_callback_pending = false;
 
     // If there are more changes pending, request another frame
-    if window.frame_needs_regeneration {
+    if window.common.frame_needs_regeneration {
         window.generate_frame_if_needed();
     }
 }
@@ -3201,19 +3074,19 @@ impl WaylandWindow {
 
     /// Returns the logical size of the window's surface.
     pub fn get_window_size_logical(&self) -> (i32, i32) {
-        let size = self.current_window_state.size.get_logical_size();
+        let size = self.common.current_window_state.size.get_logical_size();
         (size.width as i32, size.height as i32)
     }
 
     /// Returns the physical size of the window by applying the scale factor.
     pub fn get_window_size_physical(&self) -> (i32, i32) {
-        let size = self.current_window_state.size.get_physical_size();
+        let size = self.common.current_window_state.size.get_physical_size();
         (size.width as i32, size.height as i32)
     }
 
     /// Returns the DPI scale factor for the window.
     pub fn get_scale_factor(&self) -> f32 {
-        self.current_window_state
+        self.common.current_window_state
             .size
             .get_hidpi_factor()
             .inner
@@ -3248,15 +3121,15 @@ impl WaylandWindow {
         let scale_factor = self.get_scale_factor();
 
         // Use actual window size if available, otherwise reasonable defaults
-        let (width, height) = if self.current_window_state.size.dimensions.width > 0.0
-            && self.current_window_state.size.dimensions.height > 0.0
+        let (width, height) = if self.common.current_window_state.size.dimensions.width > 0.0
+            && self.common.current_window_state.size.dimensions.height > 0.0
         {
             // Use window dimensions as a proxy for display size
             // This is not accurate for multi-monitor setups, but Wayland doesn't
             // provide absolute display enumeration to clients
             (
-                self.current_window_state.size.dimensions.width as i32,
-                self.current_window_state.size.dimensions.height as i32,
+                self.common.current_window_state.size.dimensions.width as i32,
+                self.common.current_window_state.size.dimensions.height as i32,
             )
         } else {
             // Fallback to environment variables or defaults
@@ -3663,7 +3536,7 @@ impl WaylandWindow {
     pub fn sync_ime_position_to_os(&self) {
         use azul_core::window::ImePosition;
 
-        if let ImePosition::Initialized(rect) = self.current_window_state.ime_position {
+        if let ImePosition::Initialized(rect) = self.common.current_window_state.ime_position {
             // Try text-input v3 protocol first (preferred, but requires compositor support)
             if let Some(text_input) = self.text_input {
                 // zwp_text_input_v3_set_cursor_rectangle would be called here

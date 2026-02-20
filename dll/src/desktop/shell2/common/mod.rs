@@ -19,5 +19,5 @@ pub use cpu_compositor::CpuCompositor;
 pub use dlopen::DynamicLibrary;
 pub use error::{CompositorError, DlError, WindowError};
 // V2 re-exports
-pub use event_v2::{HitTestNode, PlatformWindowV2};
+pub use event_v2::{CommonWindowState, HitTestNode, PlatformWindowV2};
 pub use layout_v2::{generate_frame, regenerate_layout};

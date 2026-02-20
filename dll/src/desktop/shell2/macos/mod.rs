@@ -61,6 +61,7 @@ use objc2_foundation::{
 use rust_fontconfig::FcFontCache;
 
 use super::common::debug_server::LogCategory;
+use crate::impl_platform_window_getters;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 use crate::desktop::{
@@ -227,7 +228,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                     macos_window.sync_window_state();
@@ -243,7 +244,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                     macos_window.sync_window_state();
@@ -259,7 +260,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_move(event);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                     macos_window.sync_window_state();
@@ -275,7 +276,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                     macos_window.sync_window_state();
@@ -291,7 +292,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                     macos_window.sync_window_state();
@@ -324,7 +325,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_key_down(event);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                 }
@@ -340,7 +341,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_key_up(event);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                 }
@@ -356,7 +357,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_flags_changed(event);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                 }
@@ -627,7 +628,7 @@ define_class!(
 
             unsafe {
                 let window = &*(window_ptr as *const MacOSWindow);
-                if let ImePosition::Initialized(rect) = window.current_window_state.ime_position {
+                if let ImePosition::Initialized(rect) = window.common.current_window_state.ime_position {
                     // Convert from window-local coordinates to screen coordinates
                     let window_frame = window.window.frame();
 
@@ -763,7 +764,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                     macos_window.sync_window_state();
@@ -779,7 +780,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                     macos_window.sync_window_state();
@@ -795,7 +796,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_move(event);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                     macos_window.sync_window_state();
@@ -811,7 +812,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                     macos_window.sync_window_state();
@@ -827,7 +828,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                     macos_window.sync_window_state();
@@ -860,7 +861,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_key_down(event);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                 }
@@ -876,7 +877,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_key_up(event);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                 }
@@ -892,7 +893,7 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let result = macos_window.handle_flags_changed(event);
                     if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                        macos_window.frame_needs_regeneration = true;
+                        macos_window.common.frame_needs_regeneration = true;
                         macos_window.request_redraw();
                     }
                 }
@@ -1158,7 +1159,7 @@ define_class!(
 
             unsafe {
                 let window = &*(window_ptr as *const MacOSWindow);
-                if let ImePosition::Initialized(rect) = window.current_window_state.ime_position {
+                if let ImePosition::Initialized(rect) = window.common.current_window_state.ime_position {
                     // Convert from window-local coordinates to screen coordinates
                     let window_frame = window.window.frame();
 
@@ -1304,7 +1305,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.current_window_state.flags.frame = WindowFrame::Minimized;
+                    macos_window.common.current_window_state.flags.frame = WindowFrame::Minimized;
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window minimized");
             }
@@ -1316,7 +1317,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.current_window_state.flags.frame = WindowFrame::Normal;
+                    macos_window.common.current_window_state.flags.frame = WindowFrame::Normal;
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window deminiaturized");
             }
@@ -1328,7 +1329,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.current_window_state.flags.frame = WindowFrame::Fullscreen;
+                    macos_window.common.current_window_state.flags.frame = WindowFrame::Fullscreen;
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window entered fullscreen");
             }
@@ -1341,7 +1342,7 @@ define_class!(
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // Return to normal frame, will be updated by resize check if maximized
-                    macos_window.current_window_state.flags.frame = WindowFrame::Normal;
+                    macos_window.common.current_window_state.flags.frame = WindowFrame::Normal;
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window exited fullscreen");
             }
@@ -1361,11 +1362,11 @@ define_class!(
                         let new_logical_height = bounds.size.height as f32;
 
                         // Update dimensions if changed
-                        let old_dims = macos_window.current_window_state.size.dimensions;
+                        let old_dims = macos_window.common.current_window_state.size.dimensions;
                         if (old_dims.width - new_logical_width).abs() > 0.5
                             || (old_dims.height - new_logical_height).abs() > 0.5
                         {
-                            macos_window.current_window_state.size.dimensions =
+                            macos_window.common.current_window_state.size.dimensions =
                                 azul_core::geom::LogicalSize {
                                     width: new_logical_width,
                                     height: new_logical_height,
@@ -1379,7 +1380,7 @@ define_class!(
 
                             // Mark frame for regeneration with new size
                             // Window state sync happens in build_atomic_txn before WebRender transaction
-                            macos_window.frame_needs_regeneration = true;
+                            macos_window.common.frame_needs_regeneration = true;
 
                             // Trigger re-layout and request redraw
                             // Must call request_redraw() to trigger drawRect: with new size
@@ -1388,7 +1389,7 @@ define_class!(
                     }
 
                     // Only check for maximized state if not in fullscreen
-                    let frame = macos_window.current_window_state.flags.frame;
+                    let frame = macos_window.common.current_window_state.flags.frame;
                     if frame != WindowFrame::Fullscreen {
                         // Check maximized state will be done in event loop
                     }
@@ -1402,7 +1403,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.current_window_state.window_focused = true;
+                    macos_window.common.current_window_state.window_focused = true;
                     macos_window.dynamic_selector_context.window_focused = true;
 
                     // Phase 2: OnFocus callback - sync IME position after focus
@@ -1417,7 +1418,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    macos_window.current_window_state.window_focused = false;
+                    macos_window.common.current_window_state.window_focused = false;
                     macos_window.dynamic_selector_context.window_focused = false;
                 }
             }
@@ -1437,8 +1438,8 @@ define_class!(
                         let pos = azul_core::window::WindowPosition::Initialized(
                             azul_core::geom::PhysicalPositionI32::new(top_left_x, top_left_y),
                         );
-                        macos_window.current_window_state.position = pos;
-                        if let Some(ref mut lw) = macos_window.layout_window {
+                        macos_window.common.current_window_state.position = pos;
+                        if let Some(ref mut lw) = macos_window.common.layout_window {
                             lw.current_window_state.position = pos;
                         }
                     }
@@ -1465,7 +1466,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let window = &mut *(window_ptr as *mut MacOSWindow);
-                    if let Some(ref lw) = window.layout_window {
+                    if let Some(ref lw) = window.common.layout_window {
                         if let Ok(mut guard) = lw.monitors.lock() {
                             *guard = crate::desktop::display::get_monitors();
                         }
@@ -1481,7 +1482,7 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let window = &mut *(window_ptr as *mut MacOSWindow);
-                    if let Some(ref lw) = window.layout_window {
+                    if let Some(ref lw) = window.common.layout_window {
                         if let Ok(mut guard) = lw.monitors.lock() {
                             *guard = crate::desktop::display::get_monitors();
                         }
@@ -1568,55 +1569,19 @@ pub struct MacOSWindow {
     is_open: bool,
     /// Main thread marker (required for AppKit)
     mtm: MainThreadMarker,
-    /// Window state from previous frame (for diff detection)
-    previous_window_state: Option<FullWindowState>,
-    /// Current window state
-    current_window_state: FullWindowState,
-    /// Last hovered node (for hover state tracking)
-    last_hovered_node: Option<HitTestNode>,
-    /// LayoutWindow integration (for UI callbacks and display list)
-    layout_window: Option<LayoutWindow>,
     /// Menu state (for hash-based diff updates)
     menu_state: menu::MenuState,
 
-    // Resource caches for LayoutWindow
-    /// Image cache for texture management
-    image_cache: ImageCache,
-    /// Renderer resources (GPU textures, etc.)
-    renderer_resources: RendererResources,
+    /// Common window state (layout, resources, WebRender, etc.)
+    pub common: event_v2::CommonWindowState,
 
-    // WebRender infrastructure for proper hit-testing and rendering
-    /// Main render API for registering fonts, images, display lists
-    pub render_api: webrender::RenderApi,
-    /// WebRender renderer (software or hardware depending on backend)
-    pub renderer: Option<webrender::Renderer>,
-    /// Hit-tester for fast asynchronous hit-testing (updated on layout changes)
-    pub hit_tester: crate::desktop::wr_translate2::AsyncHitTester,
-    /// WebRender document ID
-    pub document_id: DocumentId,
-    /// WebRender ID namespace
-    pub id_namespace: IdNamespace,
-    /// OpenGL context pointer with compiled SVG and FXAA shaders
-    pub gl_context_ptr: OptionGlContextPtr,
-
-    // Application-level shared state
-    /// Shared application data (used by callbacks, shared across windows)
-    app_data: Arc<RefCell<RefAny>>,
-    /// Shared font cache (shared across windows to cache font loading)
-    fc_cache: Arc<rust_fontconfig::FcFontCache>,
     /// Async font registry for background font scanning
     font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
-    /// System style (shared across windows)
-    system_style: Arc<azul_css::system::SystemStyle>,
     /// Dynamic selector context for evaluating conditional CSS properties
     /// (viewport size, OS, theme, etc.) - updated on resize and theme change
     dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
     /// Icon provider for resolving icon names to renderable content
     icon_provider: azul_core::icon::SharedIconProvider,
-    /// Track if frame needs regeneration (to avoid multiple generate_frame calls)
-    frame_needs_regeneration: bool,
-    /// Current scrollbar drag state (if dragging a scrollbar thumb)
-    scrollbar_drag_state: Option<ScrollbarDragState>,
     /// Synchronization for frame readiness (signals when WebRender has a new frame ready)
     new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
 
@@ -1658,107 +1623,8 @@ pub struct MacOSWindow {
 // Implement PlatformWindowV2 trait for cross-platform event processing
 
 impl event_v2::PlatformWindowV2 for MacOSWindow {
-    // REQUIRED: Simple Getter Methods
-
-    fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
-        self.layout_window.as_mut()
-    }
-
-    fn get_layout_window(&self) -> Option<&LayoutWindow> {
-        self.layout_window.as_ref()
-    }
-
-    fn get_current_window_state(&self) -> &FullWindowState {
-        &self.current_window_state
-    }
-
-    fn get_current_window_state_mut(&mut self) -> &mut FullWindowState {
-        &mut self.current_window_state
-    }
-
-    fn get_previous_window_state(&self) -> &Option<FullWindowState> {
-        &self.previous_window_state
-    }
-
-    fn set_previous_window_state(&mut self, state: FullWindowState) {
-        self.previous_window_state = Some(state);
-    }
-
-    fn get_image_cache_mut(&mut self) -> &mut ImageCache {
-        &mut self.image_cache
-    }
-
-    fn get_renderer_resources_mut(&mut self) -> &mut RendererResources {
-        &mut self.renderer_resources
-    }
-
-    fn get_fc_cache(&self) -> &Arc<FcFontCache> {
-        &self.fc_cache
-    }
-
-    fn get_gl_context_ptr(&self) -> &OptionGlContextPtr {
-        &self.gl_context_ptr
-    }
-
-    fn get_system_style(&self) -> &Arc<azul_css::system::SystemStyle> {
-        &self.system_style
-    }
-
-    fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
-        &self.app_data
-    }
-
-    fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
-        self.scrollbar_drag_state.as_ref()
-    }
-
-    fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState> {
-        &mut self.scrollbar_drag_state
-    }
-
-    fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
-        self.scrollbar_drag_state = state;
-    }
-
-    fn get_hit_tester(&self) -> &AsyncHitTester {
-        &self.hit_tester
-    }
-
-    fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester {
-        &mut self.hit_tester
-    }
-
-    fn get_last_hovered_node(&self) -> Option<&event_v2::HitTestNode> {
-        self.last_hovered_node.as_ref()
-    }
-
-    fn set_last_hovered_node(&mut self, node: Option<event_v2::HitTestNode>) {
-        self.last_hovered_node = node;
-    }
-
-    fn get_document_id(&self) -> DocumentId {
-        self.document_id
-    }
-
-    fn get_id_namespace(&self) -> IdNamespace {
-        self.id_namespace
-    }
-
-    fn get_render_api(&self) -> &WrRenderApi {
-        &self.render_api
-    }
-
-    fn get_render_api_mut(&mut self) -> &mut WrRenderApi {
-        &mut self.render_api
-    }
-
-    fn get_renderer(&self) -> Option<&webrender::Renderer> {
-        self.renderer.as_ref()
-    }
-
-    fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer> {
-        self.renderer.as_mut()
-    }
+    // 28 getter/setter methods generated by macro
+    impl_platform_window_getters!(common);
 
     fn get_raw_window_handle(&self) -> RawWindowHandle {
         RawWindowHandle::MacOS(MacOSHandle {
@@ -1767,21 +1633,9 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         })
     }
 
-    fn needs_frame_regeneration(&self) -> bool {
-        self.frame_needs_regeneration
-    }
-
-    fn mark_frame_needs_regeneration(&mut self) {
-        self.frame_needs_regeneration = true;
-    }
-
-    fn clear_frame_regeneration_flag(&mut self) {
-        self.frame_needs_regeneration = false;
-    }
-
     fn prepare_callback_invocation(&mut self) -> event_v2::InvokeSingleCallbackBorrows {
         let layout_window = self
-            .layout_window
+            .common.layout_window
             .as_mut()
             .expect("Layout window must exist for callback invocation");
 
@@ -1791,13 +1645,13 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
                 ns_window: &*self.window as *const NSWindow as *mut std::ffi::c_void,
                 ns_view: std::ptr::null_mut(),
             }),
-            gl_context_ptr: &self.gl_context_ptr,
-            image_cache: &mut self.image_cache,
-            fc_cache_clone: (*self.fc_cache).clone(),
-            system_style: self.system_style.clone(),
-            previous_window_state: &self.previous_window_state,
-            current_window_state: &self.current_window_state,
-            renderer_resources: &mut self.renderer_resources,
+            gl_context_ptr: &self.common.gl_context_ptr,
+            image_cache: &mut self.common.image_cache,
+            fc_cache_clone: (*self.common.fc_cache).clone(),
+            system_style: self.common.system_style.clone(),
+            previous_window_state: &self.common.previous_window_state,
+            current_window_state: &self.common.current_window_state,
+            renderer_resources: &mut self.common.renderer_resources,
         }
     }
 
@@ -1809,7 +1663,7 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         let interval: f64 = timer.tick_millis() as f64 / 1000.0;
 
         // Store the timer in layout_window first
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window
                 .timers
                 .insert(azul_core::task::TimerId { id: timer_id }, timer);
@@ -1854,7 +1708,7 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         }
 
         // Remove from layout_window
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window
                 .timers
                 .remove(&azul_core::task::TimerId { id: timer_id });
@@ -1904,7 +1758,7 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
     ) {
         log_debug!(LogCategory::Timer, "[add_threads] Adding {} threads", threads.len());
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             for (thread_id, thread) in threads {
                 layout_window.threads.insert(thread_id, thread);
             }
@@ -1915,7 +1769,7 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         &mut self,
         thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>,
     ) {
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             for thread_id in thread_ids {
                 layout_window.threads.remove(thread_id);
             }
@@ -1934,7 +1788,7 @@ impl event_v2::PlatformWindowV2 for MacOSWindow {
         position: azul_core::geom::LogicalPosition,
     ) {
         // Check if native menus are enabled
-        if self.current_window_state.flags.use_native_context_menus {
+        if self.common.current_window_state.flags.use_native_context_menus {
             // Show native NSMenu
             self.show_native_menu_at_position(menu, position);
         } else {
@@ -2114,7 +1968,7 @@ impl MacOSWindow {
                     hash,
                 };
 
-                self.current_window_state.monitor_id = OptionU32::Some(monitor_id.index as u32);
+                self.common.current_window_state.monitor_id = OptionU32::Some(monitor_id.index as u32);
 
                 log_debug!(
                     LogCategory::Window,
@@ -2129,7 +1983,7 @@ impl MacOSWindow {
                     "[MacOSWindow] Failed to get CGDirectDisplayID from screen"
                 );
                 // Fallback: Use index 0 (main display)
-                self.current_window_state.monitor_id = OptionU32::Some(0);
+                self.common.current_window_state.monitor_id = OptionU32::Some(0);
             }
         } else {
             log_warn!(
@@ -2137,7 +1991,7 @@ impl MacOSWindow {
                 "[MacOSWindow] No screen associated with window"
             );
             // Fallback: Use index 0 (main display)
-            self.current_window_state.monitor_id = OptionU32::Some(0);
+            self.common.current_window_state.monitor_id = OptionU32::Some(0);
         }
     }
 
@@ -2149,7 +2003,7 @@ impl MacOSWindow {
         use azul_core::window::Vsync;
 
         // Check if VSYNC is enabled
-        let vsync = self.current_window_state.renderer_options.vsync;
+        let vsync = self.common.current_window_state.renderer_options.vsync;
         if vsync == Vsync::Disabled {
             log_debug!(
                 LogCategory::Rendering,
@@ -2811,27 +2665,29 @@ impl MacOSWindow {
             cpu_view,
             is_open: true,
             mtm,
-            previous_window_state: None,
-            current_window_state,
-            last_hovered_node: None,
-            layout_window: Some(layout_window),
             menu_state: menu::MenuState::new(), // TODO: build initial menu state from layout_window
-            image_cache,
-            renderer_resources,
-            render_api,
-            renderer: Some(renderer),
-            hit_tester: AsyncHitTester::Resolved(hit_tester),
-            document_id,
-            id_namespace,
-            gl_context_ptr,
-            app_data: app_data_arc,
-            fc_cache,
+            common: event_v2::CommonWindowState {
+                previous_window_state: None,
+                current_window_state,
+                last_hovered_node: None,
+                layout_window: Some(layout_window),
+                image_cache,
+                renderer_resources,
+                render_api: Some(render_api),
+                renderer: Some(renderer),
+                hit_tester: Some(AsyncHitTester::Resolved(hit_tester)),
+                document_id: Some(document_id),
+                id_namespace: Some(id_namespace),
+                gl_context_ptr,
+                app_data: app_data_arc,
+                fc_cache,
+                system_style,
+                frame_needs_regeneration: false,
+                scrollbar_drag_state: None,
+            },
             font_registry,
-            system_style,
             dynamic_selector_context,
             icon_provider: shared_icon_provider,
-            frame_needs_regeneration: false,
-            scrollbar_drag_state: None,
             new_frame_ready,
             #[cfg(feature = "a11y")]
             accessibility_adapter: None, // Will be initialized after first layout
@@ -2876,35 +2732,35 @@ impl MacOSWindow {
 
             // Get mutable references needed for invoke_single_callback
             let layout_window = window
-                .layout_window
+                .common.layout_window
                 .as_mut()
                 .expect("LayoutWindow should exist at this point");
-            let mut fc_cache_clone = (*window.fc_cache).clone();
+            let mut fc_cache_clone = (*window.common.fc_cache).clone();
 
             // Get app_data for callback
-            let mut app_data_ref = window.app_data.borrow_mut();
+            let mut app_data_ref = window.common.app_data.borrow_mut();
 
             let callback_result = layout_window.invoke_single_callback(
                 &mut callback,
                 &mut *app_data_ref,
                 &raw_handle,
-                &window.gl_context_ptr,
-                window.system_style.clone(),
+                &window.common.gl_context_ptr,
+                window.common.system_style.clone(),
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &window.previous_window_state,
-                &window.current_window_state,
-                &window.renderer_resources,
+                &window.common.previous_window_state,
+                &window.common.current_window_state,
+                &window.common.renderer_resources,
             );
 
             // Process callback changes via apply_user_change
             drop(app_data_ref); // Release borrow before apply_user_change
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-            window.previous_window_state = Some(window.current_window_state.clone());
+            window.common.previous_window_state = Some(window.common.current_window_state.clone());
             let (changes, _update) = callback_result;
             for change in &changes {
                 let r = window.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
-                    window.frame_needs_regeneration = true;
+                    window.common.frame_needs_regeneration = true;
                 }
             }
             // Sync window state to OS (handles close_requested, title, size, etc.)
@@ -2929,7 +2785,7 @@ impl MacOSWindow {
 
             let timer_id: usize = 0xDEBE; // Special debug timer ID
             // Clone app_data so GetAppState/SetAppState can access it in the timer callback
-            let app_data_for_timer = window.app_data.borrow().clone();
+            let app_data_for_timer = window.common.app_data.borrow().clone();
             let debug_timer = crate::desktop::shell2::common::debug_server::create_debug_timer(
                 app_data_for_timer,
                 ExternalSystemCallbacks::rust_internal().get_system_time_fn,
@@ -2967,7 +2823,7 @@ impl MacOSWindow {
         }
 
         // Set frame_needs_regeneration to true so drawRect will build and send transaction
-        window.frame_needs_regeneration = true;
+        window.common.frame_needs_regeneration = true;
 
         // Detect current monitor and set monitor_id
         window.detect_current_monitor();
@@ -2998,7 +2854,7 @@ impl MacOSWindow {
         window.apply_initial_window_state();
 
         // Show window - drawRect will handle the first frame rendering
-        if window.current_window_state.flags.is_visible {
+        if window.common.current_window_state.flags.is_visible {
             log_debug!(
                 LogCategory::Window,
                 "[Window Init] Making window visible (first frame will be rendered in drawRect)..."
@@ -3026,8 +2882,8 @@ impl MacOSWindow {
                 let pos = azul_core::window::WindowPosition::Initialized(
                     azul_core::geom::PhysicalPositionI32::new(top_left_x, top_left_y),
                 );
-                window.current_window_state.position = pos;
-                if let Some(ref mut lw) = window.layout_window {
+                window.common.current_window_state.position = pos;
+                if let Some(ref mut lw) = window.common.layout_window {
                     lw.current_window_state.position = pos;
                 }
             }
@@ -3048,7 +2904,7 @@ impl MacOSWindow {
     /// - The DOM changes (via callbacks)
     /// - Layout callback changes
     pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout_v2::LayoutRegenerateResult, String> {
-        let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
+        let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
@@ -3061,17 +2917,17 @@ impl MacOSWindow {
         // Call unified regenerate_layout from common module
         let result = crate::desktop::shell2::common::layout_v2::regenerate_layout(
             layout_window,
-            &self.app_data,
-            &self.current_window_state,
-            &mut self.renderer_resources,
-            &mut self.render_api,
-            &self.image_cache,
-            &self.gl_context_ptr,
-            &self.fc_cache,
+            &self.common.app_data,
+            &self.common.current_window_state,
+            &mut self.common.renderer_resources,
+            self.common.render_api.as_mut().unwrap(),
+            &self.common.image_cache,
+            &self.common.gl_context_ptr,
+            &self.common.fc_cache,
             &self.font_registry,
-            &self.system_style,
+            &self.common.system_style,
             &self.icon_provider,
-            self.document_id,
+            self.common.document_id.unwrap(),
             &mut debug_messages,
         )?;
 
@@ -3088,7 +2944,7 @@ impl MacOSWindow {
         }
 
         // Mark that frame needs regeneration (will be called once at event processing end)
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
 
         // Update accessibility tree after layout
         #[cfg(feature = "a11y")]
@@ -3106,17 +2962,17 @@ impl MacOSWindow {
     fn update_ime_position_from_cursor(&mut self) {
         use azul_core::window::ImePosition;
 
-        if let Some(layout_window) = &self.layout_window {
+        if let Some(layout_window) = &self.common.layout_window {
             if let Some(cursor_rect) = layout_window.get_focused_cursor_rect_viewport() {
                 // Successfully calculated cursor position from text layout
-                self.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
+                self.common.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
             }
         }
     }
 
     /// Generate frame if needed and reset flag
     pub fn generate_frame_if_needed(&mut self) {
-        if !self.frame_needs_regeneration {
+        if !self.common.frame_needs_regeneration {
             return;
         }
 
@@ -3129,23 +2985,23 @@ impl MacOSWindow {
             }
         }
 
-        if let Some(ref mut layout_window) = self.layout_window {
+        if let Some(ref mut layout_window) = self.common.layout_window {
             crate::desktop::shell2::common::layout_v2::generate_frame(
                 layout_window,
-                &mut self.render_api,
-                self.document_id,
-                &self.gl_context_ptr,
+                self.common.render_api.as_mut().unwrap(),
+                self.common.document_id.unwrap(),
+                &self.common.gl_context_ptr,
             );
 
             // After sending display list, request new hit tester
             // (will be resolved on next hit test)
-            let doc_id = crate::desktop::wr_translate2::wr_translate_document_id(self.document_id);
-            let hit_tester_request = self.render_api.request_hit_tester(doc_id);
-            self.hit_tester =
-                crate::desktop::wr_translate2::AsyncHitTester::Requested(hit_tester_request);
+            let doc_id = crate::desktop::wr_translate2::wr_translate_document_id(self.common.document_id.unwrap());
+            let hit_tester_request = self.common.render_api.as_ref().unwrap().request_hit_tester(doc_id);
+            self.common.hit_tester =
+                Some(crate::desktop::wr_translate2::AsyncHitTester::Requested(hit_tester_request));
         }
 
-        self.frame_needs_regeneration = false;
+        self.common.frame_needs_regeneration = false;
     }
 
     /// Get the current HiDPI scale factor from the NSWindow's screen
@@ -3187,7 +3043,7 @@ impl MacOSWindow {
     /// indicating the window moved to a display with different DPI or monitor.
     pub fn handle_dpi_change(&mut self) -> Result<(), String> {
         let new_hidpi = self.get_hidpi_factor();
-        let old_hidpi = self.current_window_state.size.get_hidpi_factor();
+        let old_hidpi = self.common.current_window_state.size.get_hidpi_factor();
 
         // Check if monitor changed (detect current monitor)
         let old_display_id = self.current_display_id;
@@ -3235,7 +3091,7 @@ impl MacOSWindow {
         );
 
         // Update window state with new DPI
-        self.current_window_state.size.dpi = (new_hidpi.inner.get() * 96.0) as u32;
+        self.common.current_window_state.size.dpi = (new_hidpi.inner.get() * 96.0) as u32;
 
         // Regenerate layout with new DPI
         self.regenerate_layout()?;
@@ -3256,7 +3112,7 @@ impl MacOSWindow {
             geom::LogicalPosition,
         };
 
-        let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
+        let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
 
@@ -3291,14 +3147,14 @@ impl MacOSWindow {
         crate::desktop::wr_translate2::generate_frame(
             &mut txn,
             layout_window,
-            &mut self.render_api,
+            self.common.render_api.as_mut().unwrap(),
             false, // Display list not rebuilt, just transforms updated
-            &self.gl_context_ptr,
+            &self.common.gl_context_ptr,
         );
 
         // Send transaction
-        self.render_api.send_transaction(
-            crate::desktop::wr_translate2::wr_translate_document_id(self.document_id),
+        self.common.render_api.as_mut().unwrap().send_transaction(
+            crate::desktop::wr_translate2::wr_translate_document_id(self.common.document_id.unwrap()),
             txn,
         );
 
@@ -3321,7 +3177,7 @@ impl MacOSWindow {
         use azul_core::window::WindowPosition;
 
         // Min dimensions
-        if let OptionLogicalSize::Some(dims) = self.current_window_state.size.min_dimensions {
+        if let OptionLogicalSize::Some(dims) = self.common.current_window_state.size.min_dimensions {
             let min_size = NSSize::new(dims.width as f64, dims.height as f64);
             unsafe {
                 self.window.setContentMinSize(min_size);
@@ -3329,7 +3185,7 @@ impl MacOSWindow {
         }
 
         // Max dimensions
-        if let OptionLogicalSize::Some(dims) = self.current_window_state.size.max_dimensions {
+        if let OptionLogicalSize::Some(dims) = self.common.current_window_state.size.max_dimensions {
             let max_size = NSSize::new(dims.width as f64, dims.height as f64);
             unsafe {
                 self.window.setContentMaxSize(max_size);
@@ -3337,7 +3193,7 @@ impl MacOSWindow {
         }
 
         // Position (if explicitly set — overrides center())
-        if let WindowPosition::Initialized(pos) = self.current_window_state.position {
+        if let WindowPosition::Initialized(pos) = self.common.current_window_state.position {
             unsafe {
                 if let Some(screen) = self.window.screen() {
                     let screen_height = screen.frame().size.height;
@@ -3349,35 +3205,35 @@ impl MacOSWindow {
         }
 
         // Always-on-top
-        if self.current_window_state.flags.is_always_on_top {
+        if self.common.current_window_state.flags.is_always_on_top {
             unsafe {
                 self.window.setLevel(objc2_app_kit::NSFloatingWindowLevel);
             }
         }
 
         // Resizable (macOS default has Resizable in styleMask; apply if user wants non-resizable)
-        if !self.current_window_state.flags.is_resizable {
+        if !self.common.current_window_state.flags.is_resizable {
             self.apply_resizable(false);
         }
 
         // is_top_level
-        if self.current_window_state.flags.is_top_level {
+        if self.common.current_window_state.flags.is_top_level {
             let _ = self.set_is_top_level(true);
         }
 
         // prevent_system_sleep
-        if self.current_window_state.flags.prevent_system_sleep {
+        if self.common.current_window_state.flags.prevent_system_sleep {
             let _ = self.set_prevent_system_sleep(true);
         }
 
         // CRITICAL: Set previous_window_state so sync_window_state() works for future changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
     }
 
     fn sync_window_state(&mut self) {
         // Get copies of previous and current state to avoid borrow checker issues
-        let (previous, current) = match &self.previous_window_state {
-            Some(prev) => (prev.clone(), self.current_window_state.clone()),
+        let (previous, current) = match &self.common.previous_window_state {
+            Some(prev) => (prev.clone(), self.common.current_window_state.clone()),
             None => return, // First frame, nothing to sync
         };
 
@@ -3552,7 +3408,7 @@ impl MacOSWindow {
 
         // Mouse cursor synchronization - compute from current hit test
         use azul_layout::managers::hover::InputPointId;
-        if let Some(layout_window) = self.layout_window.as_ref() {
+        if let Some(layout_window) = self.common.layout_window.as_ref() {
             if let Some(hit_test) = layout_window
                 .hover_manager
                 .get_current(&InputPointId::Mouse)
@@ -3608,10 +3464,10 @@ impl MacOSWindow {
     /// state to previous state.
     pub fn update_window_state(&mut self, new_state: FullWindowState) {
         // Save current state as previous for next frame's diff
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
         // Update current state with the new full state
-        self.current_window_state = new_state;
+        self.common.current_window_state = new_state;
 
         // Synchronize with OS
         self.sync_window_state();
@@ -3627,10 +3483,10 @@ impl MacOSWindow {
         log_debug!(LogCategory::Window, "[handle_window_should_close] START");
 
         // Save previous state BEFORE making changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
         // Set close_requested flag
-        self.current_window_state.flags.close_requested = true;
+        self.common.current_window_state.flags.close_requested = true;
 
         // Invoke close callback if it exists
         // This uses the V2 event system to detect CloseRequested and dispatch callbacks
@@ -3657,31 +3513,31 @@ impl MacOSWindow {
                     LogCategory::Callbacks,
                     "[handle_window_should_close] Incremental relayout requested"
                 );
-                if let Some(layout_window) = self.layout_window.as_mut() {
+                if let Some(layout_window) = self.common.layout_window.as_mut() {
                     let mut debug_messages = None;
                     if let Err(e) = crate::desktop::shell2::common::layout_v2::incremental_relayout(
                         layout_window,
-                        &self.current_window_state,
-                        &mut self.renderer_resources,
+                        &self.common.current_window_state,
+                        &mut self.common.renderer_resources,
                         &mut debug_messages,
                     ) {
                         log_warn!(LogCategory::Layout, "[handle_window_should_close] Incremental relayout failed: {}", e);
                     }
                 }
-                self.frame_needs_regeneration = true;
+                self.common.frame_needs_regeneration = true;
             }
             azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
                 log_debug!(
                     LogCategory::Callbacks,
                     "[handle_window_should_close] Callback requested re-render"
                 );
-                self.frame_needs_regeneration = true;
+                self.common.frame_needs_regeneration = true;
             }
             _ => {}
         }
 
         // Check if callback cleared the flag (preventing close)
-        let should_close = self.current_window_state.flags.close_requested;
+        let should_close = self.common.current_window_state.flags.close_requested;
 
         if should_close {
             log_debug!(
@@ -3708,10 +3564,10 @@ impl MacOSWindow {
         );
 
         // Save previous state BEFORE making changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
 
         // Set close_requested flag in current state
-        self.current_window_state.flags.close_requested = true;
+        self.common.current_window_state.flags.close_requested = true;
 
         // Use V2 event system to detect CloseRequested and dispatch callbacks
         // This allows callbacks to modify DOM or prevent close by clearing the flag
@@ -3729,27 +3585,27 @@ impl MacOSWindow {
                 }
             }
             azul_core::events::ProcessEventResult::ShouldIncrementalRelayout => {
-                if let Some(layout_window) = self.layout_window.as_mut() {
+                if let Some(layout_window) = self.common.layout_window.as_mut() {
                     let mut debug_messages = None;
                     if let Err(e) = crate::desktop::shell2::common::layout_v2::incremental_relayout(
                         layout_window,
-                        &self.current_window_state,
-                        &mut self.renderer_resources,
+                        &self.common.current_window_state,
+                        &mut self.common.renderer_resources,
                         &mut debug_messages,
                     ) {
                         log_warn!(LogCategory::Layout, "[MacOSWindow] Incremental relayout failed: {}", e);
                     }
                 }
-                self.frame_needs_regeneration = true;
+                self.common.frame_needs_regeneration = true;
             }
             azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
-                self.frame_needs_regeneration = true;
+                self.common.frame_needs_regeneration = true;
             }
             _ => {}
         }
 
         // Check if callback cleared the flag (preventing close)
-        if self.current_window_state.flags.close_requested {
+        if self.common.current_window_state.flags.close_requested {
             log_debug!(
                 LogCategory::Window,
                 "[MacOSWindow] Close confirmed, closing window"
@@ -4079,7 +3935,7 @@ impl MacOSWindow {
         };
 
         // Get layout window to create callback info
-        let layout_window = match self.layout_window.as_mut() {
+        let layout_window = match self.common.layout_window.as_mut() {
             Some(lw) => lw,
             None => {
                 log_warn!(
@@ -4100,24 +3956,24 @@ impl MacOSWindow {
         });
 
         // Clone fc_cache (cheap Arc clone) since invoke_single_callback needs &mut
-        let mut fc_cache_clone = (*self.fc_cache).clone();
+        let mut fc_cache_clone = (*self.common.fc_cache).clone();
 
         // Use LayoutWindow::invoke_single_callback which handles all the borrow complexity
         let (changes, update) = layout_window.invoke_single_callback(
             &mut menu_callback.callback,
             &mut menu_callback.refany,
             &raw_handle,
-            &self.gl_context_ptr,
-            self.system_style.clone(),
+            &self.common.gl_context_ptr,
+            self.common.system_style.clone(),
             &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-            &self.previous_window_state,
-            &self.current_window_state,
-            &self.renderer_resources,
+            &self.common.previous_window_state,
+            &self.common.current_window_state,
+            &self.common.renderer_resources,
         );
 
         // Process callback changes via apply_user_change
         use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
         let mut event_result = ProcessEventResult::DoNothing;
         for change in &changes {
             let r = self.apply_user_change(change);
@@ -4135,7 +3991,7 @@ impl MacOSWindow {
             | ProcessEventResult::ShouldReRenderCurrentWindow
             | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                self.frame_needs_regeneration = true;
+                self.common.frame_needs_regeneration = true;
                 self.request_redraw();
             }
             ProcessEventResult::DoNothing => {
@@ -4159,13 +4015,13 @@ impl MacOSWindow {
         let new_logical_width = bounds.size.width as f32;
         let new_logical_height = bounds.size.height as f32;
 
-        let old_dims = self.current_window_state.size.dimensions;
+        let old_dims = self.common.current_window_state.size.dimensions;
 
         // Only update if dimensions actually changed (with small tolerance for float comparison)
         if (old_dims.width - new_logical_width).abs() > 0.5
             || (old_dims.height - new_logical_height).abs() > 0.5
         {
-            self.current_window_state.size.dimensions = azul_core::geom::LogicalSize {
+            self.common.current_window_state.size.dimensions = azul_core::geom::LogicalSize {
                 width: new_logical_width,
                 height: new_logical_height,
             };
@@ -4177,10 +4033,10 @@ impl MacOSWindow {
                     .map(|screen| screen.backingScaleFactor() as f32)
                     .unwrap_or(1.0)
             };
-            self.current_window_state.size.dpi = (scale_factor * 96.0) as u32;
+            self.common.current_window_state.size.dpi = (scale_factor * 96.0) as u32;
 
             // Mark frame as needing regeneration
-            self.frame_needs_regeneration = true;
+            self.common.frame_needs_regeneration = true;
 
             log_debug!(
                 LogCategory::Window,
@@ -4189,7 +4045,7 @@ impl MacOSWindow {
                 old_dims.height,
                 new_logical_width,
                 new_logical_height,
-                self.current_window_state.size.dpi
+                self.common.current_window_state.size.dpi
             );
         }
     }
@@ -4200,7 +4056,7 @@ impl MacOSWindow {
     /// Should be called after resize events.
     fn check_maximized_state(&mut self) {
         // Skip check if in fullscreen mode
-        if self.current_window_state.flags.frame == WindowFrame::Fullscreen {
+        if self.common.current_window_state.flags.frame == WindowFrame::Fullscreen {
             return;
         }
 
@@ -4230,8 +4086,8 @@ impl MacOSWindow {
             WindowFrame::Normal
         };
 
-        if new_frame != self.current_window_state.flags.frame {
-            self.current_window_state.flags.frame = new_frame;
+        if new_frame != self.common.current_window_state.flags.frame {
+            self.common.current_window_state.flags.frame = new_frame;
             log_debug!(
                 LogCategory::Window,
                 "[MacOSWindow] Window frame changed to: {:?}",
@@ -4443,7 +4299,7 @@ impl MacOSWindow {
         position: azul_core::geom::LogicalPosition,
     ) {
         // Get parent window position
-        let parent_pos = match self.current_window_state.position {
+        let parent_pos = match self.common.current_window_state.position {
             azul_core::window::WindowPosition::Initialized(pos) => {
                 azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
             }
@@ -4453,7 +4309,7 @@ impl MacOSWindow {
         // Create menu window options using the unified menu system
         let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
-            self.system_style.clone(),
+            self.common.system_style.clone(),
             parent_pos,
             None,           // No trigger rect for callback menus
             Some(position), // Position for menu
@@ -4506,21 +4362,21 @@ impl MacOSWindow {
                 use crate::desktop::shell2::macos::events::EventProcessResult;
                 let result = self.handle_key_down(event);
                 if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                    self.frame_needs_regeneration = true;
+                    self.common.frame_needs_regeneration = true;
                 }
             }
             NSEventType::KeyUp => {
                 use crate::desktop::shell2::macos::events::EventProcessResult;
                 let result = self.handle_key_up(event);
                 if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                    self.frame_needs_regeneration = true;
+                    self.common.frame_needs_regeneration = true;
                 }
             }
             NSEventType::FlagsChanged => {
                 use crate::desktop::shell2::macos::events::EventProcessResult;
                 let result = self.handle_flags_changed(event);
                 if matches!(result, EventProcessResult::RegenerateDisplayList | EventProcessResult::RequestRedraw) {
-                    self.frame_needs_regeneration = true;
+                    self.common.frame_needs_regeneration = true;
                 }
             }
             _ => {
@@ -4530,13 +4386,13 @@ impl MacOSWindow {
 
         // After processing event, just request a redraw if needed
         // The atomic transaction will be built in drawRect
-        if self.frame_needs_regeneration {
+        if self.common.frame_needs_regeneration {
             log_trace!(
                 LogCategory::EventLoop,
                 "[handle_event] Frame needs regeneration, requesting redraw"
             );
             self.request_redraw();
-            self.frame_needs_regeneration = false;
+            self.common.frame_needs_regeneration = false;
         }
     }
 
@@ -4666,11 +4522,11 @@ impl MacOSWindow {
             use azul_core::callbacks::Update;
             use azul_core::events::ProcessEventResult;
             if thread_changes_result != ProcessEventResult::DoNothing {
-                self.frame_needs_regeneration = true;
+                self.common.frame_needs_regeneration = true;
             }
             match thread_update {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
-                    self.frame_needs_regeneration = true;
+                    self.common.frame_needs_regeneration = true;
                 }
                 _ => {}
             }
@@ -4704,7 +4560,7 @@ impl MacOSWindow {
                 gl_context.update(self.mtm);
 
                 // CRITICAL: Set the viewport to the physical size of the window
-                let physical_size = self.current_window_state.size.get_physical_size();
+                let physical_size = self.common.current_window_state.size.get_physical_size();
                 log_trace!(
                     LogCategory::Rendering,
                     "[GL] glViewport(0, 0, {}, {})",
@@ -4739,7 +4595,7 @@ impl MacOSWindow {
 
         // CRITICAL: Regenerate layout FIRST if needed
         // Layout must be current before building display lists
-        let layout_unchanged = if self.frame_needs_regeneration {
+        let layout_unchanged = if self.common.frame_needs_regeneration {
             log_trace!(
                 LogCategory::Layout,
                 "[build_atomic_txn] Regenerating layout"
@@ -4757,7 +4613,7 @@ impl MacOSWindow {
                     ));
                 }
             };
-            self.frame_needs_regeneration = false;
+            self.common.frame_needs_regeneration = false;
             result == crate::desktop::shell2::common::layout_v2::LayoutRegenerateResult::LayoutUnchanged
         } else {
             false
@@ -4765,13 +4621,13 @@ impl MacOSWindow {
 
         // Get layout_window
         let layout_window = self
-            .layout_window
+            .common.layout_window
             .as_mut()
             .ok_or_else(|| WindowError::PlatformError("No layout window".into()))?;
 
         // CRITICAL: Synchronize window state to layout_window before building transaction
         // This ensures WebRender gets the current window size after resize
-        layout_window.current_window_state = self.current_window_state.clone();
+        layout_window.current_window_state = self.common.current_window_state.clone();
 
         // Advance easing-based scroll animations
         {
@@ -4800,8 +4656,8 @@ impl MacOSWindow {
             crate::desktop::wr_translate2::build_image_only_transaction(
                 &mut txn,
                 layout_window,
-                &mut self.render_api,
-                &self.gl_context_ptr,
+                self.common.render_api.as_mut().unwrap(),
+                &self.common.gl_context_ptr,
             )
             .map_err(|e| {
                 WindowError::PlatformError(format!("Failed to build image-only transaction: {}", e).into())
@@ -4811,9 +4667,9 @@ impl MacOSWindow {
             crate::desktop::wr_translate2::build_webrender_transaction(
                 &mut txn,
                 layout_window,
-                &mut self.render_api,
-                &self.image_cache,
-                &self.gl_context_ptr,
+                self.common.render_api.as_mut().unwrap(),
+                &self.common.image_cache,
+                &self.common.gl_context_ptr,
             )
             .map_err(|e| {
                 WindowError::PlatformError(format!("Failed to build transaction: {}", e).into())
@@ -4823,24 +4679,24 @@ impl MacOSWindow {
         log_trace!(LogCategory::Rendering, "[build_atomic_txn] COMPLETE");
 
         // Send the complete atomic transaction
-        if let Some(layout_window) = self.layout_window.as_ref() {
+        if let Some(layout_window) = self.common.layout_window.as_ref() {
             let doc_id = wr_translate_document_id(layout_window.document_id);
             log_trace!(
                 LogCategory::Rendering,
                 "[WebRender] send_transaction({:?})",
                 doc_id
             );
-            self.render_api.send_transaction(doc_id, txn);
-            self.render_api.flush_scene_builder();
+            self.common.render_api.as_mut().unwrap().send_transaction(doc_id, txn);
+            self.common.render_api.as_mut().unwrap().flush_scene_builder();
         }
         log_trace!(LogCategory::Rendering, "[WebRender] Transaction sent");
 
         // Step 2: Call WebRender to composite the scene
-        if let Some(ref mut renderer) = self.renderer {
+        if let Some(ref mut renderer) = self.common.renderer {
             log_trace!(LogCategory::Rendering, "[WebRender] renderer.update()");
             renderer.update();
 
-            let physical_size = self.current_window_state.size.get_physical_size();
+            let physical_size = self.common.current_window_state.size.get_physical_size();
             let device_size = webrender::api::units::DeviceIntSize::new(
                 physical_size.width as i32,
                 physical_size.height as i32,
@@ -4861,11 +4717,11 @@ impl MacOSWindow {
                     );
 
                     // Update hit tester after render - WebRender now has valid scene data
-                    if let Some(layout_window) = self.layout_window.as_ref() {
+                    if let Some(layout_window) = self.common.layout_window.as_ref() {
                         let doc_id = wr_translate_document_id(layout_window.document_id);
-                        let new_hit_tester = self.render_api.request_hit_tester(doc_id).resolve();
-                        self.hit_tester =
-                            crate::desktop::wr_translate2::AsyncHitTester::Resolved(new_hit_tester);
+                        let new_hit_tester = self.common.render_api.as_ref().unwrap().request_hit_tester(doc_id).resolve();
+                        self.common.hit_tester =
+                            Some(crate::desktop::wr_translate2::AsyncHitTester::Resolved(new_hit_tester));
                         log_trace!(
                             LogCategory::Rendering,
                             "[WebRender] Hit tester updated after render"
@@ -4909,7 +4765,7 @@ impl MacOSWindow {
 
         // Clean up old textures from previous epochs to prevent memory leak
         // This must happen AFTER render() and buffer swap when WebRender no longer needs the textures
-        if let Some(ref layout_window) = self.layout_window {
+        if let Some(ref layout_window) = self.common.layout_window {
             crate::desktop::gl_texture_integration::remove_old_gl_textures(
                 &layout_window.document_id,
                 layout_window.epoch,
@@ -5011,8 +4867,8 @@ impl MacOSWindow {
         }
 
         // Check for close request from WindowDelegate
-        if self.current_window_state.flags.close_requested {
-            self.current_window_state.flags.close_requested = false;
+        if self.common.current_window_state.flags.close_requested {
+            self.common.current_window_state.flags.close_requested = false;
             self.handle_close_request();
         }
 
@@ -5052,9 +4908,9 @@ impl MacOSWindow {
 
             // Atomic transaction will be built in drawRect if needed
             // Just request redraw here if layout changed
-            if self.frame_needs_regeneration {
+            if self.common.frame_needs_regeneration {
                 self.request_redraw();
-                self.frame_needs_regeneration = false;
+                self.common.frame_needs_regeneration = false;
             }
 
             Some(macos_event)
@@ -5135,7 +4991,7 @@ impl MacOSWindow {
             }
         }
 
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
     }
 }
 
@@ -5217,7 +5073,7 @@ impl MacOSWindow {
     /// Perform undo operation (called by NSResponder undo: selector)
     pub fn perform_undo(&mut self) {
         // Get focused node for undo context
-        let focused_node = if let Some(layout_window) = self.layout_window.as_ref() {
+        let focused_node = if let Some(layout_window) = self.common.layout_window.as_ref() {
             layout_window.focus_manager.get_focused_node().copied()
         } else {
             return;
@@ -5229,7 +5085,7 @@ impl MacOSWindow {
         };
 
         // Get layout window
-        let layout_window = match self.layout_window.as_mut() {
+        let layout_window = match self.common.layout_window.as_mut() {
             Some(lw) => lw,
             None => return,
         };
@@ -5287,7 +5143,7 @@ impl MacOSWindow {
     /// Perform redo operation (called by NSResponder redo: selector)
     pub fn perform_redo(&mut self) {
         // Get focused node for redo context
-        let focused_node = if let Some(layout_window) = self.layout_window.as_ref() {
+        let focused_node = if let Some(layout_window) = self.common.layout_window.as_ref() {
             layout_window.focus_manager.get_focused_node().copied()
         } else {
             return;
@@ -5299,7 +5155,7 @@ impl MacOSWindow {
         };
 
         // Get layout window
-        let layout_window = match self.layout_window.as_mut() {
+        let layout_window = match self.common.layout_window.as_mut() {
             Some(lw) => lw,
             None => return,
         };
@@ -5341,7 +5197,7 @@ impl MacOSWindow {
 
     /// Check if undo is available (for menu validation)
     pub fn can_undo(&self) -> bool {
-        if let Some(layout_window) = self.layout_window.as_ref() {
+        if let Some(layout_window) = self.common.layout_window.as_ref() {
             if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
                 if let Some(node_id) = focused_node.node.into_crate_internal() {
                     return layout_window.undo_redo_manager.can_undo(node_id);
@@ -5353,7 +5209,7 @@ impl MacOSWindow {
 
     /// Check if redo is available (for menu validation)
     pub fn can_redo(&self) -> bool {
-        if let Some(layout_window) = self.layout_window.as_ref() {
+        if let Some(layout_window) = self.common.layout_window.as_ref() {
             if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
                 if let Some(node_id) = focused_node.node.into_crate_internal() {
                     return layout_window.undo_redo_manager.can_redo(node_id);
@@ -5375,7 +5231,7 @@ impl MacOSWindow {
             return; // Already initialized
         }
 
-        let layout_window = match self.layout_window.as_ref() {
+        let layout_window = match self.common.layout_window.as_ref() {
             Some(lw) => lw,
             None => {
                 log_warn!(
@@ -5423,7 +5279,7 @@ impl MacOSWindow {
             None => return, // Not initialized yet
         };
 
-        let layout_window = match self.layout_window.as_ref() {
+        let layout_window = match self.common.layout_window.as_ref() {
             Some(lw) => lw,
             None => return,
         };
@@ -5432,8 +5288,8 @@ impl MacOSWindow {
         let tree_update = azul_layout::managers::a11y::A11yManager::update_tree(
             layout_window.a11y_manager.root_id,
             &layout_window.layout_results,
-            &self.current_window_state.title,
-            self.current_window_state.size.dimensions,
+            &self.common.current_window_state.title,
+            self.common.current_window_state.size.dimensions,
         );
 
         // Submit to OS
@@ -5661,7 +5517,7 @@ impl MacOSWindow {
         // However, we can invalidate the marked text to trigger a refresh
         // if we want to force the IME window to update immediately
         if matches!(
-            self.current_window_state.ime_position,
+            self.common.current_window_state.ime_position,
             ImePosition::Initialized(_)
         ) {
             // TODO: Could call invalidateMarkable or similar if needed

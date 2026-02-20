@@ -14,6 +14,7 @@
 //! - Common shell2 modules: Compositor, error handling
 
 use crate::desktop::shell2::common::debug_server::LogCategory;
+use crate::impl_platform_window_getters;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 
 pub mod accessibility;
@@ -85,29 +86,16 @@ pub struct Win32Window {
     /// Device context for OpenGL (must stay valid for the lifetime of the GL context)
     pub hdc: *mut std::ffi::c_void,
 
-    // LayoutWindow integration
-    /// LayoutWindow for UI state management and callbacks
-    pub layout_window: Option<LayoutWindow>,
-
     // Rendering infrastructure
     /// OpenGL context (None if running in software mode)
     pub gl_context: Option<HGLRC>,
     /// OpenGL function loader
     pub gl_functions: GlFunctions,
-    /// OpenGL context pointer with compiled shaders
-    pub gl_context_ptr: OptionGlContextPtr,
-    /// WebRender renderer
-    pub renderer: Option<WrRenderer>,
-    /// WebRender render API
-    pub render_api: WrRenderApi,
-    /// Hit-tester for fast hit-testing
-    pub hit_tester: AsyncHitTester,
-    /// WebRender document ID
-    pub document_id: DocumentId,
-    /// WebRender ID namespace
-    pub id_namespace: IdNamespace,
     /// Signal from WebRender that a new frame is ready
     pub new_frame_ready: Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>,
+
+    /// Common window state (layout, resources, WebRender, etc.)
+    pub common: event_v2::CommonWindowState,
 
     // Win32 libraries
     /// Dynamically loaded Win32 libraries
@@ -118,18 +106,6 @@ pub struct Win32Window {
     pub is_open: bool,
     /// Whether the first frame has been shown (for deferred window visibility)
     pub first_frame_shown: bool,
-    /// Flag indicating frame needs regeneration in next WM_PAINT
-    pub frame_needs_regeneration: bool,
-    /// Previous window state (for diffing)
-    pub previous_window_state: Option<FullWindowState>,
-    /// Current window state
-    pub current_window_state: FullWindowState,
-
-    // Resource caches
-    /// Image cache
-    pub image_cache: ImageCache,
-    /// Renderer resources (textures, etc.)
-    pub renderer_resources: RendererResources,
 
     // Menu and UI state
     /// Menu bar (if any)
@@ -148,24 +124,14 @@ pub struct Win32Window {
     pub high_surrogate: Option<u16>,
     /// IME composition string (for preview during typing)
     pub ime_composition: Option<String>,
-    /// Last hovered node (for hover state tracking)
-    pub last_hovered_node: Option<event_v2::HitTestNode>,
-    /// Scrollbar drag state (for drag interactions)
-    pub scrollbar_drag_state: Option<azul_layout::ScrollbarDragState>,
 
     // System functions
     /// DPI functions
     pub dpi: DpiFunctions,
 
     // Shared resources
-    /// Shared application data (used by callbacks, shared across windows)
-    pub app_data: Arc<RefCell<RefAny>>,
-    /// Font cache (shared across all windows)
-    pub fc_cache: Arc<FcFontCache>,
     /// Async font registry for background font scanning
     pub font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
-    /// System style (shared across all windows)
-    pub system_style: Arc<azul_css::system::SystemStyle>,
     /// Dynamic selector context for evaluating conditional CSS properties
     /// (viewport size, OS, theme, etc.) - updated on resize and theme change
     pub dynamic_selector_context: azul_css::dynamic_selector::DynamicSelectorContext,
@@ -501,37 +467,39 @@ impl Win32Window {
             hwnd,
             hinstance,
             hdc: active_hdc, // Keep HDC alive for OpenGL rendering
-            layout_window: Some(layout_window),
             gl_context,
             gl_functions,
-            gl_context_ptr,
-            renderer: Some(renderer),
-            render_api,
-            hit_tester,
-            document_id,
-            id_namespace,
             new_frame_ready,
+            common: event_v2::CommonWindowState {
+                layout_window: Some(layout_window),
+                gl_context_ptr,
+                renderer: Some(renderer),
+                render_api: Some(render_api),
+                hit_tester: Some(hit_tester),
+                document_id: Some(document_id),
+                id_namespace: Some(id_namespace),
+                frame_needs_regeneration: true, // Initial render deferred to WM_PAINT
+                previous_window_state: None,
+                current_window_state,
+                image_cache: ImageCache::default(),
+                renderer_resources: RendererResources::default(),
+                last_hovered_node: None,
+                scrollbar_drag_state: None,
+                app_data,
+                fc_cache,
+                system_style,
+            },
             win32, // Store Win32 libraries for later use
             is_open: true,
             first_frame_shown: false, // Window will be shown after first SwapBuffers
-            frame_needs_regeneration: true, // Initial render deferred to WM_PAINT
-            previous_window_state: None,
-            current_window_state,
-            image_cache: ImageCache::default(),
-            renderer_resources: RendererResources::default(),
             menu_bar,
             context_menu: None,
             timers: HashMap::new(),
             thread_timer_running: None,
             high_surrogate: None,
             ime_composition: None,
-            last_hovered_node: None,
-            scrollbar_drag_state: None,
             dpi: dpi_functions,
-            app_data,
-            fc_cache,
             font_registry,
-            system_style,
             dynamic_selector_context,
             icon_provider: azul_core::icon::SharedIconProvider::from_handle(config.icon_provider.clone()),
             pending_window_creates: Vec::new(),
@@ -560,7 +528,7 @@ impl Win32Window {
         // This enables Mica/Acrylic effects on Windows 11
         {
             use azul_core::window::WindowBackgroundMaterial;
-            let initial_material = result.current_window_state.flags.background_material;
+            let initial_material = result.common.current_window_state.flags.background_material;
             if !matches!(initial_material, WindowBackgroundMaterial::Opaque) {
                 log_trace!(
                     LogCategory::Window,
@@ -577,7 +545,7 @@ impl Win32Window {
         // NOTE: We do NOT show the window here! The window will be shown by run.rs
         // after this function returns and after waiting for new_frame_ready signal.
         {
-            result.frame_needs_regeneration = true;
+            result.common.frame_needs_regeneration = true;
             let _ = result.render_and_present();
         }
         timing_log!("Render first frame (async - not waiting for completion)");
@@ -603,18 +571,18 @@ impl Win32Window {
                 .as_mut()
                 .expect("LayoutWindow should exist at this point");
             // Get app_data for callback
-            let mut app_data_ref = result.app_data.borrow_mut();
+            let mut app_data_ref = result.common.app_data.borrow_mut();
 
             let (changes, _update) = layout_window.invoke_single_callback(
                 &mut callback,
                 &mut *app_data_ref,
                 &raw_handle,
-                &result.gl_context_ptr,
-                result.system_style.clone(),
+                &result.common.gl_context_ptr,
+                result.common.system_style.clone(),
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                &result.previous_window_state,
-                &result.current_window_state,
-                &result.renderer_resources,
+                &result.common.previous_window_state,
+                &result.common.current_window_state,
+                &result.common.renderer_resources,
             );
 
             drop(app_data_ref);
@@ -622,7 +590,7 @@ impl Win32Window {
             for change in &changes {
                 let r = result.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
-                    result.frame_needs_regeneration = true;
+                    result.common.frame_needs_regeneration = true;
                 }
             }
         }
@@ -635,14 +603,14 @@ impl Win32Window {
 
             let timer_id: usize = 0xDEBE; // Special debug timer ID
             // Clone app_data so GetAppState/SetAppState can access it in the timer callback
-            let app_data_for_timer = result.app_data.borrow().clone();
+            let app_data_for_timer = result.common.app_data.borrow().clone();
             let debug_timer = crate::desktop::shell2::common::debug_server::create_debug_timer(
                 app_data_for_timer,
                 ExternalSystemCallbacks::rust_internal().get_system_time_fn,
             );
 
             // Insert into layout_window
-            if let Some(layout_window) = result.layout_window.as_mut() {
+            if let Some(layout_window) = result.common.layout_window.as_mut() {
                 layout_window
                     .timers
                     .insert(TimerId { id: timer_id }, debug_timer.clone());
@@ -770,7 +738,7 @@ impl Win32Window {
                 unsafe {
                     // glFinish() ensures all GPU commands complete before SwapBuffers
                     // This is crucial for the first frame to avoid black flash
-                    if let Some(gl) = self.gl_context_ptr.as_ref() {
+                    if let Some(gl) = self.common.gl_context_ptr.as_ref() {
                         gl.finish();
                     }
 
@@ -784,7 +752,7 @@ impl Win32Window {
             // We trust that after SwapBuffers, pixels are on screen.
             if !self.first_frame_shown {
                 // Check if user wants the window visible
-                if self.current_window_state.flags.is_visible {
+                if self.common.current_window_state.flags.is_visible {
                     log_trace!(
                         LogCategory::Rendering,
                         "[Win32] First frame rendered + SwapBuffers done - showing window NOW"
@@ -801,7 +769,7 @@ impl Win32Window {
                     // (e.g. SW_MAXIMIZE if user wants to start maximized)
                     use azul_core::window::WindowFrame;
                     use dlopen::constants::{SW_MAXIMIZE, SW_MINIMIZE, SW_SHOWNORMAL};
-                    let show_cmd = match self.current_window_state.flags.frame {
+                    let show_cmd = match self.common.current_window_state.flags.frame {
                         WindowFrame::Normal => SW_SHOWNORMAL,
                         WindowFrame::Minimized => SW_MINIMIZE,
                         WindowFrame::Maximized | WindowFrame::Fullscreen => SW_MAXIMIZE,
@@ -811,7 +779,7 @@ impl Win32Window {
                     log_trace!(
                         LogCategory::Rendering,
                         "[Win32] Window shown after first real frame (frame: {:?})",
-                        self.current_window_state.flags.frame
+                        self.common.current_window_state.flags.frame
                     );
                 }
                 self.first_frame_shown = true;
@@ -825,7 +793,7 @@ impl Win32Window {
 
             // Clean up old textures from previous epochs to prevent memory leak
             // This must happen AFTER render() and buffer swap when WebRender no longer needs the textures
-            if let Some(ref layout_window) = self.layout_window {
+            if let Some(ref layout_window) = self.common.layout_window {
                 crate::desktop::gl_texture_integration::remove_old_gl_textures(
                     &layout_window.document_id,
                     layout_window.epoch,
@@ -847,7 +815,7 @@ impl Win32Window {
 
     /// Regenerate layout (called after DOM changes)
     pub fn regenerate_layout(&mut self) -> Result<crate::desktop::shell2::common::layout_v2::LayoutRegenerateResult, String> {
-        let layout_window = self.layout_window.as_mut().ok_or("No layout window")?;
+        let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
@@ -860,17 +828,17 @@ impl Win32Window {
         // Call unified regenerate_layout from common module
         let result = crate::desktop::shell2::common::layout_v2::regenerate_layout(
             layout_window,
-            &self.app_data,
-            &self.current_window_state,
-            &mut self.renderer_resources,
-            &mut self.render_api,
-            &self.image_cache,
-            &self.gl_context_ptr,
-            &self.fc_cache,
+            &self.common.app_data,
+            &self.common.current_window_state,
+            &mut self.common.renderer_resources,
+            self.common.render_api.as_mut().unwrap(),
+            &self.common.image_cache,
+            &self.common.gl_context_ptr,
+            &self.common.fc_cache,
             &self.font_registry,
-            &self.system_style,
+            &self.common.system_style,
             &self.icon_provider,
-            self.document_id,
+            self.common.document_id.unwrap(),
             &mut debug_messages,
         )?;
 
@@ -888,7 +856,7 @@ impl Win32Window {
 
         // Update accessibility tree after layout
         #[cfg(feature = "a11y")]
-        if let Some(layout_window) = self.layout_window.as_ref() {
+        if let Some(layout_window) = self.common.layout_window.as_ref() {
             if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.clone() {
                 self.accessibility_adapter.update_tree(tree_update);
             }
@@ -914,14 +882,14 @@ impl Win32Window {
             }
         }
         
-        let layout_window = self.layout_window.as_mut().unwrap();
+        let layout_window = self.common.layout_window.as_mut().unwrap();
         crate::desktop::shell2::common::layout_v2::generate_frame(
             layout_window,
-            &mut self.render_api,
-            self.document_id,
-            &self.gl_context_ptr,
+            self.common.render_api.as_mut().unwrap(),
+            self.common.document_id.unwrap(),
+            &self.common.gl_context_ptr,
         );
-        self.render_api.flush_scene_builder();
+        self.common.render_api.as_mut().unwrap().flush_scene_builder();
 
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
@@ -935,10 +903,10 @@ impl Win32Window {
     fn update_ime_position_from_cursor(&mut self) {
         use azul_core::window::ImePosition;
 
-        if let Some(layout_window) = &self.layout_window {
+        if let Some(layout_window) = &self.common.layout_window {
             if let Some(cursor_rect) = layout_window.get_focused_cursor_rect_viewport() {
                 // Successfully calculated cursor position from text layout
-                self.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
+                self.common.current_window_state.ime_position = ImePosition::Initialized(cursor_rect);
             }
         }
     }
@@ -958,7 +926,7 @@ impl Win32Window {
     /// so that sync_window_state() works correctly for future changes.
     fn apply_initial_window_state(&mut self) {
         // is_always_on_top
-        if self.current_window_state.flags.is_always_on_top {
+        if self.common.current_window_state.flags.is_always_on_top {
             use dlopen::constants::*;
             unsafe {
                 (self.win32.user32.SetWindowPos)(
@@ -969,7 +937,7 @@ impl Win32Window {
         }
 
         // is_resizable (default is true via WS_THICKFRAME; apply if user wants non-resizable)
-        if !self.current_window_state.flags.is_resizable {
+        if !self.common.current_window_state.flags.is_resizable {
             use dlopen::constants::*;
             unsafe {
                 let style = (self.win32.user32.GetWindowLongPtrW)(self.hwnd, GWL_STYLE);
@@ -983,17 +951,17 @@ impl Win32Window {
         }
 
         // is_top_level
-        if self.current_window_state.flags.is_top_level {
+        if self.common.current_window_state.flags.is_top_level {
             let _ = self.set_is_top_level(true);
         }
 
         // prevent_system_sleep
-        if self.current_window_state.flags.prevent_system_sleep {
+        if self.common.current_window_state.flags.prevent_system_sleep {
             let _ = self.set_prevent_system_sleep(true);
         }
 
         // CRITICAL: Set previous_window_state so sync_window_state() works for future changes
-        self.previous_window_state = Some(self.current_window_state.clone());
+        self.common.previous_window_state = Some(self.common.current_window_state.clone());
     }
 
     /// Synchronize window state with Windows OS
@@ -1004,8 +972,8 @@ impl Win32Window {
         use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
 
         // Get copies of previous and current state to avoid borrow checker issues
-        let (previous, current) = match &self.previous_window_state {
-            Some(prev) => (prev.clone(), self.current_window_state.clone()),
+        let (previous, current) = match &self.common.previous_window_state {
+            Some(prev) => (prev.clone(), self.common.current_window_state.clone()),
             None => return, // First frame, nothing to sync
         };
 
@@ -1212,7 +1180,7 @@ impl Win32Window {
         }
 
         // Mouse cursor synchronization - compute from current hit test
-        if let Some(layout_window) = self.layout_window.as_ref() {
+        if let Some(layout_window) = self.common.layout_window.as_ref() {
             if let Some(hit_test) = layout_window
                 .hover_manager
                 .get_current(&InputPointId::Mouse)
@@ -1431,7 +1399,7 @@ impl Win32Window {
 
     /// Get HiDPI factor from current window
     pub fn get_hidpi_factor(&self) -> DpiScaleFactor {
-        self.current_window_state.size.get_hidpi_factor()
+        self.common.current_window_state.size.get_hidpi_factor()
     }
 
     /// GPU scroll implementation (similar to macOS)
@@ -1442,7 +1410,7 @@ impl Win32Window {
         scroll_x: f32,
         scroll_y: f32,
     ) -> Result<(), String> {
-        let layout_window = match self.layout_window.as_mut() {
+        let layout_window = match self.common.layout_window.as_mut() {
             Some(lw) => lw,
             None => return Err("No layout window".into()),
         };
@@ -1486,11 +1454,11 @@ impl Win32Window {
         // Generate frame with updated scroll state
         crate::desktop::shell2::common::layout_v2::generate_frame(
             layout_window,
-            &mut self.render_api,
-            self.document_id,
-            &self.gl_context_ptr,
+            self.common.render_api.as_mut().unwrap(),
+            self.common.document_id.unwrap(),
+            &self.common.gl_context_ptr,
         );
-        self.render_api.flush_scene_builder();
+        self.common.render_api.as_mut().unwrap().flush_scene_builder();
 
         Ok(())
     }
@@ -1518,8 +1486,8 @@ impl Win32Window {
         }
 
         // Check for close request
-        if self.current_window_state.flags.close_requested {
-            self.current_window_state.flags.close_requested = false;
+        if self.common.current_window_state.flags.close_requested {
+            self.common.current_window_state.flags.close_requested = false;
             // Close request will be handled by window_proc setting WM_QUIT
             return true;
         }
@@ -1568,7 +1536,7 @@ impl Win32Window {
             // Check regular hit test nodes
             for (node_id, hit_item) in &node_hit_test.regular_hit_test_nodes {
                 // Try to get the context menu by cloning it
-                let context_menu = if let Some(ref lw) = self.layout_window {
+                let context_menu = if let Some(ref lw) = self.common.layout_window {
                     if let Some(lr) = lw.layout_results.get(dom_id) {
                         if let Some(nd) = lr
                             .styled_dom
@@ -1589,7 +1557,7 @@ impl Win32Window {
 
                 if let Some(menu) = context_menu {
                     // Check if native context menus are enabled
-                    if self.current_window_state.flags.use_native_context_menus {
+                    if self.common.current_window_state.flags.use_native_context_menus {
                         self.show_native_context_menu(&menu, client_x, client_y, *dom_id, *node_id);
                     } else {
                         self.show_window_based_context_menu(
@@ -1685,7 +1653,7 @@ impl Win32Window {
         let cursor_pos = LogicalPosition::new(pt.x as f32, pt.y as f32);
 
         // Get parent window position
-        let parent_pos = match self.current_window_state.position {
+        let parent_pos = match self.common.current_window_state.position {
             azul_core::window::WindowPosition::Initialized(pos) => {
                 LogicalPosition::new(pos.x as f32, pos.y as f32)
             }
@@ -1696,7 +1664,7 @@ impl Win32Window {
         // This is identical to how menu bar menus work, but with cursor_pos instead of trigger_rect
         let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
-            self.system_style.clone(),
+            self.common.system_style.clone(),
             parent_pos,
             None,             // No trigger rect for context menus (they spawn at cursor)
             Some(cursor_pos), // Cursor position for menu positioning
@@ -1852,13 +1820,13 @@ unsafe extern "system" fn window_proc(
             log_debug!(LogCategory::Window, "[Win32] WM_CLOSE - Close requested");
             // User clicked close button - set close_requested flag
             // and process callbacks to allow cancellation
-            window.current_window_state.flags.close_requested = true;
+            window.common.current_window_state.flags.close_requested = true;
 
             // Process window events to trigger OnWindowClose callback
             let _ = window.process_window_events_recursive_v2(0);
 
             // Check if callback cancelled the close
-            if window.current_window_state.flags.close_requested {
+            if window.common.current_window_state.flags.close_requested {
                 // Not cancelled - proceed with close
                 window.is_open = false;
                 (window.win32.user32.DestroyWindow)(hwnd);
@@ -1877,12 +1845,12 @@ unsafe extern "system" fn window_proc(
 
         WM_PAINT => {
             // Render frame if needed
-            if window.frame_needs_regeneration {
+            if window.common.frame_needs_regeneration {
                 // Initial render: build display list and generate frame
                 if let Err(e) = window.regenerate_layout() {
                     log_error!(LogCategory::Layout, "Layout regeneration error: {:?}", e);
                 }
-                window.frame_needs_regeneration = false;
+                window.common.frame_needs_regeneration = false;
             }
 
             match window.render_and_present() {
@@ -1903,7 +1871,7 @@ unsafe extern "system" fn window_proc(
                 use azul_core::{geom::PhysicalSizeU32, window::WindowSize};
 
                 let physical_size = PhysicalSizeU32::new(width, height);
-                let dpi = window.current_window_state.size.dpi;
+                let dpi = window.common.current_window_state.size.dpi;
                 let hidpi_factor = dpi as f32 / 96.0;
                 let logical_size = physical_size.to_logical(hidpi_factor);
 
@@ -1936,7 +1904,7 @@ unsafe extern "system" fn window_proc(
                 }
 
                 // Update window state
-                let mut new_window_state = window.current_window_state.clone();
+                let mut new_window_state = window.common.current_window_state.clone();
                 new_window_state.size.dimensions = logical_size;
 
                 // Determine window frame state
@@ -1956,7 +1924,7 @@ unsafe extern "system" fn window_proc(
 
                 use crate::desktop::wr_translate2::wr_translate_document_id;
 
-                let hidpi_factor = window.current_window_state.size.get_hidpi_factor();
+                let hidpi_factor = window.common.current_window_state.size.get_hidpi_factor();
                 let mut txn = WrTransaction::new();
                 // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
                 txn.set_document_view(
@@ -1964,16 +1932,16 @@ unsafe extern "system" fn window_proc(
                     DevicePixelScale::new(hidpi_factor.inner.get()),
                 );
 
-                window
-                    .render_api
-                    .send_transaction(wr_translate_document_id(window.document_id), txn);
+                window.common
+                    .render_api.as_mut().unwrap()
+                    .send_transaction(wr_translate_document_id(window.common.document_id.unwrap()), txn);
 
                 // Update previous and current window state
-                window.previous_window_state = Some(window.current_window_state.clone());
-                window.current_window_state = new_window_state;
+                window.common.previous_window_state = Some(window.common.current_window_state.clone());
+                window.common.current_window_state = new_window_state;
 
                 // Resize requires full display list rebuild
-                window.frame_needs_regeneration = true;
+                window.common.frame_needs_regeneration = true;
 
                 // Request redraw (will trigger regenerate_layout in WM_PAINT)
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
@@ -1993,7 +1961,7 @@ unsafe extern "system" fn window_proc(
             let pos = azul_core::window::WindowPosition::Initialized(
                 azul_core::geom::PhysicalPositionI32::new(x, y),
             );
-            window.current_window_state.position = pos;
+            window.common.current_window_state.position = pos;
 
             // Detect which monitor the window is on via MonitorFromWindow
             // This updates monitor_id so that DPI/MonitorChanged events can fire
@@ -2026,13 +1994,13 @@ unsafe extern "system" fn window_proc(
                     };
                     if unsafe { GetMonitorInfoW(hmonitor, &mut mi) } != 0 {
                         // Find matching monitor in cache by position
-                        if let Some(ref lw) = window.layout_window {
+                        if let Some(ref lw) = window.common.layout_window {
                             if let Ok(guard) = lw.monitors.lock() {
                                 for m in guard.as_ref().iter() {
                                     if m.position.x == mi.rcMonitor.left as isize
                                         && m.position.y == mi.rcMonitor.top as isize
                                     {
-                                        window.current_window_state.monitor_id =
+                                        window.common.current_window_state.monitor_id =
                                             azul_css::corety::OptionU32::Some(m.monitor_id.index as u32);
                                         break;
                                     }
@@ -2043,9 +2011,9 @@ unsafe extern "system" fn window_proc(
                 }
             }
 
-            if let Some(ref mut lw) = window.layout_window {
+            if let Some(ref mut lw) = window.common.layout_window {
                 lw.current_window_state.position = pos;
-                lw.current_window_state.monitor_id = window.current_window_state.monitor_id;
+                lw.current_window_state.monitor_id = window.common.current_window_state.monitor_id;
             }
             0
         }
@@ -2057,27 +2025,27 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.current_window_state.size.get_hidpi_factor();
+            let hidpi_factor = window.common.current_window_state.size.get_hidpi_factor();
             let logical_pos = LogicalPosition::new(
                 x as f32 / hidpi_factor.inner.get(),
                 y as f32 / hidpi_factor.inner.get(),
             );
 
             // Handle active scrollbar drag (special case - not part of normal event system)
-            if window.scrollbar_drag_state.is_some() {
+            if window.common.scrollbar_drag_state.is_some() {
                 PlatformWindowV2::handle_scrollbar_drag(&mut *window, logical_pos);
                 return 0;
             }
 
             // Save previous state BEFORE making changes
-            window.previous_window_state = Some(window.current_window_state.clone());
+            window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
             // Update mouse state
-            window.current_window_state.mouse_state.cursor_position =
+            window.common.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(logical_pos);
 
             // Record input sample for gesture detection (movement during button press)
-            let button_state = if window.current_window_state.mouse_state.left_down {
+            let button_state = if window.common.current_window_state.mouse_state.left_down {
                 0x01
             } else {
                 0x00
@@ -2093,13 +2061,13 @@ unsafe extern "system" fn window_proc(
             window.record_input_sample(logical_pos, button_state, false, false, Some(screen_pos));
 
             // Update hit test
-            if let Some(ref mut layout_window) = window.layout_window {
+            if let Some(ref mut layout_window) = window.common.layout_window {
                 use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
-                let hit_tester = window.hit_tester.resolve();
+                let hit_tester = window.common.hit_tester.as_mut().unwrap().resolve();
                 let hit_test = fullhittest_new_webrender(
                     &*hit_tester,
-                    window.document_id,
+                    window.common.document_id.unwrap(),
                     layout_window.focus_manager.get_focused_node().copied(),
                     &layout_window.layout_results,
                     &CursorPosition::InWindow(logical_pos),
@@ -2117,8 +2085,8 @@ unsafe extern "system" fn window_proc(
                 let new = OptionMouseCursorType::Some(new_cursor_type);
 
                 // Update cursor type if changed
-                if window.current_window_state.mouse_state.mouse_cursor_type != new {
-                    window.current_window_state.mouse_state.mouse_cursor_type = new;
+                if window.common.current_window_state.mouse_state.mouse_cursor_type != new {
+                    window.common.current_window_state.mouse_state.mouse_cursor_type = new;
                     event::set_cursor(new_cursor_type, &window.win32);
                 }
             }
@@ -2149,10 +2117,10 @@ unsafe extern "system" fn window_proc(
         WM_MOUSELEAVE => {
             // Mouse left the window area
             // Save previous state
-            window.previous_window_state = Some(window.current_window_state.clone());
+            window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
             // Get last known position, or default
-            let last_pos = match window.current_window_state.mouse_state.cursor_position {
+            let last_pos = match window.common.current_window_state.mouse_state.cursor_position {
                 CursorPosition::InWindow(pos) => pos,
                 CursorPosition::OutOfWindow(pos) => pos,
                 CursorPosition::Uninitialized => LogicalPosition::new(0.0, 0.0),
@@ -2160,7 +2128,7 @@ unsafe extern "system" fn window_proc(
 
             // Clear mouse position (mouse is outside window)
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
-            window.current_window_state.mouse_state.cursor_position =
+            window.common.current_window_state.mouse_state.cursor_position =
                 CursorPosition::OutOfWindow(last_pos);
 
             // Process events - this will trigger MouseLeave callbacks
@@ -2181,7 +2149,7 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.current_window_state.size.get_hidpi_factor();
+            let hidpi_factor = window.common.current_window_state.size.get_hidpi_factor();
             let logical_pos = LogicalPosition::new(
                 x as f32 / hidpi_factor.inner.get(),
                 y as f32 / hidpi_factor.inner.get(),
@@ -2200,12 +2168,12 @@ unsafe extern "system" fn window_proc(
             }
 
             // Save previous state BEFORE making changes
-            window.previous_window_state = Some(window.current_window_state.clone());
+            window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
             // Update mouse state
-            window.current_window_state.mouse_state.cursor_position =
+            window.common.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(logical_pos);
-            window.current_window_state.mouse_state.left_down = true;
+            window.common.current_window_state.mouse_state.left_down = true;
 
             // Record input sample for gesture detection (button down starts new session)
             // Use GetCursorPos for accurate screen-absolute position (physical pixels → logical)
@@ -2218,13 +2186,13 @@ unsafe extern "system" fn window_proc(
             window.record_input_sample(logical_pos, 0x01, true, false, Some(screen_pos));
 
             // Update hit test
-            if let Some(ref mut layout_window) = window.layout_window {
+            if let Some(ref mut layout_window) = window.common.layout_window {
                 use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
-                let hit_tester = window.hit_tester.resolve();
+                let hit_tester = window.common.hit_tester.as_mut().unwrap().resolve();
                 let hit_test = fullhittest_new_webrender(
                     &*hit_tester,
-                    window.document_id,
+                    window.common.document_id.unwrap(),
                     layout_window.focus_manager.get_focused_node().copied(),
                     &layout_window.layout_results,
                     &CursorPosition::InWindow(logical_pos),
@@ -2257,15 +2225,15 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.current_window_state.size.get_hidpi_factor();
+            let hidpi_factor = window.common.current_window_state.size.get_hidpi_factor();
             let logical_pos = LogicalPosition::new(
                 x as f32 / hidpi_factor.inner.get(),
                 y as f32 / hidpi_factor.inner.get(),
             );
 
             // End scrollbar drag if active (before state changes)
-            if window.scrollbar_drag_state.is_some() {
-                window.scrollbar_drag_state = None;
+            if window.common.scrollbar_drag_state.is_some() {
+                window.common.scrollbar_drag_state = None;
                 unsafe {
                     (window.win32.user32.ReleaseCapture)();
                 }
@@ -2273,12 +2241,12 @@ unsafe extern "system" fn window_proc(
             }
 
             // Save previous state BEFORE making changes
-            window.previous_window_state = Some(window.current_window_state.clone());
+            window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
             // Update mouse state
-            window.current_window_state.mouse_state.cursor_position =
+            window.common.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(logical_pos);
-            window.current_window_state.mouse_state.left_down = false;
+            window.common.current_window_state.mouse_state.left_down = false;
 
             // Record input sample for gesture detection (button up ends session)
             // Use GetCursorPos for accurate screen-absolute position (physical pixels → logical)
@@ -2291,13 +2259,13 @@ unsafe extern "system" fn window_proc(
             window.record_input_sample(logical_pos, 0x00, false, true, Some(screen_pos));
 
             // Update hit test
-            if let Some(ref mut layout_window) = window.layout_window {
+            if let Some(ref mut layout_window) = window.common.layout_window {
                 use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
-                let hit_tester = window.hit_tester.resolve();
+                let hit_tester = window.common.hit_tester.as_mut().unwrap().resolve();
                 let hit_test = fullhittest_new_webrender(
                     &*hit_tester,
-                    window.document_id,
+                    window.common.document_id.unwrap(),
                     layout_window.focus_manager.get_focused_node().copied(),
                     &layout_window.layout_results,
                     &CursorPosition::InWindow(logical_pos),
@@ -2330,28 +2298,28 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.current_window_state.size.get_hidpi_factor();
+            let hidpi_factor = window.common.current_window_state.size.get_hidpi_factor();
             let logical_pos = LogicalPosition::new(
                 x as f32 / hidpi_factor.inner.get(),
                 y as f32 / hidpi_factor.inner.get(),
             );
 
             // Save previous state BEFORE making changes
-            window.previous_window_state = Some(window.current_window_state.clone());
+            window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
             // Update mouse state
-            window.current_window_state.mouse_state.cursor_position =
+            window.common.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(logical_pos);
-            window.current_window_state.mouse_state.right_down = true;
+            window.common.current_window_state.mouse_state.right_down = true;
 
             // Update hit test
-            if let Some(ref mut layout_window) = window.layout_window {
+            if let Some(ref mut layout_window) = window.common.layout_window {
                 use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
-                let hit_tester = window.hit_tester.resolve();
+                let hit_tester = window.common.hit_tester.as_mut().unwrap().resolve();
                 let hit_test = fullhittest_new_webrender(
                     &*hit_tester,
-                    window.document_id,
+                    window.common.document_id.unwrap(),
                     layout_window.focus_manager.get_focused_node().copied(),
                     &layout_window.layout_results,
                     &CursorPosition::InWindow(logical_pos),
@@ -2381,28 +2349,28 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.current_window_state.size.get_hidpi_factor();
+            let hidpi_factor = window.common.current_window_state.size.get_hidpi_factor();
             let logical_pos = LogicalPosition::new(
                 x as f32 / hidpi_factor.inner.get(),
                 y as f32 / hidpi_factor.inner.get(),
             );
 
             // Save previous state BEFORE making changes
-            window.previous_window_state = Some(window.current_window_state.clone());
+            window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
             // Update mouse state
-            window.current_window_state.mouse_state.cursor_position =
+            window.common.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(logical_pos);
-            window.current_window_state.mouse_state.right_down = false;
+            window.common.current_window_state.mouse_state.right_down = false;
 
             // Update hit test
-            if let Some(ref mut layout_window) = window.layout_window {
+            if let Some(ref mut layout_window) = window.common.layout_window {
                 use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
-                let hit_tester = window.hit_tester.resolve();
+                let hit_tester = window.common.hit_tester.as_mut().unwrap().resolve();
                 let hit_test = fullhittest_new_webrender(
                     &*hit_tester,
-                    window.document_id,
+                    window.common.document_id.unwrap(),
                     layout_window.focus_manager.get_focused_node().copied(),
                     &layout_window.layout_results,
                     &CursorPosition::InWindow(logical_pos),
@@ -2437,18 +2405,18 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let dpi = window.current_window_state.size.dpi;
+            let dpi = window.common.current_window_state.size.dpi;
             let hidpi_factor = dpi as f32 / 96.0;
             let logical_pos =
                 LogicalPosition::new(x as f32 / hidpi_factor, y as f32 / hidpi_factor);
 
             // Save previous state
-            window.previous_window_state = Some(window.current_window_state.clone());
+            window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
             // Update mouse state
-            window.current_window_state.mouse_state.cursor_position =
+            window.common.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(logical_pos);
-            window.current_window_state.mouse_state.middle_down = true;
+            window.common.current_window_state.mouse_state.middle_down = true;
 
             // V2 system will detect MouseDown event
             let result = window.process_window_events_recursive_v2(0);
@@ -2467,18 +2435,18 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let dpi = window.current_window_state.size.dpi;
+            let dpi = window.common.current_window_state.size.dpi;
             let hidpi_factor = dpi as f32 / 96.0;
             let logical_pos =
                 LogicalPosition::new(x as f32 / hidpi_factor, y as f32 / hidpi_factor);
 
             // Save previous state
-            window.previous_window_state = Some(window.current_window_state.clone());
+            window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
             // Update mouse state
-            window.current_window_state.mouse_state.cursor_position =
+            window.common.current_window_state.mouse_state.cursor_position =
                 CursorPosition::InWindow(logical_pos);
-            window.current_window_state.mouse_state.middle_down = false;
+            window.common.current_window_state.mouse_state.middle_down = false;
 
             // V2 system will detect MouseUp event
             let result = window.process_window_events_recursive_v2(0);
@@ -2500,14 +2468,14 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.current_window_state.size.get_hidpi_factor();
+            let hidpi_factor = window.common.current_window_state.size.get_hidpi_factor();
             let logical_pos = LogicalPosition::new(
                 x as f32 / hidpi_factor.inner.get(),
                 y as f32 / hidpi_factor.inner.get(),
             );
 
             // Save previous state
-            window.previous_window_state = Some(window.current_window_state.clone());
+            window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
             // Queue scroll input for the physics timer instead of directly setting offsets.
             // The timer will consume these via ScrollInputQueue and push CallbackChange::ScrollTo.
@@ -2515,7 +2483,7 @@ unsafe extern "system" fn window_proc(
                 let mut should_start_timer = false;
                 let mut input_queue_clone = None;
 
-                if let Some(ref mut layout_window) = window.layout_window {
+                if let Some(ref mut layout_window) = window.common.layout_window {
                     use azul_core::task::Instant;
                     use azul_layout::managers::scroll_state::ScrollInputSource;
 
@@ -2549,8 +2517,8 @@ unsafe extern "system" fn window_proc(
                         use azul_core::refany::RefAny;
                         use azul_core::task::Duration;
 
-                        let physics_state = ScrollPhysicsState::new(queue, window.system_style.scroll_physics.clone());
-                        let interval_ms = window.system_style.scroll_physics.timer_interval_ms;
+                        let physics_state = ScrollPhysicsState::new(queue, window.common.system_style.scroll_physics.clone());
+                        let interval_ms = window.common.system_style.scroll_physics.timer_interval_ms;
                         let data = RefAny::new(physics_state);
                         let timer = Timer::create(
                             data,
@@ -2568,13 +2536,13 @@ unsafe extern "system" fn window_proc(
             }
 
             // Update hit test
-            if let Some(ref mut layout_window) = window.layout_window {
+            if let Some(ref mut layout_window) = window.common.layout_window {
                 use crate::desktop::wr_translate2::fullhittest_new_webrender;
 
-                let hit_tester = window.hit_tester.resolve();
+                let hit_tester = window.common.hit_tester.as_mut().unwrap().resolve();
                 let hit_test = fullhittest_new_webrender(
                     &*hit_tester,
-                    window.document_id,
+                    window.common.document_id.unwrap(),
                     layout_window.focus_manager.get_focused_node().copied(),
                     &layout_window.layout_results,
                     &CursorPosition::InWindow(logical_pos),
@@ -2605,7 +2573,7 @@ unsafe extern "system" fn window_proc(
             // Translate virtual key to azul key
             if let Some(virtual_key) = event::vkey_to_winit_vkey(vk_code as i32) {
                 // Save previous state
-                window.previous_window_state = Some(window.current_window_state.clone());
+                window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
                 // Update keyboard state
                 window
@@ -2643,7 +2611,7 @@ unsafe extern "system" fn window_proc(
             // Translate virtual key
             if let Some(virtual_key) = event::vkey_to_winit_vkey(vk_code as i32) {
                 // Save previous state
-                window.previous_window_state = Some(window.current_window_state.clone());
+                window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
                 // Update keyboard state
                 window
@@ -2703,10 +2671,10 @@ unsafe extern "system" fn window_proc(
 
             // Update keyboard state with character
             if let Some(chr) = char_opt {
-                window.previous_window_state = Some(window.current_window_state.clone());
+                window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
                 // Record text input in the TextInputManager
-                if let Some(ref mut layout_window) = window.layout_window {
+                if let Some(ref mut layout_window) = window.common.layout_window {
                     let text_str = chr.to_string();
                     layout_window.record_text_input(&text_str);
                 }
@@ -2812,10 +2780,10 @@ unsafe extern "system" fn window_proc(
 
             if let Some(chr) = char::from_u32(char_code) {
                 if !chr.is_control() {
-                    window.previous_window_state = Some(window.current_window_state.clone());
+                    window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
                     // Record text input in the TextInputManager
-                    if let Some(ref mut layout_window) = window.layout_window {
+                    if let Some(ref mut layout_window) = window.common.layout_window {
                         let text_str = chr.to_string();
                         layout_window.record_text_input(&text_str);
                     }
@@ -2839,9 +2807,9 @@ unsafe extern "system" fn window_proc(
 
         WM_SETFOCUS => {
             // Window gained focus
-            window.previous_window_state = Some(window.current_window_state.clone());
-            window.current_window_state.flags.has_focus = true;
-            window.current_window_state.window_focused = true;
+            window.common.previous_window_state = Some(window.common.current_window_state.clone());
+            window.common.current_window_state.flags.has_focus = true;
+            window.common.current_window_state.window_focused = true;
             window.dynamic_selector_context.window_focused = true;
 
             // Phase 2: OnFocus callback - sync IME position after focus
@@ -2852,9 +2820,9 @@ unsafe extern "system" fn window_proc(
 
         WM_KILLFOCUS => {
             // Window lost focus
-            window.previous_window_state = Some(window.current_window_state.clone());
-            window.current_window_state.flags.has_focus = false;
-            window.current_window_state.window_focused = false;
+            window.common.previous_window_state = Some(window.common.current_window_state.clone());
+            window.common.current_window_state.flags.has_focus = false;
+            window.common.current_window_state.window_focused = false;
             window.dynamic_selector_context.window_focused = false;
 
             0
@@ -2907,7 +2875,7 @@ unsafe extern "system" fn window_proc(
                 };
 
                 // Get layout window
-                if let Some(layout_window) = window.layout_window.as_mut() {
+                if let Some(layout_window) = window.common.layout_window.as_mut() {
                     use azul_core::window::RawWindowHandle;
 
                     let raw_handle = RawWindowHandle::Windows(azul_core::window::WindowsHandle {
@@ -2919,12 +2887,12 @@ unsafe extern "system" fn window_proc(
                         &mut menu_callback.callback,
                         &mut menu_callback.refany,
                         &raw_handle,
-                        &window.gl_context_ptr,
-                        window.system_style.clone(),
+                        &window.common.gl_context_ptr,
+                        window.common.system_style.clone(),
                         &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
-                        &window.previous_window_state,
-                        &window.current_window_state,
-                        &window.renderer_resources,
+                        &window.common.previous_window_state,
+                        &window.common.current_window_state,
+                        &window.common.renderer_resources,
                     );
 
                     use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
@@ -2952,7 +2920,7 @@ unsafe extern "system" fn window_proc(
                         | ProcessEventResult::ShouldReRenderCurrentWindow
                         | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                         | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                            window.frame_needs_regeneration = true;
+                            window.common.frame_needs_regeneration = true;
                             (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                         }
                         ProcessEventResult::DoNothing => {
@@ -2981,10 +2949,10 @@ unsafe extern "system" fn window_proc(
             let new_dpi = ((wparam >> 16) & 0xFFFF) as u32;
 
             // Save previous state
-            window.previous_window_state = Some(window.current_window_state.clone());
+            window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
             // Update DPI in window state
-            window.current_window_state.size.dpi = new_dpi;
+            window.common.current_window_state.size.dpi = new_dpi;
 
             // Get suggested size from lParam (RECT*)
             if lparam != 0 {
@@ -3010,11 +2978,11 @@ unsafe extern "system" fn window_proc(
                 let physical_size = PhysicalSizeU32::new(width as u32, height as u32);
                 let hidpi_factor = new_dpi as f32 / 96.0;
                 let logical_size = physical_size.to_logical(hidpi_factor);
-                window.current_window_state.size.dimensions = logical_size;
+                window.common.current_window_state.size.dimensions = logical_size;
             }
 
             // DPI change requires full relayout
-            window.frame_needs_regeneration = true;
+            window.common.frame_needs_regeneration = true;
 
             // Request redraw
             unsafe {
@@ -3062,10 +3030,10 @@ unsafe extern "system" fn window_proc(
 
                     // Update window state with dropped files
                     if !dropped_files.is_empty() {
-                        window.previous_window_state = Some(window.current_window_state.clone());
+                        window.common.previous_window_state = Some(window.common.current_window_state.clone());
 
                         // Store first file in cursor_manager (API limitation)
-                        if let Some(ref mut layout_window) = window.layout_window {
+                        if let Some(ref mut layout_window) = window.common.layout_window {
                             if let Some(first_file) = dropped_files.first() {
                                 layout_window
                                     .file_drop_manager
@@ -3077,7 +3045,7 @@ unsafe extern "system" fn window_proc(
                         window.process_window_events_recursive_v2(0);
 
                         // Clear dropped file after processing
-                        if let Some(ref mut layout_window) = window.layout_window {
+                        if let Some(ref mut layout_window) = window.common.layout_window {
                             layout_window.file_drop_manager.set_dropped_file(None);
                         }
                     }
@@ -3090,7 +3058,7 @@ unsafe extern "system" fn window_proc(
         WM_DISPLAYCHANGE => {
             // Monitor topology changed (monitor added/removed/resolution changed)
             // Refresh the cached monitor list
-            if let Some(ref lw) = window.layout_window {
+            if let Some(ref lw) = window.common.layout_window {
                 if let Ok(mut guard) = lw.monitors.lock() {
                     *guard = crate::desktop::display::get_monitors();
                 }
@@ -3224,7 +3192,7 @@ impl Win32Window {
 
     pub fn request_redraw(&mut self) {
         // Mark that frame needs regeneration
-        self.frame_needs_regeneration = true;
+        self.common.frame_needs_regeneration = true;
 
         // Post WM_PAINT message to trigger redraw
         unsafe {
@@ -3246,7 +3214,7 @@ impl Win32Window {
     pub fn inject_menu_bar(&mut self) -> Result<(), String> {
         // Extract menu from current window state (clone since we can't return a reference)
         let menu_opt: Option<azul_core::menu::Menu> =
-            if let Some(layout_window) = self.layout_window.as_ref() {
+            if let Some(layout_window) = self.common.layout_window.as_ref() {
                 // Get menu from layout_window's root DOM (dom_id 0, node_id 0)
                 layout_window
                     .layout_results
@@ -3465,125 +3433,14 @@ impl Win32Window {
 // PlatformWindowV2 Trait Implementation
 
 impl PlatformWindowV2 for Win32Window {
-    // REQUIRED: Simple Getter Methods
 
-    fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
-        self.layout_window.as_mut()
-    }
-
-    fn get_layout_window(&self) -> Option<&LayoutWindow> {
-        self.layout_window.as_ref()
-    }
-
-    fn get_current_window_state(&self) -> &FullWindowState {
-        &self.current_window_state
-    }
-
-    fn get_current_window_state_mut(&mut self) -> &mut FullWindowState {
-        &mut self.current_window_state
-    }
-
-    fn get_previous_window_state(&self) -> &Option<FullWindowState> {
-        &self.previous_window_state
-    }
-
-    fn set_previous_window_state(&mut self, state: FullWindowState) {
-        self.previous_window_state = Some(state);
-    }
-
-    fn get_image_cache_mut(&mut self) -> &mut ImageCache {
-        &mut self.image_cache
-    }
-
-    fn get_renderer_resources_mut(&mut self) -> &mut RendererResources {
-        &mut self.renderer_resources
-    }
-
-    fn get_fc_cache(&self) -> &Arc<FcFontCache> {
-        &self.fc_cache
-    }
-
-    fn get_gl_context_ptr(&self) -> &OptionGlContextPtr {
-        &self.gl_context_ptr
-    }
-
-    fn get_system_style(&self) -> &Arc<azul_css::system::SystemStyle> {
-        &self.system_style
-    }
-
-    fn get_app_data(&self) -> &Arc<RefCell<RefAny>> {
-        &self.app_data
-    }
-
-    fn get_scrollbar_drag_state(&self) -> Option<&ScrollbarDragState> {
-        self.scrollbar_drag_state.as_ref()
-    }
-
-    fn get_scrollbar_drag_state_mut(&mut self) -> &mut Option<ScrollbarDragState> {
-        &mut self.scrollbar_drag_state
-    }
-
-    fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
-        self.scrollbar_drag_state = state;
-    }
-
-    fn get_hit_tester(&self) -> &AsyncHitTester {
-        &self.hit_tester
-    }
-
-    fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester {
-        &mut self.hit_tester
-    }
-
-    fn get_last_hovered_node(&self) -> Option<&event_v2::HitTestNode> {
-        self.last_hovered_node.as_ref()
-    }
-
-    fn set_last_hovered_node(&mut self, node: Option<event_v2::HitTestNode>) {
-        self.last_hovered_node = node;
-    }
-
-    fn get_document_id(&self) -> DocumentId {
-        self.document_id
-    }
-
-    fn get_id_namespace(&self) -> IdNamespace {
-        self.id_namespace
-    }
-
-    fn get_render_api(&self) -> &WrRenderApi {
-        &self.render_api
-    }
-
-    fn get_render_api_mut(&mut self) -> &mut WrRenderApi {
-        &mut self.render_api
-    }
-
-    fn get_renderer(&self) -> Option<&webrender::Renderer> {
-        self.renderer.as_ref()
-    }
-
-    fn get_renderer_mut(&mut self) -> Option<&mut webrender::Renderer> {
-        self.renderer.as_mut()
-    }
+    impl_platform_window_getters!(common);
 
     fn get_raw_window_handle(&self) -> RawWindowHandle {
         RawWindowHandle::Windows(WindowsHandle {
             hwnd: self.hwnd as *mut std::ffi::c_void,
             hinstance: self.hinstance as *mut std::ffi::c_void,
         })
-    }
-
-    fn needs_frame_regeneration(&self) -> bool {
-        self.frame_needs_regeneration
-    }
-
-    fn mark_frame_needs_regeneration(&mut self) {
-        self.frame_needs_regeneration = true;
-    }
-
-    fn clear_frame_regeneration_flag(&mut self) {
-        self.frame_needs_regeneration = false;
     }
 
     fn prepare_callback_invocation(&mut self) -> event_v2::InvokeSingleCallbackBorrows {
@@ -3598,13 +3455,13 @@ impl PlatformWindowV2 for Win32Window {
                 hwnd: self.hwnd as *mut std::ffi::c_void,
                 hinstance: self.hinstance as *mut std::ffi::c_void,
             }),
-            gl_context_ptr: &self.gl_context_ptr,
-            image_cache: &mut self.image_cache,
-            fc_cache_clone: (*self.fc_cache).clone(),
-            system_style: self.system_style.clone(),
-            previous_window_state: &self.previous_window_state,
-            current_window_state: &self.current_window_state,
-            renderer_resources: &mut self.renderer_resources,
+            gl_context_ptr: &self.common.gl_context_ptr,
+            image_cache: &mut self.common.image_cache,
+            fc_cache_clone: (*self.common.fc_cache).clone(),
+            system_style: self.common.system_style.clone(),
+            previous_window_state: &self.common.previous_window_state,
+            current_window_state: &self.common.current_window_state,
+            renderer_resources: &mut self.common.renderer_resources,
         }
     }
 
@@ -3620,7 +3477,7 @@ impl PlatformWindowV2 for Win32Window {
         self.timers.insert(timer_id, win32_timer_id);
 
         // Also store in layout_window for tick_timers() to work
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window
                 .timers
                 .insert(azul_core::task::TimerId { id: timer_id }, timer);
@@ -3636,7 +3493,7 @@ impl PlatformWindowV2 for Win32Window {
         }
 
         // Remove from layout_window
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window
                 .timers
                 .remove(&azul_core::task::TimerId { id: timer_id });
@@ -3672,7 +3529,7 @@ impl PlatformWindowV2 for Win32Window {
         &mut self,
         threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
     ) {
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             for (thread_id, thread) in threads {
                 layout_window.threads.insert(thread_id, thread);
             }
@@ -3683,7 +3540,7 @@ impl PlatformWindowV2 for Win32Window {
         &mut self,
         thread_ids: &std::collections::BTreeSet<azul_core::task::ThreadId>,
     ) {
-        if let Some(layout_window) = self.layout_window.as_mut() {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
             for thread_id in thread_ids {
                 layout_window.threads.remove(thread_id);
             }
@@ -3702,7 +3559,7 @@ impl PlatformWindowV2 for Win32Window {
         position: azul_core::geom::LogicalPosition,
     ) {
         // Check if native menus are enabled
-        if self.current_window_state.flags.use_native_context_menus {
+        if self.common.current_window_state.flags.use_native_context_menus {
             // Show native Win32 menu
             self.show_native_menu_at_position(menu, position);
         } else {
@@ -3757,7 +3614,7 @@ impl Win32Window {
         position: azul_core::geom::LogicalPosition,
     ) {
         // Get parent window position
-        let parent_pos = match self.current_window_state.position {
+        let parent_pos = match self.common.current_window_state.position {
             azul_core::window::WindowPosition::Initialized(pos) => {
                 azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
             }
@@ -3767,7 +3624,7 @@ impl Win32Window {
         // Create menu window options
         let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
-            self.system_style.clone(),
+            self.common.system_style.clone(),
             parent_pos,
             None,           // No trigger rect
             Some(position), // Position for menu
@@ -3894,7 +3751,7 @@ impl Win32Window {
     pub fn sync_ime_position_to_os(&self) {
         use azul_core::window::ImePosition;
 
-        if let ImePosition::Initialized(rect) = self.current_window_state.ime_position {
+        if let ImePosition::Initialized(rect) = self.common.current_window_state.ime_position {
             self.set_ime_composition_window(rect);
         }
     }
