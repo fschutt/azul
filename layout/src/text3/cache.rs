@@ -4115,6 +4115,163 @@ impl UnifiedLayout {
         }
         cursor
     }
+
+    /// Moves a cursor one word to the left (Ctrl+Left / Option+Left).
+    ///
+    /// Word boundaries are defined by whitespace: the cursor moves past any
+    /// whitespace to the left, then past non-whitespace characters until
+    /// the next whitespace or start of text.
+    pub fn move_cursor_to_prev_word(
+        &self,
+        cursor: TextCursor,
+        debug: &mut Option<Vec<String>>,
+    ) -> TextCursor {
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_to_prev_word: starting at byte {}, affinity {:?}",
+                cursor.cluster_id.start_byte_in_run, cursor.affinity
+            ));
+        }
+
+        let current_pos = match self.items.iter().position(|i| {
+            i.item
+                .as_cluster()
+                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+        }) {
+            Some(pos) => pos,
+            None => return cursor,
+        };
+
+        // Phase 1: Skip whitespace going left
+        let mut pos = if cursor.affinity == CursorAffinity::Leading {
+            // Already at leading edge, start from previous item
+            current_pos.checked_sub(1)
+        } else {
+            // At trailing edge, start from current item
+            Some(current_pos)
+        };
+
+        // Skip whitespace
+        while let Some(p) = pos {
+            if let Some(cluster) = self.items[p].item.as_cluster() {
+                if !cluster.text.chars().all(|c| c.is_whitespace()) {
+                    break;
+                }
+            }
+            pos = p.checked_sub(1);
+        }
+
+        // Phase 2: Skip non-whitespace going left (the word itself)
+        while let Some(p) = pos {
+            if let Some(cluster) = self.items[p].item.as_cluster() {
+                if cluster.text.chars().all(|c| c.is_whitespace()) {
+                    // We've reached whitespace before the word — stop at next cluster
+                    if p + 1 < self.items.len() {
+                        if let Some(c) = self.items[p + 1].item.as_cluster() {
+                            return TextCursor {
+                                cluster_id: c.source_cluster_id,
+                                affinity: CursorAffinity::Leading,
+                            };
+                        }
+                    }
+                    break;
+                }
+            }
+            if p == 0 {
+                // Reached start of text — return first cluster
+                if let Some(c) = self.items[0].item.as_cluster() {
+                    return TextCursor {
+                        cluster_id: c.source_cluster_id,
+                        affinity: CursorAffinity::Leading,
+                    };
+                }
+                break;
+            }
+            pos = p.checked_sub(1);
+        }
+
+        // If we exhausted the search, go to first cluster
+        if pos.is_none() {
+            if let Some(first) = self.get_first_cluster_cursor() {
+                return first;
+            }
+        }
+
+        cursor
+    }
+
+    /// Moves a cursor one word to the right (Ctrl+Right / Option+Right).
+    ///
+    /// Word boundaries are defined by whitespace: the cursor moves past any
+    /// non-whitespace characters, then past whitespace until the next word
+    /// or end of text.
+    pub fn move_cursor_to_next_word(
+        &self,
+        cursor: TextCursor,
+        debug: &mut Option<Vec<String>>,
+    ) -> TextCursor {
+        if let Some(d) = debug {
+            d.push(format!(
+                "[Cursor] move_cursor_to_next_word: starting at byte {}, affinity {:?}",
+                cursor.cluster_id.start_byte_in_run, cursor.affinity
+            ));
+        }
+
+        let current_pos = match self.items.iter().position(|i| {
+            i.item
+                .as_cluster()
+                .map_or(false, |c| c.source_cluster_id == cursor.cluster_id)
+        }) {
+            Some(pos) => pos,
+            None => return cursor,
+        };
+
+        let len = self.items.len();
+
+        // Start position: if at leading edge, start from current; if trailing, start from next
+        let start = if cursor.affinity == CursorAffinity::Trailing {
+            current_pos + 1
+        } else {
+            current_pos
+        };
+
+        if start >= len {
+            return cursor;
+        }
+
+        let mut pos = start;
+
+        // Phase 1: Skip non-whitespace (current word)
+        while pos < len {
+            if let Some(cluster) = self.items[pos].item.as_cluster() {
+                if cluster.text.chars().all(|c| c.is_whitespace()) {
+                    break;
+                }
+            }
+            pos += 1;
+        }
+
+        // Phase 2: Skip whitespace after word
+        while pos < len {
+            if let Some(cluster) = self.items[pos].item.as_cluster() {
+                if !cluster.text.chars().all(|c| c.is_whitespace()) {
+                    // Found start of next word
+                    return TextCursor {
+                        cluster_id: cluster.source_cluster_id,
+                        affinity: CursorAffinity::Leading,
+                    };
+                }
+            }
+            pos += 1;
+        }
+
+        // Reached end of text
+        if let Some(last) = self.get_last_cluster_cursor() {
+            return last;
+        }
+
+        cursor
+    }
 }
 
 fn get_baseline_for_item(item: &ShapedItem) -> Option<f32> {

@@ -1600,9 +1600,72 @@ pub trait PlatformWindowV2 {
                 ProcessEventResult::DoNothing
             }
 
-            SystemChange::ArrowKeyNavigation { .. } => {
-                // TODO: Implement arrow key navigation
-                ProcessEventResult::DoNothing
+            SystemChange::ArrowKeyNavigation { target, direction, extend_selection, word_jump } => {
+                use azul_core::events::ArrowDirection;
+
+                let node_id = match target.node.into_crate_internal() {
+                    Some(id) => id,
+                    None => return ProcessEventResult::DoNothing,
+                };
+                let dom_id = target.dom;
+
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    let new_cursor = match direction {
+                        ArrowDirection::Left if *word_jump => {
+                            layout_window.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                                layout.move_cursor_to_prev_word(*cursor, &mut None)
+                            })
+                        }
+                        ArrowDirection::Right if *word_jump => {
+                            layout_window.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                                layout.move_cursor_to_next_word(*cursor, &mut None)
+                            })
+                        }
+                        ArrowDirection::Left => {
+                            layout_window.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                                layout.move_cursor_left(*cursor, &mut None)
+                            })
+                        }
+                        ArrowDirection::Right => {
+                            layout_window.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                                layout.move_cursor_right(*cursor, &mut None)
+                            })
+                        }
+                        ArrowDirection::Up => {
+                            layout_window.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                                layout.move_cursor_up(*cursor, &mut None, &mut None)
+                            })
+                        }
+                        ArrowDirection::Down => {
+                            layout_window.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                                layout.move_cursor_down(*cursor, &mut None, &mut None)
+                            })
+                        }
+                        ArrowDirection::LineStart => {
+                            layout_window.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                                layout.move_cursor_to_line_start(*cursor, &mut None)
+                            })
+                        }
+                        ArrowDirection::LineEnd => {
+                            layout_window.move_cursor_in_node(dom_id, node_id, |layout, cursor| {
+                                layout.move_cursor_to_line_end(*cursor, &mut None)
+                            })
+                        }
+                        ArrowDirection::DocumentStart => {
+                            layout_window.get_inline_layout_for_node(dom_id, node_id)
+                                .and_then(|layout| layout.get_first_cluster_cursor())
+                        }
+                        ArrowDirection::DocumentEnd => {
+                            layout_window.get_inline_layout_for_node(dom_id, node_id)
+                                .and_then(|layout| layout.get_last_cluster_cursor())
+                        }
+                    };
+
+                    if let Some(new_cursor) = new_cursor {
+                        layout_window.handle_cursor_movement(dom_id, node_id, new_cursor, *extend_selection);
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
             // === Keyboard Shortcuts ===
@@ -1645,7 +1708,31 @@ pub trait PlatformWindowV2 {
             }
 
             SystemChange::SelectAllText => {
-                // TODO: Implement select_all operation
+                // Select all text in the focused contenteditable node
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    if let Some(focused_node) = layout_window.focus_manager.focused_node {
+                        let dom_id = focused_node.dom;
+                        if let Some(node_id) = focused_node.node.into_crate_internal() {
+                            let range = layout_window.get_inline_layout_for_node(dom_id, node_id)
+                                .and_then(|layout| {
+                                    let start = layout.get_first_cluster_cursor()?;
+                                    let end = layout.get_last_cluster_cursor()?;
+                                    Some(azul_core::selection::SelectionRange { start, end })
+                                });
+
+                            if let Some(range) = range {
+                                layout_window.selection_manager.set_range(dom_id, focused_node, range);
+                                // Move cursor to end of selection
+                                if let Some(layout) = layout_window.get_inline_layout_for_node(dom_id, node_id) {
+                                    if let Some(end_cursor) = layout.get_last_cluster_cursor() {
+                                        layout_window.cursor_manager.move_cursor_to(end_cursor, dom_id, node_id);
+                                    }
+                                }
+                                return ProcessEventResult::ShouldReRenderCurrentWindow;
+                            }
+                        }
+                    }
+                }
                 ProcessEventResult::DoNothing
             }
 

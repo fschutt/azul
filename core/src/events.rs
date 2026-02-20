@@ -2529,13 +2529,21 @@ pub struct MouseButtonState {
     pub middle_down: bool,
 }
 
-/// Arrow key directions
+/// Arrow key / cursor navigation directions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ArrowDirection {
     Left,
     Right,
     Up,
     Down,
+    /// Home key: move to start of current line
+    LineStart,
+    /// End key: move to end of current line
+    LineEnd,
+    /// Ctrl+Home: move to start of document
+    DocumentStart,
+    /// Ctrl+End: move to end of document
+    DocumentEnd,
 }
 
 /// Keyboard shortcuts for text editing
@@ -2757,6 +2765,10 @@ fn handle_key_down<SM: SelectionManagerQuery>(
         VirtualKeyCode::Up => Some(ArrowDirection::Up),
         VirtualKeyCode::Right => Some(ArrowDirection::Right),
         VirtualKeyCode::Down => Some(ArrowDirection::Down),
+        VirtualKeyCode::Home if ctrl => Some(ArrowDirection::DocumentStart),
+        VirtualKeyCode::Home => Some(ArrowDirection::LineStart),
+        VirtualKeyCode::End if ctrl => Some(ArrowDirection::DocumentEnd),
+        VirtualKeyCode::End => Some(ArrowDirection::LineEnd),
         _ => None,
     };
     if let Some(direction) = direction {
@@ -2765,7 +2777,7 @@ fn handle_key_down<SM: SelectionManagerQuery>(
                 target,
                 direction,
                 extend_selection: shift,
-                word_jump: ctrl,
+                word_jump: ctrl && matches!(direction, ArrowDirection::Left | ArrowDirection::Right),
             },
         ));
     }
@@ -2847,7 +2859,8 @@ pub fn post_callback_filter_system_changes(
             SystemChange::CutToClipboard { .. }
             | SystemChange::PasteFromClipboard
             | SystemChange::UndoTextEdit { .. }
-            | SystemChange::RedoTextEdit { .. } => {
+            | SystemChange::RedoTextEdit { .. }
+            | SystemChange::SelectAllText => {
                 changes.push(SystemChange::ScrollSelectionIntoView);
             }
             // Other system changes don't generate post-callback actions
