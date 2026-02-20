@@ -8,7 +8,6 @@ layered abstractions from multiple refactoring rounds:
 - **`PlatformWindow` (V1)** — lifecycle trait (poll/present/close)
 - **`PlatformWindowV2`** — event processing trait (37 required methods + ~3400 lines of default methods)
 - **`event_v2.rs`**, **`layout_v2.rs`** — "V2" names but no V1 equivalents exist
-- **`Compositor` trait**, **`CpuCompositor`** — dead code
 - **`GnomeMenuManager` (V1)** — dead code, replaced by V2
 - **`WindowProperties`** — only used as V1 trait argument, never called externally
 - **28 trivial getter methods** duplicated across 5 platform implementations
@@ -22,50 +21,22 @@ layered abstractions from multiple refactoring rounds:
 Implements:          Win32, macOS, X11,           Win32, macOS, X11,
                      Wayland, iOS, Linux,         Wayland, iOS
                      Stub
-                     
+
 Used generically?    NO (never dyn/T:)            NO (never dyn/T:)
 Used in run.rs?      poll_event, request_redraw   Indirectly (via event handlers)
                      is_open (only Linux)
 ```
 
-## Phase 1: Delete Dead Code (~600 lines)
+### Note: Compositor / CpuCompositor
 
-### 1a. Delete `CpuCompositor` and `Compositor` trait
-
-**Files:** `common/compositor.rs` (217 lines), `common/cpu_compositor.rs` (154 lines)
-
-- `Compositor` trait is never used as a bound or dyn
-- `CpuCompositor` is never instantiated outside its own tests
-- `select_compositor_mode()` is re-exported but never called in production
-- Keep only `RenderContext` enum and `CompositorMode` enum (move to `common/mod.rs` or `error.rs`)
-
-**Impact:** -371 lines, remove 1 file fully, gut compositor.rs
-
-### 1b. Delete `GnomeMenuManager` V1
-
-**File:** `linux/gnome_menu/mod.rs` — the old `GnomeMenuManager` struct
-
-- Only `GnomeMenuManagerV2` is referenced from X11Window and WaylandWindow
-- V1 manager struct + methods are dead code
-
-**Impact:** ~100-200 lines
-
-### 1c. Remove dead imports
-
-- `PlatformWindow` import in `wayland/events.rs` line 17 (unused)
-- `CompositorMode` import in `macos/mod.rs` line 72 (imported but never used in that file)
-
-### 1d. Delete `WindowProperties` struct
-
-- Only exists as the argument type for `PlatformWindow::set_properties()`
-- `set_properties()` is never called from run.rs or event processing
-- Entire builder pattern + struct is dead weight
-
-**Impact:** ~40 lines from `common/window.rs`
+The `Compositor` trait and `CpuCompositor` in `common/compositor.rs` /
+`common/cpu_compositor.rs` are **kept intentionally**. They are currently
+unused but reserved for a future **anti-grain geometry (AGG) CPU rendering
+backend** as an alternative to the WebRender GPU path. Do not delete.
 
 ---
 
-## Phase 2: Merge V1 into V2 / Rename V2
+## Phase 1: Merge PlatformWindow V1 into PlatformWindowV2
 
 ### Problem
 
@@ -76,7 +47,7 @@ Used in run.rs?      poll_event, request_redraw   Indirectly (via event handlers
 V1 is **never used generically** — it's only called on concrete types. The only
 place that uses the trait import is `run.rs` and `linux/registry.rs`.
 
-### 2a. Move useful V1 methods into V2
+### 1a. Move useful V1 methods into PlatformWindowV2
 
 Only 3 V1 methods are actually called in event loops:
 
@@ -94,40 +65,44 @@ Methods NOT called from run.rs or event processing (delete or make inherent):
 | `get_state()` | Never called from run.rs — dead on trait |
 | `set_properties()` | Never called externally |
 | `get_render_context()` | Never called from run.rs |
-| `present()` | Called internally by platforms (inherent method) |
+| `present()` | Called internally by platforms (make inherent method) |
 | `close()` | Only `linux/registry.rs` L127 uses trait-qualified call |
 | `sync_clipboard()` | Never called from run.rs (handled internally) |
 
-### 2b. Delete PlatformWindow V1 trait
+### 1b. Delete PlatformWindow V1 trait
 
-After moving `poll_event()`, `request_redraw()`, `is_open()` to V2:
+After moving `poll_event()`, `request_redraw()`, `is_open()` to PlatformWindowV2:
 - Delete `pub trait PlatformWindow` from `common/window.rs`
-- Delete `common/window.rs` entirely (or keep just for `WindowError` if needed)
+- Remove `WindowProperties` struct (only existed as argument for `set_properties()`)
 - Remove all `impl PlatformWindow for XxxWindow` blocks (7 total)
 - Make `present()`, `close()` inherent methods on each platform
-- Fix `linux/registry.rs` line 127 to use inherent method
+- Fix `linux/registry.rs` line 127 to use inherent method instead of trait call
 
-**Impact:** -70 lines per platform × 5 = **-350 lines** of trait impls
+### 1c. Clean up dead imports
 
-### 2c. Rename V2 → clean names
+- `PlatformWindow` import in `wayland/events.rs` line 17 (unused)
+- `CompositorMode` import in `macos/mod.rs` line 72 (imported but never used)
 
-| Current | Rename to |
-|---------|-----------|
-| `event_v2.rs` | `event.rs` |
-| `layout_v2.rs` | `layout.rs` |
-| `PlatformWindowV2` | `PlatformWindow` |
-| `process_window_events_recursive_v2` | `process_window_events` |
-| `GnomeMenuManagerV2` | `GnomeMenuManager` |
+### 1d. Delete `GnomeMenuManager` V1
+
+**File:** `linux/gnome_menu/mod.rs` — the old `GnomeMenuManager` struct
+
+- Only `GnomeMenuManagerV2` is referenced from X11Window and WaylandWindow
+- V1 manager struct + methods are dead code
+
+**Impact:** ~100-200 lines
+
+**Total Phase 1 impact:** ~-500 lines (V1 trait impls + WindowProperties + dead code)
 
 ---
 
-## Phase 3: Extract `CommonWindowState` struct (~28 getters → 2)
+## Phase 2: Extract `CommonWindowState` struct + macro (~28 getters → 2)
 
 ### Problem
 
-All 5 implementations have **28 identical getter methods** that just return
-`&self.some_field` or `&mut self.some_field`. These exist because the trait
-can't access struct fields directly.
+All 5 PlatformWindowV2 implementations have **28 identical getter methods** that
+just return `&self.some_field` or `&mut self.some_field`. These exist because
+the trait can't access struct fields directly.
 
 ### Solution
 
@@ -168,20 +143,21 @@ pub struct CommonWindowState {
 }
 ```
 
-Replace 28 trait methods with 2:
+Add only 2 required methods to the trait:
 
 ```rust
-pub trait PlatformWindow {
+pub trait PlatformWindowV2 {
     fn common(&self) -> &CommonWindowState;
     fn common_mut(&mut self) -> &mut CommonWindowState;
-    // ... only truly platform-specific methods
+    // ... only truly platform-specific methods remain required
 }
 ```
 
-Use a macro to generate the trait delegations:
+Use a macro to implement these 2 methods per platform (assumes each
+platform struct has `common: CommonWindowState` field):
 
 ```rust
-macro_rules! impl_common_getters {
+macro_rules! impl_common_window_state {
     () => {
         fn common(&self) -> &CommonWindowState { &self.common }
         fn common_mut(&mut self) -> &mut CommonWindowState { &mut self.common }
@@ -189,9 +165,9 @@ macro_rules! impl_common_getters {
 }
 
 // In each platform:
-impl PlatformWindow for Win32Window {
-    impl_common_getters!();
-    // ... only platform-specific methods
+impl PlatformWindowV2 for Win32Window {
+    impl_common_window_state!();
+    // ... only ~10 platform-specific methods
 }
 ```
 
@@ -205,7 +181,7 @@ fn get_layout_window(&self) -> Option<&LayoutWindow> {
 fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> {
     self.common_mut().layout_window.as_mut()
 }
-// ... etc
+// ... etc for all 28
 ```
 
 ### Structs before/after
@@ -239,12 +215,9 @@ These all move from "required" → "provided default":
 - `get_renderer` / `get_renderer_mut`
 - `needs_frame_regeneration` / `mark_frame_needs_regeneration` / `clear_frame_regeneration_flag`
 
-**Impact:** -70 lines per platform × 5 = **-350 lines** of boilerplate getters
+### Methods that also become defaults (cross-platform logic)
 
-### Methods that become defaults (using other defaults)
-
-These have identical logic across all platforms and can use the
-above getters:
+These have identical logic across all platforms:
 
 | Method | Impact |
 |--------|--------|
@@ -254,7 +227,44 @@ above getters:
 | `show_menu_from_callback` | -20 lines × 3 |
 | `prepare_callback_invocation` | -15 lines × 3 |
 
-**Impact:** ~-170 lines
+**Total Phase 2 impact:** ~-520 lines (350 getters + 170 logic methods)
+
+### Borrow-Checker Note
+
+The reason the trait originally has individual getters instead of a single
+`&mut self` → `&mut CommonWindowState` is to allow **split borrows**:
+borrowing `image_cache` and `layout_window` simultaneously from
+`&mut self`. With a single `common_mut()`, the borrow checker sees
+one `&mut CommonWindowState` and won't allow simultaneous mutable borrows
+of its fields.
+
+**Mitigation options:**
+1. **Temporarily reborrow**: `let c = self.common_mut(); let (a, b) = (&mut c.field_a, &mut c.field_b);`
+   — Rust allows splitting borrows on a struct if done in the same expression
+2. **Keep `prepare_callback_invocation` as the split-borrow point** — it already
+   returns a struct of individually borrowed fields, so the common getters can
+   still go through `common()`/`common_mut()` for all other cases
+3. **Add targeted splitter methods**: `fn common_split_layout_and_resources(&mut self) -> (&mut Option<LayoutWindow>, &mut RendererResources, ...)`
+
+---
+
+## Phase 3: Rename all V2 → clean names
+
+After Phase 1 (V1 trait deleted) and Phase 2 (struct extracted), the "V2"
+suffixes are meaningless — there's no V1 anymore. Rename everything:
+
+| Current | Rename to |
+|---------|-----------|
+| `event_v2.rs` | `event.rs` |
+| `layout_v2.rs` | `layout.rs` |
+| `PlatformWindowV2` | `PlatformWindow` |
+| `process_window_events_recursive_v2` | `process_window_events` |
+| `GnomeMenuManagerV2` | `GnomeMenuManager` |
+
+This is a pure mechanical rename (find-and-replace + `git mv`).
+The compiler catches any missed references.
+
+**Total Phase 3 impact:** 0 net lines, but cleaner naming throughout
 
 ---
 
@@ -291,10 +301,9 @@ pub enum LinuxWindow {
 }
 ```
 
-Currently has both `PlatformWindow` and a separate delegation layer. After
-Phase 2 (V1 deleted), the delegation becomes simpler. Consider whether
-`LinuxWindow` should implement `PlatformWindow` (V2) by delegating, or
-whether run.rs should match on the enum variant and call methods directly.
+After Phase 1 (V1 trait deleted), the V1 delegation layer vanishes. Consider
+whether `LinuxWindow` should implement the merged `PlatformWindow` trait by
+delegating, or whether run.rs should match on the enum variant directly.
 
 **Impact:** -50-100 lines from `linux/mod.rs` (currently 334 lines)
 
@@ -304,12 +313,12 @@ whether run.rs should match on the enum variant and call methods directly.
 
 | Phase | Description | Lines Removed | Difficulty |
 |-------|-------------|:------------:|:----------:|
-| 1 | Delete dead code | ~600 | Easy |
-| 2 | Merge V1→V2, rename | ~400 | Medium |
-| 3 | CommonWindowState + macro | ~520 | Medium |
+| 1 | Merge V1→V2, delete V1 trait + dead code | ~500 | Medium |
+| 2 | CommonWindowState struct + macro | ~520 | Medium |
+| 3 | Rename all V2 → clean names | 0 | Easy |
 | 4 | Linux timer dedup | ~80 | Easy |
 | 5 | Simplify LinuxWindow | ~70 | Easy |
-| **Total** | | **~1,670** | |
+| **Total** | | **~1,170** | |
 
 ### Final trait shape (after all phases)
 
@@ -324,7 +333,7 @@ pub trait PlatformWindow {
     fn request_redraw(&mut self);
     fn is_open(&self) -> bool;
 
-    // 5 truly platform-specific methods
+    // 8 truly platform-specific methods
     fn get_raw_window_handle(&self) -> RawWindowHandle;
     fn start_timer(&mut self, timer_id: usize, timer: Timer);
     fn stop_timer(&mut self, timer_id: usize);
@@ -337,12 +346,12 @@ pub trait PlatformWindow {
     // 1 optional override (only Wayland overrides)
     fn handle_begin_interactive_move(&mut self) { /* no-op */ }
 
-    // ~28 default getter methods (use common()/common_mut())
+    // ~28 default getter methods (auto-derived from common())
     fn get_layout_window(&self) -> Option<&LayoutWindow> { ... }
     fn get_layout_window_mut(&mut self) -> Option<&mut LayoutWindow> { ... }
-    // ... all auto-derived from common()
+    // ... all delegating to common()/common_mut()
 
-    // ~5 default logic methods
+    // ~5 default cross-platform logic methods
     fn add_threads(&mut self, ...) { ... }
     fn remove_threads(&mut self, ...) { ... }
     fn queue_window_create(&mut self, ...) { ... }
@@ -361,38 +370,20 @@ pub trait PlatformWindow {
 }
 ```
 
-**Result: Each platform goes from ~37 required methods to ~12 required methods.**
+**Result: Each platform goes from ~47 required methods (V1+V2) to ~13 required methods.**
 
 ### Execution Order
 
-Phases 1→2→3 should be done in sequence (each depends on prior).
-Phases 4 and 5 are independent and can be done anytime after Phase 2.
+Phases 1→2→3 must be done in sequence (each depends on prior).
+Phases 4 and 5 are independent and can be done anytime after Phase 1.
 
 ### Risk Assessment
 
-- **Phase 1:** Zero risk — pure deletion of dead code
-- **Phase 2:** Low risk — rename + move, no logic changes. Biggest risk is
-  missed references (mitigated by compiler errors)
-- **Phase 3:** Medium risk — restructuring struct fields across 5 platforms.
+- **Phase 1:** Low risk — merge + delete, no logic changes. Compiler errors
+  catch missed references.
+- **Phase 2:** Medium risk — restructuring struct fields across 5 platforms.
   All getters are trivial, but `prepare_callback_invocation` has borrow-checker
-  implications (borrowing `common_mut()` while also borrowing individual fields).
-  May need to split `CommonWindowState` or use a callback pattern.
+  implications. Mitigation: split-borrow patterns (see note above).
+- **Phase 3:** Zero risk — mechanical rename, compiler catches everything
 - **Phase 4:** Zero risk — extract identical code to shared function
 - **Phase 5:** Low risk — simplify delegation layer
-
-### Borrow-Checker Note for Phase 3
-
-The reason the trait has individual getters instead of a single
-`&mut self` → `&mut CommonWindowState` is to allow **split borrows**:
-borrowing `image_cache` and `layout_window` simultaneously from
-`&mut self`. With a single `common_mut()`, the borrow checker sees
-one `&mut CommonWindowState` and won't allow simultaneous mutable borrows
-of its fields.
-
-**Mitigation options:**
-1. **Temporarily reborrow**: `let c = self.common_mut(); let (a, b) = (&mut c.field_a, &mut c.field_b);`
-   — Rust allows splitting borrows on a struct if done in the same expression
-2. **Keep `prepare_callback_invocation` as the split-borrow point** — it already
-   returns a struct of individually borrowed fields, so the common getters can
-   still go through `common()`/`common_mut()` for all other cases
-3. **Add targeted splitter methods**: `fn common_split_layout_and_resources(&mut self) -> (&mut Option<LayoutWindow>, &mut RendererResources, ...)`
