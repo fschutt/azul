@@ -1296,6 +1296,55 @@ fn resolve_node_target(
     None
 }
 
+/// Resolve a CSS selector to **all** matching NodeIds (not just the first).
+///
+/// Used by `assert_node_count` and also internally by the assertion engine
+/// to verify existence / non-existence of nodes.
+#[cfg(feature = "std")]
+fn resolve_all_matching_nodes(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    selector: &str,
+) -> Vec<azul_core::id::NodeId> {
+    use azul_core::dom::DomId;
+    use azul_core::id::NodeId;
+    use azul_core::style::matches_html_element;
+    use azul_css::parser2::parse_css_path;
+
+    let dom_id = DomId { inner: 0 };
+    let layout_window = callback_info.get_layout_window();
+
+    let layout_result = match layout_window.layout_results.get(&dom_id) {
+        Some(lr) => lr,
+        None => return Vec::new(),
+    };
+
+    let css_path = match parse_css_path(selector) {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+
+    let styled_dom = &layout_result.styled_dom;
+    let node_hierarchy = styled_dom.node_hierarchy.as_container();
+    let node_data = styled_dom.node_data.as_container();
+    let cascade_info = styled_dom.cascade_info.as_container();
+
+    let mut results = Vec::new();
+    for i in 0..node_data.len() {
+        let node_id = NodeId::new(i);
+        if matches_html_element(
+            &css_path,
+            node_id,
+            &node_hierarchy,
+            &node_data,
+            &cascade_info,
+            None,
+        ) {
+            results.push(node_id);
+        }
+    }
+    results
+}
+
 /// Builds a CSS selector string for a node (e.g., "div#my-id.class1.class2")
 /// Returns a selector that can be used to find this node again
 #[cfg(feature = "std")]
@@ -2141,75 +2190,499 @@ pub struct E2eStepResult {
 
 // ==================== E2E Assertion Evaluation ====================
 
-/// Evaluate an assertion step against the current state.
+/// Result of an assertion evaluation.
+#[derive(Debug, Clone)]
+#[cfg(feature = "std")]
+pub struct AssertionResult {
+    /// Whether the assertion passed.
+    pub passed: bool,
+    /// Human-readable message (details for pass or failure reason).
+    pub message: String,
+    /// Actual value encountered (for diagnostics).
+    pub actual: Option<String>,
+    /// Expected value (for diagnostics).
+    pub expected: Option<String>,
+}
+
+#[cfg(feature = "std")]
+impl AssertionResult {
+    fn pass(message: impl Into<String>) -> Self {
+        Self { passed: true, message: message.into(), actual: None, expected: None }
+    }
+    fn fail(message: impl Into<String>) -> Self {
+        Self { passed: false, message: message.into(), actual: None, expected: None }
+    }
+    fn fail_with(message: impl Into<String>, expected: impl Into<String>, actual: impl Into<String>) -> Self {
+        let expected = expected.into();
+        let actual = actual.into();
+        Self { passed: false, message: message.into(), actual: Some(actual), expected: Some(expected) }
+    }
+}
+
+/// Evaluate an assertion step against the **live DOM state**.
 ///
-/// Returns `Ok(())` if the assertion passes, `Err(message)` if it fails.
+/// Unlike the old `evaluate_assertion()` which only validated parameters,
+/// this function actually queries the DOM / layout / app state through
+/// `callback_info` and `app_data` and returns a concrete pass/fail result.
+///
+/// # Assertion operations
+///
+/// | `op`                 | Required params                              |
+/// |----------------------|----------------------------------------------|
+/// | `assert_text`        | `selector`, `expected`                       |
+/// | `assert_exists`      | `selector`                                   |
+/// | `assert_not_exists`  | `selector`                                   |
+/// | `assert_node_count`  | `selector`, `expected` (number)              |
+/// | `assert_layout`      | `selector`, `property`, `expected`, `tolerance?` |
+/// | `assert_css`         | `selector`, `property`, `expected`           |
+/// | `assert_app_state`   | `path`, `expected`                           |
+/// | `assert_scroll`      | `selector`, `x?`, `y?`, `tolerance?`         |
 #[cfg(feature = "std")]
 pub fn evaluate_assertion(
     op: &str,
     params: &serde_json::Value,
-    _last_response: Option<&serde_json::Value>,
-) -> Result<(), String> {
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    app_data: &azul_core::refany::RefAny,
+) -> AssertionResult {
     match op {
-        "assert_text" => {
-            // Needs to be evaluated on the event-loop thread via get_html_string
-            // For now, placeholder — real impl will query the DOM
-            let selector = params.get("selector").and_then(|v| v.as_str()).unwrap_or("");
-            let expected = params.get("expected").and_then(|v| v.as_str()).unwrap_or("");
-            if selector.is_empty() {
-                return Err("assert_text: missing 'selector' parameter".into());
-            }
-            if expected.is_empty() {
-                return Err("assert_text: missing 'expected' parameter".into());
-            }
-            // Actual evaluation happens in process_debug_event where we have access to the DOM
-            Ok(())
-        }
-        "assert_exists" => {
-            let selector = params.get("selector").and_then(|v| v.as_str()).unwrap_or("");
-            if selector.is_empty() {
-                return Err("assert_exists: missing 'selector' parameter".into());
-            }
-            Ok(())
-        }
-        "assert_not_exists" => {
-            let selector = params.get("selector").and_then(|v| v.as_str()).unwrap_or("");
-            if selector.is_empty() {
-                return Err("assert_not_exists: missing 'selector' parameter".into());
-            }
-            Ok(())
-        }
-        "assert_node_count" => {
-            let selector = params.get("selector").and_then(|v| v.as_str()).unwrap_or("");
-            if selector.is_empty() {
-                return Err("assert_node_count: missing 'selector' parameter".into());
-            }
-            if params.get("expected").is_none() {
-                return Err("assert_node_count: missing 'expected' parameter".into());
-            }
-            Ok(())
-        }
-        "assert_layout" => {
-            let selector = params.get("selector").and_then(|v| v.as_str()).unwrap_or("");
-            if selector.is_empty() {
-                return Err("assert_layout: missing 'selector' parameter".into());
-            }
-            if params.get("property").is_none() {
-                return Err("assert_layout: missing 'property' parameter".into());
-            }
-            Ok(())
-        }
-        "assert_app_state" => {
-            if params.get("path").is_none() {
-                return Err("assert_app_state: missing 'path' parameter".into());
-            }
-            if params.get("expected").is_none() {
-                return Err("assert_app_state: missing 'expected' parameter".into());
-            }
-            Ok(())
-        }
-        other => Err(format!("Unknown assertion: {}", other)),
+        "assert_text" => eval_assert_text(params, callback_info),
+        "assert_exists" => eval_assert_exists(params, callback_info),
+        "assert_not_exists" => eval_assert_not_exists(params, callback_info),
+        "assert_node_count" => eval_assert_node_count(params, callback_info),
+        "assert_layout" => eval_assert_layout(params, callback_info),
+        "assert_css" => eval_assert_css(params, callback_info),
+        "assert_app_state" => eval_assert_app_state(params, app_data),
+        "assert_scroll" => eval_assert_scroll(params, callback_info),
+        other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
     }
+}
+
+// ---- Individual assertion implementations ----
+
+/// `assert_text`: assert that the text content of the first node matching
+/// `selector` equals `expected`.
+#[cfg(feature = "std")]
+fn eval_assert_text(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let selector = match params.get("selector").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s,
+        _ => return AssertionResult::fail("assert_text: missing 'selector' parameter"),
+    };
+    let expected = match params.get("expected").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return AssertionResult::fail("assert_text: missing 'expected' parameter"),
+    };
+
+    let node_id = match resolve_node_target(callback_info, Some(selector), None, None) {
+        Some(nid) => nid,
+        None => return AssertionResult::fail(format!(
+            "assert_text: no node matches selector '{}'", selector
+        )),
+    };
+
+    // Get text content: try callback_info first, fall back to raw NodeType::Text
+    use azul_core::dom::{DomId, DomNodeId};
+    let dom_id = DomId { inner: 0 };
+    let dom_node_id = DomNodeId {
+        dom: dom_id.clone(),
+        node: Some(node_id).into(),
+    };
+
+    // First try the inline-content path (works for text inputs, editable nodes)
+    let actual_text = callback_info
+        .get_node_text_content(dom_node_id)
+        .or_else(|| {
+            // Fallback: read raw NodeType::Text from the styled DOM
+            let layout_window = callback_info.get_layout_window();
+            let layout_result = layout_window.layout_results.get(&dom_id)?;
+            let node_data = layout_result.styled_dom.node_data.as_container();
+            if node_id.index() < node_data.len() {
+                if let azul_core::dom::NodeType::Text(t) = node_data[node_id].get_node_type() {
+                    return Some(t.as_str().to_string());
+                }
+            }
+            None
+        })
+        .unwrap_or_default();
+
+    if actual_text == expected {
+        AssertionResult::pass(format!("assert_text: '{}' matches", selector))
+    } else {
+        AssertionResult::fail_with(
+            format!("assert_text: selector '{}' text mismatch", selector),
+            expected,
+            actual_text,
+        )
+    }
+}
+
+/// `assert_exists`: assert that at least one node matches `selector`.
+#[cfg(feature = "std")]
+fn eval_assert_exists(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let selector = match params.get("selector").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s,
+        _ => return AssertionResult::fail("assert_exists: missing 'selector' parameter"),
+    };
+
+    let matches = resolve_all_matching_nodes(callback_info, selector);
+    if matches.is_empty() {
+        AssertionResult::fail(format!(
+            "assert_exists: no node matches selector '{}'", selector
+        ))
+    } else {
+        AssertionResult::pass(format!(
+            "assert_exists: '{}' matched {} node(s)", selector, matches.len()
+        ))
+    }
+}
+
+/// `assert_not_exists`: assert that **no** node matches `selector`.
+#[cfg(feature = "std")]
+fn eval_assert_not_exists(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let selector = match params.get("selector").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s,
+        _ => return AssertionResult::fail("assert_not_exists: missing 'selector' parameter"),
+    };
+
+    let matches = resolve_all_matching_nodes(callback_info, selector);
+    if matches.is_empty() {
+        AssertionResult::pass(format!(
+            "assert_not_exists: '{}' correctly has no matches", selector
+        ))
+    } else {
+        AssertionResult::fail(format!(
+            "assert_not_exists: selector '{}' unexpectedly matched {} node(s)",
+            selector, matches.len()
+        ))
+    }
+}
+
+/// `assert_node_count`: assert that exactly `expected` nodes match `selector`.
+#[cfg(feature = "std")]
+fn eval_assert_node_count(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let selector = match params.get("selector").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s,
+        _ => return AssertionResult::fail("assert_node_count: missing 'selector' parameter"),
+    };
+    let expected = match params.get("expected").and_then(|v| v.as_u64()) {
+        Some(n) => n as usize,
+        None => return AssertionResult::fail("assert_node_count: missing or invalid 'expected' (number)"),
+    };
+
+    let matches = resolve_all_matching_nodes(callback_info, selector);
+    let actual = matches.len();
+
+    if actual == expected {
+        AssertionResult::pass(format!(
+            "assert_node_count: '{}' has {} node(s)", selector, actual
+        ))
+    } else {
+        AssertionResult::fail_with(
+            format!("assert_node_count: selector '{}' count mismatch", selector),
+            expected.to_string(),
+            actual.to_string(),
+        )
+    }
+}
+
+/// `assert_layout`: assert a layout property (`x`, `y`, `width`, `height`)
+/// of the first node matching `selector`. Optional `tolerance` (default 0.5).
+#[cfg(feature = "std")]
+fn eval_assert_layout(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let selector = match params.get("selector").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s,
+        _ => return AssertionResult::fail("assert_layout: missing 'selector' parameter"),
+    };
+    let property = match params.get("property").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return AssertionResult::fail("assert_layout: missing 'property' parameter"),
+    };
+    let expected: f64 = match params.get("expected").and_then(|v| v.as_f64()) {
+        Some(n) => n,
+        None => return AssertionResult::fail("assert_layout: missing or non-numeric 'expected'"),
+    };
+    let tolerance: f64 = params.get("tolerance").and_then(|v| v.as_f64()).unwrap_or(0.5);
+
+    let node_id = match resolve_node_target(callback_info, Some(selector), None, None) {
+        Some(nid) => nid,
+        None => return AssertionResult::fail(format!(
+            "assert_layout: no node matches selector '{}'", selector
+        )),
+    };
+
+    use azul_core::dom::{DomId, DomNodeId};
+    let dom_node_id = DomNodeId {
+        dom: DomId { inner: 0 },
+        node: Some(node_id).into(),
+    };
+
+    let rect = match callback_info.get_node_rect(dom_node_id) {
+        Some(r) => r,
+        None => return AssertionResult::fail(format!(
+            "assert_layout: node '{}' has no layout rect", selector
+        )),
+    };
+
+    let actual = match property {
+        "x" => rect.origin.x as f64,
+        "y" => rect.origin.y as f64,
+        "width" => rect.size.width as f64,
+        "height" => rect.size.height as f64,
+        other => return AssertionResult::fail(format!(
+            "assert_layout: unknown property '{}' (use x, y, width, height)", other
+        )),
+    };
+
+    if (actual - expected).abs() <= tolerance {
+        AssertionResult::pass(format!(
+            "assert_layout: '{}' {} = {:.1} (expected {:.1} ± {:.1})",
+            selector, property, actual, expected, tolerance
+        ))
+    } else {
+        AssertionResult::fail_with(
+            format!("assert_layout: '{}' {} mismatch", selector, property),
+            format!("{:.1} (± {:.1})", expected, tolerance),
+            format!("{:.1}", actual),
+        )
+    }
+}
+
+/// `assert_css`: assert a computed CSS property value on the first node
+/// matching `selector`.
+#[cfg(feature = "std")]
+fn eval_assert_css(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let selector = match params.get("selector").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s,
+        _ => return AssertionResult::fail("assert_css: missing 'selector' parameter"),
+    };
+    let property = match params.get("property").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return AssertionResult::fail("assert_css: missing 'property' parameter"),
+    };
+    let expected = match params.get("expected").and_then(|v| v.as_str()) {
+        Some(e) => e,
+        None => return AssertionResult::fail("assert_css: missing 'expected' parameter"),
+    };
+
+    let node_id = match resolve_node_target(callback_info, Some(selector), None, None) {
+        Some(nid) => nid,
+        None => return AssertionResult::fail(format!(
+            "assert_css: no node matches selector '{}'", selector
+        )),
+    };
+
+    use azul_core::dom::{DomId, DomNodeId};
+    use azul_css::props::property::{CssPropertyType, get_css_key_map};
+
+    let dom_node_id = DomNodeId {
+        dom: DomId { inner: 0 },
+        node: Some(node_id).into(),
+    };
+
+    // Try to parse the property name into CssPropertyType
+    let key_map = get_css_key_map();
+    let prop_type = match CssPropertyType::from_str(property, &key_map) {
+        Some(pt) => pt,
+        None => return AssertionResult::fail(format!(
+            "assert_css: unknown CSS property '{}'", property
+        )),
+    };
+
+    match callback_info.get_computed_css_property(dom_node_id, prop_type) {
+        Some(computed) => {
+            let actual = format!("{:?}", computed);
+            if actual == expected {
+                AssertionResult::pass(format!(
+                    "assert_css: '{}' {} = {}", selector, property, actual
+                ))
+            } else {
+                AssertionResult::fail_with(
+                    format!("assert_css: '{}' {} mismatch", selector, property),
+                    expected,
+                    actual,
+                )
+            }
+        }
+        None => {
+            AssertionResult::fail_with(
+                format!("assert_css: property '{}' not set on '{}'", property, selector),
+                expected,
+                "(not set)",
+            )
+        }
+    }
+}
+
+/// `assert_app_state`: assert a field in the serialized application state.
+///
+/// Uses dot-notation for the `path` parameter, e.g. `"counter"` or
+/// `"user.name"`. The `expected` value is compared as a JSON value.
+#[cfg(feature = "std")]
+fn eval_assert_app_state(
+    params: &serde_json::Value,
+    app_data: &azul_core::refany::RefAny,
+) -> AssertionResult {
+    let path = match params.get("path").and_then(|v| v.as_str()) {
+        Some(p) if !p.is_empty() => p,
+        _ => return AssertionResult::fail("assert_app_state: missing 'path' parameter"),
+    };
+    let expected = match params.get("expected") {
+        Some(v) => v,
+        None => return AssertionResult::fail("assert_app_state: missing 'expected' parameter"),
+    };
+
+    if !app_data.can_serialize() {
+        return AssertionResult::fail(
+            "assert_app_state: app_data is not serializable (implement AzSerialize)"
+        );
+    }
+
+    // Serialize app_data → JSON
+    use azul_layout::json::serialize_refany_to_json;
+    let json = match serialize_refany_to_json(app_data) {
+        Some(j) => j,
+        None => return AssertionResult::fail("assert_app_state: serialization returned null"),
+    };
+
+    // Parse our internal JSON into serde_json::Value
+    let root: serde_json::Value = match serde_json::from_str(&json.to_string().as_str()) {
+        Ok(v) => v,
+        Err(e) => return AssertionResult::fail(format!(
+            "assert_app_state: JSON parse error: {}", e
+        )),
+    };
+
+    // Navigate the dot-path
+    let actual = navigate_json_path(&root, path);
+    match actual {
+        Some(val) => {
+            if val == expected {
+                AssertionResult::pass(format!(
+                    "assert_app_state: '{}' = {}", path, val
+                ))
+            } else {
+                AssertionResult::fail_with(
+                    format!("assert_app_state: '{}' mismatch", path),
+                    expected.to_string(),
+                    val.to_string(),
+                )
+            }
+        }
+        None => AssertionResult::fail_with(
+            format!("assert_app_state: path '{}' not found in state", path),
+            expected.to_string(),
+            "(path not found)",
+        ),
+    }
+}
+
+/// Navigate a dot-separated path in a `serde_json::Value`.
+///
+/// E.g. `navigate_json_path(root, "user.address.city")` walks
+/// `root["user"]["address"]["city"]`. Supports array indices via
+/// bracket notation: `"items[0].name"`.
+#[cfg(feature = "std")]
+fn navigate_json_path<'a>(root: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    let mut current = root;
+    for segment in path.split('.') {
+        // Handle array index: "items[0]"
+        if let Some(bracket_pos) = segment.find('[') {
+            let key = &segment[..bracket_pos];
+            let idx_str = segment[bracket_pos + 1..].trim_end_matches(']');
+
+            current = current.get(key)?;
+            let idx: usize = idx_str.parse().ok()?;
+            current = current.get(idx)?;
+        } else {
+            current = current.get(segment)?;
+        }
+    }
+    Some(current)
+}
+
+/// `assert_scroll`: assert the scroll position of a scrollable node.
+/// Optional `x`, `y`, `tolerance` (default 1.0).
+#[cfg(feature = "std")]
+fn eval_assert_scroll(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    let selector = match params.get("selector").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s,
+        _ => return AssertionResult::fail("assert_scroll: missing 'selector' parameter"),
+    };
+    let tolerance: f64 = params.get("tolerance").and_then(|v| v.as_f64()).unwrap_or(1.0);
+
+    let node_id = match resolve_node_target(callback_info, Some(selector), None, None) {
+        Some(nid) => nid,
+        None => return AssertionResult::fail(format!(
+            "assert_scroll: no node matches selector '{}'", selector
+        )),
+    };
+
+    use azul_core::dom::{DomId, DomNodeId};
+    let dom_id = DomId { inner: 0 };
+    let dom_node_id = DomNodeId {
+        dom: dom_id.clone(),
+        node: Some(node_id).into(),
+    };
+
+    let layout_window = callback_info.get_layout_window();
+    let scroll_offset = layout_window
+        .scroll_manager
+        .get_current_offset(dom_id, node_id);
+
+    let offset = match scroll_offset {
+        Some(o) => o,
+        None => return AssertionResult::fail(format!(
+            "assert_scroll: node '{}' is not scrollable or has no scroll state", selector
+        )),
+    };
+
+    // Check x if specified
+    if let Some(expected_x) = params.get("x").and_then(|v| v.as_f64()) {
+        let actual_x = offset.x as f64;
+        if (actual_x - expected_x).abs() > tolerance {
+            return AssertionResult::fail_with(
+                format!("assert_scroll: '{}' scroll-x mismatch", selector),
+                format!("{:.1} (± {:.1})", expected_x, tolerance),
+                format!("{:.1}", actual_x),
+            );
+        }
+    }
+
+    // Check y if specified
+    if let Some(expected_y) = params.get("y").and_then(|v| v.as_f64()) {
+        let actual_y = offset.y as f64;
+        if (actual_y - expected_y).abs() > tolerance {
+            return AssertionResult::fail_with(
+                format!("assert_scroll: '{}' scroll-y mismatch", selector),
+                format!("{:.1} (± {:.1})", expected_y, tolerance),
+                format!("{:.1}", actual_y),
+            );
+        }
+    }
+
+    AssertionResult::pass(format!(
+        "assert_scroll: '{}' at ({:.1}, {:.1})", selector, offset.x, offset.y
+    ))
 }
 
 // ==================== Timer Callback ====================
@@ -5097,34 +5570,35 @@ fn process_debug_event(
 
                     // Check if this is an assertion step
                     if op.starts_with("assert_") {
-                        match evaluate_assertion(op, &step.params, None) {
-                            Ok(()) => {
-                                // Assertion parameter validation passed.
-                                // TODO: actual DOM evaluation (query nodes, compare values)
-                                step_results.push(E2eStepResult {
-                                    step_index,
-                                    op: op.to_string(),
-                                    status: "pass".into(),
-                                    duration_ms: step_start.elapsed().as_millis() as u64,
-                                    logs: vec![format!("{}: passed (parameter validation only)", op)],
-                                    screenshot: None,
-                                    error: None,
-                                    response: None,
-                                });
-                            }
-                            Err(msg) => {
-                                test_failed = true;
-                                step_results.push(E2eStepResult {
-                                    step_index,
-                                    op: op.to_string(),
-                                    status: "fail".into(),
-                                    duration_ms: step_start.elapsed().as_millis() as u64,
-                                    logs: vec![],
-                                    screenshot: None,
-                                    error: Some(msg),
-                                    response: None,
-                                });
-                            }
+                        let result = evaluate_assertion(op, &step.params, callback_info, app_data);
+                        if result.passed {
+                            step_results.push(E2eStepResult {
+                                step_index,
+                                op: op.to_string(),
+                                status: "pass".into(),
+                                duration_ms: step_start.elapsed().as_millis() as u64,
+                                logs: vec![result.message],
+                                screenshot: None,
+                                error: None,
+                                response: None,
+                            });
+                        } else {
+                            test_failed = true;
+                            let error_msg = if let (Some(ref exp), Some(ref act)) = (&result.expected, &result.actual) {
+                                format!("{}: expected {}, got {}", result.message, exp, act)
+                            } else {
+                                result.message.clone()
+                            };
+                            step_results.push(E2eStepResult {
+                                step_index,
+                                op: op.to_string(),
+                                status: "fail".into(),
+                                duration_ms: step_start.elapsed().as_millis() as u64,
+                                logs: vec![],
+                                screenshot: None,
+                                error: Some(error_msg),
+                                response: None,
+                            });
                         }
                     } else {
                         // Regular debug command — try to parse as DebugEvent and execute

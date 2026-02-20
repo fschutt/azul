@@ -2013,14 +2013,12 @@ impl WaylandWindow {
             &self.resources.app_data,
             &self.common.current_window_state,
             &mut self.common.renderer_resources,
-            self.common.render_api.as_mut().ok_or("No render API")?,
             &self.common.image_cache,
             &self.common.gl_context_ptr,
             &self.common.fc_cache,
             &self.resources.font_registry,
             &self.common.system_style,
             &self.resources.icon_provider,
-            self.common.document_id.ok_or("No document ID")?,
             &mut debug_messages,
         )?;
 

@@ -831,14 +831,12 @@ impl Win32Window {
             &self.common.app_data,
             &self.common.current_window_state,
             &mut self.common.renderer_resources,
-            self.common.render_api.as_mut().unwrap(),
             &self.common.image_cache,
             &self.common.gl_context_ptr,
             &self.common.fc_cache,
             &self.font_registry,
             &self.common.system_style,
             &self.icon_provider,
-            self.common.document_id.unwrap(),
             &mut debug_messages,
         )?;
 

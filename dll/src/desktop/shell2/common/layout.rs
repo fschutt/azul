@@ -74,14 +74,12 @@ pub fn regenerate_layout(
     app_data: &Arc<RefCell<RefAny>>,
     current_window_state: &FullWindowState,
     renderer_resources: &mut RendererResources,
-    render_api: &mut WrRenderApi,
     image_cache: &ImageCache,
     gl_context_ptr: &OptionGlContextPtr,
     fc_cache: &Arc<FcFontCache>,
     font_registry: &Option<Arc<FcFontRegistry>>,
     system_style: &Arc<SystemStyle>,
     icon_provider: &SharedIconProvider,
-    document_id: DocumentId,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> Result<LayoutRegenerateResult, String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");

@@ -56,6 +56,7 @@ use azul_core::{
     geom::LogicalPosition,
     gl::OptionGlContextPtr,
     hit_test::DocumentId,
+    icon::SharedIconProvider,
     refany::RefAny,
     resources::{AppConfig, AppTerminationBehavior, IdNamespace, ImageCache, RendererResources},
     window::{RawWindowHandle, VirtualKeyCode},
@@ -75,7 +76,7 @@ use crate::desktop::shell2::common::{
     event::{self, CommonWindowState, PlatformWindow},
     WindowError,
 };
-use crate::{impl_platform_window_getters, log_debug, log_error, log_info, log_trace};
+use crate::{impl_platform_window_getters, log_debug, log_error, log_info, log_trace, log_warn};
 
 /// Events that can be injected into a StubWindow for testing or
 /// via the debug server.
@@ -178,6 +179,8 @@ pub struct StubWindow {
     pub pending_window_creates: Vec<WindowCreateOptions>,
     /// Config snapshot (needed for spawning sub-windows).
     config: AppConfig,
+    /// Icon provider (shared across all windows).
+    icon_provider: SharedIconProvider,
     /// Font registry (needed for spawning sub-windows).
     font_registry: Option<Arc<FcFontRegistry>>,
     /// Condvar + mutex used to block the event loop until work arrives.
@@ -203,6 +206,7 @@ impl StubWindow {
         options: WindowCreateOptions,
         app_data: Arc<RefCell<RefAny>>,
         config: AppConfig,
+        icon_provider: SharedIconProvider,
         fc_cache: Arc<FcFontCache>,
         font_registry: Option<Arc<FcFontRegistry>>,
     ) -> Result<Self, WindowError> {
@@ -243,6 +247,7 @@ impl StubWindow {
             thread_poll_timer_running: false,
             pending_window_creates: Vec::new(),
             config,
+            icon_provider,
             font_registry,
             wake_condvar,
             wake_mutex,
@@ -264,6 +269,65 @@ impl StubWindow {
     /// Close the window.
     pub fn close(&mut self) {
         self.is_open = false;
+    }
+
+    // === Layout ===
+
+    /// Regenerate layout and rebuild CPU hit-tester.
+    ///
+    /// This is the StubWindow equivalent of `MacOSWindow::regenerate_layout()` /
+    /// `WinWindow::regenerate_layout()` etc. It calls the shared
+    /// `common::layout::regenerate_layout()` (which no longer requires WebRender
+    /// types) and then rebuilds the `CpuHitTester` from the new layout results.
+    pub fn regenerate_layout(
+        &mut self,
+    ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+        let layout_window = self.common.layout_window.as_mut().ok_or("No layout window")?;
+
+        // Collect debug messages if debug server is enabled
+        let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let mut debug_messages = if debug_enabled {
+            Some(Vec::new())
+        } else {
+            None
+        };
+
+        // Call unified regenerate_layout from common module
+        let result = crate::desktop::shell2::common::layout::regenerate_layout(
+            layout_window,
+            &self.common.app_data,
+            &self.common.current_window_state,
+            &mut self.common.renderer_resources,
+            &self.common.image_cache,
+            &self.common.gl_context_ptr,
+            &self.common.fc_cache,
+            &self.font_registry,
+            &self.common.system_style,
+            &self.icon_provider,
+            &mut debug_messages,
+        )?;
+
+        // Forward layout debug messages to the debug server's log queue
+        if let Some(msgs) = debug_messages {
+            for msg in msgs {
+                crate::desktop::shell2::common::debug_server::log(
+                    crate::desktop::shell2::common::debug_server::LogLevel::Debug,
+                    crate::desktop::shell2::common::debug_server::LogCategory::Layout,
+                    msg.message.as_str().to_string(),
+                    None,
+                );
+            }
+        }
+
+        // Rebuild CPU hit-tester from new layout results
+        if let Some(lw) = self.common.layout_window.as_ref() {
+            self.cpu_backend.hit_tester.rebuild_from_layout(&lw.layout_results);
+        }
+
+        // Mark that frame needs regeneration
+        self.common.frame_needs_regeneration = true;
+
+        Ok(result)
     }
 
     // === Event injection (for tests / debug server) ===
@@ -327,6 +391,19 @@ impl StubWindow {
             debug_enabled,
         );
 
+        // -- Perform initial layout (same as every platform) --
+        log_debug!(
+            LogCategory::Layout,
+            "[Stub] Performing initial layout"
+        );
+        if let Err(e) = self.regenerate_layout() {
+            log_warn!(
+                LogCategory::Layout,
+                "[Stub] WARNING: Initial layout failed: {}",
+                e
+            );
+        }
+
         // -- child windows (sub-StubWindows for menus, dialogs) --
         let mut children: Vec<StubWindow> = Vec::new();
         let mut warned_no_wake_sources = false;
@@ -345,9 +422,20 @@ impl StubWindow {
                 }
             }
 
-            // ── Phase 2: Tick timers ─────────────────────────────
-            if !self.stub_timers.is_empty() {
-                self.common.frame_needs_regeneration = true;
+            // ── Phase 2: Tick timers and threads ─────────────────
+            // Use the shared PlatformWindow trait method to invoke
+            // expired timer callbacks and poll background threads.
+            let needs_relayout = self.process_timers_and_threads();
+
+            // If timer/thread callbacks requested a DOM refresh, re-layout
+            if needs_relayout {
+                if let Err(e) = self.regenerate_layout() {
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Stub] Layout regeneration failed: {}",
+                        e
+                    );
+                }
             }
 
             // ── Phase 3: Spawn sub-StubWindows for pending creates ─
@@ -361,6 +449,7 @@ impl StubWindow {
                     pending_create,
                     self.common.app_data.clone(),
                     self.config.clone(),
+                    self.icon_provider.clone(),
                     self.common.fc_cache.clone(),
                     self.font_registry.clone(),
                 ) {
@@ -569,12 +658,15 @@ mod tests {
     use super::*;
 
     fn make_stub() -> StubWindow {
+        use azul_core::icon::{IconProviderHandle, SharedIconProvider};
         let fc_cache = Arc::new(FcFontCache::default());
         let app_data = Arc::new(RefCell::new(RefAny::new(())));
+        let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
         StubWindow::new(
             WindowCreateOptions::default(),
             app_data,
             AppConfig::default(),
+            icon_provider,
             fc_cache,
             None,
         ).unwrap()

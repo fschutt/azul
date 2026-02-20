@@ -183,12 +183,13 @@ fn setup_e2e_runner(test_file: &str) {
 /// all work — but without a GPU context or native window handle.
 fn run_stub(
     app_data: RefAny,
-    config: AppConfig,
+    mut config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     use std::cell::RefCell;
+    use azul_core::icon::SharedIconProvider;
     use super::stub::StubWindow;
 
     log_info!(
@@ -196,8 +197,12 @@ fn run_stub(
         "[Headless] Creating StubWindow + entering blocking event loop"
     );
 
+    // Extract icon_provider from config (same as real platforms do)
+    let icon_provider_handle = core::mem::take(&mut config.icon_provider);
+    let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
+
     let app_data_arc = Arc::new(RefCell::new(app_data));
-    let window = StubWindow::new(root_window, app_data_arc, config, fc_cache, font_registry)?;
+    let window = StubWindow::new(root_window, app_data_arc, config, shared_icon_provider, fc_cache, font_registry)?;
     window.run()
 }
 
