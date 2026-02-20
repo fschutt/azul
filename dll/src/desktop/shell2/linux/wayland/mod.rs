@@ -574,85 +574,22 @@ impl PlatformWindow for WaylandWindow {
     // Timer Management (Wayland Implementation - uses timerfd for native OS timer support)
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
-        // Get interval in milliseconds
         let interval_ms = timer.tick_millis();
-
-        // Store timer in layout_window for callback invocation
         if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window
                 .timers
                 .insert(azul_core::task::TimerId { id: timer_id }, timer);
         }
-
-        // Create timerfd for native timer support
-        // This allows the timer to fire even without window events
-        unsafe {
-            let fd = libc::timerfd_create(
-                libc::CLOCK_MONOTONIC,
-                libc::TFD_NONBLOCK | libc::TFD_CLOEXEC,
-            );
-            if fd >= 0 {
-                // Convert milliseconds to timespec
-                let secs = (interval_ms / 1000) as i64;
-                let nsecs = ((interval_ms % 1000) * 1_000_000) as i64;
-
-                let spec = libc::itimerspec {
-                    it_interval: libc::timespec {
-                        tv_sec: secs,
-                        tv_nsec: nsecs,
-                    },
-                    it_value: libc::timespec {
-                        tv_sec: secs,
-                        tv_nsec: nsecs,
-                    },
-                };
-
-                if libc::timerfd_settime(fd, 0, &spec, std::ptr::null_mut()) == 0 {
-                    self.timer_fds.insert(timer_id, fd);
-                    log_debug!(
-                        LogCategory::Timer,
-                        "[Wayland] Created timerfd {} for timer {} (interval {}ms)",
-                        fd,
-                        timer_id,
-                        interval_ms
-                    );
-                } else {
-                    libc::close(fd);
-                    log_error!(
-                        LogCategory::Timer,
-                        "[Wayland] Failed to set timerfd interval"
-                    );
-                }
-            } else {
-                log_error!(
-                    LogCategory::Timer,
-                    "[Wayland] Failed to create timerfd: errno={}",
-                    *libc::__errno_location()
-                );
-            }
-        }
+        super::timer::start_timerfd(&mut self.timer_fds, timer_id, interval_ms, "Wayland");
     }
 
     fn stop_timer(&mut self, timer_id: usize) {
-        // Remove from layout_window
         if let Some(layout_window) = self.common.layout_window.as_mut() {
             layout_window
                 .timers
                 .remove(&azul_core::task::TimerId { id: timer_id });
         }
-
-        // Close timerfd
-        if let Some(fd) = self.timer_fds.remove(&timer_id) {
-            unsafe {
-                libc::close(fd);
-            }
-            log_debug!(
-                LogCategory::Timer,
-                "[Wayland] Closed timerfd {} for timer {}",
-                fd,
-                timer_id
-            );
-        }
+        super::timer::stop_timerfd(&mut self.timer_fds, timer_id, "Wayland");
     }
 
     // Thread Management (Wayland Implementation - Stored in LayoutWindow)

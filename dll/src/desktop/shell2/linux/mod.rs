@@ -6,6 +6,7 @@
 pub mod common;
 pub mod registry;
 pub mod resources;
+pub mod timer;
 
 /// DBus dynamic loading (for GNOME menus)
 pub mod dbus;
