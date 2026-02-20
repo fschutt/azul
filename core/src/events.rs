@@ -58,6 +58,7 @@ pub struct CallbackToCall {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[must_use = "ProcessEventResult must be used to determine if relayout/repaint is needed"]
 pub enum ProcessEventResult {
     DoNothing = 0,
     ShouldReRenderCurrentWindow = 1,
