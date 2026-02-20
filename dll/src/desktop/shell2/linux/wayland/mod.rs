@@ -1862,7 +1862,8 @@ impl WaylandWindow {
 
         // Process the result
         match result {
-            ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            | ProcessEventResult::ShouldRegenerateDomAllWindows => {
                 if let Err(e) = self.regenerate_layout() {
                     log_error!(
                         LogCategory::Layout,
@@ -1871,10 +1872,13 @@ impl WaylandWindow {
                     );
                 }
             }
-            ProcessEventResult::ShouldReRenderCurrentWindow => {
+            ProcessEventResult::ShouldIncrementalRelayout
+            | ProcessEventResult::ShouldReRenderCurrentWindow
+            | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                 self.frame_needs_regeneration = true;
             }
-            _ => {}
+            ProcessEventResult::DoNothing => {}
         }
 
         self.frame_needs_regeneration = true;
@@ -1961,7 +1965,8 @@ impl WaylandWindow {
 
         // Process the result
         match result {
-            ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            | ProcessEventResult::ShouldRegenerateDomAllWindows => {
                 if let Err(e) = self.regenerate_layout() {
                     log_error!(
                         LogCategory::Layout,
@@ -1970,10 +1975,13 @@ impl WaylandWindow {
                     );
                 }
             }
-            ProcessEventResult::ShouldReRenderCurrentWindow => {
+            ProcessEventResult::ShouldIncrementalRelayout
+            | ProcessEventResult::ShouldReRenderCurrentWindow
+            | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                 self.frame_needs_regeneration = true;
             }
-            _ => {}
+            ProcessEventResult::DoNothing => {}
         }
 
         self.frame_needs_regeneration = true;
@@ -2058,7 +2066,8 @@ impl WaylandWindow {
 
         // Process the result
         match result {
-            ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+            ProcessEventResult::ShouldRegenerateDomCurrentWindow
+            | ProcessEventResult::ShouldRegenerateDomAllWindows => {
                 if let Err(e) = self.regenerate_layout() {
                     log_error!(
                         LogCategory::Layout,
@@ -2067,10 +2076,13 @@ impl WaylandWindow {
                     );
                 }
             }
-            ProcessEventResult::ShouldReRenderCurrentWindow => {
+            ProcessEventResult::ShouldIncrementalRelayout
+            | ProcessEventResult::ShouldReRenderCurrentWindow
+            | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
                 self.frame_needs_regeneration = true;
             }
-            _ => {}
+            ProcessEventResult::DoNothing => {}
         }
 
         self.frame_needs_regeneration = true;

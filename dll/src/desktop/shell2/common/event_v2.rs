@@ -3081,16 +3081,33 @@ pub trait PlatformWindowV2 {
             use azul_core::diff::ChangeAccumulator;
             let mut accumulator = ChangeAccumulator::new();
             for (_dom_id, nodes) in words {
-                for (node_id, _new_text) in nodes {
+                for (node_id, new_text) in nodes {
                     // Text changes need IFC reshape at minimum
                     accumulator.add_text_change(
                         *node_id,
                         String::new(), // old text not available here
-                        _new_text.as_str().to_string(),
+                        new_text.as_str().to_string(),
                     );
                 }
             }
             if accumulator.needs_layout() {
+                // Phase 3: Apply text changes to the cached StyledDom so that
+                // incremental_relayout() sees the updated text content.
+                // Without this, the StyledDom would still have the old text
+                // and the re-layout would produce identical (stale) output.
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    for (dom_id, nodes) in words {
+                        if let Some(layout_result) = layout_window.layout_results.get_mut(dom_id) {
+                            for (node_id, new_text) in nodes {
+                                let idx = node_id.index();
+                                if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                                    layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                                        .set_node_type(azul_core::dom::NodeType::Text(new_text.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
                 event_result = event_result.max(ProcessEventResult::ShouldIncrementalRelayout);
             } else if accumulator.needs_paint_only() {
                 event_result = event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
@@ -3111,10 +3128,36 @@ pub trait PlatformWindowV2 {
                     }
                 }
             }
-            if accumulator.needs_layout() {
-                event_result = event_result.max(ProcessEventResult::ShouldIncrementalRelayout);
-            } else if accumulator.needs_paint_only() {
-                event_result = event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+            if accumulator.needs_layout() || accumulator.needs_paint_only() {
+                // Phase 3: Apply CSS property changes to the cached StyledDom so
+                // that incremental_relayout() sees the updated inline styles.
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    for (dom_id, nodes) in css {
+                        if let Some(layout_result) = layout_window.layout_results.get_mut(dom_id) {
+                            for (node_id, properties) in nodes {
+                                let idx = node_id.index();
+                                if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                                    // Replace the node's inline CSS properties with the new ones.
+                                    // Each CssProperty is wrapped in CssPropertyWithConditions
+                                    // with no conditions (unconditional / inline-style semantics).
+                                    use azul_css::dynamic_selector::CssPropertyWithConditions;
+                                    let new_props: Vec<CssPropertyWithConditions> = properties
+                                        .as_ref()
+                                        .iter()
+                                        .map(|p| CssPropertyWithConditions::simple(p.clone()))
+                                        .collect();
+                                    layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                                        .set_css_props(new_props.into());
+                                }
+                            }
+                        }
+                    }
+                }
+                if accumulator.needs_layout() {
+                    event_result = event_result.max(ProcessEventResult::ShouldIncrementalRelayout);
+                } else {
+                    event_result = event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                }
             }
         }
 

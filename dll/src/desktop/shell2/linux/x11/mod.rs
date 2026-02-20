@@ -1291,6 +1291,7 @@ impl X11Window {
             match event_result {
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 | ProcessEventResult::ShouldRegenerateDomAllWindows
+                | ProcessEventResult::ShouldIncrementalRelayout
                 | ProcessEventResult::ShouldReRenderCurrentWindow
                 | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 | ProcessEventResult::UpdateHitTesterAndProcessAgain => {

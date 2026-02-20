@@ -314,6 +314,10 @@ pub struct CallbackChangeResult {
     /// Image callback nodes that need to be re-rendered (for resize/animations)
     /// Unlike images_changed, this triggers a callback re-invocation
     pub image_callbacks_changed: BTreeMap<DomId, FastBTreeSet<NodeId>>,
+    /// Whether ALL image callbacks should be re-rendered (for animated GL textures).
+    /// When true, all RenderImageCallback nodes across all DOMs are re-invoked.
+    /// This only triggers texture updates — no DOM rebuild or display list resubmission.
+    pub update_all_image_callbacks: bool,
     /// IFrame nodes that need to be re-rendered (for content updates)
     /// This triggers the IFrame callback to be called with DomRecreated reason
     pub iframes_to_update: BTreeMap<DomId, FastBTreeSet<NodeId>>,
@@ -336,6 +340,142 @@ pub struct CallbackChangeResult {
     pub text_input_triggered: Vec<(azul_core::dom::DomNodeId, Vec<azul_core::events::EventFilter>)>,
     /// Whether begin_interactive_move() was called (for Wayland xdg_toplevel_move)
     pub begin_interactive_move: bool,
+}
+
+impl CallbackChangeResult {
+    /// Merge this result into a `CallCallbacksResult` accumulator.
+    ///
+    /// This is the single place where `CallbackChangeResult` fields are transferred
+    /// to `CallCallbacksResult`. Every callback invocation path (timer, thread,
+    /// single-callback, menu) calls this instead of manually forwarding fields.
+    ///
+    /// When a new field is added to either struct, it only needs to be handled here.
+    pub fn merge_into(
+        self,
+        ret: &mut CallCallbacksResult,
+        current_window_state: &FullWindowState,
+    ) {
+        // Boolean flags: OR-merge
+        ret.stop_propagation = ret.stop_propagation || self.stop_propagation;
+        ret.stop_immediate_propagation = ret.stop_immediate_propagation || self.stop_immediate_propagation;
+        ret.prevent_default = ret.prevent_default || self.prevent_default;
+        ret.hide_tooltip = ret.hide_tooltip || self.hide_tooltip;
+        ret.begin_interactive_move = ret.begin_interactive_move || self.begin_interactive_move;
+        ret.update_all_image_callbacks = ret.update_all_image_callbacks || self.update_all_image_callbacks;
+
+        // Vec fields: extend
+        ret.tooltips_to_show.extend(self.tooltips_to_show);
+        ret.windows_created.extend(self.windows_created);
+        ret.menus_to_open.extend(self.menus_to_open);
+        ret.queued_window_states.extend(self.queued_window_states);
+        ret.text_input_triggered.extend(self.text_input_triggered);
+
+        // Option<LogicalPosition>: last-wins
+        if self.hit_test_update_requested.is_some() {
+            ret.hit_test_update_requested = self.hit_test_update_requested;
+        }
+
+        // Timers / threads: merge into Option<HashMap/BTreeSet>
+        merge_option_map(&mut ret.timers, self.timers);
+        merge_option_map(&mut ret.threads, self.threads);
+        merge_option_set(&mut ret.timers_removed, self.timers_removed);
+        merge_option_set(&mut ret.threads_removed, self.threads_removed);
+
+        // DOM changes: merge BTreeMap<DomId, BTreeMap<K, V>> into Option<...>
+        merge_nested_map(&mut ret.words_changed, self.words_changed);
+        merge_nested_map(&mut ret.images_changed, self.images_changed);
+        merge_nested_map(&mut ret.image_masks_changed, self.image_masks_changed);
+        merge_nested_map(&mut ret.css_properties_changed, self.css_properties_changed);
+        merge_nested_map(&mut ret.nodes_scrolled_in_callbacks, self.nodes_scrolled);
+        merge_nested_set(&mut ret.image_callbacks_changed, self.image_callbacks_changed);
+
+        // Window state: only set if changed from current
+        if self.modified_window_state != *current_window_state {
+            ret.modified_window_state = Some(self.modified_window_state);
+        }
+    }
+
+    /// Resolve the focus target (if any) and merge it into the `CallCallbacksResult`.
+    ///
+    /// This is separate from `merge_into` because it needs access to `LayoutWindow`
+    /// fields (`layout_results`, `focus_manager`) that aren't available in the
+    /// `CallbackChangeResult` context.
+    pub fn resolve_focus_into(
+        focus_target: Option<FocusTarget>,
+        ret: &mut CallCallbacksResult,
+        layout_results: &BTreeMap<DomId, DomLayoutResult>,
+        current_focus: Option<azul_core::dom::DomNodeId>,
+    ) {
+        if let Some(ft) = focus_target {
+            if let Ok(new_focus_node) = crate::managers::focus_cursor::resolve_focus_target(
+                &ft,
+                layout_results,
+                current_focus,
+            ) {
+                ret.update_focused_node = match new_focus_node {
+                    Some(node) => FocusUpdateRequest::FocusNode(node),
+                    None => FocusUpdateRequest::ClearFocus,
+                };
+            }
+        }
+    }
+}
+
+/// Merge a `FastHashMap` into an `Option<FastHashMap>`, creating the Option if needed.
+fn merge_option_map<K: Eq + core::hash::Hash + Ord, V>(target: &mut Option<FastHashMap<K, V>>, source: FastHashMap<K, V>) {
+    if source.is_empty() {
+        return;
+    }
+    let map = target.get_or_insert_with(FastHashMap::new);
+    for (k, v) in source {
+        map.insert(k, v);
+    }
+}
+
+/// Merge a `FastBTreeSet` into an `Option<FastBTreeSet>`, creating the Option if needed.
+fn merge_option_set<K: Ord>(
+    target: &mut Option<FastBTreeSet<K>>,
+    source: FastBTreeSet<K>,
+) {
+    if source.is_empty() {
+        return;
+    }
+    let set = target.get_or_insert_with(FastBTreeSet::new);
+    for item in source {
+        set.insert(item);
+    }
+}
+
+/// Merge a `BTreeMap<DomId, BTreeMap<K, V>>` into an `Option<BTreeMap<DomId, BTreeMap<K, V>>>`.
+fn merge_nested_map<K: Ord, V>(
+    target: &mut Option<BTreeMap<DomId, BTreeMap<K, V>>>,
+    source: BTreeMap<DomId, BTreeMap<K, V>>,
+) {
+    if source.is_empty() {
+        return;
+    }
+    let map = target.get_or_insert_with(BTreeMap::new);
+    for (dom_id, nodes) in source {
+        map.entry(dom_id)
+            .or_insert_with(BTreeMap::new)
+            .extend(nodes);
+    }
+}
+
+/// Merge a `BTreeMap<DomId, FastBTreeSet<K>>` into an `Option<BTreeMap<DomId, FastBTreeSet<K>>>`.
+fn merge_nested_set<K: Ord>(
+    target: &mut Option<BTreeMap<DomId, FastBTreeSet<K>>>,
+    source: BTreeMap<DomId, FastBTreeSet<K>>,
+) {
+    if source.is_empty() {
+        return;
+    }
+    let map = target.get_or_insert_with(BTreeMap::new);
+    for (dom_id, nodes) in source {
+        map.entry(dom_id)
+            .or_insert_with(FastBTreeSet::new)
+            .extend(nodes);
+    }
 }
 
 /// A window-level layout manager that encapsulates all layout state and caching.
@@ -1958,6 +2098,9 @@ impl LayoutWindow {
                         .or_insert_with(FastBTreeSet::new)
                         .insert(node_id);
                 }
+                CallbackChange::UpdateAllImageCallbacks => {
+                    result.update_all_image_callbacks = true;
+                }
                 CallbackChange::UpdateIFrame { dom_id, node_id } => {
                     result
                         .iframes_to_update
@@ -3404,38 +3547,9 @@ impl LayoutWindow {
         current_window_state: &FullWindowState,
         renderer_resources: &RendererResources,
     ) -> CallCallbacksResult {
-        use std::collections::BTreeMap;
-
         use crate::callbacks::{CallCallbacksResult, CallbackInfo};
 
-        let mut ret = CallCallbacksResult {
-            should_scroll_render: false,
-            callbacks_update_screen: Update::DoNothing,
-            modified_window_state: None,
-            css_properties_changed: None,
-            words_changed: None,
-            images_changed: None,
-            image_masks_changed: None,
-            image_callbacks_changed: None,
-            nodes_scrolled_in_callbacks: None,
-            update_focused_node: FocusUpdateRequest::NoChange,
-            timers: None,
-            threads: None,
-            timers_removed: None,
-            threads_removed: None,
-            windows_created: Vec::new(),
-            menus_to_open: Vec::new(),
-            tooltips_to_show: Vec::new(),
-            hide_tooltip: false,
-            cursor_changed: false,
-            stop_propagation: false,
-            stop_immediate_propagation: false,
-            prevent_default: false,
-            hit_test_update_requested: None,
-            queued_window_states: Vec::new(),
-            text_input_triggered: Vec::new(),
-            begin_interactive_move: false,
-        };
+        let mut ret = CallCallbacksResult::empty();
 
         let mut should_terminate = TerminateTimer::Continue;
 
@@ -3522,79 +3636,15 @@ impl LayoutWindow {
                 self.queue_iframe_updates(change_result.iframes_to_update.clone());
             }
 
-            // Transfer results from CallbackChangeResult to CallCallbacksResult
-            ret.stop_propagation = change_result.stop_propagation;
-            ret.prevent_default = change_result.prevent_default;
-            ret.tooltips_to_show = change_result.tooltips_to_show;
-            ret.hide_tooltip = change_result.hide_tooltip;
-
-            if !change_result.timers.is_empty() {
-                ret.timers = Some(change_result.timers);
-            }
-            if !change_result.threads.is_empty() {
-                ret.threads = Some(change_result.threads);
-            }
-            if change_result.modified_window_state != *current_window_state {
-                ret.modified_window_state = Some(change_result.modified_window_state);
-            }
-            if !change_result.threads_removed.is_empty() {
-                ret.threads_removed = Some(change_result.threads_removed);
-            }
-            if !change_result.timers_removed.is_empty() {
-                ret.timers_removed = Some(change_result.timers_removed);
-            }
-            if !change_result.words_changed.is_empty() {
-                ret.words_changed = Some(change_result.words_changed);
-            }
-            if !change_result.images_changed.is_empty() {
-                ret.images_changed = Some(change_result.images_changed);
-            }
-            if !change_result.image_masks_changed.is_empty() {
-                ret.image_masks_changed = Some(change_result.image_masks_changed);
-            }
-            if !change_result.css_properties_changed.is_empty() {
-                ret.css_properties_changed = Some(change_result.css_properties_changed);
-            }
-            if !change_result.image_callbacks_changed.is_empty() {
-                ret.image_callbacks_changed = Some(change_result.image_callbacks_changed);
-            }
-            if !change_result.nodes_scrolled.is_empty() {
-                ret.nodes_scrolled_in_callbacks = Some(change_result.nodes_scrolled);
-            }
-
-            // Forward hit test update request to shell layer
-            if change_result.hit_test_update_requested.is_some() {
-                ret.hit_test_update_requested = change_result.hit_test_update_requested;
-            }
-
-            // Forward queued window states to shell layer for sequential processing
-            if !change_result.queued_window_states.is_empty() {
-                ret.queued_window_states = change_result.queued_window_states;
-            }
-
-            // Forward text_input_triggered to shell layer for recursive callback processing
-            if !change_result.text_input_triggered.is_empty() {
-                ret.text_input_triggered = change_result.text_input_triggered;
-            }
-
-            // Forward begin_interactive_move to shell layer (Wayland xdg_toplevel_move)
-            if change_result.begin_interactive_move {
-                ret.begin_interactive_move = true;
-            }
-
-            // Handle focus target outside the timer block so it's available later
-            if let Some(ft) = change_result.focus_target {
-                if let Ok(new_focus_node) = crate::managers::focus_cursor::resolve_focus_target(
-                    &ft,
-                    &self.layout_results,
-                    self.focus_manager.get_focused_node().copied(),
-                ) {
-                    ret.update_focused_node = match new_focus_node {
-                        Some(node) => FocusUpdateRequest::FocusNode(node),
-                        None => FocusUpdateRequest::ClearFocus,
-                    };
-                }
-            }
+            // Transfer ALL fields from CallbackChangeResult to CallCallbacksResult
+            let focus_target = change_result.focus_target.clone();
+            change_result.merge_into(&mut ret, current_window_state);
+            CallbackChangeResult::resolve_focus_into(
+                focus_target,
+                &mut ret,
+                &self.layout_results,
+                self.focus_manager.get_focused_node().copied(),
+            );
         }
 
         if should_terminate == TerminateTimer::Terminate {
@@ -3627,48 +3677,8 @@ impl LayoutWindow {
             thread::{OptionThreadReceiveMsg, ThreadReceiveMsg, ThreadWriteBackMsg},
         };
 
-        let mut ret = CallCallbacksResult {
-            should_scroll_render: false,
-            callbacks_update_screen: Update::DoNothing,
-            modified_window_state: None,
-            css_properties_changed: None,
-            words_changed: None,
-            images_changed: None,
-            image_masks_changed: None,
-            image_callbacks_changed: None,
-            nodes_scrolled_in_callbacks: None,
-            update_focused_node: FocusUpdateRequest::NoChange,
-            timers: None,
-            threads: None,
-            timers_removed: None,
-            threads_removed: None,
-            windows_created: Vec::new(),
-            menus_to_open: Vec::new(),
-            tooltips_to_show: Vec::new(),
-            hide_tooltip: false,
-            cursor_changed: false,
-            stop_propagation: false,
-            stop_immediate_propagation: false,
-            prevent_default: false,
-            hit_test_update_requested: None,
-            queued_window_states: Vec::new(),
-            text_input_triggered: Vec::new(),
-            begin_interactive_move: false,
-        };
+        let mut ret = CallCallbacksResult::empty();
 
-        let mut ret_modified_window_state = current_window_state.clone();
-        let ret_window_state = ret_modified_window_state.clone();
-        let mut ret_timers = FastHashMap::new();
-        let mut ret_timers_removed = FastBTreeSet::new();
-        let mut ret_threads = FastHashMap::new();
-        let mut ret_threads_removed = FastBTreeSet::new();
-        let mut ret_words_changed = BTreeMap::new();
-        let mut ret_images_changed = BTreeMap::new();
-        let mut ret_image_masks_changed = BTreeMap::new();
-        let mut ret_css_properties_changed = BTreeMap::new();
-        let mut ret_nodes_scrolled_in_callbacks = BTreeMap::new();
-        let mut new_focus_target = None;
-        let mut stop_propagation = false;
         let current_scroll_states = self.get_nested_scroll_states(DomId::ROOT_ID);
 
         // Collect thread IDs first to avoid borrowing self.threads while accessing self
@@ -3773,112 +3783,22 @@ impl LayoutWindow {
             );
 
             // Queue any IFrame updates from this callback
-            self.queue_iframe_updates(change_result.iframes_to_update);
+            self.queue_iframe_updates(change_result.iframes_to_update.clone());
 
-            ret.stop_propagation = ret.stop_propagation || change_result.stop_propagation;
-            ret.prevent_default = ret.prevent_default || change_result.prevent_default;
-            ret.tooltips_to_show.extend(change_result.tooltips_to_show);
-            ret.hide_tooltip = ret.hide_tooltip || change_result.hide_tooltip;
-            ret.begin_interactive_move = ret.begin_interactive_move || change_result.begin_interactive_move;
-
-            // Forward hit test update request
-            if change_result.hit_test_update_requested.is_some() {
-                ret.hit_test_update_requested = change_result.hit_test_update_requested;
-            }
-
-            // Merge changes into accumulated results
-            ret_timers.extend(change_result.timers);
-            ret_threads.extend(change_result.threads);
-            ret_timers_removed.extend(change_result.timers_removed);
-            ret_threads_removed.extend(change_result.threads_removed);
-
-            for (dom_id, nodes) in change_result.words_changed {
-                ret_words_changed
-                    .entry(dom_id)
-                    .or_insert_with(BTreeMap::new)
-                    .extend(nodes);
-            }
-            for (dom_id, nodes) in change_result.images_changed {
-                ret_images_changed
-                    .entry(dom_id)
-                    .or_insert_with(BTreeMap::new)
-                    .extend(nodes);
-            }
-            for (dom_id, nodes) in change_result.image_masks_changed {
-                ret_image_masks_changed
-                    .entry(dom_id)
-                    .or_insert_with(BTreeMap::new)
-                    .extend(nodes);
-            }
-            for (dom_id, nodes) in change_result.css_properties_changed {
-                ret_css_properties_changed
-                    .entry(dom_id)
-                    .or_insert_with(BTreeMap::new)
-                    .extend(nodes);
-            }
-            for (dom_id, nodes) in change_result.nodes_scrolled {
-                ret_nodes_scrolled_in_callbacks
-                    .entry(dom_id)
-                    .or_insert_with(BTreeMap::new)
-                    .extend(nodes);
-            }
-
-            if change_result.modified_window_state != *current_window_state {
-                ret_modified_window_state = change_result.modified_window_state;
-            }
-
-            if let Some(ft) = change_result.focus_target {
-                new_focus_target = Some(ft);
-            }
+            // Transfer ALL fields from CallbackChangeResult to CallCallbacksResult
+            let focus_target = change_result.focus_target.clone();
+            change_result.merge_into(&mut ret, current_window_state);
+            CallbackChangeResult::resolve_focus_into(
+                focus_target,
+                &mut ret,
+                &self.layout_results,
+                self.focus_manager.get_focused_node().copied(),
+            );
 
             if is_finished {
                 ret.threads_removed
                     .get_or_insert_with(|| BTreeSet::default())
                     .insert(thread_id);
-            }
-        }
-
-        if !ret_timers.is_empty() {
-            ret.timers = Some(ret_timers);
-        }
-        if !ret_threads.is_empty() {
-            ret.threads = Some(ret_threads);
-        }
-        if ret_modified_window_state != ret_window_state {
-            ret.modified_window_state = Some(ret_modified_window_state);
-        }
-        if !ret_threads_removed.is_empty() {
-            ret.threads_removed = Some(ret_threads_removed);
-        }
-        if !ret_timers_removed.is_empty() {
-            ret.timers_removed = Some(ret_timers_removed);
-        }
-        if !ret_words_changed.is_empty() {
-            ret.words_changed = Some(ret_words_changed);
-        }
-        if !ret_images_changed.is_empty() {
-            ret.images_changed = Some(ret_images_changed);
-        }
-        if !ret_image_masks_changed.is_empty() {
-            ret.image_masks_changed = Some(ret_image_masks_changed);
-        }
-        if !ret_css_properties_changed.is_empty() {
-            ret.css_properties_changed = Some(ret_css_properties_changed);
-        }
-        if !ret_nodes_scrolled_in_callbacks.is_empty() {
-            ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks);
-        }
-
-        if let Some(ft) = new_focus_target {
-            if let Ok(new_focus_node) = crate::managers::focus_cursor::resolve_focus_target(
-                &ft,
-                &self.layout_results,
-                self.focus_manager.get_focused_node().copied(),
-            ) {
-                ret.update_focused_node = match new_focus_node {
-                    Some(node) => FocusUpdateRequest::FocusNode(node),
-                    None => FocusUpdateRequest::ClearFocus,
-                };
             }
         }
 
@@ -3907,48 +3827,8 @@ impl LayoutWindow {
             node: NodeHierarchyItemId::from_crate_internal(None),
         };
 
-        let mut ret = CallCallbacksResult {
-            should_scroll_render: false,
-            callbacks_update_screen: Update::DoNothing,
-            modified_window_state: None,
-            css_properties_changed: None,
-            words_changed: None,
-            images_changed: None,
-            image_masks_changed: None,
-            image_callbacks_changed: None,
-            nodes_scrolled_in_callbacks: None,
-            update_focused_node: FocusUpdateRequest::NoChange,
-            timers: None,
-            threads: None,
-            timers_removed: None,
-            threads_removed: None,
-            windows_created: Vec::new(),
-            menus_to_open: Vec::new(),
-            tooltips_to_show: Vec::new(),
-            hide_tooltip: false,
-            cursor_changed: false,
-            stop_propagation: false,
-            stop_immediate_propagation: false,
-            prevent_default: false,
-            hit_test_update_requested: None,
-            queued_window_states: Vec::new(),
-            text_input_triggered: Vec::new(),
-            begin_interactive_move: false,
-        };
+        let mut ret = CallCallbacksResult::empty();
 
-        let mut ret_modified_window_state = current_window_state.clone();
-        let ret_window_state = ret_modified_window_state.clone();
-        let mut ret_timers = FastHashMap::new();
-        let mut ret_timers_removed = FastBTreeSet::new();
-        let mut ret_threads = FastHashMap::new();
-        let mut ret_threads_removed = FastBTreeSet::new();
-        let mut ret_words_changed = BTreeMap::new();
-        let mut ret_images_changed = BTreeMap::new();
-        let mut ret_image_masks_changed = BTreeMap::new();
-        let mut ret_css_properties_changed = BTreeMap::new();
-        let mut ret_nodes_scrolled_in_callbacks = BTreeMap::new();
-        let mut new_focus_target = None;
-        let mut stop_propagation = false;
         let current_scroll_states = self.get_nested_scroll_states(DomId::ROOT_ID);
 
         let cursor_relative_to_item = OptionLogicalPosition::None;
@@ -4002,78 +3882,17 @@ impl LayoutWindow {
         );
 
         // Queue any IFrame updates from this callback
-        self.queue_iframe_updates(change_result.iframes_to_update);
+        self.queue_iframe_updates(change_result.iframes_to_update.clone());
 
-        ret.stop_propagation = change_result.stop_propagation;
-        ret.prevent_default = change_result.prevent_default;
-        ret.tooltips_to_show = change_result.tooltips_to_show;
-        ret.hide_tooltip = change_result.hide_tooltip;
-        ret.begin_interactive_move = ret.begin_interactive_move || change_result.begin_interactive_move;
-
-        // Forward hit test update request (invoke_single_callback)
-        if change_result.hit_test_update_requested.is_some() {
-            ret.hit_test_update_requested = change_result.hit_test_update_requested;
-        }
-
-        ret_timers.extend(change_result.timers);
-        ret_threads.extend(change_result.threads);
-        ret_timers_removed.extend(change_result.timers_removed);
-        ret_threads_removed.extend(change_result.threads_removed);
-        ret_words_changed.extend(change_result.words_changed);
-        ret_images_changed.extend(change_result.images_changed);
-        ret_image_masks_changed.extend(change_result.image_masks_changed);
-        ret_css_properties_changed.extend(change_result.css_properties_changed);
-        ret_nodes_scrolled_in_callbacks.append(&mut change_result.nodes_scrolled.clone());
-
-        if change_result.modified_window_state != *current_window_state {
-            ret_modified_window_state = change_result.modified_window_state;
-        }
-
-        new_focus_target = change_result.focus_target.or(new_focus_target);
-
-        if !ret_timers.is_empty() {
-            ret.timers = Some(ret_timers);
-        }
-        if !ret_threads.is_empty() {
-            ret.threads = Some(ret_threads);
-        }
-        if ret_modified_window_state != ret_window_state {
-            ret.modified_window_state = Some(ret_modified_window_state);
-        }
-        if !ret_threads_removed.is_empty() {
-            ret.threads_removed = Some(ret_threads_removed);
-        }
-        if !ret_timers_removed.is_empty() {
-            ret.timers_removed = Some(ret_timers_removed);
-        }
-        if !ret_words_changed.is_empty() {
-            ret.words_changed = Some(ret_words_changed);
-        }
-        if !ret_images_changed.is_empty() {
-            ret.images_changed = Some(ret_images_changed);
-        }
-        if !ret_image_masks_changed.is_empty() {
-            ret.image_masks_changed = Some(ret_image_masks_changed);
-        }
-        if !ret_css_properties_changed.is_empty() {
-            ret.css_properties_changed = Some(ret_css_properties_changed);
-        }
-        if !ret_nodes_scrolled_in_callbacks.is_empty() {
-            ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks);
-        }
-
-        if let Some(ft) = new_focus_target {
-            if let Ok(new_focus_node) = crate::managers::focus_cursor::resolve_focus_target(
-                &ft,
-                &self.layout_results,
-                self.focus_manager.get_focused_node().copied(),
-            ) {
-                ret.update_focused_node = match new_focus_node {
-                    Some(node) => FocusUpdateRequest::FocusNode(node),
-                    None => FocusUpdateRequest::ClearFocus,
-                };
-            }
-        }
+        // Transfer ALL fields from CallbackChangeResult to CallCallbacksResult
+        let focus_target = change_result.focus_target.clone();
+        change_result.merge_into(&mut ret, current_window_state);
+        CallbackChangeResult::resolve_focus_into(
+            focus_target,
+            &mut ret,
+            &self.layout_results,
+            self.focus_manager.get_focused_node().copied(),
+        );
 
         return ret;
     }
@@ -4095,48 +3914,8 @@ impl LayoutWindow {
     ) -> CallCallbacksResult {
         use crate::callbacks::{CallCallbacksResult, CallbackInfo, MenuCallback};
 
-        let mut ret = CallCallbacksResult {
-            should_scroll_render: false,
-            callbacks_update_screen: Update::DoNothing,
-            modified_window_state: None,
-            css_properties_changed: None,
-            words_changed: None,
-            images_changed: None,
-            image_masks_changed: None,
-            image_callbacks_changed: None,
-            nodes_scrolled_in_callbacks: None,
-            update_focused_node: FocusUpdateRequest::NoChange,
-            timers: None,
-            threads: None,
-            timers_removed: None,
-            threads_removed: None,
-            windows_created: Vec::new(),
-            menus_to_open: Vec::new(),
-            tooltips_to_show: Vec::new(),
-            hide_tooltip: false,
-            cursor_changed: false,
-            stop_propagation: false,
-            stop_immediate_propagation: false,
-            prevent_default: false,
-            hit_test_update_requested: None,
-            queued_window_states: Vec::new(),
-            text_input_triggered: Vec::new(),
-            begin_interactive_move: false,
-        };
+        let mut ret = CallCallbacksResult::empty();
 
-        let mut ret_modified_window_state = current_window_state.clone();
-        let ret_window_state = ret_modified_window_state.clone();
-        let mut ret_timers = FastHashMap::new();
-        let mut ret_timers_removed = FastBTreeSet::new();
-        let mut ret_threads = FastHashMap::new();
-        let mut ret_threads_removed = FastBTreeSet::new();
-        let mut ret_words_changed = BTreeMap::new();
-        let mut ret_images_changed = BTreeMap::new();
-        let mut ret_image_masks_changed = BTreeMap::new();
-        let mut ret_css_properties_changed = BTreeMap::new();
-        let mut ret_nodes_scrolled_in_callbacks = BTreeMap::new();
-        let mut new_focus_target = None;
-        let mut stop_propagation = false;
         let current_scroll_states = self.get_nested_scroll_states(DomId::ROOT_ID);
 
         let cursor_relative_to_item = OptionLogicalPosition::None;
@@ -4191,78 +3970,17 @@ impl LayoutWindow {
         );
 
         // Queue any IFrame updates from this callback
-        self.queue_iframe_updates(change_result.iframes_to_update);
+        self.queue_iframe_updates(change_result.iframes_to_update.clone());
 
-        ret.stop_propagation = change_result.stop_propagation;
-        ret.prevent_default = change_result.prevent_default;
-        ret.tooltips_to_show = change_result.tooltips_to_show;
-        ret.hide_tooltip = change_result.hide_tooltip;
-        ret.begin_interactive_move = ret.begin_interactive_move || change_result.begin_interactive_move;
-
-        // Forward hit test update request (invoke_menu_callback)
-        if change_result.hit_test_update_requested.is_some() {
-            ret.hit_test_update_requested = change_result.hit_test_update_requested;
-        }
-
-        ret_timers.extend(change_result.timers);
-        ret_threads.extend(change_result.threads);
-        ret_timers_removed.extend(change_result.timers_removed);
-        ret_threads_removed.extend(change_result.threads_removed);
-        ret_words_changed.extend(change_result.words_changed);
-        ret_images_changed.extend(change_result.images_changed);
-        ret_image_masks_changed.extend(change_result.image_masks_changed);
-        ret_css_properties_changed.extend(change_result.css_properties_changed);
-        ret_nodes_scrolled_in_callbacks.append(&mut change_result.nodes_scrolled.clone());
-
-        if change_result.modified_window_state != *current_window_state {
-            ret_modified_window_state = change_result.modified_window_state;
-        }
-
-        new_focus_target = change_result.focus_target.or(new_focus_target);
-
-        if !ret_timers.is_empty() {
-            ret.timers = Some(ret_timers);
-        }
-        if !ret_threads.is_empty() {
-            ret.threads = Some(ret_threads);
-        }
-        if ret_modified_window_state != ret_window_state {
-            ret.modified_window_state = Some(ret_modified_window_state);
-        }
-        if !ret_threads_removed.is_empty() {
-            ret.threads_removed = Some(ret_threads_removed);
-        }
-        if !ret_timers_removed.is_empty() {
-            ret.timers_removed = Some(ret_timers_removed);
-        }
-        if !ret_words_changed.is_empty() {
-            ret.words_changed = Some(ret_words_changed);
-        }
-        if !ret_images_changed.is_empty() {
-            ret.images_changed = Some(ret_images_changed);
-        }
-        if !ret_image_masks_changed.is_empty() {
-            ret.image_masks_changed = Some(ret_image_masks_changed);
-        }
-        if !ret_css_properties_changed.is_empty() {
-            ret.css_properties_changed = Some(ret_css_properties_changed);
-        }
-        if !ret_nodes_scrolled_in_callbacks.is_empty() {
-            ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks);
-        }
-
-        if let Some(ft) = new_focus_target {
-            if let Ok(new_focus_node) = crate::managers::focus_cursor::resolve_focus_target(
-                &ft,
-                &self.layout_results,
-                self.focus_manager.get_focused_node().copied(),
-            ) {
-                ret.update_focused_node = match new_focus_node {
-                    Some(node) => FocusUpdateRequest::FocusNode(node),
-                    None => FocusUpdateRequest::ClearFocus,
-                };
-            }
-        }
+        // Transfer ALL fields from CallbackChangeResult to CallCallbacksResult
+        let focus_target = change_result.focus_target.clone();
+        change_result.merge_into(&mut ret, current_window_state);
+        CallbackChangeResult::resolve_focus_into(
+            focus_target,
+            &mut ret,
+            &self.layout_results,
+            self.focus_manager.get_focused_node().copied(),
+        );
 
         return ret;
     }

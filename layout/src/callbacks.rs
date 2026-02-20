@@ -218,6 +218,13 @@ pub enum CallbackChange {
     /// Re-render an image callback (for resize/animation)
     /// This triggers re-invocation of the RenderImageCallback
     UpdateImageCallback { dom_id: DomId, node_id: NodeId },
+    /// Re-render ALL image callbacks across all DOMs.
+    ///
+    /// This is the most efficient way to update animated GL textures:
+    /// it triggers only texture re-rendering without DOM rebuild or
+    /// display list resubmission. Used by timer callbacks that need
+    /// to update OpenGL textures every frame.
+    UpdateAllImageCallbacks,
     /// Trigger re-rendering of an IFrame with a new DOM
     /// This forces the IFrame to call its callback and update the display list
     UpdateIFrame { dom_id: DomId, node_id: NodeId },
@@ -875,6 +882,23 @@ impl CallbackInfo {
     /// - Interactive content (user input changes rendering)
     pub fn update_image_callback(&mut self, dom_id: DomId, node_id: NodeId) {
         self.push_change(CallbackChange::UpdateImageCallback { dom_id, node_id });
+    }
+
+    /// Re-render ALL image callbacks across all DOMs (applied after callback returns)
+    ///
+    /// This is the most efficient way to update animated GL textures.
+    /// Unlike returning `Update::RefreshDom`, this triggers only:
+    /// - Re-invocation of all `RenderImageCallback` functions
+    /// - GL texture swap in WebRender
+    ///
+    /// It does NOT trigger:
+    /// - DOM rebuild (no `layout()` callback)
+    /// - Display list resubmission (WebRender reuses existing scene)
+    /// - Relayout
+    ///
+    /// Ideal for timer callbacks that animate OpenGL content at 60fps.
+    pub fn update_all_image_callbacks(&mut self) {
+        self.push_change(CallbackChange::UpdateAllImageCallbacks);
     }
 
     /// Trigger re-rendering of an IFrame (applied after callback returns)
@@ -3807,6 +3831,10 @@ pub struct CallCallbacksResult {
     pub image_masks_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>>,
     /// Image callback changes (for OpenGL texture updates)
     pub image_callbacks_changed: Option<BTreeMap<DomId, FastBTreeSet<NodeId>>>,
+    /// Whether ALL image callbacks should be re-rendered (for animated GL textures).
+    /// When true, all RenderImageCallback nodes across all DOMs are re-invoked
+    /// without DOM rebuild or display list resubmission.
+    pub update_all_image_callbacks: bool,
     /// CSS property changes from callbacks
     pub css_properties_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, CssPropertyVec>>>,
     /// Scroll position changes from callbacks
@@ -3858,6 +3886,15 @@ pub struct CallCallbacksResult {
 
 impl Default for CallCallbacksResult {
     fn default() -> Self {
+        Self::empty()
+    }
+}
+
+impl CallCallbacksResult {
+    /// Create an empty result with all fields set to their zero/none values.
+    ///
+    /// Prefer this over repeating the 28-field literal in every callback path.
+    pub fn empty() -> Self {
         Self {
             should_scroll_render: false,
             callbacks_update_screen: Update::DoNothing,
@@ -3866,6 +3903,7 @@ impl Default for CallCallbacksResult {
             images_changed: None,
             image_masks_changed: None,
             image_callbacks_changed: None,
+            update_all_image_callbacks: false,
             css_properties_changed: None,
             nodes_scrolled_in_callbacks: None,
             update_focused_node: FocusUpdateRequest::NoChange,
