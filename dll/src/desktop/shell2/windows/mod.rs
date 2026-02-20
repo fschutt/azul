@@ -2865,10 +2865,15 @@ unsafe extern "system" fn window_proc(
             let timer_id = wparam;
 
             if timer_id == 0xFFFF {
-                // Thread polling timer - threads are managed by LayoutWindow
-                // Thread results will be processed during regenerate_layout
-                if let Some(ref layout_window) = window.layout_window {
-                    if !layout_window.threads.is_empty() {
+                // Thread polling timer - invoke thread writeback callbacks
+                use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
+                if let Some(thread_result) = window.invoke_thread_callbacks() {
+                    if thread_result.needs_processing() {
+                        window.previous_window_state = Some(window.current_window_state.clone());
+                        let _ = window.process_callback_result_v2(&thread_result);
+                        window.sync_window_state();
+                    }
+                    if thread_result.needs_redraw() {
                         window.frame_needs_regeneration = true;
                         (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
                     }
@@ -2876,7 +2881,6 @@ unsafe extern "system" fn window_proc(
             } else {
                 // User timer from LayoutWindow - invoke expired timer callbacks
                 use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-                use azul_core::callbacks::Update;
 
                 let timer_results = window.invoke_expired_timers();
 
@@ -2885,8 +2889,11 @@ unsafe extern "system" fn window_proc(
                 for result in &timer_results {
                     if result.needs_processing() {
                         window.previous_window_state = Some(window.current_window_state.clone());
-                        let _ = window.process_callback_result_v2(result);
+                        let process_result = window.process_callback_result_v2(result);
                         window.sync_window_state();
+                        if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+                            needs_redraw = true;
+                        }
                     }
                     if result.needs_redraw() {
                         needs_redraw = true;

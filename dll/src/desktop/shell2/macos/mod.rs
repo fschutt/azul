@@ -429,7 +429,6 @@ define_class!(
         /// This method invokes expired timers via the stored MacOSWindow pointer.
         #[unsafe(method(tickTimers:))]
         fn tick_timers(&self, _sender: Option<&NSObject>) {
-            use azul_core::callbacks::Update;
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
 
             // Only log every ~60 frames to avoid spam, but always log if there's work
@@ -955,7 +954,6 @@ define_class!(
         /// This method invokes expired timers via the stored MacOSWindow pointer.
         #[unsafe(method(tickTimers:))]
         fn tick_timers(&self, _sender: Option<&NSObject>) {
-            use azul_core::callbacks::Update;
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
 
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
@@ -4676,7 +4674,6 @@ impl MacOSWindow {
     /// called by the Objective-C drawRect: method when macOS schedules a redraw.
     pub fn render_and_present_in_draw_rect(&mut self) -> Result<(), WindowError> {
         use super::common::event_v2::PlatformWindowV2;
-        use azul_core::callbacks::Update;
 
         log_trace!(LogCategory::Rendering, "[render_and_present] START");
 
@@ -4693,23 +4690,12 @@ impl MacOSWindow {
             // Process each callback result to handle window state modifications,
             // queued_window_states (for debug server click simulation), and text_input_triggered
             for result in &timer_results {
-                // CRITICAL: Also process text_input_triggered events from debug server text input
-                let needs_processing = result.modified_window_state.is_some() 
-                    || !result.queued_window_states.is_empty()
-                    || !result.text_input_triggered.is_empty();
-                
-                if needs_processing {
-                    // Save previous state BEFORE applying changes (for sync_window_state diff)
+                if result.needs_processing() {
                     self.previous_window_state = Some(self.current_window_state.clone());
                     let _ = self.process_callback_result_v2(result);
-                    // Synchronize window state with OS immediately after change
                     self.sync_window_state();
                 }
-                // Check if redraw needed
-                if matches!(
-                    result.callbacks_update_screen,
-                    Update::RefreshDom | Update::RefreshDomAllWindows
-                ) {
+                if result.needs_redraw() {
                     self.frame_needs_regeneration = true;
                 }
             }
@@ -4718,15 +4704,12 @@ impl MacOSWindow {
         // CRITICAL: Poll threads for completed work and invoke writeback callbacks
         // This processes ThreadWriteBackMsg from background threads
         if let Some(thread_result) = self.invoke_thread_callbacks() {
-            // ALWAYS process thread callback result to handle threads_removed, new timers, etc.
-            self.previous_window_state = Some(self.current_window_state.clone());
-            let _ = self.process_callback_result_v2(&thread_result);
-            
-            // Check if redraw needed
-            if matches!(
-                thread_result.callbacks_update_screen,
-                Update::RefreshDom | Update::RefreshDomAllWindows
-            ) {
+            if thread_result.needs_processing() {
+                self.previous_window_state = Some(self.current_window_state.clone());
+                let _ = self.process_callback_result_v2(&thread_result);
+                self.sync_window_state();
+            }
+            if thread_result.needs_redraw() {
                 self.frame_needs_regeneration = true;
             }
         }

@@ -1549,10 +1549,25 @@ impl WaylandWindow {
                     for result in &timer_results {
                         if result.needs_processing() {
                             self.previous_window_state = Some(self.current_window_state.clone());
-                            let _ = self.process_callback_result_v2(result);
+                            let process_result = self.process_callback_result_v2(result);
                             self.sync_window_state();
+                            if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+                                needs_redraw = true;
+                            }
                         }
                         if result.needs_redraw() {
+                            needs_redraw = true;
+                        }
+                    }
+
+                    // Invoke thread writeback callbacks
+                    if let Some(thread_result) = self.invoke_thread_callbacks() {
+                        if thread_result.needs_processing() {
+                            self.previous_window_state = Some(self.current_window_state.clone());
+                            let _ = self.process_callback_result_v2(&thread_result);
+                            self.sync_window_state();
+                        }
+                        if thread_result.needs_redraw() {
                             needs_redraw = true;
                         }
                     }
@@ -3254,18 +3269,29 @@ impl WaylandWindow {
 
         // Invoke expired timer callbacks
         let timer_results = self.invoke_expired_timers();
-        if !timer_results.is_empty() {
-            log_debug!(
-                LogCategory::Timer,
-                "[Wayland] Invoked {} timer callbacks",
-                timer_results.len()
-            );
+        let mut needs_redraw = false;
+        for result in &timer_results {
+            if result.needs_processing() {
+                self.previous_window_state = Some(self.current_window_state.clone());
+                let _ = self.process_callback_result_v2(result);
+                self.sync_window_state();
+            }
+            if result.needs_redraw() {
+                needs_redraw = true;
+            }
+        }
+        if needs_redraw {
             self.frame_needs_regeneration = true;
         }
 
-        // Check if we have active threads (they need periodic checking)
-        if let Some(layout_window) = self.layout_window.as_mut() {
-            if !layout_window.threads.is_empty() {
+        // Invoke thread writeback callbacks
+        if let Some(thread_result) = self.invoke_thread_callbacks() {
+            if thread_result.needs_processing() {
+                self.previous_window_state = Some(self.current_window_state.clone());
+                let _ = self.process_callback_result_v2(&thread_result);
+                self.sync_window_state();
+            }
+            if thread_result.needs_redraw() {
                 self.frame_needs_regeneration = true;
             }
         }
