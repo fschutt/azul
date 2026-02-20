@@ -2827,31 +2827,17 @@ pub trait PlatformWindowV2 {
         //
         // IMPLEMENTATION STATUS:
         // [ OK ] Scroll: Platform calls scroll_manager.record_sample() in handle_scroll_wheel()
-        // [ OK ] Text: Platform calls process_text_input() in handle_key_down()
-        // [ WAIT ] A11y: Not yet implemented (needs a11y_manager.record_state_changes())
+        // [ OK ] Text: Handled via CallbackChange::CreateTextInput / SystemChange::PasteFromClipboard
+        // [ OK ] A11y: Tree updated after layout (rebuild_accessibility_tree); actions via record_accessibility_action()
 
-        // Process text input BEFORE event dispatch
-        // If there's a focused contenteditable node and text input occurred,
-        // apply the edit using cursor/selection managers and mark nodes dirty
+        // NOTE: Text input is handled via:
+        // - CallbackChange::CreateTextInput (debug server / user callbacks → apply_user_change)
+        // - SystemChange::PasteFromClipboard (Ctrl+V → apply_system_change)
+        // Platform IME text input (macOS NSTextInputClient, Windows WM_CHAR, etc.)
+        // arrives as keyboard events and is processed through the above paths.
         //
-        // NOTE: Debug server text input is handled via CallbackChange::CreateTextInput
-        // which is processed by apply_user_change()
-        let text_input_affected_nodes: BTreeMap<azul_core::dom::DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> = if let Some(_layout_window) = self.get_layout_window_mut() {
-            // TODO: Get actual text input from platform (IME, composed chars, etc.)
-            // Platform layer needs to provide text_input: &str when available
-            // Example integration:
-            // - macOS: NSTextInputClient::insertText / setMarkedText
-            // - Windows: WM_CHAR / WM_UNICHAR messages
-            // - X11: XIM XLookupString with UTF-8
-            // - Wayland: text-input protocol
-            BTreeMap::new()
-        } else {
-            BTreeMap::new()
-        };
-        // TODO: Process accessibility events
-        // if let Some(layout_window) = self.get_layout_window_mut() {
-        //     layout_window.a11y_manager.record_state_changes(...);
-        // }
+        // Accessibility tree updates happen after layout in LayoutWindow::rebuild_accessibility_tree().
+        // Screen reader actions are handled by PlatformWindowV2::record_accessibility_action().
 
         // PRE-CALLBACK INTERNAL EVENT FILTERING
         // Analyze events BEFORE user callbacks to extract internal system events
@@ -3064,9 +3050,11 @@ pub trait PlatformWindowV2 {
         }
 
         // POST-CALLBACK TEXT INPUT PROCESSING
+        // ApplyPendingTextInput signals that text was entered (keyboard/IME).
+        // When present, apply the text changeset and scroll cursor into view.
         let should_apply_text_input = post_system_changes.iter().any(|c| matches!(c, SystemChange::ApplyPendingTextInput));
 
-        if should_apply_text_input && !text_input_affected_nodes.is_empty() {
+        if should_apply_text_input {
             let r = self.apply_system_change(&SystemChange::ApplyTextChangeset);
             result = result.max(r);
 
