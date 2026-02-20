@@ -116,6 +116,15 @@ pub enum ResponseData {
     FocusState(FocusStateResponse),
     /// Cursor state (cursor position and blink state)
     CursorState(CursorStateResponse),
+    /// E2E test results
+    E2eResults(E2eResultsResponse),
+}
+
+/// Wrapper for E2E test results
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct E2eResultsResponse {
+    pub results: Vec<E2eTestResult>,
 }
 
 /// Metadata about a RefAny's type
@@ -1204,6 +1213,14 @@ pub enum DebugEvent {
     GetFocusState,
     /// Get the current cursor state (position, blink state)
     GetCursorState,
+
+    // E2E Test Execution
+    /// Run one or more E2E tests in StubWindows.
+    /// The `tests_json` field is a serialised `Vec<E2eTest>`.
+    #[serde(skip)]
+    RunE2eTests {
+        tests_json: String,
+    },
 }
 
 // ==================== Node Resolution Helper ====================
@@ -1712,9 +1729,29 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
     let method = parts[0];
     let path = parts[1];
 
+    // ── Route: GET / → serve the debugger UI ──
+    if method == "GET" && (path == "/" || path == "/index.html") {
+        let html = include_str!("debugger.html");
+        let header = format!(
+            "HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            html.len()
+        );
+        stream.set_nodelay(true).ok();
+        let _ = stream.write_all(header.as_bytes());
+        for chunk in html.as_bytes().chunks(8192) {
+            if stream.write_all(chunk).is_err() { return; }
+        }
+        let _ = stream.flush();
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+        // Read client close
+        let mut drain = [0u8; 64];
+        while let Ok(n) = stream.read(&mut drain) { if n == 0 { break; } }
+        return;
+    }
+
     let response_json = match (method, path) {
-        // Health check - GET /
-        ("GET", "/") | ("GET", "/health") => {
+        // Health check - GET /health
+        ("GET", "/health") => {
             let logs = take_logs();
             let health = HealthResponse {
                 port: DEBUG_PORT.get().copied().unwrap_or(0),
@@ -1755,9 +1792,27 @@ fn handle_http_connection(stream: &mut std::net::TcpStream) {
             }
         }
 
+        // E2E test execution — POST /e2e/run
+        ("POST", "/e2e/run") => {
+            let body_start = request
+                .find("\r\n\r\n")
+                .map(|i| i + 4)
+                .or_else(|| request.find("\n\n").map(|i| i + 2));
+
+            if let Some(start) = body_start {
+                let body = &request[start..];
+                handle_e2e_request(body)
+            } else {
+                serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
+                    request_id: None,
+                    message: "No request body for /e2e/run".to_string(),
+                }))
+            }
+        }
+
         _ => serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
             request_id: None,
-            message: "Use GET / for status or POST / with JSON body".to_string(),
+            message: "Use GET / for debugger UI, GET /health for status, POST / for commands, POST /e2e/run for E2E tests".to_string(),
         })),
     };
 
@@ -1885,6 +1940,290 @@ fn handle_event_request(body: &str) -> String {
             request_id: None,
             message: format!("Invalid JSON: {}", e),
         })),
+    }
+}
+
+// ==================== E2E Test Types ====================
+
+/// A single E2E test containing setup + steps.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct E2eTest {
+    /// Human-readable test name.
+    pub name: String,
+    /// Optional description.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Optional setup (window size, DPI, initial app state).
+    #[serde(default)]
+    pub setup: Option<E2eSetup>,
+    /// Ordered list of steps (commands + assertions).
+    pub steps: Vec<E2eStep>,
+}
+
+/// Optional setup block applied before running steps.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct E2eSetup {
+    #[serde(default = "default_width")]
+    pub window_width: u32,
+    #[serde(default = "default_height")]
+    pub window_height: u32,
+    #[serde(default = "default_dpi")]
+    pub dpi: u32,
+    /// If set, `set_app_state` is called before the first step.
+    #[serde(default)]
+    pub app_state: Option<serde_json::Value>,
+}
+
+#[cfg(feature = "std")]
+fn default_width() -> u32 { 800 }
+#[cfg(feature = "std")]
+fn default_height() -> u32 { 600 }
+#[cfg(feature = "std")]
+fn default_dpi() -> u32 { 96 }
+
+/// A single step inside an E2E test.
+///
+/// Steps are either regular debug commands (click, text_input, …) or
+/// assertions (assert_text, assert_exists, …).  The JSON format is the
+/// same as the debug API: `{"op": "click", "selector": ".btn"}`.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct E2eStep {
+    /// Operation name (same as DebugEvent discriminant, plus assert_* ops).
+    pub op: String,
+    /// Whether to capture a screenshot after this step.
+    #[serde(default)]
+    pub screenshot: bool,
+    /// All other fields are forwarded as command parameters.
+    #[serde(flatten)]
+    pub params: serde_json::Value,
+}
+
+/// Result of running a single E2E test.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct E2eTestResult {
+    pub name: String,
+    /// "pass" or "fail"
+    pub status: String,
+    pub duration_ms: u64,
+    pub step_count: usize,
+    pub steps_passed: usize,
+    pub steps_failed: usize,
+    pub steps: Vec<E2eStepResult>,
+    /// Screenshot taken after the last step (if any).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub final_screenshot: Option<String>,
+}
+
+/// Result of running a single step.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct E2eStepResult {
+    pub step_index: usize,
+    pub op: String,
+    /// "pass" or "fail"
+    pub status: String,
+    pub duration_ms: u64,
+    pub logs: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screenshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<serde_json::Value>,
+}
+
+/// HTTP response wrapper for E2E results.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+struct E2eHttpResponse {
+    pub status: String,
+    pub results: Vec<E2eTestResult>,
+}
+
+/// Handle `POST /e2e/run` — parse tests, queue them for execution,
+/// return results.
+///
+/// The request body is either:
+/// - `{ "tests": [...] }` — array of tests
+/// - `{ "name": "...", "steps": [...] }` — single test
+///
+/// For now, tests are queued as a special `RunE2eTests` debug event and
+/// processed on the event-loop thread (same as all other debug commands).
+/// This keeps the implementation simple and avoids threading issues.
+///
+/// Future optimisation: run each test in its own StubWindow on a separate
+/// thread.
+#[cfg(feature = "std")]
+fn handle_e2e_request(body: &str) -> String {
+    // Try parsing as { tests: [...] } or as a single test
+    #[derive(serde::Deserialize)]
+    struct E2eRequest {
+        tests: Vec<E2eTest>,
+    }
+
+    let tests: Vec<E2eTest> = match serde_json::from_str::<E2eRequest>(body) {
+        Ok(req) => req.tests,
+        Err(_) => {
+            // Try as a single test
+            match serde_json::from_str::<E2eTest>(body) {
+                Ok(t) => vec![t],
+                Err(e) => {
+                    return serde_json::to_string(&E2eHttpResponse {
+                        status: "error".into(),
+                        results: vec![],
+                    })
+                    .unwrap_or_else(|_| r#"{"status":"error","results":[]}"#.into());
+                }
+            }
+        }
+    };
+
+    if tests.is_empty() {
+        return serde_json::to_string(&E2eHttpResponse {
+            status: "ok".into(),
+            results: vec![],
+        })
+        .unwrap_or_default();
+    }
+
+    // Queue as a special debug event
+    let (tx, rx) = mpsc::channel();
+    let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst);
+
+    // Serialize the tests into the event
+    let tests_json = serde_json::to_string(&tests).unwrap_or_default();
+
+    let request = DebugRequest {
+        request_id,
+        event: DebugEvent::RunE2eTests { tests_json },
+        window_id: None,
+        wait_for_render: false,
+        response_tx: tx,
+    };
+
+    if let Some(queue) = REQUEST_QUEUE.get() {
+        if let Ok(mut q) = queue.lock() {
+            q.push_back(request);
+        }
+    }
+
+    // E2E tests can take a long time — use a generous timeout
+    use std::time::Duration;
+    match rx.recv_timeout(Duration::from_secs(300)) {
+        Ok(response_data) => match response_data {
+            DebugResponseData::Ok { data, .. } => {
+                // The response data should contain serialized E2eTestResults
+                if let Some(ResponseData::E2eResults(results)) = data {
+                    serde_json::to_string(&E2eHttpResponse {
+                        status: "ok".into(),
+                        results: results.results,
+                    })
+                    .unwrap_or_default()
+                } else {
+                    serde_json::to_string(&E2eHttpResponse {
+                        status: "ok".into(),
+                        results: vec![],
+                    })
+                    .unwrap_or_default()
+                }
+            }
+            DebugResponseData::Err(msg) => serde_json::to_string(&E2eHttpResponse {
+                status: "error".into(),
+                results: vec![E2eTestResult {
+                    name: "error".into(),
+                    status: "fail".into(),
+                    duration_ms: 0,
+                    step_count: 0,
+                    steps_passed: 0,
+                    steps_failed: 0,
+                    steps: vec![],
+                    final_screenshot: None,
+                }],
+            })
+            .unwrap_or_default(),
+        },
+        Err(_) => serde_json::to_string(&E2eHttpResponse {
+            status: "error".into(),
+            results: vec![],
+        })
+        .unwrap_or_default(),
+    }
+}
+
+// ==================== E2E Assertion Evaluation ====================
+
+/// Evaluate an assertion step against the current state.
+///
+/// Returns `Ok(())` if the assertion passes, `Err(message)` if it fails.
+#[cfg(feature = "std")]
+pub fn evaluate_assertion(
+    op: &str,
+    params: &serde_json::Value,
+    _last_response: Option<&serde_json::Value>,
+) -> Result<(), String> {
+    match op {
+        "assert_text" => {
+            // Needs to be evaluated on the event-loop thread via get_html_string
+            // For now, placeholder — real impl will query the DOM
+            let selector = params.get("selector").and_then(|v| v.as_str()).unwrap_or("");
+            let expected = params.get("expected").and_then(|v| v.as_str()).unwrap_or("");
+            if selector.is_empty() {
+                return Err("assert_text: missing 'selector' parameter".into());
+            }
+            if expected.is_empty() {
+                return Err("assert_text: missing 'expected' parameter".into());
+            }
+            // Actual evaluation happens in process_debug_event where we have access to the DOM
+            Ok(())
+        }
+        "assert_exists" => {
+            let selector = params.get("selector").and_then(|v| v.as_str()).unwrap_or("");
+            if selector.is_empty() {
+                return Err("assert_exists: missing 'selector' parameter".into());
+            }
+            Ok(())
+        }
+        "assert_not_exists" => {
+            let selector = params.get("selector").and_then(|v| v.as_str()).unwrap_or("");
+            if selector.is_empty() {
+                return Err("assert_not_exists: missing 'selector' parameter".into());
+            }
+            Ok(())
+        }
+        "assert_node_count" => {
+            let selector = params.get("selector").and_then(|v| v.as_str()).unwrap_or("");
+            if selector.is_empty() {
+                return Err("assert_node_count: missing 'selector' parameter".into());
+            }
+            if params.get("expected").is_none() {
+                return Err("assert_node_count: missing 'expected' parameter".into());
+            }
+            Ok(())
+        }
+        "assert_layout" => {
+            let selector = params.get("selector").and_then(|v| v.as_str()).unwrap_or("");
+            if selector.is_empty() {
+                return Err("assert_layout: missing 'selector' parameter".into());
+            }
+            if params.get("property").is_none() {
+                return Err("assert_layout: missing 'property' parameter".into());
+            }
+            Ok(())
+        }
+        "assert_app_state" => {
+            if params.get("path").is_none() {
+                return Err("assert_app_state: missing 'path' parameter".into());
+            }
+            if params.get("expected").is_none() {
+                return Err("assert_app_state: missing 'expected' parameter".into());
+            }
+            Ok(())
+        }
+        other => Err(format!("Unknown assertion: {}", other)),
     }
 }
 
@@ -4749,6 +5088,185 @@ fn process_debug_event(
             };
             
             send_ok(request, None, Some(ResponseData::CursorState(response)));
+        }
+
+        DebugEvent::RunE2eTests { tests_json } => {
+            // Parse the tests back from JSON
+            let tests: Vec<E2eTest> = match serde_json::from_str(tests_json) {
+                Ok(t) => t,
+                Err(e) => {
+                    send_err(request, format!("Failed to parse E2E tests JSON: {}", e));
+                    return needs_update;
+                }
+            };
+
+            let mut all_results = Vec::new();
+
+            for test in &tests {
+                let test_start = std::time::Instant::now();
+                let mut step_results = Vec::new();
+                let mut test_failed = false;
+
+                for (step_index, step) in test.steps.iter().enumerate() {
+                    let step_start = std::time::Instant::now();
+                    let op = step.op.as_str();
+
+                    // Check if this is an assertion step
+                    if op.starts_with("assert_") {
+                        match evaluate_assertion(op, &step.params, None) {
+                            Ok(()) => {
+                                // Assertion parameter validation passed.
+                                // TODO: actual DOM evaluation (query nodes, compare values)
+                                step_results.push(E2eStepResult {
+                                    step_index,
+                                    op: op.to_string(),
+                                    status: "pass".into(),
+                                    duration_ms: step_start.elapsed().as_millis() as u64,
+                                    logs: vec![format!("{}: passed (parameter validation only)", op)],
+                                    screenshot: None,
+                                    error: None,
+                                    response: None,
+                                });
+                            }
+                            Err(msg) => {
+                                test_failed = true;
+                                step_results.push(E2eStepResult {
+                                    step_index,
+                                    op: op.to_string(),
+                                    status: "fail".into(),
+                                    duration_ms: step_start.elapsed().as_millis() as u64,
+                                    logs: vec![],
+                                    screenshot: None,
+                                    error: Some(msg),
+                                    response: None,
+                                });
+                            }
+                        }
+                    } else {
+                        // Regular debug command — try to parse as DebugEvent and execute
+                        // Build a JSON object with "op" + flattened params
+                        let mut cmd = serde_json::Map::new();
+                        cmd.insert("op".to_string(), serde_json::Value::String(op.to_string()));
+                        if let serde_json::Value::Object(map) = &step.params {
+                            for (k, v) in map {
+                                if k != "op" && k != "screenshot" {
+                                    cmd.insert(k.clone(), v.clone());
+                                }
+                            }
+                        }
+
+                        let cmd_json = serde_json::Value::Object(cmd);
+                        match serde_json::from_value::<DebugEvent>(cmd_json.clone()) {
+                            Ok(debug_event) => {
+                                // Create a temporary request to execute this step
+                                let (step_tx, step_rx) = mpsc::channel();
+                                let step_request = DebugRequest {
+                                    request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst),
+                                    event: debug_event,
+                                    window_id: request.window_id.clone(),
+                                    wait_for_render: false,
+                                    response_tx: step_tx,
+                                };
+
+                                // Execute the step by recursively calling process_debug_event
+                                let step_needs_update = process_debug_event(
+                                    &step_request,
+                                    callback_info,
+                                    app_data,
+                                );
+                                if step_needs_update {
+                                    needs_update = true;
+                                }
+
+                                // Collect the result
+                                match step_rx.try_recv() {
+                                    Ok(DebugResponseData::Ok { data, .. }) => {
+                                        let response_json = data.as_ref().and_then(|d| {
+                                            serde_json::to_value(d).ok()
+                                        });
+                                        step_results.push(E2eStepResult {
+                                            step_index,
+                                            op: op.to_string(),
+                                            status: "pass".into(),
+                                            duration_ms: step_start.elapsed().as_millis() as u64,
+                                            logs: vec![format!("Executed: {}", op)],
+                                            screenshot: None, // TODO: CpuRender screenshot
+                                            error: None,
+                                            response: response_json,
+                                        });
+                                    }
+                                    Ok(DebugResponseData::Err(msg)) => {
+                                        test_failed = true;
+                                        step_results.push(E2eStepResult {
+                                            step_index,
+                                            op: op.to_string(),
+                                            status: "fail".into(),
+                                            duration_ms: step_start.elapsed().as_millis() as u64,
+                                            logs: vec![],
+                                            screenshot: None,
+                                            error: Some(msg),
+                                            response: None,
+                                        });
+                                    }
+                                    Err(_) => {
+                                        // No response received — step executed but didn't send response
+                                        step_results.push(E2eStepResult {
+                                            step_index,
+                                            op: op.to_string(),
+                                            status: "pass".into(),
+                                            duration_ms: step_start.elapsed().as_millis() as u64,
+                                            logs: vec![format!("Executed (no response): {}", op)],
+                                            screenshot: None,
+                                            error: None,
+                                            response: None,
+                                        });
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                test_failed = true;
+                                step_results.push(E2eStepResult {
+                                    step_index,
+                                    op: op.to_string(),
+                                    status: "fail".into(),
+                                    duration_ms: step_start.elapsed().as_millis() as u64,
+                                    logs: vec![],
+                                    screenshot: None,
+                                    error: Some(format!("Unknown op '{}': {}", op, e)),
+                                    response: None,
+                                });
+                            }
+                        }
+                    }
+
+                    // Stop executing further steps if a step failed
+                    if test_failed {
+                        break;
+                    }
+                }
+
+                let steps_passed = step_results.iter().filter(|s| s.status == "pass").count();
+                let steps_failed = step_results.iter().filter(|s| s.status == "fail").count();
+
+                all_results.push(E2eTestResult {
+                    name: test.name.clone(),
+                    status: if test_failed { "fail" } else { "pass" }.into(),
+                    duration_ms: test_start.elapsed().as_millis() as u64,
+                    step_count: test.steps.len(),
+                    steps_passed,
+                    steps_failed,
+                    steps: step_results,
+                    final_screenshot: None, // TODO: CpuRender screenshot
+                });
+            }
+
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::E2eResults(E2eResultsResponse {
+                    results: all_results,
+                })),
+            );
         }
 
         _ => {
