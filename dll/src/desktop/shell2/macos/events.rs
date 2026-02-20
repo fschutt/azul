@@ -498,8 +498,10 @@ impl MacOSWindow {
         if !text_events.is_empty() {
             let (text_results, _) = self.dispatch_events_propagated(&text_events);
             for callback_result in &text_results {
-                let process_result = self.process_callback_result_v2(callback_result);
-                overall_result = overall_result.max(process_result);
+                use azul_core::callbacks::Update;
+                if matches!(callback_result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                    overall_result = overall_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                }
             }
         }
 
@@ -1224,7 +1226,7 @@ impl MacOSWindow {
     // - process_window_events_v2() - Entry point (public API)
     // - process_window_events_recursive_v2() - Recursive processing
     // - dispatch_events_propagated() - W3C Capture→Target→Bubble dispatch
-    // - process_callback_result_v2() - Result handling
+    // - apply_user_change() - Result handling
     // This eliminates ~336 lines of platform-specific duplicated code.
 }
 

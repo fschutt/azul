@@ -24,7 +24,6 @@ use azul_core::{
     window::{CursorPosition, VirtualKeyCode},
 };
 use azul_layout::{
-    callbacks::{CallCallbacksResult, CallbackInfo},
     managers::hover::InputPointId,
 };
 
@@ -158,94 +157,6 @@ pub struct HitTestNode {
 
 impl X11Window {
     // V2 Cross-Platform Event Processing (from macOS/Windows)
-
-    /// V2: Process window events using cross-platform dispatch system.
-    ///
-    /// V2: Process callback result and update window state.
-    /// Returns the appropriate ProcessEventResult based on what changed.
-    fn process_callback_result_v2(&mut self, result: &CallCallbacksResult) -> ProcessEventResult {
-        let mut event_result = ProcessEventResult::DoNothing;
-
-        // Handle window state modifications
-        if let Some(ref modified_state) = result.modified_window_state {
-            self.current_window_state.title = modified_state.title.clone();
-            self.current_window_state.size = modified_state.size;
-            self.current_window_state.position = modified_state.position;
-            self.current_window_state.flags = modified_state.flags;
-            self.current_window_state.background_color = modified_state.background_color;
-
-            // Synchronize window state changes with OS
-            self.sync_window_state();
-
-            // Check if window should close
-            if modified_state.flags.close_requested {
-                self.is_open = false;
-                return ProcessEventResult::DoNothing;
-            }
-
-            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-        }
-
-        // Handle focus changes
-        use azul_layout::callbacks::FocusUpdateRequest;
-        match result.update_focused_node {
-            FocusUpdateRequest::FocusNode(new_focus) => {
-                // Update focus in the FocusManager (in LayoutWindow)
-                if let Some(layout_window) = self.layout_window.as_mut() {
-                    layout_window
-                        .focus_manager
-                        .set_focused_node(Some(new_focus));
-                }
-                event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-            }
-            FocusUpdateRequest::ClearFocus => {
-                // Clear focus in the FocusManager (in LayoutWindow)
-                if let Some(layout_window) = self.layout_window.as_mut() {
-                    layout_window.focus_manager.set_focused_node(None);
-                }
-                event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-            }
-            FocusUpdateRequest::NoChange => {
-                // No focus change requested
-            }
-        }
-
-        // Handle image updates
-        if result.images_changed.is_some() || result.image_masks_changed.is_some() {
-            event_result =
-                event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
-        }
-
-        // Handle timers and threads
-        if result.timers.is_some()
-            || result.timers_removed.is_some()
-            || result.threads.is_some()
-            || result.threads_removed.is_some()
-        {
-            // TODO: Implement timer/thread management for X11
-            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-        }
-
-        // Process Update screen command
-        match result.callbacks_update_screen {
-            Update::RefreshDom => {
-                if let Err(e) = self.regenerate_layout() {
-                    log_error!(LogCategory::Layout, "Layout regeneration error: {}", e);
-                }
-                event_result =
-                    event_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-            }
-            Update::RefreshDomAllWindows => {
-                if let Err(e) = self.regenerate_layout() {
-                    log_error!(LogCategory::Layout, "Layout regeneration error: {}", e);
-                }
-                event_result = event_result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
-            }
-            Update::DoNothing => {}
-        }
-
-        event_result
-    }
 
     // Event Handlers (State-Diffing Pattern)
 

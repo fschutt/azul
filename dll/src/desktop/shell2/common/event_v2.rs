@@ -9,7 +9,6 @@
 //! The `PlatformWindowV2` trait provides **default implementations** for all complex logic:
 //! - Event processing (state diffing via `process_window_events()`)
 //! - Callback invocation (`dispatch_events_propagated()`)
-//! - Callback result handling (`process_callback_result_v2()`)
 //! - Hit testing (`perform_scrollbar_hit_test()`)
 //! - Scrollbar interaction (`handle_scrollbar_click()`, `handle_scrollbar_drag()`)
 //!
@@ -470,7 +469,7 @@ pub struct InvokeSingleCallbackBorrows<'a> {
 /// - `dispatch_events_propagated()` - **FULLY CROSS-PLATFORM!** W3C event dispatch using
 ///   `propagate_event()` + `prepare_callback_invocation()`
 /// - `process_window_events_recursive_v2()` - Main event processing with recursion
-/// - `process_callback_result_v2()` - Handle callback results
+/// - `apply_user_change()` - Apply individual callback changes
 /// - `perform_scrollbar_hit_test()` - Scrollbar interaction
 /// - `handle_scrollbar_click()` - Scrollbar click handling
 /// - `handle_scrollbar_drag()` - Scrollbar drag handling
@@ -764,11 +763,7 @@ pub trait PlatformWindowV2 {
     /// This is the SINGLE place where all `CallbackChange` variants are handled.
     /// Adding a new variant causes a compile error here — no silent bugs.
     ///
-    /// Replaces the old pipeline:
-    ///   `apply_callback_changes()` → `CallbackChangeResult` → `merge_into()` →
-    ///   `CallCallbacksResult` → `needs_processing()` → `process_callback_result_v2()`
-    ///
-    /// Now: `apply_user_change()` — one exhaustive match, done.
+    /// Single exhaustive match over all `CallbackChange` variants.
     fn apply_user_change(
         &mut self,
         change: &azul_layout::callbacks::CallbackChange,
@@ -1519,7 +1514,7 @@ pub trait PlatformWindowV2 {
     /// This method performs WebRender hit testing at the given logical position
     /// and updates the HoverManager with the results. This is needed for:
     /// - Normal mouse movement events (platform calls this)
-    /// - Synthetic mouse events from debug API (process_callback_result_v2 calls this)
+    /// - Synthetic mouse events from debug API
     ///
     /// ## Parameters
     /// * `position` - The logical position to hit test at
@@ -1796,7 +1791,8 @@ pub trait PlatformWindowV2 {
         }
 
         let mut borrows = self.prepare_callback_invocation();
-        let mut results: Vec<CallCallbacksResult> = Vec::new();
+        let mut all_updates: Vec<Update> = Vec::new();
+        let mut all_changes: Vec<azul_layout::callbacks::CallbackChange> = Vec::new();
         let mut any_prevent_default = false;
 
         // Track propagation control flags (W3C semantics):
@@ -1828,38 +1824,35 @@ pub trait PlatformWindowV2 {
                 borrows.renderer_resources,
             );
 
-            // Build a minimal CallCallbacksResult for backward compatibility
-            // with callers that still consume Vec<CallCallbacksResult>
-            let mut result = CallCallbacksResult::empty();
-            result.callbacks_update_screen = update;
+            all_updates.push(update);
 
             // Check propagation control in the changes
+            let mut should_stop_immediate = false;
+            let mut should_stop_propagation = false;
             for change in &changes {
                 use azul_layout::callbacks::CallbackChange;
                 match change {
                     CallbackChange::PreventDefault => {
                         any_prevent_default = true;
-                        result.prevent_default = true;
                     }
                     CallbackChange::StopImmediatePropagation => {
-                        result.stop_immediate_propagation = true;
+                        should_stop_immediate = true;
                     }
                     CallbackChange::StopPropagation => {
-                        result.stop_propagation = true;
+                        should_stop_propagation = true;
                     }
                     _ => {}
                 }
             }
 
-            let should_stop_immediate = result.stop_immediate_propagation;
+            // Accumulate changes for later application
+            all_changes.extend(changes);
 
             // stopPropagation: record that we should stop after remaining same-node handlers
-            if result.stop_propagation && !propagation_stopped {
+            if should_stop_propagation && !propagation_stopped {
                 propagation_stopped = true;
                 propagation_stopped_node = Some((planned.dom_id, planned.node_id));
             }
-
-            results.push(result);
 
             // stopImmediatePropagation: break immediately
             if should_stop_immediate {
@@ -1870,7 +1863,22 @@ pub trait PlatformWindowV2 {
         // Drop borrows before calling apply_user_change on self
         drop(borrows);
 
-        (results, any_prevent_default)
+        // Apply all accumulated user changes
+        for change in &all_changes {
+            self.apply_user_change(change);
+        }
+
+        // Build result for callers: single merged CallCallbacksResult
+        use azul_core::callbacks::Update;
+        let merged_update = all_updates.iter().copied().fold(
+            Update::DoNothing,
+            |acc, u| acc.max(u),
+        );
+        let mut merged_result = CallCallbacksResult::empty();
+        merged_result.callbacks_update_screen = merged_update;
+        merged_result.prevent_default = any_prevent_default;
+
+        (vec![merged_result], any_prevent_default)
     }
 
     // PROVIDED: Complete Logic (Default Implementations)
@@ -2214,9 +2222,8 @@ pub trait PlatformWindowV2 {
         // If there's a focused contenteditable node and text input occurred,
         // apply the edit using cursor/selection managers and mark nodes dirty
         //
-        // NOTE: Debug server text input is now handled via CallbackChange::CreateTextInput
-        // which triggers text_input_triggered in CallCallbacksResult, processed in
-        // process_callback_result_v2()
+        // NOTE: Debug server text input is handled via CallbackChange::CreateTextInput
+        // which is processed by apply_user_change()
         let text_input_affected_nodes: BTreeMap<azul_core::dom::DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> = if let Some(_layout_window) = self.get_layout_window_mut() {
             // TODO: Get actual text input from platform (IME, composed chars, etc.)
             // Platform layer needs to provide text_input: &str when available
@@ -2265,9 +2272,8 @@ pub trait PlatformWindowV2 {
         // Track overall processing result
         let mut result = ProcessEventResult::DoNothing;
 
-        // NOTE: IFrame re-invocation for scroll edge detection is now handled
-        // transparently in the ScrollTo processing path (process_callback_result_v2),
-        // not here via synthetic Scroll events.
+        // NOTE: IFrame re-invocation for scroll edge detection is handled
+        // transparently in the ScrollTo processing path (apply_user_change).
 
         // Get external callbacks for system time
         let external = ExternalSystemCallbacks::rust_internal();
@@ -2552,24 +2558,28 @@ pub trait PlatformWindowV2 {
             .and_then(|lw| lw.focus_manager.get_focused_node().copied());
 
         // Dispatch user events using W3C Capture→Target→Bubble propagation
+        // dispatch_events_propagated now applies all CallbackChanges internally
+        // via apply_user_change(), and returns a single merged CallCallbacksResult.
         let (callback_results, prevent_default) =
             self.dispatch_events_propagated(&pre_filter.user_events);
 
-        // Process all callback results
         let mut should_recurse = false;
         let mut focus_changed = false;
 
+        use azul_core::callbacks::Update;
         for callback_result in &callback_results {
-            let event_result = self.process_callback_result_v2(callback_result);
-            result = result.max(event_result);
-
-            // Check if we need to recurse (DOM was regenerated)
-            use azul_core::callbacks::Update;
-            if matches!(
-                callback_result.callbacks_update_screen,
-                Update::RefreshDom | Update::RefreshDomAllWindows
-            ) {
-                should_recurse = true;
+            match callback_result.callbacks_update_screen {
+                Update::RefreshDom => {
+                    self.mark_frame_needs_regeneration();
+                    result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                    should_recurse = true;
+                }
+                Update::RefreshDomAllWindows => {
+                    self.mark_frame_needs_regeneration();
+                    result = result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
+                    should_recurse = true;
+                }
+                Update::DoNothing => {}
             }
         }
 
@@ -3390,14 +3400,12 @@ pub trait PlatformWindowV2 {
                 let (click_results, _) = self.dispatch_events_propagated(&[click_event]);
 
                 for callback_result in &click_results {
-                    let event_result = self.process_callback_result_v2(callback_result);
-                    result = result.max(event_result);
-
-                    use azul_core::callbacks::Update;
                     if matches!(
                         callback_result.callbacks_update_screen,
                         Update::RefreshDom | Update::RefreshDomAllWindows
                     ) {
+                        self.mark_frame_needs_regeneration();
+                        result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                         should_recurse = true;
                     }
                 }
@@ -3486,8 +3494,13 @@ pub trait PlatformWindowV2 {
                 if !focus_events.is_empty() {
                     let (focus_results, _) = self.dispatch_events_propagated(&focus_events);
                     for callback_result in &focus_results {
-                        let event_result = self.process_callback_result_v2(callback_result);
-                        result = result.max(event_result);
+                        if matches!(
+                            callback_result.callbacks_update_screen,
+                            Update::RefreshDom | Update::RefreshDomAllWindows
+                        ) {
+                            self.mark_frame_needs_regeneration();
+                            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                        }
                     }
                 }
             }
@@ -3579,592 +3592,6 @@ pub trait PlatformWindowV2 {
         }
 
         result
-    }
-
-    /// V2: Process callback result and determine what action to take.
-    ///
-    /// This converts the callback result into a `ProcessEventResult` that tells
-    /// the platform what to do next (redraw, regenerate layout, etc.).
-    ///
-    /// This method handles:
-    /// - Window state modifications (title, size, position, flags)
-    /// - Focus changes
-    /// - Image/image mask updates
-    /// - Timer/thread management
-    /// - New window creation
-    /// - DOM regeneration triggering
-    fn process_callback_result_v2(&mut self, result: &CallCallbacksResult) -> ProcessEventResult {
-        use azul_core::callbacks::Update;
-
-        let mut event_result = ProcessEventResult::DoNothing;
-        let mut mouse_state_changed = false;
-        let mut keyboard_state_changed = false;
-
-        // Handle window state modifications
-        if let Some(ref modified_state) = result.modified_window_state {
-            // Check if mouse_state changed (for synthetic event injection)
-            // NOTE: We must save previous state BEFORE modifying current state
-            // so that process_window_events_recursive_v2 can detect the change
-            let old_mouse_state = self.get_current_window_state().mouse_state.clone();
-            if old_mouse_state != modified_state.mouse_state {
-                mouse_state_changed = true;
-                // Save current state as previous BEFORE updating
-                // This is critical for synthetic events from debug API
-                let old_state = self.get_current_window_state().clone();
-                self.set_previous_window_state(old_state);
-            }
-
-            // Check if keyboard_state changed (for synthetic keyboard events)
-            let old_keyboard_state = self.get_current_window_state().keyboard_state.clone();
-            if old_keyboard_state != modified_state.keyboard_state {
-                keyboard_state_changed = true;
-                // Save current state as previous BEFORE updating (if not already saved for mouse)
-                if !mouse_state_changed {
-                    let old_state = self.get_current_window_state().clone();
-                    self.set_previous_window_state(old_state);
-                }
-            }
-
-            // Now update current state
-            let current_state = self.get_current_window_state_mut();
-            current_state.title = modified_state.title.clone();
-            current_state.size = modified_state.size;
-            current_state.position = modified_state.position;
-            current_state.flags = modified_state.flags;
-            current_state.background_color = modified_state.background_color;
-            // Also copy mouse_state for synthetic event injection
-            current_state.mouse_state = modified_state.mouse_state.clone();
-            // Also copy keyboard_state for synthetic keyboard events
-            current_state.keyboard_state = modified_state.keyboard_state.clone();
-
-            // Check if window should close
-            if modified_state.flags.close_requested {
-                // Platform should handle window destruction
-                return ProcessEventResult::DoNothing;
-            }
-
-            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-        }
-
-        // If mouse_state changed, trigger event processing to invoke callbacks
-        // This enables synthetic mouse events from debug API and automation
-        if mouse_state_changed {
-            // First, update hit testing at the new mouse position
-            // This is critical for synthetic events - without hit testing,
-            // dispatch_synthetic_events won't know which nodes are under the mouse
-            let mouse_pos = self
-                .get_current_window_state()
-                .mouse_state
-                .cursor_position
-                .get_position();
-            if let Some(pos) = mouse_pos {
-                self.update_hit_test_at(pos);
-            }
-
-            // Re-process events with the new mouse state
-            // This will detect the mouse state change and invoke appropriate callbacks
-            let nested_result = self.process_window_events_recursive_v2(0);
-            event_result = event_result.max(nested_result);
-        }
-
-        // If keyboard_state changed, trigger event processing to invoke callbacks
-        // This enables synthetic keyboard events from debug API (Tab, Enter, etc.)
-        if keyboard_state_changed && !mouse_state_changed {
-            // Re-process events with the new keyboard state
-            // This will detect the keyboard state change and invoke appropriate callbacks
-            let nested_result = self.process_window_events_recursive_v2(0);
-            event_result = event_result.max(nested_result);
-        }
-
-        // Handle queued window state sequence (for simulating clicks, etc.)
-        // Each state is applied in order, with event processing between states
-        // to detect the transitions (e.g., mouse down → mouse up)
-        if !result.queued_window_states.is_empty() {
-            for (i, queued_state) in result.queued_window_states.iter().enumerate() {
-                // Save current state as previous
-                let old_state = self.get_current_window_state().clone();
-                self.set_previous_window_state(old_state.clone());
-
-                // Apply the queued state
-                let current_state = self.get_current_window_state_mut();
-                current_state.mouse_state = queued_state.mouse_state.clone();
-                current_state.keyboard_state = queued_state.keyboard_state.clone();
-                current_state.title = queued_state.title.clone();
-                current_state.size = queued_state.size;
-                current_state.position = queued_state.position;
-                current_state.flags = queued_state.flags;
-
-                // Update hit testing at the new mouse position
-                let mouse_pos = queued_state.mouse_state.cursor_position.get_position();
-                if let Some(pos) = mouse_pos {
-                    self.update_hit_test_at(pos);
-                }
-
-                // Process events with this state (will detect state changes)
-                let nested_result = self.process_window_events_recursive_v2(0);
-                event_result = event_result.max(nested_result);
-            }
-        }
-
-        // Handle focus changes
-        use azul_layout::callbacks::FocusUpdateRequest;
-        match result.update_focused_node {
-            FocusUpdateRequest::FocusNode(new_focus) => {
-                // Update focus in the FocusManager (in LayoutWindow)
-                if let Some(layout_window) = self.get_layout_window_mut() {
-                    layout_window
-                        .focus_manager
-                        .set_focused_node(Some(new_focus));
-
-                    // SCROLL INTO VIEW: Scroll newly focused node into visible area
-                    use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
-                    let now = azul_core::task::Instant::now();
-                    layout_window.scroll_node_into_view(
-                        new_focus,
-                        ScrollIntoViewOptions::nearest(),
-                        now,
-                    );
-
-                    // CURSOR BLINK TIMER: Start/stop timer based on contenteditable focus
-                    let window_state = layout_window.current_window_state.clone();
-                    let timer_action = layout_window.handle_focus_change_for_cursor_blink(
-                        Some(new_focus),
-                        &window_state,
-                    );
-
-                    match timer_action {
-                        azul_layout::CursorBlinkTimerAction::Start(timer) => {
-                            self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
-                        }
-                        azul_layout::CursorBlinkTimerAction::Stop => {
-                            self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
-                        }
-                        azul_layout::CursorBlinkTimerAction::NoChange => {}
-                    }
-                }
-                event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-            }
-            FocusUpdateRequest::ClearFocus => {
-                // Clear focus in the FocusManager (in LayoutWindow)
-                if let Some(layout_window) = self.get_layout_window_mut() {
-                    layout_window.focus_manager.set_focused_node(None);
-
-                    // CURSOR BLINK TIMER: Stop timer when focus is cleared
-                    let window_state = layout_window.current_window_state.clone();
-                    let timer_action = layout_window.handle_focus_change_for_cursor_blink(
-                        None,
-                        &window_state,
-                    );
-
-                    match timer_action {
-                        azul_layout::CursorBlinkTimerAction::Start(_timer) => {
-                            // Shouldn't happen when clearing focus, but handle it
-                        }
-                        azul_layout::CursorBlinkTimerAction::Stop => {
-                            self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
-                        }
-                        azul_layout::CursorBlinkTimerAction::NoChange => {}
-                    }
-                }
-                event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-            }
-            FocusUpdateRequest::NoChange => {
-                // No focus change requested
-            }
-        }
-
-        // Handle scroll position changes from callbacks (e.g., scroll_node_by API, physics timer ScrollTo)
-        if let Some(ref nodes_scrolled) = result.nodes_scrolled_in_callbacks {
-            if !nodes_scrolled.is_empty() {
-                // Get current time for scroll animation
-                let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-                let now = (external.get_system_time_fn.cb)();
-
-                // Phase 1: Set scroll positions and detect IFrames needing re-invocation
-                let mut iframes_to_reinvoke: Vec<(DomId, NodeId, azul_core::geom::LogicalRect)> = Vec::new();
-
-                if let Some(layout_window) = self.get_layout_window_mut() {
-                    for (dom_id, node_map) in nodes_scrolled {
-                        for (hierarchy_id, target_position) in node_map {
-                            // Convert NodeHierarchyItemId to NodeId
-                            if let Some(node_id) = hierarchy_id.into_crate_internal() {
-                                // Use instant scroll (duration = 0) for programmatic scrolling
-                                layout_window.scroll_manager.scroll_to(
-                                    *dom_id,
-                                    node_id,
-                                    *target_position,
-                                    std::time::Duration::from_millis(0).into(),
-                                    azul_core::events::EasingFunction::Linear,
-                                    now.clone().into(),
-                                );
-
-                                // IFrame re-invocation check: after setting new scroll position,
-                                // check if this node hosts an IFrame that needs re-invocation
-                                // (e.g., user scrolled near an edge for lazy loading).
-                                // This is transparent — the timer doesn't know about IFrames.
-                                let scroll_state = layout_window.scroll_manager
-                                    .get_scroll_state(*dom_id, node_id);
-                                let layout_bounds = scroll_state
-                                    .map(|s| s.container_rect)
-                                    .unwrap_or_default();
-
-                                if let Some(_reason) = layout_window.iframe_manager.check_reinvoke(
-                                    *dom_id,
-                                    node_id,
-                                    &layout_window.scroll_manager,
-                                    layout_bounds,
-                                ) {
-                                    iframes_to_reinvoke.push((*dom_id, node_id, layout_bounds));
-                                }
-                            }
-                        }
-                    }
-
-                    // Normal scrolling always needs a re-render
-                    event_result =
-                        event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-                }
-                // layout_window borrow is released here
-
-                // Phase 2: Re-invoke IFrame callbacks (needs split borrows via prepare_callback_invocation)
-                if !iframes_to_reinvoke.is_empty() {
-                    let borrows = self.prepare_callback_invocation();
-                    let system_callbacks = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-
-                    for (dom_id, node_id, bounds) in &iframes_to_reinvoke {
-                        // invoke_iframe_callback calls the IFrame's RefAny callback,
-                        // swaps the child Dom, and re-layouts only the IFrame sub-tree.
-                        // It does NOT call the main layout() callback.
-                        let _ = borrows.layout_window.invoke_iframe_callback(
-                            *dom_id,
-                            *node_id,
-                            *bounds,
-                            borrows.current_window_state,
-                            borrows.renderer_resources,
-                            &system_callbacks,
-                            &mut None,
-                        );
-                    }
-
-                    // IFrame Doms were swapped — rebuild display list (but NOT the main DOM)
-                    event_result =
-                        event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
-                }
-            }
-        }
-
-        // Handle image updates
-        if result.images_changed.is_some() || result.image_masks_changed.is_some() {
-            event_result =
-                event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
-        }
-
-        // Handle image callback re-invocation (OpenGL texture updates, etc.)
-        // Signal that a redraw is needed; actual invocation happens in
-        // wr_translate2::process_image_callback_updates() during WebRender
-        // transaction building — invoking here would cause double invocation.
-        {
-            let has_specific = result.image_callbacks_changed.as_ref()
-                .map(|m| !m.is_empty()).unwrap_or(false);
-
-            if result.update_all_image_callbacks || has_specific {
-                // Signal that we need a new frame — the rendering path will
-                // re-invoke image callbacks and register textures with WebRender.
-                event_result = event_result.max(
-                    ProcessEventResult::ShouldReRenderCurrentWindow
-                );
-            }
-        }
-
-        // Handle text changes (words_changed) — previously dead field, now wired
-        if let Some(ref words) = result.words_changed {
-            use azul_core::diff::ChangeAccumulator;
-            let mut accumulator = ChangeAccumulator::new();
-            for (_dom_id, nodes) in words {
-                for (node_id, new_text) in nodes {
-                    // Text changes need IFC reshape at minimum
-                    accumulator.add_text_change(
-                        *node_id,
-                        String::new(), // old text not available here
-                        new_text.as_str().to_string(),
-                    );
-                }
-            }
-            if accumulator.needs_layout() {
-                // Phase 3: Apply text changes to the cached StyledDom so that
-                // incremental_relayout() sees the updated text content.
-                // Without this, the StyledDom would still have the old text
-                // and the re-layout would produce identical (stale) output.
-                if let Some(layout_window) = self.get_layout_window_mut() {
-                    for (dom_id, nodes) in words {
-                        if let Some(layout_result) = layout_window.layout_results.get_mut(dom_id) {
-                            for (node_id, new_text) in nodes {
-                                let idx = node_id.index();
-                                if idx < layout_result.styled_dom.node_data.as_ref().len() {
-                                    layout_result.styled_dom.node_data.as_container_mut()[*node_id]
-                                        .set_node_type(azul_core::dom::NodeType::Text(new_text.clone()));
-                                }
-                            }
-                        }
-                    }
-                }
-                event_result = event_result.max(ProcessEventResult::ShouldIncrementalRelayout);
-            } else if accumulator.needs_paint_only() {
-                event_result = event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
-            }
-        }
-
-        // Handle CSS property changes — previously dead field, now wired
-        if let Some(ref css) = result.css_properties_changed {
-            use azul_core::diff::ChangeAccumulator;
-            use azul_css::props::property::RelayoutScope;
-            let mut accumulator = ChangeAccumulator::new();
-            for (_dom_id, nodes) in css {
-                for (node_id, properties) in nodes {
-                    for prop in properties.as_ref().iter() {
-                        let prop_type = prop.get_type();
-                        let scope = prop_type.relayout_scope(true);
-                        accumulator.add_css_change(*node_id, prop_type, scope);
-                    }
-                }
-            }
-            if accumulator.needs_layout() || accumulator.needs_paint_only() {
-                // Phase 3: Apply CSS property changes to the cached StyledDom so
-                // that incremental_relayout() sees the updated inline styles.
-                if let Some(layout_window) = self.get_layout_window_mut() {
-                    for (dom_id, nodes) in css {
-                        if let Some(layout_result) = layout_window.layout_results.get_mut(dom_id) {
-                            for (node_id, properties) in nodes {
-                                let idx = node_id.index();
-                                if idx < layout_result.styled_dom.node_data.as_ref().len() {
-                                    // Replace the node's inline CSS properties with the new ones.
-                                    // Each CssProperty is wrapped in CssPropertyWithConditions
-                                    // with no conditions (unconditional / inline-style semantics).
-                                    use azul_css::dynamic_selector::CssPropertyWithConditions;
-                                    let new_props: Vec<CssPropertyWithConditions> = properties
-                                        .as_ref()
-                                        .iter()
-                                        .map(|p| CssPropertyWithConditions::simple(p.clone()))
-                                        .collect();
-                                    layout_result.styled_dom.node_data.as_container_mut()[*node_id]
-                                        .set_css_props(new_props.into());
-                                }
-                            }
-                        }
-                    }
-                }
-                if accumulator.needs_layout() {
-                    event_result = event_result.max(ProcessEventResult::ShouldIncrementalRelayout);
-                } else {
-                    event_result = event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
-                }
-            }
-        }
-
-        // Handle timers and threads
-        if result.timers.is_some()
-            || result.timers_removed.is_some()
-            || result.threads.is_some()
-            || result.threads_removed.is_some()
-        {
-            // Process timers - call platform-specific start/stop methods
-            if let Some(timers) = &result.timers {
-                for (timer_id, timer) in timers {
-                    self.start_timer(timer_id.id, timer.clone());
-                }
-            }
-
-            if let Some(timers_removed) = &result.timers_removed {
-                for timer_id in timers_removed {
-                    self.stop_timer(timer_id.id);
-                }
-            }
-
-            // Process threads - add/remove from layout_window and manage polling timer
-            let should_start_thread_timer;
-            let should_stop_thread_timer;
-
-            // First, check if we had threads before
-            let had_threads = if let Some(layout_window) = self.get_layout_window() {
-                !layout_window.threads.is_empty()
-            } else {
-                false
-            };
-
-            // Add new threads
-            if let Some(threads) = result.threads.clone() {
-                self.add_threads(threads);
-            }
-
-            // Remove old threads
-            if let Some(threads_removed) = &result.threads_removed {
-                self.remove_threads(threads_removed);
-            }
-
-            // Now check if we have threads after modifications
-            let has_threads = if let Some(layout_window) = self.get_layout_window() {
-                !layout_window.threads.is_empty()
-            } else {
-                false
-            };
-
-            // Determine if we need to start/stop the thread polling timer
-            should_start_thread_timer = !had_threads && has_threads;
-            should_stop_thread_timer = had_threads && !has_threads;
-
-            // Start thread polling timer if we now have threads
-            if should_start_thread_timer {
-                self.start_thread_poll_timer();
-            }
-
-            // Stop thread polling timer if we no longer have threads
-            if should_stop_thread_timer {
-                self.stop_thread_poll_timer();
-            }
-
-            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-        }
-
-        // Handle new windows spawned in callbacks
-        if !result.windows_created.is_empty() {
-            // TODO: Signal to event loop to create new windows
-            // For now, just log
-            log_debug!(
-                super::debug_server::LogCategory::Window,
-                "[PlatformWindowV2] {} new windows requested (not yet implemented)",
-                result.windows_created.len()
-            );
-        }
-
-        // Handle menus requested to be opened
-        if !result.menus_to_open.is_empty() {
-            for (menu, position_override) in &result.menus_to_open {
-                // Use override position if provided, otherwise use (0, 0) as default
-                // The Menu.position field is a MenuPopupPosition enum (AutoCursor, etc.),
-                // not a specific coordinate. For callback-opened menus, the position_override
-                // specifies where to show it.
-                let position = position_override.unwrap_or(LogicalPosition::new(0.0, 0.0));
-
-                // Show menu (native or fallback based on flags)
-                self.show_menu_from_callback(menu, position);
-            }
-            event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-        }
-
-        // Handle tooltip show requests
-        if !result.tooltips_to_show.is_empty() {
-            // Show only the last tooltip requested (if multiple were requested in one callback)
-            if let Some((text, position)) = result.tooltips_to_show.last() {
-                self.show_tooltip_from_callback(text.as_str(), *position);
-            }
-        }
-
-        // Handle tooltip hide request
-        if result.hide_tooltip {
-            self.hide_tooltip_from_callback();
-        }
-
-        // Handle begin interactive move (Wayland: xdg_toplevel_move)
-        if result.begin_interactive_move {
-            self.handle_begin_interactive_move();
-        }
-
-        // Handle explicit hit test update request (from Debug API)
-        // This is separate from mouse_state_changed to allow explicit hit test updates
-        // without modifying mouse position
-        if let Some(position) = result.hit_test_update_requested {
-            self.update_hit_test_at(position);
-        }
-
-        // Process text_input_triggered from CreateTextInput
-        // This is how debug server text input flows:
-        // 1. debug_timer_callback calls callback_info.create_text_input(text)
-        // 2. apply_callback_changes processes CreateTextInput
-        // 3. process_text_input() is called, returning affected nodes
-        // 4. text_input_triggered is populated and forwarded here
-        // 5. We trigger recursive event processing to invoke user callbacks
-        if !result.text_input_triggered.is_empty() {
-            use crate::desktop::shell2::common::debug_server::{log, LogLevel, LogCategory};
-            log(LogLevel::Debug, LogCategory::EventLoop,
-                format!("[process_callback_result_v2] Processing {} text_input_triggered events", result.text_input_triggered.len()), None);
-
-            // Build synthetic events for text input callbacks
-            let now = {
-                #[cfg(feature = "std")]
-                { azul_core::task::Instant::from(std::time::Instant::now()) }
-                #[cfg(not(feature = "std"))]
-                { azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0)) }
-            };
-
-            // Convert text_input_triggered to SyntheticEvents for dispatch
-            let mut text_events = Vec::new();
-            for (dom_node_id, _event_filters) in &result.text_input_triggered {
-                log(LogLevel::Debug, LogCategory::EventLoop,
-                    format!("[process_callback_result_v2] Node {:?} triggered text input", dom_node_id), None);
-
-                text_events.push(azul_core::events::SyntheticEvent::new(
-                    azul_core::events::EventType::Input,
-                    azul_core::events::EventSource::User,
-                    *dom_node_id,
-                    now.clone(),
-                    azul_core::events::EventData::None,
-                ));
-            }
-
-            if !text_events.is_empty() {
-                let (text_results, text_prevented) = self.dispatch_events_propagated(&text_events);
-                for callback_result in &text_results {
-                    if callback_result.prevent_default {
-                        log(LogLevel::Debug, LogCategory::EventLoop,
-                            "[process_callback_result_v2] preventDefault called - text input will be rejected".to_string(), None);
-                    }
-                    if matches!(callback_result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
-                        event_result = event_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-                    }
-                }
-            }
-
-            // After processing callbacks, apply the text changeset if not rejected
-            // This updates the visual cache
-            if let Some(layout_window) = self.get_layout_window_mut() {
-                let dirty_nodes = layout_window.apply_text_changeset();
-                if !dirty_nodes.is_empty() {
-                    log(LogLevel::Debug, LogCategory::EventLoop,
-                        format!("[process_callback_result_v2] Applied text changeset, {} dirty nodes", dirty_nodes.len()), None);
-                    event_result = event_result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-
-                    // CRITICAL FIX: Scroll cursor into view after text edit
-                    // Without this, typing at the end of a long text doesn't scroll
-                    // the view to keep the cursor visible.
-                    layout_window.scroll_selection_into_view(
-                        azul_layout::window::SelectionScrollType::Cursor,
-                        azul_layout::window::ScrollMode::Instant,
-                    );
-                } else {
-                    log(LogLevel::Debug, LogCategory::EventLoop,
-                        "[process_callback_result_v2] apply_text_changeset returned 0 dirty nodes".to_string(), None);
-                }
-            } else {
-                log(LogLevel::Debug, LogCategory::EventLoop,
-                    "[process_callback_result_v2] No layout_window available for apply_text_changeset".to_string(), None);
-            }
-        }
-
-        // Process Update screen command
-        match result.callbacks_update_screen {
-            Update::DoNothing => {}
-            Update::RefreshDom => {
-                self.mark_frame_needs_regeneration();
-                event_result =
-                    event_result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-            }
-            Update::RefreshDomAllWindows => {
-                self.mark_frame_needs_regeneration();
-                event_result = event_result.max(ProcessEventResult::ShouldRegenerateDomAllWindows);
-            }
-        }
-
-        event_result
     }
 
     /// Process all expired timer callbacks and pending thread callbacks.

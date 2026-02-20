@@ -19,7 +19,6 @@ use azul_core::{
     animation::UpdateImageType,
     callbacks::{CoreCallback, FocusTarget, FocusTargetPath, HidpiAdjustedBounds, Update},
     dom::{DomId, DomIdVec, DomNodeId, IdOrClass, NodeId, NodeType},
-    events::CallbackResultRef,
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition, OptionCursorNodePosition, OptionScreenPosition, OptionDragDelta, CursorNodePosition, ScreenPosition, DragDelta},
     gl::OptionGlContextPtr,
     gpu::GpuValueCache,
@@ -3919,84 +3918,11 @@ impl CallCallbacksResult {
             begin_interactive_move: false,
         }
     }
-
-    /// Whether this result contains changes that require `process_callback_result_v2()`
-    /// to be called. This must check ALL fields that `process_callback_result_v2` handles,
-    /// otherwise timer/thread results with those fields set will be silently dropped.
-    pub fn needs_processing(&self) -> bool {
-        self.modified_window_state.is_some()
-            || !self.queued_window_states.is_empty()
-            || !self.text_input_triggered.is_empty()
-            || self.nodes_scrolled_in_callbacks.as_ref()
-                .map(|s| !s.is_empty()).unwrap_or(false)
-            || self.update_all_image_callbacks
-            || self.image_callbacks_changed.as_ref()
-                .map(|s| !s.is_empty()).unwrap_or(false)
-            || self.images_changed.is_some()
-            || self.image_masks_changed.is_some()
-            || self.words_changed.as_ref()
-                .map(|s| !s.is_empty()).unwrap_or(false)
-            || self.css_properties_changed.as_ref()
-                .map(|s| !s.is_empty()).unwrap_or(false)
-            || self.update_focused_node.is_change()
-            || self.timers.as_ref()
-                .map(|s| !s.is_empty()).unwrap_or(false)
-            || self.threads.as_ref()
-                .map(|s| !s.is_empty()).unwrap_or(false)
-            || self.timers_removed.as_ref()
-                .map(|s| !s.is_empty()).unwrap_or(false)
-            || self.threads_removed.as_ref()
-                .map(|s| !s.is_empty()).unwrap_or(false)
-            || !self.windows_created.is_empty()
-            || !self.menus_to_open.is_empty()
-            || !self.tooltips_to_show.is_empty()
-            || self.hide_tooltip
-            || self.begin_interactive_move
-            || self.hit_test_update_requested.is_some()
-    }
-
-    /// Whether this result requests a visual update (full DOM redraw or image callback re-invocation).
-    ///
-    /// Returns true when either:
-    /// - `callbacks_update_screen` is `RefreshDom` / `RefreshDomAllWindows` (full rebuild)
-    /// - `update_all_image_callbacks` is true (GL textures changed, need new frame)
-    /// - `image_callbacks_changed` has entries (specific nodes need re-rendering)
-    pub fn needs_redraw(&self) -> bool {
-        matches!(
-            self.callbacks_update_screen,
-            Update::RefreshDom | Update::RefreshDomAllWindows
-        )
-        || self.update_all_image_callbacks
-        || self.image_callbacks_changed.as_ref()
-            .map(|m| !m.is_empty()).unwrap_or(false)
-    }
 }
 
 impl CallCallbacksResult {
     pub fn focus_changed(&self) -> bool {
         self.update_focused_node.is_change()
-    }
-}
-
-impl azul_core::events::CallbackResultRef for CallCallbacksResult {
-    fn stop_propagation(&self) -> bool {
-        self.stop_propagation
-    }
-
-    fn stop_immediate_propagation(&self) -> bool {
-        self.stop_immediate_propagation
-    }
-
-    fn prevent_default(&self) -> bool {
-        self.prevent_default
-    }
-
-    fn should_regenerate_dom(&self) -> bool {
-        use azul_core::callbacks::Update;
-        matches!(
-            self.callbacks_update_screen,
-            Update::RefreshDom | Update::RefreshDomAllWindows
-        )
     }
 }
 

@@ -2217,46 +2217,6 @@ impl From<On> for EventFilter {
 
 /// Process callback results and potentially generate new synthetic events.
 ///
-/// This function handles the recursive nature of event processing:
-/// 1. Process immediate callback results (state changes, images, etc.)
-/// 2. Check if new synthetic events should be generated
-/// 3. Recursively process those events (up to max_depth to prevent infinite loops)
-///
-/// Returns true if any callbacks resulted in DOM changes requiring re-layout.
-pub fn should_recurse_callbacks<T: CallbackResultRef>(
-    callback_results: &[T],
-    max_depth: usize,
-    current_depth: usize,
-) -> bool {
-    if current_depth >= max_depth {
-        return false;
-    }
-
-    // Check if any callback result indicates we should continue processing
-    for result in callback_results {
-        // If stop_propagation is set, stop processing further events
-        if result.stop_propagation() {
-            return false;
-        }
-
-        // Check if DOM was modified (requires re-layout and re-processing)
-        if result.should_regenerate_dom() {
-            return current_depth + 1 < max_depth;
-        }
-    }
-
-    false
-}
-
-/// Trait to abstract over callback result types.
-/// This allows the core event system to work with results without depending on layout layer.
-pub trait CallbackResultRef {
-    fn stop_propagation(&self) -> bool;
-    fn stop_immediate_propagation(&self) -> bool;
-    fn prevent_default(&self) -> bool;
-    fn should_regenerate_dom(&self) -> bool;
-}
-
 // Unified Event Determination System (Phase 3.5+)
 
 /// Trait for managers to provide their pending events.

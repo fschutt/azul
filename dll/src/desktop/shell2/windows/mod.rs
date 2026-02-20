@@ -602,18 +602,14 @@ impl Win32Window {
                 .layout_window
                 .as_mut()
                 .expect("LayoutWindow should exist at this point");
-            let mut fc_cache_clone = (*result.fc_cache).clone();
-
             // Get app_data for callback
             let mut app_data_ref = result.app_data.borrow_mut();
 
-            let callback_result = layout_window.invoke_single_callback(
+            let (changes, _update) = layout_window.invoke_single_callback(
                 &mut callback,
                 &mut *app_data_ref,
                 &raw_handle,
                 &result.gl_context_ptr,
-                &mut result.image_cache,
-                &mut fc_cache_clone,
                 result.system_style.clone(),
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                 &result.previous_window_state,
@@ -621,10 +617,11 @@ impl Win32Window {
                 &result.renderer_resources,
             );
 
-            // Process callback result (timers, threads, etc.)
-            drop(app_data_ref); // Release borrow before process_callback_result_v2
+            drop(app_data_ref);
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-            let _ = result.process_callback_result_v2(&callback_result);
+            for change in &changes {
+                result.apply_user_change(change);
+            }
         }
 
         // Register debug timer if AZUL_DEBUG is enabled
@@ -2915,18 +2912,11 @@ unsafe extern "system" fn window_proc(
                         hinstance: ptr::null_mut(), // Not needed for menu callbacks
                     });
 
-                    // Clone fc_cache (cheap Arc clone) since invoke_single_callback needs &mut
-                    let mut fc_cache_clone = (*window.fc_cache).clone();
-
-                    // Use LayoutWindow::invoke_single_callback which handles all the borrow
-                    // complexity
-                    let callback_result = layout_window.invoke_single_callback(
+                    let (changes, update) = layout_window.invoke_single_callback(
                         &mut menu_callback.callback,
                         &mut menu_callback.refany,
                         &raw_handle,
                         &window.gl_context_ptr,
-                        &mut window.image_cache,
-                        &mut fc_cache_clone,
                         window.system_style.clone(),
                         &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                         &window.previous_window_state,
@@ -2934,10 +2924,18 @@ unsafe extern "system" fn window_proc(
                         &window.renderer_resources,
                     );
 
-                    // Process callback result using the V2 unified system
-                    // This handles timers, threads, window state changes, and Update
                     use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-                    let event_result = window.process_callback_result_v2(&callback_result);
+                    let mut event_result = azul_core::events::ProcessEventResult::DoNothing;
+                    for change in &changes {
+                        event_result = event_result.max(window.apply_user_change(change));
+                    }
+                    use azul_core::callbacks::Update;
+                    match update {
+                        Update::RefreshDom | Update::RefreshDomAllWindows => {
+                            event_result = event_result.max(azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                        }
+                        Update::DoNothing => {}
+                    }
 
                     // Sync window state changes to Win32 (title, position, size, etc.)
                     window.sync_window_state();

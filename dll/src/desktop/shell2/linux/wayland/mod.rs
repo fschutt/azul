@@ -1328,18 +1328,14 @@ impl WaylandWindow {
                 .layout_window
                 .as_mut()
                 .expect("LayoutWindow should exist at this point");
-            let mut fc_cache_clone = (*window.resources.fc_cache).clone();
-
             // Get app_data for callback
             let mut app_data_ref = window.resources.app_data.borrow_mut();
 
-            let callback_result = layout_window.invoke_single_callback(
+            let (changes, _update) = layout_window.invoke_single_callback(
                 &mut callback,
                 &mut *app_data_ref,
                 &raw_handle,
                 &window.gl_context_ptr,
-                &mut window.image_cache,
-                &mut fc_cache_clone,
                 window.resources.system_style.clone(),
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                 &window.previous_window_state,
@@ -1347,10 +1343,11 @@ impl WaylandWindow {
                 &window.renderer_resources,
             );
 
-            // Process callback result (timers, threads, etc.)
-            drop(app_data_ref); // Release borrow before process_callback_result_v2
+            drop(app_data_ref);
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-            let _ = window.process_callback_result_v2(&callback_result);
+            for change in &changes {
+                window.apply_user_change(change);
+            }
         }
 
         // Register debug timer if AZUL_DEBUG is enabled
@@ -1617,17 +1614,11 @@ impl WaylandWindow {
                 surface: self.surface as *mut _,
             });
 
-            // Clone fc_cache (cheap Arc clone) since invoke_single_callback needs &mut
-            let mut fc_cache_clone = (*self.resources.fc_cache).clone();
-
-            // Use LayoutWindow::invoke_single_callback which handles all the borrow complexity
-            let callback_result = layout_window.invoke_single_callback(
+            let (changes, update) = layout_window.invoke_single_callback(
                 &mut menu_callback.callback,
                 &mut menu_callback.refany,
                 &raw_handle,
                 &self.gl_context_ptr,
-                &mut self.image_cache,
-                &mut fc_cache_clone,
                 self.resources.system_style.clone(),
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                 &self.previous_window_state,
@@ -1635,9 +1626,18 @@ impl WaylandWindow {
                 &self.renderer_resources,
             );
 
-            // Process callback result using the V2 unified system
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
-            let event_result = self.process_callback_result_v2(&callback_result);
+            let mut event_result = azul_core::events::ProcessEventResult::DoNothing;
+            for change in &changes {
+                event_result = event_result.max(self.apply_user_change(change));
+            }
+            use azul_core::callbacks::Update;
+            match update {
+                Update::RefreshDom | Update::RefreshDomAllWindows => {
+                    event_result = event_result.max(azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                }
+                Update::DoNothing => {}
+            }
 
             // Handle the event result
             use azul_core::events::ProcessEventResult;

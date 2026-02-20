@@ -575,13 +575,13 @@ impl TimerCallbackInfo {
     /// toggles it, and queues the change. Used by the cursor blink timer.
     pub fn set_cursor_visibility_toggle(&mut self) {
         // We can't read the current state from here, so we queue a special toggle action
-        // The actual toggle will be handled in apply_callback_changes using CursorManager.toggle_visibility()
+        // The actual toggle will be handled in apply_user_change using CursorManager.toggle_visibility()
         use crate::callbacks::CallbackChange;
         // Use SetCursorVisibility with a special sentinel value to indicate toggle
         // Actually, let's just add a separate toggle method or use the existing ones smartly
         
         // For simplicity, we'll queue both a reset_cursor_blink (to handle idle detection)
-        // and let the apply_callback_changes handle the visibility toggle based on should_blink()
+        // and let apply_user_change handle the visibility toggle based on should_blink()
         self.callback_info.push_change(CallbackChange::SetCursorVisibility { visible: true });
     }
     
