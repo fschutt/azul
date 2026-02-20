@@ -132,6 +132,11 @@ pub mod default_actions;
 pub mod event_determination;
 #[cfg(feature = "text_layout")]
 pub mod font;
+
+/// Headless backend for CPU-only rendering without a display server.
+/// Used with `AZUL_HEADLESS=1` for E2E testing, CI, and screenshot capture.
+#[cfg(feature = "text_layout")]
+pub mod headless;
 // Re-export allsorts types needed by printpdf
 #[cfg(feature = "text_layout")]
 pub use allsorts::subset::CmapTarget;
