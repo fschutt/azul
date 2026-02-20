@@ -774,10 +774,16 @@ fn layout_bfc<T: ParsedFontTrait>(
         constraints.available_size
     };
 
-    // Proactively reserve space for vertical scrollbar if overflow-y is auto/scroll.
-    // This ensures children are laid out with the correct available width from the start,
-    // preventing the "children overlap scrollbar" layout issue.
-    // Uses per-node CSS `scrollbar-width` + OS overlay preference.
+    // Reserve space for vertical scrollbar when appropriate.
+    //
+    // - overflow: scroll  → ALWAYS reserve (CSS spec: scrollbar always shown)
+    // - overflow: auto    → Reserve ONLY when a previous pass / the anti-jitter
+    //   merge (`merge_scrollbar_info`) already determined a scrollbar is needed.
+    //   On the very first pass the node has no scrollbar_info yet, so no space
+    //   is reserved.  After `compute_scrollbar_info` detects overflow it sets
+    //   `reflow_needed_for_scrollbars = true`, triggering a second pass where
+    //   `node.scrollbar_info.needs_vertical == true` and space IS reserved.
+    //   The merge uses `||` (keep once detected), preventing cross-frame jitter.
     let scrollbar_reservation = node
         .dom_node_id
         .map(|dom_id| {
@@ -792,8 +798,19 @@ fn layout_bfc<T: ParsedFontTrait>(
                 crate::solver3::getters::get_overflow_y(ctx.styled_dom, dom_id, &styled_node_state);
             use azul_css::props::layout::LayoutOverflow;
             match overflow_y.unwrap_or_default() {
-                LayoutOverflow::Scroll | LayoutOverflow::Auto => {
+                LayoutOverflow::Scroll => {
                     crate::solver3::getters::get_layout_scrollbar_width_px(ctx, dom_id, &styled_node_state)
+                }
+                LayoutOverflow::Auto => {
+                    let already_needs = node.scrollbar_info
+                        .as_ref()
+                        .map(|s| s.needs_vertical)
+                        .unwrap_or(false);
+                    if already_needs {
+                        crate::solver3::getters::get_layout_scrollbar_width_px(ctx, dom_id, &styled_node_state)
+                    } else {
+                        0.0
+                    }
                 }
                 _ => 0.0,
             }

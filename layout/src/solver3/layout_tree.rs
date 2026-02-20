@@ -901,32 +901,48 @@ impl LayoutTreeBuilder {
 
         for child_id in children {
             if is_block_level(styled_dom, child_id) {
-                // End the current inline run
+                // End the current inline run — but skip if all nodes are whitespace-only text.
+                // CSS 2.1 §9.2.2.1: "White space content that would subsequently be collapsed
+                // away according to the 'white-space' property does not generate any anonymous
+                // inline boxes."
                 if !inline_run.is_empty() {
-                    if let Some(msgs) = debug_messages.as_mut() {
-                        msgs.push(LayoutDebugMessage::info(format!(
-                            "[process_block_children] Creating anon wrapper for inline run: {:?}",
-                            inline_run
-                                .iter()
-                                .map(|c: &NodeId| c.index())
-                                .collect::<Vec<_>>()
-                        )));
-                    }
-                    let anon_idx = self.create_anonymous_node(
-                        parent_idx,
-                        AnonymousBoxType::InlineWrapper,
-                        FormattingContext::Block {
-                            // Anonymous wrappers are BFC roots
-                            establishes_new_context: true,
-                        },
-                    );
-                    for inline_child_id in inline_run.drain(..) {
-                        self.process_node(
-                            styled_dom,
-                            inline_child_id,
-                            Some(anon_idx),
-                            debug_messages,
-                        )?;
+                    let all_whitespace = inline_run
+                        .iter()
+                        .all(|id| is_whitespace_only_text(styled_dom, *id));
+                    if all_whitespace {
+                        if let Some(msgs) = debug_messages.as_mut() {
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "[process_block_children] Skipping whitespace-only inline run between blocks: {:?}",
+                                inline_run.iter().map(|c: &NodeId| c.index()).collect::<Vec<_>>()
+                            )));
+                        }
+                        inline_run.clear();
+                    } else {
+                        if let Some(msgs) = debug_messages.as_mut() {
+                            msgs.push(LayoutDebugMessage::info(format!(
+                                "[process_block_children] Creating anon wrapper for inline run: {:?}",
+                                inline_run
+                                    .iter()
+                                    .map(|c: &NodeId| c.index())
+                                    .collect::<Vec<_>>()
+                            )));
+                        }
+                        let anon_idx = self.create_anonymous_node(
+                            parent_idx,
+                            AnonymousBoxType::InlineWrapper,
+                            FormattingContext::Block {
+                                // Anonymous wrappers are BFC roots
+                                establishes_new_context: true,
+                            },
+                        );
+                        for inline_child_id in inline_run.drain(..) {
+                            self.process_node(
+                                styled_dom,
+                                inline_child_id,
+                                Some(anon_idx),
+                                debug_messages,
+                            )?;
+                        }
                     }
                 }
                 // Process the block-level child directly
@@ -941,23 +957,40 @@ impl LayoutTreeBuilder {
                 inline_run.push(child_id);
             }
         }
-        // Process any remaining inline children at the end
+        // Process any remaining inline children at the end — skip if all whitespace
         if !inline_run.is_empty() {
-            if let Some(msgs) = debug_messages.as_mut() {
-                msgs.push(LayoutDebugMessage::info(format!(
-                    "[process_block_children] Creating anon wrapper for remaining inline run: {:?}",
-                    inline_run.iter().map(|c| c.index()).collect::<Vec<_>>()
-                )));
-            }
-            let anon_idx = self.create_anonymous_node(
-                parent_idx,
-                AnonymousBoxType::InlineWrapper,
-                FormattingContext::Block {
-                    establishes_new_context: true, // Anonymous wrappers are BFC roots
-                },
-            );
-            for inline_child_id in inline_run {
-                self.process_node(styled_dom, inline_child_id, Some(anon_idx), debug_messages)?;
+            let all_whitespace = inline_run
+                .iter()
+                .all(|id| is_whitespace_only_text(styled_dom, *id));
+            if all_whitespace {
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[process_block_children] Skipping trailing whitespace-only inline run: {:?}",
+                        inline_run.iter().map(|c| c.index()).collect::<Vec<_>>()
+                    )));
+                }
+            } else {
+                if let Some(msgs) = debug_messages.as_mut() {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "[process_block_children] Creating anon wrapper for remaining inline run: {:?}",
+                        inline_run.iter().map(|c| c.index()).collect::<Vec<_>>()
+                    )));
+                }
+                let anon_idx = self.create_anonymous_node(
+                    parent_idx,
+                    AnonymousBoxType::InlineWrapper,
+                    FormattingContext::Block {
+                        establishes_new_context: true, // Anonymous wrappers are BFC roots
+                    },
+                );
+                for inline_child_id in inline_run {
+                    self.process_node(
+                        styled_dom,
+                        inline_child_id,
+                        Some(anon_idx),
+                        debug_messages,
+                    )?;
+                }
             }
         }
 

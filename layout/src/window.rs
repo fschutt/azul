@@ -4527,51 +4527,7 @@ mod tests {
         assert!(tick_result.needs_repaint);
     }
 
-    #[test]
-    fn test_scroll_manager_iframe_edge_detection() {
-        // Note: This test is disabled because the new IFrame architecture
-        // moved edge detection logic to IFrameManager. The old ScrollManager
-        // API (update_iframe_scroll_info, iframes_to_update) no longer exists.
-        // Edge detection is now tested through IFrameManager::check_reinvoke.
 
-        // TODO: Rewrite this test to use the new IFrameManager API once
-        // we have a proper test setup for IFrames.
-    }
-
-    #[test]
-    fn test_scroll_manager_iframe_invocation_tracking() {
-        // Note: This test is disabled because IFrame invocation tracking
-        // moved to IFrameManager. The ScrollManager no longer tracks
-        // which IFrames have been invoked.
-
-        // TODO: Rewrite this test to use IFrameManager::mark_invoked
-        // and IFrameManager::check_reinvoke.
-    }
-
-    #[test]
-    fn test_scrollbar_opacity_fading() {
-        // Note: This test is disabled because scrollbar opacity calculation
-        // is now done through a helper function in LayoutWindow, not
-        // through ScrollManager.get_scrollbar_opacity().
-
-        // The new architecture separates scroll state from opacity calculation.
-        // ScrollManager tracks last_activity_time, and LayoutWindow has a
-        // calculate_scrollbar_opacity() helper that computes fade based on time.
-
-        // TODO: Rewrite this test to use LayoutWindow::calculate_scrollbar_opacity
-        // with ScrollManager::get_last_activity_time.
-    }
-
-    #[test]
-    fn test_iframe_callback_reason_initial_render() {
-        // Note: This test is disabled because the frame lifecycle API
-        // (begin_frame, end_frame, had_new_doms) was removed from ScrollManager.
-
-        // IFrame callback reasons are now determined by IFrameManager::check_reinvoke
-        // which checks if an IFrame has been invoked before.
-
-        // TODO: Rewrite to test IFrameManager::check_reinvoke with InitialRender.
-    }
 
     #[test]
     fn test_gpu_cache_scrollbar_opacity_keys() {
@@ -4605,19 +4561,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_frame_lifecycle_begin_end() {
-        // Note: This test is disabled because begin_frame/end_frame API
-        // was removed from ScrollManager. Frame lifecycle is now managed
-        // at a higher level.
 
-        // The new ScrollManager focuses purely on scroll state and animations.
-        // Frame tracking (had_scroll_activity, had_programmatic_scroll) was
-        // removed as it's no longer needed with the new architecture.
-
-        // TODO: If frame lifecycle tracking is needed, it should be
-        // implemented at the LayoutWindow level, not in ScrollManager.
-    }
 }
 
 // --- Cross-Paragraph Cursor Navigation API ---

@@ -300,7 +300,6 @@ fn test_cache_map_resize_and_dirty_propagation() {
 }
 
 #[test]
-#[ignore] // relayout cache stability not yet implemented
 fn test_dirty_propagation_via_layout() {
     // Test dirty propagation by doing full layout then checking that
     // cache entries are populated for all nodes after initial layout.
@@ -418,7 +417,7 @@ fn test_three_blocks_vertical_stacking() {
     let (cache, _) = run_layout(html, 400.0, 300.0);
 
     let positions = &cache.calculated_positions;
-    println!("Positions: {:?}", positions);
+
 
     // Find the three div nodes by looking at the tree
     let tree = cache.tree.as_ref().unwrap();
@@ -451,7 +450,6 @@ fn test_three_blocks_vertical_stacking() {
 }
 
 #[test]
-#[ignore] // whitespace between blocks still creates anonymous IFC wrappers
 fn test_whitespace_between_blocks_no_spurious_ifc() {
     // Regression test for c33e94b0: whitespace between <div>s should NOT
     // create anonymous IFC wrappers that take up vertical space.
@@ -488,7 +486,6 @@ fn test_whitespace_between_blocks_no_spurious_ifc() {
 }
 
 #[test]
-#[ignore] // relayout positions shift on identical DOM re-layout
 fn test_relayout_same_dom_is_fast() {
     // Inspired by Taffy tests/relayout.rs: repeated_layout_is_stable
     // If the DOM hasn't changed, relayout should be nearly instant (cache hit).
@@ -595,7 +592,6 @@ fn test_relayout_with_viewport_resize() {
 // ============================================================================
 
 #[test]
-#[ignore] // margin collapsing not yet implemented
 fn test_margin_collapsing_siblings() {
     // CSS 2.1 §8.3.1: Adjacent vertical margins of block-level boxes collapse.
     // The larger margin wins.

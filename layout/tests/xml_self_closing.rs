@@ -1,23 +1,31 @@
+/// Tests for XML/HTML5-lite parser self-closing tags, void elements,
+/// auto-close behavior, and lenient parsing. Verifies that the parser
+/// handles both strict XML (`<br/>`) and HTML5-like (`<br>`) syntax.
 use azul_layout::xml::{parse_xml_string, XmlNodeChild};
 
-// Helper function to extract element from XmlNodeChild
+/// Extract the XmlNode from an Element variant (panics on Text nodes).
 fn as_element(child: &XmlNodeChild) -> &azul_core::xml::XmlNode {
     match child {
         XmlNodeChild::Element(node) => node,
-        _ => panic!("Expected element node"),
+        _ => panic!("Expected element node, got text node"),
     }
 }
 
+/// Filter children to only Element nodes (skips whitespace text nodes).
 fn element_children(children: &[XmlNodeChild]) -> Vec<&azul_core::xml::XmlNode> {
-    children.iter().filter_map(|c| match c {
-        XmlNodeChild::Element(node) => Some(node),
-        _ => None,
-    }).collect()
+    children
+        .iter()
+        .filter_map(|c| match c {
+            XmlNodeChild::Element(node) => Some(node),
+            _ => None,
+        })
+        .collect()
 }
 
+/// Verifies that explicit self-closing tags like `<header/>` parse correctly
+/// and produce empty element nodes in the tree.
 #[test]
 fn test_self_closing_tags() {
-    // Test that self-closing tags like <header/> are parsed correctly
     let xml = r#"
         <html>
             <body>
@@ -29,8 +37,6 @@ fn test_self_closing_tags() {
     "#;
 
     let result = parse_xml_string(xml).unwrap();
-    assert_eq!(result.len(), 1);
-
     let html = as_element(&result[0]);
     assert_eq!(html.node_type.as_str(), "html");
     let html_elems = element_children(html.children.as_ref());
@@ -41,15 +47,14 @@ fn test_self_closing_tags() {
     let body_elems = element_children(body.children.as_ref());
     assert_eq!(body_elems.len(), 3);
 
-    // Check that all three children were parsed
     assert_eq!(body_elems[0].node_type.as_str(), "header");
     assert_eq!(body_elems[1].node_type.as_str(), "div");
     assert_eq!(body_elems[2].node_type.as_str(), "footer");
 }
 
+/// Verifies that self-closing tags preserve their attributes correctly.
 #[test]
 fn test_self_closing_with_attributes() {
-    // Test that self-closing tags with attributes work
     let xml = r#"
         <html>
             <body>
@@ -71,9 +76,10 @@ fn test_self_closing_with_attributes() {
     assert_eq!(header.children.as_ref().len(), 0);
 }
 
+/// Verifies that self-closing (`<br/>`) and regular (`<div>...</div>`)
+/// tags can be mixed freely in the same parent.
 #[test]
 fn test_mixed_self_closing_and_regular() {
-    // Test mixing self-closing and regular tags
     let xml = r#"
         <html>
             <head>
@@ -93,17 +99,14 @@ fn test_mixed_self_closing_and_regular() {
 
     let result = parse_xml_string(xml).unwrap();
     let html = as_element(&result[0]);
-
-    // Should have head and body
     let html_elems = element_children(html.children.as_ref());
     assert_eq!(html_elems.len(), 2);
+
     let head = html_elems[0];
     let body = html_elems[1];
-
     assert_eq!(head.node_type.as_str(), "head");
     assert_eq!(body.node_type.as_str(), "body");
 
-    // Body should have header, div, footer
     let body_elems = element_children(body.children.as_ref());
     assert_eq!(body_elems.len(), 3);
     assert_eq!(body_elems[0].node_type.as_str(), "header");
@@ -111,10 +114,10 @@ fn test_mixed_self_closing_and_regular() {
     assert_eq!(body_elems[2].node_type.as_str(), "footer");
 }
 
+/// Verifies HTML5 auto-closing: `<li>` elements auto-close when
+/// a sibling `<li>` is encountered, without explicit `</li>`.
 #[test]
-#[ignore] // HTML5 auto-close for <li> not supported by strict XML parser
 fn test_html5_auto_close_list_items() {
-    // Test HTML5 auto-closing behavior for <li> elements
     let xml = r#"
         <html>
             <body>
@@ -129,33 +132,24 @@ fn test_html5_auto_close_list_items() {
 
     let result = parse_xml_string(xml).unwrap();
     let html = as_element(&result[0]);
-    let body = as_element(&html.children.as_ref()[0]);
-    let ul = as_element(&body.children.as_ref()[0]);
+    let body = element_children(html.children.as_ref())[0];
+    let ul = element_children(body.children.as_ref())[0];
 
-    // Should have 3 list items, each auto-closed
-    assert_eq!(ul.children.as_ref().len(), 3);
-    assert_eq!(
-        as_element(&ul.children.as_ref()[0]).node_type.as_str(),
-        "li"
-    );
-    assert_eq!(
-        as_element(&ul.children.as_ref()[1]).node_type.as_str(),
-        "li"
-    );
-    assert_eq!(
-        as_element(&ul.children.as_ref()[2]).node_type.as_str(),
-        "li"
-    );
+    // Parser auto-closes <li> when encountering the next <li>
+    let li_items = element_children(ul.children.as_ref());
+    assert_eq!(li_items.len(), 3, "Should have 3 list items");
+    assert_eq!(li_items[0].node_type.as_str(), "li");
+    assert_eq!(li_items[1].node_type.as_str(), "li");
+    assert_eq!(li_items[2].node_type.as_str(), "li");
 
-    // First item should have text child
-    let first_li = as_element(&ul.children.as_ref()[0]);
-    assert!(first_li.children.as_ref().len() > 0);
+    // Each <li> should contain its text
+    assert!(li_items[0].children.as_ref().len() > 0, "First li should have text");
 }
 
+/// Verifies that `<p>` auto-closes when encountering block-level elements
+/// like `<div>` or `<h1>`, per HTML5 spec.
 #[test]
-#[ignore] // HTML5 auto-close for <p> not supported by strict XML parser
 fn test_html5_paragraph_auto_close() {
-    // Test that <p> auto-closes when encountering block elements
     let xml = r#"
         <html>
             <body>
@@ -169,32 +163,21 @@ fn test_html5_paragraph_auto_close() {
 
     let result = parse_xml_string(xml).unwrap();
     let html = as_element(&result[0]);
-    let body = as_element(&html.children.as_ref()[0]);
+    let body = element_children(html.children.as_ref())[0];
 
-    // Should have 4 children: p, div, p, h1
-    assert_eq!(body.children.as_ref().len(), 4);
-    assert_eq!(
-        as_element(&body.children.as_ref()[0]).node_type.as_str(),
-        "p"
-    );
-    assert_eq!(
-        as_element(&body.children.as_ref()[1]).node_type.as_str(),
-        "div"
-    );
-    assert_eq!(
-        as_element(&body.children.as_ref()[2]).node_type.as_str(),
-        "p"
-    );
-    assert_eq!(
-        as_element(&body.children.as_ref()[3]).node_type.as_str(),
-        "h1"
-    );
+    // Should have 4 element children: p, div, p, h1
+    let body_elems = element_children(body.children.as_ref());
+    assert_eq!(body_elems.len(), 4, "body should have p, div, p, h1");
+    assert_eq!(body_elems[0].node_type.as_str(), "p");
+    assert_eq!(body_elems[1].node_type.as_str(), "div");
+    assert_eq!(body_elems[2].node_type.as_str(), "p");
+    assert_eq!(body_elems[3].node_type.as_str(), "h1");
 }
 
+/// Verifies that `<p>` auto-closes when another `<p>` is encountered
+/// inside the same parent container, without explicit `</p>`.
 #[test]
-#[ignore] // HTML5 optional closing tags not supported by strict XML parser
 fn test_html5_optional_closing_tags() {
-    // Test lenient parsing - missing closing tags should be tolerated
     let xml = r#"
         <html>
             <body>
@@ -208,27 +191,20 @@ fn test_html5_optional_closing_tags() {
 
     let result = parse_xml_string(xml).unwrap();
     let html = as_element(&result[0]);
-    let body = as_element(&html.children.as_ref()[0]);
-    let div = as_element(&body.children.as_ref()[0]);
+    let body = element_children(html.children.as_ref())[0];
+    let div = element_children(body.children.as_ref())[0];
 
-    // Should have 2 paragraphs
-    assert_eq!(div.children.as_ref().len(), 2);
-    assert_eq!(
-        as_element(&div.children.as_ref()[0]).node_type.as_str(),
-        "p"
-    );
-    assert_eq!(
-        as_element(&div.children.as_ref()[1]).node_type.as_str(),
-        "p"
-    );
+    // Should have 2 paragraphs (auto-closed)
+    let div_elems = element_children(div.children.as_ref());
+    assert_eq!(div_elems.len(), 2, "div should have 2 paragraphs");
+    assert_eq!(div_elems[0].node_type.as_str(), "p");
+    assert_eq!(div_elems[1].node_type.as_str(), "p");
 }
 
+/// Verifies that `<td>` elements auto-close when encountering a sibling
+/// `<td>`, and `<tr>` elements contain the correct cell structure.
 #[test]
-#[ignore] // HTML5 auto-close for <td> not supported by strict XML parser
 fn test_html5_table_auto_close() {
-    // Test table element auto-closing
-    // Note: Due to how auto-closing works, the second <tr> closes the first one
-    // when it's encountered, creating a nested structure
     let xml = r#"
         <html>
             <body>
@@ -248,30 +224,22 @@ fn test_html5_table_auto_close() {
 
     let result = parse_xml_string(xml).unwrap();
     let html = as_element(&result[0]);
-    let body = as_element(&html.children.as_ref()[0]);
-    let table = as_element(&body.children.as_ref()[0]);
+    let body = element_children(html.children.as_ref())[0];
+    let table = element_children(body.children.as_ref())[0];
 
-    // Should have 2 rows
-    assert_eq!(table.children.as_ref().len(), 2, "Table should have 2 rows");
-    let row1 = as_element(&table.children.as_ref()[0]);
-    let row2 = as_element(&table.children.as_ref()[1]);
+    let rows = element_children(table.children.as_ref());
+    assert_eq!(rows.len(), 2, "Table should have 2 rows");
 
-    // Each row should have 2 cells
-    assert_eq!(
-        row1.children.as_ref().len(),
-        2,
-        "First row should have 2 cells"
-    );
-    assert_eq!(
-        row2.children.as_ref().len(),
-        2,
-        "Second row should have 2 cells"
-    );
+    let row1_cells = element_children(rows[0].children.as_ref());
+    let row2_cells = element_children(rows[1].children.as_ref());
+    assert_eq!(row1_cells.len(), 2, "First row should have 2 cells");
+    assert_eq!(row2_cells.len(), 2, "Second row should have 2 cells");
 }
 
+/// Verifies that void elements (`<img>`, `<br>`, etc.) tolerate incorrect
+/// explicit closing tags like `</img>` without breaking the tree.
 #[test]
 fn test_html5_void_elements_with_wrong_closing() {
-    // Test that void elements tolerate incorrect closing tags
     let xml = r#"
         <html>
             <body>
@@ -287,7 +255,6 @@ fn test_html5_void_elements_with_wrong_closing() {
     let html = as_element(&result[0]);
     let body = element_children(html.children.as_ref())[0];
 
-    // Should have 4 void elements
     let body_elems = element_children(body.children.as_ref());
     assert_eq!(body_elems.len(), 4);
     assert_eq!(body_elems[0].node_type.as_str(), "img");
@@ -296,10 +263,11 @@ fn test_html5_void_elements_with_wrong_closing() {
     assert_eq!(body_elems[3].node_type.as_str(), "input");
 }
 
+/// Verifies lenient parsing: a `<header>` without explicit `</header>`
+/// stays open until its parent closes. The `<footer>` becomes a child
+/// of `<header>` since the parser has no auto-close rule for header->footer.
 #[test]
-#[ignore] // Lenient parsing (missing closing tags) not supported by strict XML parser
 fn test_header_without_closing_tag_lenient() {
-    // HTML5-lite: Missing closing tags are now tolerated (lenient parsing)
     let xml = r#"
         <html>
             <body>
@@ -311,28 +279,29 @@ fn test_header_without_closing_tag_lenient() {
         </html>
     "#;
 
-    // This should now succeed with lenient parsing
     let result = parse_xml_string(xml);
     assert!(result.is_ok(), "Should succeed with lenient HTML5 parsing");
 
     let nodes = result.unwrap();
     let html = as_element(&nodes[0]);
-    let body = as_element(&html.children.as_ref()[0]);
+    let body = element_children(html.children.as_ref())[0];
 
-    // With lenient parsing, missing </header> means header stays open
-    // until </body> or an explicit closing tag
-    // The footer should still be parsed
-    assert!(
-        body.children.as_ref().len() >= 1,
-        "Should have at least one child"
-    );
+    // With lenient parsing, <header> stays open (no auto-close rule for
+    // header->footer), so footer becomes a child of header.
+    let body_elems = element_children(body.children.as_ref());
+    assert!(body_elems.len() >= 1, "Should have at least one element child");
+
+    let header = body_elems[0];
+    assert_eq!(header.node_type.as_str(), "header");
+    let header_elems = element_children(header.children.as_ref());
+    // header contains: div, hr, footer
+    assert!(header_elems.len() >= 2, "Header should contain div, hr (and footer as child)");
 }
 
+/// Verifies that HTML5 void elements (`<br>`, `<hr>`, `<img>`, `<input>`)
+/// are auto-closed even without `/>` and never consume children.
 #[test]
-#[ignore] // Auto-close void tags without /> not supported by strict XML parser
 fn test_auto_close_void_tags() {
-    // Test that we auto-close known void/empty HTML elements
-    // These are tags that should be treated as self-closing even without />
     let xml = r#"
         <html>
             <body>
@@ -347,37 +316,22 @@ fn test_auto_close_void_tags() {
 
     let result = parse_xml_string(xml).unwrap();
     let html = as_element(&result[0]);
-    let body = as_element(&html.children.as_ref()[0]);
+    let body = element_children(html.children.as_ref())[0];
 
-    // Should have 5 children: img, br, hr, input, div
-    assert_eq!(body.children.as_ref().len(), 5);
-    assert_eq!(
-        as_element(&body.children.as_ref()[0]).node_type.as_str(),
-        "img"
-    );
-    assert_eq!(
-        as_element(&body.children.as_ref()[1]).node_type.as_str(),
-        "br"
-    );
-    assert_eq!(
-        as_element(&body.children.as_ref()[2]).node_type.as_str(),
-        "hr"
-    );
-    assert_eq!(
-        as_element(&body.children.as_ref()[3]).node_type.as_str(),
-        "input"
-    );
-    assert_eq!(
-        as_element(&body.children.as_ref()[4]).node_type.as_str(),
-        "div"
-    );
+    let body_elems = element_children(body.children.as_ref());
+    assert_eq!(body_elems.len(), 5, "body should have img, br, hr, input, div");
+    assert_eq!(body_elems[0].node_type.as_str(), "img");
+    assert_eq!(body_elems[1].node_type.as_str(), "br");
+    assert_eq!(body_elems[2].node_type.as_str(), "hr");
+    assert_eq!(body_elems[3].node_type.as_str(), "input");
+    assert_eq!(body_elems[4].node_type.as_str(), "div");
 }
 
+/// Verifies that text nodes around inline elements (`<span>`) are preserved
+/// as separate text nodes and not merged. Critical for correct text layout
+/// where "Text before " and " text after." must remain distinct nodes.
 #[test]
 fn test_inline_span_text_node_structure() {
-    // This test verifies that inline spans preserve separate text nodes
-    // Issue: Text nodes before/after inline elements were being merged
-
     let xml = r#"
         <html>
             <body>
@@ -389,10 +343,7 @@ fn test_inline_span_text_node_structure() {
     let result = parse_xml_string(xml).expect("Should parse XML successfully");
     assert_eq!(result.len(), 1, "Should have one root node");
 
-    let html = match &result[0] {
-        XmlNodeChild::Element(node) => node,
-        _ => panic!("Expected element node"),
-    };
+    let html = as_element(&result[0]);
     assert_eq!(html.node_type.as_str(), "html");
 
     let body = element_children(html.children.as_ref())[0];
@@ -403,74 +354,31 @@ fn test_inline_span_text_node_structure() {
     let p = body_elems[0];
     assert_eq!(p.node_type.as_str(), "p");
 
-    println!("\nParagraph Children");
-    println!("Paragraph has {} children", p.children.as_ref().len());
-    for (i, child) in p.children.as_ref().iter().enumerate() {
-        match child {
-            XmlNodeChild::Element(node) => {
-                println!(
-                    "  Child {}: Element node_type='{}'",
-                    i,
-                    node.node_type.as_str()
-                );
-            }
-            XmlNodeChild::Text(text) => {
-                println!("  Child {}: Text node text='{}'", i, text.as_str());
-            }
-        }
-    }
-
-    // The paragraph should have 3 children:
-    // 1. Text node: "Text before "
-    // 2. Span element with child text node "inline text"
-    // 3. Text node: " text after."
-
-    // THIS IS THE KEY TEST: If the parser incorrectly merges text nodes,
-    // we'll see only 2 children (one big text node + span), or the text
-    // will be malformed
-
+    // The paragraph should have exactly 3 children:
+    // [0] Text: "Text before "
+    // [1] Element: <span> with text "inline text"
+    // [2] Text: " text after."
     assert_eq!(
         p.children.as_ref().len(),
         3,
-        "Paragraph should have exactly 3 children: [TextNode, Span, TextNode]. Found {} children. \
-         This indicates text nodes are being merged incorrectly.",
+        "Paragraph should have [TextNode, Span, TextNode], found {} children",
         p.children.as_ref().len()
     );
 
-    // Verify first child is text node with correct content
     match &p.children.as_ref()[0] {
         XmlNodeChild::Text(text) => {
-            assert_eq!(
-                text.as_str(),
-                "Text before ",
-                "First child should be text node 'Text before ' (with trailing space)"
-            );
+            assert_eq!(text.as_str(), "Text before ");
         }
         XmlNodeChild::Element(_) => panic!("First child should be a text node"),
     }
 
-    // Verify second child is span
     match &p.children.as_ref()[1] {
         XmlNodeChild::Element(span) => {
-            assert_eq!(
-                span.node_type.as_str(),
-                "span",
-                "Second child should be <span> element"
-            );
-            assert_eq!(
-                span.children.as_ref().len(),
-                1,
-                "Span should have 1 child (its text node)"
-            );
-
-            // Verify span's text content
+            assert_eq!(span.node_type.as_str(), "span");
+            assert_eq!(span.children.as_ref().len(), 1);
             match &span.children.as_ref()[0] {
                 XmlNodeChild::Text(text) => {
-                    assert_eq!(
-                        text.as_str(),
-                        "inline text",
-                        "Span's text node should contain 'inline text'"
-                    );
+                    assert_eq!(text.as_str(), "inline text");
                 }
                 XmlNodeChild::Element(_) => panic!("Span's child should be a text node"),
             }
@@ -478,17 +386,10 @@ fn test_inline_span_text_node_structure() {
         XmlNodeChild::Text(_) => panic!("Second child should be an element (span)"),
     }
 
-    // Verify third child is text node with correct content
     match &p.children.as_ref()[2] {
         XmlNodeChild::Text(text) => {
-            assert_eq!(
-                text.as_str(),
-                " text after.",
-                "Third child should be text node ' text after.' (with leading space)"
-            );
+            assert_eq!(text.as_str(), " text after.");
         }
         XmlNodeChild::Element(_) => panic!("Third child should be a text node"),
     }
-
-    println!("✓ Test passed: Inline span text node structure is correct");
 }

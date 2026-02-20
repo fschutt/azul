@@ -369,7 +369,6 @@ fn layout_dom_and_get_content_width(
 }
 
 #[test]
-#[ignore] // scrollbar reflow not yet reducing content width
 fn test_scrollbar_reflow_width_100_percent() {
     // Test that when a vertical scrollbar appears, content with width: 100%
     // is reduced by the scrollbar width
@@ -430,9 +429,6 @@ fn test_scrollbar_reflow_width_100_percent() {
 
     let w1 = width_no_overflow.unwrap();
     let w2 = width_with_overflow.unwrap();
-
-    println!("Width without scrollbar: {}", w1);
-    println!("Width with scrollbar: {}", w2);
 
     // When vertical scrollbar is present, content width should be smaller
     // Scrollbar width is typically 16px

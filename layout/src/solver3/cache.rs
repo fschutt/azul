@@ -1084,28 +1084,10 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
         node.box_props.inner_size(final_used_size, writing_mode)
     };
 
-    // Proactively reserve space for scrollbars based on overflow properties.
-    // Use per-node CSS `scrollbar-width` + OS overlay preference.
-    let scrollbar_reservation = match overflow_y {
-        LayoutOverflow::Scroll | LayoutOverflow::Auto => {
-            dom_id.map(|id| {
-                let styled_node_state = ctx.styled_dom.styled_nodes.as_container()
-                    .get(id).map(|s| s.styled_node_state.clone()).unwrap_or_default();
-                crate::solver3::getters::get_layout_scrollbar_width_px(ctx, id, &styled_node_state)
-            }).unwrap_or(fc::DEFAULT_SCROLLBAR_WIDTH_PX)
-        }
-        _ => 0.0,
-    };
-
-    // Reduce available width by scrollbar reservation (if any)
-    let available_size_for_children = if scrollbar_reservation > 0.0 {
-        LogicalSize {
-            width: (available_size_for_children.width - scrollbar_reservation).max(0.0),
-            height: available_size_for_children.height,
-        }
-    } else {
-        available_size_for_children
-    };
+    // NOTE: Scrollbar reservation is handled inside layout_bfc() where it subtracts
+    // scrollbar width from children_containing_block_size. We do NOT subtract here
+    // to avoid double-subtraction (layout_bfc already handles both the used_size
+    // and available_size code paths).
 
     let constraints = LayoutConstraints {
         available_size: available_size_for_children,
@@ -1640,10 +1622,17 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
                         );
                         super::pos_set(calculated_positions, *child_index, child_abs_pos);
 
-                        let child_available_size = box_props.inner_size(
+                        let inner = box_props.inner_size(
                             result_size,
                             LayoutWritingMode::HorizontalTb,
                         );
+                        // Subtract scrollbar reservation from the available size
+                        // passed to children. This mirrors what layout_bfc does in
+                        // the MISS path — without it, a reflow-loop cache hit
+                        // would hand children the full content-box width, ignoring
+                        // any vertical/horizontal scrollbar that was detected.
+                        let child_available_size =
+                            cached_layout.scrollbar_info.shrink_size(inner);
                         calculate_layout_for_subtree(
                             ctx,
                             tree,
