@@ -450,6 +450,103 @@ pub fn regenerate_layout(
     Ok(LayoutRegenerateResult::LayoutChanged)
 }
 
+/// Incremental relayout: re-run layout on the existing StyledDom without
+/// calling the user's `layout_callback()`.
+///
+/// This is the fast path for restyle-driven changes (hover/focus CSS changes,
+/// runtime `set_css_property()`, `set_node_text()`) where the DOM structure
+/// hasn't changed — only styles or text content.
+///
+/// The StyledDom already has updated `styled_node_state` (from `restyle_on_state_change`)
+/// or updated node data (from runtime edits). We just need to re-run layout
+/// and regenerate the display list.
+///
+/// ## When to use
+///
+/// - `ProcessEventResult::ShouldIncrementalRelayout`
+/// - After `apply_focus_restyle` detects layout-affecting CSS changes
+/// - After `words_changed` / `css_properties_changed` from callbacks
+///
+/// ## What it skips
+///
+/// - User's `layout_callback()` (DOM is unchanged)
+/// - CSD injection (already done)
+/// - State migration / reconciliation (NodeIds haven't changed)
+/// - Manager remapping (NodeIds haven't changed)
+pub fn incremental_relayout(
+    layout_window: &mut LayoutWindow,
+    current_window_state: &FullWindowState,
+    renderer_resources: &mut RendererResources,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) -> Result<(), String> {
+    log_debug!(LogCategory::Layout, "[incremental_relayout] START");
+
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+
+    // Re-run layout on the existing StyledDom with dirty flags already set.
+    // The StyledDom in the layout_result already has updated styles/states.
+    if let Some(layout_result) = layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
+        let styled_dom = layout_result.styled_dom.clone();
+
+        layout_window
+            .layout_and_generate_display_list(
+                styled_dom,
+                current_window_state,
+                renderer_resources,
+                &system_callbacks,
+                debug_messages,
+            )
+            .map_err(|e| format!("Incremental layout error: {:?}", e))?;
+    }
+
+    // Re-register scrollable nodes
+    let now: azul_core::task::Instant = std::time::Instant::now().into();
+    for (_dom_id, layout_result) in &layout_window.layout_results {
+        for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
+            if let Some(ref scrollbar_info) = node.scrollbar_info {
+                if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
+                    if let Some(dom_node_id) = node.dom_node_id {
+                        let border_box_size = node.used_size.unwrap_or_default();
+                        let padding = &node.box_props.padding;
+                        let border = &node.box_props.border;
+                        let container_size = azul_core::geom::LogicalSize {
+                            width: (border_box_size.width
+                                    - padding.left - padding.right
+                                    - border.left - border.right).max(0.0),
+                            height: (border_box_size.height
+                                     - padding.top - padding.bottom
+                                     - border.top - border.bottom).max(0.0),
+                        };
+                        let container_origin = layout_result
+                            .calculated_positions
+                            .get(node_idx)
+                            .copied()
+                            .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
+                        let container_rect = azul_core::geom::LogicalRect {
+                            origin: container_origin,
+                            size: container_size,
+                        };
+                        let content_size = node.get_content_size();
+                        layout_window.scroll_manager.register_or_update_scroll_node(
+                            *_dom_id,
+                            dom_node_id,
+                            container_rect,
+                            content_size,
+                            now.clone(),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    layout_window.scroll_manager.calculate_scrollbar_states();
+
+    log_debug!(LogCategory::Layout, "[incremental_relayout] COMPLETE");
+
+    Ok(())
+}
+
 /// Apply runtime states (focus, hover, active) to the StyledDom BEFORE layout
 ///
 /// The layout callback creates a fresh StyledDom where all StyledNodeState fields

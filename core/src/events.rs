@@ -65,9 +65,12 @@ pub enum ProcessEventResult {
     // GPU transforms changed: do another hit-test and recurse
     // until nothing has changed anymore
     UpdateHitTesterAndProcessAgain = 3,
-    // Only refresh the display (in case of pure scroll or GPU-only events)
-    ShouldRegenerateDomCurrentWindow = 4,
-    ShouldRegenerateDomAllWindows = 5,
+    // Restyle or runtime edit changed layout-affecting properties:
+    // re-run layout on the EXISTING StyledDom (no DOM rebuild).
+    ShouldIncrementalRelayout = 4,
+    // Full DOM rebuild via user's layout_callback()
+    ShouldRegenerateDomCurrentWindow = 5,
+    ShouldRegenerateDomAllWindows = 6,
 }
 
 impl ProcessEventResult {
@@ -78,8 +81,9 @@ impl ProcessEventResult {
             ShouldReRenderCurrentWindow => 1,
             ShouldUpdateDisplayListCurrentWindow => 2,
             UpdateHitTesterAndProcessAgain => 3,
-            ShouldRegenerateDomCurrentWindow => 4,
-            ShouldRegenerateDomAllWindows => 5,
+            ShouldIncrementalRelayout => 4,
+            ShouldRegenerateDomCurrentWindow => 5,
+            ShouldRegenerateDomAllWindows => 6,
         }
     }
 }

@@ -351,22 +351,17 @@ extern "C" fn auto_scroll_timer_callback(
 
 /// Apply focus change restyle and determine the ProcessEventResult.
 ///
-/// This helper function consolidates the duplicated restyle logic that was
-/// previously repeated for FocusNext/Previous/First/Last and ClearFocus handlers.
-///
-/// # Arguments
-/// * `layout_window` - Mutable reference to the layout window
-/// * `old_focus` - The node that is losing focus (if any)
-/// * `new_focus` - The node that is gaining focus (if any)
-///
-/// # Returns
-/// The appropriate ProcessEventResult based on what CSS properties changed.
+/// Uses ChangeAccumulator to classify restyle changes granularly:
+/// - Paint-only changes (e.g. color) → ShouldUpdateDisplayListCurrentWindow
+/// - Layout-affecting changes → ShouldIncrementalRelayout (no DOM rebuild!)
+/// - No changes → ShouldReRenderCurrentWindow
 fn apply_focus_restyle(
     layout_window: &mut LayoutWindow,
     old_focus: Option<NodeId>,
     new_focus: Option<NodeId>,
 ) -> ProcessEventResult {
     use azul_core::styled_dom::FocusChange;
+    use azul_core::diff::ChangeAccumulator;
 
     // Get the first (primary) layout result
     let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() else {
@@ -385,16 +380,30 @@ fn apply_focus_restyle(
 
     log_debug!(
         super::debug_server::LogCategory::Input,
-        "[Event V2] Focus restyle: needs_layout={}, needs_display_list={}, changed_nodes={}",
+        "[Event V2] Focus restyle: needs_layout={}, needs_display_list={}, changed_nodes={}, max_scope={:?}",
         restyle_result.needs_layout,
         restyle_result.needs_display_list,
-        restyle_result.changed_nodes.len()
+        restyle_result.changed_nodes.len(),
+        restyle_result.max_relayout_scope
     );
 
-    // Determine ProcessEventResult based on what changed
-    if restyle_result.needs_layout {
-        ProcessEventResult::ShouldRegenerateDomCurrentWindow
-    } else if restyle_result.needs_display_list {
+    if restyle_result.changed_nodes.is_empty() {
+        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    }
+
+    if restyle_result.gpu_only_changes {
+        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    }
+
+    // Feed RestyleResult through ChangeAccumulator for granular classification
+    let mut accumulator = ChangeAccumulator::new();
+    accumulator.merge_restyle_result(&restyle_result);
+
+    if accumulator.needs_layout() {
+        // Restyle changed layout-affecting properties → incremental relayout
+        // (no DOM rebuild needed — the StyledDom already has updated states)
+        ProcessEventResult::ShouldIncrementalRelayout
+    } else if accumulator.needs_paint_only() {
         ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
     } else {
         ProcessEventResult::ShouldReRenderCurrentWindow
@@ -3065,6 +3074,48 @@ pub trait PlatformWindowV2 {
         if result.images_changed.is_some() || result.image_masks_changed.is_some() {
             event_result =
                 event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+        }
+
+        // Handle text changes (words_changed) — previously dead field, now wired
+        if let Some(ref words) = result.words_changed {
+            use azul_core::diff::ChangeAccumulator;
+            let mut accumulator = ChangeAccumulator::new();
+            for (_dom_id, nodes) in words {
+                for (node_id, _new_text) in nodes {
+                    // Text changes need IFC reshape at minimum
+                    accumulator.add_text_change(
+                        *node_id,
+                        String::new(), // old text not available here
+                        _new_text.as_str().to_string(),
+                    );
+                }
+            }
+            if accumulator.needs_layout() {
+                event_result = event_result.max(ProcessEventResult::ShouldIncrementalRelayout);
+            } else if accumulator.needs_paint_only() {
+                event_result = event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+            }
+        }
+
+        // Handle CSS property changes — previously dead field, now wired
+        if let Some(ref css) = result.css_properties_changed {
+            use azul_core::diff::ChangeAccumulator;
+            use azul_css::props::property::RelayoutScope;
+            let mut accumulator = ChangeAccumulator::new();
+            for (_dom_id, nodes) in css {
+                for (node_id, properties) in nodes {
+                    for prop in properties.as_ref().iter() {
+                        let prop_type = prop.get_type();
+                        let scope = prop_type.relayout_scope(true);
+                        accumulator.add_css_change(*node_id, prop_type, scope);
+                    }
+                }
+            }
+            if accumulator.needs_layout() {
+                event_result = event_result.max(ProcessEventResult::ShouldIncrementalRelayout);
+            } else if accumulator.needs_paint_only() {
+                event_result = event_result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+            }
         }
 
         // Handle timers and threads

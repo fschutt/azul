@@ -19,6 +19,7 @@ use std::{
 };
 
 use azul_core::{
+    diff::NodeDataFingerprint,
     dom::{FormattingContext, NodeId, NodeType},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     styled_dom::{StyledDom, StyledNode},
@@ -47,7 +48,7 @@ use crate::{
             MultiValue,
         },
         layout_tree::{
-            is_block_level, AnonymousBoxType, LayoutNode, LayoutTreeBuilder, SubtreeHash,
+            is_block_level, AnonymousBoxType, DirtyFlag, LayoutNode, LayoutTreeBuilder, SubtreeHash,
         },
         positioning::get_position_type,
         scrollbar::ScrollbarRequirements,
@@ -371,12 +372,26 @@ pub struct ReconciliationResult {
     pub intrinsic_dirty: BTreeSet<usize>,
     /// Set of layout roots whose subtrees need a new top-down layout pass.
     pub layout_roots: BTreeSet<usize>,
+    /// Set of nodes that only need a paint/display-list update (no relayout).
+    pub paint_dirty: BTreeSet<usize>,
 }
 
 impl ReconciliationResult {
     /// Checks if any layout or paint work is needed.
     pub fn is_clean(&self) -> bool {
-        self.intrinsic_dirty.is_empty() && self.layout_roots.is_empty()
+        self.intrinsic_dirty.is_empty()
+            && self.layout_roots.is_empty()
+            && self.paint_dirty.is_empty()
+    }
+
+    /// Returns true if full layout work is needed for at least one node.
+    pub fn needs_layout(&self) -> bool {
+        !self.intrinsic_dirty.is_empty() || !self.layout_roots.is_empty()
+    }
+
+    /// Returns true if only paint work is needed (no layout).
+    pub fn needs_paint_only(&self) -> bool {
+        !self.needs_layout() && !self.paint_dirty.is_empty()
     }
 }
 
@@ -769,13 +784,30 @@ pub fn reconcile_recursive(
     let node_data = &styled_dom.node_data.as_container()[new_dom_id];
 
     let old_node = old_tree.and_then(|t| old_tree_idx.and_then(|idx| t.get(idx)));
-    let new_node_data_hash = hash_styled_node_data(styled_dom, new_dom_id);
 
-    // A node is dirty if it's new, or if its data/style hash has changed.
+    // Compute the new multi-field fingerprint instead of a single hash.
+    let new_fingerprint = NodeDataFingerprint::compute(
+        node_data,
+        styled_dom.styled_nodes.as_container().get(new_dom_id).map(|n| &n.styled_node_state),
+    );
 
-    let is_dirty = old_node.map_or(true, |n| new_node_data_hash != n.node_data_hash);
+    // Compare fingerprints to determine what changed (Layout, Paint, or Nothing).
+    let dirty_flag = match old_node {
+        None => DirtyFlag::Layout, // new node → full layout
+        Some(old_n) => {
+            let change_set = old_n.node_data_fingerprint.diff(&new_fingerprint);
+            if change_set.needs_layout() {
+                DirtyFlag::Layout
+            } else if change_set.needs_paint() {
+                DirtyFlag::Paint
+            } else {
+                DirtyFlag::None
+            }
+        }
+    };
+    let is_dirty = dirty_flag >= DirtyFlag::Paint;
 
-    let new_node_idx = if is_dirty {
+    let new_node_idx = if dirty_flag >= DirtyFlag::Layout {
         new_tree_builder.create_node_from_dom(
             styled_dom,
             new_dom_id,
@@ -783,7 +815,16 @@ pub fn reconcile_recursive(
             debug_messages,
         )?
     } else {
-        new_tree_builder.clone_node_from_old(old_node.unwrap(), new_parent_idx)
+        // Paint-only or clean: clone the old node (preserving layout cache)
+        let mut idx = new_tree_builder.clone_node_from_old(old_node.unwrap(), new_parent_idx);
+        // If paint-only change, update the fingerprint and dirty flag
+        if dirty_flag == DirtyFlag::Paint {
+            if let Some(cloned) = new_tree_builder.get_mut(idx) {
+                cloned.node_data_fingerprint = new_fingerprint;
+                cloned.dirty_flag = DirtyFlag::Paint;
+            }
+        }
+        idx
     };
 
     // CRITICAL: For list-items, create a ::marker pseudo-element as the first child
@@ -1001,15 +1042,24 @@ pub fn reconcile_recursive(
     }
 
     // After reconciling children, calculate this node's full subtree hash.
-    let final_subtree_hash = calculate_subtree_hash(new_node_data_hash, &new_child_hashes);
+    // Use a combined hash of the fingerprint fields for the subtree hash.
+    let node_self_hash = {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        let mut h = DefaultHasher::new();
+        new_fingerprint.hash(&mut h);
+        h.finish()
+    };
+    let final_subtree_hash = calculate_subtree_hash(node_self_hash, &new_child_hashes);
     if let Some(current_node) = new_tree_builder.get_mut(new_node_idx) {
         current_node.subtree_hash = final_subtree_hash;
     }
 
-    // If the node itself was dirty, or its children's structure changed, it's a layout boundary.
-    if is_dirty || children_are_different {
+    // Classify this node into the appropriate dirty set based on what changed.
+    if dirty_flag >= DirtyFlag::Layout || children_are_different {
         recon.intrinsic_dirty.insert(new_node_idx);
         recon.layout_roots.insert(new_node_idx);
+    } else if dirty_flag == DirtyFlag::Paint {
+        recon.paint_dirty.insert(new_node_idx);
     }
 
     Ok(new_node_idx)
@@ -1667,6 +1717,24 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         prepare_layout_context(ctx, node, containing_block_size)?
     };
 
+    // Phase 1.5: Update used_size BEFORE calling layout_formatting_context.
+    //
+    // When a node is cloned from the old tree (clone_node_from_old), its used_size
+    // retains the value from the previous layout pass. If the containing block changed
+    // (e.g. viewport resize), the stale used_size would cause layout_bfc() to compute
+    // an incorrect children_containing_block_size. By updating used_size here, we ensure
+    // that layout_bfc reads the freshly resolved size from prepare_layout_context.
+    {
+        let is_table_cell = tree.get(node_index).map_or(false, |n| {
+            matches!(n.formatting_context, FormattingContext::TableCell)
+        });
+        if !is_table_cell {
+            if let Some(node) = tree.get_mut(node_index) {
+                node.used_size = Some(final_used_size);
+            }
+        }
+    }
+
     // Phase 2: Layout children using the formatting context
     let layout_result =
         layout_formatting_context(ctx, tree, text_cache, node_index, &constraints, float_cache)?;
@@ -2068,16 +2136,7 @@ fn apply_content_based_height(
     used_size
 }
 
-fn hash_styled_node_data(dom: &StyledDom, node_id: NodeId) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    if let Some(styled_node) = dom.styled_nodes.as_container().get(node_id) {
-        styled_node.styled_node_state.hash(&mut hasher);
-    }
-    if let Some(node_data) = dom.node_data.as_container().get(node_id) {
-        node_data.get_node_type().hash(&mut hasher);
-    }
-    hasher.finish()
-}
+// hash_styled_node_data() removed — replaced by NodeDataFingerprint::compute()
 
 fn calculate_subtree_hash(node_self_hash: u64, child_hashes: &[u64]) -> SubtreeHash {
     let mut hasher = DefaultHasher::new();

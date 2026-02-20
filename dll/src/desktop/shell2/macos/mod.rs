@@ -3718,6 +3718,24 @@ impl MacOSWindow {
                     // Continue anyway - don't block close on layout errors
                 }
             }
+            azul_core::events::ProcessEventResult::ShouldIncrementalRelayout => {
+                log_debug!(
+                    LogCategory::Callbacks,
+                    "[handle_window_should_close] Incremental relayout requested"
+                );
+                if let Some(layout_window) = self.layout_window.as_mut() {
+                    let mut debug_messages = None;
+                    if let Err(e) = crate::desktop::shell2::common::layout_v2::incremental_relayout(
+                        layout_window,
+                        &self.current_window_state,
+                        &mut self.renderer_resources,
+                        &mut debug_messages,
+                    ) {
+                        log_warn!(LogCategory::Layout, "[handle_window_should_close] Incremental relayout failed: {}", e);
+                    }
+                }
+                self.frame_needs_regeneration = true;
+            }
             azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
                 log_debug!(
                     LogCategory::Callbacks,
@@ -3775,6 +3793,20 @@ impl MacOSWindow {
                         e
                     );
                 }
+            }
+            azul_core::events::ProcessEventResult::ShouldIncrementalRelayout => {
+                if let Some(layout_window) = self.layout_window.as_mut() {
+                    let mut debug_messages = None;
+                    if let Err(e) = crate::desktop::shell2::common::layout_v2::incremental_relayout(
+                        layout_window,
+                        &self.current_window_state,
+                        &mut self.renderer_resources,
+                        &mut debug_messages,
+                    ) {
+                        log_warn!(LogCategory::Layout, "[MacOSWindow] Incremental relayout failed: {}", e);
+                    }
+                }
+                self.frame_needs_regeneration = true;
             }
             azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
                 self.frame_needs_regeneration = true;
@@ -4164,6 +4196,7 @@ impl MacOSWindow {
         match event_result {
             ProcessEventResult::ShouldRegenerateDomCurrentWindow
             | ProcessEventResult::ShouldRegenerateDomAllWindows
+            | ProcessEventResult::ShouldIncrementalRelayout
             | ProcessEventResult::ShouldReRenderCurrentWindow
             | ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             | ProcessEventResult::UpdateHitTesterAndProcessAgain => {

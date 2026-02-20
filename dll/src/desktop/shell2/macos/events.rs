@@ -78,6 +78,7 @@ impl MacOSWindow {
             PER::ShouldReRenderCurrentWindow => EventProcessResult::RequestRedraw,
             PER::ShouldUpdateDisplayListCurrentWindow => EventProcessResult::RegenerateDisplayList,
             PER::UpdateHitTesterAndProcessAgain => EventProcessResult::RegenerateDisplayList,
+            PER::ShouldIncrementalRelayout => EventProcessResult::RegenerateDisplayList,
             PER::ShouldRegenerateDomCurrentWindow => EventProcessResult::RegenerateDisplayList,
             PER::ShouldRegenerateDomAllWindows => EventProcessResult::RegenerateDisplayList,
         }

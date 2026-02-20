@@ -12,8 +12,10 @@
 //! 5. **Structural Hash Match:** For text nodes, match by structural hash (ignoring content).
 //! 6. **Fallback:** Anything not matched is a `Mount` (new) or `Unmount` (old leftovers).
 
-use alloc::{collections::VecDeque, vec::Vec};
+use alloc::{collections::BTreeMap, collections::VecDeque, string::String, vec::Vec};
 use core::hash::Hash;
+
+use azul_css::props::property::{CssPropertyType, RelayoutScope};
 
 use crate::{
     dom::{DomId, DomNodeHash, DomNodeId, NodeData, NodeType, IdOrClass},
@@ -23,7 +25,7 @@ use crate::{
     },
     geom::LogicalRect,
     id::NodeId,
-    styled_dom::{NodeHierarchyItemId, NodeHierarchyItem, StyledNodeState},
+    styled_dom::{ChangedCssProperty, NodeHierarchyItemId, NodeHierarchyItem, RestyleResult, StyledNodeState},
     task::Instant,
     FastHashMap,
 };
@@ -1007,10 +1009,6 @@ pub fn get_node_text_content(node: &NodeData) -> Option<&str> {
 // ChangeAccumulator — unifies all change input paths
 // ============================================================================
 
-use azul_css::props::property::{RelayoutScope, CssPropertyType};
-use alloc::collections::BTreeMap;
-use alloc::string::String;
-
 /// Text change info for cursor/selection reconciliation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextChange {
@@ -1204,6 +1202,21 @@ impl ChangeAccumulator {
     /// Add an unmounted (removed) node.
     pub fn add_unmount(&mut self, node_id: NodeId) {
         self.unmounted_nodes.push(node_id);
+    }
+
+    /// Merge a `RestyleResult` (from `restyle_on_state_change()`) into this accumulator.
+    ///
+    /// This is the bridge between Path B (restyle) and the unified change pipeline.
+    /// Each `ChangedCssProperty` is classified via `relayout_scope()` to determine
+    /// whether it affects layout or only paint.
+    pub fn merge_restyle_result(&mut self, restyle: &crate::styled_dom::RestyleResult) {
+        for (node_id, changed_props) in &restyle.changed_nodes {
+            for changed in changed_props {
+                let prop_type = changed.current_prop.get_type();
+                let scope = prop_type.relayout_scope(true); // conservative
+                self.add_css_change(*node_id, prop_type, scope);
+            }
+        }
     }
 
     /// Populate this accumulator from an `ExtendedDiffResult` + the old/new DOM data.

@@ -2803,9 +2803,14 @@ impl LayoutWindow {
                 continue;
             }
 
-            // Generate stable scroll ID from node_data_hash
-            // Use node_data_hash to create a stable ID that persists across frames
-            let scroll_id = node.node_data_hash;
+            // Generate stable scroll ID from node_data_fingerprint
+            // Use a combined hash of the fingerprint fields to create a stable ID
+            let scroll_id = {
+                use std::hash::{Hash, Hasher, DefaultHasher};
+                let mut h = DefaultHasher::new();
+                node.node_data_fingerprint.hash(&mut h);
+                h.finish()
+            };
 
             scroll_ids.insert(layout_idx, scroll_id);
             scroll_id_to_node_id.insert(scroll_id, dom_node_id);

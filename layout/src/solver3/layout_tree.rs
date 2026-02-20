@@ -10,6 +10,8 @@ use std::{
     },
 };
 
+use azul_core::diff::NodeDataFingerprint;
+
 use crate::text3::cache::UnifiedConstraints;
 
 /// Global counter for IFC IDs. Resets to 0 when layout() callback is invoked.
@@ -393,9 +395,9 @@ pub struct LayoutNode {
     pub box_props: BoxProps,
     /// Cache for Taffy layout computations for this node.
     pub taffy_cache: TaffyCache, // NEW FIELD
-    /// A hash of this node's data (style, text content, etc.) used for
-    /// fast reconciliation.
-    pub node_data_hash: u64,
+    /// Multi-field fingerprint of this node's data (style, text, etc.)
+    /// for granular change detection during reconciliation.
+    pub node_data_fingerprint: NodeDataFingerprint,
     /// A hash of this node's data and all of its descendants. Used for
     /// fast reconciliation.
     pub subtree_hash: SubtreeHash,
@@ -1173,7 +1175,7 @@ impl LayoutTreeBuilder {
             children: Vec::new(),
             dirty_flag: DirtyFlag::Layout,
             // Anonymous boxes don't have style/data
-            node_data_hash: 0,
+            node_data_fingerprint: NodeDataFingerprint::default(),
             subtree_hash: SubtreeHash(0),
             intrinsic_sizes: None,
             used_size: None,
@@ -1232,7 +1234,7 @@ impl LayoutTreeBuilder {
             children: Vec::new(),
             dirty_flag: DirtyFlag::Layout,
             // Pseudo-elements don't have separate style in current impl
-            node_data_hash: 0,
+            node_data_fingerprint: NodeDataFingerprint::default(),
             subtree_hash: SubtreeHash(0),
             intrinsic_sizes: None,
             used_size: None,
@@ -1284,7 +1286,10 @@ impl LayoutTreeBuilder {
             anonymous_type: None,
             children: Vec::new(),
             dirty_flag: DirtyFlag::Layout,
-            node_data_hash: hash_node_data(styled_dom, dom_id),
+            node_data_fingerprint: NodeDataFingerprint::compute(
+                &styled_dom.node_data.as_container()[dom_id],
+                styled_dom.styled_nodes.as_container().get(dom_id).map(|n| &n.styled_node_state),
+            ),
             subtree_hash: SubtreeHash(0),
             intrinsic_sizes: None,
             used_size: None,
@@ -1492,14 +1497,7 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
     }
 }
 
-fn hash_node_data(dom: &StyledDom, node_id: NodeId) -> u64 {
-    let mut hasher = std::hash::DefaultHasher::new();
-    // Use node_state flags and node_type as a reasonable surrogate for now.
-    if let Some(styled_node) = dom.node_data.as_container().get(node_id) {
-        styled_node.get_hash().hash(&mut hasher);
-    }
-    hasher.finish()
-}
+// hash_node_data() removed — replaced by NodeDataFingerprint::compute()
 
 /// Helper function to get element's computed font-size
 fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
