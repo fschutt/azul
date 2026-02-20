@@ -2402,11 +2402,121 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
 
 // Internal System Event Processing
 
+/// Framework-determined side effects (system changes).
+///
+/// Unlike `CallbackChange` (from user callbacks), these are determined by the
+/// framework's event analysis: hit tests, gesture detection, focus rules,
+/// text selection, keyboard shortcuts, etc.
+///
+/// Both `CallbackChange` (user) and `SystemChange` (framework) are processed
+/// through exhaustive match on `PlatformWindowV2` — adding a new variant
+/// causes a compile error in `apply_system_change()`.
+#[derive(Debug, Clone, PartialEq)]
+#[must_use = "SystemChange must be processed through apply_system_change()"]
+pub enum SystemChange {
+    // === Text Selection ===
+
+    /// Process a mouse click for text selection (single/double/triple click).
+    TextSelectionClick {
+        position: LogicalPosition,
+        timestamp: Instant,
+    },
+    /// Extend text selection via mouse drag.
+    TextSelectionDrag {
+        start_position: LogicalPosition,
+        current_position: LogicalPosition,
+    },
+    /// Delete selected text (Backspace = forward:false, Delete = forward:true).
+    DeleteTextSelection {
+        target: DomNodeId,
+        forward: bool,
+    },
+    /// Arrow key navigation in text.
+    ArrowKeyNavigation {
+        target: DomNodeId,
+        direction: ArrowDirection,
+        extend_selection: bool,
+        word_jump: bool,
+    },
+
+    // === Keyboard Shortcuts ===
+
+    /// Copy selected text to system clipboard (Ctrl+C / Cmd+C).
+    CopyToClipboard,
+    /// Cut selected text to clipboard and delete (Ctrl+X / Cmd+X).
+    CutToClipboard { target: DomNodeId },
+    /// Paste text from system clipboard at cursor (Ctrl+V / Cmd+V).
+    PasteFromClipboard,
+    /// Select all text in focused node (Ctrl+A / Cmd+A).
+    SelectAllText,
+    /// Undo last text edit (Ctrl+Z / Cmd+Z).
+    UndoTextEdit { target: DomNodeId },
+    /// Redo last undone edit (Ctrl+Y / Ctrl+Shift+Z / Cmd+Shift+Z).
+    RedoTextEdit { target: DomNodeId },
+
+    // === Text Input ===
+
+    /// Apply pending text input from platform (keyboard/IME).
+    ApplyPendingTextInput,
+    /// Apply text changeset (incremental relayout).
+    ApplyTextChangeset,
+
+    // === Drag & Drop ===
+
+    /// Activate node drag on a draggable element.
+    ActivateNodeDrag {
+        dom_id: crate::dom::DomId,
+        node_id: crate::id::NodeId,
+    },
+    /// Activate window drag (CSD titlebar).
+    ActivateWindowDrag,
+    /// Set up drag visual state (:dragging pseudo-state, GPU transform key, DragDropManager sync).
+    InitDragVisualState,
+    /// Set :drag-over pseudo-state on a target node.
+    SetDragOverState { target: DomNodeId, active: bool },
+    /// Update current drop target in drag context.
+    UpdateDropTarget { target: DomNodeId },
+    /// Update GPU transform for active node drag.
+    UpdateDragGpuTransform,
+    /// End drag: clear pseudo-states, remove GPU keys, end drag session.
+    DeactivateDrag,
+
+    // === Focus ===
+
+    /// Change focus to a new target (or clear focus if None).
+    /// Handles: set_focused_node, apply_focus_restyle, scroll_node_into_view,
+    /// cursor_blink_timer start/stop.
+    SetFocus {
+        new_focus: Option<DomNodeId>,
+        old_focus: Option<DomNodeId>,
+    },
+    /// Clear all text selections.
+    ClearAllSelections,
+    /// Finalize pending focus changes (cursor initialization after layout).
+    FinalizePendingFocusChanges,
+
+    // === Scroll ===
+
+    /// Scroll cursor/selection into view.
+    ScrollSelectionIntoView,
+    /// Scroll a specific node into view.
+    ScrollNodeIntoView { target: DomNodeId },
+    /// Scroll cursor into view after text input (needs relayout first).
+    ScrollCursorIntoViewAfterTextInput,
+
+    // === Auto-Scroll Timer ===
+
+    /// Start auto-scroll timer for drag-to-scroll (60Hz).
+    StartAutoScrollTimer,
+    /// Cancel auto-scroll timer.
+    StopAutoScrollTimer,
+}
+
 /// Result of pre-callback internal event filtering
 #[derive(Debug, Clone, PartialEq)]
 pub struct PreCallbackFilterResult {
-    /// Internal system events to process BEFORE user callbacks
-    pub internal_events: Vec<PreCallbackSystemEvent>,
+    /// System changes to process BEFORE user callbacks
+    pub system_changes: Vec<SystemChange>,
     /// Regular events that will be passed to user callbacks
     pub user_events: Vec<SyntheticEvent>,
 }
@@ -2417,59 +2527,6 @@ pub struct MouseButtonState {
     pub left_down: bool,
     pub right_down: bool,
     pub middle_down: bool,
-}
-
-/// System event to process AFTER user callbacks
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PostCallbackSystemEvent {
-    /// Apply text input to focused contenteditable element
-    ApplyTextInput,
-    /// Focus changed during callbacks
-    FocusChanged,
-    /// Apply text changeset (separate creation from application)
-    ApplyTextChangeset,
-    /// Scroll cursor/selection into view
-    ScrollIntoView,
-    /// Start auto-scroll timer for drag-to-scroll
-    StartAutoScrollTimer,
-    /// Cancel auto-scroll timer
-    CancelAutoScrollTimer,
-}
-
-/// Internal system event for pre-callback processing
-#[derive(Debug, Clone, PartialEq)]
-pub enum PreCallbackSystemEvent {
-    /// Single/double/triple click for text selection
-    TextClick {
-        target: DomNodeId,
-        position: LogicalPosition,
-        click_count: u8,
-        timestamp: Instant,
-    },
-    /// Mouse drag for selection extension
-    TextDragSelection {
-        target: DomNodeId,
-        start_position: LogicalPosition,
-        current_position: LogicalPosition,
-        is_dragging: bool,
-    },
-    /// Arrow key navigation with optional selection extension
-    ArrowKeyNavigation {
-        target: DomNodeId,
-        direction: ArrowDirection,
-        extend_selection: bool, // Shift key held
-        word_jump: bool,        // Ctrl key held
-    },
-    /// Keyboard shortcut (Ctrl+C/X/A)
-    KeyboardShortcut {
-        target: DomNodeId,
-        shortcut: KeyboardShortcut,
-    },
-    /// Delete currently selected text (Backspace/Delete key)
-    DeleteSelection {
-        target: DomNodeId,
-        forward: bool, // true = Delete key (forward), false = Backspace (backward)
-    },
 }
 
 /// Arrow key directions
@@ -2492,16 +2549,9 @@ pub enum KeyboardShortcut {
     Redo,      // Ctrl+Y or Ctrl+Shift+Z
 }
 
-/// Result of post-callback internal event filtering  
-#[derive(Debug, Clone, PartialEq)]
-pub struct PostCallbackFilterResult {
-    /// System events to process AFTER user callbacks
-    pub system_events: Vec<PostCallbackSystemEvent>,
-}
-
-/// Pre-callback filter: Extract internal system events from synthetic events.
+/// Pre-callback filter: Extract system changes from synthetic events.
 ///
-/// Separates internal system events (text selection, shortcuts) from user-facing events.
+/// Separates framework system changes (text selection, shortcuts) from user-facing events.
 pub fn pre_callback_filter_internal_events<SM, FM>(
     events: &[SyntheticEvent],
     hit_test: Option<&FullHitTest>,
@@ -2524,7 +2574,7 @@ where
         selection_manager,
     };
 
-    let (internal_events, user_events) = events.iter().fold(
+    let (system_changes, user_events) = events.iter().fold(
         (Vec::new(), Vec::new()),
         |(mut internal, mut user), event| {
             match process_event_for_internal(&ctx, event) {
@@ -2544,7 +2594,7 @@ where
     );
 
     PreCallbackFilterResult {
-        internal_events,
+        system_changes,
         user_events,
     }
 }
@@ -2585,10 +2635,10 @@ fn process_event_for_internal<SM: SelectionManagerQuery>(
 
 /// Action to take after processing an event for internal system events
 enum InternalEventAction {
-    /// Add internal event and skip passing to user callbacks
-    AddAndSkip(PreCallbackSystemEvent),
-    /// Add internal event but also pass to user callbacks
-    AddAndPass(PreCallbackSystemEvent),
+    /// Add system change and skip passing to user callbacks
+    AddAndSkip(SystemChange),
+    /// Add system change but also pass to user callbacks
+    AddAndPass(SystemChange),
 }
 
 /// Extract first hovered node from hit test
@@ -2625,23 +2675,18 @@ fn handle_mouse_down(
     click_count: u8,
     mouse_state: &crate::window::MouseState,
 ) -> Option<InternalEventAction> {
-    // Note: click_count == 0 means this is a new click sequence (first click)
-    // The actual click count will be determined in process_mouse_click_for_selection
-    // We use 1 here as a placeholder for new clicks
     let effective_click_count = if click_count == 0 { 1 } else { click_count };
-    
+
     if effective_click_count > 3 {
         return None;
     }
 
-    let target = get_first_hovered_node(hit_test)?;
+    let _target = get_first_hovered_node(hit_test)?;
     let position = get_mouse_position_with_fallback(event, mouse_state);
 
     Some(InternalEventAction::AddAndPass(
-        PreCallbackSystemEvent::TextClick {
-            target,
+        SystemChange::TextSelectionClick {
             position,
-            click_count: effective_click_count,
             timestamp: event.timestamp.clone(),
         },
     ))
@@ -2660,15 +2705,13 @@ fn handle_mouse_over(
 
     let start_position = drag_start_position?;
 
-    let target = get_first_hovered_node(hit_test)?;
+    let _target = get_first_hovered_node(hit_test)?;
     let current_position = get_mouse_position_with_fallback(event, mouse_state);
 
     Some(InternalEventAction::AddAndPass(
-        PreCallbackSystemEvent::TextDragSelection {
-            target,
+        SystemChange::TextSelectionDrag {
             start_position,
             current_position,
-            is_dragging: true,
         },
     ))
 }
@@ -2691,22 +2734,20 @@ fn handle_key_down<SM: SelectionManagerQuery>(
     let shift = keyboard_state.shift_down();
     let vk = keyboard_state.current_virtual_keycode.as_ref()?;
 
-    // Check keyboard shortcuts (Ctrl+key)
+    // Check keyboard shortcuts (Ctrl+key) → emit specific SystemChange variants
     if ctrl {
-        let shortcut = match vk {
-            VirtualKeyCode::C => Some(KeyboardShortcut::Copy),
-            VirtualKeyCode::X => Some(KeyboardShortcut::Cut),
-            VirtualKeyCode::V => Some(KeyboardShortcut::Paste),
-            VirtualKeyCode::A => Some(KeyboardShortcut::SelectAll),
-            VirtualKeyCode::Z if !shift => Some(KeyboardShortcut::Undo),
-            VirtualKeyCode::Z if shift => Some(KeyboardShortcut::Redo),
-            VirtualKeyCode::Y => Some(KeyboardShortcut::Redo),
+        let system_change = match vk {
+            VirtualKeyCode::C => Some(SystemChange::CopyToClipboard),
+            VirtualKeyCode::X => Some(SystemChange::CutToClipboard { target }),
+            VirtualKeyCode::V => Some(SystemChange::PasteFromClipboard),
+            VirtualKeyCode::A => Some(SystemChange::SelectAllText),
+            VirtualKeyCode::Z if !shift => Some(SystemChange::UndoTextEdit { target }),
+            VirtualKeyCode::Z if shift => Some(SystemChange::RedoTextEdit { target }),
+            VirtualKeyCode::Y => Some(SystemChange::RedoTextEdit { target }),
             _ => None,
         };
-        if let Some(shortcut) = shortcut {
-            return Some(InternalEventAction::AddAndSkip(
-                PreCallbackSystemEvent::KeyboardShortcut { target, shortcut },
-            ));
+        if let Some(change) = system_change {
+            return Some(InternalEventAction::AddAndSkip(change));
         }
     }
 
@@ -2720,7 +2761,7 @@ fn handle_key_down<SM: SelectionManagerQuery>(
     };
     if let Some(direction) = direction {
         return Some(InternalEventAction::AddAndSkip(
-            PreCallbackSystemEvent::ArrowKeyNavigation {
+            SystemChange::ArrowKeyNavigation {
                 target,
                 direction,
                 extend_selection: shift,
@@ -2741,7 +2782,7 @@ fn handle_key_down<SM: SelectionManagerQuery>(
     }?;
 
     Some(InternalEventAction::AddAndSkip(
-        PreCallbackSystemEvent::DeleteSelection { target, forward },
+        SystemChange::DeleteTextSelection { target, forward },
     ))
 }
 
@@ -2769,61 +2810,57 @@ pub trait FocusManagerQuery {
     fn get_focused_node_id(&self) -> Option<DomNodeId>;
 }
 
-/// Post-callback filter: Analyze applied changes and generate system events
-pub fn post_callback_filter_internal_events(
+/// Post-callback filter: Determine additional system changes needed after user callbacks.
+///
+/// Takes the pre-callback system changes and focus state to determine what
+/// post-callback system changes are needed (text input, scrolling, timers).
+pub fn post_callback_filter_system_changes(
     prevent_default: bool,
-    internal_events: &[PreCallbackSystemEvent],
+    pre_changes: &[SystemChange],
     old_focus: Option<DomNodeId>,
     new_focus: Option<DomNodeId>,
-) -> PostCallbackFilterResult {
+) -> Vec<SystemChange> {
+    let mut changes = Vec::new();
+
     if prevent_default {
-        let focus_event = (old_focus != new_focus).then_some(PostCallbackSystemEvent::FocusChanged);
-        return PostCallbackFilterResult {
-            system_events: focus_event.into_iter().collect(),
-        };
-    }
-
-    let event_actions = internal_events
-        .iter()
-        .filter_map(internal_event_to_system_event);
-
-    let focus_event = (old_focus != new_focus).then_some(PostCallbackSystemEvent::FocusChanged);
-
-    let system_events = core::iter::once(PostCallbackSystemEvent::ApplyTextInput)
-        .chain(event_actions)
-        .chain(focus_event)
-        .collect();
-
-    PostCallbackFilterResult { system_events }
-}
-
-/// Convert internal event to post-callback system event
-fn internal_event_to_system_event(
-    event: &PreCallbackSystemEvent,
-) -> Option<PostCallbackSystemEvent> {
-    use PostCallbackSystemEvent::*;
-    use PreCallbackSystemEvent::*;
-
-    match event {
-        TextClick { .. } | ArrowKeyNavigation { .. } | DeleteSelection { .. } => {
-            Some(ScrollIntoView)
+        // Only focus change passes through preventDefault
+        if old_focus != new_focus {
+            changes.push(SystemChange::SetFocus { new_focus, old_focus });
         }
-        TextDragSelection { is_dragging, .. } => Some(if *is_dragging {
-            StartAutoScrollTimer
-        } else {
-            CancelAutoScrollTimer
-        }),
-        KeyboardShortcut { shortcut, .. } => shortcut_to_system_event(*shortcut),
+        return changes;
     }
-}
 
-/// Convert keyboard shortcut to system event (if any)
-fn shortcut_to_system_event(shortcut: KeyboardShortcut) -> Option<PostCallbackSystemEvent> {
-    use KeyboardShortcut::*;
-    match shortcut {
-        Cut | Paste | Undo | Redo => Some(PostCallbackSystemEvent::ScrollIntoView),
-        Copy | SelectAll => None,
+    // Always apply pending text input
+    changes.push(SystemChange::ApplyPendingTextInput);
+
+    // Determine post-callback actions based on pre-callback system changes
+    for change in pre_changes {
+        match change {
+            SystemChange::TextSelectionClick { .. }
+            | SystemChange::ArrowKeyNavigation { .. }
+            | SystemChange::DeleteTextSelection { .. } => {
+                changes.push(SystemChange::ScrollSelectionIntoView);
+            }
+            SystemChange::TextSelectionDrag { .. } => {
+                changes.push(SystemChange::StartAutoScrollTimer);
+            }
+            SystemChange::CutToClipboard { .. }
+            | SystemChange::PasteFromClipboard
+            | SystemChange::UndoTextEdit { .. }
+            | SystemChange::RedoTextEdit { .. } => {
+                changes.push(SystemChange::ScrollSelectionIntoView);
+            }
+            // Other system changes don't generate post-callback actions
+            _ => {}
+        }
     }
+
+    // Focus changed during callbacks
+    if old_focus != new_focus {
+        changes.push(SystemChange::SetFocus { new_focus, old_focus });
+    }
+
+    changes
 }
 
 #[cfg(test)]

@@ -144,7 +144,7 @@ use azul_core::{
     dom::{DomId, NodeId},
     events::{
         EventFilter, FocusEventFilter, PreCallbackFilterResult,
-        ProcessEventResult, SyntheticEvent,
+        ProcessEventResult, SyntheticEvent, SystemChange,
     },
     geom::LogicalPosition,
     gl::*,
@@ -1538,6 +1538,588 @@ pub trait PlatformWindowV2 {
         }
     }
 
+    // PROVIDED: Exhaustive System Change Processing (Cross-Platform)
+
+    /// Process a single framework-determined system change.
+    ///
+    /// This is the SINGLE place where all `SystemChange` variants are handled.
+    /// Adding a new variant causes a compile error here — no silent bugs.
+    ///
+    /// Returns the `ProcessEventResult` indicating what level of re-render is needed.
+    fn apply_system_change(
+        &mut self,
+        change: &SystemChange,
+    ) -> ProcessEventResult {
+
+        match change {
+            // === Text Selection ===
+
+            SystemChange::TextSelectionClick { position, timestamp } => {
+                let external = ExternalSystemCallbacks::rust_internal();
+                let current_instant = (external.get_system_time_fn.cb)();
+                let duration_since_event = current_instant.duration_since(timestamp);
+                let current_time_ms = match duration_since_event {
+                    azul_core::task::Duration::System(d) => {
+                        #[cfg(feature = "std")]
+                        { let std_duration: std::time::Duration = d.into(); std_duration.as_millis() as u64 }
+                        #[cfg(not(feature = "std"))]
+                        { 0u64 }
+                    }
+                    azul_core::task::Duration::Tick(t) => t.tick_diff as u64,
+                };
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    if layout_window.process_mouse_click_for_selection(*position, current_time_ms).is_some() {
+                        return ProcessEventResult::ShouldReRenderCurrentWindow;
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::TextSelectionDrag { start_position, current_position } => {
+                // Suppress text selection if a node drag is active
+                let node_dragging = self.get_layout_window()
+                    .map(|lw| lw.gesture_drag_manager.is_node_dragging_any())
+                    .unwrap_or(false);
+                if node_dragging {
+                    return ProcessEventResult::DoNothing;
+                }
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    if layout_window.process_mouse_drag_for_selection(*start_position, *current_position).is_some() {
+                        return ProcessEventResult::ShouldReRenderCurrentWindow;
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::DeleteTextSelection { target, forward } => {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    if layout_window.delete_selection(*target, *forward).is_some() {
+                        return ProcessEventResult::ShouldReRenderCurrentWindow;
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::ArrowKeyNavigation { .. } => {
+                // TODO: Implement arrow key navigation
+                ProcessEventResult::DoNothing
+            }
+
+            // === Keyboard Shortcuts ===
+
+            SystemChange::CopyToClipboard => {
+                if let Some(layout_window) = self.get_layout_window() {
+                    let dom_id = azul_core::dom::DomId { inner: 0 };
+                    if let Some(clipboard_content) = layout_window.get_selected_content_for_clipboard(&dom_id) {
+                        set_system_clipboard(clipboard_content.plain_text.as_str().to_string());
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::CutToClipboard { target } => {
+                let mut affected = false;
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    let dom_id = azul_core::dom::DomId { inner: 0 };
+                    if let Some(clipboard_content) = layout_window.get_selected_content_for_clipboard(&dom_id) {
+                        if set_system_clipboard(clipboard_content.plain_text.as_str().to_string()) {
+                            if layout_window.delete_selection(*target, false).is_some() {
+                                affected = true;
+                            }
+                        }
+                    }
+                }
+                if affected { ProcessEventResult::ShouldReRenderCurrentWindow } else { ProcessEventResult::DoNothing }
+            }
+
+            SystemChange::PasteFromClipboard => {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    if let Some(clipboard_text) = get_system_clipboard() {
+                        let affected = layout_window.process_text_input(&clipboard_text);
+                        if !affected.is_empty() {
+                            return ProcessEventResult::ShouldReRenderCurrentWindow;
+                        }
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::SelectAllText => {
+                // TODO: Implement select_all operation
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::UndoTextEdit { target } => {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    let node_id = match target.node.into_crate_internal() {
+                        Some(id) => id,
+                        None => return ProcessEventResult::DoNothing,
+                    };
+                    let external = ExternalSystemCallbacks::rust_internal();
+                    let timestamp = (external.get_system_time_fn.cb)().into();
+
+                    if let Some(operation) = layout_window.undo_redo_manager.pop_undo(node_id) {
+                        use azul_layout::managers::undo_redo::create_revert_changeset;
+                        let _revert_changeset = create_revert_changeset(&operation, timestamp);
+
+                        let node_id_internal = target.node.into_crate_internal();
+                        if let Some(node_id_internal) = node_id_internal {
+                            use std::sync::Arc;
+                            use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
+
+                            let new_content = vec![InlineContent::Text(StyledRun {
+                                text: operation.pre_state.text_content.as_str().to_string(),
+                                style: Arc::new(StyleProperties::default()),
+                                logical_start_byte: 0,
+                                source_node_id: None,
+                            })];
+
+                            layout_window.update_text_cache_after_edit(
+                                target.dom, node_id_internal, new_content,
+                            );
+
+                            if let Some(cursor) = operation.pre_state.cursor_position.into_option() {
+                                layout_window.cursor_manager.move_cursor_to(
+                                    cursor, target.dom, node_id_internal,
+                                );
+                            }
+                        }
+
+                        layout_window.undo_redo_manager.push_redo(operation);
+                        return ProcessEventResult::ShouldReRenderCurrentWindow;
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::RedoTextEdit { target } => {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    let node_id = match target.node.into_crate_internal() {
+                        Some(id) => id,
+                        None => return ProcessEventResult::DoNothing,
+                    };
+
+                    if let Some(operation) = layout_window.undo_redo_manager.pop_redo(node_id) {
+                        let node_id_internal = target.node.into_crate_internal();
+                        if let Some(_node_id_internal) = node_id_internal {
+                            use azul_layout::managers::changeset::TextOperation;
+                            match &operation.changeset.operation {
+                                TextOperation::InsertText(op) => {
+                                    let _affected = layout_window.process_text_input(&op.text);
+                                }
+                                _ => {}
+                            }
+                        }
+                        layout_window.undo_redo_manager.push_undo(operation);
+                        return ProcessEventResult::ShouldReRenderCurrentWindow;
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            // === Text Input ===
+
+            SystemChange::ApplyPendingTextInput => {
+                // Text input was already applied during pre-callback processing.
+                // This variant exists for the post-callback filter to signal
+                // that text changeset should be applied if not prevented.
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::ApplyTextChangeset => {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    let dirty_nodes = layout_window.apply_text_changeset();
+                    if !dirty_nodes.is_empty() {
+                        return ProcessEventResult::ShouldReRenderCurrentWindow;
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            // === Drag & Drop ===
+
+            SystemChange::ActivateNodeDrag { dom_id, node_id } => {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    let drag_data = azul_core::drag::DragData::new();
+                    layout_window.gesture_drag_manager.activate_node_drag(
+                        *dom_id, *node_id, drag_data, None,
+                    );
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            SystemChange::ActivateWindowDrag => {
+                let win_pos = self.get_current_window_state().position.clone();
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    layout_window.gesture_drag_manager.activate_window_drag(win_pos, None);
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::InitDragVisualState => {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    // Sync DragDropManager from GestureAndDragManager
+                    if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
+                        layout_window.drag_drop_manager.active_drag = Some(ctx.clone());
+                    }
+
+                    // Set :dragging pseudo-state and add GPU transform key
+                    if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
+                        if let Some(node_drag) = ctx.as_node_drag() {
+                            let dom_id = node_drag.dom_id;
+                            let node_id = node_drag.node_id;
+
+                            if let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) {
+                                let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
+                                if let Some(styled_node) = styled_nodes.get_mut(node_id) {
+                                    styled_node.styled_node_state.dragging = true;
+                                }
+                            }
+
+                            let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(dom_id);
+                            if !gpu_cache.transform_keys.contains_key(&node_id) {
+                                let transform_key = azul_core::resources::TransformKey::unique();
+                                let identity = azul_core::transform::ComputedTransform3D::IDENTITY;
+                                gpu_cache.transform_keys.insert(node_id, transform_key);
+                                gpu_cache.current_transform_values.insert(node_id, identity);
+                            }
+                        }
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            SystemChange::SetDragOverState { target, active } => {
+                if let Some(target_node_id) = target.node.into_crate_internal() {
+                    if let Some(layout_window) = self.get_layout_window_mut() {
+                        if let Some(layout_result) = layout_window.layout_results.get_mut(&target.dom) {
+                            let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
+                            if let Some(styled_node) = styled_nodes.get_mut(target_node_id) {
+                                styled_node.styled_node_state.drag_over = *active;
+                                return ProcessEventResult::ShouldReRenderCurrentWindow;
+                            }
+                        }
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::UpdateDropTarget { target } => {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context_mut() {
+                        if let Some(node_drag) = ctx.as_node_drag_mut() {
+                            node_drag.previous_drop_target = node_drag.current_drop_target.clone();
+                            node_drag.current_drop_target = azul_core::dom::OptionDomNodeId::Some(target.clone());
+                        }
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::UpdateDragGpuTransform => {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
+                        if let Some(node_drag) = ctx.as_node_drag() {
+                            let dom_id = node_drag.dom_id;
+                            let node_id = node_drag.node_id;
+                            let delta_x = ctx.current_position().x - ctx.start_position().x;
+                            let delta_y = ctx.current_position().y - ctx.start_position().y;
+                            let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(dom_id);
+                            let new_transform = azul_core::transform::ComputedTransform3D::new_translation(
+                                delta_x, delta_y, 0.0,
+                            );
+                            gpu_cache.current_transform_values.insert(node_id, new_transform);
+                        }
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            SystemChange::DeactivateDrag => {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    // Clear :dragging pseudo-state
+                    if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
+                        if let Some(node_drag) = ctx.as_node_drag() {
+                            let dom_id = node_drag.dom_id;
+                            let node_id = node_drag.node_id;
+                            if let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) {
+                                let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
+                                if let Some(styled_node) = styled_nodes.get_mut(node_id) {
+                                    styled_node.styled_node_state.dragging = false;
+                                }
+                            }
+                        }
+                    }
+
+                    // Clear :drag-over on current drop target
+                    if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
+                        if let Some(node_drag) = ctx.as_node_drag() {
+                            if let azul_core::dom::OptionDomNodeId::Some(drop_target) = &node_drag.current_drop_target {
+                                let dom_id = drop_target.dom;
+                                if let Some(target_node_id) = drop_target.node.into_crate_internal() {
+                                    if let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) {
+                                        let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
+                                        if let Some(styled_node) = styled_nodes.get_mut(target_node_id) {
+                                            styled_node.styled_node_state.drag_over = false;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Remove GPU transform key
+                    if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
+                        if let Some(node_drag) = ctx.as_node_drag() {
+                            let dom_id = node_drag.dom_id;
+                            let node_id = node_drag.node_id;
+                            let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(dom_id);
+                            gpu_cache.transform_keys.remove(&node_id);
+                            gpu_cache.current_transform_values.remove(&node_id);
+                        }
+                    }
+
+                    // End drag session
+                    if layout_window.gesture_drag_manager.is_dragging() {
+                        layout_window.gesture_drag_manager.end_drag();
+                    }
+                    layout_window.drag_drop_manager.active_drag = None;
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            // === Focus ===
+
+            SystemChange::SetFocus { new_focus, old_focus } => {
+                let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
+                let new_focus_node_id = new_focus.and_then(|f| f.node.into_crate_internal());
+
+                let timer_action = if let Some(layout_window) = self.get_layout_window_mut() {
+                    layout_window.focus_manager.set_focused_node(*new_focus);
+
+                    // Scroll newly focused node into view
+                    if let Some(focus_node) = new_focus {
+                        use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
+                        let now = azul_core::task::Instant::now();
+                        layout_window.scroll_node_into_view(
+                            *focus_node, ScrollIntoViewOptions::nearest(), now,
+                        );
+                    }
+
+                    // Handle cursor blink timer
+                    let window_state = layout_window.current_window_state.clone();
+                    let timer_action = layout_window.handle_focus_change_for_cursor_blink(
+                        *new_focus, &window_state,
+                    );
+
+                    // Apply CSS restyle (:focus pseudo-class)
+                    if old_focus_node_id != new_focus_node_id {
+                        let _restyle_result = apply_focus_restyle(
+                            layout_window, old_focus_node_id, new_focus_node_id,
+                        );
+                    }
+
+                    Some(timer_action)
+                } else {
+                    None
+                };
+
+                // Apply timer action outside layout_window borrow
+                if let Some(timer_action) = timer_action {
+                    match timer_action {
+                        azul_layout::CursorBlinkTimerAction::Start(timer) => {
+                            self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
+                        }
+                        azul_layout::CursorBlinkTimerAction::Stop => {
+                            self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
+                        }
+                        azul_layout::CursorBlinkTimerAction::NoChange => {}
+                    }
+                }
+
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            SystemChange::ClearAllSelections => {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    layout_window.selection_manager.clear_all();
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::FinalizePendingFocusChanges => {
+                let timer_creation_needed = if let Some(layout_window) = self.get_layout_window_mut() {
+                    let needs_init = layout_window.focus_manager.needs_cursor_initialization();
+                    if needs_init {
+                        let cursor_initialized = layout_window.finalize_pending_focus_changes();
+                        if cursor_initialized {
+                            if !layout_window.cursor_manager.is_blink_timer_active() {
+                                layout_window.cursor_manager.set_blink_timer_active(true);
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                if timer_creation_needed {
+                    let timer = if let Some(layout_window) = self.get_layout_window() {
+                        let current_window_state = self.get_current_window_state();
+                        Some(layout_window.create_cursor_blink_timer(current_window_state))
+                    } else {
+                        None
+                    };
+                    if let Some(timer) = timer {
+                        self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
+                    }
+                    return ProcessEventResult::ShouldReRenderCurrentWindow;
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            // === Scroll ===
+
+            SystemChange::ScrollSelectionIntoView => {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    use azul_layout::window::{ScrollMode, SelectionScrollType};
+
+                    let scroll_type = if let Some(focused_node) = layout_window.focus_manager.focused_node {
+                        if layout_window.selection_manager.get_selection(&focused_node.dom).is_some() {
+                            SelectionScrollType::Selection
+                        } else {
+                            SelectionScrollType::Cursor
+                        }
+                    } else {
+                        return ProcessEventResult::DoNothing;
+                    };
+
+                    layout_window.scroll_selection_into_view(scroll_type, ScrollMode::Instant);
+                    return ProcessEventResult::ShouldReRenderCurrentWindow;
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::ScrollNodeIntoView { target } => {
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
+                    let now = azul_core::task::Instant::now();
+                    layout_window.scroll_node_into_view(*target, ScrollIntoViewOptions::nearest(), now);
+                    return ProcessEventResult::ShouldReRenderCurrentWindow;
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::ScrollCursorIntoViewAfterTextInput => {
+                if let Some(layout_window) = self.get_layout_window() {
+                    if let Some(cursor_rect) = layout_window.get_focused_cursor_rect() {
+                        if let Some(focused_node_id) = layout_window.focus_manager.focused_node {
+                            if let Some(scroll_container) = layout_window.find_scrollable_ancestor(focused_node_id) {
+                                let scroll_node_id = scroll_container.node.into_crate_internal();
+                                if let Some(scroll_node_id) = scroll_node_id {
+                                    if let Some(scroll_state) = layout_window.scroll_manager
+                                        .get_scroll_state(scroll_container.dom, scroll_node_id) {
+                                        if let Some(container_rect) = layout_window.get_node_layout_rect(scroll_container) {
+                                            let visible_area = azul_core::geom::LogicalRect::new(
+                                                azul_core::geom::LogicalPosition::new(
+                                                    container_rect.origin.x + scroll_state.current_offset.x,
+                                                    container_rect.origin.y + scroll_state.current_offset.y,
+                                                ),
+                                                container_rect.size,
+                                            );
+
+                                            const SCROLL_PADDING: f32 = 5.0;
+                                            let mut scroll_delta = azul_core::geom::LogicalPosition::zero();
+
+                                            if cursor_rect.origin.x < visible_area.origin.x + SCROLL_PADDING {
+                                                scroll_delta.x = cursor_rect.origin.x - (visible_area.origin.x + SCROLL_PADDING);
+                                            } else if cursor_rect.origin.x + cursor_rect.size.width > visible_area.origin.x + visible_area.size.width - SCROLL_PADDING {
+                                                scroll_delta.x = (cursor_rect.origin.x + cursor_rect.size.width) - (visible_area.origin.x + visible_area.size.width - SCROLL_PADDING);
+                                            }
+
+                                            if cursor_rect.origin.y < visible_area.origin.y + SCROLL_PADDING {
+                                                scroll_delta.y = cursor_rect.origin.y - (visible_area.origin.y + SCROLL_PADDING);
+                                            } else if cursor_rect.origin.y + cursor_rect.size.height > visible_area.origin.y + visible_area.size.height - SCROLL_PADDING {
+                                                scroll_delta.y = (cursor_rect.origin.y + cursor_rect.size.height) - (visible_area.origin.y + visible_area.size.height - SCROLL_PADDING);
+                                            }
+
+                                            if scroll_delta.x != 0.0 || scroll_delta.y != 0.0 {
+                                                let external = ExternalSystemCallbacks::rust_internal();
+                                                let now = (external.get_system_time_fn.cb)();
+
+                                                if let Some(layout_window_mut) = self.get_layout_window_mut() {
+                                                    layout_window_mut.scroll_manager.scroll_by(
+                                                        scroll_container.dom, scroll_node_id, scroll_delta,
+                                                        std::time::Duration::from_millis(0).into(),
+                                                        azul_core::events::EasingFunction::Linear,
+                                                        now.into(),
+                                                    );
+                                                    return ProcessEventResult::ShouldReRenderCurrentWindow;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            // === Auto-Scroll Timer ===
+
+            SystemChange::StartAutoScrollTimer => {
+                if let Some(layout_window) = self.get_layout_window() {
+                    let timer_id = azul_core::task::DRAG_AUTOSCROLL_TIMER_ID;
+                    if !layout_window.timers.contains_key(&timer_id) {
+                        use azul_core::{
+                            refany::RefAny,
+                            task::{Duration as AzulDuration, SystemTimeDiff},
+                        };
+                        use azul_layout::timer::{Timer, TimerCallbackType};
+
+                        const DEFAULT_REFRESH_RATE_HZ: u32 = 60;
+                        let frame_time_nanos = 1_000_000_000 / DEFAULT_REFRESH_RATE_HZ;
+                        let external = ExternalSystemCallbacks::rust_internal();
+
+                        let timer = Timer::create(
+                            RefAny::new(()),
+                            auto_scroll_timer_callback as TimerCallbackType,
+                            external.get_system_time_fn,
+                        ).with_interval(AzulDuration::System(SystemTimeDiff {
+                            secs: 0, nanos: frame_time_nanos,
+                        }));
+
+                        if let Some(layout_window) = self.get_layout_window_mut() {
+                            layout_window.add_timer(timer_id, timer.clone());
+                            self.start_timer(azul_core::task::DRAG_AUTOSCROLL_TIMER_ID.id, timer);
+                            return ProcessEventResult::ShouldReRenderCurrentWindow;
+                        }
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            SystemChange::StopAutoScrollTimer => {
+                let timer_id = azul_core::task::DRAG_AUTOSCROLL_TIMER_ID;
+                if let Some(layout_window) = self.get_layout_window_mut() {
+                    if layout_window.timers.contains_key(&timer_id) {
+                        layout_window.remove_timer(&timer_id);
+                        self.stop_timer(azul_core::task::DRAG_AUTOSCROLL_TIMER_ID.id);
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+        }
+    }
+
     // PROVIDED: Hit Testing (Cross-Platform Implementation)
 
     /// Update hit test at given position and store in hover manager.
@@ -2294,7 +2876,7 @@ pub trait PlatformWindowV2 {
         } else {
             // No layout window - no internal events possible
             PreCallbackFilterResult {
-                internal_events: Vec::new(),
+                system_changes: Vec::new(),
                 user_events: synthetic_events.clone(),
             }
         };
@@ -2308,276 +2890,10 @@ pub trait PlatformWindowV2 {
         // Get external callbacks for system time
         let external = ExternalSystemCallbacks::rust_internal();
 
-        // Process internal system events (text selection) BEFORE user callbacks
-        let mut text_selection_affected_nodes = Vec::new();
-        for internal_event in &pre_filter.internal_events {
-            use azul_core::events::PreCallbackSystemEvent;
-
-            match internal_event {
-                PreCallbackSystemEvent::TextClick {
-                    target,
-                    position,
-                    click_count,
-                    timestamp,
-                } => {
-                    // Get current time using system callbacks
-                    let current_instant = (external.get_system_time_fn.cb)();
-
-                    // Calculate milliseconds since event timestamp
-                    let duration_since_event = current_instant.duration_since(timestamp);
-                    let current_time_ms = match duration_since_event {
-                        azul_core::task::Duration::System(d) => {
-                            #[cfg(feature = "std")]
-                            {
-                                let std_duration: std::time::Duration = d.into();
-                                std_duration.as_millis() as u64
-                            }
-                            #[cfg(not(feature = "std"))]
-                            {
-                                0u64
-                            }
-                        }
-                        azul_core::task::Duration::Tick(t) => t.tick_diff as u64,
-                    };
-
-                    // Process text selection click
-                    if let Some(layout_window) = self.get_layout_window_mut() {
-                        if let Some(affected_nodes) = layout_window
-                            .process_mouse_click_for_selection(*position, current_time_ms)
-                        {
-                            text_selection_affected_nodes.extend(affected_nodes);
-                        }
-                    }
-                }
-                PreCallbackSystemEvent::TextDragSelection {
-                    start_position,
-                    current_position,
-                    is_dragging,
-                    ..
-                } => {
-                    // Suppress text selection if a node drag is active
-                    let node_dragging = self.get_layout_window()
-                        .map(|lw| lw.gesture_drag_manager.is_node_dragging_any())
-                        .unwrap_or(false);
-
-                    if *is_dragging && !node_dragging {
-                        // Extend selection from start to current position
-                        if let Some(layout_window) = self.get_layout_window_mut() {
-                            if let Some(affected_nodes) = layout_window
-                                .process_mouse_drag_for_selection(*start_position, *current_position)
-                            {
-                                text_selection_affected_nodes.extend(affected_nodes);
-                            }
-                        }
-                    }
-                }
-                PreCallbackSystemEvent::ArrowKeyNavigation { .. } => {
-                    // TODO: Implement arrow key navigation
-                }
-                PreCallbackSystemEvent::KeyboardShortcut { target, shortcut } => {
-                    use azul_core::events::KeyboardShortcut;
-
-                    match shortcut {
-                        KeyboardShortcut::Copy => {
-                            // Handle Ctrl+C: Copy selected text to clipboard
-                            if let Some(layout_window) = self.get_layout_window() {
-                                // TODO: Map target to correct DOM
-                                let dom_id = azul_core::dom::DomId { inner: 0 };
-                                if let Some(clipboard_content) =
-                                    layout_window.get_selected_content_for_clipboard(&dom_id)
-                                {
-                                    // Copy text to system clipboard
-                                    set_system_clipboard(
-                                        clipboard_content.plain_text.as_str().to_string(),
-                                    );
-                                }
-                            }
-                        }
-                        KeyboardShortcut::Cut => {
-                            // Handle Ctrl+X: Copy to clipboard and delete selection
-                            if let Some(layout_window) = self.get_layout_window_mut() {
-                                // TODO: Map target to correct DOM
-                                let dom_id = azul_core::dom::DomId { inner: 0 };
-
-                                // First, copy to clipboard
-                                if let Some(clipboard_content) =
-                                    layout_window.get_selected_content_for_clipboard(&dom_id)
-                                {
-                                    if set_system_clipboard(
-                                        clipboard_content.plain_text.as_str().to_string(),
-                                    ) {
-                                        // Then delete the selection
-                                        if let Some(affected_nodes) =
-                                            layout_window.delete_selection(*target, false)
-                                        {
-                                            text_selection_affected_nodes.extend(affected_nodes);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        KeyboardShortcut::Paste => {
-                            // Handle Ctrl+V: Insert clipboard text at cursor
-                            if let Some(layout_window) = self.get_layout_window_mut() {
-                                if let Some(clipboard_text) = get_system_clipboard() {
-                                    // Insert text at current cursor position
-                                    // TODO: Implement paste operation through TextInputManager
-                                    // For now, treat it like text input
-                                    let affected_nodes =
-                                        layout_window.process_text_input(&clipboard_text);
-                                    for (node_id, _) in affected_nodes {
-                                        text_selection_affected_nodes.push(node_id);
-                                    }
-                                }
-                            }
-                        }
-                        KeyboardShortcut::SelectAll => {
-                            // Handle Ctrl+A: Select all text in focused node
-                            if let Some(layout_window) = self.get_layout_window_mut() {
-                                // TODO: Implement select_all operation
-                                // This should select all text in the focused contenteditable node
-                            }
-                        }
-                        KeyboardShortcut::Undo | KeyboardShortcut::Redo => {
-                            // Handle Ctrl+Z (Undo) / Ctrl+Y or Ctrl+Shift+Z (Redo)
-                            if let Some(layout_window) = self.get_layout_window_mut() {
-                                // Convert DomNodeId to NodeId using proper decoding
-                                let node_id = match target.node.into_crate_internal() {
-                                    Some(id) => id,
-                                    None => continue,
-                                };
-
-                                // Get external callbacks for system time
-                                let external = ExternalSystemCallbacks::rust_internal();
-                                let timestamp = (external.get_system_time_fn.cb)().into();
-
-                                if *shortcut == KeyboardShortcut::Undo {
-                                    // Pop from undo stack
-                                    if let Some(operation) =
-                                        layout_window.undo_redo_manager.pop_undo(node_id)
-                                    {
-                                        // Create revert changeset
-                                        use azul_layout::managers::undo_redo::create_revert_changeset;
-                                        let revert_changeset =
-                                            create_revert_changeset(&operation, timestamp);
-
-                                        // TODO: Allow user callback to preventDefault
-
-                                        // Apply the revert - restore pre-state text completely
-                                        let node_id_internal = target.node.into_crate_internal();
-                                        if let Some(node_id_internal) = node_id_internal {
-                                            // Create InlineContent from pre-state text
-                                            use std::sync::Arc;
-
-                                            use azul_layout::text3::cache::{
-                                                InlineContent, StyleProperties, StyledRun,
-                                            };
-
-                                            let new_content =
-                                                vec![InlineContent::Text(StyledRun {
-                                                    text: operation
-                                                        .pre_state
-                                                        .text_content
-                                                        .as_str()
-                                                        .to_string(),
-                                                    // TODO: Preserve original style
-                                                    style: Arc::new(StyleProperties::default()),
-                                                    logical_start_byte: 0,
-                                                    source_node_id: None, // Undo operation - node context not available
-                                                })];
-
-                                            // Update text cache with pre-state content
-                                            layout_window.update_text_cache_after_edit(
-                                                target.dom,
-                                                node_id_internal,
-                                                new_content,
-                                            );
-
-                                            // Restore cursor position
-                                            if let Some(cursor) =
-                                                operation.pre_state.cursor_position.into_option()
-                                            {
-                                                layout_window.cursor_manager.move_cursor_to(
-                                                    cursor,
-                                                    target.dom,
-                                                    node_id_internal,
-                                                );
-                                            }
-                                        }
-
-                                        // Push to redo stack after successful undo
-                                        layout_window.undo_redo_manager.push_redo(operation);
-
-                                        // Mark node for re-render
-                                        text_selection_affected_nodes.push(*target);
-                                    }
-                                } else {
-                                    // Redo operation
-                                    if let Some(operation) =
-                                        layout_window.undo_redo_manager.pop_redo(node_id)
-                                    {
-                                        // TODO: Allow user callback to preventDefault
-
-                                        // Re-apply the original changeset by re-executing text
-                                        // input
-                                        let node_id_internal = target.node.into_crate_internal();
-                                        if let Some(node_id_internal) = node_id_internal {
-                                            // For redo, we use the text input system to re-apply
-                                            // the change
-                                            use azul_layout::managers::changeset::TextOperation;
-
-                                            // Determine what to re-apply based on the operation
-                                            match &operation.changeset.operation {
-                                                TextOperation::InsertText(op) => {
-                                                    // Re-insert the text via process_text_input
-                                                    let affected =
-                                                        layout_window.process_text_input(&op.text);
-                                                    for (node, _) in affected {
-                                                        text_selection_affected_nodes.push(node);
-                                                    }
-                                                }
-                                                _ => {
-                                                    // For other operations, just mark for re-render
-                                                    // Full implementation would handle each
-                                                    // operation type
-                                                }
-                                            }
-                                        }
-
-                                        // Push to undo stack after successful redo
-                                        layout_window.undo_redo_manager.push_undo(operation);
-
-                                        // Mark node for re-render
-                                        text_selection_affected_nodes.push(*target);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                PreCallbackSystemEvent::DeleteSelection { target, forward } => {
-                    // Handle Backspace/Delete key
-                    // For now, we directly call delete_selection
-                    // TODO: Integrate with TextInputManager changeset system
-                    // This should:
-                    // 1. Create DeleteText changeset
-                    // 2. Fire On::TextInput callback with preventDefault support
-                    // 3. Apply deletion if !preventDefault
-                    // 4. Record to undo stack
-                    if let Some(layout_window) = self.get_layout_window_mut() {
-                        if let Some(affected_nodes) =
-                            layout_window.delete_selection(*target, *forward)
-                        {
-                            text_selection_affected_nodes.extend(affected_nodes);
-                        }
-                    }
-                }
-            }
-        }
-
-        // If text selection changed, mark for re-render
-        if !text_selection_affected_nodes.is_empty() {
-            result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+        // Process pre-callback system changes (text selection, shortcuts) via apply_system_change
+        for system_change in &pre_filter.system_changes {
+            let r = self.apply_system_change(system_change);
+            result = result.max(r);
         }
 
         // EVENT FILTERING AND CALLBACK DISPATCH (W3C Propagation Model)
@@ -2595,7 +2911,6 @@ pub trait PlatformWindowV2 {
         result = result.max(changes_result);
 
         let mut should_recurse = false;
-        let mut focus_changed = false;
 
         use azul_core::callbacks::Update;
         match callback_update {
@@ -2612,30 +2927,31 @@ pub trait PlatformWindowV2 {
             Update::DoNothing => {}
         }
 
+        // POST-CALLBACK SYSTEM CHANGES
+        // Detect drag, focus, and other post-callback changes, then process via apply_system_change
+
+        let mut post_system_changes: Vec<SystemChange> = Vec::new();
+
         // AUTO-ACTIVATE NODE DRAG
-        // If a DragStart event was dispatched and the deepest hit node has draggable=true,
-        // automatically activate the node drag in the gesture manager.
-        // This is needed because activate_node_drag() is not called by user code.
         let had_drag_start = pre_filter.user_events.iter().any(|e| {
             matches!(e.event_type, azul_core::events::EventType::DragStart)
         });
 
         if had_drag_start {
-            // Find the deepest hit node and check if it (or an ancestor) has draggable=true
-            if let Some(layout_window) = self.get_layout_window_mut() {
+            // Detect which drag activation to perform (pure analysis, no mutation)
+            let drag_activation = if let Some(layout_window) = self.get_layout_window() {
                 use azul_layout::managers::hover::InputPointId;
                 let hit_test = layout_window.hover_manager
                     .get_current(&InputPointId::Mouse)
                     .cloned();
 
                 if let Some(hit_test) = hit_test {
-                    let mut activated = false;
+                    let mut found = None;
                     'outer: for (dom_id, hit_test_data) in &hit_test.hovered_nodes {
                         if let Some(layout_result) = layout_window.layout_results.get(dom_id) {
                             let node_data_container = layout_result.styled_dom.node_data.as_container();
                             let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
 
-                            // Find deepest hit node
                             let deepest_node = hit_test_data
                                 .regular_hit_test_nodes
                                 .iter()
@@ -2650,7 +2966,6 @@ pub trait PlatformWindowV2 {
                                 });
 
                             if let Some((target_node_id, _)) = deepest_node {
-                                // Walk from deepest to root, find first draggable=true
                                 let mut current = Some(*target_node_id);
                                 while let Some(node_id) = current {
                                     if let Some(node_data) = node_data_container.get(node_id) {
@@ -2658,14 +2973,10 @@ pub trait PlatformWindowV2 {
                                             matches!(attr, azul_core::dom::AttributeType::Draggable(true))
                                         });
                                         if is_draggable {
-                                            let drag_data = azul_core::drag::DragData::new();
-                                            layout_window.gesture_drag_manager.activate_node_drag(
-                                                *dom_id,
+                                            found = Some(SystemChange::ActivateNodeDrag {
+                                                dom_id: *dom_id,
                                                 node_id,
-                                                drag_data,
-                                                None,
-                                            );
-                                            activated = true;
+                                            });
                                             break 'outer;
                                         }
                                     }
@@ -2674,137 +2985,51 @@ pub trait PlatformWindowV2 {
                             }
                         }
                     }
-                    // If no draggable=true node found, activate as window drag
-                    // This enables CSD titlebar drag and other window-move operations
-                    if !activated {
-                        let win_pos = self.get_current_window_state().position.clone();
-                        // Re-borrow after get_current_window_state
-                        if let Some(layout_window) = self.get_layout_window_mut() {
-                            layout_window.gesture_drag_manager.activate_window_drag(
-                                win_pos,
-                                None,
-                            );
-                        }
-                    }
+                    found
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            match drag_activation {
+                Some(change) => {
+                    post_system_changes.push(change);
+                    post_system_changes.push(SystemChange::InitDragVisualState);
+                }
+                None => {
+                    post_system_changes.push(SystemChange::ActivateWindowDrag);
                 }
             }
-        }
-
-        // SYNC DRAG-DROP MANAGER AND SET :dragging PSEUDO-STATE
-        // After auto-activating node drag, sync the DragDropManager and set
-        // the :dragging CSS pseudo-state on the source node for styling.
-        if had_drag_start {
-            if let Some(layout_window) = self.get_layout_window_mut() {
-                // Sync DragDropManager from GestureAndDragManager
-                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
-                    layout_window.drag_drop_manager.active_drag = Some(ctx.clone());
-                }
-
-                // Set :dragging pseudo-state on the source node
-                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
-                    if let Some(node_drag) = ctx.as_node_drag() {
-                        let dom_id = node_drag.dom_id;
-                        let node_id = node_drag.node_id;
-                        if let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) {
-                            let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
-                            if let Some(styled_node) = styled_nodes.get_mut(node_id) {
-                                styled_node.styled_node_state.dragging = true;
-                            }
-                        }
-
-                        // Add GPU transform key for the dragged node so it can be
-                        // visually moved via GPU-accelerated transform during drag.
-                        // The display list will include a PushReferenceFrame for this node.
-                        let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(dom_id);
-                        if !gpu_cache.transform_keys.contains_key(&node_id) {
-                            let transform_key = azul_core::resources::TransformKey::unique();
-                            let identity = azul_core::transform::ComputedTransform3D::IDENTITY;
-                            gpu_cache.transform_keys.insert(node_id, transform_key);
-                            gpu_cache.current_transform_values.insert(node_id, identity);
-                        }
-                    }
-                }
-            }
-            // DragStart should trigger re-render to show :dragging pseudo-state
-            result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
 
         // SET :drag-over PSEUDO-STATE ON DragEnter / DragLeave TARGETS
-        // When a dragged item enters a new node, set :drag-over on it;
-        // when it leaves, clear :drag-over. These events are synthesized
-        // by event_determination.rs with the correct target nodes.
-        {
-            let mut had_drag_over_change = false;
-
-            for event in &pre_filter.user_events {
-                match event.event_type {
-                    azul_core::events::EventType::DragEnter => {
-                        let target = &event.target;
-                        if let Some(target_node_id) = target.node.into_crate_internal() {
-                            if let Some(layout_window) = self.get_layout_window_mut() {
-                                if let Some(layout_result) = layout_window.layout_results.get_mut(&target.dom) {
-                                    let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
-                                    if let Some(styled_node) = styled_nodes.get_mut(target_node_id) {
-                                        styled_node.styled_node_state.drag_over = true;
-                                        had_drag_over_change = true;
-                                    }
-                                }
-
-                                // Update current_drop_target in the drag context
-                                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context_mut() {
-                                    if let Some(node_drag) = ctx.as_node_drag_mut() {
-                                        node_drag.previous_drop_target = node_drag.current_drop_target.clone();
-                                        node_drag.current_drop_target = azul_core::dom::OptionDomNodeId::Some(target.clone());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    azul_core::events::EventType::DragLeave => {
-                        let target = &event.target;
-                        if let Some(target_node_id) = target.node.into_crate_internal() {
-                            if let Some(layout_window) = self.get_layout_window_mut() {
-                                if let Some(layout_result) = layout_window.layout_results.get_mut(&target.dom) {
-                                    let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
-                                    if let Some(styled_node) = styled_nodes.get_mut(target_node_id) {
-                                        styled_node.styled_node_state.drag_over = false;
-                                        had_drag_over_change = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
+        for event in &pre_filter.user_events {
+            match event.event_type {
+                azul_core::events::EventType::DragEnter => {
+                    post_system_changes.push(SystemChange::SetDragOverState {
+                        target: event.target.clone(), active: true,
+                    });
+                    post_system_changes.push(SystemChange::UpdateDropTarget {
+                        target: event.target.clone(),
+                    });
                 }
-            }
-
-            if had_drag_over_change {
-                // :drag-over change requires re-render to update visual appearance
-                result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                azul_core::events::EventType::DragLeave => {
+                    post_system_changes.push(SystemChange::SetDragOverState {
+                        target: event.target.clone(), active: false,
+                    });
+                }
+                _ => {}
             }
         }
 
         // FORCE RE-RENDER DURING ACTIVE DRAG
-        // When dragging is active, every mouse move must trigger a re-render so the
-        // dragged node's visual position is updated via GPU transform.
-        if let Some(layout_window) = self.get_layout_window_mut() {
-            if layout_window.gesture_drag_manager.is_node_dragging_any() {
-                // Update the GPU transform value for the dragged node
-                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
-                    if let Some(node_drag) = ctx.as_node_drag() {
-                        let dom_id = node_drag.dom_id;
-                        let node_id = node_drag.node_id;
-                        let delta_x = ctx.current_position().x - ctx.start_position().x;
-                        let delta_y = ctx.current_position().y - ctx.start_position().y;
-                        let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(dom_id);
-                        let new_transform = azul_core::transform::ComputedTransform3D::new_translation(
-                            delta_x, delta_y, 0.0
-                        );
-                        gpu_cache.current_transform_values.insert(node_id, new_transform);
-                    }
-                }
-                result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-            }
+        let is_node_dragging = self.get_layout_window()
+            .map(|lw| lw.gesture_drag_manager.is_node_dragging_any())
+            .unwrap_or(false);
+        if is_node_dragging {
+            post_system_changes.push(SystemChange::UpdateDragGpuTransform);
         }
 
         // AUTO-DEACTIVATE DRAG ON DRAG END
@@ -2812,311 +3037,48 @@ pub trait PlatformWindowV2 {
             matches!(e.event_type, azul_core::events::EventType::DragEnd)
         });
         if had_drag_end {
-            if let Some(layout_window) = self.get_layout_window_mut() {
-                // Clear :dragging pseudo-state on the source node BEFORE ending drag
-                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
-                    if let Some(node_drag) = ctx.as_node_drag() {
-                        let dom_id = node_drag.dom_id;
-                        let node_id = node_drag.node_id;
-                        if let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) {
-                            let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
-                            if let Some(styled_node) = styled_nodes.get_mut(node_id) {
-                                styled_node.styled_node_state.dragging = false;
-                            }
-                        }
-                    }
-                }
-
-                // Clear :drag-over pseudo-state on any current drop target
-                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
-                    if let Some(node_drag) = ctx.as_node_drag() {
-                        if let azul_core::dom::OptionDomNodeId::Some(drop_target) = &node_drag.current_drop_target {
-                            let dom_id = drop_target.dom;
-                            if let Some(target_node_id) = drop_target.node.into_crate_internal() {
-                                if let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) {
-                                    let mut styled_nodes = layout_result.styled_dom.styled_nodes.as_container_mut();
-                                    if let Some(styled_node) = styled_nodes.get_mut(target_node_id) {
-                                        styled_node.styled_node_state.drag_over = false;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Remove GPU transform key for the dragged node on drag end
-                if let Some(ctx) = layout_window.gesture_drag_manager.get_drag_context() {
-                    if let Some(node_drag) = ctx.as_node_drag() {
-                        let dom_id = node_drag.dom_id;
-                        let node_id = node_drag.node_id;
-                        let gpu_cache = layout_window.gpu_state_manager.get_or_create_cache(dom_id);
-                        gpu_cache.transform_keys.remove(&node_id);
-                        gpu_cache.current_transform_values.remove(&node_id);
-                    }
-                }
-
-                if layout_window.gesture_drag_manager.is_dragging() {
-                    layout_window.gesture_drag_manager.end_drag();
-                }
-
-                // Sync: also clear DragDropManager
-                layout_window.drag_drop_manager.active_drag = None;
-            }
+            post_system_changes.push(SystemChange::DeactivateDrag);
         }
 
         // POST-CALLBACK INTERNAL EVENT FILTERING
-        // Process callback results to determine what internal processing continues
 
         let new_focus = self
             .get_layout_window()
             .and_then(|lw| lw.focus_manager.get_focused_node().copied());
 
-        let post_filter = azul_core::events::post_callback_filter_internal_events(
+        let post_filter_changes = azul_core::events::post_callback_filter_system_changes(
             prevent_default,
-            &pre_filter.internal_events,
+            &pre_filter.system_changes,
             old_focus,
             new_focus,
         );
+        post_system_changes.extend(post_filter_changes);
 
-        // Process system events returned from post-callback filter
-        for system_event in &post_filter.system_events {
-            match system_event {
-                azul_core::events::PostCallbackSystemEvent::FocusChanged => {
-                    focus_changed = true;
-                }
-                azul_core::events::PostCallbackSystemEvent::ApplyTextInput => {
-                    // Text input will be applied below
-                }
-                azul_core::events::PostCallbackSystemEvent::ApplyTextChangeset => {
-                    // TODO: Apply text changesets from Phase 2 refactoring
-                    // This will be implemented when changesets are fully integrated
-                }
-                azul_core::events::PostCallbackSystemEvent::ScrollIntoView => {
-                    // Scroll cursor/selection into view after text change
-                    if let Some(layout_window) = self.get_layout_window_mut() {
-                        use azul_layout::window::{ScrollMode, SelectionScrollType};
+        // Detect if focus changed (for focus event dispatch later)
+        let mut focus_changed = post_system_changes.iter().any(|c| matches!(c, SystemChange::SetFocus { .. }));
 
-                        // Determine what to scroll based on focus manager state
-                        let scroll_type =
-                            if let Some(focused_node) = layout_window.focus_manager.focused_node {
-                                // Check if focused node has a text cursor or selection
-                                if layout_window
-                                    .selection_manager
-                                    .get_selection(&focused_node.dom)
-                                    .is_some()
-                                {
-                                    SelectionScrollType::Selection
-                                } else {
-                                    SelectionScrollType::Cursor
-                                }
-                            } else {
-                                // No focus, nothing to scroll
-                                continue;
-                            };
-
-                        // Scroll with instant mode (user-initiated action, not auto-scroll)
-                        layout_window.scroll_selection_into_view(scroll_type, ScrollMode::Instant);
-
-                        // Mark for re-render since scrolling changed viewport
-                        result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-                    }
-                }
-                azul_core::events::PostCallbackSystemEvent::StartAutoScrollTimer => {
-                    // Start auto-scroll timer for drag-to-scroll
-                    // Timer frequency matches monitor refresh rate for smooth scrolling
-
-                    if let Some(layout_window) = self.get_layout_window() {
-                        let timer_id = azul_core::task::DRAG_AUTOSCROLL_TIMER_ID;
-
-                        // Check if timer already running (avoid duplicate timers)
-                        if !layout_window.timers.contains_key(&timer_id) {
-                            use azul_core::{
-                                refany::RefAny,
-                                task::{Duration as AzulDuration, SystemTimeDiff},
-                            };
-                            use azul_layout::timer::{Timer, TimerCallbackType};
-
-                            const DEFAULT_REFRESH_RATE_HZ: u32 = 60;
-                            let frame_time_nanos = 1_000_000_000 / DEFAULT_REFRESH_RATE_HZ;
-
-                            let external = ExternalSystemCallbacks::rust_internal();
-
-                            let timer = Timer::create(
-                                RefAny::new(()), // Empty data
-                                auto_scroll_timer_callback as TimerCallbackType,
-                                external.get_system_time_fn,
-                            )
-                            .with_interval(AzulDuration::System(SystemTimeDiff {
-                                secs: 0,
-                                nanos: frame_time_nanos,
-                            }));
-
-                            if let Some(layout_window) = self.get_layout_window_mut() {
-                                layout_window.add_timer(timer_id, timer.clone());
-                                self.start_timer(azul_core::task::DRAG_AUTOSCROLL_TIMER_ID.id, timer);
-                                result =
-                                    result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-                            }
-                        }
-                    }
-                }
-                azul_core::events::PostCallbackSystemEvent::CancelAutoScrollTimer => {
-                    // Cancel auto-scroll timer
-                    let timer_id = azul_core::task::DRAG_AUTOSCROLL_TIMER_ID;
-
-                    if let Some(layout_window) = self.get_layout_window_mut() {
-                        if layout_window.timers.contains_key(&timer_id) {
-                            layout_window.remove_timer(&timer_id);
-                            self.stop_timer(azul_core::task::DRAG_AUTOSCROLL_TIMER_ID.id);
-                        }
-                    }
-                }
-            }
+        // Apply all post-callback system changes via apply_system_change
+        for system_change in &post_system_changes {
+            let r = self.apply_system_change(system_change);
+            result = result.max(r);
         }
 
         // POST-CALLBACK TEXT INPUT PROCESSING
-        // Apply text changeset if preventDefault was not set.
-        // This is where we:
-        // 1. Compute and cache the text changes (reshape glyphs)
-        // 2. Scroll cursor into view if needed
-        // 3. Mark dirty nodes for re-layout
-        // 4. Potentially trigger another event cycle if scrolling occurred
-
-        let should_apply_text_input = post_filter
-            .system_events
-            .contains(&azul_core::events::PostCallbackSystemEvent::ApplyTextInput);
+        let should_apply_text_input = post_system_changes.iter().any(|c| matches!(c, SystemChange::ApplyPendingTextInput));
 
         if should_apply_text_input && !text_input_affected_nodes.is_empty() {
-            if let Some(layout_window) = self.get_layout_window_mut() {
-                // Apply text changes and get list of dirty nodes
-                let dirty_nodes = layout_window.apply_text_changeset();
+            let r = self.apply_system_change(&SystemChange::ApplyTextChangeset);
+            result = result.max(r);
 
-                // Mark dirty nodes for re-layout
-                for node in dirty_nodes {
-                    // TODO: Mark node as needing re-layout
-                    // This will be handled by the existing dirty tracking system
-                    let _ = node;
-                }
-
-                // Request re-render since text changed
-                result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-            }
-
-            // After text changes, scroll cursor into view if we have a focused text input
-            // Note: This needs to happen AFTER relayout to get accurate cursor position
-            if let Some(layout_window) = self.get_layout_window() {
-                if let Some(cursor_rect) = layout_window.get_focused_cursor_rect() {
-                    // Get the focused node to find its scroll container
-                    if let Some(focused_node_id) = layout_window.focus_manager.focused_node {
-                        // Find the nearest scrollable ancestor
-                        if let Some(scroll_container) =
-                            layout_window.find_scrollable_ancestor(focused_node_id)
-                        {
-                            // Get the scroll state for this container
-                            let scroll_node_id = scroll_container.node.into_crate_internal();
-                            if let Some(scroll_node_id) = scroll_node_id {
-                                if let Some(scroll_state) = layout_window
-                                    .scroll_manager
-                                    .get_scroll_state(scroll_container.dom, scroll_node_id)
-                                {
-                                    // Get the container's layout rect
-                                    if let Some(container_rect) =
-                                        layout_window.get_node_layout_rect(scroll_container)
-                                    {
-                                        // Calculate the visible area (container rect adjusted by
-                                        // scroll offset)
-                                        let visible_area = azul_core::geom::LogicalRect::new(
-                                            azul_core::geom::LogicalPosition::new(
-                                                container_rect.origin.x
-                                                    + scroll_state.current_offset.x,
-                                                container_rect.origin.y
-                                                    + scroll_state.current_offset.y,
-                                            ),
-                                            container_rect.size,
-                                        );
-
-                                        // Add padding around cursor for comfortable visibility
-                                        const SCROLL_PADDING: f32 = 5.0;
-
-                                        // Calculate how much to scroll to bring cursor into view
-                                        let mut scroll_delta =
-                                            azul_core::geom::LogicalPosition::zero();
-
-                                        // Check horizontal overflow
-                                        if cursor_rect.origin.x
-                                            < visible_area.origin.x + SCROLL_PADDING
-                                        {
-                                            // Cursor is too far left
-                                            scroll_delta.x = cursor_rect.origin.x
-                                                - (visible_area.origin.x + SCROLL_PADDING);
-                                        } else if cursor_rect.origin.x + cursor_rect.size.width
-                                            > visible_area.origin.x + visible_area.size.width
-                                                - SCROLL_PADDING
-                                        {
-                                            // Cursor is too far right
-                                            scroll_delta.x = (cursor_rect.origin.x
-                                                + cursor_rect.size.width)
-                                                - (visible_area.origin.x + visible_area.size.width
-                                                    - SCROLL_PADDING);
-                                        }
-
-                                        // Check vertical overflow
-                                        if cursor_rect.origin.y
-                                            < visible_area.origin.y + SCROLL_PADDING
-                                        {
-                                            // Cursor is too far up
-                                            scroll_delta.y = cursor_rect.origin.y
-                                                - (visible_area.origin.y + SCROLL_PADDING);
-                                        } else if cursor_rect.origin.y + cursor_rect.size.height
-                                            > visible_area.origin.y + visible_area.size.height
-                                                - SCROLL_PADDING
-                                        {
-                                            // Cursor is too far down
-                                            scroll_delta.y = (cursor_rect.origin.y
-                                                + cursor_rect.size.height)
-                                                - (visible_area.origin.y
-                                                    + visible_area.size.height
-                                                    - SCROLL_PADDING);
-                                        }
-
-                                        // Apply scroll if needed
-                                        if scroll_delta.x != 0.0 || scroll_delta.y != 0.0 {
-                                            // Get current time from system callbacks
-                                            let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
-                                            let now = (external.get_system_time_fn.cb)();
-
-                                            if let Some(layout_window_mut) =
-                                                self.get_layout_window_mut()
-                                            {
-                                                // Instant scroll (duration = 0) for cursor
-                                                // scrolling
-                                                layout_window_mut.scroll_manager.scroll_by(
-                                                    scroll_container.dom,
-                                                    scroll_node_id,
-                                                    scroll_delta,
-                                                    std::time::Duration::from_millis(0).into(),
-                                                    azul_core::events::EasingFunction::Linear,
-                                                    now.into(),
-                                                );
-                                                // Scrolling may trigger more events, so recurse
-                                                result = result.max(
-                                                    ProcessEventResult::ShouldReRenderCurrentWindow,
-                                                );
-                                                should_recurse = true;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            let r = self.apply_system_change(&SystemChange::ScrollCursorIntoViewAfterTextInput);
+            result = result.max(r);
+            if r >= ProcessEventResult::ShouldReRenderCurrentWindow {
+                should_recurse = true;
             }
         }
 
         // MOUSE CLICK-TO-FOCUS (W3C default behavior)
-        // When the user clicks on a focusable element, focus should move to that element.
-        // We check for MouseDown events and find the deepest focusable ancestor.
+        // Detect deepest focusable node under click, then set focus via SystemChange
         let mut mouse_click_focus_changed = false;
         if !prevent_default {
             let has_mouse_down = synthetic_events.iter().any(|e| {
@@ -3124,35 +3086,26 @@ pub trait PlatformWindowV2 {
             });
 
             if has_mouse_down {
-                // Get the hit test data to find which node was clicked
-                if let Some(ref hit_test) = hit_test_for_dispatch {
-                    // Find the deepest focusable node in the hit chain
-                    let mut clicked_focusable_node: Option<azul_core::dom::DomNodeId> = None;
-
+                // Pure detection: find deepest focusable node
+                let clicked_focusable_node = if let Some(ref hit_test) = hit_test_for_dispatch {
+                    let mut found: Option<azul_core::dom::DomNodeId> = None;
                     for (dom_id, hit_test_data) in &hit_test.hovered_nodes {
-                        // Find deepest hit node first
                         let deepest = hit_test_data.regular_hit_test_nodes
                             .iter()
-                            .max_by_key(|(_, hit_item)| {
-                                // Higher hit_depth = further from camera, so we want lowest
-                                // But we actually want the topmost (frontmost) which is depth 0
-                                std::cmp::Reverse(hit_item.hit_depth)
-                            });
+                            .max_by_key(|(_, hit_item)| std::cmp::Reverse(hit_item.hit_depth));
 
                         if let Some((node_id, _)) = deepest {
                             if let Some(layout_window) = self.get_layout_window() {
                                 if let Some(layout_result) = layout_window.layout_results.get(dom_id) {
                                     let node_data = layout_result.styled_dom.node_data.as_container();
                                     let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
-
-                                    // Walk from clicked node to root, find first focusable
                                     let mut current = Some(*node_id);
                                     while let Some(nid) = current {
                                         if let Some(nd) = node_data.get(nid) {
                                             if nd.is_focusable() {
-                                                clicked_focusable_node = Some(azul_core::dom::DomNodeId {
+                                                found = Some(azul_core::dom::DomNodeId {
                                                     dom: *dom_id,
-                                                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(nid)),
+                                                    node: NodeHierarchyItemId::from_crate_internal(Some(nid)),
                                                 });
                                                 break;
                                             }
@@ -3163,244 +3116,89 @@ pub trait PlatformWindowV2 {
                             }
                         }
                     }
+                    found
+                } else {
+                    None
+                };
 
-                    // If we found a focusable node, set focus to it
-                    if let Some(new_focus) = clicked_focusable_node {
-                        let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
-                        let new_focus_node_id = new_focus.node.into_crate_internal();
-
-                        // Only change focus if clicking on a different node
-                        if old_focus_node_id != new_focus_node_id {
-                            if let Some(layout_window) = self.get_layout_window_mut() {
-                                layout_window.focus_manager.set_focused_node(Some(new_focus));
-                                mouse_click_focus_changed = true;
-
-                                // SCROLL INTO VIEW: Scroll newly focused node into visible area
-                                use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
-                                let now = azul_core::task::Instant::now();
-                                layout_window.scroll_node_into_view(
-                                    new_focus,
-                                    ScrollIntoViewOptions::nearest(),
-                                    now,
-                                );
-
-                                // RESTYLE: Update StyledNodeState and compute CSS changes
-                                let restyle_result = apply_focus_restyle(
-                                    layout_window,
-                                    old_focus_node_id,
-                                    new_focus_node_id,
-                                );
-                                result = result.max(restyle_result);
-                            }
-
-                            log_debug!(
-                                super::debug_server::LogCategory::Input,
-                                "[Event V2] Click-to-focus: {:?} -> {:?}",
-                                old_focus,
-                                new_focus
-                            );
-                        }
+                if let Some(new_focus_target) = clicked_focusable_node {
+                    let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
+                    let new_focus_node_id = new_focus_target.node.into_crate_internal();
+                    if old_focus_node_id != new_focus_node_id {
+                        let r = self.apply_system_change(&SystemChange::SetFocus {
+                            new_focus: Some(new_focus_target),
+                            old_focus,
+                        });
+                        result = result.max(r);
+                        mouse_click_focus_changed = true;
                     }
                 }
             }
         }
 
         // KEYBOARD DEFAULT ACTIONS (Tab navigation, Enter/Space activation, Escape)
-        // Process keyboard default actions if not prevented by callbacks
-        // This implements W3C focus navigation and element activation behavior
         let mut default_action_focus_changed = false;
         let mut synthetic_click_target: Option<azul_core::dom::DomNodeId> = None;
 
         if !prevent_default {
-            // Check if we have a keyboard event (KeyDown specifically)
             let has_key_event = pre_filter.user_events.iter().any(|e| {
                 matches!(e.event_type, azul_core::events::EventType::KeyDown)
             });
 
             if has_key_event {
-                // Get keyboard state and focused node for default action determination
                 let keyboard_state = &self.get_current_window_state().keyboard_state;
                 let focused_node = old_focus;
-
-                // Get layout results for querying node properties
-                let layout_results = self.get_layout_window()
-                    .map(|lw| &lw.layout_results);
+                let layout_results = self.get_layout_window().map(|lw| &lw.layout_results);
 
                 if let Some(layout_results) = layout_results {
-                    // Determine what default action should occur
                     let default_action_result = azul_layout::default_actions::determine_keyboard_default_action(
-                        keyboard_state,
-                        focused_node,
-                        layout_results,
-                        prevent_default,
+                        keyboard_state, focused_node, layout_results, prevent_default,
                     );
 
-                    // Process the default action if not prevented
                     if default_action_result.has_action() {
                         use azul_core::events::DefaultAction;
-                        use azul_core::callbacks::FocusTarget;
                         use azul_layout::managers::focus_cursor::resolve_focus_target;
 
                         match &default_action_result.action {
                             DefaultAction::FocusNext | DefaultAction::FocusPrevious |
                             DefaultAction::FocusFirst | DefaultAction::FocusLast => {
-                                // Convert DefaultAction to FocusTarget
                                 let focus_target = azul_layout::default_actions::default_action_to_focus_target(&default_action_result.action);
-
                                 if let Some(focus_target) = focus_target {
-                                    // Resolve the focus target to an actual node
-                                    let resolve_result = resolve_focus_target(
-                                        &focus_target,
-                                        layout_results,
-                                        focused_node,
-                                    );
-
+                                    let resolve_result = resolve_focus_target(&focus_target, layout_results, focused_node);
                                     if let Ok(new_focus_node) = resolve_result {
-                                        // Get the old focus node ID for restyle
-                                        let old_focus_node_id = focused_node.and_then(|f| f.node.into_crate_internal());
-                                        let new_focus_node_id = new_focus_node.and_then(|f| f.node.into_crate_internal());
-
-                                        // Update focus manager and get timer action
-                                        let timer_action = if let Some(layout_window) = self.get_layout_window_mut() {
-                                            layout_window.focus_manager.set_focused_node(new_focus_node);
-                                            default_action_focus_changed = true;
-
-                                            // SCROLL INTO VIEW: Scroll newly focused node into visible area
-                                            if let Some(focus_node) = new_focus_node {
-                                                use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
-                                                let now = azul_core::task::Instant::now();
-                                                layout_window.scroll_node_into_view(
-                                                    focus_node,
-                                                    ScrollIntoViewOptions::nearest(),
-                                                    now,
-                                                );
-                                            }
-
-                                            // CURSOR BLINK TIMER: Start/stop timer based on contenteditable focus
-                                            let window_state = layout_window.current_window_state.clone();
-                                            let timer_action = layout_window.handle_focus_change_for_cursor_blink(
-                                                new_focus_node,
-                                                &window_state,
-                                            );
-
-                                            // RESTYLE: Update StyledNodeState and compute CSS changes
-                                            if old_focus_node_id != new_focus_node_id {
-                                                let restyle_result = apply_focus_restyle(
-                                                    layout_window,
-                                                    old_focus_node_id,
-                                                    new_focus_node_id,
-                                                );
-                                                result = result.max(restyle_result);
-                                            } else {
-                                                result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-                                            }
-
-                                            Some(timer_action)
-                                        } else {
-                                            None
-                                        };
-
-                                        // Apply timer action outside the layout_window borrow
-                                        if let Some(timer_action) = timer_action {
-                                            match timer_action {
-                                                azul_layout::CursorBlinkTimerAction::Start(timer) => {
-                                                    self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
-                                                }
-                                                azul_layout::CursorBlinkTimerAction::Stop => {
-                                                    self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
-                                                }
-                                                azul_layout::CursorBlinkTimerAction::NoChange => {}
-                                            }
-                                        }
-
-                                        log_debug!(
-                                            super::debug_server::LogCategory::Input,
-                                            "[Event V2] Default action: {:?} -> {:?}",
-                                            default_action_result.action,
-                                            new_focus_node
-                                        );
+                                        let r = self.apply_system_change(&SystemChange::SetFocus {
+                                            new_focus: new_focus_node,
+                                            old_focus: focused_node,
+                                        });
+                                        result = result.max(r);
+                                        default_action_focus_changed = true;
                                     }
                                 }
                             }
 
                             DefaultAction::ClearFocus => {
-                                // Clear focus (Escape key)
-                                // Get old focus before clearing
-                                let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
-
-                                let timer_action = if let Some(layout_window) = self.get_layout_window_mut() {
-                                    layout_window.focus_manager.set_focused_node(None);
-                                    default_action_focus_changed = true;
-
-                                    // CURSOR BLINK TIMER: Stop timer when focus is cleared
-                                    let window_state = layout_window.current_window_state.clone();
-                                    let timer_action = layout_window.handle_focus_change_for_cursor_blink(
-                                        None,
-                                        &window_state,
-                                    );
-
-                                    // RESTYLE: Update StyledNodeState when focus is cleared
-                                    if old_focus_node_id.is_some() {
-                                        let restyle_result = apply_focus_restyle(
-                                            layout_window,
-                                            old_focus_node_id,
-                                            None,
-                                        );
-                                        result = result.max(restyle_result);
-                                    } else {
-                                        result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-                                    }
-
-                                    Some(timer_action)
-                                } else {
-                                    None
-                                };
-
-                                // Apply timer action outside the layout_window borrow
-                                if let Some(timer_action) = timer_action {
-                                    match timer_action {
-                                        azul_layout::CursorBlinkTimerAction::Start(_) => {}
-                                        azul_layout::CursorBlinkTimerAction::Stop => {
-                                            self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
-                                        }
-                                        azul_layout::CursorBlinkTimerAction::NoChange => {}
-                                    }
-                                }
-
-                                log_debug!(
-                                    super::debug_server::LogCategory::Input,
-                                    "[Event V2] Default action: ClearFocus"
-                                );
+                                let r = self.apply_system_change(&SystemChange::SetFocus {
+                                    new_focus: None,
+                                    old_focus,
+                                });
+                                result = result.max(r);
+                                default_action_focus_changed = true;
                             }
 
                             DefaultAction::ActivateFocusedElement { target } => {
-                                // Queue synthetic click for later dispatch
                                 synthetic_click_target = Some(target.clone());
-
-                                log_debug!(
-                                    super::debug_server::LogCategory::Input,
-                                    "[Event V2] Default action: ActivateFocusedElement -> {:?}",
-                                    target
-                                );
                             }
 
-                            DefaultAction::ScrollFocusedContainer { direction, amount } => {
+                            DefaultAction::ScrollFocusedContainer { .. } => {
                                 // TODO: Implement keyboard scrolling
-                                log_debug!(
-                                    super::debug_server::LogCategory::Input,
-                                    "[Event V2] Default action: ScrollFocusedContainer {:?} {:?} (not yet implemented)",
-                                    direction,
-                                    amount
-                                );
                             }
 
                             DefaultAction::None => {}
 
-                            // Additional default actions not yet implemented
                             DefaultAction::SubmitForm { .. } |
                             DefaultAction::CloseModal { .. } |
                             DefaultAction::SelectAllText => {
-                                // These are placeholder for future implementation
+                                // Placeholder for future implementation
                             }
                         }
                     }
@@ -3555,62 +3353,9 @@ pub trait PlatformWindowV2 {
         // gesture manager's drag delta and window_position_at_session_start
         // to compute the new window position via modify_window_state().
 
-        // W3C "flag and defer" pattern: Finalize pending focus changes after all events processed
-        //
-        // This is called at the end of event processing to initialize the cursor for
-        // contenteditable elements. The cursor wasn't initialized during focus event handling
-        // because text layout may not have been available. Now that all events have been
-        // processed and layout has had a chance to update, we can safely initialize the cursor.
-        //
-        // After successful cursor initialization, we also start the cursor blink timer.
-        // NOTE: We need to carefully manage borrows here - first do all layout_window work,
-        // then create the timer separately if needed.
-        let timer_creation_needed = if let Some(layout_window) = self.get_layout_window_mut() {
-            let needs_init = layout_window.focus_manager.needs_cursor_initialization();
-            if needs_init {
-                let cursor_initialized = layout_window.finalize_pending_focus_changes();
-                if cursor_initialized {
-                    log_debug!(
-                        super::debug_server::LogCategory::Input,
-                        "[Event V2] Cursor initialized via finalize_pending_focus_changes"
-                    );
-                    result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
-
-                    // Check if blink timer is not already active
-                    if !layout_window.cursor_manager.is_blink_timer_active() {
-                        layout_window.cursor_manager.set_blink_timer_active(true);
-                        true // Signal that we need to create and start the timer
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-
-        // Create and start the blink timer outside of the mutable layout_window borrow
-        if timer_creation_needed {
-            // Now we can safely get both window_state and layout_window
-            let timer = if let Some(layout_window) = self.get_layout_window() {
-                let current_window_state = self.get_current_window_state();
-                Some(layout_window.create_cursor_blink_timer(current_window_state))
-            } else {
-                None
-            };
-
-            if let Some(timer) = timer {
-                self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
-                log_debug!(
-                    super::debug_server::LogCategory::Input,
-                    "[Event V2] Started cursor blink timer after focus finalization"
-                );
-            }
-        }
+        // Finalize pending focus changes (cursor init + blink timer)
+        let r = self.apply_system_change(&SystemChange::FinalizePendingFocusChanges);
+        result = result.max(r);
 
         result
     }
