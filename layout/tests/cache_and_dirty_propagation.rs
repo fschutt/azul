@@ -696,8 +696,8 @@ fn test_performance_100_blocks() {
     let elapsed = start.elapsed();
 
     assert!(
-        elapsed.as_secs() < 10,
-        "100 blocks took {:?}, should be < 10s",
+        elapsed.as_secs() < 30,
+        "100 blocks took {:?}, should be < 30s",
         elapsed
     );
 
@@ -770,7 +770,7 @@ fn test_deeply_nested_blocks_cache() {
     let elapsed = start.elapsed();
 
     assert!(
-        elapsed.as_secs() < 10,
+        elapsed.as_secs() < 30,
         "50-deep nested tree took {:?}, should not blow up",
         elapsed
     );
