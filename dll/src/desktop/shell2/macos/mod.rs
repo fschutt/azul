@@ -2889,8 +2889,6 @@ impl MacOSWindow {
                 &mut *app_data_ref,
                 &raw_handle,
                 &window.gl_context_ptr,
-                &mut window.image_cache,
-                &mut fc_cache_clone,
                 window.system_style.clone(),
                 &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
                 &window.previous_window_state,
@@ -2898,11 +2896,14 @@ impl MacOSWindow {
                 &window.renderer_resources,
             );
 
-            // Process callback result (timers, threads, etc.)
-            drop(app_data_ref); // Release borrow before process_callback_result_v2
+            // Process callback changes via apply_user_change
+            drop(app_data_ref); // Release borrow before apply_user_change
             use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
             window.previous_window_state = Some(window.current_window_state.clone());
-            let _ = window.process_callback_result_v2(&callback_result);
+            let (changes, update) = callback_result;
+            for change in &changes {
+                let _ = window.apply_user_change(change);
+            }
             // Sync window state to OS (handles close_requested, title, size, etc.)
             window.sync_window_state();
 
@@ -4099,13 +4100,11 @@ impl MacOSWindow {
         let mut fc_cache_clone = (*self.fc_cache).clone();
 
         // Use LayoutWindow::invoke_single_callback which handles all the borrow complexity
-        let callback_result = layout_window.invoke_single_callback(
+        let (changes, update) = layout_window.invoke_single_callback(
             &mut menu_callback.callback,
             &mut menu_callback.refany,
             &raw_handle,
             &self.gl_context_ptr,
-            &mut self.image_cache,
-            &mut fc_cache_clone,
             self.system_style.clone(),
             &azul_layout::callbacks::ExternalSystemCallbacks::rust_internal(),
             &self.previous_window_state,
@@ -4113,11 +4112,14 @@ impl MacOSWindow {
             &self.renderer_resources,
         );
 
-        // Process callback result using the V2 unified system
-        // This handles timers, threads, window state changes, and Update
+        // Process callback changes via apply_user_change
         use crate::desktop::shell2::common::event_v2::PlatformWindowV2;
         self.previous_window_state = Some(self.current_window_state.clone());
-        let event_result = self.process_callback_result_v2(&callback_result);
+        let mut event_result = ProcessEventResult::DoNothing;
+        for change in &changes {
+            let r = self.apply_user_change(change);
+            event_result = event_result.max(r);
+        }
         // Sync window state to OS (handles close_requested, title, size, etc.)
         self.sync_window_state();
 
@@ -4656,15 +4658,16 @@ impl MacOSWindow {
 
         // CRITICAL: Poll threads for completed work and invoke writeback callbacks
         // This processes ThreadWriteBackMsg from background threads
+        // Note: invoke_thread_callbacks already calls apply_user_change internally
         if let Some(thread_result) = self.invoke_thread_callbacks() {
-            if thread_result.needs_processing() {
-                self.previous_window_state = Some(self.current_window_state.clone());
-                let _ = self.process_callback_result_v2(&thread_result);
-                self.sync_window_state();
+            use azul_core::callbacks::Update;
+            match thread_result.callbacks_update_screen {
+                Update::RefreshDom | Update::RefreshDomAllWindows => {
+                    self.frame_needs_regeneration = true;
+                }
+                _ => {}
             }
-            if thread_result.needs_redraw() {
-                self.frame_needs_regeneration = true;
-            }
+            self.sync_window_state();
         }
 
         // Step 0: Update window size from current content view bounds

@@ -153,6 +153,7 @@ use azul_core::{
     id::NodeId as CoreNodeId,
     refany::RefAny,
     resources::{IdNamespace, ImageCache, RendererResources},
+    styled_dom::NodeHierarchyItemId,
     window::RawWindowHandle,
     FastBTreeSet,
 };
@@ -756,6 +757,761 @@ pub trait PlatformWindowV2 {
     /// modified window state via `ModifyWindowState`.
     fn sync_window_state(&mut self);
 
+    // PROVIDED: Exhaustive Callback Change Processing (Cross-Platform)
+
+    /// Process a single user-initiated callback change.
+    ///
+    /// This is the SINGLE place where all `CallbackChange` variants are handled.
+    /// Adding a new variant causes a compile error here — no silent bugs.
+    ///
+    /// Replaces the old pipeline:
+    ///   `apply_callback_changes()` → `CallbackChangeResult` → `merge_into()` →
+    ///   `CallCallbacksResult` → `needs_processing()` → `process_callback_result_v2()`
+    ///
+    /// Now: `apply_user_change()` — one exhaustive match, done.
+    fn apply_user_change(
+        &mut self,
+        change: &azul_layout::callbacks::CallbackChange,
+    ) -> ProcessEventResult {
+        use azul_layout::callbacks::CallbackChange;
+        use azul_core::callbacks::Update;
+
+        match change {
+            // === Window State ===
+
+            CallbackChange::ModifyWindowState { state } => {
+                let old_mouse_state = self.get_current_window_state().mouse_state.clone();
+                let old_keyboard_state = self.get_current_window_state().keyboard_state.clone();
+                let mouse_state_changed = old_mouse_state != state.mouse_state;
+                let keyboard_state_changed = old_keyboard_state != state.keyboard_state;
+
+                // Save previous state BEFORE modifying (for synthetic event detection)
+                if mouse_state_changed || keyboard_state_changed {
+                    let old_state = self.get_current_window_state().clone();
+                    self.set_previous_window_state(old_state);
+                }
+
+                // Apply state changes
+                {
+                    let current = self.get_current_window_state_mut();
+                    current.title = state.title.clone();
+                    current.size = state.size;
+                    current.position = state.position;
+                    current.flags = state.flags;
+                    current.background_color = state.background_color;
+                    current.mouse_state = state.mouse_state.clone();
+                    current.keyboard_state = state.keyboard_state.clone();
+                }
+
+                if state.flags.close_requested {
+                    return ProcessEventResult::DoNothing;
+                }
+
+                let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
+
+                // Mouse state changed → update hit test and re-process events
+                if mouse_state_changed {
+                    let mouse_pos = self.get_current_window_state()
+                        .mouse_state.cursor_position.get_position();
+                    if let Some(pos) = mouse_pos {
+                        self.update_hit_test_at(pos);
+                    }
+                    let nested = self.process_window_events_recursive_v2(0);
+                    result = result.max(nested);
+                }
+
+                // Keyboard state changed → re-process events
+                if keyboard_state_changed && !mouse_state_changed {
+                    let nested = self.process_window_events_recursive_v2(0);
+                    result = result.max(nested);
+                }
+
+                result
+            }
+
+            CallbackChange::QueueWindowStateSequence { states } => {
+                let mut result = ProcessEventResult::DoNothing;
+                for queued_state in states {
+                    let old_state = self.get_current_window_state().clone();
+                    self.set_previous_window_state(old_state);
+
+                    {
+                        let current = self.get_current_window_state_mut();
+                        current.mouse_state = queued_state.mouse_state.clone();
+                        current.keyboard_state = queued_state.keyboard_state.clone();
+                        current.title = queued_state.title.clone();
+                        current.size = queued_state.size;
+                        current.position = queued_state.position;
+                        current.flags = queued_state.flags;
+                    }
+
+                    let mouse_pos = queued_state.mouse_state.cursor_position.get_position();
+                    if let Some(pos) = mouse_pos {
+                        self.update_hit_test_at(pos);
+                    }
+
+                    let nested = self.process_window_events_recursive_v2(0);
+                    result = result.max(nested);
+                }
+                result
+            }
+
+            CallbackChange::CreateNewWindow { options: _ } => {
+                // TODO: Signal event loop to create new window
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::CloseWindow => {
+                self.get_current_window_state_mut().flags.close_requested = true;
+                ProcessEventResult::DoNothing
+            }
+
+            // === Focus ===
+
+            CallbackChange::SetFocusTarget { target } => {
+                // Resolve focus target to actual node
+                let resolved = if let Some(lw) = self.get_layout_window() {
+                    let current_focus = lw.focus_manager.get_focused_node().copied();
+                    azul_layout::managers::focus_cursor::resolve_focus_target(
+                        target,
+                        &lw.layout_results,
+                        current_focus,
+                    ).ok().flatten()
+                } else {
+                    None
+                };
+
+                // Clear focus case: target resolves to None
+                let is_clear = if let Some(lw) = self.get_layout_window() {
+                    let current_focus = lw.focus_manager.get_focused_node().copied();
+                    matches!(
+                        azul_layout::managers::focus_cursor::resolve_focus_target(
+                            target, &lw.layout_results, current_focus,
+                        ),
+                        Ok(None)
+                    )
+                } else {
+                    false
+                };
+
+                if let Some(new_focus) = resolved {
+                    // Focus a specific node
+                    let timer_action = if let Some(lw) = self.get_layout_window_mut() {
+                        lw.focus_manager.set_focused_node(Some(new_focus));
+
+                        use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
+                        let now = azul_core::task::Instant::now();
+                        lw.scroll_node_into_view(new_focus, ScrollIntoViewOptions::nearest(), now);
+
+                        let ws = lw.current_window_state.clone();
+                        Some(lw.handle_focus_change_for_cursor_blink(Some(new_focus), &ws))
+                    } else {
+                        None
+                    };
+
+                    if let Some(action) = timer_action {
+                        match action {
+                            azul_layout::CursorBlinkTimerAction::Start(timer) => {
+                                self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
+                            }
+                            azul_layout::CursorBlinkTimerAction::Stop => {
+                                self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
+                            }
+                            azul_layout::CursorBlinkTimerAction::NoChange => {}
+                        }
+                    }
+                    ProcessEventResult::ShouldReRenderCurrentWindow
+                } else if is_clear {
+                    // Clear focus
+                    let timer_action = if let Some(lw) = self.get_layout_window_mut() {
+                        lw.focus_manager.set_focused_node(None);
+                        let ws = lw.current_window_state.clone();
+                        Some(lw.handle_focus_change_for_cursor_blink(None, &ws))
+                    } else {
+                        None
+                    };
+
+                    if let Some(action) = timer_action {
+                        match action {
+                            azul_layout::CursorBlinkTimerAction::Start(_) => {}
+                            azul_layout::CursorBlinkTimerAction::Stop => {
+                                self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
+                            }
+                            azul_layout::CursorBlinkTimerAction::NoChange => {}
+                        }
+                    }
+                    ProcessEventResult::ShouldReRenderCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+
+            // === Propagation Control (consumed by dispatch loop, no-op here) ===
+
+            CallbackChange::StopPropagation
+            | CallbackChange::StopImmediatePropagation
+            | CallbackChange::PreventDefault => ProcessEventResult::DoNothing,
+
+            // === Timer Management ===
+
+            CallbackChange::AddTimer { timer_id, timer } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.timers.insert(*timer_id, timer.clone());
+                }
+                self.start_timer(timer_id.id, timer.clone());
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::RemoveTimer { timer_id } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.timers.remove(timer_id);
+                }
+                self.stop_timer(timer_id.id);
+                ProcessEventResult::DoNothing
+            }
+
+            // === Thread Management ===
+
+            CallbackChange::AddThread { thread_id, thread } => {
+                let had_threads = self.get_layout_window()
+                    .map(|lw| !lw.threads.is_empty()).unwrap_or(false);
+
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.threads.insert(*thread_id, thread.clone());
+                }
+
+                if !had_threads {
+                    self.start_thread_poll_timer();
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::RemoveThread { thread_id } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.threads.remove(thread_id);
+                }
+
+                let has_threads = self.get_layout_window()
+                    .map(|lw| !lw.threads.is_empty()).unwrap_or(false);
+
+                if !has_threads {
+                    self.stop_thread_poll_timer();
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            // === Content Modifications ===
+
+            CallbackChange::ChangeNodeText { node_id, text } => {
+                let dom_id = node_id.dom;
+                let internal_node_id = match node_id.node.into_crate_internal() {
+                    Some(id) => id,
+                    None => return ProcessEventResult::DoNothing,
+                };
+
+                // Update StyledDom text content
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(layout_result) = lw.layout_results.get_mut(&dom_id) {
+                        let idx = internal_node_id.index();
+                        if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                            layout_result.styled_dom.node_data.as_container_mut()[internal_node_id]
+                                .set_node_type(azul_core::dom::NodeType::Text(text.clone()));
+                        }
+                    }
+                }
+                ProcessEventResult::ShouldIncrementalRelayout
+            }
+
+            CallbackChange::ChangeNodeImage { dom_id, node_id: _, image: _, update_type: _ } => {
+                let _ = dom_id;
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+
+            CallbackChange::UpdateImageCallback { dom_id: _, node_id: _ } => {
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::UpdateAllImageCallbacks => {
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::UpdateIFrame { dom_id, node_id } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let mut updates = BTreeMap::new();
+                    let mut set = FastBTreeSet::new();
+                    set.insert(*node_id);
+                    updates.insert(*dom_id, set);
+                    lw.queue_iframe_updates(updates);
+                }
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+
+            CallbackChange::ChangeNodeImageMask { dom_id: _, node_id: _, mask: _ } => {
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            }
+
+            CallbackChange::ChangeNodeCssProperties { dom_id, node_id, properties } => {
+                // Update StyledDom CSS properties
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(layout_result) = lw.layout_results.get_mut(dom_id) {
+                        let idx = node_id.index();
+                        if idx < layout_result.styled_dom.node_data.as_ref().len() {
+                            use azul_css::dynamic_selector::CssPropertyWithConditions;
+                            let new_props: Vec<CssPropertyWithConditions> = properties
+                                .as_ref()
+                                .iter()
+                                .map(|p| CssPropertyWithConditions::simple(p.clone()))
+                                .collect();
+                            layout_result.styled_dom.node_data.as_container_mut()[*node_id]
+                                .set_css_props(new_props.into());
+                        }
+                    }
+                }
+                ProcessEventResult::ShouldIncrementalRelayout
+            }
+
+            // === Scroll ===
+
+            CallbackChange::ScrollTo { dom_id, node_id, position } => {
+                let external = azul_layout::callbacks::ExternalSystemCallbacks::rust_internal();
+                let now = (external.get_system_time_fn.cb)();
+
+                if let Some(internal_node_id) = node_id.into_crate_internal() {
+                    if let Some(lw) = self.get_layout_window_mut() {
+                        lw.scroll_manager.scroll_to(
+                            *dom_id, internal_node_id, *position,
+                            std::time::Duration::from_millis(0).into(),
+                            azul_core::events::EasingFunction::Linear,
+                            now.clone().into(),
+                        );
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::ScrollIntoView { node_id, options } => {
+                let now = azul_core::task::Instant::now();
+                if let Some(lw) = self.get_layout_window_mut() {
+                    azul_layout::managers::scroll_into_view::scroll_node_into_view(
+                        *node_id, &lw.layout_results, &mut lw.scroll_manager,
+                        options.clone(), now,
+                    );
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::ScrollActiveCursorIntoView => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.scroll_selection_into_view(
+                        azul_layout::window::SelectionScrollType::Cursor,
+                        azul_layout::window::ScrollMode::Instant,
+                    );
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            // === Image/Font Cache ===
+
+            CallbackChange::AddImageToCache { id, image } => {
+                self.get_image_cache_mut().add_css_image_id(id.clone(), image.clone());
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::RemoveImageFromCache { id } => {
+                self.get_image_cache_mut().delete_css_image_id(id);
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::ReloadSystemFonts => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.font_manager.fc_cache = FcFontCache::build().into();
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            // === Menu / Tooltip ===
+
+            CallbackChange::OpenMenu { menu, position } => {
+                let pos = position.unwrap_or(LogicalPosition::new(0.0, 0.0));
+                self.show_menu_from_callback(menu, pos);
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::ShowTooltip { text, position } => {
+                self.show_tooltip_from_callback(text.as_str(), *position);
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::HideTooltip => {
+                self.hide_tooltip_from_callback();
+                ProcessEventResult::DoNothing
+            }
+
+            // === Text Editing ===
+
+            CallbackChange::InsertText { dom_id, node_id, text } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(*node_id));
+                    let dom_node_id = azul_core::dom::DomNodeId { dom: *dom_id, node: hierarchy_id };
+                    let old_inline_content = lw.get_text_before_textinput(*dom_id, *node_id);
+                    let old_text = lw.extract_text_from_inline_content(&old_inline_content);
+                    use azul_layout::managers::text_input::TextInputSource;
+                    lw.text_input_manager.record_input(
+                        dom_node_id, text.to_string(), old_text, TextInputSource::Programmatic,
+                    );
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::DeleteBackward { dom_id, node_id } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(cursor) = lw.cursor_manager.get_cursor().cloned() {
+                        let content = lw.get_text_before_textinput(*dom_id, *node_id);
+                        use azul_layout::text3::edit::delete_backward;
+                        let mut new_content = content.clone();
+                        let (updated_content, new_cursor) = delete_backward(&mut new_content, &cursor);
+                        lw.cursor_manager.move_cursor_to(new_cursor, *dom_id, *node_id);
+                        lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::DeleteForward { dom_id, node_id } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(cursor) = lw.cursor_manager.get_cursor().cloned() {
+                        let content = lw.get_text_before_textinput(*dom_id, *node_id);
+                        use azul_layout::text3::edit::delete_forward;
+                        let mut new_content = content.clone();
+                        let (updated_content, new_cursor) = delete_forward(&mut new_content, &cursor);
+                        lw.cursor_manager.move_cursor_to(new_cursor, *dom_id, *node_id);
+                        lw.update_text_cache_after_edit(*dom_id, *node_id, updated_content);
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::MoveCursor { dom_id, node_id, cursor } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.cursor_manager.move_cursor_to(*cursor, *dom_id, *node_id);
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::SetSelection { dom_id, node_id, selection } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    match selection {
+                        azul_core::selection::Selection::Cursor(cursor) => {
+                            lw.cursor_manager.move_cursor_to(*cursor, *dom_id, *node_id);
+                            lw.selection_manager.clear_all();
+                        }
+                        azul_core::selection::Selection::Range(range) => {
+                            lw.cursor_manager.move_cursor_to(range.start, *dom_id, *node_id);
+                        }
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::SetTextChangeset { changeset } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.text_input_manager.pending_changeset = Some(changeset.clone());
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            // === Cursor Movement ===
+
+            CallbackChange::MoveCursorLeft { dom_id, node_id, extend_selection } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(new_cursor) = lw.move_cursor_in_node(*dom_id, *node_id, |layout, cursor| {
+                        layout.move_cursor_left(*cursor, &mut None)
+                    }) {
+                        lw.handle_cursor_movement(*dom_id, *node_id, new_cursor, *extend_selection);
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::MoveCursorRight { dom_id, node_id, extend_selection } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(new_cursor) = lw.move_cursor_in_node(*dom_id, *node_id, |layout, cursor| {
+                        layout.move_cursor_right(*cursor, &mut None)
+                    }) {
+                        lw.handle_cursor_movement(*dom_id, *node_id, new_cursor, *extend_selection);
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::MoveCursorUp { dom_id, node_id, extend_selection } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(new_cursor) = lw.move_cursor_in_node(*dom_id, *node_id, |layout, cursor| {
+                        layout.move_cursor_up(*cursor, &mut None, &mut None)
+                    }) {
+                        lw.handle_cursor_movement(*dom_id, *node_id, new_cursor, *extend_selection);
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::MoveCursorDown { dom_id, node_id, extend_selection } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(new_cursor) = lw.move_cursor_in_node(*dom_id, *node_id, |layout, cursor| {
+                        layout.move_cursor_down(*cursor, &mut None, &mut None)
+                    }) {
+                        lw.handle_cursor_movement(*dom_id, *node_id, new_cursor, *extend_selection);
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::MoveCursorToLineStart { dom_id, node_id, extend_selection } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(new_cursor) = lw.move_cursor_in_node(*dom_id, *node_id, |layout, cursor| {
+                        layout.move_cursor_to_line_start(*cursor, &mut None)
+                    }) {
+                        lw.handle_cursor_movement(*dom_id, *node_id, new_cursor, *extend_selection);
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::MoveCursorToLineEnd { dom_id, node_id, extend_selection } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(new_cursor) = lw.move_cursor_in_node(*dom_id, *node_id, |layout, cursor| {
+                        layout.move_cursor_to_line_end(*cursor, &mut None)
+                    }) {
+                        lw.handle_cursor_movement(*dom_id, *node_id, new_cursor, *extend_selection);
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::MoveCursorToDocumentStart { dom_id, node_id, extend_selection } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(layout) = lw.get_inline_layout_for_node(*dom_id, *node_id) {
+                        if let Some(first_cluster) = layout.items.first().and_then(|item| item.item.as_cluster()) {
+                            let doc_start = azul_core::selection::TextCursor {
+                                cluster_id: first_cluster.source_cluster_id,
+                                affinity: azul_core::selection::CursorAffinity::Leading,
+                            };
+                            lw.handle_cursor_movement(*dom_id, *node_id, doc_start, *extend_selection);
+                        }
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::MoveCursorToDocumentEnd { dom_id, node_id, extend_selection } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(layout) = lw.get_inline_layout_for_node(*dom_id, *node_id) {
+                        if let Some(last_cluster) = layout.items.last().and_then(|item| item.item.as_cluster()) {
+                            let doc_end = azul_core::selection::TextCursor {
+                                cluster_id: last_cluster.source_cluster_id,
+                                affinity: azul_core::selection::CursorAffinity::Trailing,
+                            };
+                            lw.handle_cursor_movement(*dom_id, *node_id, doc_end, *extend_selection);
+                        }
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            // === Clipboard ===
+
+            CallbackChange::SetCopyContent { target: _, content } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.clipboard_manager.set_copy_content(content.clone());
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::SetCutContent { target: _, content } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.clipboard_manager.set_copy_content(content.clone());
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::SetSelectAllRange { target, range } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.selection_manager.set_range(target.dom, *target, range.clone());
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            // === Debug / Hit Test ===
+
+            CallbackChange::RequestHitTestUpdate { position } => {
+                self.update_hit_test_at(*position);
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::ProcessTextSelectionClick { position, time_ms } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.process_mouse_click_for_selection(*position, *time_ms);
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            // === Cursor Blink ===
+
+            CallbackChange::SetCursorVisibility { visible: _ } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let now = azul_core::task::Instant::now();
+                    if lw.cursor_manager.should_blink(&now) {
+                        lw.cursor_manager.toggle_visibility();
+                    } else {
+                        lw.cursor_manager.set_visibility(true);
+                    }
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
+            CallbackChange::ResetCursorBlink => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let now = azul_core::task::Instant::now();
+                    lw.cursor_manager.reset_blink_on_input(now);
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::StartCursorBlinkTimer => {
+                let timer = if let Some(lw) = self.get_layout_window_mut() {
+                    if lw.cursor_manager.is_blink_timer_active() {
+                        None
+                    } else {
+                        lw.cursor_manager.set_blink_timer_active(true);
+                        let ws = lw.current_window_state.clone();
+                        Some(lw.create_cursor_blink_timer(&ws))
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(timer) = timer {
+                    if let Some(lw) = self.get_layout_window_mut() {
+                        lw.timers.insert(azul_core::task::CURSOR_BLINK_TIMER_ID, timer.clone());
+                    }
+                    self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::StopCursorBlinkTimer => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if lw.cursor_manager.is_blink_timer_active() {
+                        lw.cursor_manager.set_blink_timer_active(false);
+                        lw.timers.remove(&azul_core::task::CURSOR_BLINK_TIMER_ID);
+                    }
+                }
+                self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
+                ProcessEventResult::DoNothing
+            }
+
+            // === Text Input ===
+
+            CallbackChange::CreateTextInput { text } => {
+                // Process text input
+                let affected_nodes = if let Some(lw) = self.get_layout_window_mut() {
+                    lw.process_text_input(text.as_str())
+                } else {
+                    BTreeMap::new()
+                };
+
+                if affected_nodes.is_empty() {
+                    return ProcessEventResult::DoNothing;
+                }
+
+                // Build and dispatch synthetic text events
+                let now = {
+                    #[cfg(feature = "std")]
+                    { azul_core::task::Instant::from(std::time::Instant::now()) }
+                    #[cfg(not(feature = "std"))]
+                    { azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0)) }
+                };
+
+                let text_events: Vec<_> = affected_nodes.keys().map(|dom_node_id| {
+                    azul_core::events::SyntheticEvent::new(
+                        azul_core::events::EventType::Input,
+                        azul_core::events::EventSource::User,
+                        *dom_node_id,
+                        now.clone(),
+                        azul_core::events::EventData::None,
+                    )
+                }).collect();
+
+                let mut result = ProcessEventResult::DoNothing;
+
+                if !text_events.is_empty() {
+                    let (text_results, _) = self.dispatch_events_propagated(&text_events);
+                    for callback_result in &text_results {
+                        if matches!(callback_result.callbacks_update_screen, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                        }
+                    }
+                }
+
+                // Apply text changeset
+                if let Some(lw) = self.get_layout_window_mut() {
+                    let dirty_nodes = lw.apply_text_changeset();
+                    if !dirty_nodes.is_empty() {
+                        result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                        lw.scroll_selection_into_view(
+                            azul_layout::window::SelectionScrollType::Cursor,
+                            azul_layout::window::ScrollMode::Instant,
+                        );
+                    }
+                }
+
+                result
+            }
+
+            // === Window Move ===
+
+            CallbackChange::BeginInteractiveMove => {
+                self.handle_begin_interactive_move();
+                ProcessEventResult::DoNothing
+            }
+
+            // === Drag & Drop ===
+
+            CallbackChange::SetDragData { mime_type, data } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(ctx) = lw.gesture_drag_manager.get_drag_context_mut() {
+                        if let Some(node_drag) = ctx.as_node_drag_mut() {
+                            node_drag.drag_data.set_data(mime_type.clone(), data.clone());
+                        }
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::AcceptDrop => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(ctx) = lw.gesture_drag_manager.get_drag_context_mut() {
+                        if let Some(node_drag) = ctx.as_node_drag_mut() {
+                            node_drag.drop_accepted = true;
+                        }
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::SetDropEffect { effect } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    if let Some(ctx) = lw.gesture_drag_manager.get_drag_context_mut() {
+                        if let Some(node_drag) = ctx.as_node_drag_mut() {
+                            node_drag.drop_effect = *effect;
+                        }
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+        }
+    }
+
     // PROVIDED: Hit Testing (Cross-Platform Implementation)
 
     /// Update hit test at given position and store in hover manager.
@@ -1040,7 +1796,7 @@ pub trait PlatformWindowV2 {
         }
 
         let mut borrows = self.prepare_callback_invocation();
-        let mut results = Vec::new();
+        let mut results: Vec<CallCallbacksResult> = Vec::new();
         let mut any_prevent_default = false;
 
         // Track propagation control flags (W3C semantics):
@@ -1060,13 +1816,11 @@ pub trait PlatformWindowV2 {
             }
 
             let mut callback = LayoutCallback::from_core(planned.callback_data.callback);
-            let callback_result = borrows.layout_window.invoke_single_callback(
+            let (changes, update) = borrows.layout_window.invoke_single_callback(
                 &mut callback,
                 &mut planned.callback_data.refany.clone(),
                 &borrows.window_handle,
                 borrows.gl_context_ptr,
-                borrows.image_cache,
-                &mut borrows.fc_cache_clone,
                 borrows.system_style.clone(),
                 &ExternalSystemCallbacks::rust_internal(),
                 borrows.previous_window_state,
@@ -1074,24 +1828,47 @@ pub trait PlatformWindowV2 {
                 borrows.renderer_resources,
             );
 
-            if callback_result.prevent_default {
-                any_prevent_default = true;
+            // Build a minimal CallCallbacksResult for backward compatibility
+            // with callers that still consume Vec<CallCallbacksResult>
+            let mut result = CallCallbacksResult::empty();
+            result.callbacks_update_screen = update;
+
+            // Check propagation control in the changes
+            for change in &changes {
+                use azul_layout::callbacks::CallbackChange;
+                match change {
+                    CallbackChange::PreventDefault => {
+                        any_prevent_default = true;
+                        result.prevent_default = true;
+                    }
+                    CallbackChange::StopImmediatePropagation => {
+                        result.stop_immediate_propagation = true;
+                    }
+                    CallbackChange::StopPropagation => {
+                        result.stop_propagation = true;
+                    }
+                    _ => {}
+                }
             }
 
-            // stopImmediatePropagation: break immediately, don't even run remaining same-node handlers
-            if callback_result.stop_immediate_propagation {
-                results.push(callback_result);
-                break;
-            }
+            let should_stop_immediate = result.stop_immediate_propagation;
 
             // stopPropagation: record that we should stop after remaining same-node handlers
-            if callback_result.stop_propagation && !propagation_stopped {
+            if result.stop_propagation && !propagation_stopped {
                 propagation_stopped = true;
                 propagation_stopped_node = Some((planned.dom_id, planned.node_id));
             }
 
-            results.push(callback_result);
+            results.push(result);
+
+            // stopImmediatePropagation: break immediately
+            if should_stop_immediate {
+                break;
+            }
         }
+
+        // Drop borrows before calling apply_user_change on self
+        drop(borrows);
 
         (results, any_prevent_default)
     }
@@ -3405,40 +4182,34 @@ pub trait PlatformWindowV2 {
     /// }
     /// ```
     fn process_timers_and_threads(&mut self) -> bool {
-        use azul_core::events::ProcessEventResult;
+        use azul_core::callbacks::Update;
 
         let timer_results = self.invoke_expired_timers();
         let mut needs_redraw = false;
 
         for result in &timer_results {
-            if result.needs_processing() {
-                let old_state = self.get_current_window_state().clone();
-                self.set_previous_window_state(old_state);
-                let process_result = self.process_callback_result_v2(result);
-                self.sync_window_state();
-                if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+            // apply_user_change was already called inside invoke_expired_timers
+            // We just check if the callback requested a visual update
+            match result.callbacks_update_screen {
+                Update::RefreshDom | Update::RefreshDomAllWindows => {
                     needs_redraw = true;
                 }
-            }
-            if result.needs_redraw() {
-                needs_redraw = true;
+                _ => {}
             }
         }
 
         if let Some(thread_result) = self.invoke_thread_callbacks() {
-            if thread_result.needs_processing() {
-                let old_state = self.get_current_window_state().clone();
-                self.set_previous_window_state(old_state);
-                let process_result = self.process_callback_result_v2(&thread_result);
-                self.sync_window_state();
-                if process_result >= ProcessEventResult::ShouldReRenderCurrentWindow {
+            // apply_user_change was already called inside invoke_thread_callbacks
+            match thread_result.callbacks_update_screen {
+                Update::RefreshDom | Update::RefreshDomAllWindows => {
                     needs_redraw = true;
                 }
-            }
-            if thread_result.needs_redraw() {
-                needs_redraw = true;
+                _ => {}
             }
         }
+
+        // Also sync window state after all changes
+        self.sync_window_state();
 
         if needs_redraw {
             self.mark_frame_needs_regeneration();
@@ -3666,13 +4437,11 @@ pub trait PlatformWindowV2 {
             // Prepare borrows fresh for each timer invocation
             let mut borrows = self.prepare_callback_invocation();
 
-            let result = borrows.layout_window.run_single_timer(
+            let (changes, update) = borrows.layout_window.run_single_timer(
                 timer_id.id,
                 frame_start.clone(),
                 &borrows.window_handle,
                 borrows.gl_context_ptr,
-                borrows.image_cache,
-                &mut borrows.fc_cache_clone,
                 borrows.system_style.clone(),
                 &ExternalSystemCallbacks::rust_internal(),
                 borrows.previous_window_state,
@@ -3680,40 +4449,20 @@ pub trait PlatformWindowV2 {
                 borrows.renderer_resources,
             );
 
-            // Apply timer/thread results directly to layout_window for inter-callback
-            // correctness (e.g. if timer A removes timer B, the next timer in this
-            // tick shouldn't try to invoke timer B). process_callback_result_v2
-            // will also call start_timer()/stop_timer() for platform-level registration.
-            if let Some(ref new_timers) = result.timers {
-                for (timer_id, timer) in new_timers {
-                    borrows
-                        .layout_window
-                        .timers
-                        .insert(*timer_id, timer.clone());
-                }
-            }
-            if let Some(ref removed_timers) = result.timers_removed {
-                for timer_id in removed_timers {
-                    borrows.layout_window.timers.remove(timer_id);
-                }
-            }
-            if let Some(ref new_threads) = result.threads {
-                for (thread_id, thread) in new_threads {
-                    borrows
-                        .layout_window
-                        .threads
-                        .insert(*thread_id, thread.clone());
-                }
-            }
-            if let Some(ref removed_threads) = result.threads_removed {
-                for thread_id in removed_threads {
-                    borrows.layout_window.threads.remove(thread_id);
-                }
+            // Apply changes immediately so inter-timer visibility works
+            // (e.g., timer A removes timer B → B shouldn't fire)
+            drop(borrows);
+
+            let mut result = CallCallbacksResult::empty();
+            result.callbacks_update_screen = update;
+
+            for change in &changes {
+                let _ = self.apply_user_change(change);
             }
 
             // Mark frame for redraw if callback requested it
-            if result.callbacks_update_screen == Update::RefreshDom
-                || result.callbacks_update_screen == Update::RefreshDomAllWindows
+            if update == Update::RefreshDom
+                || update == Update::RefreshDomAllWindows
             {
                 self.mark_frame_needs_regeneration();
             }
@@ -3741,7 +4490,7 @@ pub trait PlatformWindowV2 {
     /// - **X11**: After `select()` timeout when threads exist
     /// - **Wayland**: After thread timerfd read
     fn invoke_thread_callbacks(&mut self) -> Option<azul_layout::callbacks::CallCallbacksResult> {
-        use azul_layout::callbacks::ExternalSystemCallbacks;
+        use azul_layout::callbacks::{CallCallbacksResult, ExternalSystemCallbacks};
 
         // Check if we have threads to poll
         let has_threads = {
@@ -3764,18 +4513,26 @@ pub trait PlatformWindowV2 {
 
         // Call run_all_threads on the layout_window
         let mut app_data = app_data_arc.borrow_mut();
-        let result = borrows.layout_window.run_all_threads(
+        let (changes, update) = borrows.layout_window.run_all_threads(
             &mut *app_data,
             &borrows.window_handle,
             borrows.gl_context_ptr,
-            borrows.image_cache,
-            &mut borrows.fc_cache_clone,
             borrows.system_style.clone(),
             &ExternalSystemCallbacks::rust_internal(),
             borrows.previous_window_state,
             borrows.current_window_state,
             borrows.renderer_resources,
         );
+
+        drop(app_data);
+        drop(borrows);
+
+        let mut result = CallCallbacksResult::empty();
+        result.callbacks_update_screen = update;
+
+        for change in &changes {
+            let _ = self.apply_user_change(change);
+        }
 
         Some(result)
     }
