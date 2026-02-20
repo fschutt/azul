@@ -68,7 +68,7 @@ use self::{
 use crate::desktop::{
     shell2::common::{
         event_v2::{self, PlatformWindowV2},
-        Compositor, WindowError, WindowProperties,
+        Compositor, WindowError,
     },
     wr_translate2::{
         create_program_cache, default_renderer_options, translate_document_id_wr,
@@ -3190,31 +3190,10 @@ pub enum Win32Event {
     Other,
 }
 
-// PlatformWindow trait implementation
+// Lifecycle methods (formerly on PlatformWindow V1 trait)
 
-use crate::desktop::shell2::common::{PlatformWindow, RenderContext};
-
-impl PlatformWindow for Win32Window {
-    type EventType = Win32Event;
-
-    fn new(options: WindowCreateOptions, app_data: RefAny) -> Result<Self, WindowError> {
-        // Use existing new() implementation with provided app_data
-        let fc_cache = Arc::new(rust_fontconfig::FcFontCache::build());
-        let app_data_arc = Arc::new(std::cell::RefCell::new(app_data));
-        let config = azul_core::resources::AppConfig::default();
-        Self::new(options, config, fc_cache, None, app_data_arc)
-    }
-
-    fn get_state(&self) -> FullWindowState {
-        self.current_window_state.clone()
-    }
-
-    fn set_properties(&mut self, _props: WindowProperties) -> Result<(), WindowError> {
-        // TODO: Implement property setting (title, size, etc.)
-        Ok(())
-    }
-
-    fn poll_event(&mut self) -> Option<Self::EventType> {
+impl Win32Window {
+    pub fn poll_event(&mut self) -> Option<Win32Event> {
         // The existing poll_event_internal returns bool
         // We need to convert this to return Option<Win32Event>
         // For now, return None - will be implemented in phase 1.2
@@ -3225,29 +3204,16 @@ impl PlatformWindow for Win32Window {
         }
     }
 
-    fn get_render_context(&self) -> RenderContext {
-        if let Some(gl_context) = self.gl_context {
-            RenderContext::OpenGL {
-                context: gl_context as *mut std::ffi::c_void,
-            }
-        } else {
-            // Software rendering - return null OpenGL context
-            RenderContext::OpenGL {
-                context: std::ptr::null_mut(),
-            }
-        }
-    }
-
-    fn present(&mut self) -> Result<(), WindowError> {
+    pub fn present(&mut self) -> Result<(), WindowError> {
         self.render_and_present()
             .map_err(|e| WindowError::PlatformError(format!("Present failed: {}", e)))
     }
 
-    fn is_open(&self) -> bool {
+    pub fn is_open(&self) -> bool {
         self.is_open
     }
 
-    fn close(&mut self) {
+    pub fn close(&mut self) {
         // Close the window by posting WM_CLOSE
         unsafe {
             use self::dlopen::constants::WM_CLOSE;
@@ -3256,7 +3222,7 @@ impl PlatformWindow for Win32Window {
         self.is_open = false;
     }
 
-    fn request_redraw(&mut self) {
+    pub fn request_redraw(&mut self) {
         // Mark that frame needs regeneration
         self.frame_needs_regeneration = true;
 
@@ -3265,13 +3231,6 @@ impl PlatformWindow for Win32Window {
             use self::dlopen::constants::WM_PAINT;
             (self.win32.user32.PostMessageW)(self.hwnd, WM_PAINT, 0, 0);
         }
-    }
-
-    fn sync_clipboard(
-        &mut self,
-        clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
-    ) {
-        clipboard::sync_clipboard(clipboard_manager);
     }
 }
 

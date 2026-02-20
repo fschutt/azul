@@ -16,7 +16,7 @@ use crate::{log_debug, log_error, log_info, log_trace};
 
 #[cfg(target_os = "macos")]
 use super::macos::MacOSWindow;
-use super::{PlatformWindow, WindowError};
+use super::WindowError;
 
 /// Run the application with the given root window configuration
 ///

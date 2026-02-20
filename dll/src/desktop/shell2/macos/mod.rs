@@ -69,11 +69,7 @@ use crate::desktop::{
         event_v2::{self, PlatformWindowV2}, // Import event_v2 module AND trait
         Compositor,
         CompositorError,
-        CompositorMode,
-        PlatformWindow,
-        RenderContext,
         WindowError,
-        WindowProperties,
     },
     wr_translate2::{
         create_program_cache, default_renderer_options, translate_document_id_wr,
@@ -4989,63 +4985,9 @@ impl Drop for MacOSWindow {
     }
 }
 
-impl PlatformWindow for MacOSWindow {
-    type EventType = MacOSEvent;
-
-    fn new(options: WindowCreateOptions, app_data: RefAny) -> Result<Self, WindowError>
-    where
-        Self: Sized,
-    {
-        let mtm = MainThreadMarker::new()
-            .ok_or_else(|| WindowError::PlatformError("Not on main thread".into()))?;
-
-        // Use default config when called via the generic PlatformWindow trait
-        // Create a default SharedIconProvider for this case
-        let default_config = azul_core::resources::AppConfig::default();
-        let shared_icon_provider = azul_core::icon::SharedIconProvider::from_handle(default_config.icon_provider.clone());
-        Self::new_with_options(options, app_data, default_config, shared_icon_provider, mtm)
-    }
-
-    fn get_state(&self) -> FullWindowState {
-        // Return the stored current_window_state (which is kept in sync with OS)
-        // instead of creating a new WindowState from scratch
-        self.current_window_state.clone()
-    }
-
-    fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError> {
-        // Update current_window_state based on properties
-        if let Some(title) = props.title {
-            self.current_window_state.title = title.into();
-        }
-
-        if let Some(size) = props.size {
-            use azul_core::geom::LogicalSize;
-            // Get actual DPI scale from window
-            let scale_factor = unsafe {
-                self.window
-                    .screen()
-                    .map(|screen| screen.backingScaleFactor())
-                    .unwrap_or(1.0)
-            };
-
-            // Convert PhysicalSize to LogicalSize using actual DPI
-            self.current_window_state.size.dimensions = LogicalSize {
-                width: (size.width as f64 / scale_factor) as f32,
-                height: (size.height as f64 / scale_factor) as f32,
-            };
-        }
-
-        if let Some(visible) = props.visible {
-            self.current_window_state.flags.is_visible = visible;
-        }
-
-        // Synchronize changes with the OS
-        self.sync_window_state();
-
-        Ok(())
-    }
-
-    fn poll_event(&mut self) -> Option<Self::EventType> {
+// Lifecycle methods (formerly on PlatformWindow V1 trait)
+impl MacOSWindow {
+    pub fn poll_event(&mut self) -> Option<MacOSEvent> {
         // Check if a frame is ready without blocking
         let frame_ready = {
             let &(ref lock, _) = &*self.new_frame_ready;
@@ -5121,24 +5063,7 @@ impl PlatformWindow for MacOSWindow {
         }
     }
 
-    fn get_render_context(&self) -> RenderContext {
-        match self.backend {
-            RenderBackend::OpenGL => {
-                let context_ptr = self
-                    .gl_context
-                    .as_ref()
-                    .map(|ctx| Retained::as_ptr(ctx) as *mut _)
-                    .unwrap_or(std::ptr::null_mut());
-
-                RenderContext::OpenGL {
-                    context: context_ptr,
-                }
-            }
-            RenderBackend::CPU => RenderContext::CPU,
-        }
-    }
-
-    fn present(&mut self) -> Result<(), WindowError> {
+    pub fn present(&mut self) -> Result<(), WindowError> {
         // For macOS, presentation is handled by the compositor/NSOpenGLContext
         // The present() method is called by the rendering backend (WebRender)
         // or directly after CPU rendering
@@ -5159,11 +5084,7 @@ impl PlatformWindow for MacOSWindow {
         Ok(())
     }
 
-    fn is_open(&self) -> bool {
-        self.is_open
-    }
-
-    fn close(&mut self) {
+    pub fn close(&mut self) {
         // Release power management assertion if active
         if let Some(assertion_id) = self.pm_assertion_id.take() {
             unsafe {
@@ -5187,7 +5108,7 @@ impl PlatformWindow for MacOSWindow {
     ///
     /// This decouples our asynchronous rendering backend (WebRender) from the synchronous
     /// OS drawing model.
-    fn request_redraw(&mut self) {
+    pub fn request_redraw(&mut self) {
         log_trace!(
             LogCategory::Rendering,
             "[request_redraw] Marking view as needing display"
@@ -5215,13 +5136,6 @@ impl PlatformWindow for MacOSWindow {
         }
 
         self.frame_needs_regeneration = true;
-    }
-
-    fn sync_clipboard(
-        &mut self,
-        clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
-    ) {
-        clipboard::sync_clipboard(clipboard_manager);
     }
 }
 

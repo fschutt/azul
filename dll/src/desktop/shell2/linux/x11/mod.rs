@@ -50,7 +50,7 @@ use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::desktop::{
     shell2::common::{
         event_v2::{self, PlatformWindowV2},
-        PlatformWindow, RenderContext, WindowError, WindowProperties,
+        WindowError,
     },
     wr_translate2::{self, AsyncHitTester, Notifier},
 };
@@ -325,41 +325,9 @@ pub enum X11Event {
     Other,
 }
 
-impl PlatformWindow for X11Window {
-    type EventType = X11Event;
-
-    fn new(options: WindowCreateOptions, app_data: RefAny) -> Result<Self, WindowError>
-    where
-        Self: Sized,
-    {
-        let config = azul_core::resources::AppConfig::default();
-        let system_style = Arc::new(config.system_style.clone());
-        let app_data_arc = Arc::new(std::cell::RefCell::new(app_data));
-        let resources = Arc::new(super::AppResources {
-            config,
-            fc_cache: Arc::new(rust_fontconfig::FcFontCache::default()),
-            font_registry: None,
-            app_data: app_data_arc,
-            system_style,
-            icon_provider: azul_core::icon::SharedIconProvider::from_handle(azul_core::icon::IconProviderHandle::new()),
-        });
-        Self::new_with_resources(options, resources)
-    }
-
-    fn get_state(&self) -> FullWindowState {
-        self.current_window_state.clone()
-    }
-
-    fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError> {
-        if let Some(title) = props.title {
-            self.current_window_state.title = title.clone().into();
-            let c_title = CString::new(title).unwrap();
-            unsafe { (self.xlib.XStoreName)(self.display, self.window, c_title.as_ptr()) };
-        }
-        Ok(())
-    }
-
-    fn poll_event(&mut self) -> Option<Self::EventType> {
+// Lifecycle methods (formerly on PlatformWindow V1 trait)
+impl X11Window {
+    pub fn poll_event(&mut self) -> Option<X11Event> {
         // Check timers and threads before processing X11 events
         self.check_timers_and_threads();
 
@@ -549,7 +517,7 @@ impl PlatformWindow for X11Window {
         None
     }
 
-    fn present(&mut self) -> Result<(), WindowError> {
+    pub fn present(&mut self) -> Result<(), WindowError> {
         match &self.render_mode {
             RenderMode::Gpu(gl_context, _) => gl_context.swap_buffers(),
             RenderMode::Cpu(gc) => {
@@ -585,7 +553,7 @@ impl PlatformWindow for X11Window {
         Ok(())
     }
 
-    fn request_redraw(&mut self) {
+    pub fn request_redraw(&mut self) {
         let mut event: XEvent = unsafe { std::mem::zeroed() };
         let expose = unsafe { &mut event.expose };
         expose.type_ = Expose;
@@ -597,14 +565,14 @@ impl PlatformWindow for X11Window {
         }
     }
 
-    fn sync_clipboard(
+    pub fn sync_clipboard(
         &mut self,
         clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
     ) {
         clipboard::sync_clipboard(clipboard_manager);
     }
 
-    fn close(&mut self) {
+    pub fn close(&mut self) {
         if self.is_open {
             self.is_open = false;
             unsafe {
@@ -618,16 +586,7 @@ impl PlatformWindow for X11Window {
         }
     }
 
-    fn get_render_context(&self) -> RenderContext {
-        match &self.render_mode {
-            RenderMode::Gpu(ctx, _) => RenderContext::OpenGL {
-                context: ctx.egl_context as *mut _,
-            },
-            RenderMode::Cpu(_) => RenderContext::CPU,
-        }
-    }
-
-    fn is_open(&self) -> bool {
+    pub fn is_open(&self) -> bool {
         self.is_open
     }
 }

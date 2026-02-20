@@ -22,12 +22,11 @@ use std::{cell::RefCell, sync::Arc};
 
 use azul_core::{refany::RefAny, resources::AppConfig};
 use azul_css::props::basic::{LayoutPoint, LayoutRect, LayoutSize};
-use azul_layout::window_state::{FullWindowState, WindowCreateOptions};
+use azul_layout::window_state::WindowCreateOptions;
 pub use resources::AppResources;
 use rust_fontconfig::FcFontCache;
 
-use super::{PlatformWindow, WindowError, WindowProperties};
-use crate::desktop::shell2::common::RenderContext;
+use super::WindowError;
 
 use super::common::debug_server::LogCategory;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};
@@ -45,75 +44,44 @@ pub enum LinuxEvent {
     Wayland(wayland::WaylandEvent),
 }
 
-impl PlatformWindow for LinuxWindow {
-    type EventType = LinuxEvent;
-
-    fn new(options: WindowCreateOptions, app_data: RefAny) -> Result<Self, WindowError>
-    where
-        Self: Sized,
-    {
-        let resources = Arc::new(AppResources::default_for_testing());
-        let app_data_arc = Arc::new(std::cell::RefCell::new(app_data));
-        Self::new_with_resources(options, app_data_arc, resources)
-    }
-
-    fn get_state(&self) -> FullWindowState {
-        match self {
-            LinuxWindow::X11(w) => w.get_state(),
-            LinuxWindow::Wayland(w) => w.get_state(),
-        }
-    }
-
-    fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError> {
-        match self {
-            LinuxWindow::X11(w) => w.set_properties(props),
-            LinuxWindow::Wayland(w) => w.set_properties(props),
-        }
-    }
-
-    fn poll_event(&mut self) -> Option<Self::EventType> {
+// Lifecycle methods (formerly on PlatformWindow V1 trait)
+impl LinuxWindow {
+    pub fn poll_event(&mut self) -> Option<LinuxEvent> {
         match self {
             LinuxWindow::X11(w) => w.poll_event().map(LinuxEvent::X11),
             LinuxWindow::Wayland(w) => w.poll_event().map(LinuxEvent::Wayland),
         }
     }
 
-    fn get_render_context(&self) -> RenderContext {
-        match self {
-            LinuxWindow::X11(w) => w.get_render_context(),
-            LinuxWindow::Wayland(w) => w.get_render_context(),
-        }
-    }
-
-    fn present(&mut self) -> Result<(), WindowError> {
+    pub fn present(&mut self) -> Result<(), WindowError> {
         match self {
             LinuxWindow::X11(w) => w.present(),
             LinuxWindow::Wayland(w) => w.present(),
         }
     }
 
-    fn is_open(&self) -> bool {
+    pub fn is_open(&self) -> bool {
         match self {
             LinuxWindow::X11(w) => w.is_open(),
             LinuxWindow::Wayland(w) => w.is_open(),
         }
     }
 
-    fn close(&mut self) {
+    pub fn close(&mut self) {
         match self {
             LinuxWindow::X11(w) => w.close(),
             LinuxWindow::Wayland(w) => w.close(),
         }
     }
 
-    fn request_redraw(&mut self) {
+    pub fn request_redraw(&mut self) {
         match self {
             LinuxWindow::X11(w) => w.request_redraw(),
             LinuxWindow::Wayland(w) => w.request_redraw(),
         }
     }
 
-    fn sync_clipboard(
+    pub fn sync_clipboard(
         &mut self,
         clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
     ) {

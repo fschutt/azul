@@ -58,7 +58,7 @@ use crate::desktop::shell2::common::debug_server::LogCategory;
 use crate::desktop::{
     shell2::common::{
         event_v2::{self, PlatformWindowV2},
-        PlatformWindow, RenderContext, WindowError, WindowProperties,
+        WindowError,
     },
     wr_translate2::{self, AsyncHitTester, Notifier},
 };
@@ -467,45 +467,10 @@ fn translate_keysym_to_virtual_keycode(keysym: u32) -> azul_core::window::Virtua
     }
 }
 
-// PlatformWindow Implementation
+// Lifecycle methods (formerly on PlatformWindow V1 trait)
 
-impl PlatformWindow for WaylandWindow {
-    type EventType = WaylandEvent;
-
-    fn new(options: WindowCreateOptions, app_data: RefAny) -> Result<Self, WindowError>
-    where
-        Self: Sized,
-    {
-        let resources = Arc::new(super::AppResources::default_for_testing());
-        let app_data_arc = Arc::new(std::cell::RefCell::new(app_data));
-
-        // Update the app_data in resources
-        let resources = Arc::new(super::AppResources {
-            app_data: app_data_arc,
-            config: resources.config.clone(),
-            fc_cache: resources.fc_cache.clone(),
-            font_registry: resources.font_registry.clone(),
-            system_style: resources.system_style.clone(),
-            icon_provider: resources.icon_provider.clone(),
-        });
-
-        Self::new(options, resources)
-    }
-
-    fn get_state(&self) -> FullWindowState {
-        self.current_window_state.clone()
-    }
-
-    fn set_properties(&mut self, props: WindowProperties) -> Result<(), WindowError> {
-        if let Some(title) = props.title {
-            self.current_window_state.title = title.clone().into();
-            let c_title = CString::new(title).unwrap();
-            unsafe { (self.wayland.xdg_toplevel_set_title)(self.xdg_toplevel, c_title.as_ptr()) };
-        }
-        Ok(())
-    }
-
-    fn poll_event(&mut self) -> Option<Self::EventType> {
+impl WaylandWindow {
+    pub fn poll_event(&mut self) -> Option<WaylandEvent> {
         // Check timers and threads before processing Wayland events
         self.check_timers_and_threads();
 
@@ -519,19 +484,7 @@ impl PlatformWindow for WaylandWindow {
         }
     }
 
-    fn get_render_context(&self) -> RenderContext {
-        match &self.render_mode {
-            RenderMode::Gpu(ctx, _) => ctx
-                .egl_context
-                .map(|c| RenderContext::OpenGL {
-                    context: c as *mut _,
-                })
-                .unwrap_or(RenderContext::CPU),
-            RenderMode::Cpu(_) => RenderContext::CPU,
-        }
-    }
-
-    fn present(&mut self) -> Result<(), WindowError> {
+    pub fn present(&mut self) -> Result<(), WindowError> {
         let result = match &self.render_mode {
             RenderMode::Gpu(gl_context, _) => gl_context.swap_buffers(),
             RenderMode::Cpu(Some(cpu_state)) => {
@@ -576,19 +529,19 @@ impl PlatformWindow for WaylandWindow {
         result
     }
 
-    fn is_open(&self) -> bool {
+    pub fn is_open(&self) -> bool {
         self.is_open
     }
-    fn close(&mut self) {
+    pub fn close(&mut self) {
         self.is_open = false;
     }
-    fn request_redraw(&mut self) {
+    pub fn request_redraw(&mut self) {
         if self.configured {
             self.present().ok();
         }
     }
 
-    fn sync_clipboard(
+    pub fn sync_clipboard(
         &mut self,
         clipboard_manager: &mut azul_layout::managers::clipboard::ClipboardManager,
     ) {

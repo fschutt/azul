@@ -113,8 +113,6 @@ pub fn register_owned_menu_window(mut window: Box<super::x11::X11Window>) {
 /// This closes the window and removes it from both the owned windows list
 /// and the x11_windows map.
 pub fn close_owned_menu_window(window_id: X11WindowId) -> bool {
-    use super::super::common::PlatformWindow;
-
     if let Ok(mut registry) = WINDOW_REGISTRY.lock() {
         // Find and remove from owned windows
         if let Some(pos) = registry
@@ -124,7 +122,7 @@ pub fn close_owned_menu_window(window_id: X11WindowId) -> bool {
         {
             let mut window = registry.owned_menu_windows.remove(pos);
             // Close the window explicitly
-            PlatformWindow::close(&mut *window);
+            window.close();
             // Remove from pointer registry
             registry.x11_windows.remove(&window_id);
             // Window is dropped here

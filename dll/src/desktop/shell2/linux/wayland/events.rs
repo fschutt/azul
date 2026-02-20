@@ -14,7 +14,6 @@ use azul_core::{
 };
 
 use super::{defines::*, WaylandWindow};
-use crate::desktop::shell2::common::window::PlatformWindow;
 
 use super::super::super::common::debug_server::LogCategory;
 use crate::{log_debug, log_error, log_info, log_trace, log_warn};

@@ -50,8 +50,7 @@ pub mod run;
 // Re-export common types
 pub use common::{
     select_compositor_mode, Compositor, CompositorError, CompositorMode, CpuCompositor, DlError,
-    DynamicLibrary, PlatformWindow, RenderContext, SystemCapabilities, WindowError,
-    WindowProperties,
+    DynamicLibrary, RenderContext, SystemCapabilities, WindowError,
 };
 // Re-export run function
 pub use run::run;

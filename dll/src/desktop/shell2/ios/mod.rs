@@ -11,7 +11,7 @@ use crate::desktop::{
     shell2::common::{
         event_v2::{self, PlatformWindowV2}, 
         debug_server::LogCategory,
-        PlatformWindow, WindowError, WindowProperties, RenderContext
+        WindowError,
     },
     wr_translate2::{AsyncHitTester, WrRenderApi, WrTransaction},
 };
@@ -278,29 +278,18 @@ impl PlatformWindowV2 for IOSWindow {
     fn sync_window_state(&mut self) {} // stub - iOS handles this natively
 }
 
-impl PlatformWindow for IOSWindow {
-    type EventType = IOSEvent;
+// Lifecycle methods (formerly on PlatformWindow V1 trait)
+impl IOSWindow {
+    pub fn poll_event(&mut self) -> Option<IOSEvent> { None }
 
-    fn new(options: WindowCreateOptions) -> Result<Self, WindowError> {
-        // This won't be called directly, but is required by the trait.
-        unimplemented!();
-    }
-
-    // Since iOS has no event loop, poll_event does nothing.
-    fn poll_event(&mut self) -> Option<Self::EventType> { None }
-
-    fn present(&mut self) -> Result<(), WindowError> {
+    pub fn present(&mut self) -> Result<(), WindowError> {
         // Request a redraw from the system. This will trigger `drawRect:`.
         let view: Id<Object> = unsafe { msg_send![self.ui_window, view] };
         let _: () = unsafe { msg_send![view, setNeedsDisplay] };
         Ok(())
     }
 
-    // ... other stubs for PlatformWindow ...
-    fn get_state(&self) -> FullWindowState { self.current_window_state.clone() }
-    fn set_properties(&mut self, _: WindowProperties) -> Result<(), WindowError> { Ok(()) }
-    fn get_render_context(&self) -> RenderContext { RenderContext::CPU }
-    fn is_open(&self) -> bool { self.is_open }
-    fn close(&mut self) { self.is_open = false; }
-    fn request_redraw(&mut self) { self.present().unwrap(); }
+    pub fn is_open(&self) -> bool { self.is_open }
+    pub fn close(&mut self) { self.is_open = false; }
+    pub fn request_redraw(&mut self) { self.present().unwrap(); }
 }

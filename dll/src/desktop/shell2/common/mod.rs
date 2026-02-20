@@ -21,4 +21,3 @@ pub use error::{CompositorError, DlError, WindowError};
 // V2 re-exports
 pub use event_v2::{HitTestNode, PlatformWindowV2};
 pub use layout_v2::{generate_frame, regenerate_layout};
-pub use window::{PlatformWindow, WindowProperties};
