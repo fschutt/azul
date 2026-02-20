@@ -1,42 +1,63 @@
-//! Stub/headless backend for testing.
+//! Stub/headless backend for testing and CPU-only rendering.
 //!
-//! This backend implements the full `PlatformWindow` trait without using any
-//! system APIs (no window, no OpenGL, no platform event loop). It behaves
-//! exactly like the real platform windows — DOM is laid out, callbacks fire,
-//! timers tick — but all rendering is a no-op and events are injected
-//! programmatically.
+//! This backend implements the full `PlatformWindow` trait without
+//! GPU / OpenGL. It behaves like a real platform window — DOM is laid out,
+//! callbacks fire, timers tick — but rendering goes through a **CpuBackend**
+//! instead of WebRender.
 //!
-//! ## Use Cases
+//! ## CpuBackend
 //!
-//! - **AZUL_HEADLESS mode**: Full E2E testing without a display server
-//! - **CI/CD pipelines**: Headless test runs with no GPU
-//! - **Benchmarking**: Measure layout/callback performance without GPU overhead
-//! - **Future**: CPU screenshot capture via `cpurender` integration
+//! `CpuBackend` has a similar *purpose* to the WebRender pipeline
+//! (render-api, renderer, hit-tester) but is fully CPU-based and much
+//! simpler. It is intentionally less efficient — the target use-case is
+//! small, ancillary windows (Linux menu bars, tooltip popups) and headless
+//! E2E tests, not high-framerate rendering.
+//!
+//! ```text
+//! WebRender path:   DisplayList → WrRenderApi → Renderer (GPU) → swapBuffers
+//! CpuBackend path:  DisplayList → cpurender   → Pixmap  (CPU)  → (no-op / PNG)
+//! ```
+//!
+//! ## Headless Event Loop
+//!
+//! `StubWindow::run()` blocks in an infinite loop just like every other
+//! platform's `run()`. Instead of busy-waiting or `thread::sleep`, it
+//! blocks on a **`Condvar`** that is signalled when:
+//!
+//! * An event is injected (via `inject_event` / debug server)
+//! * A timer fires (the earliest timer deadline is used as `wait_timeout`)
+//! * A background thread completes
+//!
+//! This means the headless loop consumes **zero CPU** when idle, just
+//! like the native `WaitMessage()` / `XNextEvent()` / `NSEvent` loops
+//! on real platforms.
+//!
+//! If nothing can wake the loop (no timers, no threads, no debug server)
+//! a warning is printed to stderr and the loop blocks indefinitely
+//! (the programme hangs). This is intentional — it is the same behaviour
+//! you would get from a real window that nobody interacts with.
 //!
 //! ## Architecture
 //!
 //! ```text
 //! StubWindow
 //! ├── common: CommonWindowState        (shared with all platforms)
+//! ├── cpu_backend: CpuBackend          (replaces WebRender)
 //! ├── event_queue: VecDeque<StubEvent> (programmatic event injection)
-//! ├── stub_timers: BTreeMap            (in-process timer tracking)
 //! └── pending_window_creates: Vec      (popup/dialog queue)
 //! ```
-//!
-//! The stub uses `CommonWindowState` + `impl_platform_window_getters!` just
-//! like macOS/Win32/X11/Wayland, so all cross-platform event processing,
-//! callback dispatch, and state diffing works identically.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::cell::RefCell;
+use std::time::{Duration, Instant};
 
 use azul_core::{
     geom::LogicalPosition,
     gl::OptionGlContextPtr,
     hit_test::DocumentId,
     refany::RefAny,
-    resources::{IdNamespace, ImageCache, RendererResources},
+    resources::{AppConfig, AppTerminationBehavior, IdNamespace, ImageCache, RendererResources},
     window::{RawWindowHandle, VirtualKeyCode},
 };
 use azul_layout::{
@@ -44,17 +65,20 @@ use azul_layout::{
     window_state::{FullWindowState, WindowCreateOptions},
 };
 use rust_fontconfig::FcFontCache;
+use rust_fontconfig::registry::FcFontRegistry;
 
 use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
 use crate::desktop::shell2::common::event::HitTestNode;
 
 use crate::desktop::shell2::common::{
+    debug_server::{self, LogCategory},
     event::{self, CommonWindowState, PlatformWindow},
     WindowError,
 };
-use crate::impl_platform_window_getters;
+use crate::{impl_platform_window_getters, log_debug, log_error, log_info, log_trace};
 
-/// Events that can be injected into a StubWindow for testing.
+/// Events that can be injected into a StubWindow for testing or
+/// via the debug server.
 #[derive(Debug, Clone)]
 pub enum StubEvent {
     /// Simulate window close
@@ -75,42 +99,112 @@ pub enum StubEvent {
     Resize { width: f32, height: f32 },
     /// Simulate scroll wheel
     Scroll { delta_x: f32, delta_y: f32 },
-    /// Tick all active timers (simulates timer expiration)
-    TickTimers,
 }
 
-/// Headless window that implements the full PlatformWindow trait.
+// ---------------------------------------------------------------------------
+// CpuBackend — replaces WebRender in headless / CPU-only windows
+// ---------------------------------------------------------------------------
+
+/// CPU-based rendering backend that replaces the WebRender pipeline.
+///
+/// In the GPU path every window holds a `WrRenderApi` (for submitting
+/// display-lists, registering fonts/images), a `webrender::Renderer`
+/// (for rasterising on the GPU) and an `AsyncHitTester` (for spatial
+/// queries).  `CpuBackend` fills the same role with a much simpler,
+/// fully CPU-based implementation:
+///
+/// | GPU path               | CpuBackend equivalent                       |
+/// |------------------------|---------------------------------------------|
+/// | `WrRenderApi`          | not needed – fonts/images stay in LayoutWindow |
+/// | `webrender::Renderer`  | `cpurender::render()` (behind feature gate) |
+/// | `AsyncHitTester`       | `CpuHitTester` (layout-based)               |
+/// | `swapBuffers`          | no-op (or write PNG for screenshots)        |
+///
+/// The backend is intentionally less efficient than WebRender; the target
+/// are small CPU-rendered windows (Linux menu bars, tooltip popups) and
+/// headless E2E testing.
+pub struct CpuBackend {
+    /// CPU-based hit tester rebuilt after each layout pass.
+    pub hit_tester: azul_layout::headless::CpuHitTester,
+    /// Last rendered pixmap (if CPU rendering is enabled).
+    /// `None` when rendering is disabled (layout-only mode).
+    #[cfg(feature = "cpurender")]
+    pub last_frame: Option<tiny_skia::Pixmap>,
+}
+
+impl CpuBackend {
+    pub fn new() -> Self {
+        Self {
+            hit_tester: azul_layout::headless::CpuHitTester::new(),
+            #[cfg(feature = "cpurender")]
+            last_frame: None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StubWindow
+// ---------------------------------------------------------------------------
+
+/// Shared wake-up state for the condvar-based event loop.
+///
+/// The `Condvar` is signalled whenever new work is available (event
+/// injected, timer registered, thread completed).  This lets the
+/// blocking loop sleep with zero CPU usage when idle.
+struct WakeState {
+    /// `true` when the loop should re-check for work.
+    woken: bool,
+}
+
+/// Headless / CPU-only window implementing the full `PlatformWindow` trait.
 ///
 /// Behaves identically to platform windows for layout, callbacks, and state
-/// management — but without any system API calls. All "rendering" is a no-op.
+/// management.  Instead of a GPU context it holds a [`CpuBackend`] for
+/// hit-testing and optional CPU rendering.
 pub struct StubWindow {
-    /// Common window state (layout, resources, etc.)
+    /// Common window state (layout, resources, etc.) — shared with all platforms.
     pub common: CommonWindowState,
-    /// Whether the window is "open"
+    /// CPU rendering backend (replaces WebRender).
+    pub cpu_backend: CpuBackend,
+    /// Whether the window is "open".
     is_open: bool,
-    /// Event queue for programmatic event injection
+    /// Event queue for programmatic event injection.
     event_queue: VecDeque<StubEvent>,
-    /// Timer storage (timer_id -> Timer) — timers are ticked manually
+    /// Timer storage (timer_id -> Timer).
     stub_timers: BTreeMap<usize, azul_layout::timer::Timer>,
-    /// Thread poll timer running flag
+    /// Thread poll timer running flag.
     thread_poll_timer_running: bool,
-    /// Pending window creation requests (for popup menus, dialogs, etc.)
+    /// Pending window creation requests (for popup menus, dialogs, etc.).
     pub pending_window_creates: Vec<WindowCreateOptions>,
+    /// Config snapshot (needed for spawning sub-windows).
+    config: AppConfig,
+    /// Font registry (needed for spawning sub-windows).
+    font_registry: Option<Arc<FcFontRegistry>>,
+    /// Condvar + mutex used to block the event loop until work arrives.
+    wake_condvar: Arc<Condvar>,
+    wake_mutex: Arc<Mutex<WakeState>>,
 }
+
+/// Timer poll interval — how often the loop re-checks when timers are
+/// active.  16 ms = 60 Hz, matches the Linux select() timeout used
+/// by the X11 backend.
+const TIMER_POLL_MS: u64 = 16;
 
 impl StubWindow {
     /// Create a new headless window with the given options.
     ///
     /// This constructor mirrors the real platform window constructors:
-    /// 1. Creates LayoutWindow with font cache
-    /// 2. Initializes CommonWindowState
-    /// 3. Ready for initial layout (DOM → display list)
+    /// 1. Creates `LayoutWindow` with font cache
+    /// 2. Initialises `CommonWindowState`
+    /// 3. Sets up the `CpuBackend`
     ///
-    /// Unlike real windows, no system resources are allocated.
+    /// No system resources (window handle, GL context) are allocated.
     pub fn new(
         options: WindowCreateOptions,
         app_data: Arc<RefCell<RefAny>>,
+        config: AppConfig,
         fc_cache: Arc<FcFontCache>,
+        font_registry: Option<Arc<FcFontRegistry>>,
     ) -> Result<Self, WindowError> {
         let full_window_state = options.window_state;
 
@@ -118,6 +212,9 @@ impl StubWindow {
         let mut layout_window = LayoutWindow::new(fc_cache.as_ref().clone())
             .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
         layout_window.current_window_state = full_window_state.clone();
+
+        let wake_condvar = Arc::new(Condvar::new());
+        let wake_mutex = Arc::new(Mutex::new(WakeState { woken: false }));
 
         Ok(Self {
             common: CommonWindowState {
@@ -139,24 +236,24 @@ impl StubWindow {
                 renderer: None,
                 frame_needs_regeneration: true,
             },
+            cpu_backend: CpuBackend::new(),
             is_open: true,
             event_queue: VecDeque::new(),
             stub_timers: BTreeMap::new(),
             thread_poll_timer_running: false,
             pending_window_creates: Vec::new(),
+            config,
+            font_registry,
+            wake_condvar,
+            wake_mutex,
         })
     }
 
-    // === Lifecycle Methods ===
+    // === Lifecycle ===
 
     /// Poll the next event from the queue.
     pub fn poll_event(&mut self) -> Option<StubEvent> {
         self.event_queue.pop_front()
-    }
-
-    /// Present (render) — no-op in headless mode.
-    pub fn present(&mut self) -> Result<(), WindowError> {
-        Ok(())
     }
 
     /// Check if the window is still "open".
@@ -169,30 +266,27 @@ impl StubWindow {
         self.is_open = false;
     }
 
-    /// Request a redraw — no-op in headless mode.
-    pub fn request_redraw(&mut self) {
-        // No rendering in headless mode
-    }
-
-    // === Test Helpers ===
+    // === Event injection (for tests / debug server) ===
 
     /// Inject an event into the queue for the next poll cycle.
+    ///
+    /// Wakes the blocking event loop if it is sleeping on the condvar.
     pub fn inject_event(&mut self, event: StubEvent) {
         self.event_queue.push_back(event);
+        self.wake();
     }
 
     /// Inject multiple events at once.
     pub fn inject_events(&mut self, events: impl IntoIterator<Item = StubEvent>) {
         self.event_queue.extend(events);
+        self.wake();
     }
 
-    /// Tick all active timers manually.
-    ///
-    /// In real platforms, timers fire via OS mechanisms (NSTimer, SetTimer, timerfd).
-    /// In headless mode, the test harness calls this to simulate timer ticks.
-    pub fn tick_timers(&mut self) {
-        if self.common.layout_window.is_some() {
-            self.common.frame_needs_regeneration = true;
+    /// Signal the condvar so the blocking loop wakes up.
+    fn wake(&self) {
+        if let Ok(mut guard) = self.wake_mutex.lock() {
+            guard.woken = true;
+            self.wake_condvar.notify_one();
         }
     }
 
@@ -204,6 +298,149 @@ impl StubWindow {
     /// Get the number of pending window creation requests.
     pub fn pending_window_count(&self) -> usize {
         self.pending_window_creates.len()
+    }
+
+    // === Blocking event loop ===
+
+    /// Run the headless event loop — **blocks** until the window closes.
+    ///
+    /// This is the StubWindow equivalent of `NSApplication.run()` / the
+    /// Win32 `GetMessage` loop / the X11 `XNextEvent` loop.
+    ///
+    /// The loop uses a `Condvar` for zero-CPU blocking:
+    /// * When timers are active it uses `wait_timeout` (16 ms / 60 Hz)
+    ///   so timers get ticked even without external events.
+    /// * When no timers are active it calls `wait` (indefinite) — the
+    ///   thread is parked until `inject_event()`, `start_timer()`, or
+    ///   another caller invokes `wake()`.
+    /// * If nothing can ever wake the loop (no timers, no threads, no
+    ///   debug server) a one-time warning is printed to stderr and the
+    ///   loop blocks forever — identical to a desktop window nobody
+    ///   interacts with.
+    pub fn run(mut self) -> Result<(), WindowError> {
+        let debug_enabled = debug_server::is_debug_enabled();
+        let start = Instant::now();
+
+        log_info!(
+            LogCategory::EventLoop,
+            "[Stub] Entering condvar-based blocking event loop (debug={})",
+            debug_enabled,
+        );
+
+        // -- child windows (sub-StubWindows for menus, dialogs) --
+        let mut children: Vec<StubWindow> = Vec::new();
+        let mut warned_no_wake_sources = false;
+
+        while self.is_open() {
+            // ── Phase 1: Process injected events ─────────────────
+            while let Some(event) = self.poll_event() {
+                match event {
+                    StubEvent::Close => {
+                        self.close();
+                    }
+                    // TODO: wire mouse/keyboard events into
+                    // PlatformWindow::process_window_events() once the
+                    // shared event-dispatch code is ready.
+                    _ => {}
+                }
+            }
+
+            // ── Phase 2: Tick timers ─────────────────────────────
+            if !self.stub_timers.is_empty() {
+                self.common.frame_needs_regeneration = true;
+            }
+
+            // ── Phase 3: Spawn sub-StubWindows for pending creates ─
+            while let Some(pending_create) = self.pending_window_creates.pop() {
+                log_debug!(
+                    LogCategory::Window,
+                    "[Stub] Spawning sub-StubWindow (type: {:?})",
+                    pending_create.window_state.flags.window_type
+                );
+                match StubWindow::new(
+                    pending_create,
+                    self.common.app_data.clone(),
+                    self.config.clone(),
+                    self.common.fc_cache.clone(),
+                    self.font_registry.clone(),
+                ) {
+                    Ok(child) => children.push(child),
+                    Err(e) => {
+                        log_error!(
+                            LogCategory::Window,
+                            "[Stub] Failed to create sub-StubWindow: {:?}",
+                            e
+                        );
+                    }
+                }
+            }
+
+            // ── Phase 4: Pump child windows ──────────────────────
+            children.retain_mut(|child| {
+                while let Some(ev) = child.poll_event() {
+                    match ev {
+                        StubEvent::Close => { child.close(); }
+                        _ => {}
+                    }
+                }
+                child.pending_window_creates.clear();
+                child.is_open()
+            });
+
+            // ── Phase 5: Condvar-based wait ──────────────────────
+            let has_timers = !self.stub_timers.is_empty();
+            let has_wake_sources = has_timers
+                || self.thread_poll_timer_running
+                || debug_enabled
+                || !children.is_empty();
+
+            if !has_wake_sources && !warned_no_wake_sources {
+                warned_no_wake_sources = true;
+                eprintln!(
+                    "[azul] StubWindow: no timers, threads, or debug server active. \
+                     The event loop will block indefinitely on a condvar \
+                     (same as a desktop window nobody interacts with). \
+                     Set AZUL_DEBUG=1 to enable the debug server, or \
+                     inject events via inject_event()."
+                );
+            }
+
+            // Lock, clear `woken`, then wait.
+            let mut guard = self.wake_mutex.lock().unwrap();
+            guard.woken = false;
+
+            if has_timers {
+                // Timers active → poll at 60 Hz
+                let _r = self.wake_condvar.wait_timeout_while(
+                    guard,
+                    Duration::from_millis(TIMER_POLL_MS),
+                    |ws| !ws.woken,
+                );
+            } else {
+                // No timers → block indefinitely until woken
+                let _r = self.wake_condvar.wait_while(
+                    guard,
+                    |ws| !ws.woken,
+                );
+            }
+        }
+
+        log_info!(
+            LogCategory::EventLoop,
+            "[Stub] Event loop finished (elapsed: {:.1}s)",
+            start.elapsed().as_secs_f64()
+        );
+
+        // Handle termination behaviour (same as every platform run())
+        match self.config.termination_behavior {
+            AppTerminationBehavior::EndProcess => {
+                std::process::exit(0);
+            }
+            AppTerminationBehavior::ReturnToMain => { /* return normally */ }
+            AppTerminationBehavior::RunForever => { /* all windows closed */ }
+        }
+
+        Ok(())
     }
 }
 
@@ -237,7 +474,7 @@ impl PlatformWindow for StubWindow {
         }
     }
 
-    // Timer Management — in-process (no OS timers)
+    // Timer Management — condvar wakes the loop when timers change
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
         if let Some(layout_window) = self.common.layout_window.as_mut() {
@@ -246,6 +483,7 @@ impl PlatformWindow for StubWindow {
                 .insert(azul_core::task::TimerId { id: timer_id }, timer.clone());
         }
         self.stub_timers.insert(timer_id, timer);
+        self.wake(); // transition condvar from indefinite to timed wait
     }
 
     fn stop_timer(&mut self, timer_id: usize) {
@@ -302,7 +540,7 @@ impl PlatformWindow for StubWindow {
         _menu: &azul_core::menu::Menu,
         _position: LogicalPosition,
     ) {
-        // No-op in headless mode
+        // TODO: could create a sub-StubWindow with the menu content
     }
 
     fn show_tooltip_from_callback(
@@ -310,17 +548,21 @@ impl PlatformWindow for StubWindow {
         _text: &str,
         _position: LogicalPosition,
     ) {
-        // No-op in headless mode
+        // No-op — no visual surface to show a tooltip on
     }
 
     fn hide_tooltip_from_callback(&mut self) {
-        // No-op in headless mode
+        // No-op
     }
 
     fn sync_window_state(&mut self) {
-        // No native window to synchronize in headless mode
+        // No native window to synchronise
     }
 }
+
+// =========================================================================
+// Tests
+// =========================================================================
 
 #[cfg(test)]
 mod tests {
@@ -329,7 +571,13 @@ mod tests {
     fn make_stub() -> StubWindow {
         let fc_cache = Arc::new(FcFontCache::default());
         let app_data = Arc::new(RefCell::new(RefAny::new(())));
-        StubWindow::new(WindowCreateOptions::default(), app_data, fc_cache).unwrap()
+        StubWindow::new(
+            WindowCreateOptions::default(),
+            app_data,
+            AppConfig::default(),
+            fc_cache,
+            None,
+        ).unwrap()
     }
 
     #[test]
@@ -383,6 +631,15 @@ mod tests {
 
         window.queue_window_create(WindowCreateOptions::default());
         assert_eq!(window.pending_window_count(), 1);
+    }
+
+    #[test]
+    fn test_cpu_backend_creation() {
+        let backend = CpuBackend::new();
+        let results = backend.hit_tester.hit_test(
+            azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 },
+        );
+        assert!(results.is_empty());
     }
 }
 

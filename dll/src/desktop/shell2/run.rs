@@ -39,128 +39,30 @@ fn is_headless() -> bool {
     )
 }
 
-/// Headless event loop — runs the application without a display server.
+/// Create a `StubWindow` and run its blocking event loop.
 ///
-/// Uses `StubWindow` (which implements the full `PlatformWindow` trait) to
-/// process layout, callbacks, and timers without any system API calls.
-/// All rendering is a no-op. Combined with `AZUL_DEBUG=1`, you get remote
-/// DOM inspection via the debug server.
-fn run_headless(
+/// Called from each platform's `run()` when `AZUL_HEADLESS` is set.
+/// The loop blocks on a condvar (zero CPU when idle) and behaves
+/// identically to a real platform window — layout, callbacks, timers
+/// all work — but without a GPU context or native window handle.
+fn run_stub(
     app_data: RefAny,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
-    _font_registry: Option<Arc<FcFontRegistry>>,
+    font_registry: Option<Arc<FcFontRegistry>>,
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     use std::cell::RefCell;
-    use azul_core::resources::AppTerminationBehavior;
-    use azul_layout::headless::HeadlessConfig;
     use super::stub::StubWindow;
 
-    let headless_config = HeadlessConfig::from_env();
-
     log_info!(
         LogCategory::EventLoop,
-        "[Headless] Starting headless event loop ({}x{} @ {}x DPI, max_iter={:?})",
-        headless_config.width,
-        headless_config.height,
-        headless_config.dpi_factor,
-        headless_config.max_iterations
+        "[Headless] Creating StubWindow + entering blocking event loop"
     );
 
-    // Wrap app_data for shared access (same as platform run functions)
     let app_data_arc = Arc::new(RefCell::new(app_data));
-
-    // Create StubWindow with CommonWindowState (same as real platforms)
-    let mut window = StubWindow::new(root_window, app_data_arc, fc_cache)?;
-
-    log_info!(
-        LogCategory::EventLoop,
-        "[Headless] StubWindow created, entering event loop"
-    );
-
-    let mut iteration = 0;
-
-    // Main event loop — identical structure to platform run functions
-    while window.is_open() {
-        // Check iteration limit (prevents infinite loops in tests)
-        if let Some(max) = headless_config.max_iterations {
-            if iteration >= max {
-                log_info!(
-                    LogCategory::EventLoop,
-                    "[Headless] Reached max iterations ({}), closing",
-                    max
-                );
-                window.close();
-                break;
-            }
-        }
-
-        // Process all queued events
-        while let Some(event) = window.poll_event() {
-            match event {
-                super::stub::StubEvent::Close => {
-                    window.close();
-                }
-                super::stub::StubEvent::TickTimers => {
-                    window.tick_timers();
-                }
-                _ => {
-                    // Other events (mouse, keyboard, etc.) are available
-                    // for future integration with the PlatformWindow trait's
-                    // process_window_events() once we wire up state updates
-                }
-            }
-        }
-
-        // Process pending window creates (for popup menus, dialogs, etc.)
-        while let Some(_pending_create) = window.pending_window_creates.pop() {
-            log_debug!(
-                LogCategory::Window,
-                "[Headless] Ignoring pending window create (headless mode)"
-            );
-        }
-
-        // In headless mode, we don't block-wait for events (no OS event source).
-        // Instead, if there are no more events and no active timers, we're done.
-        if !window.has_active_timers() {
-            log_info!(
-                LogCategory::EventLoop,
-                "[Headless] No events or timers, closing after {} iterations",
-                iteration
-            );
-            // In headless mode without timers or injected events,
-            // the loop would spin forever. Close gracefully.
-            window.close();
-            break;
-        }
-
-        iteration += 1;
-
-        // Small sleep to prevent busy-waiting when timers are active
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
-
-    log_info!(
-        LogCategory::EventLoop,
-        "[Headless] Event loop finished after {} iterations",
-        iteration
-    );
-
-    // Handle termination behavior (same as platform run functions)
-    match config.termination_behavior {
-        AppTerminationBehavior::EndProcess => {
-            std::process::exit(0);
-        }
-        AppTerminationBehavior::ReturnToMain => {
-            // Return normally
-        }
-        AppTerminationBehavior::RunForever => {
-            // All windows closed, return
-        }
-    }
-
-    Ok(())
+    let window = StubWindow::new(root_window, app_data_arc, config, fc_cache, font_registry)?;
+    window.run()
 }
 
 /// Run the application with the given root window configuration
@@ -194,7 +96,7 @@ pub fn run(
 ) -> Result<(), WindowError> {
     // Check for headless mode BEFORE any platform-specific initialization
     if is_headless() {
-        return run_headless(app_data, config, fc_cache, font_registry, root_window);
+        return run_stub(app_data, config, fc_cache, font_registry, root_window);
     }
 
     use super::common::debug_server;
@@ -486,7 +388,7 @@ pub fn run(
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     if is_headless() {
-        return run_headless(app_data, config, fc_cache, font_registry, root_window);
+        return run_stub(app_data, config, fc_cache, font_registry, root_window);
     }
     unsafe {
         INITIAL_OPTIONS = Some((app_data, config, fc_cache, font_registry, root_window));
@@ -504,7 +406,7 @@ pub fn run(
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     if is_headless() {
-        return run_headless(app_data, config, fc_cache, font_registry, root_window);
+        return run_stub(app_data, config, fc_cache, font_registry, root_window);
     }
     log_trace!(LogCategory::Window, "[shell2::run] Windows run() called");
     use std::cell::RefCell;
@@ -763,7 +665,7 @@ pub fn run(
     root_window: WindowCreateOptions,
 ) -> Result<(), WindowError> {
     if is_headless() {
-        return run_headless(app_data, config, fc_cache, font_registry, root_window);
+        return run_stub(app_data, config, fc_cache, font_registry, root_window);
     }
     use std::cell::RefCell;
 
