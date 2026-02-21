@@ -43,10 +43,19 @@ const app = {
         openMenu: null,
         // App state JSON (last loaded)
         appStateJson: null,
+        // Saved app state snapshots { alias: jsonValue }
+        snapshots: {},
+        // Resolved symbol cache { address: resolvedInfo }
+        resolvedSymbols: {},
+        // Last loaded component registry data
+        componentData: null,
         // JSON tree collapsed paths
         jsonCollapsed: new Set(),
         // JSON tree grouped ranges that are collapsed
         jsonGroupCollapsed: new Set(),
+        // JSON tree collapsed paths for read-only views
+        jsonReadOnlyCollapsed: new Set(),
+        jsonReadOnlyGroupCollapsed: new Set(),
     },
 
     /* ================================================================
@@ -134,6 +143,9 @@ const app = {
             'resolve_function_pointers': { desc: 'Resolve fn ptrs to symbols',    examples: ['/resolve_function_pointers addresses 0x1234'],  params: [{ name: 'addresses', type: 'text', placeholder: '0x1234,0x5678' }] },
             'get_component_registry':    { desc: 'Get registered components',      examples: ['/get_component_registry'],                     params: [] },
 
+            // ── Snapshots ──
+            'restore_snapshot': { desc: 'Restore saved app state snapshot',       examples: ['/restore_snapshot alias initial-state'],         params: [{ name: 'alias', type: 'text', placeholder: 'initial-state' }] },
+
             // ── E2E ──
             'run_e2e_tests':  { desc: 'Run E2E test suite on server',              examples: ['/run_e2e_tests'],                              params: [] },
 
@@ -161,6 +173,7 @@ const app = {
                 var s = JSON.parse(saved);
                 if (s.tests) this.state.tests = s.tests;
                 if (s.cssOverrides) this.state.cssOverrides = s.cssOverrides;
+                if (s.snapshots) this.state.snapshots = s.snapshots;
             } catch(e) { console.warn('[dbg] bad localStorage:', e); }
         }
         if (!this.state.tests.length) this.handlers.newTest();
@@ -362,6 +375,7 @@ const app = {
             var testArr = Array.isArray(tests) ? tests : [tests];
             if (app.config.isMock) return app.api.mockE2eResponse(tests);
             var payload = { op: 'run_e2e_tests', tests: testArr, timeout_secs: 300 };
+            if (Object.keys(app.state.snapshots).length > 0) payload.snapshots = app.state.snapshots;
             app.debugLog(payload, 'request');
             var res = await fetch(app.config.apiUrl, { method: 'POST', body: JSON.stringify(payload) });
             var json = await res.json();
@@ -446,6 +460,10 @@ const app = {
             document.getElementById('sidebar-title').innerText = titles[view] || view;
             var tabTitles = { inspector: 'Inspector', testing: 'runner.e2e', components: 'Components' };
             document.getElementById('tab-title').innerText = tabTitles[view] || view;
+            // Load component registry when switching to components view
+            if (view === 'components') {
+                app.handlers.loadComponents();
+            }
         },
 
         switchPanel: function(panel) {
@@ -677,7 +695,8 @@ const app = {
                 var nameSpan = document.createElement('span');
                 nameSpan.className = 'test-name-editable';
                 nameSpan.textContent = test.name;
-                nameSpan.ondblclick = function(e) {
+
+                var startEdit = function(e) {
                     e.stopPropagation();
                     var inp = document.createElement('input');
                     inp.type = 'text';
@@ -697,7 +716,18 @@ const app = {
                     inp.focus();
                     inp.select();
                 };
+
+                nameSpan.ondblclick = startEdit;
                 div.appendChild(nameSpan);
+
+                // Pencil icon for rename
+                var pencil = document.createElement('span');
+                pencil.className = 'edit-icon material-icons';
+                pencil.textContent = 'edit';
+                pencil.title = 'Rename test';
+                pencil.onclick = startEdit;
+                div.appendChild(pencil);
+
                 container.appendChild(div);
             });
         },
@@ -741,6 +771,80 @@ const app = {
         showScreenshot: function(src) {
             document.getElementById('screenshot-modal-img').src = src;
             document.getElementById('screenshot-modal').classList.add('active');
+        },
+
+        renderSnapshots: function() {
+            var container = document.getElementById('snapshots-container');
+            if (!container) return;
+            var aliases = Object.keys(app.state.snapshots);
+            if (!aliases.length) {
+                container.innerHTML = '<div class="placeholder-text" style="padding:4px 8px;font-size:11px">No snapshots saved.</div>';
+                return;
+            }
+            container.innerHTML = '';
+            aliases.forEach(function(alias) {
+                var row = document.createElement('div');
+                row.className = 'snapshot-row';
+
+                var nameSpan = document.createElement('span');
+                nameSpan.className = 'snapshot-name';
+                nameSpan.textContent = alias;
+
+                var startRename = function(e) {
+                    e.stopPropagation();
+                    var inp = document.createElement('input');
+                    inp.type = 'text';
+                    inp.value = alias;
+                    inp.className = 'test-name-input';
+                    inp.style.cssText = 'width:80px;font-size:11px;';
+                    inp.onblur = function() {
+                        var newName = inp.value.trim();
+                        if (newName && newName !== alias) {
+                            app._renameSnapshot(alias, newName);
+                        } else {
+                            app.ui.renderSnapshots();
+                        }
+                    };
+                    inp.onkeydown = function(ev) {
+                        if (ev.key === 'Enter') inp.blur();
+                        if (ev.key === 'Escape') app.ui.renderSnapshots();
+                    };
+                    nameSpan.innerHTML = '';
+                    nameSpan.appendChild(inp);
+                    inp.focus();
+                    inp.select();
+                };
+
+                nameSpan.ondblclick = startRename;
+                row.appendChild(nameSpan);
+
+                // Pencil icon
+                var pencil = document.createElement('span');
+                pencil.className = 'edit-icon material-icons';
+                pencil.textContent = 'edit';
+                pencil.title = 'Rename';
+                pencil.onclick = startRename;
+                row.appendChild(pencil);
+
+                // Restore button
+                var restoreBtn = document.createElement('span');
+                restoreBtn.className = 'material-icons clickable snapshot-action';
+                restoreBtn.textContent = 'restore';
+                restoreBtn.title = 'Restore this snapshot';
+                restoreBtn.onclick = function(e) { e.stopPropagation(); app._restoreSnapshot(alias); };
+                row.appendChild(restoreBtn);
+
+                // Delete button
+                var deleteBtn = document.createElement('span');
+                deleteBtn.className = 'material-icons clickable snapshot-action';
+                deleteBtn.textContent = 'delete';
+                deleteBtn.title = 'Delete snapshot';
+                deleteBtn.style.color = 'var(--error)';
+                deleteBtn.onclick = function(e) { e.stopPropagation(); app._deleteSnapshot(alias); };
+                row.appendChild(deleteBtn);
+
+                container.appendChild(row);
+            });
         },
 
         showAddStepInline: function() {
@@ -800,8 +904,20 @@ const app = {
                 html = '<div class="form-group"><span style="color:var(--text-muted);font-size:11px">No parameters required.</span></div>';
             } else {
                 params.forEach(function(p) {
-                    html += '<div class="form-group"><label class="form-label">' + p.name + ' (' + p.type + ')</label>' +
-                        '<input type="' + (p.type === 'number' ? 'number' : 'text') + '" class="form-control step-param-input" data-name="' + p.name + '" placeholder="' + (p.placeholder || '') + '" value="' + (p.value !== undefined ? p.value : '') + '"></div>';
+                    // Special handling: snapshot alias dropdown
+                    if (op === 'restore_snapshot' && p.name === 'alias') {
+                        var aliases = Object.keys(app.state.snapshots);
+                        if (aliases.length === 0) {
+                            html += '<div class="form-group"><label class="form-label">alias</label><span style="color:var(--text-muted);font-size:11px">No snapshots saved yet.</span></div>';
+                        } else {
+                            html += '<div class="form-group"><label class="form-label">alias</label><select class="form-control step-param-input" data-name="alias">';
+                            aliases.forEach(function(a) { html += '<option value="' + esc(a) + '">' + esc(a) + '</option>'; });
+                            html += '</select></div>';
+                        }
+                    } else {
+                        html += '<div class="form-group"><label class="form-label">' + p.name + ' (' + p.type + ')</label>' +
+                            '<input type="' + (p.type === 'number' ? 'number' : 'text') + '" class="form-control step-param-input" data-name="' + p.name + '" placeholder="' + (p.placeholder || '') + '" value="' + (p.value !== undefined ? p.value : '') + '"></div>';
+                    }
                 });
             }
             container.innerHTML = html;
@@ -817,8 +933,15 @@ const app = {
             if (step.status) html += '<div style="margin-bottom:10px"><strong>Status:</strong> <span style="color:' + (step.status === 'pass' ? 'var(--success)' : 'var(--error)') + '">' + step.status.toUpperCase() + '</span></div>';
             if (step.error) html += '<div style="color:var(--error);margin-bottom:10px">' + esc(step.error) + '</div>';
             if (step.screenshot) html += '<div style="margin:10px 0"><img src="' + step.screenshot + '" style="max-width:100%;cursor:pointer;border:1px solid var(--border)" onclick="app.ui.showScreenshot(this.src)"></div>';
-            html += '<h4>Response</h4><div class="mono" style="background:var(--bg-input);padding:8px;border-radius:3px;max-height:250px;overflow:auto;font-size:11px;white-space:pre-wrap;">' + esc(step.lastResponse ? JSON.stringify(step.lastResponse, null, 2) : 'Not executed') + '</div>';
+            html += '<h4>Response</h4>';
+            html += '<div id="step-response-tree" style="max-height:300px;overflow:auto;"></div>';
             container.innerHTML = html;
+            // Render response as collapsible JSON tree (read-only)
+            if (step.lastResponse) {
+                app.json.render('step-response-tree', step.lastResponse, true);
+            } else {
+                document.getElementById('step-response-tree').innerHTML = '<div class="placeholder-text">Not executed</div>';
+            }
         },
     },
 
@@ -970,6 +1093,94 @@ const app = {
     },
 
     /* ================================================================
+     * AUTO-RESOLVE FUNCTION POINTERS
+     * ================================================================ */
+    _autoResolvePointers: async function(node) {
+        if (!node || !node.events || !node.events.length) return;
+        // Collect addresses that need resolving (not already cached)
+        var toResolve = [];
+        node.events.forEach(function(ev) {
+            if (!app.state.resolvedSymbols[ev.callback_ptr]) {
+                toResolve.push(ev.callback_ptr);
+            }
+        });
+        if (toResolve.length > 0) {
+            try {
+                var res = await app.api.post({ op: 'resolve_function_pointers', addresses: toResolve });
+                var resolved = (res.data && res.data.value) ? res.data.value : res.data;
+                if (resolved && resolved.resolved) {
+                    resolved.resolved.forEach(function(info) {
+                        if (info.symbol_name) {
+                            app.state.resolvedSymbols[info.address] = info;
+                        }
+                    });
+                }
+            } catch(e) {
+                // Silently fail — user can still click to resolve manually
+            }
+        }
+        // Update the displayed pointers in the DOM
+        var ptrs = document.querySelectorAll('.event-ptr[data-addr]');
+        ptrs.forEach(function(el) {
+            var addr = el.dataset.addr;
+            var cached = app.state.resolvedSymbols[addr];
+            if (cached) {
+                app.handlers._displayResolvedSymbol(el, addr, cached);
+            }
+        });
+    },
+
+    /* ================================================================
+     * SNAPSHOT MANAGEMENT
+     * ================================================================ */
+    _saveSnapshot: function(alias) {
+        if (!alias || !app.state.appStateJson) return;
+        app.state.snapshots[alias] = JSON.parse(JSON.stringify(app.state.appStateJson));
+        app.handlers.save();
+        app.ui.renderSnapshots();
+        app.log('Saved snapshot: ' + alias, 'info');
+    },
+
+    _restoreSnapshot: async function(alias) {
+        var snapshot = app.state.snapshots[alias];
+        if (!snapshot) {
+            app.log('Snapshot not found: ' + alias, 'error');
+            return;
+        }
+        try {
+            var res = await app.api.post({ op: 'set_app_state', state: snapshot });
+            if (res.status === 'ok') {
+                app.log('Restored snapshot: ' + alias, 'info');
+                app.handlers.loadAppState();
+                app.handlers.refreshSidebar();
+            } else {
+                app.log('Failed to restore snapshot: ' + (res.message || ''), 'error');
+            }
+        } catch(e) {
+            app.log('Restore failed: ' + e.message, 'error');
+        }
+    },
+
+    _deleteSnapshot: function(alias) {
+        delete app.state.snapshots[alias];
+        app.handlers.save();
+        app.ui.renderSnapshots();
+        app.log('Deleted snapshot: ' + alias, 'info');
+    },
+
+    _renameSnapshot: function(oldAlias, newAlias) {
+        if (!newAlias || newAlias === oldAlias) return;
+        if (app.state.snapshots[newAlias]) {
+            app.log('Snapshot name already exists: ' + newAlias, 'error');
+            return;
+        }
+        app.state.snapshots[newAlias] = app.state.snapshots[oldAlias];
+        delete app.state.snapshots[oldAlias];
+        app.handlers.save();
+        app.ui.renderSnapshots();
+    },
+
+    /* ================================================================
      * HANDLERS
      * ================================================================ */
     handlers: {
@@ -987,8 +1198,11 @@ const app = {
                     if (!confirm('Replace current project with imported data?')) return;
                     if (project.tests) app.state.tests = project.tests;
                     if (project.cssOverrides) app.state.cssOverrides = project.cssOverrides;
+                    if (project.snapshots) app.state.snapshots = project.snapshots;
+                    if (project.resolvedSymbols) app.state.resolvedSymbols = project.resolvedSymbols;
                     app.handlers.save();
                     app.ui.renderTestList();
+                    app.ui.renderSnapshots();
                     app.log('Imported project from ' + file.name, 'info');
                 } catch(err) { alert('Invalid project JSON: ' + err.message); }
             };
@@ -1026,11 +1240,30 @@ const app = {
         },
 
         exportProject: function() {
-            _downloadJSON({
-                version: 1, exported_at: new Date().toISOString(),
-                tests: app.state.tests, cssOverrides: app.state.cssOverrides,
+            var cleanTests = app.state.tests.map(function(t) {
+                return {
+                    id: t.id, name: t.name,
+                    steps: t.steps.map(function(s) {
+                        return { op: s.op, params: s.params || {}, breakpoint: s.breakpoint || false };
+                    }),
+                };
+            });
+            var exportData = {
+                version: 2, exported_at: new Date().toISOString(),
+                tests: cleanTests,
+                cssOverrides: app.state.cssOverrides,
+                snapshots: app.state.snapshots,
+                resolvedSymbols: app.state.resolvedSymbols,
                 apiUrl: app.config.apiUrl,
-            }, 'azul-debugger-project.json');
+            };
+            // Include live metadata if available
+            if (app.state.hierarchy) {
+                exportData.htmlTree = { nodes: app.state.hierarchy, root: app.state.hierarchyRoot };
+            }
+            if (app.state.componentData) {
+                exportData.componentRegistry = app.state.componentData;
+            }
+            _downloadJSON(exportData, 'azul-debugger-project.json');
             app.log('Exported project', 'info');
         },
 
@@ -1113,6 +1346,10 @@ const app = {
             }
             var node = app.state.hierarchy ? app.state.hierarchy.find(function(n) { return n.index === nodeId; }) : null;
             app.ui.renderNodeDetail(node);
+            // Auto-resolve function pointers for this node
+            if (node && node.events && node.events.length) {
+                app._autoResolvePointers(node);
+            }
         },
 
         /* ── CSS editing (inline edit + add override) ── */
@@ -1175,21 +1412,20 @@ const app = {
         /* ── Resolve function pointer ── */
         resolvePtr: async function(el) {
             var addr = el.dataset.addr || el.textContent;
+            // Check cache first
+            if (app.state.resolvedSymbols[addr]) {
+                app.handlers._displayResolvedSymbol(el, addr, app.state.resolvedSymbols[addr]);
+                return;
+            }
             try {
                 var res = await app.api.post({ op: 'resolve_function_pointers', addresses: [addr] });
                 var resolved = (res.data && res.data.value) ? res.data.value : res.data;
                 var info = (resolved && resolved.resolved && resolved.resolved.length) ? resolved.resolved[0] : null;
                 if (info && info.symbol_name) {
-                    var displayName = info.symbol_name;
-                    var html = '<span class="resolved-symbol">' + esc(displayName) + '</span>';
-                    if (info.file_name) {
-                        var shortLib = info.file_name.split('/').pop();
-                        html += ' <span class="source-lib">(' + esc(shortLib) + ')</span>';
-                    }
-                    el.innerHTML = html;
-                    el.onclick = null; // Don't re-resolve
-                    el.title = JSON.stringify(info, null, 2);
-                    app.log('Resolved ' + addr + ' → ' + displayName, 'info');
+                    // Cache the result
+                    app.state.resolvedSymbols[addr] = info;
+                    app.handlers._displayResolvedSymbol(el, addr, info);
+                    app.log('Resolved ' + addr + ' → ' + info.symbol_name, 'info');
                 } else {
                     el.textContent = addr + ' (unresolved)';
                     el.onclick = null;
@@ -1197,6 +1433,40 @@ const app = {
                 }
             } catch(e) {
                 app.log('Resolve failed: ' + e.message, 'error');
+            }
+        },
+
+        _displayResolvedSymbol: function(el, addr, info) {
+            var displayName = info.symbol_name;
+            var html = '<span class="resolved-symbol">' + esc(displayName) + '</span>';
+            if (info.source_file) {
+                var shortFile = info.source_file.split('/').pop();
+                var lineStr = info.source_line ? ':' + info.source_line : '';
+                html += ' <a class="source-link" href="#" onclick="app.handlers.openSourceFile(\'' + esc(info.source_file) + '\', ' + (info.source_line || 0) + '); return false;" title="' + esc(info.source_file + lineStr) + '">' + esc(shortFile + lineStr) + '</a>';
+                if (info.approximate) {
+                    html += ' <span style="color:var(--warning);font-size:9px" title="Location found by heuristic search">≈</span>';
+                }
+            } else if (info.file_name) {
+                var shortLib = info.file_name.split('/').pop();
+                html += ' <span class="source-lib">(' + esc(shortLib) + ')</span>';
+            }
+            if (info.hint) {
+                html += ' <span style="color:var(--warning);font-size:9px" title="' + esc(info.hint) + '">⚠</span>';
+            }
+            el.innerHTML = html;
+            el.onclick = null;
+            el.title = JSON.stringify(info, null, 2);
+        },
+
+        openSourceFile: async function(file, line) {
+            try {
+                await app.api.post({ op: 'open_file', file: file, line: line || 0 });
+                app.log('Opening ' + file + (line ? ':' + line : ''), 'info');
+            } catch(e) {
+                // Fallback: try vscode:// URL
+                var url = 'vscode://file/' + file + (line ? ':' + line : '');
+                window.open(url, '_blank');
+                app.log('Opening via vscode:// URL', 'info');
             }
         },
 
@@ -1233,7 +1503,8 @@ const app = {
                 var data = null;
                 if (res.data) data = res.data.value || res.data;
                 app.state.appStateJson = data;
-                app.json.render('app-state-tree', data);
+                app.json.render('app-state-tree', data, false);
+                app.ui.renderSnapshots();
             } catch(e) {
                 document.getElementById('app-state-tree').innerHTML = '<div class="placeholder-text" style="color:var(--error)">Failed to load app state.</div>';
             }
@@ -1268,6 +1539,7 @@ const app = {
             try {
                 var res = await app.api.post({ op: 'get_component_registry' });
                 var data = (res.data && res.data.value) ? res.data.value : (res.data || {});
+                app.state.componentData = data;
                 var container = document.getElementById('component-registry-container');
                 var components = data.components || [];
                 if (!components.length) {
@@ -1275,8 +1547,8 @@ const app = {
                     return;
                 }
                 var html = '';
-                components.forEach(function(c) {
-                    html += '<div class="list-item" onclick="app.handlers.showComponentDetail(' + JSON.stringify(c).replace(/"/g, '&quot;') + ')">';
+                components.forEach(function(c, idx) {
+                    html += '<div class="list-item" onclick="app.handlers.showComponentDetail(' + idx + ')">';
                     html += '<span class="material-icons" style="font-size:14px">widgets</span> ' + esc(c.name || c.tag || 'Unknown');
                     html += '</div>';
                 });
@@ -1286,11 +1558,14 @@ const app = {
             }
         },
 
-        showComponentDetail: function(component) {
+        showComponentDetail: function(idx) {
+            var components = (app.state.componentData && app.state.componentData.components) || [];
+            var component = components[idx];
+            if (!component) return;
             var panel = document.getElementById('component-detail-panel');
             panel.innerHTML = '<h4>' + esc(component.name || component.tag || 'Component') + '</h4>' +
-                '<div class="mono" style="font-size:11px;margin-top:8px;background:var(--bg-input);padding:8px;border-radius:3px;white-space:pre-wrap;">' +
-                esc(JSON.stringify(component, null, 2)) + '</div>';
+                '<div id="component-detail-tree" style="margin-top:8px;"></div>';
+            app.json.render('component-detail-tree', component, true);
         },
 
         /* ── Terminal ── */
@@ -1342,6 +1617,7 @@ const app = {
             localStorage.setItem('azul_debugger', JSON.stringify({
                 tests: app.state.tests,
                 cssOverrides: app.state.cssOverrides,
+                snapshots: app.state.snapshots,
             }));
         },
     },
@@ -1417,7 +1693,7 @@ const app = {
     json: {
         GROUP_SIZE: 100,
 
-        render: function(containerId, data) {
+        render: function(containerId, data, readOnly) {
             var container = document.getElementById(containerId);
             if (!container) return;
             container.innerHTML = '';
@@ -1425,32 +1701,35 @@ const app = {
                 container.innerHTML = '<div class="placeholder-text">No data.</div>';
                 return;
             }
+            // Store data for re-render on collapse/expand
+            if (!this._lastRenderData) this._lastRenderData = {};
+            this._lastRenderData[containerId] = data;
             var tree = document.createElement('div');
             tree.className = 'json-tree';
-            this._buildNode(tree, '', data, 0, '');
+            this._buildNode(tree, '', data, 0, '', !!readOnly, containerId);
             container.appendChild(tree);
         },
 
-        _buildNode: function(container, key, value, depth, path) {
+        _buildNode: function(container, key, value, depth, path, readOnly, containerId) {
             var self = this;
             var fullPath = path ? (path + '.' + key) : key;
 
             if (value === null || value === undefined) {
-                this._addLeaf(container, key, '<span class="json-null">null</span>', depth, fullPath, 'null');
+                this._addLeaf(container, key, '<span class="json-null">null</span>', depth, fullPath, 'null', readOnly, containerId);
             } else if (typeof value === 'boolean') {
-                this._addLeaf(container, key, '<span class="json-bool">' + value + '</span>', depth, fullPath, 'bool');
+                this._addLeaf(container, key, '<span class="json-bool">' + value + '</span>', depth, fullPath, 'bool', readOnly, containerId);
             } else if (typeof value === 'number') {
-                this._addLeaf(container, key, '<span class="json-number">' + value + '</span>', depth, fullPath, 'number');
+                this._addLeaf(container, key, '<span class="json-number">' + value + '</span>', depth, fullPath, 'number', readOnly, containerId);
             } else if (typeof value === 'string') {
-                this._addLeaf(container, key, '<span class="json-string">"' + esc(value) + '"</span>', depth, fullPath, 'string');
+                this._addLeaf(container, key, '<span class="json-string">"' + esc(value) + '"</span>', depth, fullPath, 'string', readOnly, containerId);
             } else if (Array.isArray(value)) {
-                this._addCollapsible(container, key, value, depth, fullPath, true);
+                this._addCollapsible(container, key, value, depth, fullPath, true, readOnly, containerId);
             } else if (typeof value === 'object') {
-                this._addCollapsible(container, key, value, depth, fullPath, false);
+                this._addCollapsible(container, key, value, depth, fullPath, false, readOnly, containerId);
             }
         },
 
-        _addLeaf: function(container, key, valueHtml, depth, fullPath, valueType) {
+        _addLeaf: function(container, key, valueHtml, depth, fullPath, valueType, readOnly, containerId) {
             var row = document.createElement('div');
             row.className = 'json-row';
             row.style.paddingLeft = (depth * 14 + 8) + 'px';
@@ -1459,12 +1738,15 @@ const app = {
             var valueSpan = document.createElement('span');
             valueSpan.className = 'json-value-editable';
             valueSpan.innerHTML = valueHtml;
-            valueSpan.title = 'Click to edit';
-            valueSpan.dataset.path = fullPath;
-            valueSpan.dataset.type = valueType;
-            valueSpan.addEventListener('click', function() {
-                app.json._startEdit(valueSpan, fullPath, valueType);
-            });
+
+            if (!readOnly) {
+                valueSpan.title = 'Click to edit';
+                valueSpan.dataset.path = fullPath;
+                valueSpan.dataset.type = valueType;
+                valueSpan.addEventListener('click', function() {
+                    app.json._startEdit(valueSpan, fullPath, valueType);
+                });
+            }
 
             var rowInner = document.createElement('span');
             rowInner.innerHTML = '<span class="json-toggle-icon">&nbsp;</span>' + keyHtml;
@@ -1506,7 +1788,7 @@ const app = {
                 // Update the app state JSON in memory
                 self._setValueAtPath(app.state.appStateJson, path, newVal);
                 // Re-render the tree
-                self.render('app-state-tree', app.state.appStateJson);
+                self.render('app-state-tree', app.state.appStateJson, false);
                 // Auto-save to server
                 app.handlers._autoSaveAppState();
             };
@@ -1515,7 +1797,7 @@ const app = {
             input.addEventListener('keydown', function(e) {
                 if (e.key === 'Enter') { commit(); }
                 if (e.key === 'Escape') {
-                    self.render('app-state-tree', app.state.appStateJson);
+                    self.render('app-state-tree', app.state.appStateJson, false);
                 }
             });
         },
@@ -1544,9 +1826,11 @@ const app = {
             }
         },
 
-        _addCollapsible: function(container, key, value, depth, path, isArray) {
+        _addCollapsible: function(container, key, value, depth, path, isArray, readOnly, containerId) {
             var self = this;
-            var isCollapsed = app.state.jsonCollapsed.has(path);
+            var collapsedSet = readOnly ? app.state.jsonReadOnlyCollapsed : app.state.jsonCollapsed;
+            var groupCollapsedSet = readOnly ? app.state.jsonReadOnlyGroupCollapsed : app.state.jsonGroupCollapsed;
+            var isCollapsed = collapsedSet.has(path);
             var entries = isArray ? value : Object.keys(value);
             var count = entries.length;
             var bracket = isArray ? ['[', ']'] : ['{', '}'];
@@ -1560,12 +1844,12 @@ const app = {
             toggle.className = 'json-toggle-icon';
             toggle.textContent = isCollapsed ? '▶' : '▼';
             toggle.addEventListener('click', function() {
-                if (app.state.jsonCollapsed.has(path)) {
-                    app.state.jsonCollapsed.delete(path);
+                if (collapsedSet.has(path)) {
+                    collapsedSet.delete(path);
                 } else {
-                    app.state.jsonCollapsed.add(path);
+                    collapsedSet.add(path);
                 }
-                self.render('app-state-tree', app.state.appStateJson);
+                self.render(containerId, self._lastRenderData[containerId], readOnly);
             });
             row.appendChild(toggle);
 
@@ -1586,7 +1870,7 @@ const app = {
                     for (var g = 0; g < count; g += this.GROUP_SIZE) {
                         var gEnd = Math.min(g + this.GROUP_SIZE, count);
                         var groupPath = path + '.[' + g + '-' + (gEnd - 1) + ']';
-                        var groupCollapsed = app.state.jsonGroupCollapsed.has(groupPath);
+                        var groupCollapsed = groupCollapsedSet.has(groupPath);
 
                         var groupRow = document.createElement('div');
                         groupRow.className = 'json-row';
@@ -1597,12 +1881,12 @@ const app = {
                         gToggle.textContent = groupCollapsed ? '▶' : '▼';
                         (function(gp) {
                             gToggle.addEventListener('click', function() {
-                                if (app.state.jsonGroupCollapsed.has(gp)) {
-                                    app.state.jsonGroupCollapsed.delete(gp);
+                                if (groupCollapsedSet.has(gp)) {
+                                    groupCollapsedSet.delete(gp);
                                 } else {
-                                    app.state.jsonGroupCollapsed.add(gp);
+                                    groupCollapsedSet.add(gp);
                                 }
-                                self.render('app-state-tree', app.state.appStateJson);
+                                self.render(containerId, self._lastRenderData[containerId], readOnly);
                             });
                         })(groupPath);
                         groupRow.appendChild(gToggle);
@@ -1615,18 +1899,18 @@ const app = {
 
                         if (!groupCollapsed) {
                             for (var i = g; i < gEnd; i++) {
-                                this._buildNode(childContainer, String(i), value[i], depth + 2, path);
+                                this._buildNode(childContainer, String(i), value[i], depth + 2, path, readOnly, containerId);
                             }
                         }
                     }
                 } else if (isArray) {
                     for (var i = 0; i < count; i++) {
-                        this._buildNode(childContainer, String(i), value[i], depth + 1, path);
+                        this._buildNode(childContainer, String(i), value[i], depth + 1, path, readOnly, containerId);
                     }
                 } else {
                     var keys = Object.keys(value);
                     for (var k = 0; k < keys.length; k++) {
-                        this._buildNode(childContainer, keys[k], value[keys[k]], depth + 1, path);
+                        this._buildNode(childContainer, keys[k], value[keys[k]], depth + 1, path, readOnly, containerId);
                     }
                 }
 
@@ -1683,7 +1967,16 @@ const app = {
 
             var t0 = performance.now();
             try {
-                var res = await app.api.post({ op: step.op, ...step.params });
+                var res;
+                // Handle restore_snapshot locally
+                if (step.op === 'restore_snapshot') {
+                    var alias = (step.params && step.params.alias) || '';
+                    var snapshot = app.state.snapshots[alias];
+                    if (!snapshot) throw new Error('Snapshot not found: ' + alias);
+                    res = await app.api.post({ op: 'set_app_state', state: snapshot });
+                } else {
+                    res = await app.api.post({ op: step.op, ...step.params });
+                }
                 step.lastResponse = res;
                 step.duration_ms = Math.round(performance.now() - t0);
                 // HTTP-level error

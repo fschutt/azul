@@ -753,3 +753,66 @@ body {
     outline: none;
     min-width: 60px;
 }
+
+/* Edit (pencil) icon - visible on hover */
+.edit-icon {
+    font-size: 14px;
+    opacity: 0;
+    cursor: pointer;
+    margin-left: auto;
+    color: var(--text-muted);
+    transition: opacity 0.15s;
+}
+.list-item:hover .edit-icon,
+.snapshot-row:hover .edit-icon {
+    opacity: 0.7;
+}
+.edit-icon:hover {
+    opacity: 1 !important;
+    color: var(--accent);
+}
+
+/* Snapshot rows */
+#snapshots-container {
+    border-top: 1px solid var(--border);
+}
+.snapshots-header {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    padding: 6px 10px 2px;
+    letter-spacing: 0.5px;
+}
+.snapshot-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    font-size: 12px;
+    cursor: default;
+}
+.snapshot-row:hover {
+    background: var(--hover);
+}
+.snapshot-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: text;
+}
+.snapshot-action {
+    font-size: 14px;
+    cursor: pointer;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.snapshot-row:hover .snapshot-action {
+    opacity: 0.7;
+}
+.snapshot-action:hover {
+    opacity: 1 !important;
+    color: var(--accent);
+}

@@ -199,6 +199,18 @@ pub struct ResolvedFunctionPointer {
     pub symbol_name: Option<String>,
     /// The shared library / binary file that contains this symbol
     pub file_name: Option<String>,
+    /// Source file path (if resolved via backtrace or heuristic)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_file: Option<String>,
+    /// Source line number (if resolved via backtrace)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_line: Option<u32>,
+    /// Human-readable hint about resolution quality
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    /// Whether the resolved info is approximate (heuristic-based)
+    #[serde(default)]
+    pub approximate: bool,
 }
 
 /// Response for GetComponentRegistry
@@ -1343,6 +1355,10 @@ pub enum DebugEvent {
     /// programmatically via `queue_e2e_tests()`.
     RunE2eTests {
         tests: Vec<E2eTest>,
+        /// Named snapshots map (alias → saved app_state JSON).
+        /// Used by `restore_snapshot` steps to look up pre-saved states.
+        #[serde(default)]
+        snapshots: Option<std::collections::HashMap<String, serde_json::Value>>,
     },
 
     // DOM Mutation
@@ -1400,6 +1416,14 @@ pub enum DebugEvent {
     },
     /// Get the component registry: which tags are available and what attributes they accept
     GetComponentRegistry,
+    /// Open a source file in the user's editor (best-effort)
+    OpenFile {
+        /// Absolute path to the file
+        file: String,
+        /// Line number (1-based, 0 = don't jump)
+        #[serde(default)]
+        line: u32,
+    },
 }
 
 // ==================== Node Resolution Helper ====================
@@ -1750,7 +1774,7 @@ pub fn queue_e2e_tests(
 
     let request = DebugRequest {
         request_id,
-        event: DebugEvent::RunE2eTests { tests },
+        event: DebugEvent::RunE2eTests { tests, snapshots: None },
         window_id: None,
         wait_for_render: false,
         response_tx: tx,
@@ -3199,6 +3223,10 @@ fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode>
 struct ResolvedSymbolInfo {
     symbol_name: Option<String>,
     file_name: Option<String>,
+    source_file: Option<String>,
+    source_line: Option<u32>,
+    hint: Option<String>,
+    approximate: bool,
 }
 
 /// Resolve a function pointer address to a symbol name and containing
@@ -3213,11 +3241,19 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
         return ResolvedSymbolInfo {
             symbol_name: None,
             file_name: None,
+            source_file: None,
+            source_line: None,
+            hint: None,
+            approximate: false,
         };
     }
 
     let mut symbol_name: Option<String> = None;
     let mut file_name: Option<String> = None;
+    let mut source_file: Option<String> = None;
+    let mut source_line: Option<u32> = None;
+    let mut hint: Option<String> = None;
+    let mut approximate = false;
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
@@ -3292,9 +3328,39 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
         }
     }
 
+    // Heuristic: try to guess source file from symbol name
+    // e.g. "azul_core::dom::Dom::new" → "azul-core/src/dom.rs" (approximate)
+    if source_file.is_none() {
+        if let Some(ref sym) = symbol_name {
+            // Strip hash suffix (e.g. "::h1234abcd")
+            let clean = if let Some(pos) = sym.rfind("::h") {
+                if sym[pos+3..].chars().all(|c| c.is_ascii_hexdigit()) {
+                    &sym[..pos]
+                } else {
+                    sym.as_str()
+                }
+            } else {
+                sym.as_str()
+            };
+            // Split into crate::module::... → guess crate/src/module.rs
+            let parts: Vec<&str> = clean.split("::").collect();
+            if parts.len() >= 2 {
+                let crate_name = parts[0].replace('_', "-");
+                let module = parts[1];
+                source_file = Some(format!("{}/src/{}.rs", crate_name, module));
+                approximate = true;
+                hint = Some("Guessed from symbol name (approximate)".into());
+            }
+        }
+    }
+
     ResolvedSymbolInfo {
         symbol_name,
         file_name,
+        source_file,
+        source_line,
+        hint,
+        approximate,
     }
 }
 
@@ -6035,8 +6101,10 @@ fn process_debug_event(
             send_ok(request, None, Some(ResponseData::CursorState(response)));
         }
 
-        DebugEvent::RunE2eTests { ref tests } => {
+        DebugEvent::RunE2eTests { ref tests, ref snapshots } => {
             let mut all_results = Vec::new();
+            let empty_snapshots = std::collections::HashMap::new();
+            let snap_map = snapshots.as_ref().unwrap_or(&empty_snapshots);
 
             log(
                 LogLevel::Info,
@@ -6058,6 +6126,35 @@ fn process_debug_event(
                     format!("[E2E] === Test '{}' ({} steps, continue_on_failure={}) ===", test.name, test.steps.len(), continue_on_failure),
                     None,
                 );
+
+                // Apply E2eSetup.app_state before any steps (if provided)
+                if let Some(ref setup) = test.setup {
+                    if let Some(ref initial_state) = setup.app_state {
+                        log(
+                            LogLevel::Debug,
+                            LogCategory::DebugServer,
+                            format!("[E2E] Applying setup.app_state for test '{}'", test.name),
+                            None,
+                        );
+                        let set_state_event = DebugEvent::SetAppState {
+                            state: initial_state.clone(),
+                        };
+                        let (setup_tx, _setup_rx) = mpsc::channel();
+                        let setup_request = DebugRequest {
+                            request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst),
+                            event: set_state_event,
+                            window_id: request.window_id.clone(),
+                            wait_for_render: false,
+                            response_tx: setup_tx,
+                        };
+                        let setup_update = process_debug_event(
+                            &setup_request,
+                            callback_info,
+                            app_data,
+                        );
+                        if setup_update { needs_update = true; }
+                    }
+                }
 
                 for (step_index, step) in test.steps.iter().enumerate() {
 
@@ -6105,6 +6202,82 @@ fn process_debug_event(
                                 logs: vec![],
                                 screenshot: None,
                                 error: Some(error_msg),
+                                response: None,
+                            });
+                        }
+                    } else if op == "restore_snapshot" {
+                        // Look up snapshot alias from the snapshots map
+                        let alias = step.params.get("alias")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        if let Some(state_json) = snap_map.get(alias) {
+                            // Execute set_app_state with the snapshot data
+                            let set_event = DebugEvent::SetAppState {
+                                state: state_json.clone(),
+                            };
+                            let (snap_tx, snap_rx) = mpsc::channel();
+                            let snap_req = DebugRequest {
+                                request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst),
+                                event: set_event,
+                                window_id: request.window_id.clone(),
+                                wait_for_render: false,
+                                response_tx: snap_tx,
+                            };
+                            let snap_update = process_debug_event(
+                                &snap_req,
+                                callback_info,
+                                app_data,
+                            );
+                            if snap_update { needs_update = true; }
+                            match snap_rx.try_recv() {
+                                Ok(DebugResponseData::Ok { .. }) => {
+                                    step_results.push(E2eStepResult {
+                                        step_index,
+                                        op: op.to_string(),
+                                        status: "pass".into(),
+                                        duration_ms: step_start.elapsed().as_millis() as u64,
+                                        logs: vec![format!("Restored snapshot '{}'", alias)],
+                                        screenshot: None,
+                                        error: None,
+                                        response: None,
+                                    });
+                                }
+                                Ok(DebugResponseData::Err(msg)) => {
+                                    test_failed = true;
+                                    step_results.push(E2eStepResult {
+                                        step_index,
+                                        op: op.to_string(),
+                                        status: "fail".into(),
+                                        duration_ms: step_start.elapsed().as_millis() as u64,
+                                        logs: vec![],
+                                        screenshot: None,
+                                        error: Some(format!("restore_snapshot '{}' failed: {}", alias, msg)),
+                                        response: None,
+                                    });
+                                }
+                                Err(_) => {
+                                    step_results.push(E2eStepResult {
+                                        step_index,
+                                        op: op.to_string(),
+                                        status: "pass".into(),
+                                        duration_ms: step_start.elapsed().as_millis() as u64,
+                                        logs: vec![format!("Restored snapshot '{}' (no response)", alias)],
+                                        screenshot: None,
+                                        error: None,
+                                        response: None,
+                                    });
+                                }
+                            }
+                        } else {
+                            test_failed = true;
+                            step_results.push(E2eStepResult {
+                                step_index,
+                                op: op.to_string(),
+                                status: "fail".into(),
+                                duration_ms: step_start.elapsed().as_millis() as u64,
+                                logs: vec![],
+                                screenshot: None,
+                                error: Some(format!("Snapshot '{}' not found in snapshots map", alias)),
                                 response: None,
                             });
                         }
@@ -6532,6 +6705,10 @@ fn process_debug_event(
                     address: addr_str.clone(),
                     symbol_name: info.symbol_name,
                     file_name: info.file_name,
+                    source_file: info.source_file,
+                    source_line: info.source_line,
+                    hint: info.hint,
+                    approximate: info.approximate,
                 });
             }
 
@@ -6551,6 +6728,36 @@ fn process_debug_event(
                 None,
                 Some(ResponseData::ComponentRegistry(registry)),
             );
+        }
+
+        DebugEvent::OpenFile { file, line } => {
+            // Best-effort: open file in the user's default editor
+            // Use platform-native "open" command (not "code") to respect user's preference
+            let result = {
+                #[cfg(target_os = "macos")]
+                {
+                    // macOS `open` doesn't support line numbers, so try `code --goto` first for precision
+                    if *line > 0 {
+                        std::process::Command::new("open")
+                            .arg(file.as_str())
+                            .spawn()
+                    } else {
+                        std::process::Command::new("open").arg(file.as_str()).spawn()
+                    }
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    std::process::Command::new("xdg-open").arg(file.as_str()).spawn()
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    std::process::Command::new("cmd").args(&["/C", "start", "", file.as_str()]).spawn()
+                }
+            };
+            match result {
+                Ok(_) => send_ok(request, None, None),
+                Err(e) => send_err(request, format!("Failed to open {}: {}", file, e)),
+            }
         }
 
         _ => {

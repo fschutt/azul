@@ -69,11 +69,13 @@
                 <span>App State</span>
                 <div style="display:flex;gap:4px;align-items:center">
                     <span class="material-icons clickable" style="font-size:16px" onclick="app.handlers.loadAppState()" title="Refresh">refresh</span>
+                    <span class="material-icons clickable" style="font-size:16px" onclick="app.handlers._saveSnapshot()" title="Save Snapshot">photo_camera</span>
                 </div>
             </div>
             <div id="app-state-tree" class="sidebar-content" style="padding:0;">
                 <div class="placeholder-text">Click refresh to load.</div>
             </div>
+            <div id="snapshots-container" style="padding:0;"></div>
         </div>
         <div class="resizer" data-target="appstate-panel" data-min="120" data-max="500"></div>
 
@@ -127,13 +129,13 @@
                 <div id="view-testing" class="hidden" style="height:100%; display:flex; flex-direction:column;">
                     <!-- Toolbar (left-aligned, below tab) -->
                     <div class="test-toolbar">
-                        <button class="icon-btn success" title="Run (client)" onclick="app.runner.run()"><span class="material-icons">play_arrow</span></button>
+                        <button class="icon-btn success" title="Run" onclick="app.runner.run()"><span class="material-icons">play_arrow</span></button>
                         <button class="icon-btn" title="Pause" onclick="app.runner.pause()"><span class="material-icons">pause</span></button>
                         <button class="icon-btn" title="Step Over" onclick="app.runner.step()"><span class="material-icons">redo</span></button>
                         <button class="icon-btn danger" title="Reset" onclick="app.runner.reset()"><span class="material-icons">stop</span></button>
                         <div class="toolbar-sep"></div>
-                        <button class="icon-btn" title="Run on server" onclick="app.runner.runServerSide()"><span class="material-icons">cloud_upload</span></button>
-                        <button class="icon-btn" title="Run all on server" onclick="app.runner.runAllServerSide()"><span class="material-icons">cloud_done</span></button>
+                        <button class="icon-btn" title="Run headless" onclick="app.runner.runServerSide()"><span class="material-icons">cloud_upload</span></button>
+                        <button class="icon-btn" title="Run all headless" onclick="app.runner.runAllServerSide()"><span class="material-icons">cloud_done</span></button>
                         <div class="toolbar-sep"></div>
                         <button class="icon-btn" title="Add Step" onclick="app.ui.showAddStepInline()"><span class="material-icons">add</span></button>
                     </div>
