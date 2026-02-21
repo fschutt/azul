@@ -6150,16 +6150,59 @@ fn process_debug_event(
                                         let response_json = data.as_ref().and_then(|d| {
                                             serde_json::to_value(d).ok()
                                         });
-                                        step_results.push(E2eStepResult {
-                                            step_index,
-                                            op: op.to_string(),
-                                            status: "pass".into(),
-                                            duration_ms: step_start.elapsed().as_millis() as u64,
-                                            logs: vec![format!("Executed: {}", op)],
-                                            screenshot: None, // TODO: CpuRender screenshot
-                                            error: None,
-                                            response: response_json,
+
+                                        // Check for semantic failures in the response:
+                                        // Some commands return status "ok" but contain
+                                        // success: false, found: false, or passed: false
+                                        // inside data.value — these should fail the step.
+                                        let semantic_failure = response_json.as_ref().and_then(|rj| {
+                                            rj.get("value")
+                                        }).and_then(|val| {
+                                            if val.get("success") == Some(&serde_json::Value::Bool(false)) {
+                                                Some(val.get("message")
+                                                    .or_else(|| val.get("error").and_then(|e| e.get("message")))
+                                                    .and_then(|m| m.as_str())
+                                                    .unwrap_or("success: false")
+                                                    .to_string())
+                                            } else if val.get("found") == Some(&serde_json::Value::Bool(false)) {
+                                                Some(val.get("message")
+                                                    .and_then(|m| m.as_str())
+                                                    .unwrap_or("found: false")
+                                                    .to_string())
+                                            } else if val.get("passed") == Some(&serde_json::Value::Bool(false)) {
+                                                Some(val.get("message")
+                                                    .and_then(|m| m.as_str())
+                                                    .unwrap_or("passed: false")
+                                                    .to_string())
+                                            } else {
+                                                None
+                                            }
                                         });
+
+                                        if let Some(error_msg) = semantic_failure {
+                                            test_failed = true;
+                                            step_results.push(E2eStepResult {
+                                                step_index,
+                                                op: op.to_string(),
+                                                status: "fail".into(),
+                                                duration_ms: step_start.elapsed().as_millis() as u64,
+                                                logs: vec![],
+                                                screenshot: None,
+                                                error: Some(error_msg),
+                                                response: response_json,
+                                            });
+                                        } else {
+                                            step_results.push(E2eStepResult {
+                                                step_index,
+                                                op: op.to_string(),
+                                                status: "pass".into(),
+                                                duration_ms: step_start.elapsed().as_millis() as u64,
+                                                logs: vec![format!("Executed: {}", op)],
+                                                screenshot: None,
+                                                error: None,
+                                                response: response_json,
+                                            });
+                                        }
                                     }
                                     Ok(DebugResponseData::Err(msg)) => {
                                         test_failed = true;
