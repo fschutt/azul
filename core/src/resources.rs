@@ -413,6 +413,8 @@ impl AppConfig {
                 description: AzString::from_const_str(""),
                 components: ComponentDefVec::from_vec(alloc::vec![component]),
                 exportable: true,
+                modifiable: true,
+                data_models: crate::xml::ComponentDataModelVec::from_const_slice(&[]),
             });
         }
 

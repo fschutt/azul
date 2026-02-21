@@ -1198,7 +1198,10 @@ impl_vec_clone!(ComponentCallbackSlot, ComponentCallbackSlotVec, ComponentCallba
 pub struct ComponentDataField {
     /// Field name, e.g. "counter", "text", "number"
     pub name: AzString,
-    /// Type name, e.g. "f32", "String", "RefAny"
+    /// Type name — can be a primitive ("String", "bool", "i32", "f32", "u32"),
+    /// a built-in complex type ("RefAny", "OptionString"), a callback type
+    /// ("ButtonOnClickCallbackType"), or a user-defined struct name
+    /// ("UserProfile") referencing a ComponentDataModel in the same library.
     pub field_type: AzString,
     /// Default value (JSON-encoded), or None
     pub default_value: OptionString,
@@ -1211,6 +1214,29 @@ impl_option!(ComponentDataField, OptionComponentDataField, copy = false, [Debug,
 impl_vec_debug!(ComponentDataField, ComponentDataFieldVec);
 impl_vec_partialeq!(ComponentDataField, ComponentDataFieldVec);
 impl_vec_clone!(ComponentDataField, ComponentDataFieldVec, ComponentDataFieldVecDestructor);
+
+/// A named data model (struct definition) for code generation.
+///
+/// Stored in `ComponentLibrary::data_models`. Components reference these
+/// by name in `ComponentDataField::field_type`, enabling nested/structured
+/// data models. For example, a `UserCard` component might have a field
+/// `user: UserProfile` where `UserProfile` is a `ComponentDataModel`.
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct ComponentDataModel {
+    /// Type name, e.g. "UserProfile", "TodoItem"
+    pub name: AzString,
+    /// Human-readable description
+    pub description: AzString,
+    /// Fields in this struct
+    pub fields: ComponentDataFieldVec,
+}
+
+impl_vec!(ComponentDataModel, ComponentDataModelVec, ComponentDataModelVecDestructor, ComponentDataModelVecDestructorType, ComponentDataModelVecSlice, OptionComponentDataModel);
+impl_option!(ComponentDataModel, OptionComponentDataModel, copy = false, [Debug, Clone]);
+impl_vec_debug!(ComponentDataModel, ComponentDataModelVec);
+impl_vec_clone!(ComponentDataModel, ComponentDataModelVec, ComponentDataModelVecDestructor);
+impl_vec_mut!(ComponentDataModel, ComponentDataModelVec);
 
 /// What children a component accepts
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1347,6 +1373,10 @@ pub struct ComponentDef {
     pub data_model: ComponentDataFieldVec,
     /// Callback slots (for wiring in the GUI builder)
     pub callback_slots: ComponentCallbackSlotVec,
+    /// XML/HTML template body for user-defined components.
+    /// Used by the template-based render_fn/compile_fn.
+    /// Empty for builtin components (they render via node_type).
+    pub template: AzString,
     /// Render to live DOM
     pub render_fn: ComponentRenderFn,
     /// Compile to source code in target language
@@ -1388,6 +1418,12 @@ pub struct ComponentLibrary {
     pub components: ComponentDefVec,
     /// Whether this library can be exported (false for builtin/compiled)
     pub exportable: bool,
+    /// Whether this library can be modified by the user (add/remove/edit components).
+    /// False for builtin and compiled libraries. True for user-created libraries.
+    pub modifiable: bool,
+    /// Named data model types defined by this library.
+    /// Components reference these by name in their `field_type`.
+    pub data_models: ComponentDataModelVec,
 }
 
 impl_vec!(ComponentLibrary, ComponentLibraryVec, ComponentLibraryVecDestructor, ComponentLibraryVecDestructorType, ComponentLibraryVecSlice, OptionComponentLibrary);
@@ -1568,6 +1604,7 @@ pub fn user_defined_compile_fn(
 
 /// Create a ComponentDef for a builtin HTML element
 fn builtin_component_def(tag: &str, display_name: &str, node_type: NodeType, accepts_text: bool, child_policy: ChildPolicy) -> ComponentDef {
+    let data_model = builtin_data_model(tag);
     ComponentDef {
         id: ComponentId::builtin(tag),
         display_name: AzString::from(display_name),
@@ -1578,11 +1615,66 @@ fn builtin_component_def(tag: &str, display_name: &str, node_type: NodeType, acc
         scoped_css: AzString::from_const_str(""),
         example_xml: AzString::from(format!("<{}>content</{}>", tag, tag).as_str()),
         source: ComponentSource::Builtin,
-        data_model: Vec::new().into(),
+        data_model: data_model.into(),
         callback_slots: Vec::new().into(),
+        template: AzString::from_const_str(""),
         render_fn: builtin_render_fn,
         compile_fn: builtin_compile_fn,
         node_type: OptionNodeType::Some(node_type),
+    }
+}
+
+/// Helper to create a ComponentDataField
+fn data_field(name: &str, field_type: &str, default: &str, description: &str) -> ComponentDataField {
+    ComponentDataField {
+        name: AzString::from(name),
+        field_type: AzString::from(field_type),
+        default_value: if default.is_empty() { OptionString::None } else { OptionString::Some(AzString::from(default)) },
+        description: AzString::from(description),
+    }
+}
+
+/// Returns the tag-specific data model fields for builtin HTML elements.
+/// These are the component's "main data model" — the attributes that define
+/// what the component needs as configuration (e.g., `href` for `<a>`,
+/// `src` for `<img>`). Universal HTML attributes (id, class, style, etc.)
+/// are NOT included here — they are added separately by the debug server.
+fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
+    match tag {
+        "a" => alloc::vec![
+            data_field("href", "String", "", "URL the link points to"),
+            data_field("target", "String", "", "Where to open the linked document (_blank, _self, _parent, _top)"),
+            data_field("rel", "String", "", "Relationship between current and linked document"),
+        ],
+        "img" | "image" => alloc::vec![
+            data_field("src", "String", "", "URL of the image"),
+            data_field("alt", "String", "", "Alternative text for the image"),
+            data_field("width", "String", "", "Width of the image"),
+            data_field("height", "String", "", "Height of the image"),
+        ],
+        "form" => alloc::vec![
+            data_field("action", "String", "", "URL where form data is submitted"),
+            data_field("method", "String", "GET", "HTTP method for form submission (GET or POST)"),
+        ],
+        "label" => alloc::vec![
+            data_field("for", "String", "", "ID of the form element this label is for"),
+        ],
+        "button" => alloc::vec![
+            data_field("type", "String", "button", "Button type (button, submit, reset)"),
+            data_field("disabled", "bool", "false", "Whether the button is disabled"),
+        ],
+        "td" | "th" => alloc::vec![
+            data_field("colspan", "i32", "1", "Number of columns the cell spans"),
+            data_field("rowspan", "i32", "1", "Number of rows the cell spans"),
+        ],
+        "icon" => alloc::vec![
+            data_field("name", "String", "", "Icon name"),
+        ],
+        "ol" => alloc::vec![
+            data_field("start", "i32", "1", "Start value for the ordered list"),
+            data_field("type", "String", "1", "Numbering type (1, A, a, I, i)"),
+        ],
+        _ => alloc::vec![],
     }
 }
 
@@ -1626,6 +1718,8 @@ pub extern "C" fn register_builtin_components() -> ComponentLibrary {
         version: AzString::from_const_str("1.0.0"),
         description: AzString::from_const_str("Built-in HTML elements"),
         exportable: false,
+        modifiable: false,
+        data_models: Vec::new().into(),
         components: alloc::vec![
             // Structural
             builtin_component_def("html", "HTML", NodeType::Html, false, ChildPolicy::AnyChildren),

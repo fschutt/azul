@@ -151,6 +151,11 @@ const app = {
             'import_component_library':  { desc: 'Import component library (JSON)', examples: ['/import_component_library'],                    params: [{ name: 'library', type: 'text', placeholder: '{"name":"mylib","version":"1.0","components":[]}' }] },
             'export_component_library':  { desc: 'Export component library (JSON)', examples: ['/export_component_library library mylib'],       params: [{ name: 'library', type: 'text', placeholder: 'mylib' }] },
             'export_code':               { desc: 'Export app code for language',     examples: ['/export_code language rust'],                    params: [{ name: 'language', type: 'text', placeholder: 'rust' }] },
+            'create_library':            { desc: 'Create new component library',    examples: ['/create_library name mylib'],                    params: [{ name: 'name', type: 'text', placeholder: 'mylib' }] },
+            'delete_library':            { desc: 'Delete a component library',      examples: ['/delete_library name mylib'],                    params: [{ name: 'name', type: 'text', placeholder: 'mylib' }] },
+            'create_component':          { desc: 'Create component in library',     examples: ['/create_component library mylib name mycomp'],   params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }] },
+            'delete_component':          { desc: 'Delete component from library',   examples: ['/delete_component library mylib name mycomp'],   params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }] },
+            'update_component':          { desc: 'Update component properties',     examples: ['/update_component library mylib name mycomp'],   params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }] },
 
             // ── Snapshots ──
             'restore_snapshot': { desc: 'Restore saved app state snapshot',       examples: ['/restore_snapshot alias initial-state'],         params: [{ name: 'alias', type: 'text', placeholder: 'initial-state' }] },
@@ -475,11 +480,13 @@ const app = {
             document.getElementById('sidebar-title').innerText = titles[view] || view;
             var tabTitles = { inspector: 'Inspector', testing: 'runner.e2e', components: 'Component Details' };
             document.getElementById('tab-title').innerText = tabTitles[view] || view;
-            // Hide App State panel when in components view, show it otherwise
+            // Hide App State panel and bottom console when in components view
             var appstatePanel = document.getElementById('appstate-panel');
             var appstateResizer = appstatePanel ? appstatePanel.nextElementSibling : null;
             if (appstatePanel) appstatePanel.classList.toggle('hidden', view === 'components');
             if (appstateResizer && appstateResizer.classList.contains('resizer')) appstateResizer.classList.toggle('hidden', view === 'components');
+            var bottomPanel = document.getElementById('bottom-panel');
+            if (bottomPanel) bottomPanel.classList.toggle('hidden', view === 'components');
             // Load libraries when switching to components view
             if (view === 'components') {
                 app.handlers.loadLibraries();
@@ -1657,41 +1664,52 @@ const app = {
                 var data = (res.data && res.data.value) ? res.data.value : (res.data || {});
                 var libraries = data.libraries || [];
                 app.state.libraryList = libraries;
-                var container = document.getElementById('component-registry-container');
-                if (!libraries.length) {
-                    container.innerHTML = '<div class="placeholder-text">No component libraries registered.</div>';
-                    return;
-                }
+                var selector = document.getElementById('library-selector');
+                if (!selector) return;
                 var html = '';
-                libraries.forEach(function(lib) {
-                    var isActive = app.state.selectedLibrary === lib.name;
-                    html += '<div class="list-item' + (isActive ? ' active' : '') + '" onclick="app.handlers.selectLibrary(\'' + esc(lib.name) + '\')">'
-                        + '<span class="material-icons" style="font-size:14px">' + (lib.exportable ? 'folder_open' : 'inventory_2') + '</span> '
-                        + esc(lib.name)
-                        + '<span style="color:var(--text-muted);font-size:11px;margin-left:auto">' + lib.component_count + '</span>'
-                        + '</div>';
-                });
-                container.innerHTML = html;
+                if (!libraries.length) {
+                    html = '<option value="">No libraries</option>';
+                } else {
+                    libraries.forEach(function(lib) {
+                        var selected = app.state.selectedLibrary === lib.name ? ' selected' : '';
+                        html += '<option value="' + esc(lib.name) + '"' + selected + '>'
+                            + esc(lib.name) + ' (' + lib.component_count + ')</option>';
+                    });
+                }
+                selector.innerHTML = html;
+                // Update button visibility based on modifiable flag
+                app.handlers._updateLibraryButtons();
                 // Auto-select first library if none selected
                 if (!app.state.selectedLibrary && libraries.length > 0) {
-                    app.handlers.selectLibrary(libraries[0].name);
+                    app.handlers.onLibraryChange(libraries[0].name);
                 } else if (app.state.selectedLibrary) {
-                    app.handlers.selectLibrary(app.state.selectedLibrary);
+                    app.handlers.onLibraryChange(app.state.selectedLibrary);
                 }
             } catch(e) {
-                document.getElementById('component-registry-container').innerHTML = '<div class="placeholder-text" style="color:var(--error)">Failed to load libraries.</div>';
+                var selector = document.getElementById('library-selector');
+                if (selector) selector.innerHTML = '<option value="">Error loading</option>';
             }
+        },
+
+        onLibraryChange: function(libName) {
+            app.state.selectedLibrary = libName;
+            app.state.componentFilter = '';
+            var filterInput = document.getElementById('component-filter');
+            if (filterInput) filterInput.value = '';
+            app.handlers._updateLibraryButtons();
+            app.handlers.selectLibrary(libName);
+        },
+
+        _updateLibraryButtons: function() {
+            var btns = document.getElementById('library-buttons');
+            if (!btns) return;
+            var lib = (app.state.libraryList || []).find(function(l) { return l.name === app.state.selectedLibrary; });
+            var modifiable = lib ? lib.modifiable : false;
+            btns.style.display = modifiable ? 'flex' : 'none';
         },
 
         selectLibrary: async function(libName) {
             app.state.selectedLibrary = libName;
-            // Highlight active library in sidebar
-            var items = document.querySelectorAll('#component-registry-container .list-item');
-            items.forEach(function(el) {
-                var name = el.textContent.trim().replace(/\d+$/, '').trim();
-                el.classList.toggle('active', name === libName);
-            });
-            // Load components for this library
             try {
                 var res = await app.api.post({ op: 'get_library_components', library: libName });
                 var data = (res.data && res.data.value) ? res.data.value : (res.data || {});
@@ -1703,29 +1721,86 @@ const app = {
             }
         },
 
+        filterComponents: function(query) {
+            app.state.componentFilter = (query || '').toLowerCase();
+            var components = (app.state.componentData && app.state.componentData.components) || [];
+            app.handlers._renderComponentList(components);
+        },
+
         _renderComponentList: function(components) {
             var container = document.getElementById('component-list-container');
             if (!container) return;
-            if (!components.length) {
-                container.innerHTML = '<div class="placeholder-text">No components in this library.</div>';
+            var filter = (app.state.componentFilter || '').toLowerCase();
+            var filtered = components;
+            if (filter) {
+                filtered = components.filter(function(c) {
+                    var name = (c.display_name || c.tag || '').toLowerCase();
+                    var tag = (c.tag || '').toLowerCase();
+                    return name.indexOf(filter) !== -1 || tag.indexOf(filter) !== -1;
+                });
+            }
+            if (!filtered.length) {
+                container.innerHTML = '<div class="placeholder-text">' + (filter ? 'No matching components.' : 'No components in this library.') + '</div>';
                 return;
             }
             var html = '';
-            components.forEach(function(c, idx) {
-                html += '<div class="list-item" onclick="app.handlers.showComponentDetail(' + idx + ')">';
-                html += '<span class="material-icons" style="font-size:14px">' + (c.source === 'builtin' ? 'code' : 'widgets') + '</span> ';
+            filtered.forEach(function(c) {
+                // Find original index for showComponentDetail
+                var origIdx = components.indexOf(c);
+                html += '<div class="list-item" onclick="app.handlers.showComponentDetail(' + origIdx + ')">';
                 html += '<span style="font-weight:500">' + esc(c.display_name || c.tag) + '</span>';
-                if (c.tag !== c.display_name) html += '<span style="color:var(--text-muted);font-size:11px;margin-left:6px">&lt;' + esc(c.tag) + '&gt;</span>';
                 html += '</div>';
             });
             container.innerHTML = html;
+        },
+
+        createLibrary: async function() {
+            var name = prompt('New library name:');
+            if (!name || !name.trim()) return;
+            try {
+                var res = await app.api.post({ op: 'create_library', name: name.trim() });
+                if (res.status === 'ok') {
+                    app.log('Created library: ' + name.trim(), 'info');
+                    app.state.selectedLibrary = name.trim();
+                    app.handlers.loadLibraries();
+                } else {
+                    app.log('Failed to create library: ' + (res.message || ''), 'error');
+                }
+            } catch(e) {
+                app.log('Create library failed: ' + e.message, 'error');
+            }
+        },
+
+        createComponent: async function() {
+            if (!app.state.selectedLibrary) { app.log('No library selected', 'error'); return; }
+            var name = prompt('New component tag name:');
+            if (!name || !name.trim()) return;
+            var displayName = prompt('Display name (optional):', name.trim());
+            try {
+                var payload = { op: 'create_component', library: app.state.selectedLibrary, name: name.trim() };
+                if (displayName && displayName.trim()) payload.display_name = displayName.trim();
+                var res = await app.api.post(payload);
+                if (res.status === 'ok') {
+                    app.log('Created component: ' + name.trim(), 'info');
+                    app.handlers.selectLibrary(app.state.selectedLibrary);
+                } else {
+                    app.log('Failed to create component: ' + (res.message || ''), 'error');
+                }
+            } catch(e) {
+                app.log('Create component failed: ' + e.message, 'error');
+            }
         },
 
         showComponentDetail: function(idx) {
             var components = (app.state.componentData && app.state.componentData.components) || [];
             var component = components[idx];
             if (!component) return;
-            var panel = document.getElementById('component-detail-panel');
+            app.state.selectedComponentIdx = idx;
+            var leftPanel = document.getElementById('component-detail-left');
+            var rightPanel = document.getElementById('component-detail-right');
+            if (!leftPanel) return;
+
+            // === Left column: Properties ===
             var html = '<div style="margin-bottom:12px">';
             html += '<h3 style="margin:0 0 4px 0">' + esc(component.display_name || component.tag) + '</h3>';
             html += '<span style="color:var(--text-muted);font-size:12px">' + esc(component.qualified_name) + '</span>';
@@ -1739,24 +1814,23 @@ const app = {
             if (component.accepts_text) html += '<span class="badge">accepts text</span>';
             html += '</div>';
 
-            // Parameters table
-            if (component.attributes && component.attributes.length) {
-                html += '<details open><summary style="font-weight:600;margin-bottom:6px">Parameters (' + component.attributes.length + ')</summary>';
-                html += '<table class="detail-table"><tr><th>Name</th><th>Type</th><th>Default</th></tr>';
-                component.attributes.forEach(function(a) {
-                    html += '<tr><td>' + esc(a.name) + '</td><td style="color:var(--accent)">' + esc(a.attr_type) + '</td><td>' + (a.default != null ? esc(a.default) : '<span style="color:var(--text-muted)">—</span>') + '</td></tr>';
+            // Data Model (component-specific attributes = main data model)
+            var dataModel = component.data_model || [];
+            if (dataModel.length) {
+                html += '<details open><summary style="font-weight:600;margin-bottom:6px">Data Model (' + dataModel.length + ')</summary>';
+                html += '<div style="background:var(--bg-darker);border-radius:4px;padding:8px;font-family:monospace;font-size:12px;">';
+                html += '<div style="color:var(--text-muted);margin-bottom:4px;">struct <span style="color:var(--accent)">' + esc(component.display_name || component.tag) + 'Data</span> {</div>';
+                dataModel.forEach(function(f) {
+                    var defVal = f.default != null ? ' = ' + f.default : '';
+                    html += '<div style="padding-left:16px;">';
+                    html += '<span style="color:var(--text)">' + esc(f.name) + '</span>';
+                    html += ': <span style="color:var(--accent)">' + esc(f.field_type) + '</span>';
+                    if (defVal) html += '<span style="color:var(--text-muted)">' + esc(defVal) + '</span>';
+                    html += ',';
+                    if (f.description) html += ' <span style="color:var(--text-muted);font-style:italic"> // ' + esc(f.description) + '</span>';
+                    html += '</div>';
                 });
-                html += '</table></details>';
-            }
-
-            // Data model fields
-            if (component.data_fields && component.data_fields.length) {
-                html += '<details open><summary style="font-weight:600;margin:12px 0 6px 0">Data Model (' + component.data_fields.length + ')</summary>';
-                html += '<table class="detail-table"><tr><th>Field</th><th>Type</th><th>Default</th></tr>';
-                component.data_fields.forEach(function(f) {
-                    html += '<tr><td>' + esc(f.name) + '</td><td style="color:var(--accent)">' + esc(f.field_type) + '</td><td>' + (f.default != null ? esc(f.default) : '<span style="color:var(--text-muted)">—</span>') + '</td></tr>';
-                });
-                html += '</table></details>';
+                html += '<div>}</div></div></details>';
             }
 
             // Callback slots
@@ -1769,10 +1843,27 @@ const app = {
                 html += '</table></details>';
             }
 
-            // Scoped CSS
-            if (component.scoped_css) {
-                html += '<details><summary style="font-weight:600;margin:12px 0 6px 0">Scoped CSS</summary>';
-                html += '<pre style="background:var(--bg-darker);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px">' + esc(component.scoped_css) + '</pre></details>';
+            // Scoped CSS (editable for user-defined)
+            if (component.scoped_css || component.source === 'user_defined') {
+                html += '<details' + (component.scoped_css ? ' open' : '') + '><summary style="font-weight:600;margin:12px 0 6px 0">Scoped CSS</summary>';
+                if (component.source === 'user_defined') {
+                    html += '<textarea id="component-css-editor" style="width:100%;min-height:80px;background:var(--bg-darker);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;font-family:monospace;font-size:12px;resize:vertical;">' + esc(component.scoped_css || '') + '</textarea>';
+                    html += '<button class="btn-sm" style="margin-top:4px" onclick="app.handlers._saveComponentCss()">Save CSS</button>';
+                } else {
+                    html += '<pre style="background:var(--bg-darker);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px">' + esc(component.scoped_css) + '</pre>';
+                }
+                html += '</details>';
+            }
+
+            // Universal HTML Attributes (collapsed)
+            var universalAttrs = component.universal_attributes || [];
+            if (universalAttrs.length) {
+                html += '<details><summary style="font-weight:600;margin:12px 0 6px 0;color:var(--text-muted)">Universal HTML Attributes (' + universalAttrs.length + ')</summary>';
+                html += '<table class="detail-table"><tr><th>Name</th><th>Type</th></tr>';
+                universalAttrs.forEach(function(a) {
+                    html += '<tr><td>' + esc(a.name) + '</td><td style="color:var(--accent)">' + esc(a.attr_type) + '</td></tr>';
+                });
+                html += '</table></details>';
             }
 
             // Example XML
@@ -1781,7 +1872,56 @@ const app = {
                 html += '<pre style="background:var(--bg-darker);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px">' + esc(component.example_xml) + '</pre></details>';
             }
 
-            panel.innerHTML = html;
+            leftPanel.innerHTML = html;
+
+            // === Right column: Template tree + preview ===
+            if (rightPanel) {
+                rightPanel.style.display = 'block';
+                var rhtml = '<div style="margin-bottom:12px">';
+                rhtml += '<h4 style="margin:0 0 8px 0">Template</h4>';
+                if (component.template) {
+                    rhtml += '<pre style="background:var(--bg-darker);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px;white-space:pre-wrap">' + esc(component.template) + '</pre>';
+                } else if (component.source === 'builtin') {
+                    rhtml += '<div style="color:var(--text-muted);font-size:12px;font-style:italic">Builtin element — renders directly as &lt;' + esc(component.tag) + '&gt;</div>';
+                } else {
+                    rhtml += '<div style="color:var(--text-muted);font-size:12px;font-style:italic">No template defined</div>';
+                }
+                rhtml += '</div>';
+
+                // Preview placeholder
+                rhtml += '<div style="margin-top:12px">';
+                rhtml += '<h4 style="margin:0 0 8px 0">Preview</h4>';
+                rhtml += '<div id="component-preview-container" style="background:var(--bg-darker);border:1px solid var(--border);border-radius:4px;min-height:100px;display:flex;align-items:center;justify-content:center;">';
+                rhtml += '<span style="color:var(--text-muted);font-size:12px">Preview not available yet</span>';
+                rhtml += '</div>';
+                rhtml += '</div>';
+                rightPanel.innerHTML = rhtml;
+            }
+        },
+
+        _saveComponentCss: async function() {
+            var idx = app.state.selectedComponentIdx;
+            var components = (app.state.componentData && app.state.componentData.components) || [];
+            var component = components[idx];
+            if (!component) return;
+            var textarea = document.getElementById('component-css-editor');
+            if (!textarea) return;
+            try {
+                var res = await app.api.post({
+                    op: 'update_component',
+                    library: app.state.selectedLibrary,
+                    name: component.tag,
+                    scoped_css: textarea.value,
+                });
+                if (res.status === 'ok') {
+                    app.log('CSS saved for ' + component.tag, 'info');
+                    app.handlers.selectLibrary(app.state.selectedLibrary);
+                } else {
+                    app.log('Failed to save CSS: ' + (res.message || ''), 'error');
+                }
+            } catch(e) {
+                app.log('Save CSS failed: ' + e.message, 'error');
+            }
         },
 
         /* ── Terminal ── */

@@ -255,6 +255,10 @@ pub struct ComponentLibraryInfo {
     pub description: String,
     /// Whether this library can be exported
     pub exportable: bool,
+    /// Whether this library can be modified (add/remove/edit components)
+    pub modifiable: bool,
+    /// Named data model types defined by this library
+    pub data_models: Vec<DataModelInfo>,
     /// Components in this library
     pub components: Vec<ComponentInfo>,
 }
@@ -277,16 +281,20 @@ pub struct ComponentInfo {
     pub child_policy: String,
     /// Source: "builtin", "compiled", "user_defined"
     pub source: String,
-    /// Available attributes/parameters for this component
-    pub attributes: Vec<ComponentAttributeInfo>,
+    /// Component-specific data model fields (the component's own attributes,
+    /// e.g., href/target/rel for <a>). These ARE the component's main data model.
+    pub data_model: Vec<ComponentDataFieldInfo>,
+    /// Universal HTML attributes (id, class, style, etc.)
+    /// Shown in a collapsed section in the debugger.
+    pub universal_attributes: Vec<ComponentAttributeInfo>,
     /// Callback slots this component exposes
     pub callback_slots: Vec<ComponentCallbackSlotInfo>,
-    /// Data model fields
-    pub data_fields: Vec<ComponentDataFieldInfo>,
     /// Example XML usage
     pub example_xml: String,
     /// Scoped CSS
     pub scoped_css: String,
+    /// XML template body (for user-defined components)
+    pub template: String,
 }
 
 /// Info about an attribute a component accepts
@@ -344,7 +352,20 @@ pub struct LibrarySummary {
     pub version: String,
     pub description: String,
     pub exportable: bool,
+    pub modifiable: bool,
     pub component_count: usize,
+}
+
+/// A named data model (struct definition) in a library
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DataModelInfo {
+    /// Type name, e.g. "UserProfile"
+    pub name: String,
+    /// Human-readable description
+    pub description: String,
+    /// Fields in this struct
+    pub fields: Vec<ComponentDataFieldInfo>,
 }
 
 /// Response for GetLibraryComponents — components within a specific library
@@ -1660,6 +1681,61 @@ pub enum DebugEvent {
         /// Library name to export, or omit for all exportable
         #[serde(default)]
         library: Option<String>,
+    },
+    /// Create a new empty user-defined component library
+    CreateLibrary {
+        /// Library name
+        name: String,
+        /// Optional description
+        #[serde(default)]
+        description: Option<String>,
+    },
+    /// Delete a user-defined component library
+    DeleteLibrary {
+        /// Library name to delete
+        name: String,
+    },
+    /// Create a new empty component in a library
+    CreateComponent {
+        /// Library name
+        library: String,
+        /// Component tag name
+        name: String,
+        /// Human-readable display name
+        #[serde(default)]
+        display_name: Option<String>,
+    },
+    /// Delete a component from a library
+    DeleteComponent {
+        /// Library name
+        library: String,
+        /// Component tag name
+        name: String,
+    },
+    /// Update a component's properties (template, CSS, data model, etc.)
+    UpdateComponent {
+        /// Library name
+        library: String,
+        /// Component tag name
+        name: String,
+        /// New template (if provided)
+        #[serde(default)]
+        template: Option<String>,
+        /// New scoped CSS (if provided)
+        #[serde(default)]
+        scoped_css: Option<String>,
+        /// New description (if provided)
+        #[serde(default)]
+        description: Option<String>,
+        /// New display name (if provided)
+        #[serde(default)]
+        display_name: Option<String>,
+        /// Replace data model fields (if provided)
+        #[serde(default)]
+        data_model: Option<Vec<ExportedDataField>>,
+        /// Replace callback slots (if provided)
+        #[serde(default)]
+        callback_slots: Option<Vec<ExportedCallbackSlot>>,
     },
     /// Open a source file in the user's editor (best-effort)
     OpenFile {
@@ -3679,33 +3755,24 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
         for def in lib.components.iter() {
             let tag = def.id.name.as_str();
 
-            // --- attributes ---
-            let mut attributes: Vec<ComponentAttributeInfo> = def.parameters.as_ref().iter()
-                .map(|p| ComponentAttributeInfo {
-                    name: p.name.as_str().to_string(),
-                    attr_type: p.param_type.as_str().to_string(),
-                    default: p.default_value.as_ref().map(|s| s.as_str().to_string()),
-                    description: p.description.as_str().to_string(),
+            // --- data model (component-specific attributes) ---
+            let mut data_model: Vec<ComponentDataFieldInfo> = def.data_model.as_ref().iter()
+                .map(|f| ComponentDataFieldInfo {
+                    name: f.name.as_str().to_string(),
+                    field_type: f.field_type.as_str().to_string(),
+                    default: f.default_value.as_ref().map(|s| s.as_str().to_string()),
+                    description: f.description.as_str().to_string(),
                 })
                 .collect();
 
-            // Enrich builtin elements with well-known HTML attributes
+            // For builtins, also add tag-specific attributes from the well-known table
+            // (in case they weren't already registered as data_model fields)
             if def.source == ComponentSource::Builtin {
                 for (attr_name, attr_type) in get_tag_specific_attributes(tag) {
-                    if !attributes.iter().any(|a| a.name == attr_name) {
-                        attributes.push(ComponentAttributeInfo {
+                    if !data_model.iter().any(|f| f.name == attr_name) {
+                        data_model.push(ComponentDataFieldInfo {
                             name: attr_name.to_string(),
-                            attr_type: attr_type.to_string(),
-                            default: None,
-                            description: String::new(),
-                        });
-                    }
-                }
-                for (attr_name, attr_type) in get_universal_attributes() {
-                    if !attributes.iter().any(|a| a.name == attr_name) {
-                        attributes.push(ComponentAttributeInfo {
-                            name: attr_name.to_string(),
-                            attr_type: attr_type.to_string(),
+                            field_type: attr_type.to_string(),
                             default: None,
                             description: String::new(),
                         });
@@ -3713,22 +3780,24 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
                 }
             }
 
+            // --- universal HTML attributes (separate) ---
+            let universal_attributes: Vec<ComponentAttributeInfo> = if def.source == ComponentSource::Builtin {
+                get_universal_attributes().into_iter().map(|(name, atype)| ComponentAttributeInfo {
+                    name: name.to_string(),
+                    attr_type: atype.to_string(),
+                    default: None,
+                    description: String::new(),
+                }).collect()
+            } else {
+                Vec::new()
+            };
+
             // --- callback slots ---
             let callback_slots: Vec<ComponentCallbackSlotInfo> = def.callback_slots.as_ref().iter()
                 .map(|s| ComponentCallbackSlotInfo {
                     name: s.name.as_str().to_string(),
                     callback_type: s.callback_type.as_str().to_string(),
                     description: s.description.as_str().to_string(),
-                })
-                .collect();
-
-            // --- data fields ---
-            let data_fields: Vec<ComponentDataFieldInfo> = def.data_model.as_ref().iter()
-                .map(|f| ComponentDataFieldInfo {
-                    name: f.name.as_str().to_string(),
-                    field_type: f.field_type.as_str().to_string(),
-                    default: f.default_value.as_ref().map(|s| s.as_str().to_string()),
-                    description: f.description.as_str().to_string(),
                 })
                 .collect();
 
@@ -3752,22 +3821,41 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
                 accepts_text: def.accepts_text,
                 child_policy: child_policy_str.to_string(),
                 source: source_str.to_string(),
-                attributes,
+                data_model,
+                universal_attributes,
                 callback_slots,
-                data_fields,
                 example_xml: def.example_xml.as_str().to_string(),
                 scoped_css: def.scoped_css.as_str().to_string(),
+                template: def.template.as_str().to_string(),
             });
         }
 
         // Sort components within the library by tag name
         components.sort_by(|a, b| a.tag.cmp(&b.tag));
 
+        // Build data model infos from library-level data models
+        let data_models: Vec<DataModelInfo> = lib.data_models.as_ref().iter()
+            .map(|dm| DataModelInfo {
+                name: dm.name.as_str().to_string(),
+                description: dm.description.as_str().to_string(),
+                fields: dm.fields.as_ref().iter()
+                    .map(|f| ComponentDataFieldInfo {
+                        name: f.name.as_str().to_string(),
+                        field_type: f.field_type.as_str().to_string(),
+                        default: f.default_value.as_ref().map(|s| s.as_str().to_string()),
+                        description: f.description.as_str().to_string(),
+                    })
+                    .collect(),
+            })
+            .collect();
+
         libraries.push(ComponentLibraryInfo {
             name: lib.name.as_str().to_string(),
             version: lib.version.as_str().to_string(),
             description: lib.description.as_str().to_string(),
             exportable: lib.exportable,
+            modifiable: lib.modifiable,
+            data_models,
             components,
         });
     }
@@ -7658,6 +7746,7 @@ fn process_debug_event(
                 version: lib.version.clone(),
                 description: lib.description.clone(),
                 exportable: lib.exportable,
+                modifiable: lib.modifiable,
                 component_count: lib.components.len(),
             }).collect();
             send_ok(
@@ -7755,6 +7844,7 @@ fn process_debug_event(
                     source: ComponentSource::UserDefined,
                     data_model: data_fields.into(),
                     callback_slots: callback_slots.into(),
+                    template: AzString::from(c.template.as_str()),
                     render_fn: azul_core::xml::user_defined_render_fn,
                     compile_fn: azul_core::xml::user_defined_compile_fn,
                     node_type: azul_core::dom::OptionNodeType::None,
@@ -7767,6 +7857,8 @@ fn process_debug_event(
                 description: AzString::from(lib_json.description.as_str()),
                 components: ComponentDefVec::from_vec(defs),
                 exportable: true,
+                modifiable: true,
+                data_models: azul_core::xml::ComponentDataModelVec::from_const_slice(&[]),
             };
 
             // Insert or replace in the component map
@@ -7820,18 +7912,18 @@ fn process_debug_event(
                         name: c.tag.clone(),
                         display_name: c.display_name.clone(),
                         description: c.description.clone(),
-                        parameters: c.attributes.iter().map(|a| ExportedComponentParam {
-                            name: a.name.clone(),
-                            param_type: a.attr_type.clone(),
-                            default: a.default.clone(),
-                            description: a.description.clone(),
+                        parameters: c.data_model.iter().map(|f| ExportedComponentParam {
+                            name: f.name.clone(),
+                            param_type: f.field_type.clone(),
+                            default: f.default.clone(),
+                            description: f.description.clone(),
                         }).collect(),
                         accepts_text: c.accepts_text,
                         child_policy: c.child_policy.clone(),
                         scoped_css: c.scoped_css.clone(),
                         example_xml: c.example_xml.clone(),
-                        template: String::new(), // Template not stored in runtime representation
-                        data_fields: c.data_fields.iter().map(|f| ExportedDataField {
+                        template: c.template.clone(),
+                        data_fields: c.data_model.iter().map(|f| ExportedDataField {
                             name: f.name.clone(),
                             field_type: f.field_type.clone(),
                             default: f.default.clone(),
@@ -7845,6 +7937,200 @@ fn process_debug_event(
                     }).collect(),
                 };
                 send_ok(request, None, Some(ResponseData::ExportedLibrary(exported)));
+            }
+        }
+
+        DebugEvent::CreateLibrary { name, description } => {
+            use azul_core::xml::{ComponentLibrary, ComponentDefVec, ComponentLibraryVec, ComponentDataModelVec};
+            use azul_css::corety::AzString;
+
+            let mut map_guard = component_map.lock().unwrap();
+            // Check if library already exists
+            if map_guard.libraries.iter().any(|l| l.name.as_str() == name.as_str()) {
+                drop(map_guard);
+                send_err(request, &format!("Library '{}' already exists", name));
+            } else {
+                let new_lib = ComponentLibrary {
+                    name: AzString::from(name.as_str()),
+                    version: AzString::from_const_str("0.1.0"),
+                    description: AzString::from(description.as_deref().unwrap_or("")),
+                    components: ComponentDefVec::from_const_slice(&[]),
+                    exportable: true,
+                    modifiable: true,
+                    data_models: ComponentDataModelVec::from_const_slice(&[]),
+                };
+                let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
+                let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+                libs.push(new_lib);
+                map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                drop(map_guard);
+                send_ok(request, None, None);
+            }
+        }
+
+        DebugEvent::DeleteLibrary { name } => {
+            use azul_core::xml::ComponentLibraryVec;
+
+            let mut map_guard = component_map.lock().unwrap();
+            let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
+            let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+            let original_len = libs.len();
+
+            // Only allow deletion of modifiable libraries
+            if let Some(lib) = libs.iter().find(|l| l.name.as_str() == name.as_str()) {
+                if !lib.modifiable {
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(request, &format!("Library '{}' is not modifiable and cannot be deleted", name));
+                } else {
+                    libs.retain(|l| l.name.as_str() != name.as_str());
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_ok(request, None, None);
+                }
+            } else {
+                map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                drop(map_guard);
+                send_err(request, &format!("Library '{}' not found", name));
+            }
+        }
+
+        DebugEvent::CreateComponent { library, name, display_name } => {
+            use azul_core::xml::{ComponentDef, ComponentId, ComponentSource, ChildPolicy, ComponentLibraryVec};
+            use azul_css::corety::AzString;
+
+            let mut map_guard = component_map.lock().unwrap();
+            let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
+            let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+
+            if let Some(lib) = libs.iter_mut().find(|l| l.name.as_str() == library.as_str()) {
+                if !lib.modifiable {
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(request, &format!("Library '{}' is not modifiable", library));
+                } else {
+                    let display = display_name.as_deref().unwrap_or(name.as_str());
+                    let new_def = ComponentDef {
+                        id: ComponentId::new(library.as_str(), name.as_str()),
+                        display_name: AzString::from(display),
+                        description: AzString::from_const_str(""),
+                        parameters: Vec::new().into(),
+                        accepts_text: false,
+                        child_policy: ChildPolicy::AnyChildren,
+                        scoped_css: AzString::from_const_str(""),
+                        example_xml: AzString::from(format!("<{} />", name).as_str()),
+                        source: ComponentSource::UserDefined,
+                        data_model: Vec::new().into(),
+                        callback_slots: Vec::new().into(),
+                        template: AzString::from_const_str(""),
+                        render_fn: azul_core::xml::user_defined_render_fn,
+                        compile_fn: azul_core::xml::user_defined_compile_fn,
+                        node_type: azul_core::dom::OptionNodeType::None,
+                    };
+                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
+                    comps.push(new_def);
+                    lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_ok(request, None, None);
+                }
+            } else {
+                map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                drop(map_guard);
+                send_err(request, &format!("Library '{}' not found", library));
+            }
+        }
+
+        DebugEvent::DeleteComponent { library, name } => {
+            use azul_core::xml::ComponentLibraryVec;
+
+            let mut map_guard = component_map.lock().unwrap();
+            let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
+            let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+
+            if let Some(lib) = libs.iter_mut().find(|l| l.name.as_str() == library.as_str()) {
+                if !lib.modifiable {
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(request, &format!("Library '{}' is not modifiable", library));
+                } else {
+                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
+                    comps.retain(|c| c.id.name.as_str() != name.as_str());
+                    lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_ok(request, None, None);
+                }
+            } else {
+                map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                drop(map_guard);
+                send_err(request, &format!("Library '{}' not found", library));
+            }
+        }
+
+        DebugEvent::UpdateComponent { library, name, template, scoped_css, description, display_name, data_model, callback_slots } => {
+            use azul_core::xml::{ComponentLibraryVec, ComponentDataField, ComponentCallbackSlot};
+            use azul_css::corety::{AzString, OptionString};
+
+            let mut map_guard = component_map.lock().unwrap();
+            let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
+            let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+
+            if let Some(lib) = libs.iter_mut().find(|l| l.name.as_str() == library.as_str()) {
+                if !lib.modifiable {
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(request, &format!("Library '{}' is not modifiable", library));
+                } else {
+                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
+                    if let Some(comp) = comps.iter_mut().find(|c| c.id.name.as_str() == name.as_str()) {
+                        if let Some(t) = template {
+                            comp.template = AzString::from(t.as_str());
+                        }
+                        if let Some(css) = scoped_css {
+                            comp.scoped_css = AzString::from(css.as_str());
+                        }
+                        if let Some(desc) = description {
+                            comp.description = AzString::from(desc.as_str());
+                        }
+                        if let Some(dn) = display_name {
+                            comp.display_name = AzString::from(dn.as_str());
+                        }
+                        if let Some(dm) = data_model {
+                            let fields: Vec<ComponentDataField> = dm.iter().map(|f| ComponentDataField {
+                                name: AzString::from(f.name.as_str()),
+                                field_type: AzString::from(f.field_type.as_str()),
+                                default_value: f.default.as_ref()
+                                    .map(|d| OptionString::Some(AzString::from(d.as_str())))
+                                    .unwrap_or(OptionString::None),
+                                description: AzString::from(f.description.as_str()),
+                            }).collect();
+                            comp.data_model = fields.into();
+                        }
+                        if let Some(cbs) = callback_slots {
+                            let slots: Vec<ComponentCallbackSlot> = cbs.iter().map(|s| ComponentCallbackSlot {
+                                name: AzString::from(s.name.as_str()),
+                                callback_type: AzString::from(s.callback_type.as_str()),
+                                description: AzString::from(s.description.as_str()),
+                            }).collect();
+                            comp.callback_slots = slots.into();
+                        }
+                        lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
+                        map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                        drop(map_guard);
+                        needs_update = true;
+                        send_ok(request, None, None);
+                    } else {
+                        lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
+                        map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                        drop(map_guard);
+                        send_err(request, &format!("Component '{}' not found in library '{}'", name, library));
+                    }
+                }
+            } else {
+                map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                drop(map_guard);
+                send_err(request, &format!("Library '{}' not found", library));
             }
         }
 

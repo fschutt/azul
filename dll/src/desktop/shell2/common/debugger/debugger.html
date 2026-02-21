@@ -131,14 +131,22 @@
             </div>
 
             <div id="sidebar-components" class="sidebar-content hidden">
-                <div id="component-registry-container" style="padding:8px;">
-                    <div class="placeholder-text">Loading libraries...</div>
-                </div>
-                <div style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px;">
-                    <div style="padding:4px 8px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Components</div>
-                    <div id="component-list-container" style="padding:0 8px 8px 8px;">
-                        <div class="placeholder-text">Select a library above.</div>
+                <div style="padding:8px;">
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+                        <label style="font-size:11px;color:var(--text-muted);white-space:nowrap;">Library:</label>
+                        <select id="library-selector" onchange="app.handlers.onLibraryChange(this.value)" style="flex:1;background:var(--bg-darker);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:2px 4px;font-size:12px;">
+                            <option value="">Loading...</option>
+                        </select>
                     </div>
+                    <div id="library-buttons" style="display:flex;gap:4px;margin-bottom:6px;">
+                        <button class="btn-sm" onclick="app.handlers.createLibrary()" title="Create new library">+ Library</button>
+                        <button class="btn-sm" onclick="app.handlers.createComponent()" title="Create new component">+ Component</button>
+                    </div>
+                    <input type="text" id="component-filter" placeholder="Filter components..." oninput="app.handlers.filterComponents(this.value)"
+                        style="width:100%;box-sizing:border-box;background:var(--bg-darker);color:var(--text);border:1px solid var(--border);border-radius:3px;padding:4px 6px;font-size:12px;margin-bottom:4px;">
+                </div>
+                <div id="component-list-container" style="padding:0 8px 8px 8px;">
+                    <div class="placeholder-text">Select a library above.</div>
                 </div>
             </div>
         </div>
@@ -183,9 +191,11 @@
                     </div>
                 </div>
 
-                <div id="view-components" class="hidden" style="height:100%; overflow:auto; padding:15px;">
-                    <div id="component-detail-panel">
+                <div id="view-components" class="hidden" style="height:100%; overflow:hidden; display:flex;">
+                    <div id="component-detail-left" style="flex:1; overflow:auto; padding:15px; min-width:0;">
                         <div class="placeholder-text">Select a component from the sidebar to see its details.</div>
+                    </div>
+                    <div id="component-detail-right" style="width:320px; overflow:auto; padding:15px; border-left:1px solid var(--border); display:none;">
                     </div>
                 </div>
             </div>
