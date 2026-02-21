@@ -447,12 +447,30 @@ pub struct HierarchyNodeInfo {
     pub index: usize,
     #[serde(rename = "type")]
     pub node_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub classes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     pub parent: i64,
-    pub prev_sibling: i64,
-    pub next_sibling: i64,
-    pub last_child: i64,
     pub children: Vec<usize>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<NodeEventInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rect: Option<LogicalRectJson>,
+    pub tab_index: Option<i32>,
+    pub contenteditable: bool,
+}
+
+/// Event handler info for a single callback on a node
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeEventInfo {
+    pub event: String,
+    pub callback_ptr: String,
 }
 
 /// Response for GetLayoutTree
@@ -3867,11 +3885,24 @@ fn process_debug_event(
 
                     let node_type = data.get_node_type().get_path().to_string();
 
+                    // Extract tag name from node type
+                    let tag = Some(node_type.clone());
+
+                    // Extract ID and classes from ids_and_classes
+                    let mut id_attr = None;
+                    let mut classes = Vec::new();
+                    for ioc in data.ids_and_classes.as_ref().iter() {
+                        match ioc {
+                            azul_core::dom::IdOrClass::Id(s) => { id_attr = Some(s.as_str().to_string()); }
+                            azul_core::dom::IdOrClass::Class(s) => { classes.push(s.as_str().to_string()); }
+                        }
+                    }
+
                     let text_content = match data.get_node_type() {
                         azul_core::dom::NodeType::Text(t) => {
                             let s = t.as_str();
-                            if s.len() > 50 {
-                                Some(format!("{}...", &s[..47]))
+                            if s.len() > 200 {
+                                Some(format!("{}...", &s[..197]))
                             } else {
                                 Some(s.to_string())
                             }
@@ -3884,33 +3915,52 @@ fn process_debug_event(
                     } else {
                         (hier.parent - 1) as i64
                     };
-                    let prev_sib_decoded = if hier.previous_sibling == 0 {
-                        -1i64
-                    } else {
-                        (hier.previous_sibling - 1) as i64
-                    };
-                    let next_sib_decoded = if hier.next_sibling == 0 {
-                        -1i64
-                    } else {
-                        (hier.next_sibling - 1) as i64
-                    };
-                    let last_child_decoded = if hier.last_child == 0 {
-                        -1i64
-                    } else {
-                        (hier.last_child - 1) as i64
-                    };
                     let children: Vec<usize> =
                         node_id.az_children(&hierarchy).map(|c| c.index()).collect();
+
+                    // Extract event handlers
+                    let events: Vec<NodeEventInfo> = data.callbacks.as_ref().iter().map(|cb| {
+                        NodeEventInfo {
+                            event: format!("{:?}", cb.event),
+                            callback_ptr: format!("0x{:x}", cb.callback.cb),
+                        }
+                    }).collect();
+
+                    // Get layout rect
+                    let dom_node_id = azul_core::dom::DomNodeId {
+                        dom: dom_id.clone(),
+                        node: Some(NodeId::new(i)).into(),
+                    };
+                    let rect = callback_info.get_node_rect(dom_node_id).map(|r| LogicalRectJson {
+                        x: r.origin.x,
+                        y: r.origin.y,
+                        width: r.size.width,
+                        height: r.size.height,
+                    });
+
+                    // Tab index
+                    let tab_index = match data.tab_index {
+                        azul_core::dom::OptionTabIndex::Some(ti) => match ti {
+                            azul_core::dom::TabIndex::Auto => Some(0),
+                            azul_core::dom::TabIndex::OverrideInParent(v) => Some(v as i32),
+                            azul_core::dom::TabIndex::NoKeyboardFocus => Some(-1),
+                        },
+                        azul_core::dom::OptionTabIndex::None => None,
+                    };
 
                     nodes.push(HierarchyNodeInfo {
                         index: i,
                         node_type: node_type.to_string(),
+                        tag,
+                        id: id_attr,
+                        classes,
                         text: text_content,
                         parent: parent_decoded,
-                        prev_sibling: prev_sib_decoded,
-                        next_sibling: next_sib_decoded,
-                        last_child: last_child_decoded,
                         children,
+                        events,
+                        rect,
+                        tab_index,
+                        contenteditable: data.contenteditable,
                     });
                 }
 

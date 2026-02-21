@@ -10,62 +10,52 @@
 <body>
 
     <!-- Menu Bar -->
-    <div class="menubar">
-        <div class="menu-item">
-            File
-            <div class="menu-dropdown">
-                <div class="menu-dropdown-item" onclick="app.handlers.newTest()">
-                    <span class="material-icons" style="font-size:18px">add</span>
-                    New Test
-                </div>
-                <div class="menu-dropdown-item" onclick="document.getElementById('file-input').click()">
-                    <span class="material-icons" style="font-size:18px">upload_file</span>
-                    Import Test(s)...
-                </div>
-            </div>
-        </div>
-        <div class="menu-item">
+    <div class="menubar" id="menubar">
+        <div class="menu-item" data-menu="import">
             Import
             <div class="menu-dropdown">
-                <div class="menu-dropdown-item" onclick="app.handlers.refreshSidebar()">
-                    <span class="material-icons" style="font-size:18px">code</span>
-                    UI from HTML
+                <div class="menu-dropdown-item" onclick="app.handlers.importProject()">
+                    <span class="material-icons mi">folder_open</span>
+                    Project from JSON...
                 </div>
-                <div class="menu-dropdown-item" onclick="document.getElementById('file-input').click()">
-                    <span class="material-icons" style="font-size:18px">note_add</span>
-                    E2E Test(s)
+                <div class="menu-dropdown-separator"></div>
+                <div class="menu-dropdown-item" onclick="app.handlers.importE2eTests()">
+                    <span class="material-icons mi">note_add</span>
+                    E2E Tests (append)...
                 </div>
             </div>
         </div>
-        <div class="menu-item">
+        <div class="menu-item" data-menu="export">
             Export
             <div class="menu-dropdown">
-                <div class="menu-dropdown-item" onclick="app.handlers.exportWorkspace()">
-                    <span class="material-icons" style="font-size:18px">save</span>
-                    Workspace as JSON
+                <div class="menu-dropdown-item" onclick="app.handlers.exportProject()">
+                    <span class="material-icons mi">save</span>
+                    Project as JSON
                 </div>
-                <div class="menu-dropdown-item" onclick="app.handlers.exportTests()">
-                    <span class="material-icons" style="font-size:18px">save_alt</span>
-                    E2E Test(s)
+                <div class="menu-dropdown-separator"></div>
+                <div class="menu-dropdown-item" onclick="app.handlers.exportE2eTests()">
+                    <span class="material-icons mi">save_alt</span>
+                    E2E Tests (CLI format)
                 </div>
             </div>
         </div>
         <div style="flex:1"></div>
-        <div class="menu-item" id="connection-status" style="color: var(--warning)">Disconnected</div>
+        <div id="connection-status" style="padding:4px 8px; color: var(--warning); cursor:default; font-size:12px;">Disconnected</div>
     </div>
 
-    <!-- Hidden file input (for import) -->
-    <input type="file" id="file-input" class="hidden" accept=".json" onchange="app.handlers.importFile(this)">
+    <!-- Hidden file inputs -->
+    <input type="file" id="file-import-project" class="hidden" accept=".json" onchange="app.handlers.handleProjectImport(this)">
+    <input type="file" id="file-import-e2e" class="hidden" accept=".json" onchange="app.handlers.handleE2eImport(this)">
 
     <!-- Main Workbench -->
     <div class="workbench">
 
         <!-- Activity Bar -->
         <div class="activity-bar">
-            <div class="activity-icon active" data-view="inspector" onclick="app.ui.switchView('inspector')">
+            <div class="activity-icon active" data-view="inspector" onclick="app.ui.switchView('inspector')" title="DOM Inspector">
                 <span class="material-icons">account_tree</span>
             </div>
-            <div class="activity-icon" data-view="testing" onclick="app.ui.switchView('testing')">
+            <div class="activity-icon" data-view="testing" onclick="app.ui.switchView('testing')" title="E2E Testing">
                 <span class="material-icons">bug_report</span>
             </div>
         </div>
@@ -74,12 +64,14 @@
         <div class="sidebar">
             <div class="sidebar-header">
                 <span id="sidebar-title">DOM Explorer</span>
-                <span class="material-icons" style="font-size:16px; cursor:pointer" onclick="app.handlers.refreshSidebar()">refresh</span>
+                <span class="material-icons clickable" style="font-size:16px" onclick="app.handlers.refreshSidebar()" title="Refresh">refresh</span>
             </div>
 
-            <!-- Inspector sidebar -->
-            <div id="sidebar-inspector" class="sidebar-content mono" style="font-size:12px;">
-                <div style="padding:10px; color:var(--text-muted)">Loading DOM...</div>
+            <!-- Inspector sidebar: DOM Tree -->
+            <div id="sidebar-inspector" class="sidebar-content">
+                <div id="dom-tree-container" class="dom-tree">
+                    <div class="placeholder-text">Loading DOM tree...</div>
+                </div>
             </div>
 
             <!-- Testing sidebar -->
@@ -90,11 +82,11 @@
                 <div id="test-list-container"></div>
                 <hr style="border-color:var(--border); margin:10px 0;">
                 <div class="btn-row">
-                    <button class="btn-primary" onclick="app.runner.runServerSide()" title="Run the selected test on the server (StubWindow)">
-                        <span class="material-icons" style="font-size:14px;vertical-align:middle">play_arrow</span> Run Test
+                    <button class="btn-primary" onclick="app.runner.runServerSide()" title="Run selected test on server">
+                        <span class="material-icons" style="font-size:14px;vertical-align:middle">play_arrow</span> Run
                     </button>
-                    <button class="btn-primary" onclick="app.runner.runAllServerSide()" title="Run ALL tests on the server in parallel">
-                        <span class="material-icons" style="font-size:14px;vertical-align:middle">play_circle</span> Run All
+                    <button class="btn-primary" onclick="app.runner.runAllServerSide()" title="Run ALL tests on server">
+                        <span class="material-icons" style="font-size:14px;vertical-align:middle">play_circle</span> All
                     </button>
                 </div>
                 <div id="run-status" class="hidden" style="padding:10px; text-align:center; color:var(--text-muted)">
@@ -108,36 +100,29 @@
             <div class="editor-tabs">
                 <div class="tab">
                     <span class="material-icons" style="font-size:14px; color:var(--accent)">description</span>
-                    <span id="tab-title">main.html</span>
+                    <span id="tab-title">Inspector</span>
                 </div>
             </div>
 
             <div class="editor-content">
 
-                <!-- View: Inspector -->
-                <div id="view-inspector" class="flex" style="height:100%; padding:20px; flex-direction:column;">
-                    <h3>UI Preview</h3>
-                    <div style="color:var(--text-muted); margin-bottom:10px;">
-                        Visual representation of the node structure.
-                    </div>
-                    <div id="dom-preview" class="mono" style="background:var(--bg-sidebar); padding:15px; border-radius:4px; overflow:auto; white-space:pre; flex:1;">
-                        &lt;!-- DOM content will appear here --&gt;
+                <!-- View: Inspector (Node Details) -->
+                <div id="view-inspector" style="height:100%; display:flex; flex-direction:column; overflow:hidden;">
+                    <div id="node-detail-panel" style="flex:1; overflow:auto; padding:15px;">
+                        <div class="placeholder-text">Select a node in the DOM Explorer to inspect it.</div>
                     </div>
                 </div>
 
                 <!-- View: Testing -->
                 <div id="view-testing" class="hidden" style="height:100%; position:relative; display:flex; flex-direction:column;">
-                    <!-- Floating controls -->
                     <div class="floating-controls">
-                        <button class="icon-btn success" title="Run Test (client-side)" onclick="app.runner.run()"><span class="material-icons">play_arrow</span></button>
+                        <button class="icon-btn success" title="Run (client)" onclick="app.runner.run()"><span class="material-icons">play_arrow</span></button>
                         <button class="icon-btn" title="Pause" onclick="app.runner.pause()"><span class="material-icons">pause</span></button>
-                        <button class="icon-btn" title="Step Over" onclick="app.runner.step()"><span class="material-icons">redo</span></button>
-                        <button class="icon-btn danger" title="Stop/Reset" onclick="app.runner.reset()"><span class="material-icons">stop</span></button>
+                        <button class="icon-btn" title="Step" onclick="app.runner.step()"><span class="material-icons">redo</span></button>
+                        <button class="icon-btn danger" title="Reset" onclick="app.runner.reset()"><span class="material-icons">stop</span></button>
                     </div>
                     <div id="steps-container" class="step-list">
-                        <div style="text-align:center; padding:20px; color:var(--text-muted);">
-                            No test selected or empty test.
-                        </div>
+                        <div class="placeholder-text">No test selected.</div>
                     </div>
                     <div style="padding:10px; border-top:1px solid var(--border); flex-shrink:0;">
                         <button class="btn-primary" style="width:auto;" onclick="app.ui.showAddStepForm()">+ Add Step</button>
@@ -145,13 +130,14 @@
                 </div>
             </div>
 
-            <!-- Bottom Panel (Terminal) -->
+            <!-- Bottom Panel -->
             <div class="bottom-panel">
-                <div class="panel-header">
-                    <span>Terminal</span>
-                    <span style="opacity:0.5">Debug Console</span>
+                <div class="panel-tabs">
+                    <div class="panel-tab active" data-panel="terminal" onclick="app.ui.switchPanel('terminal')">Terminal</div>
+                    <div class="panel-tab" data-panel="debug" onclick="app.ui.switchPanel('debug')">Debug Console</div>
                 </div>
-                <div id="terminal-output" class="terminal-output"></div>
+                <div id="panel-terminal" class="terminal-output"></div>
+                <div id="panel-debug" class="terminal-output hidden"></div>
                 <div class="terminal-input-row">
                     <span style="color:var(--accent); margin-right:5px;">&gt;</span>
                     <input type="text" id="terminal-cmd" class="terminal-input" placeholder='{"op": "get_state"}' onkeydown="if(event.key==='Enter') app.handlers.terminalEnter(this)">
@@ -159,24 +145,35 @@
             </div>
         </div>
 
-        <!-- Secondary Sidebar (Properties / Step Details / Screenshot) -->
+        <!-- Secondary Sidebar (Properties / CSS) -->
         <div class="secondary-sidebar">
-            <div class="sidebar-header">Properties / Details</div>
+            <div class="sidebar-header">Properties</div>
             <div id="prop-panel" class="sidebar-content">
                 <div id="details-content" style="padding:10px;">
-                    <p style="color:var(--text-muted)">Select a node or test step to view details.</p>
+                    <div class="placeholder-text">Select a node or test step.</div>
                 </div>
             </div>
         </div>
 
     </div>
 
-    <!-- Screenshot Modal (full-size preview) -->
+    <!-- Context Menu (DOM tree right-click) -->
+    <div id="context-menu" class="context-menu hidden">
+        <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('div')">Insert child &lt;div&gt;</div>
+        <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('span')">Insert child &lt;span&gt;</div>
+        <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('p')">Insert child &lt;p&gt;</div>
+        <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('button')">Insert child &lt;button&gt;</div>
+        <div class="context-menu-item" onclick="app.handlers.ctxInsertChild('text')">Insert child (text)</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" onclick="app.handlers.ctxDeleteNode()">Delete node</div>
+    </div>
+
+    <!-- Screenshot Modal -->
     <div id="screenshot-modal" class="modal" onclick="this.classList.remove('active')">
-        <div class="modal-content" style="max-width:90%; max-height:90%;" onclick="event.stopPropagation()">
+        <div class="modal-content" onclick="event.stopPropagation()">
             <div class="modal-header">
-                <span>Screenshot Preview</span>
-                <span class="material-icons" style="cursor:pointer" onclick="document.getElementById('screenshot-modal').classList.remove('active')">close</span>
+                <span>Screenshot</span>
+                <span class="material-icons clickable" onclick="document.getElementById('screenshot-modal').classList.remove('active')">close</span>
             </div>
             <div class="modal-body" style="text-align:center; overflow:auto;">
                 <img id="screenshot-modal-img" style="max-width:100%;" />
