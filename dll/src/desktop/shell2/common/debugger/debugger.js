@@ -49,6 +49,10 @@ const app = {
         resolvedSymbols: {},
         // Last loaded component registry data
         componentData: null,
+        // Currently selected library name in components view
+        selectedLibrary: null,
+        // Library list cache
+        libraryList: null,
         // JSON tree collapsed paths
         jsonCollapsed: new Set(),
         // JSON tree grouped ranges that are collapsed
@@ -142,6 +146,8 @@ const app = {
             // ── Debugging ──
             'resolve_function_pointers': { desc: 'Resolve fn ptrs to symbols',    examples: ['/resolve_function_pointers addresses 0x1234'],  params: [{ name: 'addresses', type: 'text', placeholder: '0x1234,0x5678' }] },
             'get_component_registry':    { desc: 'Get registered components',      examples: ['/get_component_registry'],                     params: [] },
+            'get_libraries':             { desc: 'List registered libraries',      examples: ['/get_libraries'],                              params: [] },
+            'get_library_components':    { desc: 'Get components in library',      examples: ['/get_library_components library builtin'],      params: [{ name: 'library', type: 'text', placeholder: 'builtin' }] },
 
             // ── Snapshots ──
             'restore_snapshot': { desc: 'Restore saved app state snapshot',       examples: ['/restore_snapshot alias initial-state'],         params: [{ name: 'alias', type: 'text', placeholder: 'initial-state' }] },
@@ -417,7 +423,13 @@ const app = {
                 return { status: 'ok', data: { type: 'app_state', value: { counter: 0, items: ['a', 'b'], nested: { flag: true } } }};
             }
             if (payload.op === 'get_component_registry') {
-                return { status: 'ok', data: { type: 'component_registry', value: { components: [] }}};
+                return { status: 'ok', data: { type: 'component_registry', value: { libraries: [] }}};
+            }
+            if (payload.op === 'get_libraries') {
+                return { status: 'ok', data: { type: 'library_list', value: { libraries: [{ name: 'builtin', version: '1.0.0', description: 'Built-in HTML elements', exportable: false, component_count: 52 }] }}};
+            }
+            if (payload.op === 'get_library_components') {
+                return { status: 'ok', data: { type: 'library_components', value: { library: payload.library || 'builtin', components: [] }}};
             }
             return { status: 'ok', data: {} };
         },
@@ -456,13 +468,18 @@ const app = {
                 var v = document.getElementById('view-' + p);
                 if (v) v.classList.toggle('hidden', view !== p);
             });
-            var titles = { inspector: 'DOM Explorer', testing: 'Test Explorer', components: 'Components' };
+            var titles = { inspector: 'DOM Explorer', testing: 'Test Explorer', components: 'Component Libraries' };
             document.getElementById('sidebar-title').innerText = titles[view] || view;
-            var tabTitles = { inspector: 'Inspector', testing: 'runner.e2e', components: 'Components' };
+            var tabTitles = { inspector: 'Inspector', testing: 'runner.e2e', components: 'Component Details' };
             document.getElementById('tab-title').innerText = tabTitles[view] || view;
-            // Load component registry when switching to components view
+            // Hide App State panel when in components view, show it otherwise
+            var appstatePanel = document.getElementById('appstate-panel');
+            var appstateResizer = appstatePanel ? appstatePanel.nextElementSibling : null;
+            if (appstatePanel) appstatePanel.classList.toggle('hidden', view === 'components');
+            if (appstateResizer && appstateResizer.classList.contains('resizer')) appstateResizer.classList.toggle('hidden', view === 'components');
+            // Load libraries when switching to components view
             if (view === 'components') {
-                app.handlers.loadComponents();
+                app.handlers.loadLibraries();
             }
         },
 
@@ -1534,28 +1551,75 @@ const app = {
             }
         },
 
-        /* ── Component Registry ── */
-        loadComponents: async function() {
+        /* ── Component Libraries ── */
+        loadLibraries: async function() {
             try {
-                var res = await app.api.post({ op: 'get_component_registry' });
+                var res = await app.api.post({ op: 'get_libraries' });
                 var data = (res.data && res.data.value) ? res.data.value : (res.data || {});
-                app.state.componentData = data;
+                var libraries = data.libraries || [];
+                app.state.libraryList = libraries;
                 var container = document.getElementById('component-registry-container');
-                var components = data.components || [];
-                if (!components.length) {
-                    container.innerHTML = '<div class="placeholder-text">No components registered.</div>';
+                if (!libraries.length) {
+                    container.innerHTML = '<div class="placeholder-text">No component libraries registered.</div>';
                     return;
                 }
                 var html = '';
-                components.forEach(function(c, idx) {
-                    html += '<div class="list-item" onclick="app.handlers.showComponentDetail(' + idx + ')">';
-                    html += '<span class="material-icons" style="font-size:14px">widgets</span> ' + esc(c.name || c.tag || 'Unknown');
-                    html += '</div>';
+                libraries.forEach(function(lib) {
+                    var isActive = app.state.selectedLibrary === lib.name;
+                    html += '<div class="list-item' + (isActive ? ' active' : '') + '" onclick="app.handlers.selectLibrary(\'' + esc(lib.name) + '\')">'
+                        + '<span class="material-icons" style="font-size:14px">' + (lib.exportable ? 'folder_open' : 'inventory_2') + '</span> '
+                        + esc(lib.name)
+                        + '<span style="color:var(--text-muted);font-size:11px;margin-left:auto">' + lib.component_count + '</span>'
+                        + '</div>';
                 });
                 container.innerHTML = html;
+                // Auto-select first library if none selected
+                if (!app.state.selectedLibrary && libraries.length > 0) {
+                    app.handlers.selectLibrary(libraries[0].name);
+                } else if (app.state.selectedLibrary) {
+                    app.handlers.selectLibrary(app.state.selectedLibrary);
+                }
             } catch(e) {
-                document.getElementById('component-registry-container').innerHTML = '<div class="placeholder-text" style="color:var(--error)">Failed to load.</div>';
+                document.getElementById('component-registry-container').innerHTML = '<div class="placeholder-text" style="color:var(--error)">Failed to load libraries.</div>';
             }
+        },
+
+        selectLibrary: async function(libName) {
+            app.state.selectedLibrary = libName;
+            // Highlight active library in sidebar
+            var items = document.querySelectorAll('#component-registry-container .list-item');
+            items.forEach(function(el) {
+                var name = el.textContent.trim().replace(/\d+$/, '').trim();
+                el.classList.toggle('active', name === libName);
+            });
+            // Load components for this library
+            try {
+                var res = await app.api.post({ op: 'get_library_components', library: libName });
+                var data = (res.data && res.data.value) ? res.data.value : (res.data || {});
+                var components = data.components || [];
+                app.state.componentData = { library: libName, components: components };
+                app.handlers._renderComponentList(components);
+            } catch(e) {
+                document.getElementById('component-list-container').innerHTML = '<div class="placeholder-text" style="color:var(--error)">Failed to load components.</div>';
+            }
+        },
+
+        _renderComponentList: function(components) {
+            var container = document.getElementById('component-list-container');
+            if (!container) return;
+            if (!components.length) {
+                container.innerHTML = '<div class="placeholder-text">No components in this library.</div>';
+                return;
+            }
+            var html = '';
+            components.forEach(function(c, idx) {
+                html += '<div class="list-item" onclick="app.handlers.showComponentDetail(' + idx + ')">';
+                html += '<span class="material-icons" style="font-size:14px">' + (c.source === 'builtin' ? 'code' : 'widgets') + '</span> ';
+                html += '<span style="font-weight:500">' + esc(c.display_name || c.tag) + '</span>';
+                if (c.tag !== c.display_name) html += '<span style="color:var(--text-muted);font-size:11px;margin-left:6px">&lt;' + esc(c.tag) + '&gt;</span>';
+                html += '</div>';
+            });
+            container.innerHTML = html;
         },
 
         showComponentDetail: function(idx) {
@@ -1563,9 +1627,62 @@ const app = {
             var component = components[idx];
             if (!component) return;
             var panel = document.getElementById('component-detail-panel');
-            panel.innerHTML = '<h4>' + esc(component.name || component.tag || 'Component') + '</h4>' +
-                '<div id="component-detail-tree" style="margin-top:8px;"></div>';
-            app.json.render('component-detail-tree', component, true);
+            var html = '<div style="margin-bottom:12px">';
+            html += '<h3 style="margin:0 0 4px 0">' + esc(component.display_name || component.tag) + '</h3>';
+            html += '<span style="color:var(--text-muted);font-size:12px">' + esc(component.qualified_name) + '</span>';
+            if (component.description) html += '<p style="margin:8px 0 0 0;color:var(--text-muted)">' + esc(component.description) + '</p>';
+            html += '</div>';
+
+            // Source + child policy badges
+            html += '<div style="display:flex;gap:6px;margin-bottom:12px">';
+            html += '<span class="badge">' + esc(component.source) + '</span>';
+            html += '<span class="badge">' + esc(component.child_policy) + '</span>';
+            if (component.accepts_text) html += '<span class="badge">accepts text</span>';
+            html += '</div>';
+
+            // Parameters table
+            if (component.attributes && component.attributes.length) {
+                html += '<details open><summary style="font-weight:600;margin-bottom:6px">Parameters (' + component.attributes.length + ')</summary>';
+                html += '<table class="detail-table"><tr><th>Name</th><th>Type</th><th>Default</th></tr>';
+                component.attributes.forEach(function(a) {
+                    html += '<tr><td>' + esc(a.name) + '</td><td style="color:var(--accent)">' + esc(a.attr_type) + '</td><td>' + (a.default != null ? esc(a.default) : '<span style="color:var(--text-muted)">—</span>') + '</td></tr>';
+                });
+                html += '</table></details>';
+            }
+
+            // Data model fields
+            if (component.data_fields && component.data_fields.length) {
+                html += '<details open><summary style="font-weight:600;margin:12px 0 6px 0">Data Model (' + component.data_fields.length + ')</summary>';
+                html += '<table class="detail-table"><tr><th>Field</th><th>Type</th><th>Default</th></tr>';
+                component.data_fields.forEach(function(f) {
+                    html += '<tr><td>' + esc(f.name) + '</td><td style="color:var(--accent)">' + esc(f.field_type) + '</td><td>' + (f.default != null ? esc(f.default) : '<span style="color:var(--text-muted)">—</span>') + '</td></tr>';
+                });
+                html += '</table></details>';
+            }
+
+            // Callback slots
+            if (component.callback_slots && component.callback_slots.length) {
+                html += '<details open><summary style="font-weight:600;margin:12px 0 6px 0">Callbacks (' + component.callback_slots.length + ')</summary>';
+                html += '<table class="detail-table"><tr><th>Slot</th><th>Type</th><th>Description</th></tr>';
+                component.callback_slots.forEach(function(s) {
+                    html += '<tr><td>' + esc(s.name) + '</td><td style="color:var(--accent);font-size:11px">' + esc(s.callback_type) + '</td><td>' + esc(s.description) + '</td></tr>';
+                });
+                html += '</table></details>';
+            }
+
+            // Scoped CSS
+            if (component.scoped_css) {
+                html += '<details><summary style="font-weight:600;margin:12px 0 6px 0">Scoped CSS</summary>';
+                html += '<pre style="background:var(--bg-darker);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px">' + esc(component.scoped_css) + '</pre></details>';
+            }
+
+            // Example XML
+            if (component.example_xml) {
+                html += '<details><summary style="font-weight:600;margin:12px 0 6px 0">Example XML</summary>';
+                html += '<pre style="background:var(--bg-darker);padding:8px;border-radius:4px;overflow-x:auto;font-size:12px">' + esc(component.example_xml) + '</pre></details>';
+            }
+
+            panel.innerHTML = html;
         },
 
         /* ── Terminal ── */

@@ -132,6 +132,10 @@ pub enum ResponseData {
     FunctionPointers(FunctionPointersResponse),
     /// Component registry (available tags and their attributes)
     ComponentRegistry(ComponentRegistryResponse),
+    /// Library list (lightweight summary)
+    Libraries(LibraryListResponse),
+    /// Components within a specific library
+    LibraryComponents(LibraryComponentsResponse),
     /// Exported code (compiled project files)
     ExportedCode(ExportedCodeResponse),
 }
@@ -319,6 +323,32 @@ pub struct ComponentDataFieldInfo {
     pub default: Option<String>,
     /// Description
     pub description: String,
+}
+
+/// Response for GetLibraries — list of registered component libraries (without component details)
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LibraryListResponse {
+    pub libraries: Vec<LibrarySummary>,
+}
+
+/// Summary info for a library (no component details)
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LibrarySummary {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub exportable: bool,
+    pub component_count: usize,
+}
+
+/// Response for GetLibraryComponents — components within a specific library
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LibraryComponentsResponse {
+    pub library: String,
+    pub components: Vec<ComponentInfo>,
 }
 
 /// Metadata about a RefAny's type
@@ -1494,6 +1524,13 @@ pub enum DebugEvent {
     },
     /// Get the component registry: which tags are available and what attributes they accept
     GetComponentRegistry,
+    /// Get just the list of registered component libraries (lightweight, no component details)
+    GetLibraries,
+    /// Get all components within a specific library
+    GetLibraryComponents {
+        /// Library name, e.g. "builtin", "shadcn"
+        library: String,
+    },
     /// Export code: compile all exportable components into a project scaffold
     /// and return the result as base64-encoded ZIP
     ExportCode {
@@ -7035,6 +7072,41 @@ fn process_debug_event(
                 None,
                 Some(ResponseData::ComponentRegistry(registry)),
             );
+        }
+
+        DebugEvent::GetLibraries => {
+            let registry = build_component_registry();
+            let libraries = registry.libraries.iter().map(|lib| LibrarySummary {
+                name: lib.name.clone(),
+                version: lib.version.clone(),
+                description: lib.description.clone(),
+                exportable: lib.exportable,
+                component_count: lib.components.len(),
+            }).collect();
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::Libraries(LibraryListResponse { libraries })),
+            );
+        }
+
+        DebugEvent::GetLibraryComponents { library } => {
+            let registry = build_component_registry();
+            if let Some(lib) = registry.libraries.iter().find(|l| l.name == *library) {
+                send_ok(
+                    request,
+                    None,
+                    Some(ResponseData::LibraryComponents(LibraryComponentsResponse {
+                        library: library.clone(),
+                        components: lib.components.clone(),
+                    })),
+                );
+            } else {
+                let available: Vec<_> = registry.libraries.iter().map(|l| l.name.as_str()).collect();
+                send_err(request, &format!(
+                    "Library '{}' not found. Available: {:?}", library, available
+                ));
+            }
         }
 
         DebugEvent::ExportCode { language } => {

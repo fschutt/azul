@@ -234,6 +234,25 @@ body {
 }
 .list-item:hover { background-color: var(--bg-hover); }
 .list-item.selected { background-color: var(--bg-selection); color: white; }
+.list-item.active { background-color: var(--bg-selection); color: white; }
+
+/* ─── Component detail ─── */
+.badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 11px; background: var(--bg-hover); color: var(--text-muted);
+    border: 1px solid var(--border);
+}
+.detail-table {
+    width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 4px;
+}
+.detail-table th {
+    text-align: left; padding: 3px 8px; background: var(--bg-hover);
+    color: var(--text-muted); font-weight: 500; font-size: 11px;
+    border-bottom: 1px solid var(--border);
+}
+.detail-table td {
+    padding: 3px 8px; border-bottom: 1px solid var(--border);
+}
 
 /* ─── Editor Area ─── */
 .editor-group {
