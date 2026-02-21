@@ -1276,6 +1276,48 @@ pub type ComponentCompileFn = fn(
     indent: usize,
 ) -> Result<String, CompileError>;
 
+/// Raw function pointer type that returns a single ComponentDef when called.
+/// Used as the `cb` field in `RegisterComponentFn`.
+pub type RegisterComponentFnType = extern "C" fn() -> ComponentDef;
+
+/// Callback struct for registering individual components at startup.
+///
+/// In C: pass a bare `extern "C" fn() -> ComponentDef` function pointer —
+/// it converts automatically via `From<RegisterComponentFnType>`.
+///
+/// In Python: construct this struct with `cb` set to a trampoline and
+/// `ctx` set to `Some(RefAny(...))` wrapping the Python callable.
+#[repr(C)]
+pub struct RegisterComponentFn {
+    pub cb: RegisterComponentFnType,
+    /// For FFI: stores the foreign callable (e.g., PyFunction).
+    /// Native Rust/C code sets this to None.
+    pub ctx: crate::refany::OptionRefAny,
+}
+
+impl_callback!(RegisterComponentFn, RegisterComponentFnType);
+
+/// Raw function pointer type that returns a complete ComponentLibrary when called.
+/// Used as the `cb` field in `RegisterComponentLibraryFn`.
+pub type RegisterComponentLibraryFnType = extern "C" fn() -> ComponentLibrary;
+
+/// Callback struct for registering entire component libraries at startup.
+///
+/// In C: pass a bare `extern "C" fn() -> ComponentLibrary` function pointer —
+/// it converts automatically via `From<RegisterComponentLibraryFnType>`.
+///
+/// In Python: construct this struct with `cb` set to a trampoline and
+/// `ctx` set to `Some(RefAny(...))` wrapping the Python callable.
+#[repr(C)]
+pub struct RegisterComponentLibraryFn {
+    pub cb: RegisterComponentLibraryFnType,
+    /// For FFI: stores the foreign callable (e.g., PyFunction).
+    /// Native Rust/C code sets this to None.
+    pub ctx: crate::refany::OptionRefAny,
+}
+
+impl_callback!(RegisterComponentLibraryFn, RegisterComponentLibraryFnType);
+
 /// A component definition — the "class" / "template" of a component.
 /// Can come from Rust builtins, compiled widgets, JSON, or user creation in debugger.
 ///
@@ -1330,6 +1372,7 @@ impl_vec!(ComponentDef, ComponentDefVec, ComponentDefVecDestructor, ComponentDef
 impl_option!(ComponentDef, OptionComponentDef, copy = false, [Clone]);
 impl_vec_debug!(ComponentDef, ComponentDefVec);
 impl_vec_clone!(ComponentDef, ComponentDefVec, ComponentDefVecDestructor);
+impl_vec_mut!(ComponentDef, ComponentDefVec);
 
 /// A named collection of component definitions
 #[derive(Debug, Clone)]
@@ -1351,6 +1394,7 @@ impl_vec!(ComponentLibrary, ComponentLibraryVec, ComponentLibraryVecDestructor, 
 impl_option!(ComponentLibrary, OptionComponentLibrary, copy = false, [Debug, Clone]);
 impl_vec_debug!(ComponentLibrary, ComponentLibraryVec);
 impl_vec_clone!(ComponentLibrary, ComponentLibraryVec, ComponentLibraryVecDestructor);
+impl_vec_mut!(ComponentLibrary, ComponentLibraryVec);
 
 /// The new component map — holds libraries with namespaced components.
 /// Coexists with `XmlComponentMap` during migration.
@@ -1392,6 +1436,35 @@ impl ComponentMap {
     /// Get all component definitions across all libraries
     pub fn all_components(&self) -> Vec<&ComponentDef> {
         self.libraries.iter().flat_map(|lib| lib.components.iter()).collect()
+    }
+
+    /// Merge user-registered libraries into this map.
+    ///
+    /// For each library in `user_libs`:
+    /// - If a library with the same name already exists, its components are
+    ///   merged (replacing any with the same `id.name`).
+    /// - Otherwise the library is appended.
+    pub fn merge_user_libraries(&mut self, user_libs: &ComponentLibraryVec) {
+        for lib in user_libs.iter() {
+            let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
+            let mut libs_vec = core::mem::replace(&mut self.libraries, empty_libs).into_library_owned_vec();
+            if let Some(existing) = libs_vec.iter_mut().find(|l| l.name.as_str() == lib.name.as_str()) {
+                // Merge components into the existing library
+                let empty_comps = ComponentDefVec::from_const_slice(&[]);
+                let mut comps = core::mem::replace(&mut existing.components, empty_comps).into_library_owned_vec();
+                for comp in lib.components.iter() {
+                    if let Some(ec) = comps.iter_mut().find(|c| c.id.name.as_str() == comp.id.name.as_str()) {
+                        *ec = comp.clone();
+                    } else {
+                        comps.push(comp.clone());
+                    }
+                }
+                existing.components = ComponentDefVec::from_vec(comps);
+            } else {
+                libs_vec.push(lib.clone());
+            }
+            self.libraries = ComponentLibraryVec::from_vec(libs_vec);
+        }
     }
 }
 
@@ -1483,79 +1556,106 @@ fn builtin_component_def(tag: &str, display_name: &str, node_type: NodeType, acc
 }
 
 impl Default for ComponentMap {
+    /// Returns an empty `ComponentMap` with no libraries.
+    ///
+    /// Use `AppConfig::create()` (which registers the 52 builtins via
+    /// `register_builtin_components`) followed by `ComponentMap::from_libraries()`
+    /// to get a fully-populated map.
     fn default() -> Self {
-        let builtin = ComponentLibrary {
-            name: AzString::from_const_str("builtin"),
-            version: AzString::from_const_str("1.0.0"),
-            description: AzString::from_const_str("Built-in HTML elements"),
-            exportable: false,
-            components: alloc::vec![
-                // Structural
-                builtin_component_def("html", "HTML", NodeType::Html, false, ChildPolicy::AnyChildren),
-                builtin_component_def("head", "Head", NodeType::Head, false, ChildPolicy::AnyChildren),
-                builtin_component_def("title", "Title", NodeType::Title, true, ChildPolicy::TextOnly),
-                builtin_component_def("body", "Body", NodeType::Body, false, ChildPolicy::AnyChildren),
-                // Block-level
-                builtin_component_def("div", "Div", NodeType::Div, false, ChildPolicy::AnyChildren),
-                builtin_component_def("header", "Header", NodeType::Header, false, ChildPolicy::AnyChildren),
-                builtin_component_def("footer", "Footer", NodeType::Footer, false, ChildPolicy::AnyChildren),
-                builtin_component_def("section", "Section", NodeType::Section, false, ChildPolicy::AnyChildren),
-                builtin_component_def("article", "Article", NodeType::Article, false, ChildPolicy::AnyChildren),
-                builtin_component_def("aside", "Aside", NodeType::Aside, false, ChildPolicy::AnyChildren),
-                builtin_component_def("nav", "Nav", NodeType::Nav, false, ChildPolicy::AnyChildren),
-                builtin_component_def("main", "Main", NodeType::Main, false, ChildPolicy::AnyChildren),
-                // Headings
-                builtin_component_def("h1", "Heading 1", NodeType::H1, true, ChildPolicy::TextOnly),
-                builtin_component_def("h2", "Heading 2", NodeType::H2, true, ChildPolicy::TextOnly),
-                builtin_component_def("h3", "Heading 3", NodeType::H3, true, ChildPolicy::TextOnly),
-                builtin_component_def("h4", "Heading 4", NodeType::H4, true, ChildPolicy::TextOnly),
-                builtin_component_def("h5", "Heading 5", NodeType::H5, true, ChildPolicy::TextOnly),
-                builtin_component_def("h6", "Heading 6", NodeType::H6, true, ChildPolicy::TextOnly),
-                // Text content
-                builtin_component_def("p", "Paragraph", NodeType::P, true, ChildPolicy::AnyChildren),
-                builtin_component_def("span", "Span", NodeType::Span, true, ChildPolicy::AnyChildren),
-                builtin_component_def("pre", "Preformatted", NodeType::Pre, true, ChildPolicy::TextOnly),
-                builtin_component_def("code", "Code", NodeType::Code, true, ChildPolicy::TextOnly),
-                builtin_component_def("blockquote", "Blockquote", NodeType::BlockQuote, true, ChildPolicy::AnyChildren),
-                builtin_component_def("br", "Line Break", NodeType::Br, false, ChildPolicy::NoChildren),
-                builtin_component_def("hr", "Horizontal Rule", NodeType::Hr, false, ChildPolicy::NoChildren),
-                builtin_component_def("icon", "Icon", NodeType::Div, true, ChildPolicy::NoChildren),
-                // Lists
-                builtin_component_def("ul", "Unordered List", NodeType::Ul, false, ChildPolicy::AnyChildren),
-                builtin_component_def("ol", "Ordered List", NodeType::Ol, false, ChildPolicy::AnyChildren),
-                builtin_component_def("li", "List Item", NodeType::Li, true, ChildPolicy::AnyChildren),
-                builtin_component_def("dl", "Description List", NodeType::Dl, false, ChildPolicy::AnyChildren),
-                builtin_component_def("dt", "Description Term", NodeType::Dt, true, ChildPolicy::TextOnly),
-                builtin_component_def("dd", "Description Details", NodeType::Dd, true, ChildPolicy::AnyChildren),
-                // Tables
-                builtin_component_def("table", "Table", NodeType::Table, false, ChildPolicy::AnyChildren),
-                builtin_component_def("thead", "Table Head", NodeType::THead, false, ChildPolicy::AnyChildren),
-                builtin_component_def("tbody", "Table Body", NodeType::TBody, false, ChildPolicy::AnyChildren),
-                builtin_component_def("tfoot", "Table Foot", NodeType::TFoot, false, ChildPolicy::AnyChildren),
-                builtin_component_def("tr", "Table Row", NodeType::Tr, false, ChildPolicy::AnyChildren),
-                builtin_component_def("th", "Table Header Cell", NodeType::Th, true, ChildPolicy::AnyChildren),
-                builtin_component_def("td", "Table Data Cell", NodeType::Td, true, ChildPolicy::AnyChildren),
-                // Inline
-                builtin_component_def("a", "Link", NodeType::A, true, ChildPolicy::AnyChildren),
-                builtin_component_def("strong", "Strong", NodeType::Strong, true, ChildPolicy::TextOnly),
-                builtin_component_def("em", "Emphasis", NodeType::Em, true, ChildPolicy::TextOnly),
-                builtin_component_def("b", "Bold", NodeType::B, true, ChildPolicy::TextOnly),
-                builtin_component_def("i", "Italic", NodeType::I, true, ChildPolicy::TextOnly),
-                builtin_component_def("u", "Underline", NodeType::U, true, ChildPolicy::TextOnly),
-                builtin_component_def("small", "Small", NodeType::Small, true, ChildPolicy::TextOnly),
-                builtin_component_def("mark", "Mark", NodeType::Mark, true, ChildPolicy::TextOnly),
-                builtin_component_def("sub", "Subscript", NodeType::Sub, true, ChildPolicy::TextOnly),
-                builtin_component_def("sup", "Superscript", NodeType::Sup, true, ChildPolicy::TextOnly),
-                // Forms
-                builtin_component_def("form", "Form", NodeType::Form, false, ChildPolicy::AnyChildren),
-                builtin_component_def("label", "Label", NodeType::Label, true, ChildPolicy::AnyChildren),
-                builtin_component_def("button", "Button", NodeType::Button, true, ChildPolicy::AnyChildren),
-            ].into(),
-        };
-
         ComponentMap {
-            libraries: alloc::vec![builtin].into(),
+            libraries: ComponentLibraryVec::from_const_slice(&[]),
         }
+    }
+}
+
+impl ComponentMap {
+    /// Build a `ComponentMap` from the libraries stored in an `AppConfig`.
+    ///
+    /// The `component_libraries` field already contains builtins (registered in
+    /// `AppConfig::create()`) plus any user-added libraries.
+    pub fn from_libraries(libs: &ComponentLibraryVec) -> Self {
+        let mut map = ComponentMap::default();
+        map.merge_user_libraries(libs);
+        map
+    }
+}
+
+/// Register the 52 built-in HTML element components.
+///
+/// This is an `extern "C"` function pointer compatible with
+/// `RegisterComponentLibraryFnType`, so it can be passed directly to
+/// `AppConfig::add_component_library()`.
+///
+/// Called once during `AppConfig::create()` — the framework dogfoods
+/// its own component registration system for builtins.
+pub extern "C" fn register_builtin_components() -> ComponentLibrary {
+    ComponentLibrary {
+        name: AzString::from_const_str("builtin"),
+        version: AzString::from_const_str("1.0.0"),
+        description: AzString::from_const_str("Built-in HTML elements"),
+        exportable: false,
+        components: alloc::vec![
+            // Structural
+            builtin_component_def("html", "HTML", NodeType::Html, false, ChildPolicy::AnyChildren),
+            builtin_component_def("head", "Head", NodeType::Head, false, ChildPolicy::AnyChildren),
+            builtin_component_def("title", "Title", NodeType::Title, true, ChildPolicy::TextOnly),
+            builtin_component_def("body", "Body", NodeType::Body, false, ChildPolicy::AnyChildren),
+            // Block-level
+            builtin_component_def("div", "Div", NodeType::Div, false, ChildPolicy::AnyChildren),
+            builtin_component_def("header", "Header", NodeType::Header, false, ChildPolicy::AnyChildren),
+            builtin_component_def("footer", "Footer", NodeType::Footer, false, ChildPolicy::AnyChildren),
+            builtin_component_def("section", "Section", NodeType::Section, false, ChildPolicy::AnyChildren),
+            builtin_component_def("article", "Article", NodeType::Article, false, ChildPolicy::AnyChildren),
+            builtin_component_def("aside", "Aside", NodeType::Aside, false, ChildPolicy::AnyChildren),
+            builtin_component_def("nav", "Nav", NodeType::Nav, false, ChildPolicy::AnyChildren),
+            builtin_component_def("main", "Main", NodeType::Main, false, ChildPolicy::AnyChildren),
+            // Headings
+            builtin_component_def("h1", "Heading 1", NodeType::H1, true, ChildPolicy::TextOnly),
+            builtin_component_def("h2", "Heading 2", NodeType::H2, true, ChildPolicy::TextOnly),
+            builtin_component_def("h3", "Heading 3", NodeType::H3, true, ChildPolicy::TextOnly),
+            builtin_component_def("h4", "Heading 4", NodeType::H4, true, ChildPolicy::TextOnly),
+            builtin_component_def("h5", "Heading 5", NodeType::H5, true, ChildPolicy::TextOnly),
+            builtin_component_def("h6", "Heading 6", NodeType::H6, true, ChildPolicy::TextOnly),
+            // Text content
+            builtin_component_def("p", "Paragraph", NodeType::P, true, ChildPolicy::AnyChildren),
+            builtin_component_def("span", "Span", NodeType::Span, true, ChildPolicy::AnyChildren),
+            builtin_component_def("pre", "Preformatted", NodeType::Pre, true, ChildPolicy::TextOnly),
+            builtin_component_def("code", "Code", NodeType::Code, true, ChildPolicy::TextOnly),
+            builtin_component_def("blockquote", "Blockquote", NodeType::BlockQuote, true, ChildPolicy::AnyChildren),
+            builtin_component_def("br", "Line Break", NodeType::Br, false, ChildPolicy::NoChildren),
+            builtin_component_def("hr", "Horizontal Rule", NodeType::Hr, false, ChildPolicy::NoChildren),
+            builtin_component_def("icon", "Icon", NodeType::Div, true, ChildPolicy::NoChildren),
+            // Lists
+            builtin_component_def("ul", "Unordered List", NodeType::Ul, false, ChildPolicy::AnyChildren),
+            builtin_component_def("ol", "Ordered List", NodeType::Ol, false, ChildPolicy::AnyChildren),
+            builtin_component_def("li", "List Item", NodeType::Li, true, ChildPolicy::AnyChildren),
+            builtin_component_def("dl", "Description List", NodeType::Dl, false, ChildPolicy::AnyChildren),
+            builtin_component_def("dt", "Description Term", NodeType::Dt, true, ChildPolicy::TextOnly),
+            builtin_component_def("dd", "Description Details", NodeType::Dd, true, ChildPolicy::AnyChildren),
+            // Tables
+            builtin_component_def("table", "Table", NodeType::Table, false, ChildPolicy::AnyChildren),
+            builtin_component_def("thead", "Table Head", NodeType::THead, false, ChildPolicy::AnyChildren),
+            builtin_component_def("tbody", "Table Body", NodeType::TBody, false, ChildPolicy::AnyChildren),
+            builtin_component_def("tfoot", "Table Foot", NodeType::TFoot, false, ChildPolicy::AnyChildren),
+            builtin_component_def("tr", "Table Row", NodeType::Tr, false, ChildPolicy::AnyChildren),
+            builtin_component_def("th", "Table Header Cell", NodeType::Th, true, ChildPolicy::AnyChildren),
+            builtin_component_def("td", "Table Data Cell", NodeType::Td, true, ChildPolicy::AnyChildren),
+            // Inline
+            builtin_component_def("a", "Link", NodeType::A, true, ChildPolicy::AnyChildren),
+            builtin_component_def("strong", "Strong", NodeType::Strong, true, ChildPolicy::TextOnly),
+            builtin_component_def("em", "Emphasis", NodeType::Em, true, ChildPolicy::TextOnly),
+            builtin_component_def("b", "Bold", NodeType::B, true, ChildPolicy::TextOnly),
+            builtin_component_def("i", "Italic", NodeType::I, true, ChildPolicy::TextOnly),
+            builtin_component_def("u", "Underline", NodeType::U, true, ChildPolicy::TextOnly),
+            builtin_component_def("small", "Small", NodeType::Small, true, ChildPolicy::TextOnly),
+            builtin_component_def("mark", "Mark", NodeType::Mark, true, ChildPolicy::TextOnly),
+            builtin_component_def("sub", "Subscript", NodeType::Sub, true, ChildPolicy::TextOnly),
+            builtin_component_def("sup", "Superscript", NodeType::Sup, true, ChildPolicy::TextOnly),
+            // Forms
+            builtin_component_def("form", "Form", NodeType::Form, false, ChildPolicy::AnyChildren),
+            builtin_component_def("label", "Label", NodeType::Label, true, ChildPolicy::AnyChildren),
+            builtin_component_def("button", "Button", NodeType::Button, true, ChildPolicy::AnyChildren),
+        ].into(),
     }
 }
 

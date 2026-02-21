@@ -73481,6 +73481,9 @@
                                 },
                                 "system_style": {
                                     "type": "SystemStyle"
+                                },
+                                "component_libraries": {
+                                    "type": "ComponentLibraryVec"
                                 }
                             }
                         ],

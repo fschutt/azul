@@ -36,6 +36,10 @@ use crate::{
     },
     ui_solver::GlyphInstance,
     window::OptionChar,
+    xml::{
+        ComponentDef, ComponentDefVec, ComponentId, ComponentLibrary, ComponentLibraryVec,
+        ComponentSource, RegisterComponentFn, RegisterComponentLibraryFn,
+    },
     FastBTreeSet, FastHashMap,
 };
 
@@ -314,6 +318,16 @@ pub struct AppConfig {
     /// You can override this after creation to use a custom system style,
     /// for example to test how your app looks on a different platform.
     pub system_style: SystemStyle,
+    /// Component libraries registered at startup.
+    ///
+    /// Use `add_component()` to register individual components, or
+    /// `add_component_library()` to register entire libraries.
+    /// User-registered (and built-in) component libraries.
+    ///
+    /// The 52 built-in HTML elements are automatically registered by
+    /// `AppConfig::create()` via `register_builtin_components`.
+    /// Additional libraries can be added with `add_component_library`.
+    pub component_libraries: ComponentLibraryVec,
 }
 
 impl AppConfig {
@@ -323,7 +337,7 @@ impl AppConfig {
         let bundled_fonts = NamedFontVec::from_const_slice(&[]);
         let font_loading = FontLoadingConfig::default();
         let system_style = SystemStyle::detect();
-        Self {
+        let mut s = Self {
             log_level,
             enable_visual_panic_hook: false,
             enable_logging_on_panic: true,
@@ -334,7 +348,15 @@ impl AppConfig {
             font_loading,
             mock_css_environment: OptionCssMockEnvironment::None,
             system_style,
-        }
+            component_libraries: ComponentLibraryVec::from_const_slice(&[]),
+        };
+        // Dogfood: register the 52 built-in HTML elements via the
+        // same `add_component_library` API that users call.
+        s.add_component_library(
+            AzString::from_const_str("builtin"),
+            crate::xml::register_builtin_components as extern "C" fn() -> crate::xml::ComponentLibrary,
+        );
+        s
     }
     
     /// Create config with a mock CSS environment for testing
@@ -356,6 +378,72 @@ impl AppConfig {
     pub fn with_mock_environment(mut self, env: CssMockEnvironment) -> Self {
         self.mock_css_environment = OptionCssMockEnvironment::Some(env);
         self
+    }
+
+    /// Register a single component into a named library.
+    ///
+    /// Calls `register_fn` immediately and adds the returned `ComponentDef`
+    /// to the library named `library`. If no library with that name exists,
+    /// a new one is created. If a component with the same `id.name` already
+    /// exists in the library, it is replaced.
+    ///
+    /// # C API
+    /// ```c
+    /// AzAppConfig_addComponent(&config, AzString_fromConstStr("mylib"), my_register_fn);
+    /// ```
+    pub fn add_component<R: Into<RegisterComponentFn>>(&mut self, library: AzString, register_fn: R) {
+        let register_fn = register_fn.into();
+        let component = (register_fn.cb)();
+        let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
+        let mut libs = core::mem::replace(&mut self.component_libraries, empty_libs).into_library_owned_vec();
+
+        if let Some(existing_lib) = libs.iter_mut().find(|l| l.name.as_str() == library.as_str()) {
+            let empty_comps = ComponentDefVec::from_const_slice(&[]);
+            let mut comps = core::mem::replace(&mut existing_lib.components, empty_comps).into_library_owned_vec();
+            if let Some(ec) = comps.iter_mut().find(|c| c.id.name.as_str() == component.id.name.as_str()) {
+                *ec = component;
+            } else {
+                comps.push(component);
+            }
+            existing_lib.components = ComponentDefVec::from_vec(comps);
+        } else {
+            libs.push(ComponentLibrary {
+                name: library,
+                version: AzString::from_const_str("1.0.0"),
+                description: AzString::from_const_str(""),
+                components: ComponentDefVec::from_vec(alloc::vec![component]),
+                exportable: true,
+            });
+        }
+
+        self.component_libraries = ComponentLibraryVec::from_vec(libs);
+    }
+
+    /// Register an entire component library.
+    ///
+    /// Calls `register_fn` immediately and adds the returned
+    /// `ComponentLibrary` to the config. Uses `name` as the library name
+    /// (overriding whatever the function sets). If a library with the same
+    /// name already exists, it is replaced wholesale.
+    ///
+    /// # C API
+    /// ```c
+    /// AzAppConfig_addComponentLibrary(&config, AzString_fromConstStr("vendor"), my_lib_fn);
+    /// ```
+    pub fn add_component_library<R: Into<RegisterComponentLibraryFn>>(&mut self, name: AzString, register_fn: R) {
+        let register_fn = register_fn.into();
+        let mut library = (register_fn.cb)();
+        library.name = name;
+
+        let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
+        let mut libs = core::mem::replace(&mut self.component_libraries, empty_libs).into_library_owned_vec();
+        if let Some(existing) = libs.iter_mut().find(|l| l.name.as_str() == library.name.as_str()) {
+            *existing = library;
+        } else {
+            libs.push(library);
+        }
+
+        self.component_libraries = ComponentLibraryVec::from_vec(libs);
     }
 }
 
